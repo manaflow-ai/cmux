@@ -98,6 +98,7 @@ fn print(global: &GlobalArgs, identity: &Value) -> i32 {
 }
 
 /// A local daemon answers these reads at once; a stuck one fails the call.
+// timeout: a stuck local daemon fails the read instead of hanging the CLI.
 const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// The pane's identity from the daemon at `socket`.

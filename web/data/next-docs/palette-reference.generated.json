@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1380,
+    "entries": 1382,
     "shortcuts": 188
   },
   "sections": [
@@ -5458,6 +5458,12 @@
           "command": "cmux sidebar enable-minimal-mode"
         },
         {
+          "id": "sidebar.floatOnHover.on",
+          "title": "Float Hidden Sidebar on Hover",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "focusRightSidebar",
           "title": "Focus Right Sidebar",
           "shortcut": "⇧⌘E",
@@ -5568,6 +5574,12 @@
         {
           "id": "fileExplorerMoveToTrash",
           "title": "Move to Trash",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "sidebar.floatOnHover.off",
+          "title": "Never Float Hidden Sidebar",
           "shortcut": null,
           "command": null
         },
@@ -7565,13 +7577,13 @@
         },
         {
           "id": "appearance.uiScale.decrease",
-          "title": "Decrease Interface Scale",
+          "title": "Decrease App Zoom",
           "shortcut": "⌃⇧⌘-",
           "command": null
         },
         {
           "id": "appearance.interfaceSize.decrease",
-          "title": "Decrease Interface Size",
+          "title": "Decrease Text Size",
           "shortcut": null,
           "command": null
         },
@@ -7589,7 +7601,7 @@
         },
         {
           "id": "appearance.density.cozy",
-          "title": "Density: Cozy",
+          "title": "Density: Default",
           "shortcut": null,
           "command": "cmux density use-cozy"
         },
@@ -7697,13 +7709,13 @@
         },
         {
           "id": "appearance.uiScale.increase",
-          "title": "Increase Interface Scale",
+          "title": "Increase App Zoom",
           "shortcut": "⌃⇧⌘=",
           "command": null
         },
         {
           "id": "appearance.interfaceSize.increase",
-          "title": "Increase Interface Size",
+          "title": "Increase Text Size",
           "shortcut": null,
           "command": null
         },
@@ -7918,26 +7930,26 @@
           "command": "cmux apps remove"
         },
         {
+          "id": "appearance.uiScale.reset",
+          "title": "Reset App Zoom",
+          "shortcut": "⌃⇧⌘0",
+          "command": null
+        },
+        {
           "id": "appearance.reset",
           "title": "Reset Appearance to Inherited",
           "shortcut": null,
           "command": "cmux appearance reset"
         },
         {
-          "id": "appearance.uiScale.reset",
-          "title": "Reset Interface Scale",
-          "shortcut": "⌃⇧⌘0",
-          "command": null
-        },
-        {
-          "id": "appearance.interfaceSize.reset",
-          "title": "Reset Interface Size",
+          "id": "debug.blockingCalls.reset",
+          "title": "Reset Main-Thread Blocking Counts",
           "shortcut": null,
           "command": null
         },
         {
-          "id": "debug.blockingCalls.reset",
-          "title": "Reset Main-Thread Blocking Counts",
+          "id": "appearance.interfaceSize.reset",
+          "title": "Reset Text Size",
           "shortcut": null,
           "command": null
         },

@@ -52,6 +52,8 @@ public struct CmuxNextApp {
                 build: UpdateBuildIdentity.main().build,
                 reopenedBehind: ProcessInfo.processInfo.arguments.contains(UpdateRelaunchFocus.reopenArgument))
         }
+        // concurrency-allow: one lstat, and once one rename of the folder older builds kept in classic's cmux, before anything reads it
+        StateFolderMove().run(build: environment.launch.build)
         environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
         environment.layoutTemplatesFile = environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "layout-templates.json")
         environment.homeCachesDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first

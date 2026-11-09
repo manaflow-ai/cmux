@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
+import { until } from "./support/until";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -294,10 +295,11 @@ test("a search lists a signed-out harness's models after the ready ones, and a p
   expect(headings).toContain("CodexSigned out");
   // Other providers can offer GPT models; those that are ready come first.
   if (headings.length > 1) expect(headings[0]).not.toBe("CodexSigned out");
-  await act(async () => {
-    codexRows[0]!.click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
+  await act(async () => codexRows[0]!.click());
+  await until(
+    () => logins.length > 0,
+    () => act(async () => {}),
+  );
   expect(logins).toEqual(["codex: codex login"]);
   expect(sent).toEqual([]);
   (await import("../src/agent-session/acpmux/harnessSetup")).resetHarnessSetupForTests();
