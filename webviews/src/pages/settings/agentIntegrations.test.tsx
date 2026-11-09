@@ -94,3 +94,63 @@ test("without the cmux CLI the card says so and still gives the command", async 
   expect(element.querySelector("[data-integrations-command]")!.textContent).toBe("cmux agent hook install");
   page.unmount();
 });
+
+test("the link rows come first, under Your other apps, with Connect, Reconnect and Disconnect", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.integrations" });
+  const link = (app: string, state: "installed" | "absent" | "partial" | "conflict", path: string) => ({
+    id: `link-${app}`,
+    path,
+    state,
+    reason: state === "conflict" ? ("not_owned" as const) : null,
+    detail: null,
+    error: null,
+  });
+  page.provider.integrations = {
+    ...page.provider.integrations,
+    providers: [
+      { id: "claude", path: "~/.claude/settings.json", state: "installed", reason: null, detail: null, error: null },
+      link("claude-desktop", "absent", "~/Library/Application Support/Claude/claude_desktop_config.json"),
+      link("claude-code", "installed", "~/.claude.json"),
+      link("codex", "partial", "~/.codex/config.toml"),
+    ],
+  };
+  const element = card(page.container);
+  const press = async (selector: string) => {
+    await act(async () => element.querySelector<HTMLButtonElement>(selector)!.click());
+    await settle();
+  };
+  await press('[data-integration-action="refresh"]');
+  const links = element.querySelector<HTMLElement>("[data-integrations-links]")!;
+  expect(links.textContent).toContain("Your other apps");
+  expect(ids(links)).toEqual(["link-claude-desktop", "link-claude-code", "link-codex"]);
+  // The hooks stay below, in their own list.
+  expect(ids(element)).toEqual(["link-claude-desktop", "link-claude-code", "link-codex", "claude"]);
+  const row = (id: string) => element.querySelector<HTMLElement>(`[data-integration="${id}"]`)!;
+  expect(row("link-claude-desktop").textContent).toContain("Claude desktop");
+  expect(row("link-claude-desktop").textContent).toContain("Connect");
+  expect(row("link-codex").textContent).toContain("Codex desktop and CLI");
+  expect(row("link-codex").textContent).toContain("Reconnect");
+  expect(row("link-claude-code").textContent).toContain("Connected");
+  await press('[data-integration="link-claude-desktop"] [data-integration-action="install"]');
+  expect(page.provider.integrationRuns).toEqual([{ action: "install", id: "link-claude-desktop" }]);
+  expect(row("link-claude-desktop").dataset.integrationState).toBe("installed");
+  page.unmount();
+});
+
+test("a cmux server another tool added is named, with no Connect and no command to copy", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.integrations" });
+  page.provider.integrations = {
+    ...page.provider.integrations,
+    providers: [
+      { id: "link-codex", path: "~/.codex/config.toml", state: "conflict", reason: "not_owned", detail: null, error: null },
+    ],
+  };
+  const element = card(page.container);
+  await act(async () => element.querySelector<HTMLButtonElement>('[data-integration-action="refresh"]')!.click());
+  await settle();
+  expect(actions(element, "link-codex")).toEqual([]);
+  const codex = element.querySelector<HTMLElement>('[data-integration="link-codex"]')!;
+  expect(codex.querySelector("[data-integration-reason]")!.textContent).toContain("named cmux");
+  expect(codex.querySelector("[data-integration-command]")).toBeNull();
+  page.unmount();
+});
