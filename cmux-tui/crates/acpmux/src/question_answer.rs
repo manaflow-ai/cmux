@@ -423,7 +423,6 @@ mod tests {
         };
         for (harness, mode) in [
             ("claude", "acceptEdits"),
-            ("claude", "dontAsk"),
             ("codex", "read-only"),
             ("codex", "agent"),
             ("opencode", "build"),
@@ -446,5 +445,26 @@ mod tests {
                          "modes": {"currentModeId": "bypassPermissions", "availableModes": []}});
         let note = app_allow_note(&sr2, "alpha").expect("a note");
         assert!(note.contains("does not hold here"), "{note}");
+    }
+
+    /// Review of #39057: Claude's `dontAsk` asks nothing; it denies a tool that is not allowed
+    /// beforehand. Under a daemon default the note says that, not "asks before some tools run"
+    /// (no question comes) and not "runs tools without asking" (denied tools do not run). The
+    /// chat's own policy keeps the asking note, and another harness's `dontAsk` says nothing.
+    #[test]
+    fn w5s_dont_ask_says_tools_not_allowed_are_denied() {
+        let info = |harness: &str, policy: Value| {
+            json!({"harness": harness, "policy": policy, "enforcement": {"policy": "ask"},
+                   "modes": {"currentModeId": "dontAsk", "availableModes": []}})
+        };
+        let note = app_allow_note(&info("claude", Value::Null), "alpha").expect("a note");
+        assert!(note.contains("denied, not asked"), "{note}");
+        assert!(note.contains("acpmux session set alpha policy=ask"), "{note}");
+        assert!(!note.contains("asks before some tools run"), "{note}");
+        assert!(!note.contains("runs tools without asking"), "{note}");
+        let own = app_allow_note(&info("claude", json!("ask")), "alpha").expect("a note");
+        assert!(own.contains("asks before some tools run"), "{own}");
+        let other = app_allow_note(&info("my-agent", Value::Null), "alpha").expect("a note");
+        assert!(other.contains("asks before some tools run"), "{other}");
     }
 }
