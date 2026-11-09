@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42577721341",
+  "recorded_at": "2026-11-09T07:22:24Z",
+  "reason": "cmux-tui b26315734acc changes the image's cmux-tui (pinned 92e171019c07)",
+  "dry_run": false,
+  "cmux_tui": "b26315734acc1fa5d5d91e71c119b86623363902",
+  "fixes": [
+    {
+      "sha": "b26315734acc1fa5d5d91e71c119b86623363902",
+      "mergedAt": "2026-11-08T22:58:37-08:00",
+      "subject": "Cloud: cmux cloud start-chat --from-folder copies a Mac folder the composer's way (#36487)"
+    },
+    {
+      "sha": "aa9b68bbec39ba759dde3cf3332bf403bbcdc37a",
+      "mergedAt": "2026-11-09T06:55:28Z",
+      "subject": "chore(next): base autofix at 8837b70ee7a6"
+    },
+    {
+      "sha": "8837b70ee7a6272df3b00beb3923ecc7054dd0bc",
+      "mergedAt": "2026-11-08T22:52:34-08:00",
+      "subject": "cmux-tui: output cleanup measures the staging database's logical size, WAL pages included (#39268)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T07:22:24Z",
+    "snapshot_id": "sh-586b6942ce9a487a9a6b1277569ae200",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42577721341): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "dc92c73f47c100e90af795f8251f5602d62fa9c0",
+    "image": "cloud-native-auto-b2631573-42577721341-1",
+    "revision": "ci-42577721341-1",
+    "at": "2026-11-09T07:22:24Z"
+  },
+  "rolled_back": false
+}
