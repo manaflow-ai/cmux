@@ -242,6 +242,19 @@ const SKILL_FILES: &[(&str, &str)] = &[
     ("cmux-sudo/SKILL.md", include_str!("../skills/cmux-sudo/SKILL.md")),
 ];
 
+/// The skills that are only about one MCP server's tools, and that server. A session without
+/// the server gets no listing for the skill: each listing is in every turn's prompt, and a
+/// skill for a tool the chat lacks sends the agent to read it for nothing (a Linux or Cloud
+/// chat has no computer use; a chat without `cmux-secrets` has no `request_elevation`).
+const SKILL_SERVERS: &[(&str, &str)] =
+    &[("cmux-cua", crate::cua_v2::SERVER_NAME), ("cmux-sudo", crate::secret_mcp::SERVER_NAME)];
+
+/// The skill a path in [`SKILL_FILES`] belongs to (`cmux-browser/references/x.md` is
+/// `cmux-browser`).
+fn skill_of(path: &str) -> &str {
+    path.split('/').next().unwrap_or(path)
+}
+
 /// One stdio MCP server.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct McpServer {
@@ -509,6 +522,7 @@ pub fn claude_args_for(
             // it off, send it to another provider, or opt in to code mode.
             .listing(all_tools_opted_in(env) && claude_lists_all_tools(env, cwd))
             .without_off(env)
+            .fit_skills()
             .folded()
             .claude_args(&mcp_config_path(&crate::config::home(), session_id))
     }
@@ -683,13 +697,14 @@ fn resolve_with_cua_helper(
     }
     // `agents.guidance.claude` off leaves `cmux-chat` out of the plugin, not only the pointer.
     let chat_skill = crate::agent_guidance::Switches::current().claude;
-    let plugin_dir = match materialize(&inputs.state_dir, chat_skill) {
-        Ok(dir) => Some(dir),
-        Err(e) => {
-            tracing::warn!("agent tools: the skills plugin was not written: {e:#}");
-            None
-        }
-    };
+    let plugin_dir =
+        match materialize(&inputs.state_dir, |skill| chat_skill || skill != "cmux-chat") {
+            Ok(dir) => Some(dir),
+            Err(e) => {
+                tracing::warn!("agent tools: the skills plugin was not written: {e:#}");
+                None
+            }
+        };
     let user_plugin_dir = user_plugin(&inputs.state_dir);
     AgentTools { servers, plugin_dir, user_plugin_dir, displays: inputs.displays.clone() }
 }
@@ -860,10 +875,44 @@ impl AgentTools {
         let mut rows: Vec<_> =
             self.servers.iter().map(|s| row(format!("mcp:{}", s.name), &s.name, toggles)).collect();
         if claude && self.plugin_dir.is_some() {
-            let skills = SKILL_FILES.iter().filter_map(|(p, _)| p.strip_suffix("/SKILL.md"));
+            let skills = SKILL_FILES
+                .iter()
+                .filter_map(|(p, _)| p.strip_suffix("/SKILL.md"))
+                .filter(|n| self.lists_skill(n));
             rows.extend(skills.map(|n| row(format!("skill:{PLUGIN_NAME}:{n}"), n, false)));
         }
         rows
+    }
+
+    /// Whether these servers need the `cmux` plugin's skill `name` ([`SKILL_SERVERS`]).
+    pub fn lists_skill(&self, name: &str) -> bool {
+        SKILL_SERVERS
+            .iter()
+            .find(|(skill, _)| *skill == name)
+            .is_none_or(|(_, server)| self.servers.iter().any(|s| s.name == *server))
+    }
+
+    /// The plugin with only the skills these servers need: call it once the session's
+    /// servers are final (after `scoped` and `without_off`, before `folded`). Each set of
+    /// skills is its own content-hashed folder next to the full one; the chat skill stays
+    /// in or out as the full folder has it. A folder that cannot be written keeps the full one.
+    pub fn fit_skills(mut self) -> Self {
+        let Some(dir) = &self.plugin_dir else { return self };
+        if SKILL_FILES.iter().all(|(p, _)| self.lists_skill(skill_of(p))) {
+            return self;
+        }
+        let Some(state_dir) = dir.parent() else { return self };
+        let chat = dir.join("skills/cmux-chat").exists();
+        let fit = materialize(state_dir, |skill| {
+            (chat || skill != "cmux-chat") && self.lists_skill(skill)
+        });
+        match fit {
+            Ok(fit) => self.plugin_dir = Some(fit),
+            Err(e) => {
+                tracing::warn!("agent tools: the fitted skills plugin was not written: {e:#}")
+            }
+        }
+        self
     }
 
     /// `mcpServers` for an ACP `session/new`, `session/load` or `session/fork`.
@@ -1070,10 +1119,11 @@ fn user_plugin(state_dir: &Path) -> Option<PathBuf> {
 
 /// The plugin folder for the compiled-in skills, written once per content
 /// hash (to a temporary folder, then renamed, so a reader never sees half).
-/// `chat_skill` false leaves out `cmux-chat` (the `agents.guidance.claude` switch).
-fn materialize(state_dir: &Path, chat_skill: bool) -> anyhow::Result<PathBuf> {
+/// `keep` picks the skills by name: the `agents.guidance.claude` switch leaves out `cmux-chat`,
+/// [`AgentTools::fit_skills`] the skills of servers a session lacks.
+fn materialize(state_dir: &Path, keep: impl Fn(&str) -> bool) -> anyhow::Result<PathBuf> {
     let skill_files: Vec<&(&str, &str)> =
-        SKILL_FILES.iter().filter(|(p, _)| chat_skill || !p.starts_with("cmux-chat/")).collect();
+        SKILL_FILES.iter().filter(|(p, _)| keep(skill_of(p))).collect();
     let mut all = Vec::new();
     for (path, text) in &skill_files {
         all.extend_from_slice(path.as_bytes());

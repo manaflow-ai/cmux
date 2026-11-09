@@ -249,6 +249,9 @@ pub struct SendCall {
     /// Chief knows the reply is long (a list the person asked for): the
     /// length gate lets its first send post (chief_kernel::replies).
     pub long: bool,
+    /// A widget part (plans/cmux-next/chat-widgets-DESIGN.md): drawn by a Mac
+    /// with the app, shown as its fallback text everywhere else.
+    pub widget: Option<cmux_conversation::Widget>,
 }
 
 impl SendCall {
@@ -274,8 +277,39 @@ impl SendCall {
             Some(Value::String(one)) if !one.trim().is_empty() => vec![one.trim().to_owned()],
             Some(_) => return Err("send: `attachments` must be a list of paths or URLs".into()),
         };
-        if text.is_none() && attachments.is_empty() {
-            return Err("send: give `text`, `attachments` or both".into());
+        let widget = match args.get("widget") {
+            None | Some(Value::Null) => None,
+            Some(Value::Object(w)) => {
+                let field = |k: &str| {
+                    w.get(k)
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                };
+                let widget = cmux_conversation::Widget {
+                    app: field("app").ok_or("send: `widget.app` is the app id, publisher/name")?.to_owned(),
+                    widget: field("widget").unwrap_or("cmux.chat.widget/1").to_owned(),
+                    props: w.get("props").cloned().unwrap_or_else(|| json!({})),
+                    fallback: field("fallback")
+                        .ok_or("send: `widget.fallback` is required: the text clients without the app show")?
+                        .to_owned(),
+                    url: field("url").map(str::to_owned),
+                };
+                if !cmux_conversation::valid_widget(&widget) {
+                    return Err(format!(
+                        "send: the widget is malformed: app is publisher/name, props a JSON object of at most {} bytes, fallback 1 to {} characters, url https",
+                        cmux_conversation::MAX_WIDGET_PROPS_BYTES,
+                        cmux_conversation::MAX_WIDGET_FALLBACK_CHARS
+                    ));
+                }
+                Some(widget)
+            }
+            Some(_) => {
+                return Err("send: `widget` must be an object {app, props, fallback, url?}".into());
+            }
+        };
+        if text.is_none() && attachments.is_empty() && widget.is_none() {
+            return Err("send: give `text`, `attachments`, `widget` or several".into());
         }
         let reply_to = match args.get("reply_to") {
             None | Some(Value::Null) => None,
@@ -295,6 +329,7 @@ impl SendCall {
             attachments,
             reply_to,
             long,
+            widget,
         })
     }
 
@@ -311,6 +346,9 @@ impl SendCall {
         }
         if self.long {
             v["long"] = json!(true);
+        }
+        if let Some(w) = &self.widget {
+            v["widget"] = json!(w);
         }
         v
     }

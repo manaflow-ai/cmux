@@ -323,6 +323,31 @@ impl Paths {
         self.active().is_none_or(|via| self.health(via, now) != Some(Health::Alive))
     }
 
+    /// The path to send on as well while `serving` (the path the live link runs on) is in
+    /// doubt: no pong on it for more than [`DOUBT_AFTER`] (or past its trust), and another path
+    /// answers. The other path with the lowest round trip; None while `serving` answers, or
+    /// when no other path does (`peer_dual.rs`).
+    pub fn dual_partner(&self, serving: Via, now: u64) -> Option<Via> {
+        self.dual_partner_among(serving, now, |_| true)
+    }
+
+    /// [`Self::dual_partner`] among the paths `eligible` takes.
+    pub fn dual_partner_among(
+        &self,
+        serving: Via,
+        now: u64,
+        eligible: impl Fn(Via) -> bool,
+    ) -> Option<Via> {
+        if !matches!(self.health(serving, now)?, Health::Doubt | Health::Dead) {
+            return None;
+        }
+        self.stream_vias()
+            .into_iter()
+            .filter(|via| *via != serving && eligible(*via))
+            .filter(|via| matches!(self.health(*via, now), Some(Health::Alive | Health::Doubt)))
+            .min_by_key(|via| (self.rtt(*via).map_or(u64::MAX, millis), *via))
+    }
+
     /// Whether a dead `via` is due for its recovery probe at `now`; it is then scheduled for
     /// the next one, further out. An alive or probing path is always due (its own heartbeat).
     pub fn recovery_due(&mut self, via: Via, now: u64) -> bool {

@@ -1588,7 +1588,7 @@ fn code_mode_server(fake: Fake) -> Server<Fake> {
 }
 
 #[test]
-fn code_mode_lists_exec_and_workflow_and_a_script_reaches_every_tool() {
+fn code_mode_lists_only_exec_and_a_script_reaches_every_tool() {
     let mut server = code_mode_server(Fake::with_actions());
     let initialize =
         server.handle(&json!({"jsonrpc": "2.0", "id": "i", "method": "initialize"})).unwrap();
@@ -1597,12 +1597,12 @@ fn code_mode_lists_exec_and_workflow_and_a_script_reaches_every_tool() {
         server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
     let tools = listed["result"]["tools"].as_array().cloned().unwrap();
     let names = tools.iter().filter_map(|tool| tool["name"].as_str()).collect::<Vec<_>>();
-    // Scripts search the underlying catalog with cmux.docs; durable runs
-    // also have a direct lifecycle tool beside the code-mode entry point.
-    assert_eq!(names, ["cmux_exec", "cmux_workflow"]);
-    // cmux_exec stays in Claude Code's prompt; the workflow tool stays behind tool search.
+    // Scripts search the underlying catalog with cmux.docs; the durable-run
+    // lifecycle tool is one of them (`cmux.cmux_workflow`), not a listing of its own.
+    assert_eq!(names, ["cmux_exec"]);
+    assert!(server.list().iter().any(|tool| tool["name"] == "cmux_workflow"));
+    // cmux_exec stays in Claude Code's prompt.
     assert_eq!(tools[0]["_meta"]["anthropic/alwaysLoad"], json!(true), "{}", tools[0]);
-    assert!(tools[1].get("_meta").is_none(), "{}", tools[1]);
     let bytes = serde_json::to_vec(&tools).unwrap().len();
     assert!(bytes < 8 << 10, "the code-mode list is {bytes} bytes");
     let all = server.list();
