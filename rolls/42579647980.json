@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42579647980",
+  "recorded_at": "2026-11-09T07:36:31Z",
+  "reason": "cmux-tui f6080ec85314 changes the image's cmux-tui (pinned b26315734acc)",
+  "dry_run": false,
+  "cmux_tui": "f6080ec85314dbbee769c021c6b7b05d18720026",
+  "fixes": [
+    {
+      "sha": "9fbb3efbea32c32208a164aa7035cc93247edd9d",
+      "mergedAt": "2026-11-08T23:14:19-08:00",
+      "subject": "acpmux: one repository-config write at a time (model race candidates failed on config.lock) (#39288)"
+    },
+    {
+      "sha": "7a5fe27267b21ea781bb3f47f08e5dcc95556423",
+      "mergedAt": "2026-11-08T23:07:41-08:00",
+      "subject": "Chat widgets slice 1: agents send widget parts, Home draws them natively"
+    },
+    {
+      "sha": "2937bf610c5db88ef1fa10c8136199db680b5076",
+      "mergedAt": "2026-11-08T23:07:41-08:00",
+      "subject": "Chat widgets spec and red tests for widget parts"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T07:36:31Z",
+    "snapshot_id": "sh-90418e88dfa249ce9b015ab22fa52def",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42579647980): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5daa974dcb9481190fdc773860baad81633083be",
+    "image": "cloud-native-auto-f6080ec8-42579647980-1",
+    "revision": "ci-42579647980-1",
+    "at": "2026-11-09T07:36:31Z"
+  },
+  "rolled_back": false
+}
