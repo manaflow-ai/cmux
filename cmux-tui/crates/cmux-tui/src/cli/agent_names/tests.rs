@@ -294,3 +294,20 @@ fn w3h_two_live_tabs_with_one_name_are_ambiguous_even_when_one_runs_an_agent() {
     // One live tab and one exited tab: the live one, as before.
     assert!(matches!(resolve(&snapshot(), "alpha"), Found::One(place) if place.terminal == ALPHA));
 }
+
+#[test]
+fn w5t_a_multi_terminal_wait_names_no_selector_word() {
+    // `--all` is a boolean flag elsewhere: without the guard its list would
+    // read as a positional word and `wait` as a terminal name.
+    for words in [
+        ["terminal", "wait", "--all", "alpha,beta", "--until", "idle"],
+        ["terminal", "wait", "--any", "alpha,beta", "--until", "idle"],
+        ["terminal", "wait", "--all=alpha,beta", "--until", "idle"],
+    ] {
+        assert!(targets(&strings(&words)).is_empty(), "{words:?}");
+    }
+    // The one-terminal wait still names its terminal.
+    let one = targets(&strings(&["terminal", "alpha", "wait", "--until", "idle"]));
+    assert_eq!(one.len(), 1);
+    assert_eq!(one[0].word, "alpha");
+}

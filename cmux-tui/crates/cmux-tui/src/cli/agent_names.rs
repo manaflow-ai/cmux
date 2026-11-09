@@ -266,6 +266,19 @@ pub(in crate::cli) fn targets(words: &[String]) -> Vec<Target> {
     if scope == "agent" && words.get(1).is_some_and(|verb| verb == "start" || verb == "resume") {
         return Vec::new();
     }
+    // `terminal wait --any|--all a,b` names no selector word: its targets are
+    // flag values the wait resolves itself (status/agents_wait.rs), and
+    // `--all` is a boolean flag elsewhere, so its list would read as one.
+    if scope == "terminal"
+        && words.get(1).is_some_and(|verb| verb == "wait")
+        && words.iter().any(|word| {
+            ["--any", "--all"].iter().any(|flag| {
+                word == flag || word.strip_prefix(flag).is_some_and(|rest| rest.starts_with('='))
+            })
+        })
+    {
+        return Vec::new();
+    }
     let mut positional: Vec<(usize, String)> = Vec::new();
     let mut flagged = Vec::new();
     let mut scan = words.iter().enumerate().take_while(|(_, word)| *word != "--");

@@ -275,8 +275,37 @@ pub(super) enum Outcome {
 
 /// Whether `seen` holds `request`.
 pub(super) fn evaluate(request: &Request, seen: &[Seen]) -> Outcome {
-    // Red: the evaluation lands in the next commit.
-    let _ = (request, seen, Seen::ended);
+    let matched = |agent: &Seen| request.until.iter().any(|until| until.matches(agent.status));
+    let waits_for_end = request.until.contains(&Until::Ended);
+    let ended: Vec<usize> = seen
+        .iter()
+        .enumerate()
+        .filter(|(_, agent)| agent.ended() && !waits_for_end)
+        .map(|(index, _)| index)
+        .collect();
+    match request.mode {
+        Mode::Any => {
+            if let Some(index) = seen.iter().position(matched) {
+                return Outcome::Holds { terminal: index };
+            }
+            if !seen.is_empty() && ended.len() == seen.len() {
+                return Outcome::Impossible { ended };
+            }
+        }
+        Mode::All => {
+            if !seen.is_empty() && seen.iter().all(matched) {
+                let latest = seen
+                    .iter()
+                    .enumerate()
+                    .max_by_key(|(index, agent)| (agent.updated_at_ms, std::cmp::Reverse(*index)))
+                    .map_or(0, |(index, _)| index);
+                return Outcome::Holds { terminal: latest };
+            }
+            if !ended.is_empty() {
+                return Outcome::Impossible { ended };
+            }
+        }
+    }
     Outcome::Pending
 }
 
