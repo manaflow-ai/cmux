@@ -6,7 +6,8 @@
 //!
 //! Default deny, by exact command name. Command-bearing params are refused on every command.
 //! A new tab must be an agent tab of this machine's own store, and a close may end only an
-//! agent tab no chat is bound to yet (a start the phone left; hostd's `abandon`). Every other
+//! agent tab no chat is bound to yet (a start the phone left; hostd's `abandon`), or a tab whose
+//! chat this same connection started (hostd closes a start past its session limit). Every other
 //! rule (the owner's signed role, the phone floor at the start and on every prompt) stays with
 //! the command's own handler.
 
@@ -48,13 +49,13 @@ pub(super) fn refuse_line(
     message: &str,
     writer: &MessageWriter,
 ) -> Option<bool> {
-    if !mux.phone_carrier_client(client) || admits(mux, message) {
+    if !mux.phone_carrier_client(client) || admits(mux, client, message) {
         return None;
     }
     Some(writer.send_control(&remote_relay::refusal(message, remote_relay::REMOTE_DENIED)).is_ok())
 }
 
-fn admits(mux: &Mux, message: &str) -> bool {
+fn admits(mux: &Mux, client: u64, message: &str) -> bool {
     let Ok(Value::Object(fields)) = serde_json::from_str::<Value>(message) else { return false };
     let Some(command) = fields.get("cmd").and_then(Value::as_str) else { return false };
     if !COMMANDS.contains(&command)
@@ -67,7 +68,10 @@ fn admits(mux: &Mux, message: &str) -> bool {
             let Ok(request) = serde_json::from_str::<Request>(message) else { return false };
             match request.cmd {
                 Command::NewConversationTab(params) => params.native_agent_tab(mux),
-                Command::CloseSurface { surface } => unbound_agent_tab(mux, surface),
+                Command::CloseSurface { surface } => {
+                    unbound_agent_tab(mux, surface)
+                        || mux.control_clients.started_tab(client, surface)
+                }
                 _ => false,
             }
         }
