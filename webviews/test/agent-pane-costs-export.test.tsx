@@ -120,7 +120,7 @@ async function exportJson(total: number) {
   await act(async () => json!.click());
   await act(async () => undefined);
   await act(async () => undefined);
-  const status = container.querySelector("output.cst-exported")?.textContent ?? "";
+  const status = container.querySelector("output.cst-copied")?.textContent ?? "";
   return { reads, files, status };
 }
 

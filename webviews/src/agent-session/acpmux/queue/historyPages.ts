@@ -149,6 +149,7 @@ export function historyPages({
     ledger: {
       load: async (params) => connected().ledger(params),
       openSession: selectSession,
+      copy,
       // The host's save panel, as a side panel document's Save (`pane.saveFile`); a host that
       // cannot save it (one that predates the kind, or a failed write) copies it instead.
       save: async (text, suggestedName, kind) => {
