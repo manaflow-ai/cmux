@@ -63,12 +63,14 @@ const NO_CREDIT =
 /// `inference.daily_limit`). It counts only without a router code or rate words beside it.
 const INSUFFICIENT_QUOTA = /insufficient[ _-]quota/i;
 const ROUTER_LIMIT = /too many requests|rate.?limit|wait a moment/i;
-/// The cmux model router's own refusal codes (backend inference/): `free.rate`, `inference.daily_limit`,
-/// `budget.exhausted` (a 429), `usage.included_reached` (a 402). Never the account behind the chat's
-/// own key, whatever status or type comes with them: none of them is `no-credit`. The exact code
-/// tokens only, as a word of their own: never part of a URL or hostname (`inference.baseten.co`).
-const ROUTER_CODE =
-  /(?<![\w./:-])(?:free\.rate|inference\.daily_limit|budget\.exhausted|usage\.included_reached)(?![\w./-])/i;
+/// The cmux model router's own refusal codes (backend inference/): `free.rate`, `free.quota` (429s
+/// typed `insufficient_quota`), `inference.daily_limit`, `budget.exhausted` (a 429),
+/// `usage.included_reached` (a 402) and the rest of its `free.*`, `inference.*`, `budget.*` and
+/// `usage.*` codes. Never the account behind the chat's own key, whatever status or type comes with
+/// them: none of them is `no-credit`. Matched by the code's form, so a new backend code needs no
+/// edit here (failureCopy.test.ts reads them from the backend), and only as a whole dotted token:
+/// never part of a URL or hostname (`inference.baseten.co`).
+const ROUTER_CODE = /(?<![\w./:-])(?:free|inference|budget|usage)\.[a-z_]+(?![\w./-])/i;
 /// The cloud provider credentials a Bedrock or Vertex chat uses have expired or were refused: the AWS
 /// SDK's `ExpiredToken`, `ExpiredTokenException`, `UnrecognizedClientException`, "The security token
 /// included in the request is expired", "Could not load credentials", an expired SSO session; Google's
