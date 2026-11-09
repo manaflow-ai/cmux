@@ -198,6 +198,8 @@ public final class DesignSettings {
     /// `sidebar.hoverCards.delay`: pointer rest before a sidebar row's or a tab's card opens.
     /// Defaults to `HoverCardTiming.showDelay`.
     public var hoverCardDelay: Duration = HoverCardTiming.showDelay
+    /// `sidebar.hoverCards.delay` has a value in the file: its delay is a fixed wait, with no settle.
+    public var hoverCardDelayIsSet = false
     /// `sidebar.hoverCards.layout`, `.sections.*` and `.maxRows`: what a workspace card shows (u3320).
     public var workspaceHoverCard = WorkspaceHoverCardOptions()
     /// `sidebar.hoverCards.groups.*`: whether group headers and tab group chips open a card, after
