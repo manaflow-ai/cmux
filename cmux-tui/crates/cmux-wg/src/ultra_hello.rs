@@ -227,7 +227,8 @@ mod tests {
         let (a, b) =
             (IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)));
         let hello = Hello { mode: RS, heard: true };
-        let (_, destination, payload) = udp::parse(&packet(a, b, hello)).unwrap();
+        let bytes = packet(a, b, hello);
+        let (_, destination, payload) = udp::parse(&bytes).unwrap();
         assert_eq!(destination.port(), cmux_transport::probe::PROBE_PORT);
         assert_ne!(payload.len(), PROBE_LEN);
         assert!(Probe::decode(payload).is_err(), "an older build's probe parser drops it");
