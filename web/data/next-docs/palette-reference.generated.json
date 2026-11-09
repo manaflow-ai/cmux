@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1387,
-    "shortcuts": 188
+    "entries": 1389,
+    "shortcuts": 190
   },
   "sections": [
     {
@@ -5950,6 +5950,12 @@
       "title": "Notifications",
       "entries": [
         {
+          "id": "agent.triage.answer",
+          "title": "Allow and Go to Next Waiting Agent",
+          "shortcut": "⌃⌘Y",
+          "command": null
+        },
+        {
           "id": "clearAllNotifications",
           "title": "Clear All Notifications",
           "shortcut": null,
@@ -6001,6 +6007,12 @@
           "id": "notificationDismiss",
           "title": "Dismiss Notification",
           "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "agent.triage.next",
+          "title": "Go to Longest-Waiting Agent",
+          "shortcut": "⌃⌘;",
           "command": null
         },
         {
