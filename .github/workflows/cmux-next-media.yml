@@ -650,7 +650,11 @@ jobs:
           HEAD_APP: ${{ steps.build_head.outputs.head_app }}
           CLIPS_BASE: ${{ needs.route.outputs.clips_base }}
           GHOSTTYKIT_ARCHIVE_CACHE_DIR: /Users/Shared/cmux-build-fleet/ci/ghosttykit-archives
+        # GitHub runs this as bash -e: a tour.py that exits 1 (one tour failed) would end the step before
+        # the other role and the count, and the publish job would drop the clips that did record. Every
+        # failure here is handled where it happens; publish-auto leaves out a clip whose tour failed.
         run: |
+          set +e
           set -uo pipefail
           out="${RUNNER_TEMP:?}/media/whats-new-clips"
           clips=scripts/cmux-next/media/whats-new-clips.py
@@ -662,7 +666,9 @@ jobs:
             local role="$1" app="$2"; shift 2
             # Highlight ids are lowercase words and dashes: one path per word.
             set -- $(python3 "$clips" tours --plan "$out/plan.json" --role "$role" --dir "$RUNNER_TEMP/clip-tours" "$@")
-            [ "$#" -eq 0 ] || python3 scripts/cmux-next/media/tour.py --app "$app" --out "$out/$role" --fresh-state "$@"
+            [ "$#" -gt 0 ] || return 0
+            python3 scripts/cmux-next/media/tour.py --app "$app" --out "$out/$role" --fresh-state "$@" \
+              || echo "::warning title=What's New clip::a $role tour failed (exit $?); its clip is left out"
           }
           record after "$HEAD_APP"
           record before "$BASE_APP" --before "${CLIPS_BASE:-$MERGE_BASE}"

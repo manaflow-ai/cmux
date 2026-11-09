@@ -40,7 +40,9 @@ those before the gallery pictures, role by role.
 
 A New or Improved highlight of the last LATE_PICTURE_DAYS whose gallery pictures or recorded clips were published after its
 nightly cut (the public feed's notes showed it without them) rides along with the next --pr-media build
-that finds them, the same way, once (late_pictures). An improvement that shipped with no picture rides
+that finds them, the same way, once (late_pictures). One with a clip spec rides along again, for
+CLIP_REANNOUNCE_DAYS, once a recorded clip the notes did not show is published (a spec added after the
+highlight shipped, or a clip the nightly tour recorded later): the clip replaces its gallery still. An improvement that shipped with no picture rides
 along with its after alone when no before was published (a gallery state its own commit added has none).
 
 The rest is the body (Markdown). A build with no new highlight file uses its
@@ -570,22 +572,39 @@ def pictured(highlight):
 
 
 def late_pictures(head, skip, deadline, fixture):
-    """{path: whether its newest appearance had media} of the New and Improved highlights of the last
-    LATE_PICTURE_DAYS, not in `skip`, with no clip, whose newest appearance in the published notes was not
-    pictured. A feed read that fails gives none."""
+    """{path: whether its newest appearance had media} of the New and Improved highlights not in `skip`, with
+    no clip line, whose newest appearance in the published notes was not pictured (one of the last
+    LATE_PICTURE_DAYS), or did not show a recorded clip that is published now (one with a spec, of the last
+    CLIP_REANNOUNCE_DAYS: a clip recorded after the highlight shipped with its gallery stills, or with none,
+    replaces them; late_clip). A feed read that fails gives none."""
     head_time = int(git("show", "-s", "--format=%ct", head).strip())
-    since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(head_time - LATE_PICTURE_DAYS * 86400))
-    wanted = {}
-    for path in git("log", "--diff-filter=A", "--name-only", "--format=", f"--since={since}", head,
-                    "--", HIGHLIGHTS).split():
-        if not path.endswith(".md") or path in skip:
+    days = max(LATE_PICTURE_DAYS, CLIP_REANNOUNCE_DAYS)
+    since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(head_time - days * 86400))
+    wanted, recent, specs, born = {}, set(), set(), head_time
+    for line in git("log", "--diff-filter=A", "--name-only", "--format=time %ct", f"--since={since}", head,
+                    "--", HIGHLIGHTS).splitlines():
+        if line.startswith("time "):
+            born = int(line[5:])
+            continue
+        path = line.strip()
+        if not path.endswith(".md") or path in skip or path in wanted.values():
             continue
         try:
             highlight = parse_highlight(path, git("show", f"{head}:{path}"))
         except (subprocess.CalledProcessError, SystemExit):
             continue
-        if not highlight["media"] and highlight.get("category", "new") in {"new", "improved"}:
-            wanted[highlight["id"]] = path
+        if highlight["media"] or highlight.get("category", "new") not in {"new", "improved"}:
+            continue
+        has_spec = subprocess.run(["git", "cat-file", "-e", f"{head}:{CLIPS}/{highlight['id']}.json"],
+                                  capture_output=True).returncode == 0
+        is_recent = head_time - born <= LATE_PICTURE_DAYS * 86400
+        if not (is_recent or has_spec):
+            continue
+        wanted[highlight["id"]] = path
+        if is_recent:
+            recent.add(highlight["id"])
+        if has_spec:
+            specs.add(highlight["id"])
     shown = {}
     try:
         index = json.loads(pr_download(NOTES_FEED + "index.json", fixture) or b"{}")
@@ -595,12 +614,35 @@ def late_pictures(head, skip, deadline, fixture):
             notes = json.loads(pr_download(f"{NOTES_FEED}{entry['build']}.json", fixture) or b"{}")
             for highlight in notes.get("highlights") or []:
                 if isinstance(highlight, dict) and highlight.get("id") in wanted:
-                    shown.setdefault(highlight["id"], (pictured(highlight), bool(highlight.get("media"))))
+                    shown.setdefault(highlight["id"], highlight)
     except Exception as error:
         print(f"late pictures: {type(error).__name__}: {error}; none ride along", file=sys.stderr)
         return {}
-    return {path: shown[highlight_id][1] for highlight_id, path in wanted.items()
-            if highlight_id in shown and not shown[highlight_id][0]}
+    out = {}
+    for highlight_id, path in wanted.items():
+        if highlight_id not in shown:
+            continue
+        before = shown[highlight_id]
+        if (highlight_id in recent and not pictured(before)) or (
+                highlight_id in specs and late_clip(highlight_id, before, deadline, fixture)):
+            out[path] = bool(before.get("media"))
+    return out
+
+
+def late_clip(highlight_id, shown, deadline, fixture):
+    """Whether a role of the highlight has a recorded clip published (clip_auto_url) that its appearance
+    `shown` (the published notes' copy) did not show."""
+    urls = {m.get("role") or "after": m.get("url") for m in shown.get("media") or [] if isinstance(m, dict)}
+    for role, url in clip_auto_urls({}, highlight_id, shown.get("category", "new")).items():
+        if urls.get(role) == url or time.monotonic() > deadline:
+            continue
+        try:
+            data = pr_download(url, fixture)
+        except Exception:  # a 404 until the nightly tour publishes it
+            data = None
+        if data and pr_media_picture(data):
+            return True
+    return False
 
 
 PR_SUFFIX = re.compile(r"^(?P<title>.*?)\s*\(#(?P<pr>\d+)\)\s*$")

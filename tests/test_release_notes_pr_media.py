@@ -352,6 +352,39 @@ class LatePictureTests(HighlightRepo):
         highlights = self.notes([])
         self.assertEqual([m["url"] for m in highlights[0]["media"]], [clip("after"), clip("before")])
 
+    def add_spec(self):
+        os.makedirs(os.path.join(self.repo, "release-notes/next/clips"), exist_ok=True)
+        with open(os.path.join(self.repo, "release-notes/next/clips/group-colors.json"), "w") as f:
+            f.write("{}\n")
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-q", "-m", "its clip spec (#125)")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+
+    def test_a_clip_recorded_after_it_shipped_with_its_stills_replaces_them_once(self):
+        clip = lambda role: release_notes.clip_auto_url("group-colors", role)
+        gallery = lambda role: release_notes.gallery_auto_url("group-colors", role)
+        stills = [{"url": gallery(r), "sha256": "0" * 64, "role": r} for r in ("after", "before")]
+        self.add_spec()
+        self.pictures[clip("after")] = WEBP
+        highlights = self.notes(stills)
+        self.assertEqual([h["id"] for h in highlights], ["group-colors"])
+        self.assertEqual([m["url"] for m in highlights[0]["media"]], [clip("after"), gallery("before")])
+        # Once the notes showed it, the same clip re-announces nothing; its before clip, when published, does.
+        shown = [{"url": clip("after"), "sha256": "0" * 64, "role": "after"}, stills[1]]
+        self.assertEqual(self.notes(shown), [])
+        self.pictures[clip("before")] = WEBP + b"b"
+        self.assertEqual([m["url"] for m in self.notes(shown)[0]["media"]], [clip("after"), clip("before")])
+
+    def test_stills_with_no_clip_published_or_no_spec_ride_no_more(self):
+        clip = lambda role: release_notes.clip_auto_url("group-colors", role)
+        stills = [{"url": release_notes.gallery_auto_url("group-colors", r), "sha256": "0" * 64, "role": r}
+                  for r in ("after", "before")]
+        self.pictures[clip("after")] = WEBP
+        self.assertEqual(self.notes(stills), [])  # no spec: a clip at that name is not this highlight's
+        self.add_spec()
+        del self.pictures[clip("after")]
+        self.assertEqual(self.notes(stills), [])
+
     def test_no_pictures_yet_or_no_feed_means_no_ride_along(self):
         self.assertEqual(self.notes([], pictures=False), [])
         self.assertEqual(self.notes([], feed=False), [])

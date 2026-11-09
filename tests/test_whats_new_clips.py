@@ -379,12 +379,97 @@ class NightlyTourTests(unittest.TestCase):
 
     def test_publish_auto_renders_each_role_from_its_tour_folder_and_uploads_nothing_without_ocr(self):
         rendered = []
+
+        def render_tour(clip_id, tour_dir, out, keep):
+            rendered.append((clip_id, tour_dir.parent.name, tour_dir.name))
+            keep.mkdir(parents=True)
+            (keep / "0000.png").write_bytes(b"png")
         with tempfile.TemporaryDirectory() as tmp, \
-                mock.patch.object(clips, "render_tour", lambda i, d, out: rendered.append((i, d.parent.name, d.name))), \
+                mock.patch.object(clips, "render_tour", render_tour), \
                 mock.patch.dict("os.environ", {"PR_MEDIA_PRIVACY_OCR": "none"}):
             with self.assertRaisesRegex(clips.ClipError, "no OCR"):
                 clips.publish_auto([{"id": "better", "roles": ["after", "before"]}], Path(tmp), Path(tmp))
         self.assertEqual(rendered, [("better", "after", "better"), ("better", "before", "better")])
+
+
+    def test_publish_auto_checks_the_clips_frames_never_the_animated_webp(self):
+        """The Linux OCR (tesseract on Leptonica) cannot decode an animated WebP: a check of the .webp itself
+        refused every clip as unreadable. The check reads the PNG frames the encoder made the clip from."""
+        import os, stat
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            # An OCR tool like pr_media_ocr_tesseract.py on an animated WebP: it fails on a .webp, reads a PNG.
+            ocr = tmp / "ocr.sh"
+            ocr.write_text('#!/bin/sh\ncase "$1" in *.webp) exit 2;; esac\ncat "$1"\n')
+            ocr.chmod(ocr.stat().st_mode | stat.S_IEXEC)
+
+            def render_tour(clip_id, tour_dir, out, keep=None):
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_bytes(b"RIFF\0\0\0\0WEBPVP8X animated")
+                keep.mkdir(parents=True)
+                for index, text in enumerate(["Sidebar", "Archive" if clip_id == "clean" else "acme-secret-host"]):
+                    (keep / f"{index:04d}.png").write_text(text + "\n")
+
+            put = mock.Mock()
+            def pr_media_module():
+                module = real()
+                module.put_file = put
+                return module
+            real = clips.pr_media_module
+            env = {k: v for k, v in os.environ.items() if k != "GITHUB_ACTIONS"}
+            env.update({"PR_MEDIA_PRIVACY_OCR": str(ocr), "PR_MEDIA_PRIVATE_TERMS": json.dumps(["acme-secret-host"]),
+                        "HOME": str(tmp)})
+            with mock.patch.object(clips, "render_tour", render_tour), \
+                    mock.patch.object(clips, "pr_media_module", pr_media_module), \
+                    mock.patch.dict("os.environ", env, clear=True), mock.patch("sys.stderr"), mock.patch("sys.stdout"):
+                self.assertEqual(clips.publish_auto([{"id": "clean", "roles": ["after"]}], tmp, tmp / "a"), [])
+                self.assertEqual([c.args[2] for c in put.call_args_list], ["whats-new/clean/clip-auto-after.webp"])
+                put.reset_mock()
+                with self.assertRaises(Exception) as refused:
+                    clips.publish_auto([{"id": "clean", "roles": ["after"]}, {"id": "leaky", "roles": ["after"]}],
+                                       tmp, tmp / "b")
+                self.assertEqual(type(refused.exception).__name__, "PrivacyError")
+                self.assertIn("whats-new/leaky/clip-auto-after.webp.frames/0001.png", str(refused.exception))
+                self.assertNotIn("acme-secret-host", str(refused.exception))
+                put.assert_not_called()
+
+
+
+class WorkflowTests(unittest.TestCase):
+    """cmux-next-media.yml's clip steps: planned before the Mac pick, recorded past a failed tour."""
+
+    def setUp(self):
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest("PyYAML is not installed")
+        self.jobs = yaml.safe_load((SCRIPT.parents[3] / ".github/workflows/cmux-next-media.yml").read_text())["jobs"]
+
+    def step(self, job, step_id):
+        return next(s for s in self.jobs[job]["steps"] if s.get("id") == step_id)
+
+    def test_the_route_job_plans_the_clips_before_it_picks_a_mac_and_a_plan_forces_one(self):
+        # A tip that adds only a highlight and its spec maps to no UI path: planned on the Mac, the pick had
+        # already skipped the tour.
+        ids = [s.get("id") for s in self.jobs["route"]["steps"]]
+        self.assertLess(ids.index("clips"), ids.index("pick"))
+        self.assertIn("whats-new-clips.py plan", self.step("route", "clips")["run"])
+        sparse = self.jobs["route"]["steps"][0]["with"]["sparse-checkout"]
+        for path in ("whats-new-clips.py", "media/tour.py", "release-notes/next/highlights", "release-notes/next/clips"):
+            self.assertIn(path, sparse)
+        pick = self.step("route", "pick")
+        self.assertEqual(pick["env"]["CLIPS_PLAN"], "${{ steps.clips.outputs.plan }}")
+        self.assertIn("force=(--force-mac)", pick["run"].split("CLIPS_PLAN", 2)[2])
+        scope = self.step("tour", "scope")
+        self.assertEqual(scope["env"]["CLIPS_PLAN"], "${{ needs.route.outputs.clips_plan }}")
+        self.assertNotIn("whats-new-clips.py plan --", scope["run"])
+        self.assertIn("write-tours", scope["run"])
+
+    def test_a_failed_tour_does_not_end_the_record_step_before_its_count(self):
+        run = self.step("tour", "clips")["run"]
+        self.assertTrue(run.startswith("set +e\n"), "GitHub's bash -e ends the step at the first failed tour")
+        self.assertLess(run.index("count="), run.index("record after"))
+        self.assertIn("|| echo", run.split("tour.py", 1)[1].split("}", 1)[0])
 
 
 if __name__ == "__main__":

@@ -266,7 +266,9 @@ def timeline(spec: dict, frames: list[Path], crop: str) -> list[tuple[Path, floa
     return [(frame, round(seconds, 3)) for frame, seconds in runs]
 
 
-def encode(spec: dict, frames: list[Path], out: Path) -> dict:
+def encode(spec: dict, frames: list[Path], out: Path, keep: Path | None = None) -> dict:
+    """Writes the clip to OUT; with KEEP, also the cropped PNG frames it is made of, in order (KEEP/NNNN.png):
+    the pictures the privacy check reads, since its Linux OCR cannot decode an animated WebP."""
     size = size_of(frames[0])
     crop = crop_filter(spec["crop"], size)
     plan = timeline(spec, frames, crop)
@@ -281,6 +283,11 @@ def encode(spec: dict, frames: list[Path], out: Path) -> dict:
             for quality in QUALITIES:
                 run([*argv[:5], "-q", str(quality), *argv[5:], "-o", str(out)])
                 if out.stat().st_size <= MAX_BYTES:
+                    if keep is not None:
+                        shutil.rmtree(keep, ignore_errors=True)
+                        keep.mkdir(parents=True)
+                        for cropped_frame in sorted(Path(tmp).glob("*.png")):
+                            shutil.copy2(cropped_frame, keep / cropped_frame.name)
                     return {"frames": len(plan), "seconds": round(sum(s for _, s in plan), 2),
                             "bytes": out.stat().st_size, "size": list(size_of(cropped)), "quality": quality}
     raise ClipError(f"the clip does not fit {MAX_BYTES} bytes even at {QUALITIES[-1]} quality and 560 px")
@@ -337,10 +344,7 @@ def publish(clip_id: str, local: Path, highlights: Path = HIGHLIGHTS) -> str:
         raise ClipError(f"{local} is not a .webp of at most {MAX_BYTES} bytes")
     digest = hashlib.sha256(data).hexdigest()
     path = f"whats-new/{clip_id}/{digest[:12]}.webp"
-    spec = importlib.util.spec_from_file_location("pr_media_tool", ROOT / "scripts/pr-media.py")
-    pr_media = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = pr_media
-    spec.loader.exec_module(pr_media)
+    pr_media = pr_media_module()
     # The shared privacy check (pr_media_privacy.py) reads every frame first; a refusal uploads nothing.
     # Without OCR it would pass a clip unread, so publish wants it (a Mac with Xcode).
     if pr_media.privacy_module().ocr_binary() is None:
@@ -351,6 +355,15 @@ def publish(clip_id: str, local: Path, highlights: Path = HIGHLIGHTS) -> str:
     highlight.write_text(set_clip_line(highlight.read_text(), f"clip: {url} | {digest}"))
     print(url)
     return url
+
+
+def pr_media_module():
+    """scripts/pr-media.py: the shared privacy check and the pr-media writer."""
+    spec = importlib.util.spec_from_file_location("pr_media_tool", ROOT / "scripts/pr-media.py")
+    pr_media = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = pr_media
+    spec.loader.exec_module(pr_media)
+    return pr_media
 
 
 def auto_url(clip_id: str, role: str) -> str:
@@ -539,41 +552,48 @@ def tour_frames(spec: dict, manifest: dict, tour_dir: Path, scratch: Path) -> li
     return picked
 
 
-def render_tour(clip_id: str, tour_dir: Path, out: Path) -> dict:
+def render_tour(clip_id: str, tour_dir: Path, out: Path, keep: Path | None = None) -> dict:
     spec = load_spec(clip_id)
     manifest = json.loads((tour_dir / "manifest.json").read_text())
     with tempfile.TemporaryDirectory(prefix="whats-new-clip-") as tmp:
-        report = encode(spec, tour_frames(spec, manifest, tour_dir, Path(tmp)), out)
+        report = encode(spec, tour_frames(spec, manifest, tour_dir, Path(tmp)), out, keep)
     print(json.dumps({"id": clip_id, "out": str(out), **report}))
     return report
 
 
 def publish_auto(rows: list[dict], results: Path, scratch: Path) -> list[str]:
     """Renders each planned clip from RESULTS/ROLE/ID (the tour's folders), then checks them all and puts
-    them at auto_url. A clip that does not render is left out with a warning; a refusal uploads nothing."""
+    them at auto_url. A clip that does not render is left out with a warning; a refusal uploads nothing.
+    The check reads each clip's frames as PNGs (the cropped frames the encoder made it from), never the
+    animated WebP: the Linux OCR (pr_media_ocr_tesseract.py, Leptonica) reads a .webp as one still and cannot
+    decode an animated one, so it refused every clip as unreadable. pr-media-privacy.yml reads the pushed
+    clips again with Vision."""
     files, problems = [], []
     # tour.py names a tour's folder by the slug of its file's name (40 characters at most).
     folder = tour_module().slug
     for row in rows:
         for role in row["roles"]:
             local = scratch / f"{row['id']}-{role}.webp"
+            pictures = scratch / f"{row['id']}-{role}-frames"
             try:
-                render_tour(row["id"], results / role / folder(row["id"]), local)
+                render_tour(row["id"], results / role / folder(row["id"]), local, pictures)
+                frames = sorted(pictures.glob("*.png"))
+                if not frames:
+                    raise ClipError("the encoder kept no frames to check")
             except (ClipError, OSError, ValueError) as error:
                 problems.append(f"{row['id']} {role}: {error}")
                 continue
-            files.append((f"whats-new/{row['id']}/clip-auto-{role}.webp", local, row["id"], role))
+            files.append((f"whats-new/{row['id']}/clip-auto-{role}.webp", local, row["id"], role, frames))
     if not files:
         return problems
-    spec = importlib.util.spec_from_file_location("pr_media_tool", ROOT / "scripts/pr-media.py")
-    pr_media = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = pr_media
-    spec.loader.exec_module(pr_media)
+    pr_media = pr_media_module()
     if pr_media.privacy_module().ocr_binary() is None:
         raise ClipError("publish-auto reads every frame first, and no OCR is set up")
-    # One check for all of them: a refusal names paths and kinds only, and uploads nothing.
-    pr_media.check_privacy([(path, local) for path, local, _, _ in files], REPO)
-    for path, local, clip_id, role in files:
+    # One check for all of them: a refusal names paths and kinds only, and uploads nothing. Each frame is
+    # named under its clip's path, so a refusal says which clip and frame.
+    pr_media.check_privacy([(f"{path}.frames/{frame.name}", frame)
+                            for path, _, _, _, frames in files for frame in frames], REPO)
+    for path, local, clip_id, role, _ in files:
         pr_media.put_file(REPO, BRANCH, path, local, f"What's New clip: {clip_id} ({role}, nightly tour)",
                           checked=True)
         print(auto_url(clip_id, role))
