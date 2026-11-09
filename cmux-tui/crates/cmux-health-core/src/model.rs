@@ -111,6 +111,8 @@ struct Repair {
     next_at: Option<u64>,
     /// The last action sent.
     action: RepairAction,
+    /// Actions sent to this part, never reset (each [`Action::token`]).
+    sent: u64,
     failed: bool,
     /// `holdReplace` was sent for the current daemon process.
     held: bool,
@@ -244,8 +246,8 @@ fn evaluate(part: &mut Part, now: u64) -> Cond {
                 let first = s.starts[0];
                 let span_ms = s.starts[starts - 1] - first;
                 // Ends when the third newest start leaves the window.
-                let ends = s.starts[starts - policy::DAEMON_LOOP_STARTS]
-                    + policy::DAEMON_LOOP_WINDOW_MS;
+                let ends =
+                    s.starts[starts - policy::DAEMON_LOOP_STARTS] + policy::DAEMON_LOOP_WINDOW_MS;
                 stuck(Cause::DaemonLoop { starts, span_ms }, Mode::Hold).until(ends)
             } else {
                 healthy
@@ -256,7 +258,7 @@ fn evaluate(part: &mut Part, now: u64) -> Cond {
                 if ms >= policy::DAEMON_STALL_MS {
                     stuck(Cause::DaemonStalled { bytes, ms }, Mode::Wait)
                 } else {
-                    slow(Cause::DaemonRestoring { bytes })
+                    slow(Cause::DaemonRestoring { bytes, total: s.size })
                         .until(s.last_progress + policy::DAEMON_STALL_MS)
                 }
             } else {
@@ -452,14 +454,21 @@ impl Health {
                     s.restoring = false;
                 }
                 "exited" => s.restoring = false,
-                "restoreProgress" => {
-                    let bytes = value.unwrap_or(0);
-                    if !s.restoring || bytes > s.restore_bytes {
+                // With bytes read, only more bytes is progress. Without (a daemon whose progress
+                // line has no work counters yet), each line says the owner is still restoring;
+                // its own no-work bound ends a stuck one.
+                "restoreProgress" => match value {
+                    Some(bytes) if s.restoring && bytes <= s.restore_bytes => {}
+                    Some(bytes) => {
                         s.restoring = true;
                         s.restore_bytes = bytes;
                         s.last_progress = now;
                     }
-                }
+                    None => {
+                        s.restoring = true;
+                        s.last_progress = now;
+                    }
+                },
                 "restoreStarted" => {
                     s.roster_since.get_or_insert(now);
                 }
@@ -474,12 +483,21 @@ impl Health {
         self.signal(id, now, |part| part.signals.size = bytes);
     }
 
-    /// The host ran `action` for `id`. A result for an older step is ignored.
+    /// The host ran `action` for `id`. A result for an older step is ignored:
+    /// with `token` (the action's own) exactly, without by its action alone.
     /// `ok` alone never heals a part; `ok: false` makes the next step due now.
-    pub fn repair_result(&mut self, id: &str, action: RepairAction, ok: bool, now: u64) {
+    pub fn repair_result(
+        &mut self,
+        id: &str,
+        action: RepairAction,
+        token: Option<u64>,
+        ok: bool,
+        now: u64,
+    ) {
         let Some(slot) = self.slot(id) else { return };
         let Some(part) = self.part(slot) else { return };
-        if part.repair.attempt == 0 || part.repair.action != action {
+        let stale = token.is_some_and(|token| token != part.repair.sent);
+        if part.repair.attempt == 0 || part.repair.action != action || stale {
             return;
         }
         if !ok && part.repair.next_at.is_some() {
@@ -628,8 +646,9 @@ impl Health {
                         r.history.push_back(now);
                         r.action = policy::step(ladder, r.attempt);
                         r.next_at = Some(now + policy::backoff(r.attempt));
-                        let (action, attempt) = (r.action, r.attempt);
-                        out.push(Action { id: part.id.clone(), kind, action, attempt });
+                        r.sent += 1;
+                        let (action, attempt, token) = (r.action, r.attempt, r.sent);
+                        out.push(Action { id: part.id.clone(), kind, action, attempt, token });
                         let words =
                             detail::receipt_started(kind, action, attempt, policy::MAX_REPAIRS);
                         receipts.push((action, Outcome::Started, words));
@@ -646,8 +665,9 @@ impl Health {
                         r.held = true;
                         r.attempt += 1;
                         r.action = RepairAction::HoldReplace;
-                        let id = part.id.clone();
-                        out.push(Action { id, kind, action: r.action, attempt: r.attempt });
+                        r.sent += 1;
+                        let (id, token) = (part.id.clone(), r.sent);
+                        out.push(Action { id, kind, action: r.action, attempt: r.attempt, token });
                         let words = detail::receipt_started(kind, r.action, r.attempt, 0);
                         receipts.push((r.action, Outcome::Started, words));
                     } else {

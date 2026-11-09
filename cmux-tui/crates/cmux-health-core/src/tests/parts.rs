@@ -1,8 +1,8 @@
 //! Renderers, acpmux, the page host, the roster and pending user actions.
 
 use super::*;
-use crate::State;
 use crate::RepairAction::{Reconnect, RestartConnection, RestartPageHost, RestartRenderer};
+use crate::State;
 
 #[test]
 fn an_unresponsive_renderer_restarts_after_5_s_and_a_crash_at_once() {
@@ -47,7 +47,7 @@ fn acpmux_silent_or_disconnected_reconnects_then_restarts_the_connection() {
         Some(
             "Agent sessions have not answered for 12 s. Restarting the connection (attempt 2 of \
              3)."
-                .into()
+            .into()
         )
     );
     h.event(ID, "connected", 13_000, None);
@@ -101,7 +101,10 @@ fn a_long_roster_restore_is_slow_then_stuck_with_no_action() {
     assert_eq!(h.next_tick_ms(), Some(300_000));
     assert!(run(&mut h, 300_000).is_empty());
     let stuck = part(&h, ID).expect("listed");
-    assert_eq!((stuck.state, stuck.action, stuck.can_repair), (State::Stuck, RepairAction::None, false));
+    assert_eq!(
+        (stuck.state, stuck.action, stuck.can_repair),
+        (State::Stuck, RepairAction::None, false)
+    );
     assert_eq!(stuck.detail, "Restoring workspaces has run for 5 min without finishing.");
     assert_eq!(h.next_tick_ms(), None);
     h.event(ID, "restoreFinished", 310_000, None);

@@ -12,21 +12,45 @@ use crate::{Kind, RepairAction};
 pub enum Cause {
     #[default]
     Healthy,
-    PageSilent { ms: u64 },
-    PageInput { ms: u64 },
+    PageSilent {
+        ms: u64,
+    },
+    PageInput {
+        ms: u64,
+    },
     PageCrashed,
-    RendererUnresponsive { ms: u64 },
+    RendererUnresponsive {
+        ms: u64,
+    },
     RendererCrashed,
     AcpmuxDisconnected,
-    AcpmuxSilent { ms: u64 },
+    AcpmuxSilent {
+        ms: u64,
+    },
     HostListenerMissing,
     HostLoadFailed,
-    DaemonLoop { starts: usize, span_ms: u64 },
-    DaemonRestoring { bytes: u64 },
-    DaemonStalled { bytes: u64, ms: u64 },
-    DaemonOversize { bytes: u64 },
-    RosterSlow { ms: u64 },
-    RosterStuck { ms: u64 },
+    DaemonLoop {
+        starts: usize,
+        span_ms: u64,
+    },
+    DaemonRestoring {
+        bytes: u64,
+        /// The workspace data on disk (`size`), 0 when unknown: the percent's denominator.
+        total: u64,
+    },
+    DaemonStalled {
+        bytes: u64,
+        ms: u64,
+    },
+    DaemonOversize {
+        bytes: u64,
+    },
+    RosterSlow {
+        ms: u64,
+    },
+    RosterStuck {
+        ms: u64,
+    },
 }
 
 /// `bytes` with one decimal and no trailing `.0`: "12.4 GB", "59 GB".
@@ -79,7 +103,13 @@ pub fn cause(cause: Cause) -> String {
              Holding restarts so the current one can finish restoring.",
             duration(span_ms)
         ),
-        Cause::DaemonRestoring { bytes } => {
+        // Read over size only estimates how far a restore got (it rereads some pages and skips others),
+        // so it says "about" and caps at 99: never done before ready.
+        Cause::DaemonRestoring { bytes: 0, .. } => "Restoring workspaces".into(),
+        Cause::DaemonRestoring { bytes, total } if total > 0 => {
+            format!("Restoring workspaces, about {}%", (bytes.saturating_mul(100) / total).min(99))
+        }
+        Cause::DaemonRestoring { bytes, .. } => {
             format!("Restoring workspaces, {} read", human_bytes(bytes))
         }
         Cause::DaemonStalled { bytes, ms } => format!(
