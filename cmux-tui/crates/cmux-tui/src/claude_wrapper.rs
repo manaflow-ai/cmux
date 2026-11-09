@@ -892,6 +892,9 @@ mod tests {
 
         assert!(should_inject(&[], env(&[])));
         assert!(should_inject(&os(&["--model", "opus", "fix the bug"]), env(&[])));
+        assert!(should_inject(&os(&["--autocompact", "1000000", "fix the bug"]), env(&[])));
+        assert!(should_inject(&os(&["--permission-prompts", "host", "fix the bug"]), env(&[])));
+        assert!(should_inject(&os(&["--system-prompt-snapshot", "off", "fix the bug"]), env(&[])));
         assert!(should_inject(&os(&["--resume"]), env(&[])));
         for args in [
             os(&["--version"]),
@@ -900,6 +903,9 @@ mod tests {
             os(&["--autocompact", "1000000", "--help"]),
             os(&["--permission-prompts", "host", "doctor"]),
             os(&["--system-prompt-snapshot", "off", "--version"]),
+            os(&["--autocompact=auto", "doctor"]),
+            os(&["--permission-prompts=host", "doctor"]),
+            os(&["--system-prompt-snapshot=off", "--version"]),
             os(&["mcp", "list"]),
             os(&["--verbose", "doctor"]),
             os(&["agents", "--json"]),
