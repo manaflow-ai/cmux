@@ -61,8 +61,10 @@ final class CloudChatsFlowUITests: XCTestCase {
         // The sheet's first settled state with no live Mac link.
         let before = text(app, containing: "Connect a Mac to see its Cloud chats")
         let after = app.buttons["cloudChats.connectMac"]
-        let settled = before.waitForExistence(timeout: 20) || after.waitForExistence(timeout: 1)
-        XCTAssertTrue(settled, "no-link state\n\(app.debugDescription)")
+        // Whichever build this is: wait for either state, not one then the other (the seconds count).
+        let deadline = Date().addingTimeInterval(20)
+        while !before.exists, !after.exists, Date() < deadline { _ = after.waitForExistence(timeout: 0.25) }
+        XCTAssertTrue(before.exists || after.exists, "no-link state\n\(app.debugDescription)")
         shot(app, "02-no-mac-link")
 
         if after.exists {

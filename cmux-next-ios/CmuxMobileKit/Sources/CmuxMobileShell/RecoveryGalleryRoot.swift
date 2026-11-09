@@ -87,10 +87,10 @@ public struct RecoveryGalleryRoot: View {
                 .padding(.horizontal, 20)
                 galleryLabel("Timed out")
                 CloudChatsConnectFailed(cause: "No answer from atlas-dev through Aziz's Mac Studio in 40 s.") {}
-                    .frame(height: 220)
+                    .frame(height: 300)
                 galleryLabel("No Mac")
                 CloudChatsConnectMac {}
-                    .frame(height: 240)
+                    .frame(height: 300)
             }
             .padding(.vertical, 60)
         }
