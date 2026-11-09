@@ -239,7 +239,9 @@ fn w5s_a_subagents_relayed_send_names_the_subagent_as_a_label() {
             .envs(env.iter().filter(|(_, v)| !v.is_empty()))
             .current_dir(dir.join("p"))
             .stdin(Stdio::null());
-        // `ACPMUX_FROM` reaches the relay as it is: the daemon checks only a `--from` name.
+        // The name reaches the relay as it is, from `ACPMUX_FROM` here or from `--from`: the
+        // daemon's check of a `--from` name (`hub/digest.rs`) runs only on a send it takes, never
+        // on a relayed one. The label code cleans it.
         if let Some(from) = from {
             cmd.env("ACPMUX_FROM", from);
         }
@@ -278,6 +280,10 @@ fn w5s_a_subagents_relayed_send_names_the_subagent_as_a_label() {
     let long = "x".repeat(100);
     let long_sent = as_agent_from(mark, Some(&long));
     assert!(long_sent.status.success(), "{}", text(&long_sent));
+    // Unicode line and paragraph separators and bidi controls are no plain line either.
+    let hidden = "a\u{2028}b\u{2029}c\u{202A}d\u{202E}e\u{2066}f\u{2069}g";
+    let hidden_sent = as_agent_from(mark, Some(hidden));
+    assert!(hidden_sent.status.success(), "{}", text(&hidden_sent));
     let labels = fs::read_to_string(dir.join("labels")).unwrap_or_default();
     let labels: Vec<&str> = labels.lines().skip(2).collect();
     assert_eq!(
@@ -289,6 +295,8 @@ fn w5s_a_subagents_relayed_send_names_the_subagent_as_a_label() {
                 "general-purpose:a0a68e7af3df5967e|{}'s general-purpose subagent a0a68e7a",
                 "x".repeat(64)
             ),
+            "general-purpose:a0a68e7af3df5967e|abcdefg's general-purpose subagent a0a68e7a"
+                .to_owned(),
         ],
         "the label's name is one line of at most 64 bytes"
     );
