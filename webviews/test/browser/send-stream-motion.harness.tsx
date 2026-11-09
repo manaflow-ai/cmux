@@ -48,6 +48,9 @@ import "../../src/agent-session/acpmux/markdownField.css";
 const query = new URLSearchParams(location.search);
 const arm = query.get("arm");
 if (arm) globalThis.cmuxExperiments = { "follow-motion": arm };
+// The page measures the motion itself: a loaded runner's frames never turn the chat's minimal motion
+// on under it (frameBudget.ts FULL_MOTION), unless `?budget=on` asks for the product's budget.
+if (query.get("budget") !== "on") document.documentElement.setAttribute("data-chat-motion", "full");
 if (query.get("motion") === "off") {
   document.documentElement.dataset.agentMotion = "off";
   document.documentElement.dataset.cmuxMotion = "off";

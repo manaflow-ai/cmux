@@ -84,3 +84,21 @@ test("the page's mark: the gate moves nothing, the loop stops when idle, and dis
   budget.dispose();
   expect(doc.documentElement.hasAttribute("data-chat-motion")).toBe(false);
 });
+
+test("a page that pins its motion is never marked minimal", () => {
+  const dom = new JSDOM("<!doctype html><html data-chat-motion=full><body></body></html>", { pretendToBeVisual: true });
+  const doc = dom.window.document;
+  const queue: ((time: number) => void)[] = [];
+  let now = 0;
+  const budget = createFrameBudget(doc, { now: () => now, frame: (callback) => queue.push(callback), cancel: () => {} });
+  budget.poke();
+  for (let index = 0; index < 20; index += 1) {
+    now += 60;
+    for (const callback of queue.splice(0)) callback(now);
+  }
+  expect(budget.minimal).toBe(true);
+  expect(doc.documentElement.getAttribute("data-chat-motion")).toBe("full");
+  expect(motionMode(doc)).not.toBe("none");
+  budget.dispose();
+  expect(doc.documentElement.getAttribute("data-chat-motion")).toBe("full");
+});

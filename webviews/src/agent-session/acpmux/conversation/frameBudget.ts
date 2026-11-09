@@ -19,6 +19,9 @@
 /// The mark on the page (or on any element over the chat, as the gallery's variants set it).
 export const CHAT_MOTION_ATTR = "data-chat-motion";
 export const MINIMAL_MOTION = "minimal";
+/// A page that pins its motion (a test page measuring the motion itself, on a runner whose load is
+/// not the chat's) sets this; the budget then never marks the page.
+export const FULL_MOTION = "full";
 
 /// A display frame at 60 Hz, the slowest display the chat draws on (ms).
 const FRAME = 1000 / 60;
@@ -151,6 +154,7 @@ export function createFrameBudget(doc: Document, clock?: Clock): FrameBudget {
   let disposed = false;
   const apply = () => {
     const root = doc.documentElement;
+    if (root.getAttribute(CHAT_MOTION_ATTR) === FULL_MOTION) return;
     if (state.minimal) root.setAttribute(CHAT_MOTION_ATTR, MINIMAL_MOTION);
     else if (root.getAttribute(CHAT_MOTION_ATTR) === MINIMAL_MOTION) root.removeAttribute(CHAT_MOTION_ATTR);
   };
