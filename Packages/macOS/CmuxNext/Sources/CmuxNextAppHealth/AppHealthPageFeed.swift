@@ -82,6 +82,8 @@ final class AppHealthPageFeed: PageHealthFeed {
         health.event(AppHealth.pageHostID, .loaded)
         let key = ObjectIdentifier(page)
         guard shown[key] != nil else { return }
+        // A new document counts its handled input from 0 (pageHealth.ts), so the next beat compares with that.
+        lastHandled[key] = 0
         health.event(page.healthPartID, .loaded)
         if showingCrashNotice.remove(key) != nil { pageVisibilityChanged(page) }
     }
