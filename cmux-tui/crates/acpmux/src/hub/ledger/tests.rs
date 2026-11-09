@@ -717,3 +717,17 @@ fn a_meta_change_writes_one_session_line_only_when_a_field_changed() {
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_cut_session_list_keeps_the_biggest_spenders() {
+    let l = mem();
+    // The oldest chat spent the most; two newer ones spent less.
+    turn(&l, "old", D0, 0, json!({"costUsd": 9.0}), "claude", "claude");
+    turn(&l, "new", D0 + 10, 0, json!({"costUsd": 1.0}), "claude", "claude");
+    turn(&l, "newer", D0 + 20, 0, json!({"costUsd": 2.0}), "claude", "claude");
+    let reply = l.query(&LedgerQuery { limit: 2, ..all(D0, D0 + 20) });
+    let ids: Vec<_> = reply.rows.iter().map(|r| r.session_id.as_str()).collect();
+    assert_eq!(ids, ["old", "newer"]);
+    // The totals still count every chat.
+    assert_eq!(reply.totals.sessions, 3);
+}
