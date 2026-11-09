@@ -1127,6 +1127,68 @@ class Excusing(unittest.TestCase):
         self.assertIn(f"excused '{SCHEME}'", text)
         self.assertFalse([route for route in self.gh.routes if "/runs/70" in route and "/jobs?" in route])
 
+    def cancelled_tier_setup(self, name, *, cancelled_without_verdict=0):
+        # cmux_next_base_tier.py cancel_superseded (2026-11-09) cancels a superseded base tier run whose daemon tests
+        # (or generated files) finished and whose scheme compile still queued: such a cancelled run has a verdict.
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name=name, step="Run the suites")}
+        self.gh.logs[1] = log(name, "Run the suites", ISSUE)
+        title = "cmux-next base tier · "
+        older = {"id": 40, "event": "workflow_dispatch", "head_branch": "feat-cmux-next", "status": "in_progress",
+                 "conclusion": None, "display_title": title + "e" * 40, "created_at": "2026-11-09T12:00:00Z",
+                 "check_suite_node_id": "CS_40"}
+        self.gh.jobs[4] = failed_job(4, 40, "e" * 40, name=name, step="Run the suites")
+        self.gh.logs[4] = log(name, "Run the suites", ISSUE, OTHER)
+        runs = [older]
+        for offset in range(cancelled_without_verdict):
+            run_id = 7000 + offset
+            runs.append({"id": run_id, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                         "status": "completed", "conclusion": "cancelled",
+                         "display_title": title + f"{offset % 16:x}" * 39 + "0",
+                         "created_at": f"2026-11-09T13:{offset:02d}:00Z", "check_suite_node_id": f"CS_{run_id}"})
+            self.gh.jobs[run_id] = dict(failed_job(run_id, run_id, "0" * 40, name=name), conclusion="cancelled",
+                                        steps=[])
+        self.gh.base_runs = sorted(runs, key=lambda run: run["created_at"], reverse=True)
+
+        def run(args):
+            # The check suites of the listed runs: every check run of the asked name in each, as GraphQL answers.
+            query = next(arg for arg in args if arg.startswith("query="))
+            asked = next(arg for arg in args if arg.startswith("name="))[len("name="):]
+            return json.dumps({"data": {"nodes": [
+                {"id": f"CS_{suite}", "checkRuns": {"pageInfo": {"hasNextPage": False}, "nodes": [
+                    {"conclusion": (job["conclusion"] or "").upper() or None}
+                    for job in self.gh.jobs.values() if job["run_id"] == int(suite) and job["name"] == asked]}}
+                for suite in re.findall(r'"CS_(\d+)"', query)]}})
+
+        self.gh.run = run
+
+    def test_a_cancelled_base_tier_runs_newer_green_stands_over_an_older_red(self):
+        # The kick cancelled run 41 after its daemon tests (or generated files) passed; run 40, older, is red. The
+        # newest verdict is run 41's green: the head's red is its own, never excused by run 40.
+        for name in ("cmux-next daemon tests", "cmux-next generated files"):
+            with self.subTest(job=name):
+                self.setUp()
+                self.cancelled_tier_setup(name)
+                self.gh.base_runs.insert(0, {
+                    "id": 41, "event": "workflow_dispatch", "head_branch": "feat-cmux-next", "status": "completed",
+                    "conclusion": "cancelled", "display_title": "cmux-next base tier · " + "d" * 40,
+                    "created_at": "2026-11-09T12:15:00Z", "check_suite_node_id": "CS_41"})
+                self.gh.jobs[5] = dict(failed_job(5, 41, "d" * 40, name=name, step="Run the suites"),
+                                       conclusion="success")
+                self.gh.jobs[5]["steps"][-1]["conclusion"] = "success"
+                with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 41"):
+                    self.judge()
+
+    def test_cancelled_base_tier_runs_with_no_verdict_spend_no_job_reads(self):
+        # More cancelled base tier runs with no verdict for the job than either lookup reads sit ahead of run 40:
+        # their check suites say so, so none is read or counted, and run 40's red still decides.
+        for name in ("cmux-next daemon tests", "cmux-next generated files"):
+            with self.subTest(job=name):
+                self.setUp()
+                self.cancelled_tier_setup(name, cancelled_without_verdict=excuse.BASE_JOB_READS + 2)
+                text = "\n".join(self.judge())
+                self.assertIn(f"excused '{name}': feat-cmux-next run 40", text)
+                self.assertFalse([route for route in self.gh.routes if "/runs/70" in route and "/jobs?" in route])
+
     def test_tree_jobs_are_jobs_of_the_suites_that_defer_them(self):
         # Only a tip daemon suite or base tier run defers its tree jobs; a name outside them skips nothing.
         self.assertLessEqual(excuse.TREE_JOBS, excuse.SUITES["cmux-next base tier · "])
@@ -1763,6 +1825,24 @@ class StatusOnlyChecks(unittest.TestCase):
         self.head_run["display_title"] = "cmux-next tip daemon suite · " + "c" * 40
         with self.assertRaisesRegex(excuse.Refused, "which tested cccccccccccc"):
             self.judge()
+
+    def test_a_fast_gates_red_is_the_prs_own_and_never_compared_by_the_dispatch_head(self):
+        """2026-11-09, cmux#38640: a dispatched cmux-next-fast-gates.yml run tests the PR head merged into the
+        feat-cmux-next tip, so its head_sha is the tip. The refusal read "its status links run 42644887804, which
+        tested 144fbacf8328, not 6115...", as if the run tested another commit. A fast-gates red is never a base red:
+        it is refused as the PR's own, naming the base it ran on and the run, before any head_sha comparison."""
+        self.status = {"context": excuse.FAST_GATES_STATUS, "state": "failure",
+                       "target_url": f"https://github.com/{REPO}/actions/runs/10", "description": f"base {BASE_SHA}"}
+        self.head_run = {"id": 10, "workflow_id": 7, "head_sha": BASE_SHA, "event": "workflow_dispatch",
+                         "display_title": "cmux-next fast gates"}
+        with self.assertRaises(excuse.Refused) as refused:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[excuse.FAST_GATES_STATUS])
+        why = str(refused.exception)
+        self.assertIn("the pull request's own", why)
+        self.assertIn(f"base {BASE_SHA[:12]}", why)
+        self.assertIn("run 10", why)
+        self.assertNotIn("which tested", why)
+        self.assertFalse([r for r in self.gh.routes if r.endswith("/actions/runs/10")])  # the status decides
 
     def test_a_status_whose_run_has_no_such_job_is_refused_with_its_description(self):
         # same-tree-cmux-tui posts a failure when the tree is unavailable: no daemon tests ran.

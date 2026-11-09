@@ -97,9 +97,6 @@ fn run(global: &GlobalArgs, command: &[String]) -> Option<i32> {
     if super::canonical_scope(first) == "workspace" {
         return super::worktree_workspace::run(global, rest);
     }
-    if super::canonical_scope(first) == "pane" {
-        return super::pane_move::run(global, rest);
-    }
     if first != "status" {
         return None;
     }
