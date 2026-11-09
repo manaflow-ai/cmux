@@ -1484,14 +1484,15 @@ fi
 # check-path loop reruns the fast gates on the new tip inside what --wait left, and the merged-tree
 # checks run again, since they too ran on the old tip; then check again. The head-only gates
 # (conflict markers, freezes, the review receipt) do not depend on the base and are not repeated.
+# Not a poll: each round after the first waits for a dispatched fast-gates run, and the
+# check-path gate refuses once --wait has less than one run (300s) left, so the rounds end.
 final_check_paths() {
   [ "$base" = feat-cmux-next ] && [ "$gate_mode" != main-fix ] && [ "$check_paths_listed" -eq 1 ] || return 0
-  while :; do
-    check_paths_gate final
-    [ "$check_paths_ran" -eq 1 ] || return 0
-    echo "note: $base changed a check path after the check-path gate passed; the merged-tree checks run again on the new tip" >&2
-    merged_tree_gate
-  done
+  check_paths_gate final
+  [ "$check_paths_ran" -eq 1 ] || return 0
+  echo "note: $base changed a check path after the check-path gate passed; the merged-tree checks run again on the new tip" >&2
+  merged_tree_gate
+  final_check_paths
 }
 final_check_paths
 if [ -n "$trust_fork_head" ]; then
