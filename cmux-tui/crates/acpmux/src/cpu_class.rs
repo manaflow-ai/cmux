@@ -30,6 +30,12 @@
 //!    of a harness that is only a launcher (a script or adapter that starts the agent as a child
 //!    and waits for it), whose turns then run at normal class. acpmux does not list processes
 //!    (`scripts/cmux-next/check-no-process-scan.py`), so only the harness itself is reniced, once.
+//!    So a Claude Code launcher defaults to `normal` ([`default_for`]): lowering it cannot reach
+//!    its agent's tools, and it can carry the agent's stream. `sr2 claude` relays Claude Code's
+//!    stdin and stdout, so at background class on a busy Mac (2026-11-08, load 450 on 15 cores)
+//!    what Claude Code wrote reached acpmux 6.5 s late at the median and 54 s at p90, against
+//!    0.1 s at p90 for the relays moved back to normal class in the same minutes. A tool call
+//!    whose PreToolUse hook got no answer within its 90 s was refused ("hook did not respond").
 //! 3. A cold start that still fails or misses its deadline with its harness at background class
 //!    (set again during the start by another process) is retried once, and the retry is logged.
 //! 4. A start that misses its deadline says what its harness was doing ([`HarnessSeen`]): alive or
@@ -47,7 +53,8 @@
 //! The class, first set wins: the profile's env `ACPMUX_SESSION_CPU_CLASS` as the harness gets it
 //! (its `${env:…}` references resolved; one build-heavy profile can opt out), the daemon's env
 //! `ACPMUX_SESSION_CPU_CLASS`, config `session.cpuClass`
-//! (`acpmux config --set session.cpu_class=normal`), then `background`. Linux sessions get their
+//! (`acpmux config --set session.cpu_class=normal`), then [`default_for`] the harness:
+//! `background`, or `normal` for a Claude Code launcher. Linux sessions get their
 //! CPU share from their cgroup scope's `CPUWeight` instead (`session_scope.rs`), and other
 //! platforms start harnesses as before: there the class is read and ignored.
 
@@ -67,8 +74,30 @@ pub enum CpuClass {
     Background,
 }
 
-/// The class a session runs at when nothing names one.
+/// The class a session runs at when nothing names one, and its harness is no launcher.
 pub const DEFAULT: CpuClass = CpuClass::Background;
+
+/// Where Claude Code's installers keep its files (as `harness_health/channel.rs` lists them). A
+/// path into one of them is Claude Code under another name: the native installer's `claude` is a
+/// symlink to `versions/<version>`, and a remote chain's `argv[0]` is the resolved file.
+const CLAUDE_INSTALLS: &[&str] =
+    &["/.local/share/claude/", "/.claude/local/", "/@anthropic-ai/claude-code/"];
+
+/// The class a harness runs at when nothing names one (module docs, item 2). What the profile
+/// says decides, never what another process is named. A Claude Code profile whose `argv` does not
+/// start with Claude Code is a launcher. A wrapper that execs Claude Code reads as one too, and
+/// then it and its tools run at normal class; its profile can still ask for `background`.
+/// It reads the profile's `argv`, not the spawned program: a remote chain spawns `sandbox-exec`
+/// whatever the profile runs. An empty `argv` runs `claude` (`claude_stdio::spawn_plan`).
+pub fn default_for(kind: crate::config::HarnessKind, argv: &[String]) -> CpuClass {
+    let launcher = kind == crate::config::HarnessKind::ClaudeStdio
+        && argv.first().is_some_and(|program| {
+            let name = std::path::Path::new(program).file_name().and_then(|name| name.to_str());
+            !matches!(name, Some("claude" | "claude.exe"))
+                && !CLAUDE_INSTALLS.iter().any(|install| program.contains(install))
+        });
+    if launcher { CpuClass::Normal } else { DEFAULT }
+}
 
 impl CpuClass {
     /// `normal` or `background` (any case, trimmed); None for anything else.
@@ -80,25 +109,39 @@ impl CpuClass {
         }
     }
 
-    /// The class of a session whose harness gets the environment `harness_env` (the command's
-    /// complete one: the profile's values resolved, the daemon's own `ACPMUX_*` removed), with the
-    /// daemon's env and config read now (at each spawn, as the session scope's limits are).
+    /// The class of a session whose harness has `kind` and `argv` in its profile and gets the
+    /// environment `harness_env` (the command's complete one: the profile's values resolved, the daemon's own
+    /// `ACPMUX_*` removed), with the daemon's env and config read now (at each spawn, as the
+    /// session scope's limits are).
     #[cfg(target_os = "macos")]
-    pub fn for_session<'a>(harness_env: impl IntoIterator<Item = (&'a str, &'a str)>) -> Self {
+    pub fn for_session<'a>(
+        kind: crate::config::HarnessKind,
+        argv: &[String],
+        harness_env: impl IntoIterator<Item = (&'a str, &'a str)>,
+    ) -> Self {
         let profile = harness_env.into_iter().find(|(k, _)| *k == ENV).map(|(_, v)| v);
         let config = crate::config::Config::load().ok().and_then(|c| c.session.cpu_class);
-        Self::resolve(profile, std::env::var(ENV).ok(), config)
+        Self::resolve(profile, std::env::var(ENV).ok(), config, default_for(kind, argv))
     }
 
     /// Off macOS: `normal`, with nothing read.
     #[cfg(not(target_os = "macos"))]
-    pub fn for_session<'a>(_harness_env: impl IntoIterator<Item = (&'a str, &'a str)>) -> Self {
+    pub fn for_session<'a>(
+        _kind: crate::config::HarnessKind,
+        _argv: &[String],
+        _harness_env: impl IntoIterator<Item = (&'a str, &'a str)>,
+    ) -> Self {
         Self::Normal
     }
 
     /// The first valid of the profile's value, the daemon's env value and config's, else
-    /// [`DEFAULT`]. A value that names no class is skipped, with a warning.
-    pub fn resolve(profile: Option<&str>, daemon: Option<String>, config: Option<Self>) -> Self {
+    /// `default`. A value that names no class is skipped, with a warning.
+    pub fn resolve(
+        profile: Option<&str>,
+        daemon: Option<String>,
+        config: Option<Self>,
+        default: Self,
+    ) -> Self {
         let named = |source: &str, value: Option<&str>| {
             let value = value?;
             let class = Self::parse(value);
@@ -110,7 +153,7 @@ impl CpuClass {
         named("profile env", profile)
             .or_else(|| named("daemon env", daemon.as_deref()))
             .or(config)
-            .unwrap_or(DEFAULT)
+            .unwrap_or(default)
     }
 
     /// Puts the running harness `pid` in this class (macOS; elsewhere nothing). Only
@@ -518,22 +561,51 @@ mod imp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::HarnessKind;
+
+    /// `sr2 claude` is the case that starved (module docs, item 2).
+    #[test]
+    fn a_claude_launcher_defaults_to_normal_and_claude_itself_to_background() {
+        let default = |kind, program: &str| default_for(kind, &[program.to_owned()]);
+        for launcher in ["/Users/me/.local/bin/claude-sr2", "/Users/me/bin/sr", "sr2", "python3"] {
+            assert_eq!(default(HarnessKind::ClaudeStdio, launcher), CpuClass::Normal, "{launcher}");
+        }
+        for agent in [
+            "claude",
+            "/opt/homebrew/bin/claude",
+            "/x/bin/claude.exe",
+            "/Users/me/.local/share/claude/versions/2.1.34",
+            "/Users/me/.claude/local/node_modules/.bin/cli",
+            "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+        ] {
+            assert_eq!(default(HarnessKind::ClaudeStdio, agent), DEFAULT, "{agent}");
+        }
+        // An empty argv runs `claude`.
+        assert_eq!(default_for(HarnessKind::ClaudeStdio, &[]), DEFAULT);
+        // Another protocol keeps the default: no case of a relay is known there.
+        assert_eq!(default(HarnessKind::Acp, "/Users/me/.local/bin/codex"), DEFAULT);
+        assert_eq!(default(HarnessKind::Acp, "sr2"), DEFAULT);
+    }
 
     #[test]
-    fn the_first_valid_source_names_the_class_else_background() {
+    fn the_first_valid_source_names_the_class_else_the_default() {
         let bg = Some(CpuClass::Background);
-        assert_eq!(CpuClass::resolve(None, None, None), CpuClass::Background);
-        assert_eq!(CpuClass::resolve(None, None, Some(CpuClass::Normal)), CpuClass::Normal);
+        let normal = Some(CpuClass::Normal);
+        let resolve = |profile, daemon, config| CpuClass::resolve(profile, daemon, config, DEFAULT);
+        assert_eq!(resolve(None, None, None), CpuClass::Background);
+        assert_eq!(resolve(None, None, normal), CpuClass::Normal);
         // The daemon's env overrides config; the profile overrides both.
-        assert_eq!(CpuClass::resolve(None, Some("normal".into()), bg), CpuClass::Normal);
-        assert_eq!(
-            CpuClass::resolve(Some("background"), Some("normal".into()), Some(CpuClass::Normal)),
-            CpuClass::Background
-        );
-        assert_eq!(CpuClass::resolve(Some(" Normal "), None, bg), CpuClass::Normal);
+        assert_eq!(resolve(None, Some("normal".into()), bg), CpuClass::Normal);
+        assert_eq!(resolve(Some("background"), Some("normal".into()), None), CpuClass::Background);
+        assert_eq!(resolve(Some(" Normal "), None, bg), CpuClass::Normal);
         // A value that names no class is skipped.
-        assert_eq!(CpuClass::resolve(Some("utility"), Some("normal".into()), bg), CpuClass::Normal);
-        assert_eq!(CpuClass::resolve(Some(""), None, None), CpuClass::Background);
+        assert_eq!(resolve(Some("utility"), Some("normal".into()), bg), CpuClass::Normal);
+        assert_eq!(resolve(Some(""), None, None), CpuClass::Background);
+        // What the harness defaults to comes last: any named class wins over it.
+        let launcher = |profile, config| CpuClass::resolve(profile, None, config, CpuClass::Normal);
+        assert_eq!(launcher(None, None), CpuClass::Normal);
+        assert_eq!(launcher(Some("background"), None), CpuClass::Background);
+        assert_eq!(launcher(None, bg), CpuClass::Background);
     }
 
     /// The 2026-11-04 stall: `sr2 claude` waits on its `claude`, which does the work. A launcher

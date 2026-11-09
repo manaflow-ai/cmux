@@ -150,6 +150,9 @@ import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
 import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { EmojiMenu } from "./EmojiMenu";
+import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
+import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
+import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
 import { MachineLinkStatus } from "./MachineLinkStatus";
 import { peerLink, type PeerLink } from "./peerLink";
 import { composerHoldsDraft } from "./conversation/wakeFolds";
@@ -257,6 +260,9 @@ export type ComposerWake = {
 
 type Props = {
   snapshot: AcpmuxSnapshot;
+  /// The harnesses the @ menu offers as read-only guests: only where the chat's daemon serves
+  /// them (App's `guestsHere`). Undefined: none.
+  guestHarnesses?: AcpmuxSnapshot["catalog"];
   /// The native tab's folder, which the header's PR chip describes. A fresh chat's folder pick
   /// (`projectDraft`) moves `snapshot`'s cwd but not the tab's until the chat starts, so the
   /// header's PR belongs to another folder then.
@@ -277,6 +283,9 @@ type Props = {
   /// Binds the person's current key press or click to one prompt (`transport.gesture`), for a send
   /// the composer holds until its files are ready (attachmentIntake.tsx `useSendWhenAttached`).
   onBindSendGesture?(): SendGesture | undefined;
+  /// Whether the chat's transcript is at its latest row now (VirtualTranscript's follow, App.tsx
+  /// `followingTranscript`): a prompt sent away from it tucks behind the composer (conversation/sendTuck.ts).
+  transcriptFollowing?(): boolean;
   onStop(): void;
   /// Withdraws a queued prompt (`_acpmux/queue_remove`); false when it already started.
   onQueueRemove?(promptId: string): Promise<boolean>;
@@ -460,10 +469,12 @@ export function Composer(props: Props) {
 /// so its arguments can follow.
 function ComposerFrame({
   snapshot,
+  guestHarnesses,
   headerCwd,
   chips: Chips,
   onSend,
   onBindSendGesture,
+  transcriptFollowing,
   onStop,
   onQueueRemove,
   onQueueCancelEdit,
@@ -1244,7 +1255,7 @@ function ComposerFrame({
   const chatId = snapshot.summary?.sessionId;
   const otherChats = useMemo(() => hasOtherChats(snapshot.sessions, chatId), [snapshot.sessions, chatId]);
   const mentionTyped =
-    !open && !recalling && (searchFiles || otherChats) && mentionDismissed !== text
+    !open && !recalling && (searchFiles || otherChats || snapshot.catalog.length > 0) && mentionDismissed !== text
       ? mentionQuery(text, markdownOffset(text, caret))
       : undefined;
   const mentionWord = mentionTyped?.query;
@@ -1264,8 +1275,9 @@ function ComposerFrame({
             recent: loadRecentMentionPaths(recentScope),
             sessions: snapshot.sessions,
             chatId,
+            harnesses: guestHarnesses,
           }),
-    [mentionWord, mentionFiles, snapshot.sessions, chatId, recentScope],
+    [mentionWord, mentionFiles, snapshot.sessions, guestHarnesses, chatId, recentScope],
   );
   // A chat whose folder cannot be searched (a remote chat) opens the picker only on a matching
   // chat; it never hints at a file search.
@@ -1418,7 +1430,7 @@ function ComposerFrame({
   const submit = (event: { preventDefault(): void }): boolean => {
     event.preventDefault();
     // Send does what Return does: mid-turn it steers an agent that steers, else it queues.
-    return send(false, steersAlways || returnSteers);
+    return send(false, steersAlways || returnSteers || steersUnseen);
   };
   /// `kept`: the gesture an earlier hold of this send bound (`useSendWhenAttached`). `route` "side":
   /// the draft goes as `/side`'s prompt, to a side chat forked from this one (Send's menu).
@@ -1599,10 +1611,23 @@ function ComposerFrame({
     // (composer/pasteMarks.ts); a slash command's text stays the command.
     const marked = isCommand ? placed : markPastes(placed, box.current?.pastes() ?? []);
     const sent = marked.attachments;
+    // What the composer draws of the prompt as it goes: sent from the latest row, it becomes the
+    // sent message from there (conversation/sendMorph.ts).
+    noteSendOrigins(sent, composerBox.current);
+    // Sent away from the transcript's latest row, it waterfalls over the composer and tucks behind it.
+    const following = transcriptFollowing?.() ?? true;
+    const tucks = sendTucks({
+      following,
+      ridesToLatest: shouldScrollToBottomAfterSend(scrollToBottomOnSend, following),
+    });
+    // Its copy is the prompt as sent: a send taken later clears a composer that may hold the next draft.
+    const tuck = tucks ? tuckContent(composerBox.current, marked.text) : undefined;
     const taken = onSend(marked.text, sent, steer, kept);
+    if (taken === false || taken instanceof Promise) keepSendOrigins();
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
     const clear = (rest = "") => {
+      if (tuck) tuckSent(composerBox.current, tuck);
       const went = new Set(sent.map((attachment) => attachment.id));
       box.current?.sent(went);
       setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
@@ -1939,7 +1964,7 @@ function ComposerFrame({
       event.preventDefault();
       const typed = typedWords().trim() !== "";
       const sendAndOpen = (gesture?: SendGesture) => {
-        const sent = submitNow.current(false, steersAlways, gesture);
+        const sent = submitNow.current(false, steersAlways || steersUnseen, gesture);
         // A prompt the host refused stays in the composer, and the chat stays here.
         if (typed && !sent) return;
         openInWindow.current?.(sent);
@@ -2056,6 +2081,15 @@ function ComposerFrame({
   // Queueing off (ChatGPT's and Codex's "Turn off queueing", queueing.ts): ⌘Return and Send steer
   // too, so nothing new waits. An agent that cannot steer still runs it after the turn.
   const steersAlways = steers && !queueing;
+  // Before the pane hears that a turn runs (one another agent's message, a trigger or an automatic
+  // retry started a moment ago), what is sent still goes as a steer to an agent that steers: acpmux
+  // steers it into a turn that runs and starts a turn when none does, so a Return never waits behind
+  // a turn the pane had not shown yet (Leo, 2026-11-05: "hey what the is my thing auto queuing rn?").
+  const steersUnseen =
+    !shell &&
+    !snapshot.isWorking &&
+    snapshot.summary?.steering === true &&
+    !commandWaitsForTurn(text, snapshot.summary?.harness, commands);
   // Mid-turn an agent that steers keeps Claude desktop's "Type / for commands" (Leo 2026-11-03:
   // "well the enter/cmd enter used to be claude code's placeholder... now they have this"); the
   // Send button's tooltip names ↵ steer and ⌘↵ queue instead. The Quick Composer's ⌘Return opens
@@ -2389,7 +2423,7 @@ function ComposerFrame({
   const chooseSend = (choice: SendChoice) => {
     if (choice === "side") send(false, false, undefined, "side");
     // Queue for later is ⌘Return; Send is the button's own send.
-    else send(false, choice === "queue" ? steersAlways : steersAlways || returnSteers);
+    else send(false, choice === "queue" ? steersAlways : steersAlways || returnSteers || steersUnseen);
   };
   const sendOrStop =
     stop && !hasDraft && !listening ? (

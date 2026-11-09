@@ -76,6 +76,12 @@ pub struct Delivery {
     /// (`server/requests.rs` `owner_terminal`) and stays unverified, as the send itself was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unproven_caller: Option<String>,
+    /// The sender's connection declared no terminal (`cli_caller.rs`: an old acpmux CLI, or a
+    /// shell in an acpmux session's environment whose token proved nothing): the replay declares
+    /// an agent's shell, so it is no owner's terminal send either. False for a record saved
+    /// before the field.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub not_terminal: bool,
     pub state: State,
     #[serde(default)]
     pub attempts: u32,
@@ -298,6 +304,7 @@ impl Outbox {
             request: json!({"teamOrigin": true, "_meta": {"acpmux": {"promptId": key}}}),
             caller: caller.map(str::to_owned),
             unproven_caller: None,
+            not_terminal: false,
             state: State::Delivered,
             attempts: 0,
             never_sent: false,
@@ -530,6 +537,7 @@ mod tests {
             request: json!({"sessionId": "lane", "_meta": {"acpmux": {"promptId": format!("p-{n}")}}}),
             caller: None,
             unproven_caller: None,
+            not_terminal: false,
             state: State::Queued,
             attempts: 0,
             never_sent: false,
@@ -767,6 +775,7 @@ mod tests {
             request,
             caller: None,
             unproven_caller: None,
+            not_terminal: false,
             state: State::Queued,
             attempts: 0,
             never_sent: false,

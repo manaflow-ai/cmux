@@ -33,7 +33,7 @@ await requireBrowserLane("send-motion-reduced.test.ts", async () => {
   // nonzero clock, with opacity-only keyframes; the bubble's edge never moves.
   const FADES = new Set(["cv-enter-fade", "cv-message-enter"]);
   for (const path of [
-    { name: "system", media: "reduce" as const, tokens: "--agent-motion-send: 265ms; --agent-motion-send-fade: 265ms" },
+    { name: "system", media: "reduce" as const, tokens: "--agent-motion-send: 180ms; --agent-motion-send-fade: 180ms" },
     {
       name: "app",
       media: "no-preference" as const,

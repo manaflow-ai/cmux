@@ -20,6 +20,14 @@ private nonisolated final class RemoteLinkCalls: Sendable {
     var value: Int { count.withLock { $0 } }
 }
 
+/// Polls `condition` on the wall clock until it holds or `limit` passes; true when it held. It ends the
+/// instant the condition holds: for an attempt that must come, `limit` bounds only the failure; for one
+/// that must not come (the app has no timer left to fake, and nothing signals that no attempt was made),
+/// it is the window that attempt had.
+@MainActor private func comes(within limit: Duration, _ condition: () -> Bool) async -> Bool {
+    await RapidWorkspaceCreateTests.wait(within: limit, until: condition)
+}
+
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct RemoteLinkOneRedialerTests {
     private static func service(_ calls: RemoteLinkCalls, followsLink: Bool) -> DaemonService {
         let daemon = DaemonService(machineID: "ssh:one-redialer-\(UUID().uuidString)")
@@ -33,9 +41,11 @@ private nonisolated final class RemoteLinkCalls: Sendable {
     @Test func aLinkThatFollowsItsOwnStateGetsOneFirstAttemptAndNoTimedRetries() async throws {
         let calls = RemoteLinkCalls()
         let daemon = Self.service(calls, followsLink: true)
-        try await Task.sleep(for: .milliseconds(2000))
+        let attempted = await comes(within: .seconds(10)) { calls.value >= 1 }
+        let retried = await comes(within: .milliseconds(2000)) { calls.value > 1 }
         daemon.shutdownConnection()
-        #expect(calls.value == 1, "the app dialed a link that redials by itself \(calls.value) times")
+        #expect(attempted, "the app made no first attempt")
+        #expect(!retried, "the app dialed a link that redials by itself \(calls.value) times")
     }
 
     /// The legacy route (a server's own socket or bridge, a Cloud ticket) still paces its own retries:
@@ -43,20 +53,22 @@ private nonisolated final class RemoteLinkCalls: Sendable {
     @Test func theLegacyRouteStillRetriesOnATimer() async throws {
         let calls = RemoteLinkCalls()
         let daemon = Self.service(calls, followsLink: false)
-        try await Task.sleep(for: .milliseconds(2000))
+        let retried = await comes(within: .seconds(10)) { calls.value >= 2 }
         daemon.shutdownConnection()
-        #expect(calls.value >= 2, "the legacy first-connect pacer made \(calls.value) attempts")
+        #expect(retried, "the legacy first-connect pacer made \(calls.value) attempts")
     }
 
     @Test func theLinksStateWakesTheWaitingAttemptOnce() async throws {
         let calls = RemoteLinkCalls()
         let daemon = Self.service(calls, followsLink: true)
-        try await Task.sleep(for: .milliseconds(1000))
-        #expect(calls.value == 1, "the first attempt, and no timed retry")
+        defer { daemon.shutdownConnection() }
+        try #require(await comes(within: .seconds(10)) { calls.value >= 1 }, "the app made no first attempt")
+        let retried = await comes(within: .milliseconds(1000)) { calls.value > 1 }
+        #expect(!retried, "the first attempt, and no timed retry (\(calls.value) attempts)")
         daemon.retryWake.fire()
-        try await Task.sleep(for: .milliseconds(1000))
-        #expect(calls.value == 2, "one wake (the link reported connected) makes exactly one attempt")
-        daemon.shutdownConnection()
+        try #require(await comes(within: .seconds(10)) { calls.value >= 2 }, "the wake made no attempt")
+        let again = await comes(within: .milliseconds(1000)) { calls.value > 2 }
+        #expect(!again, "one wake (the link reported connected) makes exactly one attempt (\(calls.value) attempts)")
     }
 
     /// Review of 5b0b637, F2: a link process that keeps reporting connected and exiting before the daemon's
@@ -65,21 +77,22 @@ private nonisolated final class RemoteLinkCalls: Sendable {
     @Test func linkWakesAreBoundedUntilAConnectionOrAReconnect() async throws {
         let calls = RemoteLinkCalls()
         let daemon = Self.service(calls, followsLink: true)
-        try await Task.sleep(for: .milliseconds(300))
+        defer { daemon.shutdownConnection() }
+        try #require(await comes(within: .seconds(10)) { calls.value >= 1 }, "the app made no first attempt")
         for _ in 0..<25 {
             daemon.linkWake()
-            try await Task.sleep(for: .milliseconds(60))
+            try await Task.sleep(for: .milliseconds(60)) // pacing: the link reporting connected again and again
         }
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(calls.value <= 1 + DaemonService.linkWakeLimit, "link wakes made \(calls.value) attempts")
+        let unbounded = await comes(within: .milliseconds(300)) { calls.value > 1 + DaemonService.linkWakeLimit }
+        #expect(!unbounded, "link wakes made \(calls.value) attempts")
         let bounded = calls.value
         daemon.reconnectNow()
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(calls.value == bounded + 1, "Reconnect still wakes it")
+        try #require(await comes(within: .seconds(10)) { calls.value >= bounded + 1 }, "Reconnect still wakes it")
+        let extra = await comes(within: .milliseconds(300)) { calls.value > bounded + 1 }
+        #expect(!extra, "Reconnect made one attempt (\(calls.value - bounded) attempts)")
         daemon.linkWake()
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(calls.value == bounded + 2, "Reconnect gives the link wakes their budget back")
-        daemon.shutdownConnection()
+        try #require(await comes(within: .seconds(10)) { calls.value >= bounded + 2 }, "Reconnect gives the link wakes their budget back")
+        #expect(calls.value == bounded + 2, "one link wake made one attempt (\(calls.value - bounded - 1) attempts)")
     }
 
     /// The link reporting connected again, or its process exiting, wakes the daemon connection; other
@@ -217,8 +230,8 @@ private nonisolated final class RemoteLinkCalls: Sendable {
         #expect(Self.identifies(log) == 2)
         // The link's automatic wake (it reported connected) does not retry an incompatible daemon.
         daemon.retryWake.fire()
-        try await Task.sleep(for: .milliseconds(700))
-        #expect(Self.identifies(log) == 2, "an automatic wake retried an incompatible daemon")
+        let retried = await comes(within: .milliseconds(700)) { Self.identifies(log) > 2 }
+        #expect(!retried, "an automatic wake retried an incompatible daemon")
         // Reconnect does: the session routes it to the daemon (`daemonDown`), which makes a new attempt.
         let host = try SSHHost(destination: SSHDestination(parsing: "reconnect-after-failure.invalid"))
         let session = SSHMachineSession(host: host, binary: URL(fileURLWithPath: "/usr/bin/false"),
@@ -276,8 +289,9 @@ private nonisolated final class RemoteLinkCalls: Sendable {
         daemon.reconnectNow()
         try await Self.waitUntil { Self.identifies(log) == 3 && { if case .failed = daemon.store.connectionState { true } else { false } }() }
         daemon.retryWake.fire()
-        try await Task.sleep(for: .milliseconds(700))
-        #expect(calls.withLock { $0 } == 4, "the earlier Reconnect retried the incompatible daemon with no new request")
+        let retried = await comes(within: .milliseconds(700)) { calls.withLock { $0 } > 4 }
+        #expect(!retried, "the earlier Reconnect retried the incompatible daemon with no new request")
+        #expect(calls.withLock { $0 } == 4, "\(calls.withLock { $0 }) endpoint calls")
         daemon.reconnectNow()
         try await Self.waitUntil { if case .connected = daemon.store.connectionState { true } else { false } }
         #expect(Self.identifies(log) == 4)
@@ -297,11 +311,13 @@ private nonisolated final class RemoteLinkCalls: Sendable {
             calls.hit()
             throw DaemonError.endpointBlocked("Host key verification failed.")
         }, requiredCapabilities: [], followsLink: true)
-        try await Task.sleep(for: .milliseconds(1000))
-        #expect(calls.value == 1, "the blocked first attempt, then a wait for an event")
+        try #require(await comes(within: .seconds(10)) { calls.value >= 1 }, "the app made no first attempt")
+        let retried = await comes(within: .milliseconds(1000)) { calls.value > 1 }
+        #expect(!retried, "the blocked first attempt, then a wait for an event (\(calls.value) endpoint calls)")
         // The person fixed known_hosts and came back to the app: activation opens the gate and wakes the daemon.
         session.wake(.appActivated)
-        try await Task.sleep(for: .milliseconds(1000))
-        #expect(calls.value == 2, "activation retried a blocked endpoint with no Reconnect (\(calls.value) endpoint calls)")
+        let woke = await comes(within: .seconds(10)) { calls.value >= 2 }
+        #expect(woke, "activation retried a blocked endpoint with no Reconnect (\(calls.value) endpoint calls)")
+        #expect(calls.value == 2, "one activation made one attempt (\(calls.value) endpoint calls)")
     }
 }

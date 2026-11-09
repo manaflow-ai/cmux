@@ -156,6 +156,10 @@ impl Hub {
         // behind adoption's recovered turn below.
         self.session_log(session).await;
         self.wait_adopted(session).await;
+        // A watched Claude chat whose app still runs it takes the prompt into that app (`bridge.rs`).
+        if let Some(answer) = self.bridged_prompt(session, &blocks, &mut opts).await {
+            return answer;
+        }
         // A prompt the daemon sends for a session (a workflow's step, its nudge) names that
         // session: with no provenance its record would read as the person's own.
         if opts.provenance.is_none()
@@ -487,6 +491,7 @@ impl Hub {
                     opts.provenance.as_ref(),
                     opts.human_authenticated,
                     opts.wake_or_fail,
+                    opts.reply_reader.clone(),
                     &mut accept,
                 ))
                 .await;
@@ -577,6 +582,21 @@ impl Hub {
         let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         // What it asks of this chat: another agent's only, `result` when it named none.
         let class = crate::prompt_class::of_message(opts.class, agent.is_some());
+        // A question no caller reads the reply of, from a session that did not start this chat
+        // and that the inbox did not take: its reply goes back when the turn that answers it ends
+        // (`question_replies.rs`). It is due under this prompt until its turn is known: its steer
+        // is written into the running turn (`steer_end.rs`), or its own turn starts (below).
+        // Dropped with this request when neither happened.
+        let _reply_due = {
+            let provenance = opts.provenance.as_ref();
+            let subagent = provenance
+                .and_then(|p| p.get(crate::prompt_provenance::FROM_SUBAGENT))
+                .filter(|s| s.is_object())
+                .cloned();
+            let reads = opts.reply_reader.is_some() || opts.wake_or_fail;
+            let asker = super::question_replies::asker_of(provenance);
+            self.question_reply_pending(session, &prompt_id, asker, subagent, class, reads)
+        };
         if steer_now {
             if cloud_turn.is_some() {
                 return Err(RpcError::invalid_params(
@@ -584,11 +604,18 @@ impl Hub {
                 ));
             }
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
+            let steer_id = prompt_id.clone();
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
             // Boxed: the steer's future stays out of this one, which every prompt's caller holds
             // on its stack (a debug build's test thread has little room).
-            return Box::pin(self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept))
-                .await;
+            let steered =
+                Box::pin(self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept))
+                    .await;
+            // A steer refused or taken back unread answers no question in that turn.
+            if steered.is_err() {
+                self.question_replies_settled(session, &steer_id, false);
+            }
+            return steered;
         }
         // An automatic continuation runs only while its chat still ends on the cut turn: no await
         // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
@@ -818,6 +845,11 @@ impl Hub {
         // the turn has started, so none leaves the queue for a turn that never runs. A forum push
         // is no agent's message: it never leads one.
         let parts = self.take_joined(session, &run, &prompt_id, &turn_id, joined);
+        // This turn answers the questions its prompt and the joined ones carry
+        // (`question_replies.rs`).
+        for id in std::iter::once(&prompt_id).chain(parts.iter().map(|part| &part.prompt_id)) {
+            self.question_reply_in_turn(session, id, &turn_id);
+        }
         let team_prompt_ids: Vec<_> = std::iter::once(prompt_id.clone())
             .chain(parts.iter().map(|part| part.prompt_id.clone()))
             .collect();
@@ -867,7 +899,10 @@ impl Hub {
                 m.delegator = Some(from);
             }
             // One shared turn path applies the creation snapshot exactly once, including
-            // queued/CLI prompts. A settings edit never changes an already-created chat.
+            // queued/CLI prompts. A settings edit never changes an already-created chat. The
+            // rules on a system-level channel are not in it: the spawn gives them
+            // (`context_inventory::launch_args`). Appended, never put first: a client's display
+            // parts name the person's blocks by index.
             if !m.cmux_context_delivered && control != Control::Web {
                 crate::context_inventory::append_snapshot(m.cmux_context.as_deref(), &mut blocks);
             }
@@ -998,6 +1033,19 @@ impl Hub {
                 drop(guard);
                 return Err(e);
             }
+        };
+        // cmux's rules on a system-level channel that this agent's start did not carry (its own
+        // value, rules too long for one argument, a chat moved under a guard): once, in this
+        // message, like the first message's context. Read after the start, which records the
+        // command line it ran (`spawn_argv`).
+        let rules_owed = control != Control::Web && {
+            let m = session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            !m.cmux_rules_in_transcript
+                && crate::context_inventory::append_owed_rules(
+                    m.cmux_context.as_deref(),
+                    m.spawn_argv.as_deref(),
+                    &mut blocks,
+                )
         };
         // Add information after digest reconstruction and the person's display record. Slash
         // commands keep their prompt intact and leave these notices for a normal turn.
@@ -1130,11 +1178,11 @@ impl Hub {
             None,
             || {
                 if delivers_context {
-                    session
-                        .meta
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .cmux_context_delivered = true;
+                    let mut m =
+                        session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    m.cmux_context_delivered = true;
+                    m.cmux_rules_in_transcript |= rules_owed;
+                    drop(m);
                     self.save_meta(session);
                 }
                 self.mark_team_messages(session, &team_messages);
@@ -1266,6 +1314,17 @@ impl Hub {
                         // A fallback that could not resume (another store)
                         // starts fresh: it gets the restored transcript first.
                         let mut blocks = blocks;
+                        // Rules the fallback's start did not carry (its own appended prompt or
+                        // developer instructions), judged by its own command line.
+                        let rules_owed_here = !rules_owed && control != Control::Web && {
+                            let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                            !m.cmux_rules_in_transcript
+                                && crate::context_inventory::append_owed_rules(
+                                    m.cmux_context.as_deref(),
+                                    m.spawn_argv.as_deref(),
+                                    &mut blocks,
+                                )
+                        };
                         if session.rehydrate.swap(false, Ordering::SeqCst)
                             && let Some(transcript) = self.transcript(session, 24_000, &prompt_id)
                         {
@@ -1312,9 +1371,18 @@ impl Hub {
                                         false,
                                         false,
                                         fence.as_ref(),
-                                        confirm_team_write,
+                                        // Owed rules are recorded only once the writer took them.
+                                        confirm_team_write || rules_owed_here,
                                         None,
                                         || {
+                                            if rules_owed_here {
+                                                session
+                                                    .meta
+                                                    .lock()
+                                                    .unwrap_or_else(|e| e.into_inner())
+                                                    .cmux_rules_in_transcript = true;
+                                                self.save_meta(session);
+                                            }
                                             self.mark_team_messages(session, &team_messages);
                                             if team_enabled {
                                                 self.mark_team_work(session, &team_prompt_ids);
@@ -1641,6 +1709,8 @@ impl Hub {
                 Ok(v) => {
                     self.note_reply_refusal(session);
                     let stop = v.get("stopReason").cloned().unwrap_or(Value::Null);
+                    // Its last reply's claims, checked against its own runs (`claim_check.rs`).
+                    self.append_claim_checks(session, turn_id);
                     self.append(
                         session,
                         "mux",
@@ -1765,7 +1835,7 @@ impl Hub {
         self.save_meta(session);
         self.send_offer_result(session);
         self.lane_turn_ended(session, true, turn);
-        self.inbox_turn_ended(session);
+        self.inbox_turn_ended(session, turn_id, turn, true);
         match stopped_early {
             Some(e) => Err(e),
             None => result,
@@ -1854,7 +1924,7 @@ impl Hub {
             }
             self.save_meta(session);
             self.lane_turn_ended(session, false, turn);
-            self.inbox_turn_ended(session);
+            self.inbox_turn_ended(session, turn_id, turn, false);
             return;
         }
         let mut e = e.clone();
@@ -1882,7 +1952,7 @@ impl Hub {
         // The turn was counted: its lane's parent hears it failed, with no reply of its own
         // (`lane_reports.rs`).
         self.lane_turn_ended(session, false, turn);
-        self.inbox_turn_ended(session);
+        self.inbox_turn_ended(session, turn_id, turn, false);
     }
 
     /// Waits until the inbound loop handled every agent message queued before
@@ -2456,6 +2526,7 @@ impl Hub {
                 }),
                 remote: None,
                 update_line: Default::default(),
+                row: Default::default(),
             });
             drop(sessions);
         }

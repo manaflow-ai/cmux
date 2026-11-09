@@ -1490,13 +1490,13 @@ div.cv-subagent-done[data-toggle-line]::before {
   /* The tray's box is part of the transcript's dock. Its arrival must not move visible rows; the
      dock and VirtualTranscript settle their measured height in one frame, then the ink settles in
      (translate moves no layout). */
-  --acpmux-tray-enter: acpmux-tray-settle-in var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1)) both;
+  --acpmux-tray-enter: acpmux-tray-settle-in var(--cmux-motion-settle, 180ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1)) both;
   /* The kept copy leaves in the card's place, folding its height to 0 as it fades, on the same settle
      as the entrance, so the composer and the transcript over the stack move once, continuously, as
      the hat goes (Leo, 2026-11-08: "the hat auto removing/auto hiding stuff that's super done is maybe
      a bit jarring?"; trayMotionModel.ts `playTrayExit`). Reduce Motion makes no copy: the hat goes at
      once. */
-  --acpmux-tray-leave: acpmux-tray-leave var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1)) both;
+  --acpmux-tray-leave: acpmux-tray-leave var(--cmux-motion-settle, 180ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1)) both;
 }
 /* A line that joins or leaves the open list grows from, or folds to, 0 height with its opacity on the
    shared fold (SubagentTray.tsx `TrayRow`, conversation/fold.ts), so the lines around it move with it.
