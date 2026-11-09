@@ -765,6 +765,8 @@ impl Peer {
                             for sid in self.dual_gaps().await {
                                 frames.extend(self.shadow_resubscribe(&mut run, &sid).await);
                             }
+                            // A chat whose attach did not cover its stream, due again.
+                            frames.extend(self.shadow_retries(&mut run).await);
                             shadow = Some(run);
                             frames
                         }

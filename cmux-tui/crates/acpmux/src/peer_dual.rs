@@ -163,8 +163,48 @@ pub(super) struct ShadowRun {
     link: u64,
     pub rx: mpsc::Receiver<String>,
     streams: HashMap<String, Stream>,
+    /// Chats whose attach did not cover their stream (one page of many, or the live stream ran
+    /// past it) and that made no progress: when each is attached again, and how many times.
+    retry: HashMap<String, (tokio::time::Instant, u32)>,
     /// When its link ended: it reads answers to what it carried until [`ANSWER_GRACE`].
     orphaned_at: Option<tokio::time::Instant>,
+}
+
+/// The wait before attaching again a chat whose last attach made no progress: doubling from
+/// [`RETRY_FIRST`] up to [`RETRY_MOST`].
+const RETRY_FIRST: Duration = Duration::from_millis(250);
+const RETRY_MOST: Duration = Duration::from_secs(5);
+
+fn retry_wait(tries: u32) -> Duration {
+    RETRY_FIRST.saturating_mul(1u32 << tries.min(5)).min(RETRY_MOST)
+}
+
+/// A load, resume or attach of a chat in flight (`Peer::replay_start`): its chat leaves the
+/// merger until it answers.
+pub(super) struct ReplayMark<'a> {
+    peer: &'a Peer,
+    sid: String,
+    done: bool,
+}
+
+impl ReplayMark<'_> {
+    /// It answered: under the merger's lock, the chat's replay is through and its cursor past
+    /// it, so a later shadow may take the chat again.
+    pub(super) async fn finish(mut self) {
+        let _merger = self.peer.dual_merge.lock().await;
+        self.peer.replay_end(&self.sid);
+        self.done = true;
+    }
+}
+
+impl Drop for ReplayMark<'_> {
+    /// Its caller left before the answer: the mark goes without the merger's lock (a drop
+    /// cannot wait for it); the chat stays out of the merger until a shadow starts again.
+    fn drop(&mut self) {
+        if !self.done {
+            self.peer.replay_end(&self.sid);
+        }
+    }
 }
 
 /// A chat event's session and seq (`_acpmux/event` or `session/update`).
@@ -237,7 +277,13 @@ impl Peer {
             // and the link's stream never both deliver one event.
             let mut members = self.dual_sessions.lock_or_recover();
             let cursors = self.cursors.lock_or_recover();
+            // A chat a load or an attach replays now stays the link's alone: its replay is
+            // below the cursor, and no repeat (`Peer::replay_start`).
+            let replaying = self.replaying.lock_or_recover();
             for (sid, after) in replayable(&cursors) {
+                if replaying.contains_key(&sid) {
+                    continue;
+                }
                 let attach = self.next_id.fetch_add(1, Ordering::SeqCst);
                 let line =
                     Message::request(attach, method::MUX_ATTACH, hidden_attach_after(&sid, after))
@@ -254,7 +300,8 @@ impl Peer {
             self.dual_stats.sent(frame.len());
         }
         tracing::info!(peer = %self.name, via = via.as_str(), chats = streams.len(), "the link's path is in doubt; sending on {} too", via.as_str());
-        (ShadowRun { via, link, rx, streams, orphaned_at: None }, frames)
+        let retry = HashMap::new();
+        (ShadowRun { via, link, rx, streams, retry, orphaned_at: None }, frames)
     }
 
     /// The link's frame `text` (pending key `key`) on link `link`: with a shadow, stamped with
@@ -302,8 +349,9 @@ impl Peer {
         let cursor = {
             let mut members = self.dual_sessions.lock_or_recover();
             let mut cursors = self.cursors.lock_or_recover();
+            let replaying = self.replaying.lock_or_recover().contains_key(sid);
             match cursors.get_mut(sid) {
-                Some(cursor) if members.contains(sid) => Some(*cursor),
+                Some(cursor) if members.contains(sid) && !replaying => Some(*cursor),
                 cursor => {
                     members.remove(sid);
                     merger.forget(sid);
@@ -400,10 +448,15 @@ impl Peer {
         run: &mut ShadowRun,
         sid: &str,
     ) -> Option<String> {
-        self.dual_merge.lock().await.forget(sid);
+        let mut merger = self.dual_merge.lock().await;
+        merger.forget(sid);
+        // A chat the link alone streams now (a load or attach took it) is not taken again.
+        let member = self.dual_sessions.lock_or_recover().contains(sid);
         let after = self.cursors.lock_or_recover().get(sid).copied().filter(|c| *c > 0);
-        let Some(after) = after else {
+        drop(merger);
+        let Some(after) = after.filter(|_| member) else {
             run.streams.insert(sid.to_owned(), Stream::Off);
+            run.retry.remove(sid);
             return None;
         };
         let attach = self.next_id.fetch_add(1, Ordering::SeqCst);
@@ -418,8 +471,44 @@ impl Peer {
 
     /// A request that replays chat `sid` went out (a `session/load` or an attach sends its
     /// history again, which is no repeat): the link alone streams it from now.
-    pub(super) fn dual_forget(&self, sid: &str) {
+    ///
+    /// Under the merger's lock: the chat leaves dedup, what the shadow held of it goes, and it
+    /// is marked in flight, so neither a shadow that starts now nor the merger takes it until
+    /// the mark ends; its replay goes to the hub as it comes and moves its cursor.
+    pub(super) async fn replay_start(&self, sid: &str) -> ReplayMark<'_> {
+        let mut merger = self.dual_merge.lock().await;
+        merger.forget(sid);
         self.dual_sessions.lock_or_recover().remove(sid);
+        *self.replaying.lock_or_recover().entry(sid.to_owned()).or_default() += 1;
+        ReplayMark { peer: self, sid: sid.to_owned(), done: false }
+    }
+
+    fn replay_end(&self, sid: &str) {
+        let mut replaying = self.replaying.lock_or_recover();
+        if let Some(n) = replaying.get_mut(sid) {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                replaying.remove(sid);
+            }
+        }
+    }
+
+    /// The chats due to be attached again on the shadow ([`ShadowRun::retry`]).
+    pub(super) async fn shadow_retries(&self, run: &mut ShadowRun) -> Vec<String> {
+        let now = tokio::time::Instant::now();
+        let due: Vec<String> = run
+            .retry
+            .iter()
+            .filter(|(sid, (at, _))| {
+                *at <= now && matches!(run.streams.get(*sid), Some(Stream::Off))
+            })
+            .map(|(sid, _)| sid.clone())
+            .collect();
+        let mut frames = Vec::new();
+        for sid in due {
+            frames.extend(self.shadow_resubscribe(run, &sid).await);
+        }
+        frames
     }
 
     /// The link ended: dual send of this link is over.
@@ -598,7 +687,21 @@ impl Peer {
                     .await;
             }
         }
-        run.streams.insert(sid.to_owned(), if whole { Stream::Live } else { Stream::Off });
+        if whole {
+            run.streams.insert(sid.to_owned(), Stream::Live);
+            run.retry.remove(sid);
+            return Vec::new();
+        }
+        // One page of many, or the live stream ran past it: attached again from the cursor, at
+        // once while each attach moves the cursor, else after a wait that doubles.
+        run.streams.insert(sid.to_owned(), Stream::Off);
+        let cursor = self.cursors.lock_or_recover().get(sid).copied().unwrap_or(after);
+        if cursor > after {
+            run.retry.remove(sid);
+            return self.shadow_resubscribe(run, sid).await.into_iter().collect();
+        }
+        let tries = run.retry.get(sid).map_or(0, |(_, tries)| tries + 1);
+        run.retry.insert(sid.to_owned(), (tokio::time::Instant::now() + retry_wait(tries), tries));
         Vec::new()
     }
 

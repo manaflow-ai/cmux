@@ -464,3 +464,78 @@ async fn a_fast_shadow_and_a_slow_link_deliver_strictly_in_order() {
     assert_eq!(got, (6..=LAST).collect::<Vec<_>>());
     assert_eq!(*rig.peer.cursors.lock().unwrap().get("s1").unwrap(), LAST);
 }
+
+/// Answers the shadow's next attach of `s1`, which must be after `after`, with `events` and
+/// `hasMore`.
+async fn answer_attach_page(rig: &mut Rig, after: u64, events: &[u64], more: bool) {
+    let attach = next_text(&mut rig.shadow).await;
+    assert_eq!(attach["method"], method::MUX_ATTACH, "{attach}");
+    assert_eq!(attach["params"]["sessionId"], "s1");
+    assert_eq!(attach["params"]["afterSeq"], after, "{attach}");
+    let events: Vec<Value> = events
+        .iter()
+        .map(|seq| json!({"sessionId": "s1", "seq": seq, "kind": "agent_message_chunk"}))
+        .collect();
+    let page = json!({"events": events, "hasMore": more});
+    send(&mut rig.shadow, json!({"jsonrpc": "2.0", "id": attach["id"], "result": page})).await;
+}
+
+/// The link's path is in doubt again, with Url answering: the next check starts a shadow.
+async fn doubt_again(rig: &Rig) {
+    let now = crate::store::now_ms();
+    if let Some(paths) = rig.peer.paths.lock().unwrap().as_mut() {
+        paths.pong(Via::Link, 3 * MS, now - 4_000);
+        paths.pong(Via::Url, 10 * MS, now);
+    }
+    let started = tokio::time::Instant::now();
+    while rig.peer.dual_via().is_none() {
+        assert!(started.elapsed() < WAIT, "a shadow starts");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// A load's replay is below the chat's cursor and no repeat: a shadow that starts while the
+/// load is in flight leaves the chat alone, and the whole history reaches the hub, then the
+/// live events in order.
+#[tokio::test]
+async fn a_shadow_that_starts_during_a_load_leaves_its_replay_whole() {
+    let mut rig = rig().await;
+    answer_shadow_attach(&mut rig, &[]).await;
+    // The doubt clears: the shadow detaches.
+    rig.peer.path_pong(Via::Link, 3 * MS);
+    assert_eq!(next_text(&mut rig.shadow).await["method"], method::MUX_DETACH);
+    let peer = rig.peer.clone();
+    let loading = tokio::spawn(async move {
+        peer.request(method::SESSION_LOAD, json!({"sessionId": "s1", "cwd": "/"})).await
+    });
+    let load = next_text(&mut rig.primary).await;
+    assert_eq!(load["method"], method::SESSION_LOAD);
+    // In doubt again before the replay comes: the new shadow does not take the chat.
+    doubt_again(&rig).await;
+    assert_eq!(reads_text_within(&mut rig.shadow, Duration::from_millis(700)).await, None);
+    for seq in 1..=5 {
+        send(&mut rig.primary, event(seq)).await;
+    }
+    send(&mut rig.primary, json!({"jsonrpc": "2.0", "id": load["id"], "result": {}})).await;
+    tokio::time::timeout(WAIT, loading).await.unwrap().unwrap().unwrap();
+    for seq in [6, 7] {
+        send(&mut rig.primary, event(seq)).await;
+    }
+    assert_eq!(delivered(&mut rig.notices, 7).await, vec![1, 2, 3, 4, 5, 6, 7]);
+    assert_eq!(*rig.peer.cursors.lock().unwrap().get("s1").unwrap(), 7);
+    assert!(rig.peer.replaying.lock().unwrap().is_empty());
+}
+
+/// A chat longer than one page: the shadow attaches it again from the cursor after each page
+/// until one covers it, then streams it live. A page that moves nothing is tried again after a
+/// wait.
+#[tokio::test]
+async fn a_chat_longer_than_one_page_is_attached_again_until_the_shadow_streams_it() {
+    let mut rig = rig().await;
+    answer_attach_page(&mut rig, 5, &[], true).await;
+    answer_attach_page(&mut rig, 5, &[6, 7], true).await;
+    answer_attach_page(&mut rig, 7, &[8], false).await;
+    assert_eq!(delivered(&mut rig.notices, 3).await, vec![6, 7, 8]);
+    send(&mut rig.shadow, event(9)).await;
+    assert_eq!(delivered(&mut rig.notices, 1).await, vec![9], "live on the shadow");
+}

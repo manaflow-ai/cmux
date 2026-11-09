@@ -196,6 +196,9 @@ pub struct Peer {
     dual_sessions: StdMutex<HashSet<String>>,
     /// The one merger both paths' chat events go through (`peer_dual.rs`).
     dual_merge: Mutex<dual::Merger>,
+    /// Chats a load, resume or attach is replaying now, with how many are in flight
+    /// (`Peer::replay_start`): read and set under `dual_merge`.
+    replaying: StdMutex<HashMap<String, u32>>,
     /// Requests bound to the link's connection (a `session/load`, an attach), by pending key:
     /// the line to send again on the next link when this one switches paths under them.
     switch_retry: StdMutex<HashMap<String, String>>,
@@ -458,6 +461,7 @@ impl Peer {
             shadow: StdMutex::new(None),
             dual_sessions: StdMutex::new(HashSet::new()),
             dual_merge: Mutex::new(dual::Merger::default()),
+            replaying: StdMutex::new(HashMap::new()),
             switch_retry: StdMutex::new(HashMap::new()),
             switched: AtomicBool::new(false),
             dual_keys: StdMutex::new(HashSet::new()),
@@ -1353,10 +1357,14 @@ impl Peer {
         self.pending.lock().await.insert(key.clone(), tx);
         if let Some(session) = params.get("sessionId").and_then(Value::as_str) {
             self.replay_tail.lock_or_recover().remove(session);
-            if dual::bound(m) {
-                self.dual_forget(session);
-            }
         }
+        // A load, a resume or an attach replays its chat: until it answers, the replay goes to
+        // the hub as it comes, never through the merger's drop below the cursor
+        // (`Peer::replay_start`).
+        let replaying = match params.get("sessionId").and_then(Value::as_str) {
+            Some(session) if dual::bound(m) => Some(self.replay_start(session).await),
+            _ => None,
+        };
         if m == method::SESSION_PROMPT
             && let (Some(session), Some(prompt)) = (
                 params.get("sessionId").and_then(Value::as_str),
@@ -1424,6 +1432,10 @@ impl Peer {
         // across that drop; a forwarder whose client left drops it (`server/peer_forward.rs`).
         let answer =
             if turn_wait { Ok(rx.await) } else { tokio::time::timeout_at(deadline, rx).await };
+        // Its replay came before its answer on the link: the cursor is past it now.
+        if let Some(mark) = replaying {
+            mark.finish().await;
+        }
         match answer {
             // A full disk the peer reports is the peer's, not this machine's (`recovery.rs`).
             // No display line of the peer's own reaches this daemon's clients, on any route that
