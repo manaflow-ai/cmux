@@ -732,8 +732,10 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
-    /// Mutation receipts and the events they recorded, `count` of each kind:
-    /// what a long-lived registry accumulates, none naming the registry id.
+    /// Mutation receipts and the events they recorded, `count` of each kind,
+    /// and the resource ledger's receipts (results of a few kilobytes, as a
+    /// real ledger's are): what a long-lived registry accumulates, none
+    /// naming the registry id.
     fn seed_receipts(root: &Path, count: usize) {
         let connection = Connection::open(registry_file(root)).unwrap();
         let tx = connection.unchecked_transaction().unwrap();
@@ -770,6 +772,28 @@ mod tests {
                 "INSERT INTO projection_mutations(origin, mutation_id, fingerprint, result_json)
                  VALUES('client', ?1, '{}', ?2)",
                 params![id, result],
+            )
+            .unwrap();
+            let large = serde_json::json!({
+                "workspace_key": format!("ws_{index:032x}"),
+                "screen": "x".repeat(4096),
+            })
+            .to_string();
+            tx.execute(
+                "INSERT INTO resource_mutations(
+                   origin, idempotency_key, operation, fingerprint, result_json, committed_revision
+                 ) VALUES('client', ?1, 'workspace.update', '{}', ?2, ?3)",
+                params![id, large, index as i64 + 1],
+            )
+            .unwrap();
+            let outcome =
+                serde_json::json!({"kind": "success", "value": {"id": id, "body": large}});
+            tx.execute(
+                "INSERT INTO resource_effect_receipts(
+                   idempotency_key, operation, fingerprint, intent_json, state, outcome_json,
+                   committed_revision
+                 ) VALUES(?1, 'notification.create', '{}', ?2, 'committed', ?3, ?4)",
+                params![id, large, outcome.to_string(), index as i64 + 1],
             )
             .unwrap();
         }
@@ -842,10 +866,12 @@ mod tests {
         );
     }
 
-    /// Mutation receipts and their events grow with every change and are
-    /// never pruned; the rehome leaves them as stored and they are read
-    /// with the new id (`StoredIds`). Scanning them took 1.9 s of a 4.2 s
-    /// first start of a 58.7 GB registry on its new machine (2026-11-09).
+    /// Mutation receipts and their events grow with every change; the
+    /// rehome leaves them as stored and they are read with the new id
+    /// (`StoredIds`). Scanning them took 1.9 s of a 4.2 s first start of a
+    /// 58.7 GB registry on its new machine, and the resource ledger's
+    /// (`resource_mutations`, `resource_effect_receipts`) 1.27 s of a later
+    /// one (2026-11-09).
     #[test]
     fn the_rehome_cost_does_not_grow_with_mutation_receipts() {
         let sizes = [500, 5_000];
@@ -863,7 +889,8 @@ mod tests {
 
     /// A receipt or event stored before the move, naming the copied id, is
     /// served naming the new one: a retried mutation's result, a
-    /// subscriber's catch-up and a terminal mutation's replay.
+    /// subscriber's catch-up, a terminal mutation's replay, a resource
+    /// patch's replay and a resource effect's committed outcome.
     #[test]
     fn receipts_stored_before_a_move_are_served_with_the_new_id() {
         let root = temp_root("rehome-receipts");
@@ -905,6 +932,27 @@ mod tests {
                     [result.to_string()],
                 )
                 .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO resource_mutations(
+                       origin, idempotency_key, operation, fingerprint, result_json, committed_revision
+                     ) VALUES('client', 'moved', 'workspace.update', ?1, ?2, 7)",
+                    params![canonical_json(&fingerprint).unwrap(), result.to_string()],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO resource_effect_receipts(
+                       idempotency_key, operation, fingerprint, intent_json, state, outcome_json,
+                       committed_revision
+                     ) VALUES('moved', 'notification.create', ?1, ?2, 'committed', ?3, 7)",
+                    params![
+                        canonical_json(&fingerprint).unwrap(),
+                        result.to_string(),
+                        serde_json::json!({"kind": "success", "value": result}).to_string()
+                    ],
+                )
+                .unwrap();
         }
         as_machine(Some("fedcba9876543210fedcba9876543210"));
         let registry = WorkspaceRegistry::open(&root, SESSION).unwrap();
@@ -931,6 +979,25 @@ mod tests {
         .unwrap()
         .unwrap();
         expected(&terminal.result);
+        let resource = super::super::resource_store::resource_patch_replay(
+            &registry.connection.get(),
+            &mutation,
+            "workspace.update",
+            &canonical_json(&moved_fingerprint).unwrap(),
+        )
+        .unwrap()
+        .unwrap();
+        expected(&resource.result);
+        match registry
+            .lookup_resource_effect("moved", "notification.create", &moved_fingerprint)
+            .unwrap()
+        {
+            Some(super::super::ResourceEffectPreparation::Committed {
+                outcome: super::super::ResourceEffectOutcome::Success(value),
+                ..
+            }) => expected(&value),
+            other => panic!("the effect's outcome is not served: {other:?}"),
+        }
         drop(registry);
         fs::remove_dir_all(root).unwrap();
     }
