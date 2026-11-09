@@ -193,3 +193,31 @@ struct CloudBrowserRefetchGateTests {
         #expect(BrowserTabOpen.mayRefetch(live: live, connected: connected) == may)
     }
 }
+
+/// cmux-cloud's proxy answers 502 "the link was replaced" when a route's link generation ended
+/// (first-party-apps/cloud/server/src/proxy/mod.rs). That route is gone like a 407's, so the tab
+/// asks for a new one; a 502 for a machine port that refused is the page's own answer, not a gone route.
+struct CloudProxyRouteExpiredTests {
+    private func head(_ status: Int, length: Int? = nil) -> Data {
+        Data(("HTTP/1.1 \(status) X\r\nContent-Type: text/plain\r\n" + (length.map { "Content-Length: \($0)\r\n" } ?? "") + "Connection: close\r\n\r\n").utf8)
+    }
+
+    @Test func aReplacedLinkOrAForeignCredentialExpiresTheRoute() {
+        let body = Data("cmux Cloud machine vm-1: the link was replaced\n".utf8)
+        #expect(CloudProxyLoopbackOpener.routeExpired(head: head(502, length: body.count), body: body))
+        #expect(CloudProxyLoopbackOpener.routeExpired(head: head(407), body: Data()))
+    }
+
+    @Test func aRefusedPortOrAnotherAnswerKeepsTheRoute() {
+        let refused = Data("cmux Cloud machine vm-1: connection refused\n".utf8)
+        #expect(!CloudProxyLoopbackOpener.routeExpired(head: head(502, length: refused.count), body: refused))
+        #expect(!CloudProxyLoopbackOpener.routeExpired(head: head(502), body: Data()))
+        #expect(!CloudProxyLoopbackOpener.routeExpired(head: head(403), body: Data("the link was replaced".utf8)))
+    }
+
+    @Test func theContentLengthIsReadCaseInsensitively() {
+        #expect(CloudProxyLoopbackOpener.contentLength(head(502, length: 47)) == 47)
+        #expect(CloudProxyLoopbackOpener.contentLength(Data("HTTP/1.1 502 X\r\ncontent-length:  12 \r\n\r\n".utf8)) == 12)
+        #expect(CloudProxyLoopbackOpener.contentLength(head(502)) == nil)
+    }
+}

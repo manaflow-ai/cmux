@@ -79,9 +79,11 @@ public struct CloudProxyLoopbackOpener: LoopbackTunnelOpening {
                 ).utf8)
                 try await connection.sendAll(request)
                 let (head, rest) = try await handshakeResponse(from: connection)
-                // 407: the route's credential is not the proxy's (a newer cmux-cloud, a new link):
-                // the route is gone, so its owner may ask for it again (CloudBrowserRoute).
-                if Self.status(head) == 407 {
+                // 407: the route's credential is not the proxy's (a newer cmux-cloud, a new link).
+                // 502 "the link was replaced": the route's link generation ended. Either way the route
+                // is gone, so its owner may ask for it again (CloudBrowserRoute). Any other 502 (the
+                // machine's port refused) stays a plain refusal.
+                if Self.routeExpired(head: head, body: rest) {
                     connection.cancel()
                     throw LoopbackTunnelFailure.unavailable("Cloud browser route expired")
                 }
@@ -139,7 +141,19 @@ public struct CloudProxyLoopbackOpener: LoopbackTunnelOpening {
                 throw LoopbackTunnelFailure.other("Cloud browser proxy returned an oversized response")
             }
             if let end = buffer.range(of: Data("\r\n\r\n".utf8))?.upperBound {
-                return (Data(buffer[..<end]), Data(buffer[end...]))
+                let head = Data(buffer[..<end])
+                var rest = Data(buffer[end...])
+                // A refusal's body names why (502 "the link was replaced"): read it whole, within the
+                // same deadline, so routeExpired sees it. A 200's bytes after the head are the tunnel's.
+                if status(head) == 502, let length = contentLength(head) {
+                    let wanted = min(length, maxRefusalBodyBytes)
+                    while rest.count < wanted {
+                        let (chunk, complete) = try await connection.receiveChunk(max: wanted - rest.count)
+                        if let chunk { rest.append(chunk) }
+                        if complete || chunk?.isEmpty != false { break }
+                    }
+                }
+                return (head, rest)
             }
             if complete { break }
         }
@@ -147,6 +161,29 @@ public struct CloudProxyLoopbackOpener: LoopbackTunnelOpening {
     }
 
     private static func isEstablished(_ head: Data) -> Bool { status(head) == 200 }
+
+    private static let maxRefusalBodyBytes = 4096
+
+    /// Whether the proxy's answer means this route is gone and a new one may work: a 407 (its credential
+    /// is not the proxy's), or a 502 whose body says the route's link was replaced (cmux-cloud's proxy).
+    static func routeExpired(head: Data, body: Data) -> Bool {
+        switch status(head) {
+        case 407: true
+        case 502: String(decoding: body.prefix(maxRefusalBodyBytes), as: UTF8.self).contains("the link was replaced")
+        default: false
+        }
+    }
+
+    /// The response head's Content-Length, nil when it has none.
+    static func contentLength(_ head: Data) -> Int? {
+        guard let text = String(data: head, encoding: .utf8) else { return nil }
+        for line in text.components(separatedBy: "\r\n").dropFirst() {
+            let parts = line.split(separator: ":", maxSplits: 1)
+            guard parts.count == 2, parts[0].lowercased() == "content-length" else { continue }
+            return Int(parts[1].trimmingCharacters(in: .whitespaces)).flatMap { $0 >= 0 ? $0 : nil }
+        }
+        return nil
+    }
 
     /// The status code of a response head, nil when it is not an HTTP/1 status line.
     static func status(_ head: Data) -> Int? {
