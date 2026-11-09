@@ -642,7 +642,7 @@ impl App {
     }
 
     /// Enter steers a prompt into the running turn when the agent steers, as the app's composer does
-    /// (Leo, 2026-11-05: "wtf like no these default enters became queues?"); Ctrl-s queues it. A
+    /// (Leo, 2026-11-05: "wt* like no these default enters became queues?"); Ctrl-s queues it. A
     /// slash command still waits for the turn, so it runs as its own turn, never as a steer.
     pub(super) fn enter_steers(&self) -> bool {
         let running = self.selected_session().and_then(|s| s.get("status")).and_then(Value::as_str)
@@ -866,7 +866,7 @@ pub(super) mod interaction_tests {
     }
 
     /// Enter on a running turn steers when the agent steers and queues only when it cannot; Ctrl-s
-    /// queues (Leo, 2026-11-05: "wtf like no these default enters became queues?").
+    /// queues (Leo, 2026-11-05: "wt* like no these default enters became queues?").
     #[tokio::test]
     async fn enter_steers_a_running_turn_and_ctrl_s_queues() {
         let (mut app, mut requests) = app().await;
