@@ -824,6 +824,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let relay_from = crate::cli::send_relay::sender(prompt_id.from_agent.as_deref(), |k| {
                 std::env::var(k).ok()
             });
+            // The Claude Code subagent this shell runs for (the Bash hook's mark), a label only.
+            let relay_sub = crate::cli::sender::subagent_of_this_process().map(|s| s.to_value());
+            let relay_from =
+                crate::cli::send_relay::RelaySender::new(relay_from, relay_sub.as_ref());
             let (relay_session, relay_text, attaching) =
                 (session.clone(), text.clone(), !attach.is_empty());
             // A send that waits, to a name nobody here resolves, goes to this daemon's outbox once
@@ -960,7 +964,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         &relay,
                         &relay_session,
                         &relay_text,
-                        relay_from.as_deref(),
+                        &relay_from,
                         attaching,
                         json_out,
                         deadline,

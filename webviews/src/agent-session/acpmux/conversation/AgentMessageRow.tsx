@@ -132,9 +132,9 @@ export function AgentMessageRow({
   // A click on the line (its words, its chevron) that closes the message hands focus to the toggle,
   // the line's one control, so focus inside the closing card (a reply's editor) is never dropped.
   const toggleRef = useRef<HTMLButtonElement>(null);
-  const closeToToggle = () => {
-    if (open) toggleRef.current?.focus({ preventScroll: true });
-    collapse.toggle();
+  const closeToToggle = (event?: unknown) => {
+    // The click itself, so a drag across the line toggles nothing (useAnchoredCollapse `deliberateClick`).
+    if (collapse.toggle(event) && open) toggleRef.current?.focus({ preventScroll: true });
   };
   const marker = unverified && <UnverifiedMark className={rowLook === "corner" ? "is-corner" : undefined} />;
   // Single (the default, messageLineLook.ts): the first line on the row, after the name; the
