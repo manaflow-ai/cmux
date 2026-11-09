@@ -104,6 +104,7 @@ pub async fn sending_as_on(client: &crate::client::Client, named: Option<&str>) 
     // Only the session list's fields (its name, its harness's own session id): no log wait.
     let params = serde_json::json!({"sessionId": id, "waitLogs": false});
     let ask = client.request(crate::rpc::method::MUX_INFO, params);
+    // timeout: a wedged daemon must not hold the send; the line goes without the session's name.
     let info = tokio::time::timeout(std::time::Duration::from_secs(2), ask).await;
     let info = info.ok().and_then(Result::ok);
     let field = |key: &str| {

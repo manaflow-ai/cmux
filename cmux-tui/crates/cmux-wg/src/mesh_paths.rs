@@ -367,6 +367,21 @@ impl MeshPaths {
         due
     }
 
+    /// The interface table changed: read each path's medium again. A path
+    /// whose medium changed is probed now, and its answer lets the selector
+    /// rank it on the new medium (a Thunderbolt address learned before the
+    /// bridge came up beats the routed path it was ranked with).
+    pub(crate) fn reclassify(&mut self, networks: &[LocalNetwork], now: Instant) {
+        for path in &mut self.paths {
+            let medium = medium_for(networks, path.kind, Some(path.address));
+            if medium != path.medium {
+                path.medium = medium;
+                let _ = self.selector.set_medium(path.id, medium);
+                path.watch.probe_now(now);
+            }
+        }
+    }
+
     /// Where probes on `id` go.
     pub(crate) fn address_of(&self, id: PathId) -> Option<SocketAddr> {
         self.paths.iter().find(|path| path.id == id).map(|path| path.address)
@@ -490,6 +505,53 @@ mod tests {
             "fell back after {:?}",
             now - start
         );
+    }
+
+    #[test]
+    fn a_thunderbolt_address_learned_before_the_bridge_came_up_wins_once_it_is_up() {
+        let ms = std::time::Duration::from_millis;
+        let start = Instant::now();
+        let wan = addr("198.51.100.20:4101");
+        let bridge = addr("10.254.2.2:4101");
+        // Before the cable: no interface on the bridge's network, so its
+        // address is routed like the WAN one.
+        let before = vec![LocalNetwork {
+            interface: "en0".into(),
+            address: "192.168.1.10".parse().unwrap(),
+            prefix: 24,
+        }];
+        let mut paths = MeshPaths::new(Some(wan), &[], &before, start);
+        paths.advertised(&[bridge], &before, start);
+        // The WAN answers first and is held; the bridge is 1 ms faster,
+        // under the 3 ms margin, so RTT alone never moves the session.
+        let mut now = start;
+        for _ in 0..3 {
+            for (id, probe) in paths.poll(now).pings {
+                let address = paths.address_of(id).unwrap();
+                let rtt = if address == wan { ms(2) } else { ms(1) };
+                paths.pong(id, probe, address, now + rtt);
+            }
+            now += ms(6000);
+        }
+        assert_eq!(targets(&mut paths, now), vec![wan]);
+        // The bridge comes up.
+        let mut after = before.clone();
+        after.push(LocalNetwork {
+            interface: "bridge0".into(),
+            address: "10.254.2.1".parse().unwrap(),
+            prefix: 30,
+        });
+        paths.reclassify(&after, now);
+        let due = paths.poll(now);
+        assert!(
+            due.pings.iter().any(|(id, _)| paths.address_of(*id) == Some(bridge)),
+            "the reclassified path is probed at once"
+        );
+        for (id, probe) in due.pings {
+            let address = paths.address_of(id).unwrap();
+            paths.pong(id, probe, address, now + ms(1));
+        }
+        assert_eq!(targets(&mut paths, now + ms(1)), vec![bridge]);
     }
 
     #[test]

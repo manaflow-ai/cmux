@@ -58,6 +58,7 @@
 //!   only the named MCP servers; the Chief's turns keep `cmux` (cx-4a5w2).
 
 pub mod prompt_sources;
+pub mod skill_index;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

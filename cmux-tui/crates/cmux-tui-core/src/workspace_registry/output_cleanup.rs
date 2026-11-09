@@ -36,6 +36,7 @@
 //! anything. Past a bound the staging file is deleted and the registry stays
 //! as it is; the next start estimates again.
 
+mod chunks;
 mod codec;
 mod pruned;
 mod stage;
