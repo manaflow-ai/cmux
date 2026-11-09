@@ -1423,11 +1423,19 @@ fn install_provider(
                     );
                 }
             }
-            atomic_write(&module_path, module.as_bytes(), Some(0o600))?;
-            atomic_write(&manifest_path, manifest.as_bytes(), Some(0o600))?;
-            let changed = before_module.as_deref() != Some(module.as_bytes())
-                || before_manifest.as_deref() != Some(manifest.as_bytes());
-            Ok(("installed", changed))
+            // Each install pass writes only a file whose bytes differ, as the Plugin arm does; an
+            // unchanged file is still checked as a target atomic_write would replace.
+            ensure_replaceable_target(&module_path)?;
+            ensure_replaceable_target(&manifest_path)?;
+            let module_changed = before_module.as_deref() != Some(module.as_bytes());
+            let manifest_changed = before_manifest.as_deref() != Some(manifest.as_bytes());
+            if module_changed {
+                atomic_write(&module_path, module.as_bytes(), Some(0o600))?;
+            }
+            if manifest_changed {
+                atomic_write(&manifest_path, manifest.as_bytes(), Some(0o600))?;
+            }
+            Ok(("installed", module_changed || manifest_changed))
         }
         Format::RovoYaml => {
             let existing = fs::read_to_string(path).unwrap_or_default();
@@ -2282,8 +2290,50 @@ pub fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
+/// The durable syncs [`atomic_write`] makes, counted per thread for tests.
+mod durable_syncs {
+    use std::cell::Cell;
+    use std::fs::File;
+    use std::io;
+
+    thread_local! {
+        /// Durable syncs made on this thread (a file or its folder each).
+        static SYNCS: Cell<u64> = const { Cell::new(0) };
+    }
+
+    pub(super) fn on_this_thread() -> u64 {
+        SYNCS.with(Cell::get)
+    }
+
+    pub(super) fn sync(file: &File) -> io::Result<()> {
+        SYNCS.with(|syncs| syncs.set(syncs.get() + 1));
+        file.sync_all()
+    }
+}
+
+/// The durable syncs [`atomic_write`] made on this thread so far: a test reads it around a
+/// write path to tell a durable write from a replaceable one.
+#[doc(hidden)]
+pub fn durable_syncs_on_this_thread() -> u64 {
+    durable_syncs::on_this_thread()
+}
+
 /// Replaces `path` through a synced temporary file and rename, with an optional Unix mode.
 pub fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Result<()> {
+    replace_file(path, bytes, mode, true)
+}
+
+/// [`atomic_write`] for a file its writer checks and rewrites when it differs (a build's
+/// launchers, shims and plugin, written at every start): replaced through a rename, so a
+/// reader sees the old or the new file, but not synced. A crash can leave it empty or old,
+/// and the next start rewrites it. A durable sync is a full fsync of the drive on macOS,
+/// which waits for every other write the drive has queued: one took 2.2 s of a 2.3 s
+/// first start on a fleet Mac (2026-11-09).
+pub fn replace_rewritable_file(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Result<()> {
+    replace_file(path, bytes, mode, false)
+}
+
+fn replace_file(path: &Path, bytes: &[u8], mode: Option<u32>, durable: bool) -> anyhow::Result<()> {
     ensure_replaceable_target(path)?;
     let parent = path.parent().context("installation path has no parent")?;
     fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
@@ -2303,7 +2353,9 @@ pub fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Res
         let mut file =
             options.open(&temporary).with_context(|| format!("create {}", temporary.display()))?;
         file.write_all(bytes)?;
-        file.sync_all()?;
+        if durable {
+            durable_syncs::sync(&file)?;
+        }
         drop(file);
         #[cfg(unix)]
         if let Some(mode) = mode {
@@ -2311,9 +2363,11 @@ pub fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Res
             fs::set_permissions(&temporary, fs::Permissions::from_mode(mode))?;
         }
         fs::rename(&temporary, path).with_context(|| format!("replace {}", path.display()))?;
-        fs::File::open(parent)
-            .and_then(|directory| directory.sync_all())
-            .with_context(|| format!("sync {}", parent.display()))?;
+        if durable {
+            fs::File::open(parent)
+                .and_then(|directory| durable_syncs::sync(&directory))
+                .with_context(|| format!("sync {}", parent.display()))?;
+        }
         Ok(())
     })();
     if result.is_err() {

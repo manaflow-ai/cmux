@@ -59,8 +59,8 @@ fn agent_rows_name_harness_state_title_and_workspace_and_skip_plain_shells() {
     assert_eq!(
         summary,
         [
-            ("term_c0dec000000000000000000000000004", "codex", "waiting-for-input", None),
-            ("term_0005e000000000000000000000000002", "muse", "busy", None),
+            ("term_c0dec000000000000000000000000004", "codex", "blocked", None),
+            ("term_0005e000000000000000000000000002", "muse", "working", None),
             ("term_c1a0de00000000000000000000000001", "claude", "idle", Some("sr2 costs")),
         ]
     );
@@ -104,11 +104,11 @@ fn agent_rows_carry_the_shared_status_and_done_until_seen() {
     assert_eq!(
         summary,
         [
-            ("codex", "blocked", "waiting-for-input"),
+            ("codex", "blocked", "blocked"),
             ("claude", "done", "idle"),
-            ("muse", "working", "busy")
+            ("muse", "working", "working")
         ],
-        "the old state word stays for compatibility"
+        "the send wait's state uses the shared words"
     );
     let table = roster::table(&rows, 1_000);
     assert!(table.lines().nth(2).is_some_and(|line| line.contains(" done ")), "{table}");
@@ -117,7 +117,7 @@ fn agent_rows_carry_the_shared_status_and_done_until_seen() {
     ended["agents"][0]["state"] = json!("done");
     let ended = roster::agent_rows(&ended);
     let last = ended.last().unwrap();
-    assert_eq!((last.status_word(), last.to_json(0)["status"].clone()), ("ended", Value::Null));
+    assert_eq!((last.status_word(), last.to_json(0)["status"].clone()), ("ended", json!("ended")));
 }
 
 #[test]
@@ -133,8 +133,8 @@ fn agent_table_has_one_header_and_one_line_per_agent() {
 
 #[test]
 fn agent_states_map_records_and_program_status_words() {
-    assert_eq!(AgentState::from_record("working"), Some(AgentState::Busy));
-    assert_eq!(AgentState::from_record("blocked"), Some(AgentState::WaitingForInput));
+    assert_eq!(AgentState::from_record("working"), Some(AgentState::Working));
+    assert_eq!(AgentState::from_record("blocked"), Some(AgentState::Blocked));
     assert_eq!(AgentState::from_record("done"), Some(AgentState::Idle));
     assert_eq!(AgentState::from_record("ended"), Some(AgentState::Ended));
     assert_eq!(AgentState::from_record("nonsense"), None);
@@ -251,7 +251,7 @@ fn settle_ends_on_a_dialog_and_on_exit() {
     let later = start + Duration::from_millis(200);
     let mut settle = Settle::new(Wait::Idle, Duration::from_millis(100), start);
     let dialog = Sample { waiting_for_input: true, busy: true, ..idle_sample("1") };
-    assert_eq!(settle.observe(&dialog, later), Verdict::Done(AgentState::WaitingForInput));
+    assert_eq!(settle.observe(&dialog, later), Verdict::Done(AgentState::Blocked));
     let mut settle = Settle::new(Wait::Prompt, Duration::from_millis(100), start);
     assert_eq!(settle.observe(&idle_sample("1"), later), Verdict::Pending);
     let prompt = Sample { prompt: true, ..idle_sample("1") };
@@ -518,7 +518,7 @@ fn send_stopped_at_a_dialog_anchors_a_message_with_inline_code() {
     let daemon = dialog_daemon(&[(1, before), (2, DIALOG_SCREEN)]);
     let message = "Run the shell command `touch /tmp/w4i-perm` now.";
     let receipt = send::run(&daemon, None, &quick(message)).expect("sent");
-    assert_eq!(receipt["state"], "waiting-for-input");
+    assert_eq!(receipt["state"], "blocked");
     assert_eq!(receipt["anchored"], true, "{receipt}");
     let output = receipt["output"].as_str().unwrap_or_default();
     assert!(output.starts_with("⏺ Bash(touch /tmp/w4i-perm)"), "{output}");
@@ -536,7 +536,7 @@ fn send_stopped_at_a_dialog_without_an_echo_answers_only_what_came_after_the_sen
  Do you want to proceed?\n ❯ 1. Yes\n   2. No";
     let daemon = dialog_daemon(&[(1, before), (2, after)]);
     let receipt = send::run(&daemon, None, &quick("never echoed as typed")).expect("sent");
-    assert_eq!(receipt["state"], "waiting-for-input");
+    assert_eq!(receipt["state"], "blocked");
     assert_eq!(receipt["anchored"], false, "{receipt}");
     let output = receipt["output"].as_str().unwrap_or_default();
     assert!(output.contains("⏺ Bash(touch /tmp/w4i-perm)"), "{output}");
@@ -973,4 +973,264 @@ fn w4j_send_pattern_anchors_match_at_each_line() {
     let receipt = send::run(&daemon, None, &request).expect("sent");
     assert_eq!(receipt["matched"], true, "{receipt}");
     assert_eq!(super::send_exit_code(&receipt, false), 0);
+}
+
+/// W5-Q (bench r4 #7): a list row says one word for the agent. `state` is
+/// the shared status word (`ended` for a session that ended), never the
+/// older `busy` or `waiting-for-input`.
+#[test]
+fn w5q_terminal_list_agents_state_is_the_shared_status_word() {
+    let rows = roster::agent_rows(&snapshot());
+    for row in &rows {
+        let shown = row.to_json(0);
+        assert_eq!(shown["state"].as_str(), Some(row.status_word()), "{shown}");
+    }
+    let words: Vec<String> =
+        rows.iter().map(|row| row.to_json(0)["state"].as_str().unwrap_or("").to_owned()).collect();
+    assert_eq!(words, ["blocked", "working", "idle"]);
+    let mut ended = snapshot();
+    ended["agents"][0]["state"] = json!("done");
+    let ended = roster::agent_rows(&ended);
+    assert_eq!(ended.last().map(|row| row.to_json(0)["state"].clone()), Some(json!("ended")));
+}
+
+/// W5-Q: a send that stops at a dialog and a send refused at a dialog say
+/// `blocked`, the word every list shows for that agent.
+#[test]
+fn w5q_send_at_a_dialog_says_blocked() {
+    let before = "⏺ OLD_ANSWER_ONE\n\n❯ Reply with exactly ALPHA_OK\n\n⏺ ALPHA_OK\n\n❯ ";
+    let daemon = dialog_daemon(&[(1, before), (2, DIALOG_SCREEN)]);
+    let receipt =
+        send::run(&daemon, None, &quick("Run the shell command `touch /tmp/w4i-perm` now."))
+            .expect("sent");
+    assert_eq!(receipt["state"], "blocked", "{receipt}");
+    let daemon = FakeDaemon::new(snapshot(), &[(1, "")]);
+    let request =
+        SendRequest { target: "term_c0dec000000000000000000000000004".into(), ..quick("yes") };
+    let failure = send::run(&daemon, None, &request).expect_err("refused");
+    assert_eq!(failure.failure.error["details"]["state"], "blocked");
+}
+
+/// W5-Q: a send whose wait timed out says the agent still works.
+#[test]
+fn w5q_send_timeout_says_working() {
+    let screens: Vec<(u64, String)> =
+        (1..400).map(|n| (n, format!("> q\n\nworking {n}"))).collect();
+    let screens: Vec<(u64, &str)> = screens.iter().map(|(n, text)| (*n, text.as_str())).collect();
+    let daemon = FakeDaemon::new(snapshot(), &screens);
+    let request = SendRequest { timeout: Duration::from_millis(100), ..quick("q") };
+    let receipt = send::run(&daemon, None, &request).expect("sent");
+    assert_eq!(receipt["timed_out"], true);
+    assert_eq!(receipt["state"], "working");
+}
+
+const CLAUDE: &str = "term_c1a0de00000000000000000000000001";
+
+/// Claude Code in a narrow pane: the answer and the turn summary wrap at
+/// the pane's width, and the input box follows.
+const NARROW_ANSWER: &str = "> What is the capital of Australia?\n\n⏺ Canberr\n  a\n\n✻ Churned\n  for 1s · done\n  2:36 PM\n\n─────────────────\n> \n─────────────────\n  ? for shortcuts";
+
+fn idle_hook_record(extra: Value) -> Value {
+    json!([{"terminal_id": CLAUDE, "state": "idle", "source": "hook",
+            "updated_at_ms": u64::MAX.to_string(), "extra": extra}])
+}
+
+/// W5-Q (bench round 4 orchestration friction 6): `send --wait idle`
+/// answers the agent's own last message whole as `reply`, the text its
+/// Stop hook gave, not the screen's wrapped lines and footer.
+#[test]
+fn w5q_send_reply_is_the_agents_whole_last_message() {
+    let whole = "Canberra is the capital of Australia.\n\nIt was chosen in 1908 as a compromise \
+                 between Sydney and Melbourne.";
+    let mut daemon = FakeDaemon::new(
+        snapshot(),
+        &[(1, "> What is the capital of Australia?\n\n✻ Thinking"), (2, NARROW_ANSWER)],
+    );
+    daemon.agents = idle_hook_record(json!({
+        "agent": "claude",
+        "last_reply": "Canberra is the capital of Australia. It was chosen in 1908 as a compromise",
+        "last_reply_text": whole,
+        "last_reply_at_ms": u64::MAX.to_string(),
+    }));
+    let receipt =
+        send::run(&daemon, None, &quick("What is the capital of Australia?")).expect("sent");
+    assert_eq!(receipt["state"], "idle", "{receipt}");
+    assert_eq!(receipt["reply"], whole, "{receipt}");
+    assert_eq!(receipt["reply_source"], "hook", "{receipt}");
+}
+
+/// W5-Q: a reply the daemon kept before this send is an older turn's; the
+/// reply then comes from the screen, without the harness's footer, even
+/// when the turn summary wrapped in a narrow pane.
+#[test]
+fn w5q_send_reply_from_the_screen_has_no_footer_and_never_an_older_turn() {
+    let mut daemon = FakeDaemon::new(
+        snapshot(),
+        &[(1, "> What is the capital of Australia?\n\n✻ Thinking"), (2, NARROW_ANSWER)],
+    );
+    daemon.agents = idle_hook_record(json!({
+        "agent": "claude",
+        "last_reply": "ALPHA_OK",
+        "last_reply_text": "ALPHA_OK",
+        "last_reply_at_ms": "1",
+    }));
+    let receipt =
+        send::run(&daemon, None, &quick("What is the capital of Australia?")).expect("sent");
+    assert_eq!(receipt["reply_source"], "screen", "{receipt}");
+    let reply = receipt["reply"].as_str().unwrap_or_else(|| panic!("a reply: {receipt}"));
+    assert!(!reply.contains("ALPHA_OK"), "an older turn's reply: {reply}");
+    for footer in ["Churned", "for 1s", "2:36 PM", "─", "? for shortcuts"] {
+        assert!(!reply.contains(footer), "footer {footer:?} in the reply: {reply:?}");
+        let output = receipt["output"].as_str().unwrap_or_default();
+        assert!(!output.contains(footer), "footer {footer:?} in the output: {output:?}");
+    }
+    assert!(reply.starts_with("⏺ Canberr"), "{reply:?}");
+}
+
+/// W5-Q (lead decision on PR A findings 6-7): the send receipt's `status`
+/// is the word `terminal list --agents` shows for the same turn: `done`
+/// while nobody viewed the finished turn (an unread notification), `idle`
+/// once somebody did, `blocked` at a dialog, `working` after a timeout.
+/// `state` stays as it was.
+#[test]
+fn w5q_send_receipt_status_is_the_lists_word_for_the_turn() {
+    let answer = "> what is 2+2\n\n⏺ 4\n\n──────────────────────\n> \n──────────────────────";
+    let screens = [(1, "> what is 2+2\n\n✻ Thinking"), (2, answer)];
+    let receipt = send::run(&FakeDaemon::new(snapshot(), &screens), None, &quick("what is 2+2"))
+        .expect("sent");
+    assert_eq!(
+        (receipt["state"].as_str(), receipt["status"].as_str()),
+        (Some("idle"), Some("idle"))
+    );
+
+    let mut unseen = snapshot();
+    unseen["notifications"] = json!([
+        {"id": "notification_1", "terminal_id": "term_c1a0de00000000000000000000000001",
+         "unread": true, "title": "Claude finished"},
+    ]);
+    let listed = roster::agent_rows(&unseen);
+    let row = listed
+        .iter()
+        .find(|row| row.terminal == "term_c1a0de00000000000000000000000001")
+        .expect("the claude row");
+    assert_eq!(row.status_word(), "done");
+    let receipt =
+        send::run(&FakeDaemon::new(unseen, &screens), None, &quick("what is 2+2")).expect("sent");
+    assert_eq!(receipt["state"], "idle", "{receipt}");
+    assert_eq!(receipt["status"], row.status_word(), "{receipt}");
+
+    let before = "⏺ OLD_ANSWER_ONE\n\n❯ Reply with exactly ALPHA_OK\n\n⏺ ALPHA_OK\n\n❯ ";
+    let daemon = dialog_daemon(&[(1, before), (2, DIALOG_SCREEN)]);
+    let receipt =
+        send::run(&daemon, None, &quick("Run the shell command `touch /tmp/w4i-perm` now."))
+            .expect("sent");
+    assert_eq!(receipt["status"], "blocked", "{receipt}");
+
+    let screens: Vec<(u64, String)> =
+        (1..400).map(|n| (n, format!("> q\n\nworking {n}"))).collect();
+    let screens: Vec<(u64, &str)> = screens.iter().map(|(n, text)| (*n, text.as_str())).collect();
+    let daemon = FakeDaemon::new(snapshot(), &screens);
+    let request = SendRequest { timeout: Duration::from_millis(100), ..quick("q") };
+    let receipt = send::run(&daemon, None, &request).expect("sent");
+    assert_eq!(receipt["status"], "working", "{receipt}");
+}
+
+/// A [`FakeDaemon`] whose `session.snapshot` reads after the first answer
+/// from `later`, in order: `None` is a failed read.
+struct LaterSnapshotDaemon {
+    inner: FakeDaemon,
+    later: RefCell<std::collections::VecDeque<Option<Value>>>,
+    read: Cell<bool>,
+}
+
+impl Daemon for LaterSnapshotDaemon {
+    fn request(&self, session: Option<&str>, plan: RequestPlan) -> Result<Value, CallFailure> {
+        let wire = request_value(&plan).expect("valid request");
+        if wire["operation"] != "session.snapshot" || !self.read.replace(true) {
+            return self.inner.request(session, plan);
+        }
+        match self.later.borrow_mut().pop_front().flatten() {
+            Some(snapshot) => Ok(snapshot),
+            None => Err(CallFailure {
+                kind: FailureKind::NotRun,
+                error: json!({"code": "transport.failed", "message": "read failed",
+                              "details": {}, "retryable": true}),
+                idempotency_key: None,
+            }),
+        }
+    }
+}
+
+/// W5-Q follow-up (PR A review note 4): the receipt's `status` comes from a
+/// snapshot read after the wait. When that read fails, the snapshot from
+/// before the send is no answer: its old unread notification said `done`
+/// for a turn somebody viewed, and it cannot show the new one. The read is
+/// tried once more; when that fails too, a finished turn's `status` is
+/// `unknown` (#39602 review: `idle` would claim somebody viewed it).
+#[test]
+fn w5q_send_receipt_status_never_comes_from_the_snapshot_before_the_send() {
+    let answer = "> what is 2+2\n\n⏺ 4\n\n──────────────────────\n> \n──────────────────────";
+    let screens = [(1, "> what is 2+2\n\n✻ Thinking"), (2, answer)];
+    let mut unread = snapshot();
+    unread["notifications"] = json!([
+        {"id": "notification_1", "terminal_id": "term_c1a0de00000000000000000000000001",
+         "unread": true, "title": "Claude finished"},
+    ]);
+    let send_with = |before: Value, later: Vec<Option<Value>>| {
+        let daemon = LaterSnapshotDaemon {
+            inner: FakeDaemon::new(before, &screens),
+            later: RefCell::new(later.into()),
+            read: Cell::new(false),
+        };
+        send::run(&daemon, None, &quick("what is 2+2")).expect("sent")
+    };
+
+    // An old unread notification before the send; both reads after it fail.
+    let receipt = send_with(unread.clone(), vec![None, None]);
+    assert_eq!(receipt["status"], "unknown", "the old notification gave the status: {receipt}");
+
+    // The first read after the wait fails; the second one shows the new
+    // unread notification of this turn.
+    let receipt = send_with(snapshot(), vec![None, Some(unread)]);
+    assert_eq!(receipt["status"], "done", "the read was not tried again: {receipt}");
+}
+
+/// W5-Q follow-up (PR A review note 3): an ended session's row says
+/// `status: "ended"`, the word the send receipt says, not null.
+#[test]
+fn w5q_an_ended_row_of_terminal_list_agents_says_status_ended() {
+    let mut ended = snapshot();
+    ended["agents"][0]["state"] = json!("done");
+    let rows = roster::agent_rows(&ended);
+    let last = rows.last().expect("the ended row");
+    assert_eq!(last.status_word(), "ended");
+    assert_eq!(last.to_json(0)["status"], "ended", "{}", last.to_json(0));
+    assert_eq!(last.to_json(0)["state"], "ended", "{}", last.to_json(0));
+}
+
+/// W5-Q follow-up (#39580 review): `terminal list --agents` lists the agents
+/// of live terminals, and live is an allow-list of lifecycle words
+/// (`running`, `launching`, `adopting`). A terminal with another word or
+/// with no `lifecycle` field gets no row.
+#[test]
+fn w5q_terminal_list_agents_lists_only_terminals_whose_lifecycle_says_they_run() {
+    let claude = "term_c1a0de00000000000000000000000001";
+    let listed = |lifecycle: Option<&str>| {
+        let mut snapshot = snapshot();
+        match lifecycle {
+            Some(word) => snapshot["terminals"][0]["lifecycle"] = json!(word),
+            None => {
+                if let Some(terminal) = snapshot["terminals"][0].as_object_mut() {
+                    terminal.remove("lifecycle");
+                }
+            }
+        }
+        roster::agent_rows(&snapshot).iter().any(|row| row.terminal == claude)
+    };
+    for live in ["running", "launching", "adopting"] {
+        assert!(listed(Some(live)), "lifecycle {live}");
+    }
+    for not_live in [Some("exited"), Some("tombstoned"), Some("suspended"), Some(""), None] {
+        assert!(!listed(not_live), "lifecycle {not_live:?}");
+    }
 }

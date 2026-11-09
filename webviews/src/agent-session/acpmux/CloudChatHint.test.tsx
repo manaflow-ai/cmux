@@ -2,6 +2,8 @@
 // 2026-11-08, on teammates starting a Cloud chat: "how would they know?". It shows only while its
 // record in the app is open, tips are on and Cloud is offered to a new chat that has not picked it;
 // Use Cloud is the Where menu's own pick, and the X or any Cloud pick closes it for the install.
+// Leo, 2026-11-06, on tips and guides: far too many, far too often. It shows at most once per
+// install (the app's claim) and spends the tips' one 14-day budget.
 import { afterEach, expect, test } from "bun:test";
 import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -11,6 +13,7 @@ import { memoryTipHost, type TipHost } from "../../ui/featureTips/store";
 import { CloudChatHint } from "./CloudChatHint";
 import {
   CLOUD_CHAT_HINT_ID,
+  cloudChatHintDue,
   cloudChatHintRecord,
   cloudChatHintShown,
   useCloudChatHint,
@@ -50,12 +53,18 @@ afterEach(async () => {
   saved.clear();
 });
 
-const shownFacts = { record: "open", tipsOn: true, cloudOffered: true, cloudPicked: false, started: false } as const;
+const shownFacts = { record: "shown", tipsOn: true, cloudOffered: true, cloudPicked: false, started: false } as const;
 
-test("the hint shows only on a new chat that has not picked Cloud, while its record is open and tips are on", () => {
+test("the hint shows only on a new chat that has not picked Cloud, once the app granted it and tips are on", () => {
   expect(cloudChatHintShown(shownFacts)).toBe(true);
   expect(cloudChatHintShown({ ...shownFacts, record: "unknown" })).toBe(false);
+  expect(cloudChatHintShown({ ...shownFacts, record: "open" })).toBe(false);
   expect(cloudChatHintShown({ ...shownFacts, record: "done" })).toBe(false);
+  // Due: the page asks the app for it only while its record is open and the same facts hold.
+  expect(cloudChatHintDue({ ...shownFacts, record: "open" })).toBe(true);
+  expect(cloudChatHintDue(shownFacts)).toBe(false);
+  expect(cloudChatHintDue({ ...shownFacts, record: "open", started: true })).toBe(false);
+  expect(cloudChatHintDue({ ...shownFacts, record: "open", tipsOn: false })).toBe(false);
   expect(cloudChatHintShown({ ...shownFacts, tipsOn: false })).toBe(false);
   expect(cloudChatHintShown({ ...shownFacts, cloudOffered: false })).toBe(false);
   expect(cloudChatHintShown({ ...shownFacts, cloudPicked: true })).toBe(false);
@@ -128,6 +137,29 @@ test("another pane's answer reaches this one's next new chat", async () => {
   expect(hint.current().record).toBe("done");
 });
 
+test("it shows once: the app's claim records it, and the next new chat has none without an X", async () => {
+  const host = memoryTipHost();
+  const hint = await mountHint(host);
+  expect(hint.current().record).toBe("open");
+  await act(async () => hint.current().claim());
+  await act(async () => undefined);
+  expect(hint.current().record).toBe("shown");
+  expect(host.records[CLOUD_CHAT_HINT_ID]).toBe("shown");
+  expect(host.lastShownAt).not.toBeNull();
+  await hint.newChat(1);
+  expect(hint.current().record).toBe("done");
+});
+
+test("within 14 days of another tip the app refuses it, and this page shows none", async () => {
+  const host = memoryTipHost();
+  host.lastShownAt = host.now() - 86_400_000;
+  const hint = await mountHint(host);
+  await act(async () => hint.current().claim());
+  await act(async () => undefined);
+  expect(hint.current().record).toBe("done");
+  expect(host.records[CLOUD_CHAT_HINT_ID]).toBeUndefined();
+});
+
 test("an older app that refuses `tips.state` shows no hint", async () => {
   const refusing: TipHost = {
     read: () => Promise.reject(new Error("unsupported")),
@@ -146,7 +178,7 @@ test("Use Cloud and the X answer once each; the X has an accessible name", async
   let closed = 0;
   root = createRoot(container);
   await act(async () => root!.render(<CloudChatHint onUse={() => used++} onClose={() => closed++} />));
-  expect(container.textContent).toContain("This chat can run in Cloud and keep working while your Mac sleeps.");
+  expect(container.textContent).toContain("Cloud chats keep working while your Mac sleeps.");
   const use = container.querySelector<HTMLButtonElement>('[data-testid="cloud-hint-use"]')!;
   expect(use.textContent).toBe("Use Cloud");
   await act(async () => use.click());
@@ -160,5 +192,5 @@ test("Use Cloud and the X answer once each; the X has an accessible name", async
 test("the hint is borderless and moves on the house settle", () => {
   const css = readFileSync(new URL("./cloudChatHint.css", import.meta.url), "utf8");
   expect(css).not.toMatch(/\bborder\s*:\s*(?!0\b)[^;]*solid/);
-  expect(css).toContain("var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1))");
+  expect(css).toContain("var(--cmux-motion-settle, 180ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1))");
 });

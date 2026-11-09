@@ -49,6 +49,9 @@ pub(super) fn session_change_kind(record_kind: &str) -> Option<&str> {
         // Loop episodes must reach sidebar and attached summary watchers immediately.
         | "loop_detected"
         | "loop_cleared"
+        // Its harness refuses every command: its own sandbox did not start (`hub/harness_sandbox.rs`).
+        | "harness_sandbox_failed"
+        | "harness_sandbox_recovered"
         // What its harness spent and holds, read after a turn (`hub/usage_view.rs`).
         | "usage_stats" => record_kind,
         // A Stop's turn reads `stopping`, or a stuck chat works again: the row's `state`.

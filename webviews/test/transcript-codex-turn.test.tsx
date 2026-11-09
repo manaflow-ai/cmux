@@ -137,14 +137,18 @@ test("a failed tool call keeps its red mark at rest; a running one no spinner", 
   expect(running).not.toContain("cv-command__time");
 });
 
-test("the hover check and time follow the pointer's dwell as a message's hover row does", async () => {
+// Leo (2026-11-09, on a live turn's recording): "oh im mostly just saying that it lags". A tool
+// row is a list row: its check and time show on the frame the pointer reaches it and leave on the
+// quick step, not the message hover row's dwell (test/agent-pane-hover-follows-row.test.ts).
+test("the hover check and time show at once and leave on the quick step", async () => {
   const css = await Bun.file(
     new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
   ).text();
   expect(css).toMatch(
-    /\.cv-tool :is\(\.cv-command__ok, \.cv-command__time\) \{\s*transition: opacity var\(--cv-actions-out\)/,
+    /\.cv-tool :is\(\.cv-command__ok, \.cv-command__time\) \{\s*transition: var\(--cv-row-reveal-out\);/,
   );
   expect(css).toMatch(
-    /\.cv-tool:hover :is\(\.cv-command__ok, \.cv-command__time\) \{\s*transition: opacity var\(--cv-actions-in\) var\(--cv-actions-in-ease\);/,
+    /\.cv-tool:is\(:hover, :focus-visible\) :is\(\.cv-command__ok, \.cv-command__time\) \{\s*transition: none;/,
   );
+  expect(css).toMatch(/--cv-row-reveal-out: opacity var\(--cmux-motion-quick, 80ms\)/);
 });

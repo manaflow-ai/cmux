@@ -47,6 +47,8 @@ export interface MarkdownState {
   source: string;
   /** Bumped when the document is replaced from outside (load, reload), so source views re-read. */
   revision: number;
+  /** The editor's document has a runnable shell block (runbook.ts): the toolbar shows Run all. */
+  runnable: boolean;
   /** The page's look: `markdown` settings, theme.css and the terminal appearance. */
   look: { settings: unknown; themeCSS: string | undefined; appearance: DiffViewerAppearance | undefined };
   /** Link history (files followed in this page): whether `back` and `forward` go anywhere. */
@@ -123,6 +125,7 @@ export class MarkdownStore {
     conflict: null,
     source: "",
     revision: 0,
+    runnable: false,
     look: { settings: undefined, themeCSS: undefined, appearance: undefined },
     canBack: false,
     canForward: false,
@@ -349,6 +352,11 @@ export class MarkdownStore {
   }
 
   /** The editor mounted (or unmounted, with null). A loaded file goes into it. */
+  /** The editor read a document (`MarkdownEditor` `onRunnable`). */
+  setRunnable(runnable: boolean): void {
+    if (runnable !== this.state.runnable) this.set({ runnable });
+  }
+
   attachEditor(editor: DocumentEditor | null): void {
     this.editor = editor;
     if (!editor || this.state.phase !== "ready") return;

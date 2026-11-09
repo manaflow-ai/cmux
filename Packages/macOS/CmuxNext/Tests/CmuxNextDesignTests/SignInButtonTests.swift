@@ -13,14 +13,15 @@ import Testing
             == SignInButtonMetrics(height: 24, paddingX: 10, cornerRadius: 6, textSize: 12))
     }
 
-    @Test func comfortableIsAComfortableControlsSize() {
-        #expect(SignInButtonMetrics(density: DensityPreset.comfortable.tokens, cornerRadius: 7)
+    @Test func levelOneIsAComfortableControlsSize() {
+        #expect(SignInButtonMetrics(density: DensityTokens(id: "comfortable", name: "Comfortable", level: 1), cornerRadius: 7)
             == SignInButtonMetrics(height: 30, paddingX: 10, cornerRadius: 7, textSize: 13))
     }
 
-    @Test func denserAndRoomierDensitiesFollow() {
+    @Test func denserAndRoomierLevelsFollow() {
         let ultra = SignInButtonMetrics(density: DensityPreset.ultraCompact.tokens, cornerRadius: 6)
-        let spacious = SignInButtonMetrics(density: DensityPreset.spacious.tokens, cornerRadius: 8)
+        let spacious = SignInButtonMetrics(density: DensityTokens(id: "roomy", name: "Roomy", level: 1.75, spacing: 1.25),
+                                           cornerRadius: 8)
         #expect(ultra == SignInButtonMetrics(height: 21, paddingX: 8, cornerRadius: 6, textSize: 11.5))
         #expect(spacious == SignInButtonMetrics(height: 35, paddingX: 13, cornerRadius: 8, textSize: 14))
     }

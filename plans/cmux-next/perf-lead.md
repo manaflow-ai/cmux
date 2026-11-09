@@ -299,3 +299,25 @@ daemon-log line when an effect becomes `mutation.indeterminate`:
 log write run only in the Err / Indeterminate arms; a success or committed-failure reply allocates
 nothing new. The replay cause is the constant `resource_api::EARLIER_ATTEMPT_CAUSE`. No reply
 shape changed.
+
+## Notice to PL-daemon: terminal.close if_unplaced (2026-11-08)
+
+W5-O follow-up, PR #39092. The resource `terminal.close` takes an optional `if_unplaced`
+(capability `terminal-close-if-unplaced-v1`, static). With it the daemon ends the terminal only
+when it has no view, no `keep` mark and no attach stream: the reaper's rule without the grace. A
+refusal is a stored known failure (`operation.failed`, `extra.terminal_retained: true`).
+- Lock note: the view and keep check runs inside the close commit
+  (`commit_resource_close_with`'s slot closure, `close_effects.rs`), under the registry and state
+  locks that the close already holds. The closure now also gets the `&WorkspaceRegistry`; no new
+  lock and no lock order change. The keep read is one indexed SQLite read in the same registry.
+  The reaper's guarded close (`commit_legacy_terminal_close`) uses the same helper
+  (`terminal_placed_or_kept`); its behavior is unchanged.
+- The attach check (`control_clients.attach_observation`) runs before the commit, as in the
+  reaper.
+- No work on the request hot path: a `terminal.close` without the field, and every other
+  operation, run the same code as before. Only `workspace <ws> close --remove-worktree` sends the
+  field, once for each terminal it ends.
+- The CLI sends the field to the daemon that receives the close (the same route, also with
+  `--machine`). Only an older daemon's refusal of the unknown parameter (`validation.invalid`,
+  before the request is keyed) makes it send the plain close; any other failure leaves the
+  terminal to the reaper. The CLI does not call `identify` for this.

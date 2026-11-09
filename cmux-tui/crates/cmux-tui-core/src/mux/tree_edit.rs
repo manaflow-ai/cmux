@@ -86,13 +86,11 @@ pub(super) fn close_sibling(screen: &Screen, pane: PaneId) -> Option<PaneId> {
     }
     let columns = &screen.layout_columns;
     let index = columns.iter().position(|column| column.root.contains(pane))?;
-    sibling_of(&columns[index].root, pane).or_else(|| {
+    let (before, rest) = columns.split_at_checked(index)?;
+    let (column, after) = rest.split_first()?;
+    sibling_of(&column.root, pane).or_else(|| {
         let first = |column: &LayoutColumn| column.root.pane_ids_vec().first().copied();
-        columns[..index]
-            .iter()
-            .rev()
-            .find_map(first)
-            .or_else(|| columns[index + 1..].iter().find_map(first))
+        before.iter().rev().find_map(first).or_else(|| after.iter().find_map(first))
     })
 }
 

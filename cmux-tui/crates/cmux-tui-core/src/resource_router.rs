@@ -274,6 +274,9 @@ fn dispatch_resource_request(
         OperationOwner::Config => config::dispatch(mux, request),
         OperationOwner::OpenUrl => open_url::dispatch(mux, request),
         OperationOwner::Stash => crate::state::stash_router::dispatch(mux, request),
+        OperationOwner::ClassicImport => {
+            crate::state::classic_import_router::dispatch(mux, request)
+        }
         OperationOwner::ConductorImport => {
             crate::state::conductor_import_router::dispatch(mux, request)
         }
@@ -1179,6 +1182,8 @@ mod closed_content_tests;
 mod create_argv_tests;
 #[cfg(test)]
 mod frontend_browser_effect_tests;
+#[cfg(test)]
+mod pane_move_tests;
 #[cfg(test)]
 mod partial_create_tests;
 #[cfg(test)]

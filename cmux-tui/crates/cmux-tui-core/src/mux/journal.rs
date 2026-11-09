@@ -270,6 +270,8 @@ impl Mux {
         (snapshot.wal_commits, snapshot.wal_synced_commits) =
             self.registry_connection.durability_counts();
         snapshot.registry_wal_frame_bytes = self.registry_connection.wal_frame_bytes();
+        (snapshot.registry_wal_file_bytes, snapshot.registry_wal_file_high_water_bytes) =
+            self.registry_connection.wal_file_bytes();
         snapshot
     }
 
@@ -444,19 +446,20 @@ impl Mux {
         self.workspace_registry.lock().unwrap().session_journal_after(sequence, limit)
     }
 
-    /// Records in `(sequence, through]` other than `terminal.output`, at
-    /// most `limit`, and the sequence the read covered through (see
-    /// `WorkspaceRegistry::session_journal_without_output_after`).
-    pub(crate) fn session_journal_without_output_after(
+    /// Records in `(sequence, through]` of the kinds `kinds` accepts, and
+    /// the sequence the read covered through (see
+    /// `WorkspaceRegistry::session_journal_kinds_after`).
+    pub(crate) fn session_journal_kinds_after(
         &self,
         sequence: u64,
         through: u64,
+        kinds: crate::workspace_registry::session_journal::kind_read::JournalKinds,
         limit: usize,
     ) -> anyhow::Result<(Vec<crate::workspace_registry::SessionJournalRecord>, u64)> {
         self.workspace_registry
             .lock()
-            .unwrap()
-            .session_journal_without_output_after(sequence, through, limit)
+            .unwrap_or_else(PoisonError::into_inner)
+            .session_journal_kinds_after(sequence, through, kinds, limit)
     }
 
     pub(crate) fn session_journal_reader(

@@ -132,6 +132,9 @@ struct Shared {
     fixed_paths: bool,
     /// This machine's interfaces, for each new path's medium.
     networks: Vec<LocalNetwork>,
+    /// The path that carried the session went quiet (datagrams now go on
+    /// every path) or died since the last `take_path_change`.
+    left_path: bool,
 }
 
 impl Shared {
@@ -145,11 +148,19 @@ impl Shared {
         if current.is_some() {
             self.last_path = current;
         }
-        let switched =
-            self.current.send_if_modified(|seen| std::mem::replace(seen, current) != current);
+        let mut sprayed = false;
+        let switched = self.current.send_if_modified(|seen| {
+            let previous = std::mem::replace(seen, current);
+            sprayed = previous.is_some() && current.is_none();
+            previous != current
+        });
         let held = self.selector.chosen();
         let held_died = self.held.is_some() && held.is_none();
         self.held = held;
+        // Only a path that went quiet or died can have lost what was in
+        // flight; a move to a better path while the old one still answers
+        // loses nothing and needs no resend.
+        self.left_path |= sprayed || held_died;
         if switched || held_died {
             self.emit(Instant::now());
         }
@@ -286,6 +297,7 @@ impl Multipath {
             held: None,
             fixed_paths: false,
             networks: local_networks(),
+            left_path: false,
         }));
         (Self { shared: Arc::clone(&shared) }, MultipathControl { shared })
     }
@@ -505,12 +517,27 @@ impl Underlay for Multipath {
                 (a, b) => a.or(b),
             };
         }
+        let chosen_quiet = chosen.is_some_and(|id| silent.contains(&id));
         for id in lost {
             shared.probe(id, ProbeOutcome::Lost);
         }
         for id in silent {
             let _ = shared.selector.on_silence(id);
             shared.publish();
+        }
+        // The path we sent on lost its standing (silence, or a lost probe on
+        // a path slower than about 250 ms, whose probe times out first). The
+        // others were last heard up to a 30 s probe ago, and the cut may have
+        // taken them too: probe them all now, so the fallback is a path that
+        // answers today.
+        let left_current = current.is_some() && shared.selector.current() != current;
+        if chosen_quiet || left_current {
+            for slot in shared.slots.iter_mut().filter(|slot| !slot.failed) {
+                if Some(slot.id) != chosen {
+                    slot.watch.probe_now(now);
+                }
+            }
+            due.next = Some(now);
         }
         due
     }
@@ -601,6 +628,17 @@ impl Underlay for Multipath {
         lock(&self.shared).slots.iter().any(|slot| !slot.failed && slot.carrier.has_peer())
     }
 
+    fn take_path_change(&mut self) -> bool {
+        let mut shared = lock(&self.shared);
+        // A path's own carrier roaming (the peer's address on it moved)
+        // counts too.
+        let mut roamed = false;
+        for slot in &mut shared.slots {
+            roamed |= slot.carrier.take_path_change();
+        }
+        std::mem::take(&mut shared.left_path) || roamed
+    }
+
     fn peer_hint(&self) -> Option<SocketAddr> {
         let shared = lock(&self.shared);
         let current = shared.selector.current();
@@ -615,7 +653,11 @@ impl Underlay for Multipath {
 
 /// A path's medium: where its peer address is in the interface table for a
 /// direct path, else what its kind implies.
-fn medium_for(networks: &[LocalNetwork], kind: PathKind, peer: Option<SocketAddr>) -> Medium {
+pub(crate) fn medium_for(
+    networks: &[LocalNetwork],
+    kind: PathKind,
+    peer: Option<SocketAddr>,
+) -> Medium {
     match peer {
         Some(peer) if kind.class().is_direct() && !networks.is_empty() => {
             medium_of(peer.ip(), networks)

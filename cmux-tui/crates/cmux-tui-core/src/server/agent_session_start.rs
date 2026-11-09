@@ -329,6 +329,7 @@ pub(super) fn start(
     let Some(slot) = AgentSessionStarts::reserve(mux, params.surface) else {
         return refuse(writer, id, Refusal::Limit);
     };
+    let surface = params.surface;
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
@@ -342,7 +343,12 @@ pub(super) fn start(
             };
             drop(slot);
             match result {
-                Ok(data) => ok(&worker_writer, worker_id, data),
+                Ok(data) => {
+                    // Before the answer: the caller may close the tab as soon as it reads it
+                    // (phone_carrier.rs).
+                    worker_mux.control_clients.remember_started_tab(client, surface);
+                    ok(&worker_writer, worker_id, data)
+                }
                 Err((refusal, None)) => refuse(&worker_writer, worker_id, refusal),
                 Err((refusal, Some(data))) => {
                     super::refuse_with_data(&worker_writer, worker_id, refusal, data)

@@ -14,6 +14,7 @@ export const CONTEXT_LABELS = {
   machine: "composer.machine",
   chooseMachine: "composer.chooseMachine",
   noProject: "project.noFolder",
+  newProject: "project.new",
   environment: "composer.environment",
 } as const;
 

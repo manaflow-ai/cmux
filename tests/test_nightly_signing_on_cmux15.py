@@ -18,12 +18,15 @@ there (teamleaderleo/glaeda scripts/glaeda-cmux-runner-hook TRUSTED_NEXT_SIGNING
    but nightly-next (classic, RC) it takes GitHub-hosted Ubuntu, so their rate-limit waits never hold the signer.
 3. One-mini mode (vars.CI_NIGHTLY_MINI set, tests/test_nightly_one_mini.py) overrides 2: Lawrence,
    2026-11-04, the whole nightly builds on one Mac mini, so every event signs on the signer's label.
-4. No signing job, the GitHub-release uploads (publish-nightly-next-github and its -names twin) included, ever
-   resolves to a shared label (a nightly slot, side, root or std pool, the nightly-only pool) on any event or
-   attempt: those run on minis whose other runners take pull request jobs as the same user. The uploads hold the
-   release App key, so they stay on the signer (run 41900945757's upload held cmux15 whole while the next signs
-   waited; that contention remains). promote-nightly-next keeps its earlier route: it runs only on a dispatch of
-   main, which the signer's hook refuses, and main's own nightly.yml routes it there.
+4. No signing job ever resolves to a shared label (a nightly slot, side, root or std pool, the nightly-only pool)
+   on any event or attempt: those run on minis whose other runners take pull request jobs as the same user.
+   promote-nightly-next keeps its earlier route: it runs only on a dispatch of main, which the signer's hook
+   refuses, and main's own nightly.yml routes it there.
+5. The GitHub-release upload (publish-nightly-next-github) is no signing job: it holds the release App key and
+   signs nothing, and on the signer it held cmux15 whole while the next signs waited (run 41900945757; 289-406 s a
+   build in runs 42547726872-42563930397). Leo, 2026-11-08: "no. if this is still a good idea, we can still do
+   it." It runs on an ephemeral GitHub-hosted VM in release-next, as publish-release-notes does with the same key,
+   and never on a mini, shared or not.
 """
 
 from __future__ import annotations
@@ -47,11 +50,11 @@ from signing_runner import SIGNING_JOBS  # noqa: E402
 
 DRIFTED = ("glaeda-nightly-std-xcode-26.6", "glaeda-side-std-xcode-26.6")
 LABEL = "glaeda-trusted-next-signing"
-# Upload-only exclusive publisher: it holds the release App key and signs nothing, so it stays off the signer.
+# Upload-only publisher: it holds the release App key and signs nothing, so it runs hosted, off the signer (5).
 UPLOADS = ("publish-nightly-next-github",)
 # signing_runner.SIGNING_JOBS names the keychain jobs; promote-nightly-next keeps its earlier route
 # (test_promote_keeps_its_earlier_route)
-JOBS = tuple(name for name in SIGNING_JOBS["nightly.yml"] if name not in UPLOADS)
+JOBS = tuple(SIGNING_JOBS["nightly.yml"])
 # The push branch these routes had: it came before the pick, so a push never used the pick's pin.
 PREFIX = "github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && "
 PIN = '["glaeda-trusted-next-signing","glaeda-runner-cmux15-glaeda-2"]'
@@ -115,14 +118,14 @@ class SigningOnCmux15Test(unittest.TestCase):
                     with self.subTest(job=name, event=event, ref=ref, mode="one-mini"):
                         self.assertEqual(route(name, context), "ubuntu-24.04" if other_track else LABEL)
 
-    def test_the_release_uploads_stay_on_the_signer(self) -> None:
+    def test_the_release_uploads_leave_the_signer(self) -> None:
         for name in UPLOADS:
             source = manaflow_route(name)
             with self.subTest(job=name):
-                self.assertTrue(source.rstrip(" }").endswith(
-                    "needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && "
-                    "needs.pick-nightly-sign-runner.outputs.sign_owned_pool || "
-                    "'glaeda-trusted-next-signing'"), source)
+                self.assertNotIn(name, SIGNING_JOBS["nightly.yml"])
+                self.assertEqual(source.strip(), "${{  'ubuntu-24.04' }}")
+                self.assertNotIn(LABEL, source)
+                self.assertNotIn("CI_NIGHTLY_MINI", source)
 
     def test_no_signing_job_ever_resolves_to_a_shared_label(self) -> None:
         # The pickers offer only the signer's label (test_ci_signing_owned_mac), so their outputs are a signer pin or

@@ -3,14 +3,6 @@ import Foundation
 /// What the network, firewall, domain, publication and API key actions say. Keys
 /// live in Resources/Cloud.xcstrings with every app locale.
 public extension CloudStrings {
-    /// `cloud tunnel-attach` / `tunnel-detach` without a network id. The
-    /// actions take it in `--path` (their one string argument).
-    static var networkIDRequired: String {
-        String(localized: "cloud.network.networkIDRequired",
-               defaultValue: "Pass the network id with --path <network-id>; `cmux cloud network-list` lists ids.",
-               table: "Cloud", bundle: .module)
-    }
-
     /// `cloud firewall-get` / `firewall-delete` without a rule id.
     static var ruleIDRequired: String {
         String(localized: "cloud.network.ruleIDRequired",

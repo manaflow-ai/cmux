@@ -163,6 +163,11 @@ impl Hub {
         meta.wait_start = false;
         // Nor is a mode cmux set here, which only this daemon records (`SessionMeta::mode_set_by_cmux`).
         meta.mode_set_by_cmux = None;
+        // Nor what an agent of another daemon said at `initialize`, or the launch it started from:
+        // an `asksBeforeTools` claim is believed only from an agent this daemon started
+        // (`policy_mode.rs` `claim_distrust`). Its next start here records both again.
+        meta.agent_capabilities = None;
+        meta.launch_digest = None;
         super::bookmarks::capped(&mut meta.bookmarks);
         // The id becomes a directory name under the sessions root.
         if !is_plain_id(&meta.id) {
@@ -234,6 +239,7 @@ impl Hub {
                 )
             }
         });
+        // timeout: a slow git read is inconclusive; the bundle's record is kept.
         meta.worktree = match tokio::time::timeout(std::time::Duration::from_secs(2), read).await {
             Ok(Ok(Some(found))) => found,
             _ => meta.worktree.take().filter(|w| w.cwd == meta.cwd),
@@ -313,6 +319,8 @@ impl Hub {
         self.settle_subagent_retries(&session);
         self.sessions.lock().unwrap().insert(meta.id.clone(), session.clone());
         self.update_live_session_index(&session);
+        // A session that came may be another row's parent: every closed row is built again.
+        self.events.changed();
         // Indexed again once published: a lookup before that found no session and dropped it.
         self.child_tags.note(&session);
         self.offers.forget(&meta.id);

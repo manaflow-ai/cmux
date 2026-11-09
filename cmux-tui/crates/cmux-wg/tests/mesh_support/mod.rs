@@ -3,6 +3,8 @@
 #![allow(dead_code)]
 
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use cmux_wg::testing::random_keypair;
@@ -62,7 +64,19 @@ pub async fn node_with_mtu(
     public: [u8; 32],
     mtu: u16,
 ) -> Node {
-    let socket = UdpSocket::bind("127.0.0.1:0").await.expect("bind");
+    node_bound(addresses, private, public, mtu, "127.0.0.1:0").await
+}
+
+/// A mesh on a socket bound to `bind` (`0.0.0.0:0`: every interface, so it
+/// advertises its interface addresses to its peers).
+pub async fn node_bound(
+    addresses: &[IpAddr],
+    private: [u8; 32],
+    public: [u8; 32],
+    mtu: u16,
+    bind: &str,
+) -> Node {
+    let socket = UdpSocket::bind(bind).await.expect("bind");
     let config = WgMeshConfig {
         private_key: Zeroizing::new(private),
         addresses: addresses
@@ -86,6 +100,7 @@ pub fn peer_of(node: &Node, allowed: &[IpAddr], endpoint: bool) -> WgPeer {
         preshared_key: None,
         allowed_ips: allowed.iter().copied().map(host).collect(),
         route: endpoint.then_some(node.udp.into()),
+        candidates: Vec::new(),
         persistent_keepalive: None,
     }
 }
@@ -135,4 +150,44 @@ pub async fn echo_round_trip(stream: &mut WgStream, len: usize) {
         assert!(received == data, "echoed bytes differ");
     };
     within(async { tokio::join!(write, read) }).await;
+}
+
+/// A UDP link to `server` with `delay` each way that drops everything, both
+/// ways, while the returned switch is set (a pulled cable). Clients dial the
+/// returned address; the link answers the latest client.
+pub async fn cuttable_link(server: SocketAddr, delay: Duration) -> (SocketAddr, Arc<AtomicBool>) {
+    let front = Arc::new(UdpSocket::bind("127.0.0.1:0").await.expect("bind front"));
+    let back = Arc::new(UdpSocket::bind("127.0.0.1:0").await.expect("bind back"));
+    let address = front.local_addr().expect("front addr");
+    let cut = Arc::new(AtomicBool::new(false));
+    let client: Arc<Mutex<Option<SocketAddr>>> = Arc::default();
+    let forward = |from: Arc<UdpSocket>, to: Arc<UdpSocket>, toward: Option<SocketAddr>| {
+        let (cut, client, delay) = (cut.clone(), client.clone(), delay);
+        tokio::spawn(async move {
+            let mut buffer = vec![0u8; 65_536];
+            while let Ok((count, source)) = from.recv_from(&mut buffer).await {
+                let target = match toward {
+                    Some(server) => {
+                        *client.lock().unwrap_or_else(PoisonError::into_inner) = Some(source);
+                        server
+                    }
+                    None => match *client.lock().unwrap_or_else(PoisonError::into_inner) {
+                        Some(client) => client,
+                        None => continue,
+                    },
+                };
+                if cut.load(Ordering::Relaxed) {
+                    continue;
+                }
+                let (to, datagram) = (to.clone(), buffer[..count].to_vec());
+                tokio::spawn(async move {
+                    tokio::time::sleep(delay).await;
+                    let _ = to.send_to(&datagram, target).await;
+                });
+            }
+        });
+    };
+    forward(front.clone(), back.clone(), Some(server));
+    forward(back, front, None);
+    (address, cut)
 }

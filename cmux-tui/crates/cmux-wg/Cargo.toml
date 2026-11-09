@@ -19,7 +19,10 @@ cmux-transport = { path = "../cmux-transport", features = ["local-networks"] }
 # production callers bring their own keys.
 getrandom.workspace = true
 ip_network.workspace = true
-smoltcp.workspace = true
+# Each receive buffer tracks up to 32 out-of-order ranges, not smoltcp's 4:
+# past 4 holes (a few percent loss on a full window) it dropped every further
+# out-of-order segment, and SACK can only describe ranges it keeps.
+smoltcp = { workspace = true, features = ["assembler-max-segment-count-32"] }
 tokio.workspace = true
 tokio-util.workspace = true
 x25519-dalek.workspace = true
