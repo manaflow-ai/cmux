@@ -33,11 +33,17 @@ public struct RemoteAgentDaemonStatus: Sendable, Equatable {
     }
 
     /// The machine's exec script of ``read(cloudMachine:api:)``: the status as `cmux-tui` prints it; exit 82 with no cmux-tui.
+    /// A provider's exec may run with no login profile (HOME unset, or the provider's own `/root`), so HOME is the exec
+    /// user's home from the passwd database, else the image's work user's: the daemon's socket is under it. Read from
+    /// `$HOME`, the status was unreadable on every Cloud start, and the keyed restart never ran beside the login.
     public static let cloudStatusCommand = [
         "set -eu",
+        #"h=$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f6 || true)"#,
+        #"[ -z "$h" ] || HOME=$h"#,
+        #"export HOME="${HOME:-/home/cmux}""#,
         #"b="$HOME/.cmux/bin/cmux-tui""#,
         #"[ -x "$b" ] || exit 82"#,
-        #""$b" acp --json daemon status </dev/null""#,
+        #""$b" acp --json daemon status </dev/null"#,
     ].joined(separator: "; ")
 
     public static func read(_ host: SSHHost, environment: [String: String]) async -> RemoteAgentDaemonStatus? {
