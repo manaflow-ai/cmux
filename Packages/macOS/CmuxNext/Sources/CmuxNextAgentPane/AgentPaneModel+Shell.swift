@@ -4,6 +4,8 @@ extension AgentPaneModel {
     /// Shell mode's requests (``AgentPaneShell``): `shell.run`, `shell.read` and `shell.stop`.
     /// A chat on another machine (Cloud, SSH) runs its commands on that machine, in its folder
     /// there, through the machine's daemon (``AgentPaneShell/machine``); never on this Mac (cx-k21v).
+    /// Each side reaches only its own runs: such a chat's read or Stop of an id not started on a
+    /// machine is refused, and a chat of this Mac never reaches a machine's run.
     func respondToShell(_ request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         case .shellRun(let command, let cwd):
@@ -20,7 +22,8 @@ extension AgentPaneModel {
         case .shellRead(let id, let after):
             do {
                 let chunk: AgentPaneShell.Chunk
-                if let link = shell.machineShell(of: id) {
+                if chatIsElsewhere {
+                    guard let link = shell.machineShell(of: id) else { return Self.unknownShellRun }
                     chunk = try await link.readShell(id, after: after)
                     if chunk.exit != nil { shell.noteMachineExit(id) }
                 } else {
@@ -31,11 +34,20 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "shell.failed", message: Self.shellFailureMessage(error))
             }
         case .shellStop(let id):
-            if let link = shell.machineShell(of: id) { await link.stopShell(id) } else { shell.stop(id) }
+            if chatIsElsewhere {
+                guard let link = shell.machineShell(of: id) else { return Self.unknownShellRun }
+                await link.stopShell(id)
+            } else {
+                shell.stop(id)
+            }
             return AgentPaneReply.success()
         default:
-            return AgentPaneReply.failure(code: "shell.failed", message: Self.shellFailureMessage(AgentPaneShell.Failure.unknownRun))
+            return Self.unknownShellRun
         }
+    }
+
+    private static var unknownShellRun: [String: Any] {
+        AgentPaneReply.failure(code: "shell.failed", message: shellFailureMessage(AgentPaneShell.Failure.unknownRun))
     }
 
     /// A chat elsewhere: only one the handshake marked remote has a machine, and its command goes

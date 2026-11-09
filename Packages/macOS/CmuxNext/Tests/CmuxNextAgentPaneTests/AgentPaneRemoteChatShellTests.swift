@@ -100,6 +100,59 @@ struct AgentPaneRemoteChatShellTests {
         #expect((reply["error"] as? [String: Any])?["userMessage"] as? String == AgentPaneModel.shellFailureMessage(AgentPaneShell.Failure.tooMany))
     }
 
+    /// A remote chat reaches only its machine's runs: an id it did not start there, even one of a
+    /// command running on this Mac, is refused, and the command here keeps running.
+    @Test func aRemoteChatCannotReadOrStopACommandOfThisMac() async throws {
+        let machine = Machine()
+        let model = Self.model(machine, remote: false)
+        let started = await Self.send(model, "shell.run", ["command": "sleep 1; echo local", "cwd": NSTemporaryDirectory()])
+        let local = try #require((started["value"] as? [String: Any])?["id"] as? String, "\(started)")
+        model.remoteChat = true
+
+        let read = await Self.send(model, "shell.read", ["id": local, "after": 0], click: false)
+        #expect(Self.code(read) == "shell.failed", "\(read)")
+        #expect((read["error"] as? [String: Any])?["userMessage"] as? String == AgentPaneModel.shellFailureMessage(AgentPaneShell.Failure.unknownRun))
+        let stop = await Self.send(model, "shell.stop", ["id": local], click: false)
+        #expect(Self.code(stop) == "shell.failed", "\(stop)")
+        let unknown = await Self.send(model, "shell.read", ["id": "run_unknown", "after": 0], click: false)
+        #expect(Self.code(unknown) == "shell.failed")
+        #expect(Self.code(await Self.send(model, "shell.stop", ["id": "run_unknown"], click: false)) == "shell.failed")
+        #expect(machine.reads.isEmpty && machine.stops.isEmpty, "an unknown id is not sent to the machine either")
+
+        // The command on this Mac was not stopped: it ends on its own, with its output.
+        model.remoteChat = false
+        var after = 0
+        var output = ""
+        var exit: [String: Any]?
+        for _ in 0..<20 where exit == nil {
+            let chunk = try #require(await Self.send(model, "shell.read", ["id": local, "after": after], click: false)["value"] as? [String: Any])
+            output += chunk["output"] as? String ?? ""
+            after = chunk["next"] as? Int ?? after
+            exit = chunk["exit"] as? [String: Any]
+        }
+        #expect(exit?["code"] as? Int == 0, "\(String(describing: exit))")
+        #expect(exit?["signal"] == nil)
+        #expect(output.contains("local"))
+        model.shell.terminateAll()
+    }
+
+    /// A chat of this Mac never reaches a run on a machine, even one this pane started there.
+    @Test func aLocalChatCannotReadOrStopAMachinesCommand() async {
+        let machine = Machine()
+        let model = Self.model(machine)
+        let started = await Self.send(model, "shell.run", ["command": "sleep 60"])
+        let id = (started["value"] as? [String: Any])?["id"] as? String
+        #expect(id == "run_1", "\(started)")
+        model.remoteChat = false
+
+        let read = await Self.send(model, "shell.read", ["id": "run_1", "after": 0], click: false)
+        #expect(Self.code(read) == "shell.failed", "\(read)")
+        _ = await Self.send(model, "shell.stop", ["id": "run_1"], click: false)
+        #expect(machine.reads.isEmpty)
+        #expect(machine.stops.isEmpty)
+        #expect(model.shell.machineShell(of: "run_1") != nil, "the machine's run is still the remote chat's")
+    }
+
     private static func settle(_ machine: Machine, stops count: Int) async {
         for _ in 0..<200 where machine.stops.count < count { await Task.yield() }
     }
