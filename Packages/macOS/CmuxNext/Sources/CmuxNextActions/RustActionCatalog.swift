@@ -228,6 +228,7 @@ nonisolated struct RustActionCatalog: Sendable {
         argument.isTargetName = value["isTargetName"] as? Bool ?? false
         argument.isTargetDescription = value["isTargetDescription"] as? Bool ?? false
         argument.isSuppliedByTarget = value["isSuppliedByTarget"] as? Bool ?? false
+        argument.isAskedInPalette = value["isAskedInPalette"] as? Bool ?? false
         return argument
     }
 
