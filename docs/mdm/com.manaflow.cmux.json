@@ -4120,6 +4120,12 @@
       "title" : "Also While Terminal Commands Run",
       "type" : "boolean"
     },
+    "sessions.keepAwakeWhenLocked" : {
+      "default" : false,
+      "description" : "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep.",
+      "title" : "Keep Agents Running While Locked",
+      "type" : "boolean"
+    },
     "sessions.promptSuggestions" : {
       "default" : true,
       "description" : "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it.",
