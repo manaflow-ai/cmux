@@ -2530,6 +2530,7 @@ mod tests;
 
 mod actors;
 mod digest_reader;
+pub(crate) mod kind_read;
 use digest_reader::DigestReader;
 #[cfg(test)]
 mod actor_tests;
