@@ -11,8 +11,10 @@ import sys
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 import urllib.request
@@ -696,6 +698,45 @@ class PrePushGateTests(unittest.TestCase):
         script.write_text(f'#!/bin/sh\nprintf "%s|%s|%s\\n" "$1" "$2" "$PWD" > {record}\ncat >> {record}\nexit {status}\n')
         script.chmod(0o755)
         return script, record
+
+    def test_a_hook_stopped_by_a_signal_during_a_check_never_says_it_passed(self):
+        # Review of #39787: bash runs the EXIT trap when SIGTERM or SIGINT kills it, but $? there is the last
+        # command's status (0), so a hook stopped in the middle of a check printed "pre-push: passed". The extra
+        # writes the hook's pid into a FIFO (its open blocks until the test reads it, so the hook is inside the check)
+        # and then blocks on a second FIFO that is never written.
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("clean")
+        before = self.remote_head()
+        pid_fifo, never = self.root / "hook-pid", self.root / "never"
+        os.mkfifo(pid_fifo)
+        os.mkfifo(never)
+        extra = self.root / "blocks"
+        extra.write_text(f'#!/bin/sh\necho "$PPID" > {pid_fifo}\nexec cat {never}\n')
+        extra.chmod(0o755)
+        self.git("config", "--add", "cmux.prePushExtra", str(extra))
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            with self.subTest(signal=signum.name):
+                push = subprocess.Popen(["git", "-C", str(self.repo), "push", "origin", "feat-cmux-next"],
+                                        env=self.env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                got: list[str] = []
+                reader = threading.Thread(target=lambda: got.append(pid_fifo.read_text()), daemon=True)
+                reader.start()
+                reader.join(timeout=120)
+                if not got:
+                    push.kill()
+                    self.fail("the hook never reached the clone-local extra:\n" + "".join(push.communicate()))
+                hook = int(got[0].strip())
+                rows = subprocess.run(["ps", "-A", "-o", "pid=,ppid="], text=True, capture_output=True).stdout
+                children = [int(p) for p, pp in (r.split() for r in rows.splitlines() if len(r.split()) == 2)
+                            if int(pp) == hook]
+                for pid in (hook, *children):  # as a terminal's Ctrl-C or a process-group kill reaches both
+                    os.kill(pid, signum)
+                out, err = push.communicate(timeout=120)
+
+                self.assertNotEqual(push.returncode, 0, out + err)
+                self.assertEqual(self.remote_head(), before)
+                self.assertNotIn("pre-push: passed", err, "a hook stopped in a check must not say it passed")
+                self.assertIn("pre-push: refused in extras", err)
 
     def test_clone_local_pre_push_extras_run_with_the_pushed_refs_and_a_failure_refuses_the_push(self):
         self.kit("Fresh", NEW_CLEAN)
