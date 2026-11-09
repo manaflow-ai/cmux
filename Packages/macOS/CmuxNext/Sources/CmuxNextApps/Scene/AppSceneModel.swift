@@ -63,6 +63,8 @@ public final class AppSceneModel {
     public func reset() {
         scene = AppScene()
         status = .loading
+        // A new scene comes from a script that loaded: the refused save is behind it.
+        reloadFailure = nil
         revision &+= 1
     }
 
