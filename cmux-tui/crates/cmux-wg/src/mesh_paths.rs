@@ -257,9 +257,8 @@ impl MeshPaths {
         if roams {
             self.latest = Some(source);
         }
-        if let Some(path) = self
-            .add(source, None, true, networks, now)
-            .and_then(|index| self.paths.get_mut(index))
+        if let Some(path) =
+            self.add(source, None, true, networks, now).and_then(|index| self.paths.get_mut(index))
         {
             path.watch.heard();
             path.heard_at = Some(now);
