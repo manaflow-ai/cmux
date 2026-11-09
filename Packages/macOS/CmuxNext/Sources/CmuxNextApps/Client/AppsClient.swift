@@ -182,6 +182,8 @@ public final class AppsClient {
             mounts[mountID]?.model.status = .failed(reason)
         case let .host(app, state, reason):
             hostStates[app] = (state, reason)
+        case .reloadFailed:
+            break
         case let .log(app, level, message, date):
             appendLog(app, level: level, message: message, date: date)
         }

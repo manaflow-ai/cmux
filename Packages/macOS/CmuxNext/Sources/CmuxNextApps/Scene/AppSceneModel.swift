@@ -32,6 +32,9 @@ public final class AppSceneModel {
 
     public private(set) var scene = AppScene()
     public var status: Status = .loading
+    /// Why the app's last saved script did not load while this view kept drawing the script before
+    /// it (`apps-reload-failed`); nil once a scene of a script that loaded replaces it.
+    public var reloadFailure: String?
     /// Counts applied batches and resets, so an AppKit renderer can tell in `layout()` whether the
     /// scene changed since it last drew, without comparing scenes.
     @ObservationIgnored public private(set) var revision = 0
