@@ -19,6 +19,14 @@ import Testing
         #expect(HomeChiefComputer(status: .init(used: true, computer: nil), paid: true, chief: "Ada")?.state == .unavailable)
     }
 
+    /// The app-server machine list carries no plan limits, so the Mac does not know the plan: the
+    /// section is then left to the server's status, and only a known unpaid plan shows the paywall.
+    @Test func anUnknownPlanLeavesTheSectionToTheServer() {
+        #expect(HomeChiefComputer.planAllows(paysForCloud: nil))
+        #expect(HomeChiefComputer.planAllows(paysForCloud: true))
+        #expect(!HomeChiefComputer.planAllows(paysForCloud: false))
+    }
+
     @Test func freestyleStatesMapToTheSectionsStates() {
         #expect(HomeChiefComputer.state(of: "running") == .live)
         for asleep in ["paused", "suspended", "stopped"] { #expect(HomeChiefComputer.state(of: asleep) == .asleep) }
