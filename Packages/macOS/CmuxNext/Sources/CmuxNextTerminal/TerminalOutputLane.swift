@@ -72,7 +72,9 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
                 ghostty_surface_process_output(surface, base, UInt(buffer.count))
             }
             if let prediction {
-                if replacesScreen { prediction.missedOutput(alternateScreen: Self.alternateScreen(surface)) } else { prediction.output(data) }
+                // A replay starts the engine over, then its bytes set the modes they leave on (conceal, say).
+                if replacesScreen { prediction.missedOutput(alternateScreen: Self.alternateScreen(surface)) }
+                prediction.output(data)
             }
             TypingLatencyProbe.shared.mark(.outputParsed, source: .object(ObjectIdentifier(self)), next: frameLayer.map(TypingLatencyProbe.Source.object))
             #if DEBUG || CMUX_BENCH_HOOKS

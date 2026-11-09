@@ -69,9 +69,9 @@ struct TerminalPredictionLatencyTests {
 
         /// Output into the surface's lane, as the session's consumer hands it on; `key`'s echo is parsed once the
         /// lane ran it (the lane is serial).
-        func feed(_ bytes: Data, key: Int? = nil) {
+        func feed(_ bytes: Data, key: Int? = nil, replacesScreen: Bool = false) {
             guard let session, let lane = session.surfaceView.lane, let engine = session.echo?.engine else { return }
-            lane.processOutput(bytes)
+            lane.processOutput(bytes, replacesScreen: replacesScreen)
             guard let key else { return }
             lane.perform { _ in
                 let parsed = (ContinuousClock.now, engine.presentedFrames)
@@ -273,7 +273,9 @@ struct TerminalPredictionLatencyTests {
 
     /// Engages prediction at a shell prompt (echoed keys at 150 ms), then moves the remote to `mode` and types more:
     /// answers whether any glyph was drawn after the mode's output was parsed.
-    static func drawsAfter(_ mode: Remote.Mode, entering output: String) async throws -> (drew: Bool, engaged: Bool) {
+    /// `replacesScreen`: the output arrives as a VT replay of the screen, not as output after the keys.
+    static func drawsAfter(_ mode: Remote.Mode, entering output: String,
+                           replacesScreen: Bool = false) async throws -> (drew: Bool, engaged: Bool) {
         let harness = try await harness(roundTripMs: 150, loss: 0, predict: true, seed: 7)
         defer { harness.close() }
         let (session, remote) = (harness.session, harness.remote)
@@ -289,7 +291,7 @@ struct TerminalPredictionLatencyTests {
         }
         try await Task.sleep(for: .milliseconds(400)) // test: the last echoes land
         remote.mode = mode
-        remote.feed(Data(output.utf8))
+        remote.feed(Data(output.utf8), replacesScreen: replacesScreen)
         await session.surfaceView.lane?.drained()
         watch.watching = true
         for key in "hunter2 secret".map(String.init) {
@@ -316,5 +318,19 @@ struct TerminalPredictionLatencyTests {
         let result = try await Self.drawsAfter(.alternateScreen, entering: "\u{1B}[?1049h\u{1B}[H\u{1B}[2J")
         #expect(result.engaged, "prediction never engaged at the shell prompt, so the check proves nothing")
         #expect(!result.drew, "a glyph was drawn over a full-screen program")
+    }
+
+    /// `printf '\033[8m'; cat`: the remote echoes every key, concealed.
+    @Test func noGlyphWhileTheRemoteConcealsText() async throws {
+        let result = try await Self.drawsAfter(.shell, entering: "\u{1B}[8m")
+        #expect(result.engaged, "prediction never engaged at the shell prompt, so the check proves nothing")
+        #expect(!result.drew, "a typed key was drawn in the clear while the remote concealed its echo")
+    }
+
+    /// A replay of a screen whose pen conceals (a reattach to `cat` after `printf '\033[8m'`).
+    @Test func noGlyphAfterAReplayThatConceals() async throws {
+        let result = try await Self.drawsAfter(.shell, entering: "$ \u{1B}[8m", replacesScreen: true)
+        #expect(result.engaged, "prediction never engaged at the shell prompt, so the check proves nothing")
+        #expect(!result.drew, "a typed key was drawn in the clear after a replay that conceals")
     }
 }
