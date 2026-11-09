@@ -236,6 +236,9 @@ fn archived_kinds_after(
     let workers = segment_decode_workers();
     // Segments in order, each with its id when it holds an accepted kind.
     let mut batch: Vec<(u64, Option<String>)> = Vec::new();
+    // The batch's segments to inflate, counted as they join: counting the
+    // batch made a long run of skipped segments cost O(n^2) (#39342 F1).
+    let mut to_inflate = 0;
     for (segment_id, _, end) in segments {
         let mapped = segment_kinds
             .query_map([&segment_id], |row| row.get::<_, String>(0))?
@@ -244,10 +247,13 @@ fn archived_kinds_after(
             return Ok(None);
         }
         let end = u64::try_from(end)?.min(through);
-        batch.push((end, mapped.iter().any(|kind| kinds(kind)).then_some(segment_id)));
-        if batch.iter().filter(|(_, decode)| decode.is_some()).count() < workers {
+        let inflate = mapped.iter().any(|kind| kinds(kind));
+        to_inflate += usize::from(inflate);
+        batch.push((end, inflate.then_some(segment_id)));
+        if to_inflate < workers {
             continue;
         }
+        to_inflate = 0;
         if !page.consume_batch(connection, std::mem::take(&mut batch))?
             || page.records.len() >= limit
         {
