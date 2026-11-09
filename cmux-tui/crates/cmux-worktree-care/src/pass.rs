@@ -45,7 +45,14 @@ pub struct Options {
     /// How long measuring may take in all; worktrees after it go
     /// unmeasured (`bytes` absent). None: no limit but `MEASURE` each.
     pub measure_budget: Option<std::time::Duration>,
+    /// The sessions as they are now, read again right before each action
+    /// (the daemon's live list): a chat that opened in a worktree while the
+    /// pass scanned and measured keeps it. `sessions` is the scan's.
+    pub sessions_now: Option<Arc<SessionsNow>>,
 }
+
+/// Reads the sessions as they are now (`Options::sessions_now`).
+pub type SessionsNow = dyn Fn() -> Vec<Session> + Send + Sync;
 
 /// One worktree's line in a report.
 #[derive(Debug, Serialize)]
@@ -213,10 +220,14 @@ fn act(
 ) -> Result<(u64, Option<String>), String> {
     let processes = (options.uses)()?;
     let fresh = inventory::rescan(repo, path)?;
+    let mut sessions = options.sessions.clone();
+    if let Some(now) = &options.sessions_now {
+        sessions.extend(now());
+    }
     let verdict = policy::decide(
         &fresh,
         repo.main_root.as_deref(),
-        &options.sessions,
+        &sessions,
         &processes,
         pressure,
         &options.settings,

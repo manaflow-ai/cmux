@@ -146,7 +146,7 @@ impl Hub {
         });
     }
 
-    async fn care_if_due(&self, why: &'static str) {
+    async fn care_if_due(self: &Arc<Self>, why: &'static str) {
         let Some(_running) = Running::claim(&CARE.running) else { return };
         let claim = tokio::task::spawn_blocking(move || {
             if !auto_cleanup_enabled() {
@@ -225,7 +225,7 @@ impl Hub {
     /// Runs one pass; the caller holds `running` and the machine's `claim`,
     /// which ends with the pass.
     async fn care_run(
-        &self,
+        self: &Arc<Self>,
         claim: Claim,
         apply: bool,
         only: Vec<PathBuf>,
@@ -233,6 +233,11 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let home = dirs::home_dir().ok_or_else(|| RpcError::internal("no home folder"))?;
         let live = self.care_sessions();
+        // Read again right before each removal: a chat may open in a
+        // worktree while the pass scans. Weak: a pass never keeps the hub.
+        let hub = Arc::downgrade(self);
+        let sessions_now: Arc<pass::SessionsNow> =
+            Arc::new(move || hub.upgrade().map(|hub| hub.care_sessions()).unwrap_or_default());
         let daemon_home = crate::config::home();
         let report = tokio::task::spawn_blocking(move || {
             let mut sessions = live;
@@ -252,6 +257,7 @@ impl Hub {
                 measure: !apply,
                 stale_only,
                 measure_budget: stale_only.then_some(STALE_MEASURE_BUDGET),
+                sessions_now: Some(sessions_now),
             };
             let store = archive_store()?;
             let report = pass::run(&options, &store);

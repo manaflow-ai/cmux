@@ -403,6 +403,7 @@ fn care_a_pass_reclaims_idle_work_and_keeps_an_open_session_s() {
         measure: true,
         stale_only: false,
         measure_budget: None,
+        sessions_now: None,
     };
     let store = Store::open(base.join("store")).unwrap();
     let report = pass::run(&options, &store).unwrap();
@@ -547,6 +548,7 @@ fn care_a_worktree_whose_folder_is_missing_keeps_its_git_state() {
         measure: false,
         stale_only: false,
         measure_budget: None,
+        sessions_now: None,
     };
     let store = Store::open(base.join("store")).unwrap();
     pass::run(&options, &store).unwrap();
@@ -600,6 +602,7 @@ fn care_a_claude_session_registered_in_a_worktree_keeps_it() {
         measure: false,
         stale_only: false,
         measure_budget: None,
+        sessions_now: None,
     };
     let store = Store::open(base.join("store")).unwrap();
     let report = pass::run(&options, &store).unwrap();
@@ -664,6 +667,7 @@ fn care_stale_only_frees_a_merged_clean_worktree_and_skips_dirty_and_live_ones()
         measure: !apply,
         stale_only: true,
         measure_budget: Some(std::time::Duration::from_secs(20)),
+        sessions_now: None,
     };
     let store = Store::open(base.join("store")).unwrap();
 
@@ -691,4 +695,50 @@ fn care_stale_only_frees_a_merged_clean_worktree_and_skips_dirty_and_live_ones()
         let skipped = freed.items.iter().find(|i| i.path == *path).unwrap();
         assert!(skipped.outcome.is_none(), "{} was not acted on", path.display());
     }
+}
+
+/// A chat that opens in a stale worktree after the scan, before the free
+/// reaches it, keeps it: the pass reads the live sessions again right
+/// before each removal (`sessions_now`).
+#[test]
+fn care_a_chat_opened_after_the_scan_keeps_its_stale_worktree() {
+    let (base, main) = repository("late-chat");
+    let wt = base.join("wt-late");
+    merged_worktree(&main, &wt, "feat/late");
+    let zero = [0, 0, 0];
+    let late = wt.clone();
+    let options = Options {
+        roots: vec![base.clone()],
+        sessions: Vec::new(),
+        settings: Settings {
+            recent_hours: zero,
+            idle_pushed_hours: zero,
+            idle_unpushed_hours: zero,
+            trim_hours: zero,
+            ..Settings::default()
+        },
+        uses: nothing(),
+        open: closed(),
+        apply: true,
+        pressure: Some(Pressure::Critical),
+        only: vec![wt.clone()],
+        measure: false,
+        stale_only: true,
+        measure_budget: None,
+        sessions_now: Some(Arc::new(move || {
+            vec![cmux_worktree_care::policy::Session {
+                name: "late".into(),
+                cwd: late.clone(),
+                open: true,
+                updated_ms: 0,
+            }]
+        })),
+    };
+    let store = Store::open(base.join("store")).unwrap();
+    let report = pass::run(&options, &store).unwrap();
+    let item = report.items.iter().find(|i| i.path == wt).unwrap();
+    assert!(item.stale, "stale at the scan: {}", item.verdict.reason);
+    let outcome = item.outcome.as_ref().expect("acted on");
+    assert!(!outcome.ok && outcome.error.as_deref().is_some_and(|e| e.contains("late")), "{outcome:?}");
+    assert!(wt.exists(), "the late chat's worktree stays");
 }

@@ -148,6 +148,7 @@ fn sweep(scope: &Scope, apply: bool, store: &Store, json_out: bool) -> Result<()
         measure: !apply,
         stale_only: false,
         measure_budget: None,
+        sessions_now: None,
     };
     // Acting takes the machine's pass (`schedule`), which a daemon's pass
     // may hold: two passes over the same worktrees would archive one twice.
