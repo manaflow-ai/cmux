@@ -97,7 +97,8 @@ import Testing
             'session_id': 's', 'generation': 1, 'state': name, 'lane_bindings': [], 'physical_link_count': 1,
             'transport': {'provider': 'ssh', 'route': 'ssh://drill'}}}), flush=True)
     serve(local + '.admin', admin)
-    if not reachable():
+    print('remote connect: link socket ready', file=sys.stderr, flush=True)
+    if not reachable() and not os.path.exists(p('stall')):
         with lock:
             state.update(state='disconnected', reason=REFUSED)
         print('remote connect: ' + REFUSED + '; redialing', file=sys.stderr, flush=True)
@@ -226,6 +227,22 @@ import Testing
         }
         #expect(waits.count == 1, "\(fixture.lines("admin.log"))")
         #expect(waits.allSatisfy { $0 > 0 && $0 <= 4000 }, "the original deadline, less the time before the link answered: \(waits)")
+        #expect(fixture.spawns == 1)
+    }
+
+    /// Review of #39200, F2: a first dial that stalls says nothing on stderr, so a cold open's wait that
+    /// was forwarded only on a failed-dial line never reached the link within its deadline. The link
+    /// writes a line once its socket answers, and the wait goes to it then.
+    @Test func aColdOpenReachesAStalledFirstDialBeforeItsDeadline() async throws {
+        let fixture = try Fixture(["up-on-wake", "stall"])
+        defer { fixture.close() }
+        let opened = ContinuousClock.now
+        fixture.session.connect(deadline: .seconds(3))
+        try await Self.waitUntil("the person's wait reached the stalled link") {
+            fixture.lines("admin.log").contains { $0.contains("await-ready") }
+        }
+        #expect(ContinuousClock.now - opened < .seconds(3), "the wait reached the link only after its deadline")
+        try await Self.waitUntil("the wait brought the machine up") { fixture.session.linkStatus == .connected }
         #expect(fixture.spawns == 1)
     }
 

@@ -265,9 +265,9 @@ public actor SSHMachineLink {
     /// A person opened or reconnected the machine: a link still on its first dial dials now, and
     /// what it answers within `deadline` (the person's) shows. Nothing when no link process runs:
     /// the daemon connection's attempt starts one.
-    /// A cold open comes before the link exists: the request and its original deadline wait for
-    /// the link's first report that a dial failed (its admin socket is bound by then), and go to
-    /// it with what is left of the deadline. A link that connects first needs neither.
+    /// A cold open comes before the link answers: the request and its original deadline wait for
+    /// the link's first stderr line (it writes one as soon as its admin socket is bound, before
+    /// any dial reports), and go to it with what is left of the deadline.
     public func awaitReady(within deadline: Duration) async {
         let until = ContinuousClock.now + deadline
         guard socket == nil, machine.mayAttempt else { return }
@@ -430,7 +430,8 @@ public actor SSHMachineLink {
         exitedOutput = child.stderrText
         personWait = nil
         // What ended it, without the failed dials it redialed before (`…; redialing`).
-        let stderr = child.stderrText.split(whereSeparator: \.isNewline).filter { !$0.hasSuffix("; redialing") }.joined(separator: "\n")
+        let stderr = child.stderrText.split(whereSeparator: \.isNewline)
+            .filter { !$0.hasSuffix("; redialing") && $0 != Self.socketReadyLine }.joined(separator: "\n")
         logger.error("ssh link for \(self.host.destination.description, privacy: .public) ended before it connected: \(stderr, privacy: .public)")
         if let refusal = RemoteRefusal.parse(stderr) {
             // A typed refusal is an install or update state, not a failure (cx-z3zh).
@@ -454,6 +455,9 @@ public actor SSHMachineLink {
         handle(.failed(cause))
         return .ssh(cause)
     }
+
+    /// The line the link writes once its admin socket answers (`LINK_SOCKET_READY_LINE`).
+    static let socketReadyLine = "remote connect: link socket ready"
 
     /// While the link dials its first connection it says on stderr each time a dial failed and it
     /// redials; each such line reads the link's state, so the machine shows the reason while the

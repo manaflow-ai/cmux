@@ -300,9 +300,6 @@ fn ssh_refusals_are_permanent_and_unreachable_hosts_are_not() {
         "Host key for build has changed and you have requested strict checking.",
         "ECDSA host key for build has changed and you have requested strict checking.",
         "Warning: the ED25519 host key for 'build' differs from the key for the IP address '10.0.0.2'\nOffending key for IP in /Users/leo/.ssh/known_hosts:3\nMatching host key in /Users/leo/.ssh/known_hosts:4\nAre you sure you want to continue connecting (yes/no)? Host key verification failed.",
-        "The ED25519 host key is known for build but not for 10.0.0.3",
-        "sign_and_send_pubkey: signing failed for ED25519 \"/Users/leo/.ssh/id_ed25519\" from agent: agent refused operation",
-        "send_pubkey_test: no mutual signature algorithm",
     ] {
         assert!(!ssh_bootstrap_failure_is_retryable(&failure(refused)), "{refused}");
     }
@@ -312,5 +309,21 @@ fn ssh_refusals_are_permanent_and_unreachable_hosts_are_not() {
         "Connection closed by 10.0.0.2 port 22",
     ] {
         assert!(ssh_bootstrap_failure_is_retryable(&failure(unreachable)), "{unreachable}");
+    }
+    // Warnings and per-key lines that ssh writes before a connection that goes on: a transport
+    // failure after one is still retryable, not a refusal.
+    for warning in [
+        "Warning: Permanently added the ECDSA host key for IP address '10.0.0.2' to the list of known hosts.",
+        "Warning: Permanently added 'build' (ED25519) to the list of known hosts.",
+        "Warning: the ED25519 host key for 'build' differs from the key for the IP address '10.0.0.2'",
+        "The ED25519 host key is known for build but not for 10.0.0.3",
+        "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\n@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\nPassword authentication is disabled to avoid man-in-the-middle attacks.",
+        "sign_and_send_pubkey: signing failed for ED25519 \"/Users/leo/.ssh/id_ed25519\" from agent: agent refused operation",
+        "send_pubkey_test: no mutual signature algorithm",
+    ] {
+        for transport in ["Connection closed by 10.0.0.2 port 22", "ssh: connect to host build port 22: Connection timed out"] {
+            let stderr = format!("{warning}\n{transport}");
+            assert!(ssh_bootstrap_failure_is_retryable(&failure(&stderr)), "{stderr}");
+        }
     }
 }
