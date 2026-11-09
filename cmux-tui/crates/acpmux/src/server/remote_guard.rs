@@ -349,6 +349,15 @@ async fn check_inner(
             "resuming agent pairs is accepted only from this machine's app or unix socket",
         ));
     }
+    // Presets approved for unattended runs are this machine's person's (`hub/unattended.rs`):
+    // read and changed in the app or over the unix socket, never by a Web client or a peer.
+    if (m == method::MUX_PRESET_APPROVALS || m == method::MUX_PRESET_APPROVE) && origin.web_class()
+    {
+        return Err(RpcError::invalid_params(
+            "preset approvals are read and changed only in this machine's app or over its unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "preset_approval.remote"})));
+    }
     // Which machines this daemon reaches with the user's ssh keys and
     // tokens changes over the unix socket only (LocalApp included).
     if matches!(m, "_acpmux/peer_add" | "_acpmux/peer_remove" | "_acpmux/peer_lease") {

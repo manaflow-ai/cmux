@@ -1427,3 +1427,59 @@ export function sessionHistory(session: MockSession): SeedStep[] {
   else if (session.status !== "running") steps.push({ ago: at, mux: "turn_result", msg: { status: "completed" } });
   return steps;
 }
+
+/// The home's Unattended runs card (PresetApprovals.tsx) in the mock daemon (`?mock&presets`): one
+/// preset a coordinator tried to dispatch, one approved with runs, one that sets a spawn env.
+export function mockPresetApprovals(now = Date.now()) {
+  const minutes = (n: number) => now - n * 60_000;
+  return {
+    presets: [
+      {
+        name: "agent-lane",
+        harness: "claude",
+        model: "claude-opus-5-5",
+        effort: "medium",
+        policy: "approve-all",
+        description: "Fleet lanes that run without asking",
+        digest: "3f9a1c0d7e5b42a8c6f1e0d9b8a7c6e5f4d3c2b1a0918273645546372819aabb",
+        blocked: null,
+        approval: null,
+        runs: 0,
+        lastRun: null,
+        asks: [
+          { at: minutes(4), host: "gcp-agent-lane-1", from: "claude-sr2-coord" },
+          { at: minutes(31), host: "gcp-agent-lane-2", from: "claude-sr2-coord" },
+        ],
+      },
+      {
+        name: "review-lane",
+        harness: "codex",
+        model: "gpt-6-astra",
+        effort: "high",
+        policy: "review",
+        description: "Read-only reviewers",
+        digest: "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+        blocked: null,
+        approval: { by: "leoli", host: "cosmic-gray", at: minutes(60 * 26) },
+        runs: 14,
+        lastRun: { at: minutes(12), host: "gcp-agent-lane-2", sessionId: "s-review-14", from: "codex-review-coord" },
+        asks: [],
+      },
+      {
+        name: "local-debug",
+        harness: "claude",
+        model: null,
+        effort: null,
+        policy: "approve-edits",
+        description: null,
+        digest: "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0",
+        blocked: "preset.env",
+        approval: null,
+        runs: 0,
+        lastRun: null,
+        asks: [],
+      },
+    ],
+    machines: ["gcp-agent-lane-1", "gcp-agent-lane-2"],
+  };
+}

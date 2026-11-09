@@ -439,6 +439,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_REGISTRY, Request),
         untyped(method::MUX_DEFAULTS, Request),
         untyped(method::MUX_PRESETS, Request),
+        untyped(method::MUX_PRESET_APPROVALS, Request),
+        keyed::<params::PresetApproveParams>(method::MUX_PRESET_APPROVE, Request),
         keyed::<params::ModelsParams>("_acpmux/models", Request),
         untyped("_acpmux/directories", Request),
         keyed::<params::RouteListParams>(method::MUX_ROUTE_LIST, Request),

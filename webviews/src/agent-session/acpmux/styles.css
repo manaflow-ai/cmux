@@ -579,6 +579,17 @@
 .acpmux-home-inbox[data-look=compact] .acpmux-home-inbox-answers{padding:0 var(--ds-space-2) 0 0}
 .acpmux-home-inbox[data-look=compact] .acpmux-home-inbox-error{flex-basis:100%}
 .acpmux-home-inbox-folder{margin:var(--ds-space-1) 0 0;padding:var(--ds-space-1) var(--ds-space-2);color:var(--agent-muted);font-size:var(--text-caption);font-weight:var(--weight-emphasis);letter-spacing:var(--text-caption--letter-spacing)}
+/* Unattended runs (PresetApprovals.tsx): the inbox's rows, with the preset's details under its name and a two-step Approve in place. Its head opens nothing, so it takes no hover. */
+.acpmux-presets .acpmux-presets-head:hover{background:none}
+.acpmux-presets .acpmux-home-inbox-where[data-blocked],.acpmux-presets .acpmux-home-inbox-detail[data-blocked]{white-space:normal}
+.acpmux-presets-confirm{display:flex;flex-direction:column;gap:var(--ds-space-1);min-width:0}
+.acpmux-presets-consequence{margin:0;padding:0 var(--ds-space-2) 0 var(--ds-space-6);color:var(--agent-text);font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-presets[data-look=compact] .acpmux-presets-confirm{flex-basis:100%;padding:0 0 var(--ds-space-1)}
+.acpmux-presets[data-look=compact] .acpmux-presets-confirm .acpmux-home-inbox-answers{padding:0 var(--ds-space-2) 0 var(--ds-space-6)}
+/* The card look: every detail on its own wrapped line, the description in the text color. */
+.acpmux-presets[data-look=card] .acpmux-presets-row{padding:var(--ds-space-1) 0 var(--ds-space-2)}
+.acpmux-presets[data-look=card] .acpmux-home-inbox-detail,.acpmux-presets[data-look=card] .acpmux-home-inbox-where{white-space:normal}
+.acpmux-presets-description{color:var(--agent-text);font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing)}
 
 /* Added and removed lines: the theme's ANSI green and red, as the syntax colors use them. */
 :root{--acpmux-add:var(--agent-ansi-2,#90b345);--acpmux-del:var(--agent-ansi-1,#b4365e)}

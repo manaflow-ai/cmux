@@ -11637,6 +11637,19 @@ export class AcpmuxDirectClient {
   harnessEnable(folder: string, id: string): Promise<unknown> {
     return this.request("_acpmux/harness_enable", { folder, id });
   }
+  /// The presets a fleet lane may run unattended under, each with its approval, runs and the
+  /// unapproved tries, and the fleet agent machines they run on (`_acpmux/preset_approvals`, the
+  /// home's Unattended runs card, PresetApprovals.tsx). An older acpmux answers method not found.
+  presetApprovals(): Promise<unknown> {
+    return this.request("_acpmux/preset_approvals", {});
+  }
+  /// Approves one preset with the digest the card showed, or revokes it (`_acpmux/preset_approve`);
+  /// answers with the preset's row. Call it straight from the click, with no await before it: the
+  /// host takes it only on the person's fresh gesture. A preset edited since the card read it is
+  /// refused with `preset_approval.changed`.
+  presetApprove(name: string, approve: boolean, digest?: string): Promise<unknown> {
+    return this.request("_acpmux/preset_approve", approve ? { name, approve, digest } : { name, approve });
+  }
   /// The chat's every prompt older than its open page, read once per chat from acpmux's prompt
   /// index (`_acpmux/events` `promptIndex`, `hub/paging.rs` `prompt_index`): seq, promptId and the
   /// start of the text, in one reply however long the chat. A daemon without the index reads the

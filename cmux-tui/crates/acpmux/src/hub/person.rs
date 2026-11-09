@@ -1008,6 +1008,13 @@ impl Hub {
                 Err(person_required("changing the workspace folders"))
             }
             method::MUX_NEW_CHAT_PICKS_SET => Err(person_required("changing the new chat picks")),
+            // Approving a preset for unattended runs is the person's own; a revoke narrows
+            // (`hub/unattended.rs`).
+            method::MUX_PRESET_APPROVE
+                if params.get("approve").and_then(Value::as_bool) != Some(false) =>
+            {
+                Err(person_required("approving a preset for unattended runs"))
+            }
             method::MUX_PERMISSION_RESPOND => {
                 // Answered already: `respond_permission` tells this one who answered first
                 // (`permission_settled.rs`), and it changes nothing.

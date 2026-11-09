@@ -40,7 +40,9 @@ pub(super) async fn handle(
         // The new system prompt text, written once the set is valid.
         let mut new_prompt: Option<Option<String>> = None;
         if clear {
-            cfg.presets.remove(&name);
+            if cfg.presets.remove(&name).is_some_and(|old| old.unattended.is_some()) {
+                crate::hub::unattended::record("cleared", json!({"preset": name, "why": "removed"}));
+            }
             if let Some(dir) = &presets_dir {
                 crate::config::remove_preset_dir(dir, &name)
                     .map_err(|e| RpcError::internal(format!("remove preset directory: {e}")))?;
@@ -70,6 +72,7 @@ pub(super) async fn handle(
                 description: None,
                 mode: None,
                 mode_approval: None,
+                unattended: None,
             });
             p.harness = harness;
             for (k, v) in obj {
@@ -198,6 +201,16 @@ pub(super) async fn handle(
             }
             // The person's approval binds these contents (`hub/person.rs` (b)).
             p.apply_mode_approval(approve).map_err(RpcError::invalid_params)?;
+            // So does an approval for unattended runs (`hub/unattended.rs`): a write that
+            // changes the contents withdraws it.
+            let now = p.approval_digest();
+            if p.unattended.as_ref().is_some_and(|a| Some(&a.digest) != now.as_ref()) {
+                p.unattended = None;
+                crate::hub::unattended::record(
+                    "cleared",
+                    json!({"preset": name, "digest": now, "why": "changed"}),
+                );
+            }
             cfg.presets.insert(name.clone(), p);
         }
         if let Err(e) = cfg.save() {
@@ -210,7 +223,7 @@ pub(super) async fn handle(
             Ok(x) => (Some(x), None),
             Err(e) => (None, Some(e)),
         };
-        json!({"name": n, "harness": p.harness, "profile": profile, "error": error, "model": p.model, "effort": p.effort, "policy": p.policy, "env": p.env, "args": p.args, "systemPromptSha256": p.system_prompt_sha256, "description": p.description, "mode": p.mode, "modeApproved": p.mode_approved()})
+        json!({"name": n, "harness": p.harness, "profile": profile, "error": error, "model": p.model, "effort": p.effort, "policy": p.policy, "env": p.env, "args": p.args, "systemPromptSha256": p.system_prompt_sha256, "description": p.description, "mode": p.mode, "modeApproved": p.mode_approved(), "unattendedApproved": p.unattended_approved()})
     };
     match name {
         Some(n) if !clear => cfg

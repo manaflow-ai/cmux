@@ -165,10 +165,15 @@ pub(super) fn successor_meta(args: &NewArgs, meta: &mut Value) {
 }
 
 /// The warnings in a new session's reply, one line each: started past this host's lane cap
-/// (`hub/admission.rs`), never a refusal, and running unlike the session it takes over from
-/// (`hub/lineage/successor.rs`).
+/// (`hub/admission.rs`), never a refusal, running unlike the session it takes over from
+/// (`hub/lineage/successor.rs`), and asking on a fleet machine for want of an approval.
 pub(crate) fn print_new_warnings(created: &Value) {
-    for at in ["/_meta/acpmux/admission/warning", "/_meta/acpmux/successor/warning"] {
+    for at in [
+        "/_meta/acpmux/admission/warning",
+        "/_meta/acpmux/successor/warning",
+        // A preset not approved for unattended runs asks on the fleet machine (`hub/unattended.rs`).
+        "/_meta/acpmux/unattended/warning",
+    ] {
         if let Some(w) = created.pointer(at).and_then(Value::as_str) {
             eprintln!("acpmux: warning: {w}");
         }

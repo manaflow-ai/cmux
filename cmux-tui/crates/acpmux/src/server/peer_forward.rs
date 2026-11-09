@@ -1105,6 +1105,8 @@ pub(super) fn strip_new_meta(p: &mut Value) {
         m.remove("promptFileText");
         // Only this daemon decides the VM boundary, never its caller.
         m.remove(crate::hub::vm_boundary::FIELD);
+        // Nor whether a start runs under an unattended approval (`hub/unattended.rs`).
+        m.remove(crate::hub::unattended::STAMP_FIELD);
     }
 }
 

@@ -86,6 +86,11 @@ if (params.has("mock") && params.has("slowDaemon")) {
   fixture.cmuxAcpmuxMockSlowMethod = params.get("slowMethod") ?? "session/new";
   fixture.cmuxAcpmuxMockSlowMs = Number(params.get("slowMs") ?? 6_000);
 }
+// `?mock&presets`: the mock daemon lists preset approvals, so the home shows its Unattended runs card.
+if (params.has("mock") && params.has("presets")) {
+  const { mockPresetApprovals } = await import("./mockFixture");
+  (globalThis as { cmuxAcpmuxMockPresetApprovals?: unknown }).cmuxAcpmuxMockPresetApprovals = mockPresetApprovals();
+}
 if (devHost) installDevHost(devHost);
 else if (params.has("mock") && !window.webkit?.messageHandlers?.agentSession)
   window.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };

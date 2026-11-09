@@ -13,6 +13,7 @@ mod info;
 #[path = "requests/mailbox.rs"]
 mod mailbox;
 pub(super) mod person_stop;
+mod preset_approval;
 mod presets;
 mod queued;
 mod session_open;
@@ -259,6 +260,43 @@ fn peer_approve_all_allowed(
         || (approved && preset_policy == Some(PermissionPolicy::ApproveAll))
 }
 
+/// After a start this daemon forwarded (`hub/unattended.rs`): log one under an approval, with
+/// the session id the peer gave (at `session_at` in `result`), or put the warning of one that
+/// asks where the CLI prints it (a dispatch's `warning`, a new session's
+/// `_meta.acpmux.unattended.warning`).
+fn unattended_result(
+    forward: &crate::hub::unattended::Forward,
+    host: &str,
+    from: &str,
+    result: &mut Value,
+    session_at: &str,
+    brief: Option<&str>,
+) {
+    use crate::hub::unattended::Forward;
+    match forward {
+        Forward::Unchanged => {}
+        Forward::Approved { preset, digest } => {
+            let session = result.pointer(session_at).cloned().unwrap_or(Value::Null);
+            crate::hub::unattended::record(
+                "started",
+                json!({"preset": preset, "digest": digest, "host": host, "from": from,
+                    "sessionId": session, "briefId": brief}),
+            );
+        }
+        Forward::Asked { warning } => {
+            if session_at == "/sessionId" {
+                crate::hub::merge_mux_meta(result, json!({"unattended": {"warning": warning}}));
+            } else {
+                let text = match result.get("warning").and_then(Value::as_str) {
+                    Some(w) if !w.is_empty() => format!("{w}; {warning}"),
+                    _ => warning.clone(),
+                };
+                result.set("warning", json!(text));
+            }
+        }
+    }
+}
+
 /// `dispatch --host auto`: the placement engine's pick for the brief
 /// (`server/place.rs`), `None` for this machine, or why no host has room.
 async fn auto_host(hub: &Arc<Hub>, brief: &str) -> Result<Option<String>, String> {
@@ -444,6 +482,23 @@ async fn dispatch_brief(
             )
             .await?;
         }
+        // A preset the person approved for unattended runs, to a fleet agent machine, runs
+        // there at its policy (`hub/unattended.rs`).
+        let owner = crate::hub::vm_boundary::owner(
+            conn.auth,
+            super::remote_guard::control_of(conn.origin, conn.auth, &params),
+            &params,
+        );
+        let starter = conn.caller().map(|id| hub.session_name(id)).unwrap_or_else(|| conn.label());
+        let unattended = hub
+            .unattended_forward(
+                &peer,
+                crate::hub::unattended::Shape::Dispatch,
+                owner,
+                &starter,
+                &mut params,
+            )
+            .await;
         let original = params.clone();
         params.set("forwarded", json!(true));
         params.set("host", json!(peer_name));
@@ -466,6 +521,7 @@ async fn dispatch_brief(
                 )));
             }
         };
+        unattended_result(&unattended, &peer_name, &starter, &mut result, "/brief/sessionId", Some(&id));
         if let Some(row) = result.get("brief").cloned() {
             if let Some(identity) = &identity {
                 let row = workflow_dispatch::cache_remote(hub, &id, identity, row).await?;
@@ -557,7 +613,23 @@ async fn dispatch_brief(
         .and_then(Value::as_str)
         .and_then(|policy| policy.parse::<PermissionPolicy>().ok())
         == Some(PermissionPolicy::ApproveAll);
-    if conn.origin == Origin::Peer && requested_approve_all {
+    // The owner's own daemon (`Control::Peer`, by its peer token) that forwards a preset its
+    // person approved for unattended runs (`hub/unattended.rs`) says so with the stamp; it
+    // could start this session at any policy over `session/new` anyway (`remote_guard.rs`).
+    let unattended = (conn.origin == Origin::Peer
+        && super::remote_guard::control_of(conn.origin, conn.auth, &params)
+            == crate::hub::Control::Peer)
+        .then(|| crate::hub::unattended::stamp_of(&params).cloned())
+        .flatten();
+    if let Some(stamp) = &unattended {
+        crate::hub::unattended::record(
+            "received",
+            json!({"preset": stamp.get("preset"), "digest": stamp.get("digest"),
+                "approvedBy": stamp.get("approvedBy"), "approvedOn": stamp.get("approvedOn"),
+                "from": stamp.get("from"), "start": "dispatch", "briefId": id}),
+        );
+    }
+    if conn.origin == Origin::Peer && requested_approve_all && unattended.is_none() {
         let preset = new_params.pointer("/_meta/acpmux/preset").and_then(Value::as_str);
         let allowed = if let Some(preset) = preset {
             let cfg = hub.config.read().await;
@@ -1436,6 +1508,24 @@ async fn dispatch_request_with_identity(
                 let mut p = params.clone();
                 super::peer_forward::strip_new_meta(&mut p);
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
+                // A preset the person approved for unattended runs, to a fleet agent machine,
+                // runs there at its policy (`hub/unattended.rs`).
+                let owner = crate::hub::vm_boundary::owner(
+                    conn.auth,
+                    super::remote_guard::control_of(conn.origin, conn.auth, &params),
+                    &params,
+                );
+                let starter =
+                    conn.caller().map(|id| hub.session_name(id)).unwrap_or_else(|| conn.label());
+                let unattended = hub
+                    .unattended_forward(
+                        &peer,
+                        crate::hub::unattended::Shape::SessionNew,
+                        owner,
+                        &starter,
+                        &mut p,
+                    )
+                    .await;
                 // A full-access starter's chat runs in full access there too.
                 hub.forward_starter_policy(conn.caller(), &mut p);
                 crate::hub::merge_mux_meta(&mut p, created_by_stamp(hub, conn, &params));
@@ -1454,6 +1544,7 @@ async fn dispatch_request_with_identity(
                     );
                 }
                 let mut result = super::remote_guard::hint::new_on(&peer, &params, p).await?;
+                unattended_result(&unattended, &peer.name, &starter, &mut result, "/sessionId", None);
                 if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
                     view::subscribe_remote(hub, conn, id, None);
                     peer.mark_attached(id);
@@ -2481,6 +2572,9 @@ async fn dispatch_request_with_identity(
         }
         // Read or change presets (`requests/presets.rs`).
         method::MUX_PRESETS => presets::handle(hub, conn, &params).await,
+        // Presets approved for unattended runs (`requests/preset_approval.rs`).
+        method::MUX_PRESET_APPROVALS => Ok(hub.preset_approvals().await),
+        method::MUX_PRESET_APPROVE => preset_approval::approve(hub, conn, &params).await,
         method::MUX_MACHINE_INFO => {
             let s = hub.resolve(session_key(&params)?)?;
             if conn.caller() != Some(s.id.as_str()) && !conn.is_person() {
