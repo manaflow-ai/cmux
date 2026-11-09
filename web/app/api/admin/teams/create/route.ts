@@ -1,10 +1,11 @@
-import { NextRequest } from "next/server";
+import { after, NextRequest } from "next/server";
 
 import { auditRequestId, withAdminAudit } from "../../../../../services/admin/auditLog";
 import {
   AdminTeamOwnerNotFoundError,
   createTeamForCustomer,
 } from "../../../../../services/admin/teamEntitlements";
+import { TeamServiceUnavailableError } from "../../../../../services/teams/errors";
 import {
   adminJsonResponse,
   readJsonBody,
@@ -34,10 +35,11 @@ export async function POST(request: NextRequest) {
     async () => {
       if (!parsed) return adminJsonResponse({ error: "invalid_body" }, 400);
       try {
-        const team = await createTeamForCustomer(parsed);
+        const team = await createTeamForCustomer({ ...parsed, defer: after });
         return adminJsonResponse({ team }, 201);
       } catch (error) {
         if (error instanceof AdminTeamOwnerNotFoundError) return adminJsonResponse({ error: "owner_not_found" }, 404);
+        if (error instanceof TeamServiceUnavailableError) return adminJsonResponse({ error: "stack_unavailable" }, 503);
         throw error;
       }
     },

@@ -285,7 +285,7 @@ export function upgradePlanForMemory(
   const current = normalizedPlanId(currentPlanId);
   if (planIncludes(current, "max")) return null;
   // A custom deal sets its own ceiling; a plan change is not the way past it.
-  if (override?.maxMemoryMb != null) return null;
+  if (override?.maxMemoryMb != null && override.maxMemoryMb > maxMemoryMbForPlan(current, env)) return null;
   if (!planIncludes(current, "pro") && memoryMb <= maxMemoryMbForPlan(PRO_PLAN_ID, env)) return PRO_PLAN_ID;
   return memoryMb <= maxMemoryMbForPlan(MAX_PLAN_ID, env) ? MAX_PLAN_ID : null;
 }

@@ -37,6 +37,7 @@ import {
   TEAM_PLAN_ID,
   isPersonalPlanId,
   syncProPlanMetadata,
+  nextTeamPlanMetadata,
   syncTeamPlanMetadata,
 } from "./pro";
 import { MAX_PRICING_USD } from "./plans";
@@ -2304,6 +2305,10 @@ async function syncStackTeamPlanMetadata(
   isTeam: boolean,
   seats: number | null,
 ): Promise<void> {
+  // Most webhooks for a team change nothing; skip the lease so a burst of
+  // them does not contend for it. A change is re-read under the lease below.
+  const current = await loadStackTeam(stackTeamId, stackApp);
+  if (nextTeamPlanMetadata(current.clientReadOnlyMetadata, isTeam, seats) === null) return;
   await withTeamMetadataMutation(db, stackTeamId, async (lease) => {
     const team = await loadStackTeam(stackTeamId, stackApp);
     await lease.refresh();

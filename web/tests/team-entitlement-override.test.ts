@@ -12,7 +12,8 @@ import {
   upgradePlanForMemory,
 } from "../services/vms/entitlements";
 import type { AuthedUser } from "../services/vms/auth";
-import { createTeamForCustomer } from "../services/admin/teamEntitlements";
+import { createTeamForCustomer, setTeamEntitlementOverride } from "../services/admin/teamEntitlements";
+import type { AdminStackApp, FreshAdminTeamMutation } from "../services/admin/proGrants";
 import type { TeamStackApp } from "../services/teams/stack";
 import {
   parseTeamEntitlementOverrideInput,
@@ -144,6 +145,10 @@ describe("team entitlement override", () => {
     expect(upgradePlanForMemory(64 * GB, "team", env)).toBe("max");
   });
 
+  test("a size cap at or below the plan ceiling keeps the upgrade offer", () => {
+    expect(upgradePlanForMemory(64 * GB, "team", env, { ...deal, maxMemoryMb: 8 * GB })).toBe("max");
+  });
+
   test("the admin view compares plan defaults with the deal", () => {
     expect(teamVmLimits({ planId: "team", seats: 8, override: deal })).toEqual({
       defaults: { maxActiveVms: 40, poolVcpus: 160, poolMemoryMb: 320 * GB, maxMemoryMb: 16 * GB, maxVcpus: 8 },
@@ -229,5 +234,46 @@ describe("createTeamForCustomer", () => {
     ).rejects.toThrow("stack deadline");
     commitLate({ id: "team_late", displayName: "Acme", delete: async () => deletedLateTeam() });
     await lateDelete;
+  });
+});
+
+describe("setTeamEntitlementOverride", () => {
+  function fakeTeam() {
+    const team = {
+      id: "team_deal",
+      displayName: "Acme",
+      clientReadOnlyMetadata: { cmuxVmPlan: "team" } as Record<string, unknown>,
+      serverMetadata: {} as Record<string, unknown>,
+      update: async (patch: { clientReadOnlyMetadata?: unknown; serverMetadata?: unknown }) => {
+        if (patch.clientReadOnlyMetadata) team.clientReadOnlyMetadata = patch.clientReadOnlyMetadata as Record<string, unknown>;
+        if (patch.serverMetadata) team.serverMetadata = patch.serverMetadata as Record<string, unknown>;
+      },
+    };
+    const app = { getTeam: async () => team } as unknown as AdminStackApp;
+    const withFreshTeam: FreshAdminTeamMutation = async (_teamId, operation) =>
+      await operation(team as never, { refresh: async () => {} });
+    return { team, app, withFreshTeam };
+  }
+  const admin = { id: "admin_1", primaryEmail: "ops@manaflow.com" };
+
+  test("keeps the price and label out of member-readable metadata", async () => {
+    const { team, app, withFreshTeam } = fakeTeam();
+    const view = await setTeamEntitlementOverride({ teamId: team.id, override: deal, admin, app, withFreshTeam });
+    expect(team.clientReadOnlyMetadata.cmuxEntitlementOverride).toEqual({
+      maxActiveVms: 40, poolVcpus: 320, poolMemoryMb: 640 * GB, maxMemoryMb: 64 * GB,
+    });
+    expect(JSON.stringify(team.clientReadOnlyMetadata)).not.toContain("80000");
+    expect(team.serverMetadata.cmuxEntitlementDealTerms).toEqual({ planLabel: "Team (custom)", monthlyPriceCents: 80_000 });
+    expect(view.override).toEqual(deal);
+    expect(view.effective.maxActiveVms).toBe(40);
+  });
+
+  test("clearing removes the limits and the terms", async () => {
+    const { team, app, withFreshTeam } = fakeTeam();
+    await setTeamEntitlementOverride({ teamId: team.id, override: deal, admin, app, withFreshTeam });
+    const view = await setTeamEntitlementOverride({ teamId: team.id, override: null, admin, app, withFreshTeam });
+    expect(team.clientReadOnlyMetadata).toEqual({ cmuxVmPlan: "team" });
+    expect(team.serverMetadata.cmuxEntitlementDealTerms).toBeUndefined();
+    expect(view.override).toBeNull();
   });
 });

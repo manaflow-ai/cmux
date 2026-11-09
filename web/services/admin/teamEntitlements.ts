@@ -16,8 +16,10 @@ import { defaultTeamStackApp, withStackDeadline, type TeamStackApp } from "../te
 import type { ProMetadataJson } from "../billing/pro";
 import { teamVmLimits, type TeamVmLimits } from "../vms/entitlements";
 import {
+  overrideChangesLimits,
   TEAM_ENTITLEMENT_OVERRIDE_METADATA_KEY,
   teamEntitlementOverrideFromMetadata,
+  teamEntitlementOverrideFromUnknown,
   type TeamEntitlementOverride,
 } from "../vms/teamEntitlementOverride";
 import {
@@ -31,6 +33,8 @@ import {
 } from "./proGrants";
 
 const CHANGE_METADATA_KEY = "cmuxAdminEntitlementChange";
+/** The deal's label and price; server-only so team members cannot read them. */
+const DEAL_TERMS_METADATA_KEY = "cmuxEntitlementDealTerms";
 
 export type AdminEntitlementChange = {
   readonly byUserId: string;
@@ -78,13 +82,27 @@ export async function setTeamEntitlementOverride(input: {
   try {
     await withFreshTeam(input.teamId, async (team, lease) => {
       await lease.refresh();
+      // Members' clients can read clientReadOnlyMetadata, so it carries only
+      // the machine limits. The deal's label and price stay in serverMetadata.
       const client = metadataRecord(team.clientReadOnlyMetadata);
-      if (input.override === null) {
-        delete client[TEAM_ENTITLEMENT_OVERRIDE_METADATA_KEY];
-      } else {
-        client[TEAM_ENTITLEMENT_OVERRIDE_METADATA_KEY] = { ...input.override };
-      }
       const server = metadataRecord(team.serverMetadata);
+      const override = input.override;
+      if (override && overrideChangesLimits(override)) {
+        client[TEAM_ENTITLEMENT_OVERRIDE_METADATA_KEY] = {
+          maxActiveVms: override.maxActiveVms,
+          poolVcpus: override.poolVcpus,
+          poolMemoryMb: override.poolMemoryMb,
+          maxMemoryMb: override.maxMemoryMb,
+        };
+      } else {
+        delete client[TEAM_ENTITLEMENT_OVERRIDE_METADATA_KEY];
+      }
+      if (override && (override.planLabel !== null || override.monthlyPriceCents !== null)) {
+        const terms: AdminDealTerms = { planLabel: override.planLabel, monthlyPriceCents: override.monthlyPriceCents };
+        server[DEAL_TERMS_METADATA_KEY] = terms;
+      } else {
+        delete server[DEAL_TERMS_METADATA_KEY];
+      }
       const change: AdminEntitlementChange = {
         byUserId: input.admin.id,
         byEmail: input.admin.primaryEmail ?? null,
@@ -115,12 +133,38 @@ export function teamEntitlementsView(team: AdminStackTeam): AdminTeamEntitlement
   const limits = teamVmLimits({ planId, seats, override });
   return {
     team: { id: team.id, displayName: team.displayName, planId, seats },
-    override,
+    override: withDealTerms(override, dealTermsFromServerMetadata(team.serverMetadata)),
     defaults: limits.defaults,
     effective: limits.effective,
     applies: limits.applies,
     planHonorsOverride: limits.planHonorsOverride,
     lastChange: changeFromServerMetadata(team.serverMetadata),
+  };
+}
+
+type AdminDealTerms = {
+  readonly planLabel: string | null;
+  readonly monthlyPriceCents: number | null;
+};
+
+function dealTermsFromServerMetadata(raw: unknown): AdminDealTerms | null {
+  const parsed = teamEntitlementOverrideFromUnknown(metadataRecord(raw)[DEAL_TERMS_METADATA_KEY]);
+  return parsed ? { planLabel: parsed.planLabel, monthlyPriceCents: parsed.monthlyPriceCents } : null;
+}
+
+/** The admin's whole deal: limits from client metadata, label and price from server metadata. */
+function withDealTerms(
+  limits: TeamEntitlementOverride | null,
+  terms: AdminDealTerms | null,
+): TeamEntitlementOverride | null {
+  if (!limits && !terms) return null;
+  return {
+    maxActiveVms: limits?.maxActiveVms ?? null,
+    poolVcpus: limits?.poolVcpus ?? null,
+    poolMemoryMb: limits?.poolMemoryMb ?? null,
+    maxMemoryMb: limits?.maxMemoryMb ?? null,
+    planLabel: terms?.planLabel ?? null,
+    monthlyPriceCents: terms?.monthlyPriceCents ?? null,
   };
 }
 
@@ -161,6 +205,11 @@ export async function createTeamForCustomer(input: {
   readonly stack?: TeamStackApp;
   /** Test seam for the Stack request deadline. */
   readonly withDeadline?: <T>(operation: () => Promise<T>) => Promise<T>;
+  /**
+   * Keeps work alive after the response (the route passes Next's `after`, so
+   * Vercel does not freeze the function before a late cleanup runs).
+   */
+  readonly defer?: (task: () => Promise<void>) => void;
 }): Promise<{ readonly id: string; readonly displayName: string }> {
   const stack = input.stack ?? defaultTeamStackApp();
   const withDeadline = input.withDeadline ?? withStackDeadline;
@@ -177,12 +226,14 @@ export async function createTeamForCustomer(input: {
     // The deadline stops waiting but cannot cancel the request. If Stack
     // commits the team anyway, nobody holds its id, so delete it here when it
     // arrives (best effort, while this process lives).
-    void creating.then(
+    const cleanup = () => creating.then(
       (late) => withDeadline(() => late.delete()).catch(() => {
         console.error("admin team create late cleanup failed", { teamId: late.id });
       }),
       () => undefined,
     );
+    if (input.defer) input.defer(cleanup);
+    else void cleanup();
     throw error;
   }
   try {
