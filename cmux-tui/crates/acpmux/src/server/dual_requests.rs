@@ -409,6 +409,19 @@ mod tests {
         };
         let (mut a, mut b) =
             (connect(Some(peer_token.clone())).await, connect(Some(peer_token)).await);
+        // Each connection's `initialize` answer says whether it is the peer principal: a stale
+        // peer token is served as the Web, which still lists `dualSend` but is no principal.
+        let mut stale = connect(Some("stale-token".into())).await;
+        for (ws, principal) in [(&mut a, true), (&mut stale, false)] {
+            let init = json!({"jsonrpc": "2.0", "id": 1, "method": crate::rpc::method::INITIALIZE,
+                "params": {"protocolVersion": 1, "_meta": {"acpmux": {"observer": true}}}});
+            ws.send(Frame::Text(init.to_string().into())).await.unwrap();
+            let reply = answer(ws, 1).await;
+            let mux = &reply["result"]["_meta"]["acpmux"];
+            assert_eq!(mux["dualPrincipal"], json!(principal), "{reply}");
+            let features = mux["features"].as_array().unwrap();
+            assert!(features.iter().any(|f| f == FEATURE), "{reply}");
+        }
         let key = format!("wire-{}", uuid::Uuid::now_v7());
         let line = json!({"jsonrpc": "2.0", "id": 7, "method": crate::rpc::method::MUX_STATS,
             "params": {"_meta": {"acpmux": {"dualId": key}}}})

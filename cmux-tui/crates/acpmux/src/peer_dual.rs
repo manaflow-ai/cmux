@@ -232,7 +232,7 @@ pub(super) fn stamped(line: &str, key: &str) -> Option<String> {
 
 impl Peer {
     /// Whether the peer runs a request sent on two paths once (`server/dual_requests.rs`).
-    fn takes_dual(&self) -> bool {
+    pub(super) fn takes_dual(&self) -> bool {
         self.features.lock_or_recover().iter().any(|f| f == crate::server::dual_requests::FEATURE)
     }
 

@@ -136,7 +136,6 @@ async fn rig_with(url_token: bool) -> Rig {
     *peer.paths.lock().unwrap() = Some(paths);
     peer.features.lock().unwrap().push(crate::server::dual_requests::FEATURE.to_owned());
     peer.note_token_path(Via::Link, true);
-    peer.note_token_path(Via::Url, url_token);
     peer.mark_attached("s1");
     peer.cursors.lock().unwrap().insert("s1".to_owned(), 5);
 
@@ -158,6 +157,14 @@ async fn rig_with(url_token: bool) -> Rig {
     let (probe_client, shadow) = ws_pair().await;
     let probe = peer.clone();
     let probing = tokio::spawn(async move { probe.probe_link(Via::Url, probe_client, None).await });
+    // The probe asks the Url path's daemon whether it is the peer principal there.
+    let mut shadow = shadow;
+    let hello = next_text(&mut shadow).await;
+    assert_eq!(hello["method"], method::INITIALIZE);
+    assert_eq!(hello.pointer("/params/_meta/acpmux/observer"), Some(&json!(true)));
+    let answer = json!({"jsonrpc": "2.0", "id": hello["id"], "result": {"_meta": {"acpmux": {
+        "dualPrincipal": url_token, "features": [crate::server::dual_requests::FEATURE]}}}});
+    send(&mut shadow, answer).await;
     Rig { peer, notices, primary, shadow, tasks: vec![serving, probing] }
 }
 
@@ -547,18 +554,14 @@ async fn a_chat_longer_than_one_page_is_attached_again_until_the_shadow_streams_
     assert_eq!(delivered(&mut rig.notices, 1).await, vec![9], "live on the shadow");
 }
 
-/// Link presents the peer token, and a ws:// URL to a host that is not loopback withholds it:
-/// that path is served as the Web there, so it never becomes the shadow, and a prompt goes on
-/// the link alone and succeeds.
+/// The Url path's daemon serves its connection as the Web (a stale peer token: it restarted
+/// with a new one) while it still lists `dualSend`: its `initialize` answer on that connection
+/// says it is not the peer principal, so the path is never the shadow, and a request that would
+/// be copied goes on the link alone, once.
 #[tokio::test]
-async fn a_path_that_withholds_the_peer_token_is_never_the_shadow() {
-    let (tx, _notices) = mpsc::channel(4);
-    let far = Peer::new("p", "ws://10.0.0.5:9", None, Some("peer-token".into()), tx.clone());
-    assert!(!far.url_presents_token(), "plain ws:// off loopback withholds it");
-    let near = Peer::new("p", "ws://127.0.0.1:9", None, Some("peer-token".into()), tx);
-    assert!(near.url_presents_token());
-
+async fn a_path_the_daemon_serves_as_the_web_is_never_the_shadow() {
     let mut rig = rig_with(false).await;
+    assert!(rig.peer.takes_dual(), "the daemon lists dualSend");
     assert_eq!(reads_text_within(&mut rig.shadow, Duration::from_millis(1_500)).await, None);
     assert_eq!(rig.peer.dual_via(), None);
     let params = json!({"sessionId": "s1", "prompt": [], "_meta": {"acpmux": {"promptId": "a1"}}});
@@ -571,6 +574,7 @@ async fn a_path_that_withholds_the_peer_token_is_never_the_shadow() {
     send(&mut rig.primary, done).await;
     let answer = tokio::time::timeout(WAIT, asking).await.unwrap().unwrap().unwrap();
     assert_eq!(answer["stopReason"], "end_turn");
+    assert_eq!(rig.peer.dual_stats().frames.load(Ordering::Relaxed), 0, "nothing copied");
 }
 
 /// An error from the shadow never settles a call sent on both paths: the caller keeps waiting,

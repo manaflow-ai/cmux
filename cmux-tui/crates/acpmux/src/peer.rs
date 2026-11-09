@@ -1996,6 +1996,12 @@ impl Peer {
             let listed = init.pointer("/_meta/acpmux/features").and_then(Value::as_array);
             let listed = listed.into_iter().flatten().filter_map(Value::as_str);
             *me.features.lock_or_recover() = listed.map(str::to_owned).collect();
+            // Whether this daemon takes this link as its peer principal (`peer_dual.rs`):
+            // its own answer on this connection, read again on each link.
+            if let Some(via) = me.serving() {
+                let principal = init.pointer("/_meta/acpmux/dualPrincipal");
+                me.note_token_path(via, principal == Some(&Value::Bool(true)));
+            }
             let resumes = lists(crate::server::SESSION_RESUME_FEATURE);
             me.session_resume_link.store(if resumes { link + 1 } else { 0 }, Ordering::SeqCst);
             let messages = init

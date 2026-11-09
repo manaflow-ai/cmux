@@ -664,22 +664,29 @@ impl Peer {
             Via::Wireguard | Via::Link => self.open_direct(via, ssh_tokens.as_ref()).await,
             Via::Hub => Err("the hub relay carries no live link yet".to_owned()),
         }?;
-        let presents = match via {
-            Via::Url => self.url_presents_token(),
-            _ => opened.presented.is_some(),
-        };
-        self.note_token_path(via, presents);
+        // Unproven until the daemon's `initialize` answer on this connection says it is the
+        // peer principal (`dualPrincipal`, read by the handshake).
+        self.note_token_path(via, false);
         Ok(opened)
     }
 
-    /// Whether `open_url` sends the peer token: one is known, and the URL may carry it.
-    pub(super) fn url_presents_token(&self) -> bool {
-        self.peer_token.is_some() && super::carries_peer_token(&self.url)
+    /// Whether path `via`'s current connection is the daemon's peer principal, as that
+    /// daemon's `initialize` answer on it said (`token_paths`); false until it answers.
+    pub(super) fn note_token_path(&self, via: Via, principal: bool) {
+        self.token_paths.lock_or_recover().insert(via, principal);
     }
 
-    /// Path `via` opened, presenting the peer token or not (`token_paths`).
-    pub(super) fn note_token_path(&self, via: Via, presents: bool) {
-        self.token_paths.lock_or_recover().insert(via, presents);
+    /// The `initialize` a probe sends on its own connection: only to learn whether the daemon
+    /// takes it as the peer principal (`dualPrincipal`). It says it only observes, so it keeps
+    /// no daemon running (`daemon/unused_exit.rs`).
+    fn probe_hello(&self) -> (i64, String) {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst) as i64;
+        let hello = serde_json::json!({"protocolVersion": 1, "clientCapabilities": {},
+            "clientInfo": {"name": super::CLIENT_NAME, "version": crate::hub::VERSION},
+            "_meta": {"acpmux": {"observer": true}}});
+        let line =
+            crate::rpc::Message::request(id, crate::rpc::method::INITIALIZE, hello).to_line();
+        (id, line.trim_end_matches('\n').to_owned())
     }
 
     /// Keep every path of this peer that does not carry the link open and measured: once per
@@ -748,6 +755,15 @@ impl Peer {
         let mut ping = tokio::time::interval(PROBE_EVERY);
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut check = tokio::time::interval(super::dual::DOUBT_CHECK);
+        // Whether the daemon takes this connection as the peer principal: only its answer on
+        // this connection qualifies the path for dual send, read again on each probe.
+        self.note_token_path(via, false);
+        let (hello_id, hello) = self.probe_hello();
+        let mut hello_id = Some(hello_id);
+        if !send_texts(&mut ws, vec![hello]).await {
+            self.path_failed(via);
+            return;
+        }
         check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut shadow: Option<super::dual::ShadowRun> = None;
         loop {
@@ -806,7 +822,12 @@ impl Peer {
                         }
                     }
                     Some(Ok(Frame::Text(text))) => {
-                        if let Some(run) = shadow.as_mut() {
+                        if let Some(id) = hello_id
+                            && let Some(principal) = hello_answer(text.as_str(), id)
+                        {
+                            hello_id = None;
+                            self.note_token_path(via, principal);
+                        } else if let Some(run) = shadow.as_mut() {
                             let frames = self.shadow_frame(run, text.as_str()).await;
                             if !send_texts(&mut ws, frames).await {
                                 self.path_failed(via);
@@ -835,12 +856,12 @@ impl Peer {
         match via {
             Via::Wireguard | Via::Link => {
                 let opened = self.open_direct(via, None).await?;
-                self.note_token_path(via, opened.presented.is_some());
+                self.note_token_path(via, false);
                 Ok((opened.ws, None))
             }
             Via::Url => {
                 let ws = self.open_url().await?.ws;
-                self.note_token_path(via, self.url_presents_token());
+                self.note_token_path(via, false);
                 Ok((ws, None))
             }
             Via::Ssh => {
@@ -861,7 +882,7 @@ impl Peer {
                 )
                 .await
                 .map_err(|e| e.to_string())?;
-                self.note_token_path(via, peer_token.is_some());
+                self.note_token_path(via, false);
                 Ok((OpenedWs::Boxed(Box::new(ws)), Some((child, errors))))
             }
             Via::Hub => Err("the hub relay carries no live link yet".to_owned()),
@@ -911,3 +932,15 @@ impl Drop for AnsweringGuard {
 #[cfg(test)]
 #[path = "peer_carriers_tests.rs"]
 mod tests;
+
+/// Whether `text` answers the probe's `initialize` `id`: Some with whether the daemon said this
+/// connection is its peer principal (an error, or no word, says no).
+fn hello_answer(text: &str, id: i64) -> Option<bool> {
+    let msg: serde_json::Value = serde_json::from_str(text).ok()?;
+    if msg.get("method").is_some() || msg.get("id").and_then(serde_json::Value::as_i64) != Some(id)
+    {
+        return None;
+    }
+    let principal = msg.pointer("/result/_meta/acpmux/dualPrincipal");
+    Some(principal == Some(&serde_json::Value::Bool(true)))
+}

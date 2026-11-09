@@ -244,7 +244,7 @@ pub struct Conn {
     /// Who it is to the book of requests sent on two paths (`dual_requests.rs`): only a peer
     /// daemon's own link over the WebSocket listener (its peer token proven at the upgrade) has
     /// one. Every other connection's `dualId` is ignored.
-    pub(super) dual_principal: Option<&'static str>,
+    pub(crate) dual_principal: Option<&'static str>,
 }
 
 /// The only authority a trigger connection carries after platform admission.
