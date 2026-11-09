@@ -11,11 +11,24 @@
  * `field` exactly once among its top-level keys, compared after JSON string unescaping (so `"\u0074unnels"` is
  * `tunnels`), and its value must be an array of objects; a second `field` key fails whatever its value. Each item is
  * also parsed with JSON.parse. Any violation, an item over
- * `maxItemChars`, or a document that ends early throws, and the caller must then act on none of the items it was
- * handed (the sweep deletes only after `end` returned).
+ * `maxItemChars` (unless `onOversized` is given), or a document that ends early throws, and the caller must then act
+ * on none of the items it was handed (the sweep deletes only after `end` returned).
+ *
+ * With `onOversized`, an item over `maxItemChars` is not kept or parsed: its grammar is still checked as it streams,
+ * and when it ends `onOversized` gets its size and its first `OVERSIZED_HEAD_CHARS` characters (to name it), and the
+ * items after it are read as usual.
  */
 
 export class JsonItemsError extends Error {}
+
+/** The characters of an oversized item handed to `onOversized` to name it; the rest is never kept. */
+export const OVERSIZED_HEAD_CHARS = 4 * 1024;
+
+/** An item over `maxItemChars`: its size in characters and its first characters. */
+export interface OversizedItem {
+  readonly chars: number;
+  readonly head: string;
+}
 
 /** Raw characters of a top-level key the scanner keeps to decode and compare; see `keyCap`. */
 const MIN_KEY_CHARS = 256;
@@ -43,7 +56,12 @@ const fail = (reason: string): never => {
   throw new JsonItemsError(reason);
 };
 
-export const jsonItemsScanner = (field: string, maxItemChars: number, onItem: (item: unknown) => void): JsonItemsScanner => {
+export const jsonItemsScanner = (
+  field: string,
+  maxItemChars: number,
+  onItem: (item: unknown) => void,
+  onOversized?: (item: OversizedItem) => void,
+): JsonItemsScanner => {
   const stack: Frame[] = [];
   /** Before the one top-level value, or after it (only whitespace may follow). */
   let top: "value" | "done" = "value";
@@ -68,6 +86,9 @@ export const jsonItemsScanner = (field: string, maxItemChars: number, onItem: (i
   /** The text of the item being read, and the stack depth its object sits at. */
   let item: string | null = null;
   let itemDepth = 0;
+  /** The item being read is past `maxItemChars`: only its size is counted from then on. */
+  let itemOversized = false;
+  let itemChars = 0;
 
   const current = (): Frame | undefined => stack[stack.length - 1];
 
@@ -108,8 +129,11 @@ export const jsonItemsScanner = (field: string, maxItemChars: number, onItem: (i
     stack.pop();
     if (item !== null && stack.length === itemDepth - 1) {
       const text = item;
+      const oversized = itemOversized;
       item = null;
-      onItem(JSON.parse(text));
+      itemOversized = false;
+      if (oversized) onOversized?.({ chars: itemChars, head: text });
+      else onItem(JSON.parse(text));
     }
     valueDone();
   };
@@ -117,8 +141,15 @@ export const jsonItemsScanner = (field: string, maxItemChars: number, onItem: (i
   const feed = (text: string) => {
     for (const c of text) {
       if (item !== null) {
-        item += c;
-        if (item.length > maxItemChars) fail("item too large");
+        itemChars += c.length;
+        if (!itemOversized) {
+          item += c;
+          if (item.length > maxItemChars) {
+            if (onOversized === undefined) fail("item too large");
+            itemOversized = true;
+            item = item.slice(0, OVERSIZED_HEAD_CHARS);
+          }
+        }
       }
       if (inString) {
         if (hexLeft > 0) {
@@ -199,6 +230,7 @@ export const jsonItemsScanner = (field: string, maxItemChars: number, onItem: (i
           if (isItem) {
             item = "{";
             itemDepth = stack.length;
+            itemChars = 1;
           }
           break;
         }

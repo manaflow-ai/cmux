@@ -9,7 +9,7 @@
 import { Effect, Redacted } from "effect";
 import { upstreamIdOf, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 import { UpstreamError } from "./client.ts";
-import { jsonItemsScanner } from "./json-items.ts";
+import { jsonItemsScanner, type OversizedItem } from "./json-items.ts";
 import type { UpstreamConfig } from "./live.ts";
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
@@ -33,7 +33,13 @@ export interface UpstreamHttp {
     path: string,
     field: string,
     keep: (item: unknown) => A,
-    options: { readonly timeoutMs: number; readonly maxItemChars: number; readonly maxChars: number },
+    options: {
+      readonly timeoutMs: number;
+      readonly maxItemChars: number;
+      readonly maxChars: number;
+      /** Called for each item over `maxItemChars`, which is then skipped; without it, such an item fails the read. */
+      readonly onOversized?: (item: OversizedItem) => void;
+    },
   ) => Effect.Effect<ReadonlyArray<A>, UpstreamError>;
   /** A WebSocket upgrade. Resolves with the provider's end of the socket, not yet accepted. */
   readonly upgrade: (operation: string, path: string) => Effect.Effect<WebSocket, UpstreamError>;
@@ -98,7 +104,7 @@ export function makeUpstreamHttp(config: UpstreamConfig): UpstreamHttp {
           return { ok: false as const, status: response.status };
         }
         const kept: Array<ReturnType<typeof keep>> = [];
-        const scanner = jsonItemsScanner(field, options.maxItemChars, (item) => kept.push(keep(item)));
+        const scanner = jsonItemsScanner(field, options.maxItemChars, (item) => kept.push(keep(item)), options.onOversized);
         const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
         let chars = 0;
         try {
