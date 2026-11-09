@@ -209,6 +209,11 @@ mod tests {
         // The agent itself, and an agent row of another terminal.
         let agent = run("outer-1", None, Some("42"));
         assert_eq!(nested_in(&agent, None, rows(outer(NOW)), NOW), Nested::No);
+        // Compaction keeps the session: the row tells the agent from a nested one.
+        let compacted = run("outer-1", Some("compact"), Some("42"));
+        assert_eq!(nested_in(&compacted, None, rows(outer(NOW)), NOW), Nested::No);
+        let nested_compacted = run("nested-2", Some("compact"), Some("51"));
+        assert_eq!(nested_in(&nested_compacted, Some("42"), rows(outer(NOW)), NOW), Nested::Yes);
         let elsewhere = json!([{"terminal_id": "term_b", "source": "hook", "state": "idle",
             "extra": {"agent_session_id": "outer-1"}}]);
         assert_eq!(nested_in(&nested, Some("42"), rows(elsewhere), NOW), Nested::No);
@@ -232,8 +237,9 @@ mod tests {
         let unread = || -> anyhow::Result<Value> { panic!("no roster read") };
         let clear = run("outer-2", Some("clear"), Some("42"));
         assert_eq!(nested_in(&clear, Some("42"), unread, NOW), Nested::No);
-        let compact = run("outer-2", Some("compact"), None);
-        assert_eq!(nested_in(&compact, None, unread, NOW), Nested::No);
+        // Another process that clears is checked like any other start.
+        let nested_clear = run("nested-3", Some("clear"), Some("51"));
+        assert_eq!(nested_in(&nested_clear, Some("42"), rows(outer(NOW)), NOW), Nested::Yes);
         let resumed = run("older-0", Some("resume"), Some("42"));
         assert_eq!(nested_in(&resumed, Some("42"), unread, NOW), Nested::No);
         let prompt = run("older-0", None, Some("42"));
