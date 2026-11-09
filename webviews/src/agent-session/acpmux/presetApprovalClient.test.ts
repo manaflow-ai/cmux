@@ -47,11 +47,13 @@ async function open(extra: unknown[] = []) {
   ];
   for (const step of steps) daemon.record(mockHost.sessionId!, step);
   let rows: Row[] = [];
+  let last: { canLoadOlder?: boolean } | undefined;
   const wakes: Array<() => void> = [];
   const client = await AcpmuxDirectClient.connect(
     mockHost,
     (snapshot) => {
       rows = snapshot.rows as Row[];
+      last = snapshot as { canLoadOlder?: boolean };
       for (const wake of wakes.splice(0)) wake();
     },
     undefined,
@@ -61,7 +63,7 @@ async function open(extra: unknown[] = []) {
   const until = async (ready: () => boolean) => {
     while (!ready()) await new Promise<void>((resolve) => wakes.push(resolve));
   };
-  return { client, cards, until };
+  return { client, cards, until, snapshot: () => last };
 }
 
 test("a request draws one card; a retry joins it and a decision closes it", async () => {
@@ -102,6 +104,24 @@ test("a refused answer keeps the card open with the daemon's message", async () 
     expect(card.error).toBe("approving a preset's mode needs the person");
     expect(card.outcome).toBeUndefined();
     expect(card.busy).toBeUndefined();
+  } finally {
+    client.close();
+  }
+});
+
+test("a card older than the open's page comes with the older page that holds it", async () => {
+  const turns = Array.from({ length: 300 }, (_, turn) => [
+    { mux: "user_message", msg: { text: `Turn ${turn}` } },
+    { mux: "turn_started", msg: {} },
+    { mux: "turn_result", msg: { status: "completed" } },
+  ]).flat();
+  const { client, cards, until, snapshot } = await open(turns);
+  try {
+    await until(() => snapshot()?.canLoadOlder === true);
+    expect(cards()).toHaveLength(0);
+    for (let pages = 0; snapshot()?.canLoadOlder && pages < 20; pages += 1) await client.loadOlder();
+    expect(cards()).toHaveLength(1);
+    expect(cards()[0].presetApproval?.ask.digest).toBe("d1");
   } finally {
     client.close();
   }

@@ -93,65 +93,101 @@ export function presetApprovalDecision(
 
 const keyOf = (ask: { preset: string; digest: string }) => JSON.stringify([ask.preset, ask.digest]);
 
-/// One chat's approval cards, folded from its records in any order. Rows are by id; a card's
-/// first and last request seqs bound it, and the first decision of its key after them closes it.
+/// A card as the fold draws it now: its row, the newest request's ask, when its first request came
+/// and its outcome.
+export type PresetApprovalCardState = {
+  rowId: string;
+  ask: PresetApprovalAsk;
+  at: number;
+  outcome?: PresetApprovalOutcome;
+};
+
+/// What one record changed for its preset and digest: the rows that no longer stand for a card
+/// (two cards joined, or one split, by a record read late) and every card of that key now.
+export type PresetApprovalChange = { removed: string[]; cards: PresetApprovalCardState[] };
+
+/// One chat's approval cards, folded from their records in any order. A key's requests in seq order
+/// make one card until a decision of that key lies between two of them; the first decision after a
+/// card's last request closes it. Each record recomputes its key's cards from every record held, so
+/// a record read late (an older page) joins or splits cards the same way as in order. A card's row
+/// is named by its first request's seq.
 export class PresetApprovalFold {
-  private readonly cards = new Map<string, { key: string; first: number; last: number }>();
+  private readonly requests = new Map<string, { seq: number; at: number; ask: PresetApprovalAsk }[]>();
   private readonly decisions = new Map<string, { seq: number; outcome: PresetApprovalOutcome }[]>();
+  /// The rows last reported for each key, and every card by row.
+  private readonly shown = new Map<string, string[]>();
+  private readonly cards = new Map<string, PresetApprovalCardState>();
 
   clear(): void {
-    this.cards.clear();
+    this.requests.clear();
     this.decisions.clear();
+    this.shown.clear();
+    this.cards.clear();
   }
 
-  /// A request record at `seq`: the row it draws in and that row's outcome. It joins its key's card
-  /// when no decision of that key lies between them; else it opens a new card.
-  request(seq: number, ask: PresetApprovalAsk): { rowId: string; outcome?: PresetApprovalOutcome } {
+  /// A request record at `seq` (its time `at`).
+  request(seq: number, at: number, ask: PresetApprovalAsk): PresetApprovalChange {
     const key = keyOf(ask);
-    const decided = this.decisions.get(key) ?? [];
-    let joined: string | undefined;
-    for (const [id, card] of this.cards) {
-      if (card.key !== key) continue;
-      const low = Math.min(card.first, seq);
-      const high = Math.max(card.last, seq);
-      if (!decided.some((decision) => decision.seq > low && decision.seq < high)) joined = id;
-    }
-    const rowId = joined ?? `preset-approval-${seq}`;
-    const card = this.cards.get(rowId);
-    this.cards.set(
-      rowId,
-      card ? { key, first: Math.min(card.first, seq), last: Math.max(card.last, seq) } : { key, first: seq, last: seq },
+    const held = this.requests.get(key) ?? [];
+    const kept = held.filter((each) => each.seq !== seq);
+    this.requests.set(
+      key,
+      [...kept, { seq, at, ask }].sort((a, b) => a.seq - b.seq),
     );
-    return { rowId, outcome: this.outcome(rowId) };
+    return this.reconcile(key);
   }
 
-  /// A decision record at `seq`: the cards it closes now, with the outcome each gets.
+  /// A decision record at `seq`.
   decide(
     seq: number,
     decision: { preset: string; digest: string; outcome: PresetApprovalOutcome },
-  ): { rowId: string; outcome: PresetApprovalOutcome }[] {
+  ): PresetApprovalChange {
     const key = keyOf(decision);
-    const decided = this.decisions.get(key) ?? [];
-    if (decided.some((each) => each.seq === seq)) return [];
-    const before = new Map([...this.cards.keys()].map((id) => [id, this.outcome(id)]));
+    const held = this.decisions.get(key) ?? [];
+    if (held.some((each) => each.seq === seq)) return { removed: [], cards: this.cardsOf(key) };
     this.decisions.set(
       key,
-      [...decided, { seq, outcome: decision.outcome }].sort((a, b) => a.seq - b.seq),
+      [...held, { seq, outcome: decision.outcome }].sort((a, b) => a.seq - b.seq),
     );
-    const closed: { rowId: string; outcome: PresetApprovalOutcome }[] = [];
-    for (const [id, card] of this.cards) {
-      if (card.key !== key) continue;
-      const outcome = this.outcome(id);
-      if (outcome && outcome !== before.get(id)) closed.push({ rowId: id, outcome });
-    }
-    return closed;
+    return this.reconcile(key);
   }
 
-  /// A card's outcome: the first decision of its key after its last request, if one came.
+  /// A card's outcome, by its row.
   outcome(rowId: string): PresetApprovalOutcome | undefined {
-    const card = this.cards.get(rowId);
-    if (!card) return undefined;
-    return this.decisions.get(card.key)?.find((decision) => decision.seq > card.last)?.outcome;
+    return this.cards.get(rowId)?.outcome;
+  }
+
+  private cardsOf(key: string): PresetApprovalCardState[] {
+    return (this.shown.get(key) ?? []).flatMap((id) => this.cards.get(id) ?? []);
+  }
+
+  private reconcile(key: string): PresetApprovalChange {
+    const requests = this.requests.get(key) ?? [];
+    const decided = this.decisions.get(key) ?? [];
+    const groups: (typeof requests)[] = [];
+    for (const request of requests) {
+      const group = groups.at(-1);
+      const last = group?.at(-1);
+      if (group && last && !decided.some((decision) => decision.seq > last.seq && decision.seq < request.seq))
+        group.push(request);
+      else groups.push([request]);
+    }
+    const cards = groups.map((group): PresetApprovalCardState => {
+      const last = group.at(-1)!;
+      const outcome = decided.find((decision) => decision.seq > last.seq)?.outcome;
+      return {
+        rowId: `preset-approval-${group[0].seq}`,
+        ask: last.ask,
+        at: group[0].at,
+        ...(outcome ? { outcome } : {}),
+      };
+    });
+    const ids = new Set(cards.map((card) => card.rowId));
+    const removed = (this.shown.get(key) ?? []).filter((id) => !ids.has(id));
+    for (const id of removed) this.cards.delete(id);
+    for (const card of cards) this.cards.set(card.rowId, card);
+    this.shown.set(key, [...ids]);
+    return { removed, cards };
   }
 }
 

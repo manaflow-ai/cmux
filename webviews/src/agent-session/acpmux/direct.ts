@@ -194,6 +194,7 @@ import {
   presetApprovalFailed,
   presetApprovalSending,
   type PresetApproval,
+  type PresetApprovalChange,
   type PresetApprovalOutcome,
 } from "./conversation/presetApproval";
 
@@ -7342,14 +7343,12 @@ export class AcpmuxDirectClient {
         // acpmux refused an agent's start on another machine until the person approves its
         // no-prompt preset once: one card per preset and digest (conversation/PresetApprovalCard.tsx).
         const ask = presetApprovalAsk(msg);
-        if (ask) this.addPresetApproval(event, ask);
+        if (ask) this.applyPresetApprovals(this.presetApprovals.request(event.seq, event.at, ask));
       } else if (event.kind === "preset_approval_decision") {
-        // The person answered (here or in another window): every card for that preset and digest
-        // shown before it closes.
+        // The person answered (here or in another window): the card for that preset and digest
+        // shown before it closes; one read late may split a card it falls inside.
         const decision = presetApprovalDecision(msg);
-        if (decision)
-          for (const { rowId, outcome } of this.presetApprovals.decide(event.seq, decision))
-            this.updatePresetApproval(rowId, (approval) => presetApprovalClosed(approval, outcome));
+        if (decision) this.applyPresetApprovals(this.presetApprovals.decide(event.seq, decision));
       } else if (event.kind === BACKGROUND_TURN_KIND) {
         this.reduceBackgroundTurn(event, msg);
       } else if (event.kind === "host_notice") {
@@ -10910,7 +10909,16 @@ export class AcpmuxDirectClient {
       beforeSeq: Number.MAX_SAFE_INTEGER,
       limit: KEPT_EVENTS,
       maxBytes: OPEN_PAGE_BYTES,
-      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND, BOOKMARKS_KIND, ...SECRET_KINDS],
+      // The preset approval cards as at attach: a local acpmux only (a remote one takes 8 kinds).
+      kinds: [
+        "transcript",
+        COMMANDS_KIND,
+        USAGE_KIND,
+        CONFIG_KIND,
+        BOOKMARKS_KIND,
+        ...SECRET_KINDS,
+        ...(this.localOrigin ? PRESET_APPROVAL_KINDS : []),
+      ],
     });
     // The chat was opened meanwhile: its attach holds the newer read.
     if (this.closed || this.socket !== connection || sessionId === this.selectedSessionId) return;
@@ -11273,26 +11281,36 @@ export class AcpmuxDirectClient {
   }
   /// The chat's preset approval cards, folded from their records (conversation/presetApproval.ts).
   private readonly presetApprovals = new PresetApprovalFold();
-  /// A `preset_approval_request`: a new card, or the open one for its preset and digest updated
-  /// with what it names now (an agent that tried again).
-  private addPresetApproval(event: EventRecord, ask: PresetApproval["ask"]): void {
-    const { rowId, outcome } = this.presetApprovals.request(event.seq, ask);
-    const row = this.rows.get(rowId);
-    if (!row) {
-      this.endAssistantSegment();
-      this.streamingActivity = undefined;
+  /// A preset approval record's change to its preset and digest's cards: rows that no longer
+  /// stand for a card go, and each card's row takes its ask and outcome. A row the person answered
+  /// here keeps that outcome until the decision record comes, and an open one its busy or error.
+  private applyPresetApprovals(change: PresetApprovalChange): void {
+    for (const id of change.removed) this.rows.delete(id);
+    for (const card of change.cards) {
+      const row = this.rows.get(card.rowId);
+      const earlier = row?.presetApproval;
+      const outcome = card.outcome ?? earlier?.outcome;
+      const approval: PresetApproval = outcome
+        ? { ask: card.ask, outcome }
+        : {
+            ask: card.ask,
+            ...(earlier?.busy ? { busy: earlier.busy } : {}),
+            ...(earlier?.error ? { error: earlier.error } : {}),
+          };
+      if (row && earlier && earlier.ask === card.ask && earlier.outcome === approval.outcome && row.at === card.at)
+        continue;
+      if (!row) {
+        this.endAssistantSegment();
+        this.streamingActivity = undefined;
+      }
+      this.rows.set(card.rowId, {
+        id: card.rowId,
+        version: (row?.version ?? 0) + 1,
+        at: card.at,
+        kind: PRESET_APPROVAL,
+        presetApproval: approval,
+      });
     }
-    const earlier = row?.presetApproval;
-    const approval: PresetApproval = outcome
-      ? { ask, outcome }
-      : { ask, ...(earlier?.busy ? { busy: earlier.busy } : {}), ...(earlier?.error ? { error: earlier.error } : {}) };
-    this.rows.set(rowId, {
-      id: rowId,
-      version: (row?.version ?? 0) + 1,
-      at: row?.at ?? event.at,
-      kind: PRESET_APPROVAL,
-      presetApproval: approval,
-    });
   }
   private updatePresetApproval(rowId: string, change: (approval: PresetApproval) => PresetApproval): boolean {
     const row = this.rows.get(rowId);
@@ -11999,7 +12017,10 @@ export class AcpmuxDirectClient {
         beforeSeq: before,
         limit: 400,
         maxBytes: OLDER_PAGE_BYTES,
-        kinds: ["transcript"],
+        // acpmux's "transcript" leaves out the preset approval records (paging.rs): a card older
+        // than the attach's page comes with the older page that holds it, on a local acpmux as at
+        // attach (three kinds, within a remote cmux-tui's eight either way).
+        kinds: ["transcript", ...(this.localOrigin ? PRESET_APPROVAL_KINDS : [])],
       });
       if (
         !this.canPageOlder(pagingEpoch) ||

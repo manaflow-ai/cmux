@@ -31,6 +31,9 @@ export type MockSessionAuth = {
   fromSessionId: string | null;
   login?: { kind: "terminal" | "route"; command?: string; host?: string | null; routeId?: string | null };
 };
+/// Mux records acpmux's "transcript" kind leaves out (paging.rs `TRANSCRIPT_MUX_KINDS`) that the
+/// pane asks for by name.
+const MOCK_NOT_TRANSCRIPT = new Set(["preset_approval_request", "preset_approval_decision"]);
 type MockAuthGlobals = {
   cmuxAcpmuxMockHarnessHealth?: Record<string, { auth: "signedIn" | "signedOut" | "unknown"; login?: string }>;
   cmuxAcpmuxMockNative?: Record<string, unknown>;
@@ -1127,6 +1130,8 @@ export class MockAcpmuxSocket {
       kinds.includes(event.kind) ||
       (event.kind !== "available_commands_update" &&
         event.kind !== "prompt_suggestion" &&
+        // As acpmux's paging.rs: the preset approval records are not transcript; a read asks by name.
+        !MOCK_NOT_TRANSCRIPT.has(event.kind) &&
         kinds.includes("transcript"));
     const after = Number(params.afterSeq ?? 0);
     const before = params.beforeSeq === undefined ? Infinity : Number(params.beforeSeq);
