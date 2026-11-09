@@ -131,11 +131,11 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
     // chat asked to "open Calculator" used osascript (2026-10-27).
     let computer_use =
         if grouped.contains_key(COMPUTER_USE_FAMILY) { COMPUTER_USE_NOTE } else { "" };
-    let families = grouped
-        .iter()
-        .map(|(family, names)| format!("{family} ({})", names.len()))
-        .collect::<Vec<_>>()
-        .join(", ");
+    // Names only, no counts: `cmux_exec` is always loaded, so its description sits in the tools
+    // block at the front of the prompt cache, and a count moved with every app action the
+    // catalog gained or lost (`action.catalog.changed` re-lists tools mid-chat). One changed
+    // byte there makes the chat's next turn write its whole prompt to the cache again.
+    let families = grouped.keys().map(String::as_str).collect::<Vec<_>>().join(", ");
     vec![json!({
         "name": EXEC,
         "title": "Run a cmux script",
@@ -1273,6 +1273,30 @@ mod bg_steer_tests {
         assert!(!text.contains("one batch of independent tool calls"), "{text}");
         let without = descriptors(&[json!({"name": "pane_split"})]);
         assert!(!without[0]["description"].as_str().unwrap().contains("acpmux_bg_start"));
+    }
+}
+
+#[cfg(test)]
+mod stable_description_tests {
+    use super::*;
+
+    /// `cmux_exec` is always loaded, so its description is part of every turn's cached prefix:
+    /// an app action added or removed mid-chat (`action.catalog.changed` re-lists the tools) must
+    /// leave it byte for byte the same, or the next turn writes the whole prompt to the cache
+    /// again. A family that appears or goes away still shows.
+    #[test]
+    fn the_exec_description_does_not_move_when_a_family_gains_a_tool() {
+        let before = descriptors(&[json!({"name": "app_new_tab"}), json!({"name": "pane_split"})]);
+        let after = descriptors(&[
+            json!({"name": "app_new_tab"}),
+            json!({"name": "app_close_tab"}),
+            json!({"name": "pane_split"}),
+        ]);
+        assert_eq!(before[0]["description"], after[0]["description"]);
+        let text = before[0]["description"].as_str().unwrap();
+        assert!(text.contains("Families: app, pane."), "{text}");
+        let fewer = descriptors(&[json!({"name": "pane_split"})]);
+        assert!(fewer[0]["description"].as_str().unwrap().contains("Families: pane."));
     }
 }
 
