@@ -3,7 +3,7 @@ import type { Folds } from "../conversation/viewFolds";
 import { turnWork } from "../conversation/waterfallSpans";
 import type { AcpmuxRow } from "../model";
 import { continuesTurn } from "../turnStart";
-import { SUBAGENTS, type Subagent } from "./subagentFold";
+import { SUBAGENTS, awaitsOwnWork, type Subagent } from "./subagentFold";
 
 /// A subagent's line in an open group (SubagentListRow in SubagentGroup.tsx).
 export const SUBAGENT_ROW = "subagent";
@@ -70,10 +70,11 @@ export function childView(
 /// subagent said and the top line of each run of its tool calls (turnCopy.ts). A subagent's records
 /// end with no `turn_result`, so its view had no summary row and no way to copy its work (Leo,
 /// 2026-11-06: "This is a subagent. I should be able to, like, copy the stuff that it did."). None
-/// while it runs, or when it said nothing, as a turn of tool calls alone draws no Copy. No `seq`:
+/// while it runs or waits on background work of its own (`awaitsOwnWork`: its report is still to
+/// come), or when it said nothing, as a turn of tool calls alone draws no Copy. No `seq`:
 /// a fork goes through the chat's own turns, never a subagent's.
 export function subagentFooter(agent: Subagent, rows: readonly AcpmuxRow[]): AcpmuxRow | undefined {
-  if (agent.state === "running") return undefined;
+  if (agent.state === "running" || awaitsOwnWork(agent)) return undefined;
   let answer: AcpmuxRow | undefined;
   for (let at = rows.length - 1; at >= 0 && !answer; at -= 1)
     if (rows[at]!.kind === "assistant" && (rows[at]!.text ?? "").trim()) answer = rows[at];

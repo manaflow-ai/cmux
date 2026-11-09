@@ -27,8 +27,9 @@ export function WholeReportBody({
   const more = report.cut && (!report.away || onOpenView);
   return (
     <>
-      {!report.cut && !report.loading && <CardCopy text={report.text} />}
-      <div id={id} className={className} data-partial={report.cut || undefined}>
+      {/* Inside the Markdown's block box: its card is a flex column, where a float would not hold the corner. */}
+      <div id={id} className={`cv-whole-report ${className}`} data-partial={report.cut || undefined}>
+        {!report.cut && !report.loading && <CardCopy text={report.text} />}
         <Markdown commits="quiet">{report.text}</Markdown>
       </div>
       {more && (

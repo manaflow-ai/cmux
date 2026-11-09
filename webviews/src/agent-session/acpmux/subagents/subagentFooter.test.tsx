@@ -8,7 +8,7 @@ import { turnCopyText } from "../conversation/turnCopy";
 import { TurnFooter } from "../conversation/TurnRows";
 import { translate } from "../i18n";
 import { SubagentFold } from "./subagentFold";
-import { childView } from "./subagentRows";
+import { childView, subagentFooter } from "./subagentRows";
 import { WholeReportBody } from "./WholeReportBody";
 
 let seq = 0;
@@ -77,4 +77,19 @@ test("a subagent's whole report card has the corner Copy; a cut one has none", (
   expect(whole).toContain("cv-card-copy");
   const cut = renderToStaticMarkup(<WholeReportBody report={report("All five", true)} className="x" />);
   expect(cut).not.toContain("cv-card-copy");
+});
+
+test("a subagent still waiting on its own background work draws no footer until its report", () => {
+  const fold = helperRun();
+  feed(fold, { sessionUpdate: "subagent_state_update" }, { subagents: [{ id: "helper", state: "completed" }] });
+  const rows = fold.views().helper!;
+  const agent = fold.all().find((each) => each.id === "helper")!;
+  expect(subagentFooter(agent, rows)).toBeDefined();
+  const waiting = { ...agent, reaction: { turn: "t", weight: "result" as const, interim: true as const } };
+  expect(subagentFooter(waiting, rows)).toBeUndefined();
+});
+
+test("a whole report's corner Copy sits inside its Markdown box, where the float holds the corner", () => {
+  const markup = renderToStaticMarkup(<WholeReportBody report={report("All five checked.", false)} className="x" />);
+  expect(markup).toMatch(/^<div[^>]*class="cv-whole-report x"[^>]*><span class="cv-card-copy"/);
 });
