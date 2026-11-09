@@ -29,6 +29,8 @@ struct FrameStripPaneBlankTests {
         // Flat, unlike both, but it kept its ink (a prompt drawn where neither frame has it): drawn, not blank.
         #expect(!WindowFrame.PaneMeasure.isBlank(flatness: 0.997, vsBefore: 0.01, vsFinal: 0.01, settledInk: 0.003, tolerance: 0.002))
         #expect(WindowFrame.PaneMeasure.isBlank(flatness: 0.9995, vsBefore: 0.01, vsFinal: 0.01, settledInk: 0.003, tolerance: 0.002))
+        // A flash of another background color keeps its prompt yet differs almost everywhere: blank (#39072 review F1).
+        #expect(WindowFrame.PaneMeasure.isBlank(flatness: 0.9988, vsBefore: 1, vsFinal: 1, settledInk: 0.0012, tolerance: 0.002))
     }
 
     @Test func anUnfocusedPaneGoingBlankCounts() async {

@@ -41,15 +41,21 @@ public nonisolated struct WindowFrame: Sendable {
         public static let flatShare = 0.995
 
         /// Blank: one flat color that is neither what the rect showed before the key nor what it settles on, and that
-        /// lost its ink: at most half of what the rect held before or at the end. An empty terminal is flat even with its
+        /// lost its ink (at most half of what the rect held before or at the end) or changed color. An empty terminal is flat even with its
         /// prompt drawn, and mid-motion that prompt sits where neither frame has it; it still has its ink, so it is drawn.
         public func isBlank(tolerance: Double) -> Bool {
             Self.isBlank(flatness: flatness, vsBefore: vsBefore, vsFinal: vsFinal, settledInk: settledInk, tolerance: tolerance)
         }
 
         public static func isBlank(flatness: Double, vsBefore: Double, vsFinal: Double, settledInk: Double, tolerance: Double) -> Bool {
-            flatness > flatShare && vsBefore > tolerance && vsFinal > tolerance && (1 - flatness) * 2 <= settledInk
+            guard flatness > flatShare, vsBefore > tolerance, vsFinal > tolerance else { return false }
+            // A pane that changed color (a flash of another background) is blank with its ink or without it.
+            return (1 - flatness) * 2 <= settledInk || min(vsBefore, vsFinal) > recolored
         }
+
+        /// The share of a flat rect that differs from both frames past which its color changed, not just its ink moved:
+        /// a moving prompt differs by a few percent at most, a flash of another background by nearly all of it.
+        public static let recolored = 0.25
     }
 
     /// The pane rects a frame strip judges for blank frames: `before` (at the key) then `final` (at the report), as
