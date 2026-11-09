@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42625070744",
+  "recorded_at": "2026-11-09T13:35:28Z",
+  "reason": "cmux-tui 070a824d5b9a changes the image's cmux-tui (pinned 42496e69528f)",
+  "dry_run": false,
+  "cmux_tui": "070a824d5b9aed78ab5b46456e12a9afb5702f6e",
+  "fixes": [
+    {
+      "sha": "070a824d5b9aed78ab5b46456e12a9afb5702f6e",
+      "mergedAt": "2026-11-09T13:04:14Z",
+      "subject": "cmux-host updater: #39032 follow-ups (the refresh's own wake, in-gate carrier bound, flock docs) (#39366)"
+    },
+    {
+      "sha": "ca9c2a84fc71b448080cb1b965505c76c47399e4",
+      "mergedAt": "2026-11-09T04:56:19-08:00",
+      "subject": "Keep the journal's history out of the rehome scan at start (#39588)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T13:35:28Z",
+    "snapshot_id": "sh-361467241a164eaeaf8003df24f02e13",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42625070744): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "7a1bc127c6e2a64e7c87806f480b947a41f211a0",
+    "image": "cloud-native-auto-070a824d-42625070744-1",
+    "revision": "ci-42625070744-1",
+    "at": "2026-11-09T13:35:28Z"
+  },
+  "rolled_back": false
+}
