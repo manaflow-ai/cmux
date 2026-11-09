@@ -7,6 +7,8 @@ public import AppKit
 extension HomeNativeTranscriptView {
     /// The pinned section shown now (tests and `debug.home`).
     public var pinnedSection: NSView? { pinned?.view }
+    /// The Set Up cmux card's view shown now: its buttons keep their keys (Home's typing redirect skips it).
+    public var setupCardView: NSView? { setupCard?.view }
 
     /// Shows `view` pinned under the header, measured now (its fitting height); nil removes it.
     public func setPinnedSection(_ view: NSView?) {

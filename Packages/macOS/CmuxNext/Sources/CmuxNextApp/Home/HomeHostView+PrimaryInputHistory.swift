@@ -10,11 +10,12 @@ import AppKit
 /// selection keep theirs (the dispatcher delivers to them).
 extension HomeHostView {
     /// Whether Home's message box claims `event`: printable and dead keys, and
-    /// the history arrows from anywhere in Home that does not keep its arrows.
+    /// the history arrows from anywhere in Home that does not keep its arrows. None from the Set Up cmux card (Space presses its button).
     /// Keys stay in the Chief's profile panel while it has the keyboard (the Chief's screen, while the
     /// person drives the computer, takes every key).
     func routesToPrimaryInput(_ event: NSEvent) -> Bool {
         if panel.holdsKeyboard(window?.firstResponder) { return false }
+        if let card = transcript.setupCardView, let view = window?.firstResponder as? NSView, view.isDescendant(of: card) { return false }
         if KeyRouter.historyArrow(event) != nil { return historyTakesArrowKeys(from: window?.firstResponder) }
         return KeyRouter.isPrintable(event) || KeyRouter.isDeadKey(event)
     }

@@ -382,6 +382,7 @@ impl Mux {
             pending_diagnostics: Mutex::new(Vec::new()),
             #[cfg(test)]
             journal_segment_prepare_hook: Mutex::new(None),
+            journal_seal: Mutex::new(()),
             #[cfg(test)]
             screen_created_hook: Mutex::new(None),
             terminal_exit_waiters: TerminalExitWaiters::default(),
