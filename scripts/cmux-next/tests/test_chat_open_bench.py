@@ -287,6 +287,17 @@ class TableTests(unittest.TestCase):
         self.assertEqual(sum("FAILED" in line for line in table.splitlines()), 1)  # the legend's one mention
 
 
+    def test_the_table_says_what_each_open_found_in_the_spare_pool(self):
+        # Every subagent open was refused the prewarmed page ("touched by featureTips") and made a
+        # cold one; the table said only that the open was slow.
+        bench = load_bench("--conditions", "idle", "--cases", "subagent")
+        refused = {**open_(600, 300), "marks_ms": {"action": 0, "spare_refused": 250}, "note": "touched by featureTips"}
+        adopted = {**open_(200, 50), "marks_ms": {"action": 0, "spare_adopted": 5}}
+        table = bench.markdown({"host": "h", "model": "m", "ncpu": 1, "cases": {},
+                                "raw": {"idle": {"subagent": [refused, refused, adopted]}}})
+        self.assertIn("spare pool, subagent idle: adopted 1/3, refused 2/3 (touched by featureTips)", table)
+        self.assertIsNone(cos.spare_pool([open_(100, 10)]))  # a case that never asks the pool says nothing
+
 
 class ClickRowTests(unittest.TestCase):
     """The click cases read workspace ids from debug.sidebar_rows, whose keys are SidebarRowKey descriptions."""

@@ -17,6 +17,8 @@ and git ls-remote (no network) and checks what it does to the run:
 - Ctrl-C (SIGINT to the process group) cancels; SIGTERM or SIGHUP to the script does not;
 - a dispatch that gets HTTP 5xx is tried again (3 tries), a run GitHub created anyway is adopted,
   and when every try fails the script says no run was created;
+- a 404 or 500 on the first read of the new run is not a failure: the script names the run,
+  waits on it with glaeda-gh, and checks its revision before it accepts an artifact;
 - one open run per commit, mode and filter: while a run this script dispatched for the same
   commit and filter is still open, it does not dispatch, names that run and exits 4; an open
   run of another filter or another commit, or a finished run, does not stop a dispatch.
@@ -79,7 +81,18 @@ case "$*" in
     if [[ "${FAKE_LIST_FAILS:-0}" == 1 ]]; then echo "gh: Server Error (HTTP 503)" >&2; exit 1; fi
     # FAKE_LIST_FINDS=1: GitHub created the run despite the error, and lists it.
     if [[ "${FAKE_LIST_FINDS:-0}" == 1 ]]; then echo __RUN_ID__; fi ;;
-  *headSha*) printf '%s\t%s\tworkflow_dispatch\n' "${FAKE_RUN_HEAD:-$(cat "$STUB_DIR/head")}" \
+  *headSha*)
+    # FAKE_IDENTITY_FAILS: how many identity reads fail first (FAKE_IDENTITY_CODE, default 404:
+    # GitHub answers 404 or 500 for a few seconds after it creates a run). FAKE_IDENTITY_SHA
+    # answers another commit (a run of another revision).
+    n=$(cat "$STUB_DIR/identity-reads" 2>/dev/null || echo 0)
+    echo $((n + 1)) > "$STUB_DIR/identity-reads"
+    if (( n < ${FAKE_IDENTITY_FAILS:-0} )); then
+      echo "failed to get run: HTTP ${FAKE_IDENTITY_CODE:-404}: Not Found (https://api.github.com/repos/manaflow-ai/cmux/actions/runs/__RUN_ID__)" >&2
+      exit 1
+    fi
+    # FAKE_RUN_HEAD / FAKE_RUN_BRANCH: a --commit run, whose head is the trusted branch's.
+    printf '%s\t%s\tworkflow_dispatch\n' "${FAKE_IDENTITY_SHA:-${FAKE_RUN_HEAD:-$(cat "$STUB_DIR/head")}}" \
       "${FAKE_RUN_BRANCH:-$(cat "$STUB_DIR/branch")}" ;;
   *status,conclusion*)
     n=$(cat "$STUB_DIR/views" 2>/dev/null || echo 0)
@@ -797,6 +810,37 @@ def guard_cases(failures: list[str]) -> None:
          code == 1 and "missing: scripts/ci/macos-cross.sh" in out, code, out)
 
 
+def first_run_read_failure_waits_on_the_run(code_name: str):
+    """Run 42688604218 (2026-11-09): the dispatch created the run, the first read of it
+    answered HTTP 404, and the script exited 1 with the run still going. Run 42688525295
+    (#39820) got HTTP 500 the same way. The script now names the run, hands the wait to
+    glaeda-gh wait run, and checks the run's revision once it can read it."""
+    def test(failures: list[str], name: str, box: Sandbox) -> None:
+        code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_IDENTITY_FAILS="1",
+                            FAKE_IDENTITY_CODE=code_name, CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+        check(failures, name, box.count("gh api -X POST") == 1
+              and box.count(f"glaeda-gh wait run manaflow-ai/cmux/{RUN_ID}") >= 1
+              and box.count("gh run download") >= 1 and box.count("gh run cancel") == 0
+              and f"actions/runs/{RUN_ID}" in out, box, out)
+    return test
+
+
+def unreadable_run_is_refused_before_download(failures: list[str], name: str, box: Sandbox) -> None:
+    # The revision is never confirmed: no artifact from that run is accepted.
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_IDENTITY_FAILS="99",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, code == 1 and box.count("glaeda-gh wait run") >= 1
+          and box.count("gh run download") == 0 and box.count("gh run cancel") == 0
+          and f"actions/runs/{RUN_ID}" in out, box, out)
+
+
+def late_read_of_another_revision_is_refused(failures: list[str], name: str, box: Sandbox) -> None:
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_IDENTITY_FAILS="1",
+                        FAKE_IDENTITY_SHA="f" * 40, CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, code == 1 and box.count("gh run download") == 0
+          and "is not this revision" in out, box, out)
+
+
 def signal_case(signum: int, whole_group: bool, want_cancels: int, want_code: int):
     def test(failures: list[str], name: str, box: Sandbox) -> None:
         process = box.start(["--full"], FAKE_STATES="queued||1", FAKE_WAITER_SLEEP="60",
@@ -872,6 +916,12 @@ def main() -> int:
         ("default path: dispatches the pushed head on its own branch, with no source_branch",
          default_path_dispatches_the_head_on_its_own_branch),
         ("default path: still refuses a local HEAD that is not pushed", default_path_still_refuses_an_unpushed_head),
+        ("a 404 on the first read of the new run: wait on it, do not exit 1",
+         first_run_read_failure_waits_on_the_run("404")),
+        ("a 500 on the first read of the new run: wait on it, do not exit 1",
+         first_run_read_failure_waits_on_the_run("500")),
+        ("a run whose revision is never read is refused before download", unreadable_run_is_refused_before_download),
+        ("a late read that shows another revision is refused", late_read_of_another_revision_is_refused),
     ]:
         scenario(failures, name, test)
     validate_step_cases(failures)

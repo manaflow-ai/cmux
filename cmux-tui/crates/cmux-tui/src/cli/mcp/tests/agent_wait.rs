@@ -107,6 +107,7 @@ fn agents_wait_uses_chat_state_for_a_tabless_session() {
     );
     assert_eq!(result["isError"], false, "{result}");
     assert_eq!(result["structuredContent"]["matched"], false, "{result}");
+    assert_eq!(result["structuredContent"]["timed_out"], true, "{result}");
 
     let mut ready = Server::new(Fake::live(Some(daemon(false)), None), None);
     let result = call(
@@ -118,6 +119,7 @@ fn agents_wait_uses_chat_state_for_a_tabless_session() {
     );
     assert_eq!(result["isError"], false, "{result}");
     assert_eq!(result["structuredContent"]["matched"], true, "{result}");
+    assert_eq!(result["structuredContent"]["timed_out"], false, "{result}");
     assert_eq!(result["structuredContent"]["match"]["state"], "idle", "{result}");
     assert_eq!(result["structuredContent"]["match"]["chat"], CHAT, "{result}");
     let requests = sent_of(&ready, "chat");
