@@ -1327,7 +1327,7 @@ impl<'a> Socket<'a> {
             let in_flight = self.flight_size();
             self.congestion_controller
                 .inner_mut()
-                .on_loss(cx.now(), in_flight);
+                .on_sack_loss(cx.now(), in_flight);
         }
     }
 
