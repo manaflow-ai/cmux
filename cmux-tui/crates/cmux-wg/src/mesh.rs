@@ -19,11 +19,15 @@
 //!   key is the key of the session that delivered the SYN, never one looked
 //!   up from the source address.
 //!
-//! A peer may also be reached through a gateway tunnel
-//! ([`WgMesh::add_gateway`]): its datagrams then ride the datagram service
-//! of a [`crate::WgNet`] session to the peer's VPC endpoint, and every rule
-//! above applies to them unchanged. A peer's route follows its latest
-//! authenticated datagram, across UDP and gateways.
+//! A peer can be reached at several addresses (its LAN, a Thunderbolt
+//! Bridge, its tailnet address): the configured route and candidates,
+//! every address it sent an authenticated datagram from, and the addresses
+//! it advertises inside the session. The mesh probes each one inside the
+//! session and picks with the shared path selector, as a
+//! [`crate::Multipath`] does: a Thunderbolt Bridge beats the LAN, the LAN
+//! beats a routed address, and a chosen path that goes quiet costs about
+//! two silence windows before datagrams go on every proven path
+//! ([`crate::mesh_paths`]).
 
 use std::fmt;
 use std::io;
@@ -37,8 +41,8 @@ use zeroize::Zeroizing;
 
 use crate::config::InterfaceAddress;
 use crate::error::WgError;
-use crate::mesh_route::{GatewayId, PeerRoute};
-use crate::net::WgDatagramSocket;
+use crate::mesh_paths::{MeshPathView, PeerCandidate};
+use crate::mesh_route::PeerRoute;
 use crate::stream::WgStream;
 
 /// Commands in flight before callers wait.
@@ -76,11 +80,14 @@ pub struct WgPeer {
     /// Networks routed to this peer, usually its overlay `/128`. Also the
     /// filter for the source address of every packet it sends.
     pub allowed_ips: Vec<IpNetwork>,
-    /// Where the peer's datagrams go: a UDP endpoint or a gateway tunnel.
-    /// `None` learns it from the peer's first authenticated datagram; every
-    /// later one moves it (roaming), across UDP and gateways alike. A UDP
-    /// endpoint converts with `Some(address.into())`.
+    /// Where the peer's datagrams go: a UDP endpoint. `None` learns it from
+    /// the peer's first authenticated datagram; every later one moves it
+    /// (roaming). A UDP endpoint converts with `Some(address.into())`.
     pub route: Option<PeerRoute>,
+    /// More addresses the peer may be reached at (every address a pairing
+    /// knows for it). Each one is probed inside the session, and the path
+    /// selector picks among them and the route.
+    pub candidates: Vec<PeerCandidate>,
     /// Seconds between keepalives that hold NAT mappings open.
     pub persistent_keepalive: Option<u16>,
 }
@@ -94,6 +101,7 @@ impl fmt::Debug for WgPeer {
             .field("preshared_key", &self.preshared_key.as_ref().map(|_| "<set>"))
             .field("allowed_ips", &self.allowed_ips)
             .field("route", &self.route)
+            .field("candidates", &self.candidates)
             .field("persistent_keepalive", &self.persistent_keepalive)
             .finish()
     }
@@ -105,11 +113,9 @@ pub(crate) type MeshAccepted = (WgStream, Option<[u8; 32]>);
 pub(crate) enum MeshCommand {
     AddPeer { peer: WgPeer, reply: oneshot::Sender<Result<(), WgError>> },
     RemovePeer { public_key: [u8; 32], reply: oneshot::Sender<bool> },
+    PeerPaths { public_key: [u8; 32], reply: oneshot::Sender<Option<Vec<MeshPathView>>> },
     Connect { remote: SocketAddr, reply: oneshot::Sender<Result<WgStream, WgError>> },
     Listen { port: u16, reply: oneshot::Sender<Result<mpsc::Receiver<MeshAccepted>, WgError>> },
-    AddGateway { socket: WgDatagramSocket, reply: oneshot::Sender<Result<GatewayId, WgError>> },
-    RemoveGateway { gateway: GatewayId, reply: oneshot::Sender<bool> },
-    PeerRoute { public_key: [u8; 32], reply: oneshot::Sender<Option<PeerRoute>> },
     // `WgMesh::close`: deliver what was written, then stop, by the deadline.
     Close { deadline: tokio::time::Instant },
     Shutdown,
@@ -164,6 +170,17 @@ impl WgMesh {
         answer.await.map_err(|_| WgError::Shutdown)
     }
 
+    /// The paths the mesh holds to a peer and which one carries it now, or
+    /// `None` for a key that is not a peer.
+    pub async fn peer_paths(
+        &self,
+        public_key: [u8; 32],
+    ) -> Result<Option<Vec<MeshPathView>>, WgError> {
+        let (reply, answer) = oneshot::channel();
+        self.send(MeshCommand::PeerPaths { public_key, reply }).await?;
+        answer.await.map_err(|_| WgError::Shutdown)
+    }
+
     /// Open a TCP connection to `remote` through the peer whose
     /// `allowed_ips` contain it ([`WgError::NoRoute`] when none does).
     /// Resolves once the three-way handshake completes; callers bound the
@@ -181,39 +198,6 @@ impl WgMesh {
         self.send(MeshCommand::Listen { port, reply }).await?;
         let incoming = answer.await.map_err(|_| WgError::Shutdown)??;
         Ok(WgMeshListener { port, incoming })
-    }
-
-    /// Attach a gateway: a datagram socket inside a gateway tunnel (this
-    /// install's Freestyle tunnel). Datagrams the mesh sends on a
-    /// [`PeerRoute::Gateway`] route go out through `socket`, and datagrams
-    /// that arrive on it are handled like UDP datagrams: the same demux by
-    /// receiver index and by handshake key, and unknown keys get no state.
-    ///
-    /// Refused with [`WgError::DatagramTooLarge`] when the socket's
-    /// `max_datagram` cannot carry a full-size WireGuard data message of
-    /// this mesh (its MTU plus 32 bytes): a mesh that may use a gateway
-    /// runs with the nested inner MTU (1200 behind a 1280 tunnel).
-    pub async fn add_gateway(&self, socket: WgDatagramSocket) -> Result<GatewayId, WgError> {
-        let (reply, answer) = oneshot::channel();
-        self.send(MeshCommand::AddGateway { socket, reply }).await?;
-        answer.await.map_err(|_| WgError::Shutdown)?
-    }
-
-    /// Detach a gateway and drop its socket. Peers whose route used it have
-    /// no route until their next authenticated datagram (their connections
-    /// stay open and retransmit). Returns whether the gateway existed.
-    pub async fn remove_gateway(&self, gateway: GatewayId) -> Result<bool, WgError> {
-        let (reply, answer) = oneshot::channel();
-        self.send(MeshCommand::RemoveGateway { gateway, reply }).await?;
-        answer.await.map_err(|_| WgError::Shutdown)
-    }
-
-    /// The route a peer currently uses (configured, or learned by roaming),
-    /// or `None` for an unknown key or a peer with no route yet.
-    pub async fn peer_route(&self, public_key: [u8; 32]) -> Result<Option<PeerRoute>, WgError> {
-        let (reply, answer) = oneshot::channel();
-        self.send(MeshCommand::PeerRoute { public_key, reply }).await?;
-        answer.await.map_err(|_| WgError::Shutdown)
     }
 
     /// Stop as a TCP close does: no new connection; every open one sends what its owner had

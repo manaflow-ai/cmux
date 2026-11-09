@@ -5,7 +5,8 @@
 // them. A video the agent got no frames for (its read failed, or the agent takes no images) has no
 // note and stays the file chip it was.
 import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
-import { attachmentPath } from "../FileAttachment";
+import { attachmentPath } from "../fileAttachmentModel";
+import { lengthOf } from "../composer/videoPrompt";
 
 /// A video a prompt sent, as its bubble draws it (SentVideoTile.tsx).
 export type SentVideo = {
@@ -15,7 +16,7 @@ export type SentVideo = {
   length: string;
   width: number;
   height: number;
-  /// Its first frame, the image the prompt sent it as; none until acpmux's echo names it.
+  /// Its first frame, the image the prompt sent it as; before acpmux's echo, the composer chip's poster.
   poster?: PromptImage;
 };
 
@@ -26,11 +27,30 @@ const NOTE_HEAD = /^Frames from the video (.+) \((\d+(?::\d{2}){1,2}), (\d+)×(\
 export function sentVideosOf(
   row: Pick<AcpmuxRow, "text" | "images" | "inlineParts" | "retryAttachments">,
 ): SentVideo[] {
+  // The pane's own send, before acpmux's echo: the row keeps the chips it sent (direct.ts), and a
+  // video that went with its frames is its tile from the first frame, its poster the chip's, so the
+  // echo changes nothing on screen (Leo, 2026-11-07: "know beforehand the size we're going to go for").
+  const sent = (row.retryAttachments ?? []).flatMap((chip): SentVideo[] =>
+    chip.kind === "link" && chip.path && chip.video?.frames.length
+      ? [
+          {
+            name: chip.name,
+            path: chip.path,
+            length: lengthOf(chip.video.durationMs),
+            width: chip.video.width,
+            height: chip.video.height,
+            poster: { id: `${chip.id}:poster`, mimeType: "image/jpeg", src: chip.video.poster },
+          },
+        ]
+      : [],
+  );
+  if (sent.length) return sent;
   const lines = [
     ...(row.text?.split("\n") ?? []),
     ...(row.inlineParts ?? []).flatMap((part) => (part.kind === "text" ? part.text.split("\n") : [])),
   ];
-  if (!lines.some((line) => line.startsWith("Frames from the video "))) return [];
+  const chips = composerVideos(row);
+  if (!lines.some((line) => line.startsWith("Frames from the video "))) return chips;
   const images: PromptImage[] = [
     ...(row.images ?? []),
     ...(row.inlineParts ?? []).filter((part): part is PromptContentPart & PromptImage => part.kind === "image"),
@@ -43,7 +63,11 @@ export function sentVideosOf(
     const path = videoPath(row, name);
     if (!path) return [];
     seen.add(name);
-    const poster = images.find((image) => image.name?.startsWith(`${name} frame at `));
+    // The composer's own poster bytes while it has them, so the tile the prompt landed with keeps
+    // its picture through acpmux's echo instead of waiting on a read of its first frame.
+    const poster =
+      chips.find((chip) => chip.name === name && chip.path === path)?.poster ??
+      images.find((image) => image.name?.startsWith(`${name} frame at `));
     return [
       {
         name,
@@ -55,6 +79,29 @@ export function sentVideosOf(
       },
     ];
   });
+}
+
+/// The videos the pane's own row sent, read from the composer's chips (their poster, length and
+/// size, composer/videoAttachments.ts): the row the pane draws the moment it sends has no frames
+/// note (its text is what the bubble reads), so without them the tile popped in only with acpmux's
+/// echo (Leo, 2026-11-07: "it just sort of needs to readjust and pop up for the video preview").
+/// A chip whose frames were left off (`withoutFrames`: an agent that takes no images, or a prompt
+/// past its budget) sent the agent only its link, so it stays the file chip its echo draws.
+function composerVideos(row: Pick<AcpmuxRow, "retryAttachments">): SentVideo[] {
+  return (row.retryAttachments ?? []).flatMap((chip): SentVideo[] =>
+    chip.kind === "link" && chip.path && chip.video?.frames.length
+      ? [
+          {
+            name: chip.name,
+            path: chip.path,
+            length: lengthOf(chip.video.durationMs),
+            width: chip.video.width,
+            height: chip.video.height,
+            poster: { id: `${chip.id}:poster`, mimeType: "image/jpeg", src: chip.video.poster },
+          },
+        ]
+      : [],
+  );
 }
 
 /// The path of the video `name` a row sent: its link part (acpmux's record), or before the echo

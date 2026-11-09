@@ -2,11 +2,12 @@
 // (CmuxNextHomeEngine HomeAgentRunMapping, CmuxHomeCore HomeAgentMessages, HomeAgentMessageRow,
 // HomeAgentThread, HomeAgentNote): a `spawn` is the Chief's first message to each agent it started
 // (its task), a `tell` a later one, a `report:` note the agent's report. They fold into one agents
-// row per Chief message (its pills, agentModel.ts), and each agent's chat reads them all.
+// row per Chief message (its pills, agentModel.ts); a pill opens the agent's workspace through the
+// Chief's link to its session (Home never splits: no agent pane).
 // Values only: the page passes the runs it holds and the loaded messages.
 import type { RunEntry } from "../../../home-channels/runs";
 import type { HomeMessage, HomeRunStep } from "../../../home-channels/types";
-import type { AgentPeerState, AgentSender, AgentThread, AgentsRow } from "./agentModel";
+import type { AgentPeerState, AgentsRow } from "./agentModel";
 
 /** One message between the Chief and an agent (`HomeAgentRun.Message`). */
 export interface AgentRunMessage {
@@ -346,97 +347,16 @@ export function workspaceLink(peer: string, texts: Iterable<string>): string | u
   return found;
 }
 
-/** A person's note to an agent from its chat (`[to a3] words`, HomeAgentNote). */
-export function noteText(peer: string, words: string): string {
-  return `[to ${peer}] ${words}`;
-}
-
-function parseNote(value: string): { peer: string; text: string } | undefined {
-  if (!value.startsWith("[to ")) return undefined;
-  const end = value.indexOf("] ");
-  if (end < 0) return undefined;
-  const peer = value.slice(4, end);
-  const words = value.slice(end + 2);
-  if (!peer || /\s/.test(peer) || !words.trim()) return undefined;
-  return { peer, text: words };
-}
-
 const plain = (message: HomeMessage) =>
   message.parts
     .map((part) => (part.type === "text" || part.type === "other" ? part.text : ""))
     .filter(Boolean)
     .join("\n");
 
-/** `peer`'s chat with the Chief over every run held (HomeAgentMessages.thread): its task, every later
- * message (the person's own notes labelled You: a Chief relay of the same words shows once), its
- * state, when it started and ended, and the Chief's link to its session. None: no run has a
- * message with it. */
-export function agentThread(
-  peer: string,
-  entries: readonly RunEntry[],
-  messages: readonly HomeMessage[],
-  me?: string,
-): AgentThread | undefined {
-  const all = entries
-    .flatMap((entry) => agentMessages(entry.steps, entry.run.startedAt))
-    .filter((message) => message.peer === peer)
-    .sort((a, b) => a.at - b.at || a.seq - b.seq || (a.id < b.id ? -1 : 1));
-  const first = all[0];
-  const last = all.at(-1);
-  if (!first || !last) return undefined;
-  const task = all.find((message) => message.outgoing);
-  const title = taskTitles(all).get(peer) ?? (task ? taskTitle(task.text) : undefined) ?? peer;
-  let rows: { id: string; sender: AgentSender; text: string; at: number; outgoing: boolean }[] = all
-    .filter((message) => message.id !== task?.id)
-    .map((message) => ({
-      id: message.id,
-      at: message.at,
-      outgoing: message.outgoing,
-      text: message.text,
-      sender: message.outgoing ? (message.sender?.startsWith("human:") ? "you" : "chief") : "agent",
-    }));
-  if (me) {
-    let added = false;
-    for (const message of messages) {
-      if (message.author !== me || message.retracted) continue;
-      const note = parseNote(plain(message));
-      if (!note || note.peer !== peer) continue;
-      const words = note.text.trim();
-      // The relay is written after the note; a clock elsewhere may run a little behind.
-      const relay = rows.find(
-        (row) =>
-          row.outgoing && row.sender !== "you" && row.at >= message.createdAt - 300_000 && row.text.trim() === words,
-      );
-      if (relay) relay.sender = "you";
-      else {
-        rows.push({ id: `note:${message.id}`, sender: "you", text: words, at: message.createdAt, outgoing: true });
-        added = true;
-      }
-    }
-    if (added)
-      rows = rows
-        .map((row, index) => ({ row, index }))
-        .sort((a, b) => a.row.at - b.row.at || a.index - b.index)
-        .map(({ row }) => row);
-  }
-  const state: AgentPeerState = last.outgoing
-    ? last.queued
-      ? "queued"
-      : "told"
-    : isStatusNote(last.text)
-      ? "stopped"
-      : "reported";
-  const link = workspaceLink(peer, messages.filter((message) => message.author !== me).map(plain));
-  return {
-    peer,
-    title,
-    state,
-    ...(task ? { task: task.text } : {}),
-    entries: rows.map(({ id, sender, text: words }) => ({ id, sender, text: words })),
-    startedAt: first.at,
-    ...(state === "told" || state === "queued" ? {} : { endedAt: last.at }),
-    ...(link ? { workspaceLink: link } : {}),
-  };
+/** The Chief's link to `peer`'s session in the loaded messages not mine (the pill's target); none
+ * while it has no workspace yet (a queued agent), and the pill then opens nothing. */
+export function agentWorkspaceLink(peer: string, messages: readonly HomeMessage[], me?: string): string | undefined {
+  return workspaceLink(peer, messages.filter((message) => message.author !== me).map(plain));
 }
 
 /** `peer`'s newest report time (its pill's unread dot clears once the person opened it). */

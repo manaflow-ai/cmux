@@ -101,6 +101,48 @@ struct ChildPreview {
     /// by), carried onto a later event that says none: its completed or cancelled end, so a page
     /// holding only that end still says which agent it was (cmux#33292, cmux#33336).
     agent_id: Option<String>,
+    /// The current message's whole text, for the `result` its `completed` end carries (the chat's
+    /// "Subagent finished" card shows the whole reply; `text` is the tray's capped one-liner). Leo,
+    /// 2026-11-09: "this isn't rendering the full message". Bounded by `RESULT_CHARS`, freed at
+    /// the child's end, so only live children hold one.
+    result: String,
+    /// `result`'s char count, so a chunk appends in O(chunk), not a recount per token.
+    result_chars: usize,
+    /// The message outgrew `RESULT_CHARS` (or came in capped): its end carries no `result`, and
+    /// the client falls back to `lastMessage`.
+    result_cut: bool,
+}
+
+impl ChildPreview {
+    /// Starts a new message's whole text.
+    fn reset_result(&mut self) {
+        self.result.clear();
+        self.result_chars = 0;
+        self.result_cut = false;
+    }
+
+    /// Appends a chunk; past `RESULT_CHARS` the text is dropped, never cut mid-markdown.
+    fn push_result(&mut self, text: &str) {
+        if self.result_cut {
+            return;
+        }
+        let chars = text.chars().count();
+        if self.result_chars + chars > RESULT_CHARS {
+            self.result = String::new();
+            self.result_chars = 0;
+            self.result_cut = true;
+        } else {
+            self.result.push_str(text);
+            self.result_chars += chars;
+        }
+    }
+
+    /// Frees the whole text once the child ended.
+    fn free_result(&mut self) {
+        self.result = String::new();
+        self.result_chars = 0;
+        self.result_cut = false;
+    }
 }
 
 impl SubagentTree {
@@ -157,6 +199,7 @@ impl SubagentTree {
                     let id = update.get("messageId").and_then(Value::as_str).map(str::to_owned);
                     if !preview.streaming || id != preview.message_id {
                         preview.text.clear();
+                        preview.reset_result();
                     }
                     preview.streaming = true;
                     preview.message_id = id;
@@ -164,6 +207,7 @@ impl SubagentTree {
                         // One child, bounded bytes, no sibling walk and no new event per token.
                         let left = LAST_MESSAGE_CHARS + 1 - preview.text.chars().count();
                         preview.text.extend(text.chars().take(left));
+                        preview.push_result(text);
                     }
                 }
                 Some("usage_update") => {
@@ -194,6 +238,13 @@ impl SubagentTree {
                 // Explicit lifecycle text supersedes streamed text for later events.
                 preview.text = message.to_owned();
                 preview.streaming = false;
+                // `events` already capped it: a capped one is not the whole reply.
+                preview.reset_result();
+                if message.chars().count() == LAST_MESSAGE_CHARS && message.ends_with('…') {
+                    preview.result_cut = true;
+                } else {
+                    preview.push_result(message);
+                }
             }
             if event.get("tokens").is_none()
                 && let Some(tokens) = preview.tokens
@@ -206,6 +257,19 @@ impl SubagentTree {
                 && let Some(object) = event.as_object_mut()
             {
                 object.insert("lastMessage".into(), json!(truncate_last_message(&preview.text)));
+            }
+            let state = event.get("state").and_then(Value::as_str);
+            let ended = matches!(state, Some("completed" | "failed" | "cancelled"));
+            if state == Some("completed")
+                && event.get("result").is_none()
+                && !preview.result_cut
+                && !preview.result.is_empty()
+                && let Some(object) = event.as_object_mut()
+            {
+                object.insert("result".into(), json!(preview.result));
+            }
+            if ended {
+                preview.free_result();
             }
         }
         let mut fields = Map::new();
@@ -847,6 +911,10 @@ fn codex_state(status: Option<&str>) -> &'static str {
 /// already being emitted, never for every streamed token.
 const LAST_MESSAGE_CHARS: usize = 240;
 
+/// The most characters of a subagent's whole final reply (`ChildPreview::result`); a longer one
+/// sends no `result`.
+const RESULT_CHARS: usize = 32_000;
+
 fn truncate_last_message(text: &str) -> String {
     let mut chars = text.chars();
     let value: String = chars.by_ref().take(LAST_MESSAGE_CHARS).collect();
@@ -1135,6 +1203,107 @@ mod codex_tests {
         );
         assert_eq!(explicit[0]["tokens"], 300);
         assert_eq!(explicit[0]["lastMessage"], "final answer");
+    }
+
+    fn stream(tree: &mut SubagentTree, child: &str, message: &str, chunks: &[&str]) {
+        for chunk in chunks {
+            let mut params = json!({"sessionId": child, "update": {
+                "sessionUpdate": "agent_message_chunk", "messageId": message,
+                "content": {"type": "text", "text": chunk}}});
+            tree.annotate(&mut params);
+        }
+    }
+
+    fn end(tree: &mut SubagentTree, child: &str, state: &str) -> Value {
+        subagents(
+            tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": child, "state": state}),
+        )
+        .remove(0)
+    }
+
+    /// Leo, 2026-11-09: the "Subagent finished" card cut the reply inside a bold span. Its
+    /// completed end carries the whole reply as `result`; `lastMessage` stays the tray's capped one.
+    #[test]
+    fn a_completed_end_carries_the_whole_reply_as_result() {
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "c"}),
+        );
+        let head = "a".repeat(230);
+        let chunks = [head.as_str(), "\n\nSee **the bold", " span here** and", " more after it."];
+        stream(&mut tree, "c", "m1", &chunks);
+        let whole = chunks.concat();
+        assert!(whole.chars().count() > LAST_MESSAGE_CHARS);
+        let done = end(&mut tree, "c", "completed");
+        assert_eq!(done["lastMessage"].as_str().unwrap().chars().count(), LAST_MESSAGE_CHARS);
+        assert!(done["lastMessage"].as_str().unwrap().ends_with('…'));
+        assert_eq!(done["result"], json!(whole));
+        let preview = &tree.previews["c"];
+        assert!(preview.result.is_empty() && preview.result.capacity() == 0, "buffer not freed");
+    }
+
+    #[test]
+    fn a_short_reply_gets_result_and_only_the_last_message_counts() {
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "c"}),
+        );
+        stream(&mut tree, "c", "m1", &["Looking", " around"]);
+        stream(&mut tree, "c", "m2", &["Done: ", "**3** files."]);
+        let done = end(&mut tree, "c", "completed");
+        assert_eq!(done["lastMessage"], "Done: **3** files.");
+        assert_eq!(done["result"], "Done: **3** files.");
+    }
+
+    #[test]
+    fn a_failed_or_cancelled_end_carries_no_result() {
+        for state in ["failed", "cancelled"] {
+            let mut tree = SubagentTree::default();
+            subagents(
+                &mut tree,
+                json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "c"}),
+            );
+            stream(&mut tree, "c", "m1", &["partial ", "work"]);
+            let done = end(&mut tree, "c", state);
+            assert_eq!(done["lastMessage"], "partial work");
+            assert!(done.get("result").is_none(), "{state}: {done}");
+            assert!(tree.previews["c"].result.is_empty());
+        }
+    }
+
+    #[test]
+    fn an_overlong_reply_omits_result() {
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "c"}),
+        );
+        let big = "x".repeat(RESULT_CHARS);
+        stream(&mut tree, "c", "m1", &[big.as_str(), "y"]);
+        let done = end(&mut tree, "c", "completed");
+        assert!(done.get("result").is_none());
+        assert_eq!(done["lastMessage"].as_str().unwrap().chars().count(), LAST_MESSAGE_CHARS);
+    }
+
+    #[test]
+    fn an_explicit_last_message_is_the_result_unless_capped() {
+        let mut tree = SubagentTree::default();
+        stream(&mut tree, "c", "m1", &["streamed"]);
+        let explicit = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "c",
+                   "state": "completed", "lastMessage": "final answer"}),
+        );
+        assert_eq!(explicit[0]["result"], "final answer");
+        let capped = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "c",
+                   "state": "completed", "lastMessage": "z".repeat(300)}),
+        );
+        assert!(capped[0].get("result").is_none());
     }
 
     #[test]

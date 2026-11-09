@@ -422,8 +422,8 @@ test("the status line draws its parts and names its steps list", async () => {
   ]);
 });
 
-// Agent pills and the agent pane (HomeAgentRunMapping, HomeAgentMessages, +AgentPane.swift).
-const { agentMessages, agentRows, agentThread, taskTitle, workspaceLink } =
+// Agent pills (HomeAgentRunMapping, HomeAgentMessages); Home never splits, so no agent pane.
+const { agentMessages, agentRows, agentWorkspaceLink, taskTitle, workspaceLink } =
   await import("../src/pages/home-messages/cards/pills/agentRuns");
 const { useAgents, windowEntries } = await import("../src/pages/home-messages/cards/pills/useAgents");
 const { cardStrings } = await import("../src/pages/home-messages/cards/strings");
@@ -558,32 +558,14 @@ test("one pill per agent, in the row of its newest message, under the turn's own
   expect(agentRows([ask2], [stopped]).get("m3")?.states).toEqual(["stopped"]);
 });
 
-test("an agent's chat: its task, later messages, my notes as You once, and the Chief's link", () => {
+test("a pill's target is the Chief's link to the agent's session, never one of mine", () => {
   const link = "cmux://chief/0123abcd/session/sess-1";
-  const entry = runEntry("r1", "turn1", [
-    spawnStep,
-    toolStep("t1", 2, 5000, {
-      name: "tell",
-      input: { id: "a1", message: "check logout" },
-      output: "outcome: delivered",
-    }),
-    noteStep("report:a1", 3, 9000, "[a1] Fixed."),
-  ]);
   const messages = [
-    homeMessage({ id: "n1", seq: 4, author: "me", text: "[to a1] check logout" }),
-    homeMessage({ id: "n2", seq: 5, author: "me", text: "[to a1] and the tests" }),
+    homeMessage({ id: "n1", seq: 4, author: "me", text: "[a1](cmux://chief/0123abcd/session/mine)" }),
     homeMessage({ id: "c1", seq: 6, author: "chief", text: `Started [a1](${link}) on it.` }),
   ];
-  const thread = agentThread("a1", [entry], messages, "me")!;
-  expect(thread.title).toBe("Fix the login");
-  expect(thread.task).toBe("Title: Fix the login\nLook at auth.ts");
-  expect(thread.state).toBe("reported");
-  expect(thread.entries.map((e) => [e.sender, e.text])).toEqual([
-    ["you", "check logout"],
-    ["you", "and the tests"],
-    ["agent", "Fixed."],
-  ]);
-  expect(thread.workspaceLink).toBe(link);
+  expect(agentWorkspaceLink("a1", messages, "me")).toBe(link);
+  expect(agentWorkspaceLink("a2", messages, "me")).toBeUndefined();
   expect(workspaceLink("a1", ["[a1](cmux://chief/zz/session/x)"])).toBeUndefined();
 });
 
@@ -617,12 +599,11 @@ function AgentsHarness(props: { store: never; messages: HomeMessage[]; openOutsi
           ))}
         </div>
       ))}
-      {view.pane}
     </div>
   );
 }
 
-test("a pill opens its agent right of Home through the host, else in the pane, and the pane sends", async () => {
+test("a pill opens its agent's workspace right of Home through the host; with no link it opens nothing", async () => {
   const link = "cmux://chief/0123abcd/session/sess-1";
   const ask = homeMessage({ id: "m1", seq: 1, author: "chief", clientMessageId: "send-c1-turn1-0123456789abcdef" });
   const reply = homeMessage({ id: "m2", seq: 2, author: "chief", clientMessageId: "turn1", text: `[a1](${link})` });
@@ -646,12 +627,9 @@ test("a pill opens its agent right of Home through the host, else in the pane, a
   expect(pills().length).toBe(2);
   await act(async () => pills()[0]!.click());
   expect(opened).toEqual([link]);
-  expect(container.querySelector(".hm-agent-pane")).toBeNull();
-  // a2 has no link: its chat opens in the pane here.
+  // a2 has no link (no workspace yet): nothing opens, and Home never splits.
   await act(async () => pills()[1]!.click());
-  expect(container.querySelector(".hm-agent-pane")).not.toBeNull();
-  expect(container.querySelector(".hm-agent-pane__tab-name")?.textContent).toBe("Write tests");
-  await act(async () => container.querySelector<HTMLButtonElement>(".hm-agent-pane__tab-close")!.click());
+  expect(opened).toEqual([link]);
   expect(container.querySelector(".hm-agent-pane")).toBeNull();
   expect(sent).toEqual([]);
 });

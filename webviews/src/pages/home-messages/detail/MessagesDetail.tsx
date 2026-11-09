@@ -601,7 +601,6 @@ function ConversationView(
             }
           : {})}
       />
-      {agents.pane}
     </div>
   );
 }

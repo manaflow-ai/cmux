@@ -21,7 +21,7 @@ pub(crate) fn read_json_bounded<T: DeserializeOwned>(path: &Path, max: u64) -> O
     read_json(path)
 }
 
-pub(crate) fn write_json_private<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
+pub fn write_json_private<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         owner_only_dir(dir)?;
     }

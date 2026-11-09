@@ -200,4 +200,38 @@ struct SidebarRevealSelectionTests {
         h.sidebar.renderNow()
         #expect(abs(h.offset) < 0.5, "Cmd-2 on a top item left the list at \(h.offset), not at its top")
     }
+
+    /// Leo 2026-11-07 (Cmd-1…7 next to a group): a collapsed group right above the selection is a stop of its own,
+    /// not the selection's header. A row already in view under it does not scroll the list up to the group.
+    @Test func aRowRightBelowACollapsedGroupInViewDoesNotScroll() throws {
+        defer { Motion.reduceMotionOverride = nil }
+        let group = SidebarGroup(id: GroupID("grp-shut"), name: "Shut", isCollapsed: true, workspaces: (11...14).map(Self.ws))
+        let h = Harness(sections: Self.sections(Self.loose(1...10) + [.group(group)] + Self.loose(15...50)), active: Self.id(50))
+        defer { h.window.close() }
+        try #require(h.clip.bounds.height > 0)
+        let below = try h.row(.workspace(Self.id(15)))
+        h.scroll(to: below.y - SidebarLayout.revealPadding - 1)
+        let before = h.offset
+        try #require(!(try h.shows(.group(GroupID("grp-shut")))))
+        h.select(Self.id(15))
+        #expect(abs(h.offset - before) < 0.5, "selecting a row in view under a collapsed group scrolled \(before) -> \(h.offset)")
+    }
+
+    /// Collapsed groups below the selection are stops: a row in view above them does not scroll the list to its end.
+    @Test func aRowRightAboveCollapsedGroupsAtTheEndInViewDoesNotScroll() throws {
+        defer { Motion.reduceMotionOverride = nil }
+        let groups: [SidebarNode] = [
+            .group(SidebarGroup(id: GroupID("grp-a"), name: "A", isCollapsed: true, workspaces: (41...44).map(Self.ws))),
+            .group(SidebarGroup(id: GroupID("grp-b"), name: "B", isCollapsed: true, workspaces: (45...48).map(Self.ws))),
+        ]
+        let h = Harness(sections: Self.sections(Self.loose(1...40) + groups), active: Self.id(1))
+        defer { h.window.close() }
+        try #require(h.clip.bounds.height > 0)
+        let above = try h.row(.workspace(Self.id(40)))
+        h.scroll(to: above.maxY + SidebarLayout.revealPadding + 1 - h.clip.bounds.height)
+        let before = h.offset
+        try #require(before < h.maxOffset - 0.5)
+        h.select(Self.id(40))
+        #expect(abs(h.offset - before) < 0.5, "selecting a row in view above collapsed groups scrolled \(before) -> \(h.offset)")
+    }
 }

@@ -17,7 +17,7 @@ extension AppActions {
         let suggestions = registry.argumentSuggestions
         registry.argumentSuggestions = { [weak services] source in
             guard let home = services?.home else { return suggestions?(source) ?? [] }
-            return home.messageRouting.suggestions(for: source, members: home.chiefRoster.groupMembers(home.contacts(), rows: home.homeStore.rows, excluding: home.homeStore.me?.id)) ?? suggestions?(source) ?? []
+            return home.messageRouting.suggestions(for: source, members: home.chiefRoster.groupMembers(home.contacts(), rows: home.homeStore.rows, excluding: home.homeStore.me?.id), chiefs: home.directory.chiefSuggestions()) ?? suggestions?(source) ?? []
         }
         registry.bind("home.messageTo", invoke: { invocation in
             let routing = services.home.messageRouting

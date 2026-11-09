@@ -529,6 +529,9 @@ public final class AgentTurnStateStore {
 
     /// The last message of the session an agent chat tab shows.
     public func lastMessage(for ref: AgentSessionRef) -> String? { local(ref)?.lastMessage }
+    /// The last message of `session` as any watch wrote it, this Mac's or an acpmux peer's chat (the
+    /// records are keyed by session id): the Chief pet's chat (Show in Mini) may run on a peer.
+    public func lastMessage(session: String) -> String? { sessions[session]?.lastMessage }
 
     /// The recent moments of the chat an agent chat tab shows (u3320); empty off this Mac.
     public func timeline(for ref: AgentSessionRef) -> AgentTimeline {

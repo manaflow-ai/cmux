@@ -44,6 +44,7 @@ export async function traceUpwardAnchors({
     step: 5,
     footerRow: 6,
     footerSlot: 7,
+    worked: 9,
   } as const;
 
   function gridPx(name: string): number {
@@ -57,14 +58,14 @@ export async function traceUpwardAnchors({
 
   function markFor(row: HTMLElement): number | null {
     const kind = [...row.classList].find((name) => name.startsWith("acpmux-") && !name.startsWith("acpmux-row"));
+    // A turn's "Worked for" line, as every family folds a turn under it now (Codex parity): the room
+    // under its rule is its own, so no gap follows it (transcriptGrid.ts MARK_WORKED, #37727).
+    if (kind === "acpmux-worked") return transcriptMark.worked;
     if (
       row.classList.contains("acpmux-row--line") ||
       row.classList.contains("acpmux-row--after-step") ||
       row.classList.contains("acpmux-row--before-step") ||
       kind === "acpmux-activity" ||
-      // A turn's "Worked for" line is a step row (model.ts `isStepRow`), as every family folds a turn
-      // under it now (Codex parity).
-      kind === "acpmux-worked" ||
       kind === "acpmux-backgroundTask" ||
       kind === "acpmux-subagentDone" ||
       kind === "acpmux-compaction" ||
@@ -99,6 +100,10 @@ export async function traceUpwardAnchors({
   ): number {
     if (previous === null || next === null) return 0;
     const { footer, block, turn, run } = tokens;
+    // transcriptGrid.ts transcriptGap: none after "Worked for" inside its turn; elsewhere a step row.
+    if (previous === transcriptMark.worked && next !== transcriptMark.prompt) return 0;
+    if (previous === transcriptMark.worked) previous = transcriptMark.step;
+    if (next === transcriptMark.worked) next = transcriptMark.step;
     if (
       (next === transcriptMark.footerRow || next === transcriptMark.footerSlot) &&
       previous === transcriptMark.message
@@ -207,9 +212,7 @@ export async function traceUpwardAnchors({
         driven.delete(paint);
         const current = read();
         if (pendingFold !== undefined) {
-          const toggle = scroller.querySelector<HTMLButtonElement>(
-            '[data-row-id="gap-incoming"] .cv-disclosure__toggle',
-          );
+          const toggle = scroller.querySelector<HTMLButtonElement>('[data-row-id="gap-incoming"] .cv-agentmsg__toggle');
           foldTransitions.push({
             before: pendingFold,
             after: toggle?.getAttribute("aria-expanded") ?? null,
@@ -298,7 +301,7 @@ export async function traceUpwardAnchors({
           (window as unknown as { __stepFoldStream(): void }).__stepFoldStream();
           if ([4, 32, 60, 88].includes(frame)) {
             const toggle = scroller.querySelector<HTMLButtonElement>(
-              '[data-row-id="gap-incoming"] .cv-disclosure__toggle',
+              '[data-row-id="gap-incoming"] .cv-agentmsg__toggle',
             );
             if (!toggle) throw new Error(`received fold toggle missing at frame ${frame}`);
             pendingFold = toggle.getAttribute("aria-expanded");

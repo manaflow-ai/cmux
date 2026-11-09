@@ -6,6 +6,7 @@ import CmuxNextDesignTokens
 @testable import CmuxNextHomeModel
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -75,7 +76,7 @@ struct HomeMessagesR6ListTests {
     /// The width is kept per window key, saved only when the page says (a drag), and the divider's
     /// double-click (null) goes back to the standard width; another key keeps its own.
     @Test func theWidthIsKeptPerWindowKey() async throws {
-        let defaults = try #require(UserDefaults(suiteName: "HomeMessagesR6ListTests.\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "HomeMessagesR6ListTests.\(UUID().uuidString)"))
         let widths = HomeSidebarWidth(defaults: defaults)
         let dock = HomeMessagesListFeed(widths: widths, widthKey: { "home-dock" })
         let tab = HomeMessagesListFeed(widths: widths, widthKey: { "home-tab" })
@@ -94,7 +95,7 @@ struct HomeMessagesR6ListTests {
     /// its controls take the press; below the band nothing drags but the top edge.
     @Test func theHeaderBandDragsButNotItsControls() async throws {
         let strip = HomeWindowDragStrip()
-        let defaults = try #require(UserDefaults(suiteName: "HomeMessagesR6ListTests.\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "HomeMessagesR6ListTests.\(UUID().uuidString)"))
         let feed = HomeMessagesListFeed(widths: HomeSidebarWidth(defaults: defaults), widthKey: { "k" })
         feed.onDragBand = { strip.setBand($0, controls: $1) }
         let rect = { (x: Double, y: Double, w: Double, h: Double) in

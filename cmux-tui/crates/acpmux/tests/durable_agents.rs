@@ -11,6 +11,8 @@ mod bg_caller_restart;
 #[cfg(target_os = "linux")]
 #[path = "durable_agents/bg_replaced_binary.rs"]
 mod bg_replaced_binary;
+#[path = "durable_agents/caller_identity_restart.rs"]
+mod caller_identity_restart;
 #[path = "durable_agents/carried_restart.rs"]
 mod carried_restart;
 #[path = "support/daemon_env.rs"]
@@ -1300,11 +1302,13 @@ async fn an_adopted_agent_without_a_recorded_token_restarts_after_its_turn() {
 
     daemon.sigterm();
     drop(client);
-    // What an older host's record looks like: no caller token.
+    // What an older host's record looks like: no caller token. An older daemon kept no
+    // registry of the tokens it gave out either (`caller_registry.rs`).
     let mut record = host.clone();
     assert!(record.as_object_mut().unwrap().remove("caller_token").is_some());
     let path = daemon.home.join("hosts").join(format!("{session}.json"));
     std::fs::write(&path, record.to_string()).unwrap();
+    std::fs::remove_file(daemon.home.join("caller-tokens.json")).unwrap();
     daemon.start();
     daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
     daemon.wait_event(&kept, "host_adopted", |e| e["kind"] == "host_adopted");
@@ -2031,6 +2035,11 @@ async fn a_queued_prompt_keeps_its_provenance_across_a_daemon_crash() {
     let queued = daemon.wait_event(&session, "queued record", |e| {
         e["kind"] == "queued" && e["msg"]["promptId"] == "q-prov"
     });
+    // The daemon says what it knows beside what the sender gave: a local process proved no
+    // sender (`prompt_provenance::observed`).
+    let mut provenance = provenance;
+    provenance["verified"] = json!(false);
+    provenance["transport"] = json!("unix");
     assert_eq!(queued["msg"]["_meta"]["provenance"], provenance, "{queued:#}");
 
     daemon.sigkill();

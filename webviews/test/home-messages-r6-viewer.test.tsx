@@ -312,9 +312,8 @@ test("on the Messages page a picture opens the viewer, not the lightbox; a video
   expect(container.querySelector(`button[aria-label="${strings.t("home.picture.reply")}"]`)).not.toBeNull();
   await key(container.querySelector(".mv-viewer")!, "Escape");
   expect(container.querySelector(".mv-viewer")).toBeNull();
-  const larger = container.querySelector<HTMLButtonElement>(
-    `button[aria-label="${strings.t("home.video.viewLarger")}"]`,
-  )!;
+  // The bubble's expand button (the lightbox's on other pages) is View Larger here.
+  const larger = container.querySelector<HTMLButtonElement>(".hc-att-video .hc-att-expand")!;
   expect(larger).not.toBeNull();
   await act(async () => larger.click());
   await settle();

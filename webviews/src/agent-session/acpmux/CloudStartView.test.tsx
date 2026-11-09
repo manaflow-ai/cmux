@@ -7,7 +7,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
-import { CloudStartView, startupChecklist } from "./CloudStartView";
+import { CloudStartView } from "./CloudStartView";
+import { startupChecklist } from "./cloudStartViewModel";
 import cloudStartGallery from "./CloudStartView.gallery";
 import type { CloudStartProgress } from "./cloudStartProgress";
 
@@ -149,6 +150,47 @@ test("a signed-out failure keeps the prompt card and offers inline sign-in", () 
   expect(html).toContain(variant.props.start.task);
   expect(html).toContain('class="acpmux-cloud-start__sign-in"');
   expect(html).toContain("Sign in to use Cloud.");
+});
+
+test("a start waiting on its browser sign-in says so, not starting or Thinking", () => {
+  const variant = cloudStartGallery.variants["signing-in"]!;
+  for (const showSteps of [false, true]) {
+    const html = renderToStaticMarkup(<CloudStartView {...variant.props} showSteps={showSteps} />);
+    expect(html).toContain(variant.props.start.task);
+    expect(html).toContain('data-signing-in="true"');
+    expect(html).toContain("Waiting for you to sign in in your browser");
+    expect(html).not.toContain("cv-thinking");
+    expect(html).not.toContain("Preparing machine");
+  }
+  // Once signed in, the start reads as any start again.
+  const { signingIn: _signingIn, ...started } = variant.props.start;
+  const html = renderToStaticMarkup(<CloudStartView start={started} />);
+  expect(html).toContain("cv-thinking");
+  expect(html).not.toContain("data-signing-in");
+});
+
+test("a plan refusal offers Upgrade, Run on This Mac and Not Now; other failures offer none", () => {
+  const refusal = { ...start, state: "failed" as const, code: "cloud_plan_required" };
+  const html = renderToStaticMarkup(
+    <CloudStartView
+      start={refusal}
+      onUpgrade={() => undefined}
+      onRunHere={() => undefined}
+      onDismiss={() => undefined}
+    />,
+  );
+  expect(html).toContain('data-role="default">Upgrade</button>');
+  expect(html).toContain(">Run on This Mac</button>");
+  expect(html).toContain(">Not Now</button>");
+  const generic = renderToStaticMarkup(
+    <CloudStartView
+      start={{ ...refusal, code: "cloud_start_failed" }}
+      onUpgrade={() => undefined}
+      onRunHere={() => undefined}
+    />,
+  );
+  expect(generic).not.toContain(">Upgrade</button>");
+  expect(generic).not.toContain(">Run on This Mac</button>");
 });
 
 test("the startup checklist skips clone without a repository and explains a missing script", () => {

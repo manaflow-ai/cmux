@@ -12,7 +12,7 @@
 // A turn that ends leaves its reply and composer still: its footer takes the running line's place at
 // the same height, and a live activity line under a plan reserves that footer slot too. The turn is
 // read once its reply has been drawn to its end (`rest`); the end-of-turn frame strip asserts no edge
-// moves for short, long, or tool-ending replies.
+// moves for short or long replies, and that a tool-ending one comes down by its tool in one motion.
 // A queued prompt deleted from the queue never comes in as a row: the view goes back to its end at
 // once, with no card-high gap held under the last row (held for a second after #22858).
 // A chat whose history is rich (headings, code blocks, tables, lists, each laid out at its own height
@@ -558,14 +558,26 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
         if (!scenario.toolEnding) expect(Math.abs(moved)).toBeLessThanOrEqual(1);
         else {
           // A finished turn folds its tool rows into "Worked for" above the reply (80e6a34d0b9c,
-          // on purpose): whatever ran after the reply leaves from under it, so the reply drops by
-          // what went from under it, once, in the settle's frame, and rests there. The live line
-          // holds the finished call until the turn ends (Leo, 2026-11-01: "it should just keep
-          // going"), and the footer takes the line's place at its height, so that may be nothing.
-          const left = before!.under! - after!.under!;
-          expect(Math.abs(moved - left)).toBeLessThanOrEqual(1);
-          const rested = measured.filter((frame) => frame.settled).map((frame) => frame.messageBottom!);
-          expect(Math.max(...rested) - Math.min(...rested)).toBeLessThanOrEqual(1);
+          // on purpose): whatever ran after the reply leaves from under it, so the reply comes down
+          // by what went from under it, in the turn end's one motion (turnEndFold.ts, Leo,
+          // 2026-11-08: "you only do the overarching fold at the very end"), and rests there. The
+          // live line holds the finished call until the turn ends (Leo, 2026-11-01: "it should just
+          // keep going"), and the footer takes the line's place at its height, so that may be nothing.
+          const settled = measured.filter((frame) => frame.settled);
+          const rest = settled.at(-1)!;
+          const left = before!.under! - rest.under!;
+          expect(Math.abs(rest.messageBottom! - before!.messageBottom! - left)).toBeLessThanOrEqual(1);
+          // One way only: no frame of the motion draws the reply back up.
+          const back = settled.flatMap((frame, index) => {
+            const last = index === 0 ? before!.messageBottom! : settled[index - 1]!.messageBottom!;
+            return frame.messageBottom! < last - 1
+              ? [`${frame.t}ms: ${last.toFixed(1)} -> ${frame.messageBottom!.toFixed(1)}`]
+              : [];
+          });
+          expect(back).toEqual([]);
+          // And it rests: the last frames draw it where the turn left it.
+          const tail = settled.slice(-6).map((frame) => frame.messageBottom!);
+          expect(Math.max(...tail) - Math.min(...tail)).toBeLessThanOrEqual(1);
         }
       }
       await page.close();
