@@ -11,7 +11,9 @@
 //!
 //! Only over the local unix socket and from the app's agent pane
 //! (`Origin::LocalApp`), as a worktree (`new_worktree.rs`): a Web client or a
-//! peer makes no folder on this machine and records no trust here.
+//! peer makes no folder on this machine and records no trust here, and neither
+//! does the phone, whose prompts reach the local socket stamped `via: cloud-mobile`
+//! by the mobile relay (`remote_guard::cloud_mobile`).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -30,7 +32,7 @@ const SUFFIX_MAX: u32 = 9999;
 const PROJECT_ROOTS: [&str; 5] = ["Projects", "projects", "Developer", "code", "src"];
 
 pub(super) async fn handle(hub: &Arc<Hub>, origin: Origin, params: &Value) -> Result<Value, RpcError> {
-    if !matches!(origin, Origin::Local | Origin::LocalApp) {
+    if !allowed(origin, params) {
         return Err(RpcError::invalid_params(
             "a project folder is made only from the app or the local unix socket",
         )
@@ -66,6 +68,16 @@ pub(super) async fn handle(hub: &Arc<Hub>, origin: Origin, params: &Value) -> Re
     let cwd = made;
     let name = cwd.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     Ok(json!({"cwd": cwd, "name": name, "git": true}))
+}
+
+/// The app's pane, or the local socket for someone at this Mac: not a Web client, a peer,
+/// or the phone through the local mobile relay.
+fn allowed(origin: Origin, params: &Value) -> bool {
+    match origin {
+        Origin::LocalApp => true,
+        Origin::Local => !super::remote_guard::cloud_mobile(params),
+        Origin::Web | Origin::Peer => false,
+    }
 }
 
 /// A folder name that stays one plain path component: no separator, no `..`, no hidden or
@@ -143,6 +155,17 @@ mod tests {
             .join(format!("acpmux-project-new-{tag}-{}-{}", std::process::id(), uuid::Uuid::now_v7()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn project_new_refuses_the_phone_web_and_peers() {
+        let plain = json!({"name": "app"});
+        let phone = json!({"name": "app", "_meta": {"acpmux": {"via": "cloud-mobile"}}});
+        assert!(allowed(Origin::LocalApp, &plain));
+        assert!(allowed(Origin::Local, &plain));
+        assert!(!allowed(Origin::Local, &phone), "the mobile relay's phone prompt makes no folder");
+        assert!(!allowed(Origin::Web, &plain));
+        assert!(!allowed(Origin::Peer, &plain));
     }
 
     #[test]
