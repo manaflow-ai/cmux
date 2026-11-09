@@ -3,7 +3,7 @@ import CmuxNextWakeups
 
 /// The app's one waiter on each cloud task it handed off, whatever happens to the tab that sent it
 /// (closed, reloaded) and across a relaunch. Its ``Source`` says what a task is: a sandboxed Run
-/// (``Source/runs(wait:)``, `GET /api/runs/:id/wait`, held up to 10 s) or a hand-off (`GET
+/// (``Source/runs(wait:)``, the daemon's `cloud.runs.wait`, held up to 10 s) or a hand-off (`GET
 /// /v1/handoffs/:id/wait`, held up to 25 s). There is no push: each task gets one long-poll, and a
 /// Run's send awaits that same wait (``follow(_:)``). When the Run ends, ``onEnd`` hears it once.
 ///
@@ -27,7 +27,7 @@ public final class SandboxRunFollower {
         public enum Kind: String, Sendable, Encodable {
             case runs, handoffs
             /// The path a follow's error names (Rust's `Kind::path`).
-            var path: String { self == .runs ? "/api/runs" : "/v1/handoffs" }
+            var path: String { self == .runs ? "cloud.runs" : "/v1/handoffs" }
         }
         /// One wait on task `id` in `team`, past `cursor` (nil: from its start).
         public var wait: @Sendable (_ id: String, _ team: String?, _ cursor: Int?) async throws -> Data

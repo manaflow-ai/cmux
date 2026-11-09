@@ -328,184 +328,6 @@ fn an_scp_endpoint_is_used_only_when_it_is_safe() {
     }
 }
 
-// MARK: Runs (CloudAPIClientRunTests)
-
-#[test]
-fn a_create_sends_the_key_and_a_wait_is_capped_at_the_server_bound() {
-    let (origin, seen) = fake(|s| {
-        if s.line.contains("/wait") {
-            ok(
-                r#"{"run":{"id":"run-1","status":"succeeded"},"receipt":{"schema":"cmux.run.receipt/v1"}}"#,
-            )
-        } else {
-            Some((202, r#"{"id":"run-1","status":"queued"}"#.into()))
-        }
-    });
-    let created = go(&request(
-        &origin,
-        Auth::Stack,
-        "runs.create",
-        json!({ "task": "hi", "agent": "claude", "idempotencyKey": "key-1" }),
-    ))
-    .unwrap();
-    assert_eq!(created["id"], "run-1");
-    let waited = go(&request(
-        &origin,
-        Auth::Stack,
-        "runs.wait",
-        json!({ "id": "run-1", "timeoutMs": 60000 }),
-    ))
-    .unwrap();
-    assert_eq!(waited["receipt"]["schema"], "cmux.run.receipt/v1");
-    let seen = seen.lock().unwrap();
-    assert_eq!(seen[0].target(), "POST /api/runs");
-    assert_eq!(seen[0].header("idempotency-key").as_deref(), Some("key-1"));
-    assert_eq!(
-        seen[0].json(),
-        json!({ "environment": "sandboxed", "task": "hi", "agent": "claude" })
-    );
-    assert_eq!(seen[1].target(), "GET /api/runs/run-1/wait?timeoutMs=10000");
-}
-
-/// A Run API that answers `running` `finish_after` times, then the receipt; drops `drop` creates.
-fn sandbox_api(
-    finish_after: usize,
-    drop: usize,
-    malformed: bool,
-) -> (String, Arc<Mutex<Vec<Seen>>>) {
-    let waits = Arc::new(Mutex::new(0_usize));
-    let drops = Arc::new(Mutex::new(drop));
-    fake(move |s| {
-        if s.target() == "POST /api/runs" {
-            let mut drops = drops.lock().unwrap();
-            if *drops > 0 {
-                *drops -= 1;
-                return None;
-            }
-            return ok(r#"{"id":"run-9","status":"queued"}"#);
-        }
-        let mut waits = waits.lock().unwrap();
-        *waits += 1;
-        if malformed {
-            ok(r#"{"error":"internal"}"#)
-        } else if *waits > finish_after {
-            ok(
-                r#"{"run":{"id":"run-9","status":"succeeded"},"receipt":{"status":"succeeded","reply":"done"}}"#,
-            )
-        } else {
-            ok(r#"{"run":{"id":"run-9","status":"running"},"receipt":null}"#)
-        }
-    })
-}
-
-fn creates(seen: &Arc<Mutex<Vec<Seen>>>) -> Vec<Option<String>> {
-    seen.lock()
-        .unwrap()
-        .iter()
-        .filter(|s| s.target() == "POST /api/runs")
-        .map(|s| s.header("idempotency-key"))
-        .collect()
-}
-
-fn waits(seen: &Arc<Mutex<Vec<Seen>>>) -> usize {
-    seen.lock().unwrap().iter().filter(|s| s.line.contains("/wait")).count()
-}
-
-#[test]
-fn run_sandbox_waits_until_the_receipt_then_answers_the_snapshot() {
-    let (origin, seen) = sandbox_api(2, 0, false);
-    let snapshot = go(&request(
-        &origin,
-        Auth::Stack,
-        "runs.sandbox",
-        json!({ "task": "hi", "timeoutMs": 60000, "idempotencyKey": "k" }),
-    ))
-    .unwrap();
-    assert_eq!(snapshot["receipt"]["reply"], "done");
-    assert_eq!(waits(&seen), 3);
-}
-
-#[test]
-fn a_create_whose_answer_was_lost_is_sent_once_more_under_the_same_key() {
-    let (origin, seen) = sandbox_api(0, 1, false);
-    let snapshot = go(&request(
-        &origin,
-        Auth::Stack,
-        "runs.sandbox",
-        json!({ "task": "hi", "timeoutMs": 60000, "idempotencyKey": "send-1" }),
-    ))
-    .unwrap();
-    assert_eq!(snapshot["receipt"]["reply"], "done");
-    assert_eq!(creates(&seen), vec![Some("send-1".into()), Some("send-1".into())]);
-    // One process, one credential: the retry goes with the first create's.
-    let tokens: Vec<_> = seen.lock().unwrap().iter().map(|s| s.header("authorization")).collect();
-    assert!(tokens.iter().all(|t| t.as_deref() == Some("Bearer access")));
-}
-
-#[test]
-fn a_retry_that_fails_after_an_uncertain_create_stays_uncertain() {
-    let (origin, seen) = sandbox_api(0, 2, false);
-    let failure = go(&request(
-        &origin,
-        Auth::Stack,
-        "runs.start",
-        json!({ "task": "hi", "timeoutMs": 60000, "idempotencyKey": "send-2" }),
-    ))
-    .unwrap_err();
-    assert_eq!(failure, Failure::TimedOut("/api/runs".into()));
-    assert_eq!(creates(&seen), vec![Some("send-2".into()), Some("send-2".into())]);
-}
-
-#[test]
-fn a_refused_create_is_not_sent_again() {
-    let (origin, seen) = fake(|_| Some((403, r#"{"error":"run_sandbox_unavailable"}"#.into())));
-    let failure = go(&request(
-        &origin,
-        Auth::Stack,
-        "runs.start",
-        json!({ "task": "hi", "idempotencyKey": "k" }),
-    ))
-    .unwrap_err();
-    assert_eq!(failure, Failure::http(403, Some("run_sandbox_unavailable".into()), None));
-    assert_eq!(creates(&seen).len(), 1);
-}
-
-#[test]
-fn a_wait_answer_that_is_no_snapshot_ends_at_once() {
-    let (origin, seen) = sandbox_api(usize::MAX, 0, true);
-    let failure = go(&request(
-        &origin,
-        Auth::Stack,
-        "runs.sandbox",
-        json!({ "task": "hi", "timeoutMs": 60000, "idempotencyKey": "k" }),
-    ))
-    .unwrap_err();
-    assert_eq!(failure, Failure::TimedOut("/api/runs/run-9".into()));
-    assert_eq!(waits(&seen), 1);
-}
-
-#[test]
-fn run_sandbox_stops_at_the_deadline() {
-    let (origin, seen) = sandbox_api(usize::MAX, 0, false);
-    let failure = go(&request(&origin, Auth::Stack, "runs.sandbox",
-        json!({ "task": "hi", "timeoutMs": 300, "teardownMs": 0, "callsMarginMs": 60000, "idempotencyKey": "k" }))).unwrap_err();
-    assert_eq!(failure, Failure::TimedOut("/api/runs/run-9".into()));
-    assert!(waits(&seen) >= 1);
-}
-
-#[test]
-fn a_server_that_never_answers_still_ends_at_the_bound() {
-    let (origin, _seen) = fake(|_| {
-        std::thread::sleep(Duration::from_secs(3));
-        None
-    });
-    let started = std::time::Instant::now();
-    let failure = go(&request(&origin, Auth::Stack, "runs.sandbox",
-        json!({ "task": "hi", "timeoutMs": 50, "teardownMs": 0, "callsMarginMs": 50, "idempotencyKey": "k" }))).unwrap_err();
-    assert_eq!(failure, Failure::TimedOut("/api/runs".into()));
-    assert!(started.elapsed() < Duration::from_secs(2));
-}
-
 // MARK: owner routes
 
 #[test]
@@ -901,8 +723,8 @@ fn the_answer_line_is_the_apps_error_cases() {
     let line: Value = serde_json::from_str(&answer_line(&Ok(json!([1])))).unwrap();
     assert_eq!(line, json!({ "ok": true, "body": [1] }));
     let line: Value =
-        serde_json::from_str(&answer_line(&Err(Failure::TimedOut("/api/runs".into())))).unwrap();
-    assert_eq!(line, json!({ "ok": false, "error": { "kind": "timed_out", "path": "/api/runs" } }));
+        serde_json::from_str(&answer_line(&Err(Failure::TimedOut("cloud.runs".into())))).unwrap();
+    assert_eq!(line, json!({ "ok": false, "error": { "kind": "timed_out", "path": "cloud.runs" } }));
     let line: Value =
         serde_json::from_str(&answer_line(&Err(Failure::http(409, Some("c".into()), None))))
             .unwrap();
@@ -1244,19 +1066,6 @@ fn owner_handoffs_stops_at_the_answer_limit() {
         "{failure:?}"
     );
     assert_eq!(seen.lock().unwrap().len(), 3, "refused at the page that passed the limit");
-}
-
-#[test]
-fn a_run_start_that_is_not_one_is_refused_as_it_is_and_sends_nothing() {
-    let (origin, seen) = fake(|_| ok(r#"{"id":"run_1"}"#));
-    for args in [json!({ "idempotencyKey": "k" }), json!({ "task": "hi" })] {
-        let failure = go(&request(&origin, Auth::Stack, "runs.start", args)).unwrap_err();
-        assert!(
-            matches!(&failure, Failure::Transport(message) if message.starts_with("the call needs")),
-            "{failure:?}"
-        );
-    }
-    assert!(seen.lock().unwrap().is_empty());
 }
 
 // MARK: review follow-ups (#37526)

@@ -20,7 +20,10 @@ public struct CloudAPIClient: Sendable {
     let machinePath: String, sendsStackSession: Bool
     /// A Worker machines client's exec and file routes through cmux-tui (direct to the provider
     /// with a client session); nil: straight to the cmux API (CloudAPIClient+MachineRoutes.swift).
+    /// Its binary also runs the daemon's sandboxed Run ops (CloudAPIClient+DaemonCall.swift).
     var machineIO: CloudMachineIO?
+    /// The `cmux cloud api` child's run (request on stdin, stdout back); nil: ``machineIO``'s. A test passes its own.
+    var daemonCall: (@Sendable (_ input: Data, _ timeout: Duration) async throws -> Data)?
 
     /// Requests that carry the account's bearer token: ephemeral, no URL
     /// cache, no cookies, so no answer (or the request headers stored with
@@ -187,32 +190,32 @@ public struct CloudAPIClient: Sendable {
 
     // MARK: Runs
 
-    /// `POST /api/runs` for a sandboxed Run (hq#3367): one task on a throwaway VM from a
-    /// pinned image. The key makes a retry after a lost response return the same Run.
-    /// Answers the server's JSON as is; the Run API's views already hold no secrets.
+    /// The daemon's `cloud.runs.create` for a sandboxed Run (hq#3367): one task in a Cloud chat on a new
+    /// small machine, deleted after (cmux-tui `cloud.runs.*`). The key makes a retry after a lost answer return the
+    /// same Run. Answers the Run's view as JSON; it holds no secrets. A non-empty `image` is refused (`run_image_invalid`).
     public func createSandboxRun(task: String, agent: String? = nil, image: String? = nil, timeoutMs: Int? = nil,
                                  idempotencyKey: String = UUID().uuidString) async throws -> Data {
-        var body: [String: any Sendable] = ["environment": "sandboxed", "task": task]
-        if let agent, !agent.isEmpty { body["agent"] = agent }
-        if let image, !image.isEmpty { body["image"] = image }
-        if let timeoutMs { body["timeoutMs"] = timeoutMs }
-        return try await sendData("POST", "/api/runs", body: body, idempotencyKey: idempotencyKey)
+        var args: [String: any Sendable] = ["task": task, "idempotencyKey": idempotencyKey]
+        if let agent, !agent.isEmpty { args["agent"] = agent }
+        if let image, !image.isEmpty { args["image"] = image }
+        if let timeoutMs { args["timeoutMs"] = timeoutMs }
+        return try await daemon("runs.create", args, timeout: .seconds(20))
     }
 
-    /// `GET /api/runs/:id/wait`: the snapshot once the Run is terminal or after
-    /// `timeoutMs` (the server caps it at 10 s), with its receipt when it has one.
+    /// The daemon's `cloud.runs.wait`: the snapshot once the Run is terminal or after
+    /// `timeoutMs` (held at most 10 s), with its receipt when it has one.
     public func waitRun(_ id: String, timeoutMs: Int) async throws -> Data {
         let wait = max(0, min(timeoutMs, 10_000))
-        return try await sendData("GET", "/api/runs/\(queryComponent(id))/wait?timeoutMs=\(wait)", timeout: .milliseconds(wait + 10_000))
+        return try await daemon("runs.wait", ["id": id, "timeoutMs": wait], timeout: .milliseconds(wait + 10_000))
     }
 
     /// One sandboxed Run to its end: create it, then long-poll ``waitRun(_:timeoutMs:)`` (10 s a
     /// call) until the snapshot carries its receipt. Everything (sign-in tokens included) runs under
     /// one deadline, the task's timeout plus `teardown` (boot, the last output and the VM destroy)
     /// plus a minute for the calls themselves, so the caller always gets an answer. The poll stops
-    /// at the receipt, at the first error, or at that deadline (`timedOut`); the server destroys
-    /// the VM either way. `idempotencyKey` names this one send: a create whose answer was lost is
-    /// sent once more under it, with the first's own credentials (the server scopes the key per
+    /// at the receipt, at the first error, or at that deadline (`timedOut`); the daemon deletes
+    /// the machine either way. `idempotencyKey` names this one send: a create whose answer was lost is
+    /// sent once more under it, with the first's own credentials (the key is scoped per
     /// account, so a switch of account between the two can't make a second Run; pin the team with
     /// ``pinningTeam(_:)``), which returns the same Run, never a second paid one. Answers the final
     /// snapshot (`{run, attempts, artifacts, receipt}`) as JSON. `follow` (``SandboxRunFollower``) waits in place of the poll here.
@@ -225,7 +228,7 @@ public struct CloudAPIClient: Sendable {
                                            deadline: now() + .milliseconds(timeoutMs) + teardown, now: now, follow: follow)
         }
         guard let snapshot = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw CloudAPIError.decoding("/api/runs: no snapshot")
+            throw CloudAPIError.decoding("cloud.runs: no snapshot")
         }
         return snapshot
     }
@@ -244,30 +247,30 @@ public struct CloudAPIClient: Sendable {
         } catch CloudAPIError.transport, CloudAPIError.timedOut {
             // The first create may have made the Run: whatever the retry says, the outcome stays
             // uncertain (`timedOut`, never a refusal the caller could take as "nothing runs").
-            do { createdData = try await create() } catch { throw CloudAPIError.timedOut("/api/runs") }
+            do { createdData = try await create() } catch { throw CloudAPIError.timedOut("cloud.runs") }
         }
         let created = try JSONSerialization.jsonObject(with: createdData) as? [String: Any]
-        guard let id = created?["id"] as? String, !id.isEmpty else { throw CloudAPIError.decoding("/api/runs: no run id") }
+        guard let id = created?["id"] as? String, !id.isEmpty else { throw CloudAPIError.decoding("cloud.runs: no run id") }
         if let follow { return try await follow(id) }
         while now() < deadline {
             let data: Data
             do {
                 data = try await waitRun(id, timeoutMs: 10_000)
             } catch { // The Run exists: losing sight of it is "no receipt in time", never a refusal to retry past.
-                throw CloudAPIError.timedOut("/api/runs/\(id)")
+                throw CloudAPIError.timedOut("cloud.runs/\(id)")
             }
             // A 200 that is no Run snapshot (an array, an error body) won't turn into one: stop now.
             guard let snapshot = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                  snapshot["run"] is [String: Any] else { throw CloudAPIError.timedOut("/api/runs/\(id)") }
+                  snapshot["run"] is [String: Any] else { throw CloudAPIError.timedOut("cloud.runs/\(id)") }
             if snapshot["receipt"] is [String: Any] { return data }
             try Task.checkCancellation()
         }
-        throw CloudAPIError.timedOut("/api/runs/\(id)")
+        throw CloudAPIError.timedOut("cloud.runs/\(id)")
     }
 
-    /// `POST /api/runs/:id/cancel`; a sandbox's VM is destroyed before it answers.
+    /// The daemon's `cloud.runs.cancel`; the Run's machine is deleted before it answers.
     public func cancelRun(_ id: String) async throws -> Data {
-        try await sendData("POST", "/api/runs/\(queryComponent(id))/cancel", timeout: .seconds(60))
+        try await daemon("runs.cancel", ["id": id], timeout: .seconds(60))
     }
 
     // MARK: Transport
@@ -356,7 +359,7 @@ nonisolated final class SandboxDeadline<T: Sendable>: Sendable {
     private let state = Mutex(State())
 
     static func race(_ bound: Duration, _ work: @escaping @Sendable () async throws -> T) async throws -> T {
-        try await race(bound, timeout: { CloudAPIError.timedOut("/api/runs") }, work)
+        try await race(bound, timeout: { CloudAPIError.timedOut("cloud.runs") }, work)
     }
 
     /// ``race(_:_:)`` with the error the bound throws (`timeout`): a Cloud link step names itself.

@@ -13,7 +13,7 @@ const CANCELLED: &str =
     r#"{"run":{"id":"r1","status":"cancelled"},"receipt":{"status":"cancelled"}}"#;
 
 fn timed_out(id: &str) -> Failure {
-    Failure::TimedOut { path: format!("/api/runs/{id}") }
+    Failure::TimedOut { path: format!("cloud.runs/{id}") }
 }
 
 #[test]

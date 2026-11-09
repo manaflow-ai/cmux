@@ -182,8 +182,8 @@ final class AgentPageChats {
             // The send, its create's retry and its waits stay with the team it began with (and the
             // create's retry with its account: CloudAPIClient.runSandbox).
             // The Run is followed in the team it was created in (SandboxRunNotices).
-            let team = await services.cloud.api.currentTeam()
-            let api = services.cloud.api.pinningTeam(team)
+            let team = await services.cloud.machineAPI.currentTeam()
+            let api = services.cloud.machineAPI.pinningTeam(team)
             let follow: @Sendable (String) async throws -> Data = { id in
                 try await notices.follow(id: id, task: task, key: key, team: team, incognito: incognito)
             }

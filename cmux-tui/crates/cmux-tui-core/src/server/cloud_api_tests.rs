@@ -214,19 +214,21 @@ fn a_classic_mutation_answers_a_mutation_result_that_is_never_replayed() {
 }
 
 #[test]
-fn a_run_wait_is_capped_at_the_servers_bound() {
-    let (origin, seen) =
-        fake(|_| (200, r#"{"run":{"id":"r1","state":"running"},"receipt":null}"#.into()));
+fn a_run_is_the_daemons_own_and_sends_nothing_to_the_api() {
+    let (origin, seen) = fake(|_| (200, r#"{"run":{"id":"r1"},"receipt":null}"#.into()));
     let daemon = Daemon::start("runs");
-    let result = daemon
-        .send(
-            "cloud.runs.wait",
-            params(&origin, "stack", json!({"id": "r1", "timeoutMs": 1})),
-            None,
-        )
-        .unwrap();
-    assert_eq!(result["run"]["id"], "r1");
-    assert!(seen.lock().unwrap()[0].line.starts_with("GET /api/runs/r1/wait?timeoutMs=1 "));
+    let (code, _, details) = daemon
+        .send("cloud.runs.wait", params(&origin, "owner", json!({"id": "run_nope", "timeoutMs": 1})), None)
+        .unwrap_err();
+    assert_eq!(code, "operation.failed");
+    let failure = &details["extra"]["failure"];
+    assert_eq!(failure["status"], 404);
+    assert_eq!(failure["code"], "run_not_found");
+    let (_, _, details) = daemon
+        .send("cloud.runs.create", params(&origin, "owner", json!({"task": "hi", "idempotencyKey": "k", "image": "img"})), Some("run-1"))
+        .unwrap_err();
+    assert_eq!(details["extra"]["failure"]["code"], "run_image_invalid");
+    assert!(seen.lock().unwrap().is_empty(), "no Run call goes over HTTP");
 }
 
 #[test]

@@ -2,9 +2,9 @@
 //! `server/cloud_api.rs`) and the cmux CLI (`cmux cloud api`, which sends its request to the
 //! daemon): machines, tunnel, firewall, domains, publications, sandboxed Runs, the person's
 //! hand-offs and acpmux routes, previews and a machine's files and exec. The macOS app sent these
-//! from Swift (`CloudAPIClient`, `CloudOwnerAPIClient`); the requests, their deadlines, the retry
-//! of a lost Run create, the long-poll to a Run's receipt, the hand-off paging and every refusal's
-//! reading live here.
+//! from Swift (`CloudAPIClient`, `CloudOwnerAPIClient`); the requests, their deadlines, the
+//! hand-off paging and every refusal's reading live here. Sandboxed Runs are the daemon's own
+//! ([`sandbox`]): a Cloud chat on a machine made for the task, never classic Cloud's Run API.
 //!
 //! A call is a [`Request`]: its name (`call`, one of [`CALLS`]), the API's base URL, the auth
 //! (`stack|owner|worker`), the caller's `credential` (and classic's `refresh`), the `team`, the
@@ -24,7 +24,7 @@
 //! `plan_required` (`message`, `upgrade_url`, `plan`) or `decoding` (`message`): the app's
 //! `CloudAPIError` cases one for one.
 //!
-//! Auth: `stack` is classic cmux.com's (`/api/vm`, `/api/runs`): the Stack access token as the
+//! Auth: `stack` is classic cmux.com's (`/api/vm`): the Stack access token as the
 //! bearer, the refresh token in `X-Stack-Refresh-Token`, the team in `X-Cmux-Team-Id`. `owner` is
 //! the cmux API Worker's person routes: `Authorization` and `x-cmux-team` only (the Worker's
 //! invocation log records every other header and the URL, so nothing else may carry a key).
@@ -39,7 +39,7 @@ mod machine;
 pub mod machine_io;
 mod owner;
 mod previews;
-mod runs;
+pub mod sandbox;
 pub mod session;
 
 use serde_json::{Map, Value, json};
@@ -99,11 +99,10 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
         "machine.io" if request.auth == Auth::Stack => machine::classic(&http, args).await,
         "machine.io" => machine::worker(request).await,
         call if call.starts_with("vm.") => classic::run(&http, call, args).await,
-        "runs.create" => runs::create(&http, args).await,
-        "runs.start" => runs::start(&http, args).await,
-        "runs.wait" => runs::wait(&http, args).await,
-        "runs.cancel" => runs::cancel(&http, args).await,
-        "runs.sandbox" => runs::sandbox(&http, args).await,
+        // The daemon's own Runs ([`sandbox::Engine`]): never an HTTP call.
+        call if call.starts_with("runs.") => Err(Failure::Transport(format!(
+            "{call} is the cmux daemon's own sandboxed Run; send it to the daemon"
+        ))),
         "owner.acpmux_keyed_start" => owner::keyed_start(&http, args, tail).await,
         call if call.starts_with("owner.") => owner::run(&http, call, args).await,
         call if call.starts_with("previews.") => previews::run(request, call, args).await,
@@ -168,9 +167,9 @@ pub fn longest(request: &Request) -> std::time::Duration {
         u64::try_from(optional_int(&request.args, name).unwrap_or(default)).unwrap_or(0)
     };
     let call_ms = match request.call.as_str() {
-        "runs.sandbox" => ms("timeoutMs", runs::DEFAULT_TIMEOUT_MS)
-            .saturating_add(ms("teardownMs", runs::DEFAULT_TEARDOWN_MS))
-            .saturating_add(ms("callsMarginMs", runs::DEFAULT_CALLS_MARGIN_MS)),
+        "runs.sandbox" => ms("timeoutMs", sandbox::DEFAULT_TIMEOUT_MS)
+            .saturating_add(ms("teardownMs", sandbox::DEFAULT_TEARDOWN_MS))
+            .saturating_add(ms("callsMarginMs", sandbox::DEFAULT_CALLS_MARGIN_MS)),
         "machine.io" => ms("timeout_ms", 0).saturating_add(5_000),
         _ => 0,
     };

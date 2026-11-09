@@ -12,7 +12,9 @@
 //!
 //! A read answers the call's body; a mutation answers it as a mutation result (revision `0`,
 //! never replayed: the daemon keeps no ledger of Cloud calls, and a call that must not run twice
-//! carries the Cloud API's own idempotency key in `args`, as `cloud.runs.create` does). A refusal
+//! carries its own idempotency key in `args`, as `cloud.runs.create` does). `cloud.runs.*` are the
+//! daemon's own sandboxed Runs (`cloud_runs.rs`): a Cloud chat on a machine made for the task, no
+//! classic call. A refusal
 //! is `operation.failed` with `reason` the failure's kind (`timed_out`, `transport`, `no_backend`,
 //! `http`, `plan_required`, `decoding`) and `extra.failure` the library's failure object; neither
 //! credential is ever in it. Each call runs on a worker thread (32 at most).
@@ -227,9 +229,18 @@ mod calls {
         request: &Request,
         key: Zeroizing<Vec<u8>>,
     ) -> Result<Value, ResourceError> {
-        let result = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
-            Ok(runtime) => runtime.block_on(cmux_cloud_api::perform(request, key)),
-            Err(e) => Err(Failure::Transport(e.to_string())),
+        let result = if request.call.starts_with("runs.") {
+            // The daemon's own sandboxed Runs (cloud_runs.rs): the call's credential is not used.
+            super::super::cloud_runs::engine(mux).perform(
+                &request.call,
+                request.team.as_deref(),
+                &request.args,
+            )
+        } else {
+            match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                Ok(runtime) => runtime.block_on(cmux_cloud_api::perform(request, key)),
+                Err(e) => Err(Failure::Transport(e.to_string())),
+            }
         };
         let result = result.and_then(|body| {
             let size = serde_json::to_vec(&body).map_or(usize::MAX, |bytes| bytes.len());

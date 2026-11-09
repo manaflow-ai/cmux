@@ -130,14 +130,15 @@ fn a_classic_vm_call_reaches_the_api_through_the_daemon() {
 }
 
 #[test]
-fn a_run_create_sends_its_key_through_the_daemon() {
+fn a_run_create_is_answered_by_the_daemon_with_no_http_call() {
     let (origin, seen) = fake(|_| (200, r#"{"id":"run_1","state":"queued"}"#.into()));
-    let args = json!({"task": "echo hi", "idempotencyKey": "k-1"});
-    let answer = go(&request(&origin, Auth::Stack, "runs.start", args), &[]).unwrap();
-    assert_eq!(answer["id"], "run_1");
-    let seen = seen.lock().unwrap();
-    assert!(seen[0].line.starts_with("POST /api/runs "));
-    assert_eq!(seen[0].header("idempotency-key").as_deref(), Some("k-1"));
+    let args = json!({"task": "echo hi", "agent": "bash", "idempotencyKey": "k-1"});
+    let failure = go(&request(&origin, Auth::Owner, "runs.start", args), &[]).unwrap_err();
+    assert!(
+        matches!(&failure, Failure::Http { status: 400, code: Some(code), .. } if code == "run_agent_invalid"),
+        "{failure:?}"
+    );
+    assert!(seen.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -222,7 +223,7 @@ fn the_params_carry_the_route_the_fields_and_the_key_as_base64() {
 #[test]
 fn a_resource_error_reads_back_every_failure_kind() {
     for failure in [
-        Failure::TimedOut("/api/runs".into()),
+        Failure::TimedOut("cloud.runs".into()),
         Failure::Transport("t".into()),
         Failure::NoBackend,
         Failure::Http {

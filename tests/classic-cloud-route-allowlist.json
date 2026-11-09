@@ -18,18 +18,6 @@
       "reason": "debt: an error-text matcher that recognises classic /api/vm failures; goes when NEXT stops calling /api/vm"
     },
     {
-      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/SandboxRunNotices.swift",
-      "pattern": "route:/api/runs",
-      "count": 1,
-      "reason": "debt: the sandboxed-run notice's timeout label names the classic /api/runs route it follows"
-    },
-    {
-      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudAPIClient.swift",
-      "pattern": "route:/api/runs",
-      "count": 10,
-      "reason": "debt: the NEXT Cloud REST client's sandboxed-run calls still use classic /api/runs until they move to cmux-platform hand-offs"
-    },
-    {
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudAPIClient.swift",
       "pattern": "route:/api/vm",
       "count": 14,
@@ -40,24 +28,6 @@
       "pattern": "route:/api/vm",
       "count": 7,
       "reason": "keep: a move from Swift to Rust: CloudAPIClient.swift's classic /api/vm machine calls, which the app moves onto through the daemon's cloud.vm.* operations (#37350); goes when cmux-platform's machine API replaces them"
-    },
-    {
-      "file": "cmux-tui/crates/cmux-cloud-api/src/runs.rs",
-      "pattern": "route:/api/runs",
-      "count": 4,
-      "reason": "keep: a move from Swift to Rust: CloudAPIClient.swift's sandboxed-run calls on classic /api/runs, behind the daemon's cloud.runs.* operations (#37350); goes when they move to cmux-platform hand-offs"
-    },
-    {
-      "file": "cmux-tui/crates/cmux-cloud-tasks/src/follower.rs",
-      "pattern": "route:/api/runs",
-      "count": 1,
-      "reason": "keep: moved from SandboxRunFollower.swift (#37291, step A); the sandboxed-run follower's path label names the classic /api/runs wait the app still follows until Runs move to cmux-platform; step B keeps one Swift label"
-    },
-    {
-      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/SandboxRunFollower.swift",
-      "pattern": "route:/api/runs",
-      "count": 1,
-      "reason": "debt: the sandboxed-run follower's path label names classic /api/runs"
     },
     {
       "file": "cmux-tui/bindings/typescript/code-mode/cloud-relay.mjs",
@@ -82,12 +52,6 @@
       "pattern": "base:cmux.com",
       "count": 1,
       "reason": "keep: the production sign-in, teams and billing origin NEXT still uses until cmux-platform serves those routes (#35133 runtime backend selection); step B merges cmux-cloud-environment into cmux-cloud-config"
-    },
-    {
-      "file": "webviews/src/agent-session/acpmux/run-board/runApi.ts",
-      "pattern": "route:/api/runs",
-      "count": 3,
-      "reason": "debt: the Run board reads runs and events from classic /api/runs until cmux-platform serves them"
     }
   ]
 }

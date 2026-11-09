@@ -126,6 +126,9 @@ impl RestoringServer {
         // Publish the actual endpoint before any parked request is served.
         // A Cloud daemon may have been started with a custom --socket.
         let _ = mux.bound_socket_path.set(self.path.clone());
+        // Runs a former daemon left going get their machine cleanup again (cloud_runs.rs).
+        #[cfg(unix)]
+        super::cloud_runs::resume(&mux);
         self.slot.attach(ServedSession {
             mux: mux.clone(),
             render_service: Arc::new(RenderService::new()),

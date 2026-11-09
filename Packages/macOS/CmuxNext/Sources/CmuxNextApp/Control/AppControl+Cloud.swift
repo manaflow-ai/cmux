@@ -145,7 +145,7 @@ extension AppControl {
 
 // `runs.sandbox.create|runs.wait|runs.cancel`: the methods `cmux run --sandboxed` sends
 // (hq#3367). The app holds the Stack session, so the CLI never sees a token: it asks the
-// app, the app asks cmux.com's Run API (messages in Resources/Runs.xcstrings), and the answer (the Run's view and its receipt,
+// app, the app asks the cmux daemon's `cloud.runs.*` (messages in Resources/Runs.xcstrings), and the answer (the Run's view and its receipt,
 // which hold no secrets or provider handles) passes through as JSON. Not behind Labs
 // (Leo, 2026-10-30): signed in and Cloud allowed by policy.
 extension AppControl {
@@ -184,7 +184,7 @@ extension AppControl {
         return id
     }
 
-    /// The signed-in Cloud client. The Cloud policy gates only a new sandboxed run (`newRun`):
+    /// The signed-in Cloud client whose bundled cmux runs the daemon's `cloud.runs.*` (never classic Cloud). The Cloud policy gates only a new sandboxed run (`newRun`):
     /// waiting on or cancelling one that exists stays open, so turning it off mid-run never strands
     /// a billable VM without its receipt or its cancel. Not behind Labs (Leo, 2026-10-30): the CLI's
     /// `cmux run --sandboxed` is the person's explicit ask for the run.
@@ -194,7 +194,7 @@ extension AppControl {
             // A managed team missing or a local-only backend: no new run asks the server (mayCallCloud).
             guard !newRun || services.cloud.mayCallCloud else { throw ControlError(code: "cloud_disabled", message: String(localized: "runs.error.cloudUnavailable", defaultValue: "cmux Cloud is not available for this account or team.", table: "Runs", bundle: .module)) }
             guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app.", table: "Runs", bundle: .module)) }
-            return services.cloud.api
+            return services.cloud.machineAPI
         }
     }
 

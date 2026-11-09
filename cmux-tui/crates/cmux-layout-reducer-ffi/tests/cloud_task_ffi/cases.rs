@@ -66,10 +66,10 @@ fn a_run_followed_to_its_end_saves_answers_and_tells_once() {
 fn another_accounts_follow_is_refused_and_a_404_drops_the_run() {
     let signed_in = step(&json!({}), json!({"on": "account", "user": "u2"}));
     let refused = step(&signed_in["state"], json!({"on": "follow", "record": record()}));
-    assert_eq!(refused["refused"], json!({"kind": "timedOut", "path": "/api/runs/r1"}));
+    assert_eq!(refused["refused"], json!({"kind": "timedOut", "path": "cloud.runs/r1"}));
     let followed = step(&json!({}), json!({"on": "follow", "record": record()}));
     let gone = step(&followed["state"], json!({"on": "answer", "id": "r1", "status": 404, "failed": true}));
-    assert_eq!(gone["effects"][1], json!({"do": "endPoll", "id": "r1", "error": {"kind": "timedOut", "path": "/api/runs/r1"}}));
+    assert_eq!(gone["effects"][1], json!({"do": "endPoll", "id": "r1", "error": {"kind": "timedOut", "path": "cloud.runs/r1"}}));
     assert_eq!(gone["state"]["records"], json!([]));
 }
 

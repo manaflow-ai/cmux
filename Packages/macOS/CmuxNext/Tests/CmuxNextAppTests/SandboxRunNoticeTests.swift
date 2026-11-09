@@ -128,7 +128,7 @@ struct SandboxRunNoticeTests {
         await server.script("r1", [.failure(.transport("offline")), .success(Self.succeeded)])
         let (follower, ends) = follower(server, defaults: try defaults())
         // The send's own answer is "no receipt in time", as the send's own poll answered it.
-        await #expect(throws: CloudAPIError.timedOut("/api/runs/r1")) { try await follower.follow(record()) }
+        await #expect(throws: CloudAPIError.timedOut("cloud.runs/r1")) { try await follower.follow(record()) }
         await ends.wait(for: 1)
         #expect(ends.all.map(\.outcome) == [.succeeded])
     }
