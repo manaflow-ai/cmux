@@ -1,0 +1,167 @@
+{
+  "version": 1,
+  "build": "4263448650401",
+  "notes": "notes/4263448650401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 39598,
+      "title": "Agent pane: the session list's patch paths match a full rebuild when a session is listed twice or the list reorders",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39516,
+      "title": "cmux-tui: the mux owner remote-link starts reaps tabless terminals; #39092 review follow-ups (W5-O)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39283,
+      "title": "scripts: shrink a registry copy and check every journal range",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39642,
+      "title": "What's New pictures: publish create-only",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37789,
+      "title": "Worktree setup: the setup line in a new worktree chat, and Settings > Agents > Worktree Setup",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39644,
+      "title": "Cloud start-chat: the clone wait reads a pre-step bootstrap status's repository failure",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39577,
+      "title": "Ledger: 1-hour cache writes in the CSV, and a tier-only usage report agrees with its price",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39235,
+      "title": "What's New: the nightly media tour records each highlight's clip and its before, privacy-checked frame by frame",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39612,
+      "title": "Cloud start: the daemon status read runs, so the approvals restart runs beside the login",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39580,
+      "title": "cmux-tui(W5-Q): agent start placement counts only live lifecycle words (follow-ups 1)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39563,
+      "title": "Determinism gate base reds: wait on the real signal, not a sleep, in 9 tests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39589,
+      "title": "cmux-tui/acpmux tests: four stale tests on feat (#39350, #39040, #39029 base reds)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39620,
+      "title": "Set Up cmux: an install's sign-in survives another card's refresh; every agent keeps its button while a sign-in waits",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39628,
+      "title": "cmux-host updater: the carrier read has a hard deadline, killing its process group",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39432,
+      "title": "Home: a video attachment pops out into the lightbox, with arrow keys among images and videos",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39615,
+      "title": "cmux NEXT icons: the pack's puzzle is the size of the icons around it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39639,
+      "title": "live mode: HEAD's own cached live build honors its reusable mark too",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39617,
+      "title": "What's New pictures: a before is its entry's marked old look",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39618,
+      "title": "Bring your history: a source's paste box lines up with its title",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36297,
+      "title": "Find in Chat: the find pill is real glass, and the top fade stays while it is open",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39582,
+      "title": "Swift live mode: start reuses the last live code build and patches the difference in, no build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39435,
+      "title": "iOS chat: a sent video shows as its tile and plays full screen, after a reload and from the Mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37248,
+      "title": "Cloud start-chat: wait for a repository folder the machine is still cloning (GitLab URL start)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39140,
+      "title": "cmux host share: a Cloud machine's shares go to the cmux platform",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39592,
+      "title": "Agent chat: a tab whose chat is not listed yet shows its saved transcript at once, and keeps it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39629,
+      "title": "base_red_excuse: name the client when reading a compile receipt, so the proxy stops answering 403",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
