@@ -70,6 +70,8 @@ export const usageMeterValueMicros = (mode: IncludedMode, levelMicros: number, i
  * and machine time stays at list in every set.
  */
 export const overageModelMarkup = (set: UsagePriceSet): number => (set === "v2" ? 1.1 : 1)
+/** The pricing a set's usage prices name (Stripe metadata price_version, the levels read): pass-through, or the model overage markup in percent. */
+export const usagePriceVersion = (set: UsagePriceSet): string => (overageModelMarkup(set) === 1 ? `ai-passthrough-${set}` : `ai-overage-models${Math.round(overageModelMarkup(set) * 100)}-${set}`)
 /** The team spending cap an admin did not set (margins.md section 4): this many times the pool, v2 Team (per seat) only; null elsewhere. */
 export const defaultTeamCapPools = (set: UsagePriceSet): number | null => (set === "v2" ? 2 : null)
 /**

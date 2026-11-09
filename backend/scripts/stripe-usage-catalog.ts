@@ -20,7 +20,7 @@
  *
  * Refuses any live key: live objects are Lawrence's step. Prints object ids and settings only.
  */
-import { INCLUDED_MODES, overageModelMarkup, USAGE_PRICE_SET_NAMES, USAGE_PRICE_SETS, USAGE_PRODUCT_ID as PRODUCT_ID, usageMeterEvent, usageModesOf, usagePriceLookupKey, type IncludedMode, type UsagePriceSet } from "../apps/api/src/billing-catalog.ts"
+import { INCLUDED_MODES, overageModelMarkup, USAGE_PRICE_SET_NAMES, usagePriceVersion, USAGE_PRICE_SETS, USAGE_PRODUCT_ID as PRODUCT_ID, usageMeterEvent, usageModesOf, usagePriceLookupKey, type IncludedMode, type UsagePriceSet } from "../apps/api/src/billing-catalog.ts"
 // --set=<name>: the price set to make (billing-catalog.ts USAGE_PRICE_SETS: v1 by default, v2 Team 25 USD per
 // seat, e2e 1 USD included), test mode only like everything here.
 const setArg = process.argv.find((a) => a.startsWith("--set="))?.slice("--set=".length) ?? "v1"
@@ -80,7 +80,7 @@ let product = await api("GET", `/v1/products/${PRODUCT_ID}`)
 if (!product && !check) product = await api("POST", "/v1/products", { id: PRODUCT_ID, name: "cmux AI usage", description: "AI model usage above your plan's included amount, at cost." }, `product-${PRODUCT_ID}-v1`)
 
 // The pricing a price of this set names: pass-through, or the model overage markup in percent (v2: 110).
-const PRICING = overageModelMarkup(SET) === 1 ? { nickname: "pass-through", version: `ai-passthrough-${SET}` } : { nickname: `models above included at list x ${overageModelMarkup(SET)}`, version: `ai-overage-models${Math.round(overageModelMarkup(SET) * 100)}-${SET}` }
+const PRICING = { nickname: overageModelMarkup(SET) === 1 ? "pass-through" : `models above included at list x ${overageModelMarkup(SET)}`, version: usagePriceVersion(SET) }
 const prices: Record<string, any> = {}
 for (const plan of Object.keys(INCLUDED_USD) as Array<keyof typeof INCLUDED_USD>) for (const mode of usageModesOf(plan)) {
   const meter = meters[mode]

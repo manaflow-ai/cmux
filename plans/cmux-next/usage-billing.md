@@ -312,6 +312,12 @@ allowlist change was needed). Script: `backend/scripts/stripe-usage-e2e.ts`.
   an hour after the period ends, and the sync runs every 15 minutes, so only usage in the last minute
   or so before finalization can slip; a finalization grace period (live step) covers it. The webhook
   would not fix an aggregation delay, so it stays a live step.
+- The operator check after a run (since 2026-11-09, model overage at list + 10% under v2): `POST
+  /v1/internal/billing/levels` answers `micros`, the billed level the sync sends (billing-catalog.ts
+  `billedLevelMicros`; at cost under v1 and e2e, so the runs above read the same), `cost_micros` (the facts at
+  cost), `included_micros` (the pool the sync used for the period starting at `from`; null for a period it
+  never saw, which reads at cost) and `meter_micros`, what the Stripe meter summary must equal: per seat the
+  billed level above the pool, per team the billed level. Compare the meter summary with `meter_micros`.
 - Cleanup: both subscriptions canceled, both test clocks deleted by exact id, Freestyle VMs deleted.
   The development `BILLING_USAGE_PRICE_SET=e2e` stays as the standing billing-e2e configuration
   (test mode only; staging and production ignore it). Staging must never get STRIPE_USAGE_KEY while it
@@ -550,7 +556,8 @@ The sync sends the billed level: per seat it subtracts included x seats as befor
 price's free first tier does, so Stripe bills exactly the billed overage. The Stripe catalog needs no new
 object (still 1.00 USD per unit); a v2 price the script makes names the markup in its nickname and
 `price_version` metadata (`ai-overage-models110-v2`). `teamUsage` (the console line) shows the billed level for
-a billable team. `POST /v1/internal/billing/levels` still answers the level at cost.
+a billable team. `POST /v1/internal/billing/levels` answers the billed level too (`UsageMeterDO.billedLevel`),
+with the at-cost figure as `cost_micros` and the meter's expected value as `meter_micros` (section 9).
 
 Team spending cap (`UsageMeterDO.teamCap(team, machineTime, set?)`, for the model router and cmux-platform):
 `{ state: "under" | "near" | "at_cap", spent_usd, cap_usd, period_end }`. Spent: the billing period's model

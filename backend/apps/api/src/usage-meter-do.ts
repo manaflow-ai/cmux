@@ -574,6 +574,29 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
   }
 
   /**
+   * The levels read (POST /v1/internal/billing/levels): the period's level as the usage sync bills it. The pool is
+   * the one the sync used for the period that starts at `from` (its push, else its billable mark): included x seats
+   * per seat, the included amount per team. `micros`: the billed level (billing-catalog.ts billedLevelMicros, the
+   * model overage x `markup`); `cost_micros`: the level at cost; `meter_micros`: what the Stripe meter summary shows
+   * (per seat the billed level above the pool, per team the billed level). A period the sync never saw has no pool:
+   * the level at cost. Never binds.
+   */
+  async billedLevel(entity: string, from: number, to: number, machineTime = false, markup = 1): Promise<{ micros: number; cost_micros: number; models_micros: number; machine_micros: number; facts: number; last_at: number | null; mode: IncludedMode | null; included_micros: number | null; meter_micros: number }> {
+    const level = await this.level(entity, from, to, machineTime)
+    const base = { cost_micros: level.micros, models_micros: level.models_micros, machine_micros: level.machine_micros, facts: level.facts, last_at: level.last_at }
+    const start = Math.floor(from / 1000)
+    const sql = this.isBound(entity) ? this.ctx.storage.sql : null
+    const info =
+      sql?.exec<{ mode: string | null; seats: number | null; included_usd: number | null }>(`SELECT mode, seats, included_usd FROM usage_push WHERE period_start = ? AND included_usd IS NOT NULL ORDER BY pushed_at DESC LIMIT 1`, start).toArray()[0] ??
+      sql?.exec<{ mode: string | null; seats: number | null; included_usd: number | null }>(`SELECT mode, seats, included_usd FROM usage_billable WHERE period_start = ? AND included_usd IS NOT NULL ORDER BY seen_at DESC LIMIT 1`, start).toArray()[0]
+    if (!info || info.included_usd === null) return { ...base, micros: level.micros, mode: null, included_micros: null, meter_micros: level.micros }
+    const mode: IncludedMode = info.mode === "per_seat" ? "per_seat" : "per_team"
+    const pool = Math.round(Number(info.included_usd) * 1_000_000) * (mode === "per_seat" ? Math.max(1, Number(info.seats ?? 1)) : 1)
+    const billed = billedLevelMicros(level.models_micros, level.machine_micros, pool, markup)
+    return { ...base, micros: billed, mode, included_micros: pool, meter_micros: mode === "per_seat" ? Math.max(0, billed - pool) : billed }
+  }
+
+  /**
    * The billing level (cx-y79zh S2): the sum of the team's settled billable facts (BILLABLE_METERS:
    * model spend and Cloud machine time) recorded in [from, to), corrections included, in integer
    * micro-dollars, with its split into model spend and machine time. Models are recorded at cost (AI_PRICE_VERSION);

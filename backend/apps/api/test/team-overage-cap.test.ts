@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { billedLevelMicros, defaultTeamCapPools, overageModelMarkup, teamCapApplies, usageMeterValueMicros } from "../src/billing-catalog.ts"
 import { stackTeamIdFor, userIdFor } from "../src/domains/user.ts"
 import { chat, inDO, paidPerson, post, testEnv } from "./setup/inference-person.ts"
-import { fakeBoundaries, fakeStripe, nowS, sync } from "./setup/fake-stripe.ts"
+import { fakeBoundaries, fakeStripe, nowS, sync, SYNC_KEY } from "./setup/fake-stripe.ts"
+import { handleBillingLevels } from "../src/billing-levels.ts"
 
 /**
  * Leo 2026-11-09 (plans/team-plan/margins.md "Decided", sections 3 and 4): model overage at the provider's list
@@ -88,6 +89,18 @@ describe("the usage sync and the console under v2 bill the model overage at list
     expect(usage.billable).toMatchObject({ mode: "per_seat", seats: 3, included_usd: 75, spent_usd: 101.5 })
     // The same period read at cost (markup 1, the default) is the level unchanged.
     expect((await stub(team).teamUsage(team, "per_seat", true)).billable.spent_usd).toBe(100)
+
+    // The operator's levels read under v2 answers the billed level, and its meter figure is what was sent to Stripe.
+    const item = { stack_team: stackTeam, from: stripe.period.start * 1000, to: stripe.period.end * 1000 }
+    const read = async (runEnv: unknown, it: unknown = item) => (await (await handleBillingLevels(new Request("https://api.test/v1/internal/billing/levels", { method: "POST", headers: { authorization: `Bearer ${SYNC_KEY}` }, body: JSON.stringify({ items: [it] }) }), runEnv as any)).json()) as any
+    const v2Read = await read(v2Env)
+    expect(v2Read.levels[0]).toMatchObject({ team, micros: 101.5 * M, cost_micros: 100 * M, models_micros: 60 * M, machine_micros: 40 * M, included_micros: 75 * M, meter_micros: 26.5 * M, facts: 2, price_version: "ai-overage-models110-v2" })
+    expect((v2Read.levels[0].meter_micros / M).toFixed(6)).toBe(stripe.events[0]!["payload[value]"])
+    // Under v1 the same read is at cost (models only) and keeps its pass-through version.
+    expect((await read(env)).levels[0]).toMatchObject({ micros: 60 * M, cost_micros: 60 * M, machine_micros: 0, included_micros: 75 * M, meter_micros: 0, price_version: "ai-passthrough-v1" })
+    // A period the sync never saw has no pool: the level at cost.
+    const unseen = await read(v2Env, { ...item, from: item.from - 86_400_000 })
+    expect(unseen.levels[0]).toMatchObject({ micros: 100 * M, cost_micros: 100 * M, included_micros: null, meter_micros: 100 * M })
   })
 })
 
