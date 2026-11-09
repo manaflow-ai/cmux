@@ -80,13 +80,18 @@ extension PageWebView {
             chromiumPage.restartRenderer()
             return
         }
-        let kill = NSSelectorFromString("_killWebContentProcess")
-        if webView.responds(to: kill) {
-            webView.perform(kill)
-        } else {
+        if !killWebContentProcess() {
             rendererRestartPending = false
             reloadAfterCrashes()
         }
+    }
+
+    /// Ends this page's WebContent process (WebKit's `_killWebContentProcess`); false when WebKit has no such call.
+    func killWebContentProcess() -> Bool {
+        let selector = NSSelectorFromString("_killWebContentProcess")
+        guard webView.responds(to: selector) else { return false }
+        webView.perform(selector)
+        return true
     }
 
     /// Debug builds only: allows the page's fault injection (`window.__cmuxHealthInjectAllowed`, read by
