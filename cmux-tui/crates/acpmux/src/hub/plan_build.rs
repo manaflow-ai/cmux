@@ -417,7 +417,11 @@ impl Hub {
                 let mut meta = parent.meta.lock().unwrap_or_else(|e| e.into_inner());
                 Arc::make_mut(&mut meta.plan_builds).push(record);
             }
-            self.save_meta(parent);
+            // Durable before the card's `started` record is appended, so a card that survives a
+            // restart always finds its builds for compare and keep.
+            if let Err(e) = self.save_meta_answered(parent) {
+                tracing::warn!(session = %parent.id, "plan build record not saved: {}", e.message);
+            }
         }
         (started, failed)
     }
