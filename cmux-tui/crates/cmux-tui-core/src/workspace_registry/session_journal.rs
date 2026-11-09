@@ -1903,7 +1903,7 @@ fn decode_gzip_segment(
     );
     anyhow::ensure!(bytes_read == expected_bytes, "journal segment {segment_id} length is invalid");
     anyhow::ensure!(
-        digest.as_slice() == expected_digest.as_slice(),
+        digest.as_slice() == expected_digest,
         "journal segment {segment_id} digest is invalid"
     );
     Ok(records)
