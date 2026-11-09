@@ -548,7 +548,7 @@ import { isCurrentMenuCommand, parseMenuCommand } from "./header/menuCommands";
 import { errorRecovery, lastFailedTurn } from "./conversation/errorRecovery";
 import { type WorkingCounts, WorkingCountsContext } from "./conversation/workingForModel";
 import { type PreviewChips, PreviewChipsContext, previewsOf } from "./conversation/previewChipModel";
-import { NewestSteerContext, takeBackSteer, takesSteersBack } from "./conversation/pendingSteerModel";
+import { NewestSteerContext, SteerChatContext, takeBackSteer, takesSteersBack } from "./conversation/pendingSteerModel";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
 import { useTranscriptView, type TranscriptView } from "./conversation/transcriptView";
 import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversation/viewFolds";
@@ -10146,6 +10146,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             <ShellActionsContext.Provider value={shellActions}>
               <TurnActionsContext.Provider value={turnActions}>
                 <SkillWordsContext.Provider value={skillWords}>
+                  <SteerChatContext.Provider value={snapshot.sessionId ?? ""}>
                   <NewestSteerContext.Provider value={snapshot.newestOwnSteer}>
                     <RunInBackgroundContext.Provider value={backgroundHint}>
                       <TurnCountsContext.Provider value={turnCountsFor}>
@@ -10337,6 +10338,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       </TurnCountsContext.Provider>
                     </RunInBackgroundContext.Provider>
                   </NewestSteerContext.Provider>
+                  </SteerChatContext.Provider>
                 </SkillWordsContext.Provider>
               </TurnActionsContext.Provider>
             </ShellActionsContext.Provider>

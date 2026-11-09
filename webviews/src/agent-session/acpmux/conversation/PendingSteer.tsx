@@ -6,7 +6,14 @@ import { Close } from "./icons";
 import { MessageCopy, MessageFooterRow } from "./MessageActions";
 import { ROW_ICON } from "./messageActionsModel";
 import { TurnActionsContext, type QueuedActions, type TakeBack } from "./turnActions";
-import { NewestSteerContext, sentNowState, sentNowListeners, publishSentNow, markSentNow } from "./pendingSteerModel";
+import {
+  NewestSteerContext,
+  SteerChatContext,
+  sentNowState,
+  sentNowListeners,
+  publishSentNow,
+  markSentNow,
+} from "./pendingSteerModel";
 export function PendingSteer({
   row,
   send,
@@ -21,6 +28,7 @@ export function PendingSteer({
   const t = useT();
   const { unsteer } = useContext(TurnActionsContext);
   const newest = useContext(NewestSteerContext);
+  const chat = useContext(SteerChatContext);
   const [sending, setSending] = useState(false);
   const waiting = row.steer === "waiting";
   const [sentNow, setSentNow] = useState(false);
@@ -34,9 +42,9 @@ export function PendingSteer({
   // so an earlier steer never shows its X for a frame after the newest's Send now worked.
   const isNewest = newest === row.id;
   useLayoutEffect(() => {
-    if (waiting && ownSent && isNewest) coverUntil(row.at);
-  }, [waiting, ownSent, isNewest, row.at]);
-  const covered = newest !== undefined && !isNewest && row.at <= sent.coveredAt;
+    if (waiting && ownSent && isNewest) coverUntil(chat, row.at);
+  }, [waiting, ownSent, isNewest, chat, row.at]);
+  const covered = newest !== undefined && !isNewest && row.at <= (sent.coveredAt.get(chat) ?? Number.NEGATIVE_INFINITY);
   // The transcript virtualizes rows: a remount must not offer an accepted send again.
   if (!waiting || ownSent || covered) return children ?? null;
   if (!promptId) return null;
@@ -103,6 +111,7 @@ function subscribeSentNow(listener: () => void): () => void {
   return () => sentNowListeners.delete(listener);
 }
 const readSentNow = () => sentNowState;
-function coverUntil(at: number): void {
-  if (at > sentNowState.coveredAt) publishSentNow({ ...sentNowState, coveredAt: at });
+function coverUntil(chat: string, at: number): void {
+  if (at > (sentNowState.coveredAt.get(chat) ?? Number.NEGATIVE_INFINITY))
+    publishSentNow({ ...sentNowState, coveredAt: new Map(sentNowState.coveredAt).set(chat, at) });
 }

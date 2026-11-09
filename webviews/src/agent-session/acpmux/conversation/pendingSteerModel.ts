@@ -39,8 +39,12 @@ export const SteerChatContext = createContext("");
 /// stops the agent's step and the agent then reads every waiting steer, so the earlier ones it
 /// covered (sent at or before it) drop their X and Copy line with it instead of looking held back
 /// (Leo, 2026-11-03: "this looks kinda weird when i send now and there was a previously steered
-/// message"). A steer sent later waits on its own.
-export let sentNowState = { ids: new Set<string>(), coveredAt: Number.NEGATIVE_INFINITY };
+/// message"). A steer sent later waits on its own. Kept per chat (`SteerChatContext`): the page
+/// switches chats in place, and another chat's steers were never covered (cmux#32846).
+/// A covered steer drops its X even when the agent cannot stop its current step: acpmux would still
+/// take it back until the step ends, but it goes in with the Send now the person chose, and an X
+/// left under it looked like a message held back.
+export let sentNowState = { ids: new Set<string>(), coveredAt: new Map<string, number>() };
 export const sentNowListeners = new Set<() => void>();
 export function publishSentNow(next: typeof sentNowState): void {
   sentNowState = next;
