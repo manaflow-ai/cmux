@@ -249,6 +249,7 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
           "cmux.diff.comments",
           ...(state.fingerprintError ? ["cmux.diff.git.fingerprint"] : []),
           ...(state.reviewBrief != null ? ["cmux.diff.brief"] : []),
+          ...(state.summaries ? ["cmux.diff.summary", "cmux.diff.summaryCheck"] : []),
         ],
       }),
       "cmux.diff.protocolHandshake": () => ({
@@ -269,6 +270,19 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
         return { fingerprint: hash(patch) };
       },
       "cmux.diff.brief": () => state.reviewBrief,
+      "cmux.diff.summaryCheck": () =>
+        state.summaries && "refused" in state.summaries
+          ? { ready: false, reason: state.summaries.refused }
+          : { ready: true, harness: "claude" },
+      "cmux.diff.summary": async (params: unknown) => {
+        const summaries = state.summaries;
+        if (!summaries || "refused" in summaries) throw new Error("no summaries");
+        const patch = String((params as { patch?: unknown } | null)?.patch ?? "");
+        const hit = Object.entries(summaries.sentences).find(([needle]) => patch.includes(needle));
+        await new Promise((resolve) => setTimeout(resolve, summaries.delayMs ?? 0));
+        if (!hit) throw new Error("no sentence");
+        return { text: hit[1], key: "gallery", cached: false };
+      },
       "cmux.diff.sessionClose": () => ({ type: "sessionClosed" }),
       "cmux.diff.branchList": () => ({
         type: "branches",

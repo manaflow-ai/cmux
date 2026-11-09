@@ -283,6 +283,10 @@ export type DiffPageVariant = VariantBase & {
   /** The diff's chat's review brief the in-page host answers (`cmux.diff.brief`), as acpmux's
    * `_acpmux/review_brief` answers it; absent, the host serves no brief. */
   reviewBrief?: unknown;
+  /** Plain English: the sentence the in-page host writes for a hunk whose patch contains each
+   * key (`cmux.diff.summary`, after `summaryDelayMs`), or a refusal reason `summaryCheck` answers.
+   * Absent, the host serves no summary op. */
+  summaries?: { sentences: Record<string, string>; delayMs?: number } | { refused: string };
 };
 
 /** The App Store page on an in-page cmuxPage host serving its supervisor projection. */
