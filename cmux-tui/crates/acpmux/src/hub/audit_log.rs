@@ -26,7 +26,7 @@
 //!   before it counts. One writer thread numbers, chains and writes every entry. An answer to a
 //!   permission (recorded under a session's append lock) only sends its entry down a channel; a
 //!   line that cannot be written is counted (`writeErrors` in `_acpmux/audit`) and logged, never
-//!   silently dropped. A review verdict waits for its line ([`AuditLog::record_durable`]): the
+//!   silently dropped. A review verdict waits for its line ([`AuditLog::record_durable_of`]): the
 //!   verdict fails, and its pull request stays in the queue, unless the line is on disk. One the
 //!   writer has not taken within the wait is withdrawn, never written later; one it has taken is
 //!   waited for to the end. `open`
@@ -181,26 +181,29 @@ impl AuditLog {
         self.fail_purges.store(fail, Ordering::SeqCst);
     }
 
-    /// Sends `entry` (without `v`, `seq`, `prevHash` and `hash`) to the writer: never blocks. A
-    /// line the writer cannot write counts in [`AuditLog::write_errors`].
+    /// [`AuditLog::record_of`] with no chat flag (tests).
+    #[cfg(test)]
     pub(crate) fn record(&self, entry: Value) {
         self.record_of(entry, None);
     }
 
-    /// [`AuditLog::record`] for a chat whose purged flag is `gone`.
+    /// Sends `entry` (without `v`, `seq`, `prevHash` and `hash`) to the writer: never blocks. A
+    /// line the writer cannot write counts in [`AuditLog::write_errors`]. `gone` is its chat's
+    /// purged flag: set by the time the writer takes the entry, the entry is dropped.
     pub(crate) fn record_of(&self, entry: Value, gone: Option<Arc<AtomicBool>>) {
         if self.send(Msg::Entry(entry, None, gone)).is_err() {
             self.lost("the writer is gone");
         }
     }
 
-    /// Writes `entry` and waits until its line is on disk: the entry as written, or why not.
-    /// Blocking.
+    /// [`AuditLog::record_durable_of`] with no chat flag (tests).
+    #[cfg(test)]
     pub(crate) fn record_durable(&self, entry: Value) -> Result<Value, String> {
         self.record_durable_of(entry, None)
     }
 
-    /// [`AuditLog::record_durable`] for a chat whose purged flag is `gone`.
+    /// Writes `entry` and waits until its line is on disk: the entry as written, or why not.
+    /// Blocking. `gone` as for [`AuditLog::record_of`].
     pub(crate) fn record_durable_of(
         &self,
         entry: Value,
