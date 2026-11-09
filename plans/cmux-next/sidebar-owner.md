@@ -6,7 +6,10 @@
   (`SidebarGroupBackgroundStyle.sections`, the one style with `drawsBackground` false): the header's name and glyphs
   in the theme's quiet ink (`textSecondary`), no fill, rim or dot (`GroupHeaderRowView.paintSection`), and its
   members' line or no-color block draws nothing (`GroupLineView.paintNothing`). Hover and a drop take a workspace
-  row's fills: the hover fill only where `showsHoverFills` is on, the selection fill under a drop (review F1, F2). An opt-out of Lawrence's visible-background invariant (2026-11-05 below) that only the person picks; Automatic
+  row's fills: the hover fill only where `showsHoverFills` is on, the selection fill under a drop (review F1, F2). A fold's
+  lines take the list's look too (`SidebarListView.styled`, shared by a rebuild, a fold and a lift; review F1 of the
+  next round): a fold under Sections, Glass, Solid or with colors off drew Automatic's. Regression:
+  `SidebarFoldKeepsGroupLookTests`. An opt-out of Lawrence's visible-background invariant (2026-11-05 below) that only the person picks; Automatic
   stays the default. Gallery: Sidebar States Playground > Group backgrounds (Sections, Sections hovered). Regression:
   `GroupHeaderSectionsTests`.
 - 2026-11-07: Cmd-1…9 count the rows the sidebar draws. Leo: "when I command 1 2 3 4 5 6 7, right, when I do that
