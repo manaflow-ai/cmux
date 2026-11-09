@@ -1852,6 +1852,9 @@ function TranscriptView({
   // reset effect commits. The keyed values below make the first new-session paint fresh as well.
   const [selectionSessionKey, setSelectionSessionKey] = useState(sessionKey);
   const sessionChanged = selectionSessionKey !== sessionKey;
+  /// A new chat taking the session its first prompt started is the same chat: that prompt's row and
+  /// its Thinking line, drawn from the send (startingSends.ts), finish their entrance across it.
+  const tookSession = sessionChanged && selectionSessionKey === "";
   /// A row can be newly arrived but outside the mounted virtual range. Pending entrances are
   /// page-scoped: hiding or switching chats must drop them before that row can mount later.
   const enteringRows = useRef(new Set<string>());
@@ -1866,7 +1869,7 @@ function TranscriptView({
       gutterRelease.current?.();
       setHeldRows(undefined);
       pendingFocus.current = undefined;
-      enteringRows.current.clear();
+      if (!tookSession) enteringRows.current.clear();
       return;
     }
     const currentRange = transcriptRangeRef.current;
@@ -1882,7 +1885,7 @@ function TranscriptView({
       if (!current) return current;
       return presence.anchor && presence.focus ? current : undefined;
     });
-  }, [rows, sessionChanged, sessionKey]);
+  }, [rows, sessionChanged, sessionKey, tookSession]);
   useEffect(() => {
     const clearHiddenEntrances = () => {
       if (document.visibilityState === "hidden") enteringRows.current.clear();
@@ -4939,7 +4942,7 @@ function TranscriptView({
                         queueDrawn={queueDrawn}
                         // A session switch is a load, not a live arrival. The reset effect runs after
                         // this render, so gate it here as well to avoid a reused row id animating once.
-                        enter={!sessionChanged && enteringRows.current.has(rowFrameKey(row))}
+                        enter={(!sessionChanged || tookSession) && enteringRows.current.has(rowFrameKey(row))}
                         onEntered={onEntered}
                         loadFade={!sessionChanged && loadFade.current!.fades(row.id)}
                         onLoadFaded={onLoadFaded}
