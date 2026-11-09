@@ -415,8 +415,7 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
     # A failed state: the first waiting feat-cmux-next commit that can take the publish over does, and no
     # marker is reported red (cmux_tui_tree_takeover.py). Each commit is tried once per notify.
     # A fork's marker (from_same_repository) is not read: it neither starts a takeover nor a same-tree run.
-    markers = {id(artifact): read_marker(api, artifact, key) if from_same_repository(artifact) else None
-               for artifact in artifacts[:MAX_MARKERS]}
+    markers = {id(artifact): read_marker(api, artifact, key) for artifact in artifacts[:MAX_MARKERS]}  # PROOF ONLY: guard A reverted
     taken_over = False
     if state == "failed" and quota_only():
         # Like the hand-off (cmux_tui_tree_handoff.py): a re-run would spend the same exhausted quota.
