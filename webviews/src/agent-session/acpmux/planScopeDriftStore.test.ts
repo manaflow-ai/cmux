@@ -71,4 +71,22 @@ describe("plan scope drift", () => {
     expect(observePlanEdit(session, ["/Users/leo/project/web/session.ts"])?.area).toBe("/Users/leo/project/web/");
     clearPlanScope(session);
   });
+
+  test("an edit is in scope when any of its spellings is", () => {
+    approvePlan(session, "Edit /Users/leo/project/ui/settings/");
+    // The relative spelling alone misses an absolute scope; the absolute one covers the edit.
+    expect(
+      observePlanEdit(session, ["ui/settings/panel.tsx", "/Users/leo/project/ui/settings/panel.tsx"]),
+    ).toBeUndefined();
+    expect(currentPlanScopeDrift(session)).toBeUndefined();
+    clearPlanScope(session);
+  });
+
+  test("the plan's own file is never drift, before or after approval", () => {
+    rememberPlanEdit(session, ["/Users/leo/.claude/plans/quiet-otter.md"]);
+    approvePlan(session, "Edit ui/settings/*");
+    expect(currentPlanScopeDrift(session)).toBeUndefined();
+    expect(observePlanEdit(session, ["/Users/leo/.claude/plans/quiet-otter.md"])).toBeUndefined();
+    clearPlanScope(session);
+  });
 });

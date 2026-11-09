@@ -26,6 +26,11 @@ function inScope(path: string, scope: string): boolean {
   );
 }
 
+// Claude Code writes its plan here before it asks for approval: the plan's own file is never drift.
+function isPlanFile(path: string): boolean {
+  return /(?:^|\/)\.claude\/plans\//.test(path);
+}
+
 function areaOf(path: string): string {
   // Absolute ACP locations can have arbitrary workspace prefixes. Use their containing
   // directory as the stable area key so `/Users/a/repo/auth/x.rs` and `/Users/a/repo/auth/y.rs`
@@ -82,7 +87,7 @@ export function rememberPlanEdit(sessionId: string, paths: readonly string[]): v
   for (const path of paths) {
     if (edits.size >= 128) break;
     const normalized = pathOf(path);
-    if (normalized) edits.add(normalized);
+    if (normalized && !isPlanFile(normalized)) edits.add(normalized);
   }
   if (edits.size) pendingEdits.set(sessionId, edits);
 }
@@ -91,11 +96,12 @@ export function rememberPlanEdit(sessionId: string, paths: readonly string[]): v
 export function observePlanEdit(sessionId: string, paths: readonly string[]): PlanScopeDrift | undefined {
   const state = states.get(sessionId);
   if (!state) return undefined;
-  for (const raw of paths) {
-    const path = pathOf(raw);
-    if (!path) continue;
+  const named = paths.map(pathOf).filter((path): path is string => !!path && !isPlanFile(path));
+  // One edit names one file, often twice (relative and absolute): any spelling in scope covers it.
+  if (named.some((path) => [...state.scope].some((scope) => inScope(path, scope)))) return undefined;
+  for (const path of named) {
     const area = areaOf(path);
-    if ([...state.scope].some((scope) => inScope(path, scope)) || state.reported.has(area)) continue;
+    if (state.reported.has(area)) continue;
     state.reported.add(area);
     state.drift = { sessionId, path, area };
     notify();
