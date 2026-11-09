@@ -389,9 +389,22 @@ export function inlinePlugin(views: InlineViews) {
 /// (Leo, 2026-11-07: "you expect it to be right at my caret ... It tries to place it above"). Without
 /// it (an attachment placed later, once read or once the field can take it) nothing typed is ever
 /// replaced: the attachments go in at the selection's end.
-export function insertInline(view: EditorView, ids: readonly string[], replace = false): boolean {
+///
+/// `at` "start": an attachment with no caret of its own to go to (its placeholder lost its node to a
+/// value from outside, or its caret was in a code block) goes at the start of the prompt's first
+/// line that can hold it, where its tile would have shown above the text, and the person's selection
+/// stays where it is: one place for every attachment, never the strip above the text (Leo,
+/// 2026-11-09: "we have inline stuff, so why is this not inline?"), and never in the middle of what
+/// was typed meanwhile. A prompt that is all code gets a new first line for it.
+export function insertInline(
+  view: EditorView,
+  ids: readonly string[],
+  replace = false,
+  at: "caret" | "start" = "caret",
+): boolean {
   const type = view.state.schema.nodes[INLINE_NODE];
   if (!type || ids.length === 0) return false;
+  if (at === "start") return insertInlineAtStart(view, ids);
   const tr = view.state.tr;
   const { selection } = tr;
   if (!replace) {
@@ -418,6 +431,28 @@ export function insertInline(view: EditorView, ids: readonly string[], replace =
   tr.replaceWith(from, to, nodes);
   tr.setSelection(TextSelection.near(tr.doc.resolve(tr.mapping.slice(placedAt).map(to))));
   view.dispatch(tr.scrollIntoView());
+  return true;
+}
+
+function insertInlineAtStart(view: EditorView, ids: readonly string[]): boolean {
+  const { schema, doc } = view.state;
+  const type = schema.nodes[INLINE_NODE]!;
+  const nodes = Fragment.from(ids.map((id) => type.create({ id })));
+  let lands: number | undefined;
+  doc.descendants((node, pos) => {
+    if (lands !== undefined) return false;
+    if (!node.isTextblock) return true;
+    if (node.inlineContent && !node.type.spec.code && node.canReplace(0, 0, nodes)) lands = pos + 1;
+    return false;
+  });
+  const tr = view.state.tr;
+  if (lands !== undefined) tr.insert(lands, nodes);
+  else {
+    const line = schema.nodes.paragraph?.createAndFill(null, nodes);
+    if (!line || !doc.canReplace(0, 0, Fragment.from(line))) return false;
+    tr.insert(0, line);
+  }
+  view.dispatch(tr);
   return true;
 }
 
