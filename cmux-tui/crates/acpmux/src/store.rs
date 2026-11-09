@@ -1663,6 +1663,8 @@ impl Store for LocalStore {
     fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
         // An archived log comes back before a segment is written beside it.
         self.rehydrate(id)?;
+        #[cfg(test)]
+        log_sync::hold(&cold::HOLD_AFTER_HISTORY_REHYDRATE);
         let _open = self.writable()?;
         let dir = self.dir(id).join("events");
         crate::config::private_state_dir(&self.dir(id))?;

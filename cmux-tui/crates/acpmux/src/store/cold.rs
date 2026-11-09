@@ -64,6 +64,10 @@ thread_local! {
     /// before it decodes.
     pub(crate) static HOLD_BEFORE_THAW: super::log_sync::HoldSlot =
         const { std::cell::RefCell::new(None) };
+    /// Tests: a fork's history write on this thread stops right after its log's rehydrate, before
+    /// it makes `events/` and writes there (`LocalStore::history_writer`).
+    pub(crate) static HOLD_AFTER_HISTORY_REHYDRATE: super::log_sync::HoldSlot =
+        const { std::cell::RefCell::new(None) };
     /// Tests: this thread says so, once, right before it takes the cold lock to rehydrate or settle.
     pub(crate) static NOTE_BEFORE_COLD_LOCK: super::log_sync::Note =
         const { std::cell::RefCell::new(None) };

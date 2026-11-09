@@ -315,3 +315,66 @@ async fn a_rehydrate_before_the_preview_goes_in_leaves_no_preview() {
     assert!(hub.store.is_cold("old") && session.meta().cold.is_some());
     hub.shutdown_all().await;
 }
+
+/// Third review of #39141 (F1): a preview's messages went to a peer unmasked, and a cut through a
+/// token left its head, which no masking after the cut knows for one. The cut comes after the
+/// mask, and a peer's list row and change notification read each message masked.
+#[tokio::test]
+async fn a_peer_reads_a_preview_masked_even_where_the_cut_splits_a_secret() {
+    use crate::rpc::{Message, method};
+    let token = format!("gh{}_{}", "p", "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234");
+    let root = Root(std::env::temp_dir().join(format!("acpmux-cold-hub-{}", uuid::Uuid::now_v7())));
+    let mut cfg = Config::default();
+    cfg.store.mode = StoreMode::Local;
+    // The answer's token starts 9 characters before the preview's cut.
+    let long = format!("{} {token} and more", "y".repeat(PREVIEW_CHARS - 10));
+    {
+        let store = crate::store::open(&cfg.store, &root.0).unwrap();
+        let meta = json!({
+            "schema": crate::store::META_SCHEMA, "id": "old", "name": "chat old",
+            "harness": "claude", "cwd": "/tmp", "status": "closed", "createdAt": 1,
+            "updatedAt": 2, "lastSeq": 2, "eventCount": 2,
+        });
+        store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+        let prompt =
+            record(1, "mux", "user_message", json!({"text": format!("push with {token}")}));
+        let answer = record(
+            2,
+            "in",
+            "agent_message_chunk",
+            json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "a", "update": {"sessionUpdate": "agent_message_chunk", "messageId": "m0", "content": {"type": "text", "text": long}}}}),
+        );
+        store.append("old", &prompt).unwrap();
+        store.append("old", &answer).unwrap();
+        store.close_log("old");
+        store.flush().unwrap();
+    }
+    let (_, hub) = open(&root.0);
+    let session = hub.resolve("old").unwrap();
+    let summary = hub.cold_archive_request(session.clone(), true).await.unwrap();
+    let last = summary["coldArchive"]["last"].as_array().unwrap().clone();
+    assert_eq!(last.len(), 2, "{summary}");
+    // Here, the whole prompt keeps its raw text; the cut answer is masked before its cut.
+    assert_eq!(last[0]["text"], format!("push with {token}"));
+    let cut = last[1]["text"].as_str().unwrap();
+    assert!(!cut.contains("ghp_"), "the cut left the token's head: {cut}");
+    assert!(cut.ends_with("[GitHub P…"), "{cut}");
+    assert_eq!(cut.chars().count(), PREVIEW_CHARS + 1);
+    // A peer's list row and change notification.
+    let list = Message::ok(json!(1), json!({"sessions": [hub.session_list_summary(&session)]}));
+    let changed = Message::notification(
+        method::MUX_SESSION_CHANGED,
+        json!({"sessionId": "old", "session": summary, "kind": COLD_CHANGED}),
+    );
+    for msg in [list, changed] {
+        let out = crate::server::peer_text::masked(&msg).expect("the row carries a secret");
+        let text = match out {
+            Message::Response { result: Some(result), .. } => result.to_string(),
+            Message::Notification { params: Some(params), .. } => params.to_string(),
+            other => panic!("{other:?}"),
+        };
+        assert!(!text.contains("ghp_"), "a raw token reached a peer: {text}");
+        assert!(text.contains("push with [GitHub Personal Access Token]"), "{text}");
+    }
+    hub.shutdown_all().await;
+}

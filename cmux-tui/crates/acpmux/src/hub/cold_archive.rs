@@ -8,10 +8,12 @@
 //!
 //! A chat with no agent and nothing under way can have its log moved into one zstd file
 //! (`store/cold.rs`). Before that, its preview is read from the log: its message count and last
-//! [`PREVIEW_MESSAGES`] messages, each cut to [`PREVIEW_CHARS`]. The preview and the bytes before
-//! and after go in `session.json` (`SessionMeta::cold`), and the chat's summary carries them as
-//! `coldArchive`, so the list shows an archived chat as before, from `session.json` alone: listing
-//! and startup cost the same however many chats are archived or how big they were. The daemon's
+//! [`PREVIEW_MESSAGES`] messages, each cut to [`PREVIEW_CHARS`] (masked before the cut,
+//! `preview_text`; a peer reads every one masked, `server/peer_text.rs`). The preview and the
+//! bytes before and after go in `session.json` (`SessionMeta::cold`), and the chat's summary
+//! carries them as `coldArchive`, so the list shows an archived chat as before, from
+//! `session.json` alone: listing and startup cost the same however many chats are archived or how
+//! big they were. The daemon's
 //! startup reads no archived chat's log (`load_logs`); there is nothing in it to restore (an
 //! archived chat had no turn, queue or agent).
 //!
@@ -40,6 +42,9 @@ pub(crate) const COLD_CHANGED: &str = "cold_archive";
 const PREVIEW_MESSAGES: usize = 3;
 /// The characters a preview keeps of each.
 const PREVIEW_CHARS: usize = 280;
+/// How much of a longer message is scanned for secrets before its cut: past the cut, so a secret
+/// that starts before it is still whole when it is masked.
+const PREVIEW_SCAN_CHARS: usize = PREVIEW_CHARS + 4096;
 /// Whether idle chats are archived on their own.
 pub(crate) const SETTING_ON: &str = "agents.chats.coldArchive";
 /// After how many idle days.
@@ -78,13 +83,24 @@ fn preview_messages(
                 .ok()
                 .and_then(|v| v.as_str().map(str::to_owned))
                 .unwrap_or_default();
-            let mut text: String = entry.text.chars().take(PREVIEW_CHARS).collect();
-            if text.len() < entry.text.len() {
-                text.push('…');
-            }
-            PreviewMessage { role, text, at: entry.at }
+            PreviewMessage { role, text: preview_text(&entry.text), at: entry.at }
         })
         .collect()
+}
+
+/// One message of a preview: whole when it fits, else its first [`PREVIEW_CHARS`], masked before
+/// the cut (`secret_scan`) as a list row's long title is (`hub/views.rs`, `summary_title`): a
+/// secret the cut would split is masked whole, never left as a head a peer's masking no longer
+/// knows (third review of #39141, F1). A whole message keeps its raw text, which a peer reads
+/// masked (`server/peer_text.rs`).
+fn preview_text(text: &str) -> String {
+    if text.chars().nth(PREVIEW_CHARS).is_none() {
+        return text.to_owned();
+    }
+    let head: String = text.chars().take(PREVIEW_SCAN_CHARS).collect();
+    let mut cut: String = crate::secret_scan::mask(&head).chars().take(PREVIEW_CHARS).collect();
+    cut.push('…');
+    cut
 }
 
 impl Hub {
