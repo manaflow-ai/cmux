@@ -408,6 +408,7 @@ import {
   dismissedAsks,
   setAnswerState,
   shownAsks,
+  subscribeAnswers,
 } from "./conversation/waitingAskStore";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import { projectInboxRows } from "./conversation/laneNoticeBatches";
@@ -1141,13 +1142,27 @@ function withdrawForTypedReply<T>(
     .then(send);
 }
 
+/// Settles when the answer on its way under `key` does: resolved once sent, rejected once it failed.
+const answerSettled = (key: string) =>
+  new Promise<void>((resolve, reject) => {
+    const stop = subscribeAnswers(() => {
+      const state = answerState(key);
+      if (state.sending !== undefined) return;
+      stop();
+      if (state.failed) reject(new Error("not sent"));
+      else resolve();
+    });
+  });
+
 /// A tagged ask's answer from the hat, as its transcript card sends one (NextStepCard.tsx): it claims
 /// the answer and shares the card's state under the card's key, so the card and the hat never send it
 /// twice, and one already on its way from the card is not sent again.
 function answerNextStep(question: HatQuestion, label: string): Promise<unknown> {
   const key = question.answerKey;
   if (!key) return answerThrough(callNative)(label);
-  if (answerState(key).sending !== undefined) return Promise.resolve();
+  // The card's answer is on its way: the hat's click settles with it, so a failed send frees the
+  // hat's buttons too and either copy can try again.
+  if (answerState(key).sending !== undefined) return answerSettled(key);
   claimAnswer(key, label);
   setAnswerState(key, { sending: label });
   return answerThrough(callNative)(label).then(
