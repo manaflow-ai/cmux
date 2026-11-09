@@ -1,6 +1,6 @@
 // Settings > Accounts > Cloud Environments: the page reads the host's environments when the card
-// opens, draws each with its localized status (a failed build with its log), and sends Add, Build,
-// Delete and Refresh as `cmux.settings.environments.run`. Off the cmux-next Cloud path the card
+// opens, draws each with its localized status (a failed build with its log), and sends Add, Edit,
+// Build, Delete and Refresh as `cmux.settings.environments.run`. Off the cmux-next Cloud path the card
 // explains instead of listing.
 import { act } from "react";
 import { afterAll, expect, test } from "bun:test";
@@ -66,7 +66,7 @@ test("Add Environment saves the typed name, repository and setup command", async
   const form = () => card(page.container).querySelector<HTMLElement>("[data-environments-form]")!;
   await changeValue(form().querySelector<HTMLInputElement>('[data-environment-field="name"]')!, "docs");
   await changeValue(form().querySelector<HTMLInputElement>('[data-environment-field="repo"]')!, "octo/docs");
-  await changeValue(form().querySelector<HTMLInputElement>('[data-environment-field="setup"]')!, "npm ci");
+  await changeValue(form().querySelector<HTMLTextAreaElement>('[data-environment-field="setup"]')!, "npm ci");
   await click(form().querySelector<HTMLButtonElement>('[data-environments="save"]')!);
   await settle();
   expect(page.provider.environmentRuns).toContainEqual({
@@ -77,6 +77,69 @@ test("Add Environment saves the typed name, repository and setup command", async
   });
   expect(card(page.container).textContent).toContain("docs");
   expect(card(page.container).querySelector("[data-environments-form]")).toBeNull();
+  page.unmount();
+});
+
+test("Edit opens the environment with its script and variables and saves only what changed", async () => {
+  const page = await open();
+  const row = () =>
+    card(page.container).querySelector<HTMLElement>('[data-environment="env_00000000000000000001"]')!;
+  await click(row().querySelector<HTMLButtonElement>('[data-environment-action="edit"]')!);
+  const form = () => row().querySelector<HTMLElement>("[data-environments-form]")!;
+  expect(form().querySelector<HTMLInputElement>('[data-environment-field="name"]')!.value).toBe("web");
+  expect(form().querySelector<HTMLTextAreaElement>('[data-environment-field="setup"]')!.value).toBe(
+    "cd web && bun install",
+  );
+  const values = () =>
+    [...form().querySelectorAll<HTMLInputElement>('[data-variable-field="value"]')].map((input) => input.value);
+  expect(values()).toEqual(["development", "openai"]);
+  // A two-line script and one more plain variable.
+  await changeValue(
+    form().querySelector<HTMLTextAreaElement>('[data-environment-field="setup"]')!,
+    "cd web\nbun install",
+  );
+  await click(form().querySelector<HTMLButtonElement>('[data-environment-action="add-variable"]')!);
+  const added = form().querySelector<HTMLElement>('[data-environment-variable="2"]')!;
+  await changeValue(added.querySelector<HTMLInputElement>('[data-variable-field="name"]')!, "PORT");
+  await changeValue(added.querySelector<HTMLInputElement>('[data-variable-field="value"]')!, "3000");
+  await click(form().querySelector<HTMLButtonElement>('[data-environments="save"]')!);
+  await settle();
+  expect(page.provider.environmentRuns).toContainEqual({
+    action: "save",
+    id: "env_00000000000000000001",
+    name: "web",
+    setup_script: "cd web\nbun install",
+    env: [
+      { name: "NODE_ENV", value: "development" },
+      { name: "OPENAI_API_KEY", secret: "openai" },
+      { name: "PORT", value: "3000" },
+    ],
+  });
+  // The edited inputs made the built snapshot stale, and the form closed.
+  expect(row().querySelector("[data-environment-status]")!.textContent).toContain("Changed since the last build");
+  expect(row().querySelector("[data-environments-form]")).toBeNull();
+  page.unmount();
+});
+
+test("a rename alone sends only the name, and Cancel sends nothing", async () => {
+  const page = await open();
+  const row = () =>
+    card(page.container).querySelector<HTMLElement>('[data-environment="env_00000000000000000001"]')!;
+  await click(row().querySelector<HTMLButtonElement>('[data-environment-action="edit"]')!);
+  await click(row().querySelector<HTMLButtonElement>('[data-environments="cancel"]')!);
+  expect(row().querySelector("[data-environments-form]")).toBeNull();
+  const runs = page.provider.environmentRuns.length;
+  await click(row().querySelector<HTMLButtonElement>('[data-environment-action="edit"]')!);
+  const form = row().querySelector<HTMLElement>("[data-environments-form]")!;
+  await changeValue(form.querySelector<HTMLInputElement>('[data-environment-field="name"]')!, "web app");
+  await click(form.querySelector<HTMLButtonElement>('[data-environments="save"]')!);
+  await settle();
+  expect(page.provider.environmentRuns.slice(runs)[0]).toEqual({
+    action: "save",
+    id: "env_00000000000000000001",
+    name: "web app",
+  });
+  expect(row().querySelector("[data-environment-status]")!.textContent).toContain("Ready");
   page.unmount();
 });
 

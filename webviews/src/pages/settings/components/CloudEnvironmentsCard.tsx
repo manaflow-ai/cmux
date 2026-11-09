@@ -1,13 +1,22 @@
 // Settings > Accounts > Cloud Environments (plans/cmux-next/cloud-environments-DESIGN.md): the team's
 // environments as the app serves them (`cmux.settings.environments.state`), each with its build
-// status, and Add, Build, Delete and Refresh (`cmux.settings.environments.run`). Build and Delete ask
-// natively first (the host's confirmation sheet); the page only draws and forwards. The list is read
-// when the card mounts and on Refresh; it does not poll.
+// status, and Add, Edit, Build, Delete and Refresh (`cmux.settings.environments.run`). Build and Delete
+// ask natively first (the host's confirmation sheet); the page only draws and forwards. The list is read
+// when the card mounts and on Refresh; it does not poll. Add and Edit share one form, the environment
+// editor of the ChatGPT desktop app (Leo, 2026-11-09: "as for cloud, how about configuring
+// "environments" or whatever that stuff is in chatgpt desktop app"): name, repository, a multi-line
+// setup script and variables, each a plain value or a vault secret's name.
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
+import { Select } from "../../../ui/Select";
 import { useStore } from "../context";
-import type { CloudEnvironmentRow, CloudEnvironmentsRun, CloudEnvironmentsState } from "../ops";
+import type {
+  CloudEnvironmentRow,
+  CloudEnvironmentsRun,
+  CloudEnvironmentsState,
+  CloudEnvironmentVariable,
+} from "../ops";
 import { t } from "../strings";
 
 const STATUS: Record<string, string> = {
@@ -83,16 +92,11 @@ export function CloudEnvironmentsCard() {
   );
 }
 
-function EnvironmentRow({
-  row,
-  busy,
-  run,
-}: {
-  row: CloudEnvironmentRow;
-  busy: boolean;
-  run: (gesture: CloudEnvironmentsRun) => Promise<boolean>;
-}) {
+type Run = (gesture: CloudEnvironmentsRun) => Promise<boolean>;
+
+function EnvironmentRow({ row, busy, run }: { row: CloudEnvironmentRow; busy: boolean; run: Run }) {
   const status = STATUS[row.status];
+  const [editing, setEditing] = useState(false);
   return (
     <div className="row" data-environment={row.id}>
       <div className="row-main">
@@ -115,6 +119,15 @@ function EnvironmentRow({
           <Button
             type="button"
             className="button"
+            data-environment-action="edit"
+            disabled={busy || editing}
+            onClick={() => setEditing(true)}
+          >
+            {t("settingsPage.cloudEnvironments.edit")}
+          </Button>
+          <Button
+            type="button"
+            className="button"
             data-environment-action="build"
             disabled={busy || row.status === "building" || row.status === "ready"}
             onClick={() => void run({ action: "build", id: row.id })}
@@ -132,15 +145,22 @@ function EnvironmentRow({
           </Button>
         </span>
       </div>
+      {editing && (
+        <EnvironmentForm
+          row={row}
+          busy={busy}
+          onSave={async (draft) => {
+            if (await run(editRun(row, draft))) setEditing(false);
+          }}
+          onCancel={() => setEditing(false)}
+        />
+      )}
     </div>
   );
 }
 
-function AddEnvironment({ busy, run }: { busy: boolean; run: (gesture: CloudEnvironmentsRun) => Promise<boolean> }) {
+function AddEnvironment({ busy, run }: { busy: boolean; run: Run }) {
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [repo, setRepo] = useState("");
-  const [setup, setSetup] = useState("");
   if (!open) {
     return (
       <div className="host-footer">
@@ -150,16 +170,76 @@ function AddEnvironment({ busy, run }: { busy: boolean; run: (gesture: CloudEnvi
       </div>
     );
   }
-  const save = async () => {
-    if (await run({ action: "save", name: name.trim(), repo: repo.trim(), setup_script: setup })) {
-      setOpen(false);
-      setName("");
-      setRepo("");
-      setSetup("");
-    }
-  };
   return (
-    <div className="host-form" data-environments-form="">
+    <EnvironmentForm
+      busy={busy}
+      onSave={async (draft) => {
+        const env = draft.env.filter((variable) => variable.name);
+        const saved = await run({
+          action: "save",
+          name: draft.name,
+          repo: draft.repo,
+          setup_script: draft.setup_script,
+          ...(env.length > 0 ? { env } : {}),
+        });
+        if (saved) setOpen(false);
+      }}
+      onCancel={() => setOpen(false)}
+    />
+  );
+}
+
+/** What the form holds: the fields of `cloud.environment.set`, trimmed on Save. */
+export type EnvironmentDraft = {
+  name: string;
+  repo: string;
+  setup_script: string;
+  env: CloudEnvironmentVariable[];
+};
+
+const variableValue = (variable: CloudEnvironmentVariable) =>
+  "secret" in variable ? variable.secret : variable.value;
+
+const sameEnv = (a: CloudEnvironmentVariable[], b: CloudEnvironmentVariable[]) =>
+  JSON.stringify(a) === JSON.stringify(b);
+
+/** An edit's Save names only what changed, so a rename alone leaves the built snapshot fresh. */
+export function editRun(row: CloudEnvironmentRow, draft: EnvironmentDraft): CloudEnvironmentsRun {
+  const env = draft.env.filter((variable) => variable.name);
+  return {
+    action: "save",
+    id: row.id,
+    name: draft.name,
+    ...(draft.repo !== (row.repo ?? "") ? { repo: draft.repo } : {}),
+    ...(draft.setup_script !== row.setup_script ? { setup_script: draft.setup_script } : {}),
+    ...(sameEnv(env, row.env ?? []) ? {} : { env }),
+  };
+}
+
+/** The Add and Edit form: name, repository, the setup script on its own lines, and the variables. */
+export function EnvironmentForm({
+  row,
+  busy,
+  onSave,
+  onCancel,
+}: {
+  row?: CloudEnvironmentRow;
+  busy: boolean;
+  onSave: (draft: EnvironmentDraft) => void | Promise<void>;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(row?.name ?? "");
+  const [repo, setRepo] = useState(row?.repo ?? "");
+  const [setup, setSetup] = useState(row?.setup_script ?? "");
+  const [env, setEnv] = useState<CloudEnvironmentVariable[]>(row?.env ?? []);
+  const setVariable = (index: number, next: CloudEnvironmentVariable) =>
+    setEnv((rows) => rows.map((variable, at) => (at === index ? next : variable)));
+  const kinds = [
+    { value: "value", label: t("settingsPage.cloudEnvironments.variableValue") },
+    { value: "secret", label: t("settingsPage.cloudEnvironments.variableSecret") },
+  ];
+  return (
+    <div className="host-form environment-form" data-environments-form={row?.id ?? "new"}>
       <label className="host-field">
         <span className="row-help">{t("settingsPage.cloudEnvironments.name")}</span>
         <Input
@@ -181,20 +261,107 @@ function AddEnvironment({ busy, run }: { busy: boolean; run: (gesture: CloudEnvi
           onChange={(e) => setRepo(e.target.value)}
         />
       </label>
-      <label className="host-field">
+      <label className="environment-field">
         <span className="row-help">{t("settingsPage.cloudEnvironments.setup")}</span>
-        <Input
-          className="field"
+        <textarea
+          className="field environment-script font-mono"
           data-environment-field="setup"
           aria-label={t("settingsPage.cloudEnvironments.setup")}
           placeholder="bun install"
+          rows={4}
+          spellCheck={false}
           value={setup}
           onChange={(e) => setSetup(e.target.value)}
         />
       </label>
-      <Button type="button" className="button" data-environments="save" disabled={busy} onClick={() => void save()}>
-        {t("settingsPage.cloudEnvironments.save")}
-      </Button>
+      <div className="environment-field" data-environment-variables="">
+        <span className="row-help">{t("settingsPage.cloudEnvironments.variables")}</span>
+        {env.map((variable, index) => (
+          <div className="environment-variable" data-environment-variable={index} key={index}>
+            <Input
+              className="field font-mono"
+              data-variable-field="name"
+              aria-label={t("settingsPage.cloudEnvironments.name")}
+              placeholder="NAME"
+              value={variable.name}
+              onChange={(e) => setVariable(index, { ...variable, name: e.target.value })}
+            />
+            <Select
+              className="environment-variable-kind"
+              label={t("settingsPage.cloudEnvironments.variables")}
+              value={"secret" in variable ? "secret" : "value"}
+              options={kinds}
+              closeOnPick
+              onChange={(kind) =>
+                setVariable(
+                  index,
+                  kind === "secret"
+                    ? { name: variable.name, secret: variableValue(variable) }
+                    : { name: variable.name, value: variableValue(variable) },
+                )
+              }
+            />
+            <Input
+              className="field font-mono"
+              data-variable-field="value"
+              aria-label={
+                "secret" in variable
+                  ? t("settingsPage.cloudEnvironments.variableSecret")
+                  : t("settingsPage.cloudEnvironments.variableValue")
+              }
+              placeholder={"secret" in variable ? "openai" : ""}
+              value={variableValue(variable)}
+              onChange={(e) =>
+                setVariable(
+                  index,
+                  "secret" in variable
+                    ? { name: variable.name, secret: e.target.value }
+                    : { name: variable.name, value: e.target.value },
+                )
+              }
+            />
+            <Button
+              type="button"
+              className="button"
+              data-variable-action="remove"
+              onClick={() => setEnv((rows) => rows.filter((_, at) => at !== index))}
+            >
+              {t("settingsPage.remove")}
+            </Button>
+          </div>
+        ))}
+        <span>
+          <Button
+            type="button"
+            className="button"
+            data-environment-action="add-variable"
+            onClick={() => setEnv((rows) => [...rows, { name: "", value: "" }])}
+          >
+            {t("settingsPage.cloudEnvironments.addVariable")}
+          </Button>
+        </span>
+      </div>
+      <div className="host-actions">
+        <Button
+          type="button"
+          className="button"
+          data-environments="save"
+          disabled={busy || !name.trim()}
+          onClick={() =>
+            void onSave({
+              name: name.trim(),
+              repo: repo.trim(),
+              setup_script: setup,
+              env: env.map((variable) => ({ ...variable, name: variable.name.trim() })),
+            })
+          }
+        >
+          {t("settingsPage.cloudEnvironments.save")}
+        </Button>
+        <Button type="button" className="button" data-environments="cancel" disabled={busy} onClick={onCancel}>
+          {t("settingsPage.cancel")}
+        </Button>
+      </div>
     </div>
   );
 }

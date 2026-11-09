@@ -753,6 +753,10 @@ export class MockSettingsProvider {
         name: "web",
         repo: "manaflow-ai/cmux@feat-cmux-next",
         setup_script: "cd web && bun install",
+        env: [
+          { name: "NODE_ENV", value: "development" },
+          { name: "OPENAI_API_KEY", secret: "openai" },
+        ],
         status: "ready",
         error: null,
         log_tail: null,
@@ -762,6 +766,7 @@ export class MockSettingsProvider {
         name: "api",
         repo: "octo/api",
         setup_script: "make deps",
+        env: [],
         status: "failed",
         error: "setup exited 3",
         log_tail: "lockfile mismatch",
@@ -779,6 +784,26 @@ export class MockSettingsProvider {
         return {};
       case "save":
         if (!run.name.trim()) return { error: "Name must be 1-80 characters." };
+        if (run.id) {
+          // Like CloudDO: a rename alone keeps the snapshot; a repo, script or variable edit makes it stale.
+          const builds = run.repo !== undefined || run.setup_script !== undefined || run.env !== undefined;
+          this.environments = {
+            ...this.environments,
+            environments: rows.map((row) =>
+              row.id === run.id
+                ? {
+                    ...row,
+                    name: run.name,
+                    repo: run.repo === undefined ? row.repo : run.repo || null,
+                    setup_script: run.setup_script ?? row.setup_script,
+                    env: run.env ?? row.env,
+                    status: builds && row.status === "ready" ? "stale" : row.status,
+                  }
+                : row,
+            ),
+          };
+          return {};
+        }
         this.environments = {
           ...this.environments,
           environments: [
@@ -788,6 +813,7 @@ export class MockSettingsProvider {
               name: run.name,
               repo: run.repo || null,
               setup_script: run.setup_script ?? "",
+              env: run.env ?? [],
               status: "unbuilt",
               error: null,
               log_tail: null,
