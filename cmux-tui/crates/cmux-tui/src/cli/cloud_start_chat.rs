@@ -1823,8 +1823,7 @@ mod fault;
 mod folder;
 use folder::local_folder;
 mod support;
-use support::{at, last_turn, reply, words};
-pub(super) use support::sections;
+use support::{at, last_turn, reply, sections, words};
 
 #[cfg(test)]
 pub(in crate::cli) mod tests;
