@@ -220,6 +220,11 @@ public extension PageDescriptor {
         id: "cmux.apps", resource: "apps", namespaces: ["cmux.apps."], nativeOps: [PageNativeOp.actionRun],
         actions: ["app.open"], dynamicPrefixes: [AppsPageNativeOps.glyphPrefix])
 
+    /// The cross-harness skills, MCP server and plugin directory. Mutations are
+    /// confirmed by the page owner before reaching the local daemon.
+    static let skills = PageDescriptor(
+        id: "cmux.skills", resource: "skills", namespaces: ["cmux.skills."])
+
     /// The CodeRouter page (coordinator decision: a separate page for the CodeRouter dashboard;
     /// Settings > Accounts links to it). Its ops are the CodeRouter app's `coderouter.*` family;
     /// the page runs only three account actions. Connect adds a credential, so it is the host op

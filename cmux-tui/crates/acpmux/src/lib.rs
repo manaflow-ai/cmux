@@ -162,6 +162,7 @@ mod session_scope;
 pub mod session_search;
 pub mod session_status;
 pub mod sha256;
+pub mod skills_directory;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
 pub mod memory_inbox;
 pub mod shadow_admission;

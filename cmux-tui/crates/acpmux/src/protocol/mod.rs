@@ -186,6 +186,10 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("catalog.get", Request),
         untyped("catalog.refresh", Request),
         untyped("catalog.changed", Notification),
+        untyped("skills.directory.list", Request),
+        untyped("skills.directory.install", Request),
+        untyped("skills.directory.remove", Request),
+        untyped("skills.directory.status", Request),
         // Embedded tailnet controls (also report not_built in unsupported builds).
         untyped(method::MUX_TAILNET_LOGIN, Request),
         untyped(method::MUX_TAILNET_LOGOUT, Request),
