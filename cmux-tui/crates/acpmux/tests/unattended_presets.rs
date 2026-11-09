@@ -305,6 +305,34 @@ async fn a_held_start_keeps_an_approved_presets_policy_only_for_its_own_contents
     assert_ne!(app.level(&added).await.1, json!("approve-all"), "a request's own harness rode it");
 }
 
+/// A held chat that got its policy from an approved preset keeps it only while its agent runs the
+/// approved contents: after an edit, the respawn runs asking (review 2 F1 of #39333).
+#[test]
+fn a_held_chat_respawned_from_edited_preset_contents_runs_asking() {
+    big_stack(async {
+        let hub = hub_with(true);
+        let mut app = Client::person(&hub).await;
+        app.ok(
+            "_acpmux/presets",
+            json!({"name": PRESET, "set": {"harness": "fake", "policy": "approve-all"}, "approveMode": true}),
+        )
+        .await;
+        let asking = starter(&mut app, "ask", "strict").await;
+        let mut agent = Client::as_session(&hub, &asking).await;
+        let child = id(&agent.ok("session/new", new_params(json!({"preset": PRESET}))).await);
+        assert_eq!(app.level(&child).await.1, json!("approve-all"));
+        // Any client may change the preset's model; the approval no longer covers it.
+        agent.ok("_acpmux/presets", json!({"name": PRESET, "set": {"model": "m2"}})).await;
+        let prompt =
+            |text: &str| json!({"sessionId": child, "prompt": [{"type": "text", "text": text}]});
+        app.ok("session/prompt", prompt("answer-then-exit")).await;
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        // The next prompt respawns the harness from the changed preset.
+        app.ok("session/prompt", prompt("hello")).await;
+        assert_eq!(app.level(&child).await.1, json!("ask"), "the edited preset kept approve-all");
+    });
+}
+
 /// The session/new handler's future is deeper than a debug build's 2 MiB worker stack, as in
 /// `tests/inherit_start.rs`.
 fn big_stack(f: impl std::future::Future<Output = ()>) {

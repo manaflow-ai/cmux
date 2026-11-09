@@ -373,6 +373,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         watching: None,
         composer_draft: None,
         preset_mode_approval: None,
+        preset_policy_approval: None,
         bookmarks: Default::default(),
         tools: Default::default(),
         // Read off the async runtime by `session/new` (`adoption::start_folder`).

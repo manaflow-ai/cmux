@@ -158,16 +158,21 @@ impl Hub {
         // A no-prompt preset the person approved for the contents this start resolved, with
         // nothing of the request's own (`unattended_presets.rs`): its policy holds whatever the
         // starter's, but in a sub-session.
-        let approved_preset = match preset_name.as_deref().filter(|_| preset_only) {
-            Some(n) => self.config.read().await.presets.get(n).is_some_and(|p| {
-                p.policy_approved()
+        // Checked here on the resolved contents, and again on the spawned ones below.
+        let approved_digest = match preset_name.as_deref().filter(|_| preset_only) {
+            Some(n) => self.config.read().await.presets.get(n).and_then(|p| {
+                let fits = p.policy_approved()
                     && p.approval_digest() == preset_digest
-                    && p.policy == defaults.policy
+                    && p.policy == defaults.policy;
+                fits.then(|| p.mode_approval.clone()).flatten()
             }),
-            None => false,
+            None => None,
         };
+        let excepted = held && approved_digest.is_some() && subsession.is_none();
+        // The starter whose limits hold after all when the agent spawned from other contents.
+        let excepted_starter = if excepted { starter.clone() } else { None };
         let limits_from = match starter.as_deref() {
-            Some(_) if held && approved_preset && subsession.is_none() => None,
+            Some(_) if excepted => None,
             Some(id) if !held && subsession.is_none() => {
                 let full = self.resolve(id).ok().is_some_and(|s| {
                     self.caller_access(&s.meta()) == super::subsession_guard::Access::Full
@@ -530,6 +535,16 @@ impl Hub {
             let starter = limits_from.as_deref();
             Box::pin(self.hold_to_starter(&session, starter, inherits_policy, mode_eligible))
                 .await?;
+            // An approved preset's exception holds only for the contents the agent spawned from
+            // (review 2 F1 of #39333): else the starter's limits apply after all.
+            if let (Some(theirs), Some(digest)) = (excepted_starter.as_deref(), &approved_digest) {
+                if self.spawned_from(&session, digest) {
+                    self.note_policy_approval(&session, digest);
+                } else {
+                    Box::pin(self.hold_to_starter(&session, Some(theirs), true, mode_eligible))
+                        .await?;
+                }
+            }
             // Every chat, eligible or not: a preset's or a pinned profile's policy holds too.
             let default = self.config.read().await.permission_policy;
             if must_hold {

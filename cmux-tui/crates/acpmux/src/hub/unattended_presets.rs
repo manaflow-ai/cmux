@@ -34,7 +34,12 @@
 //!     have, are forwarded as before: the peer resolves the name.
 //! - A start on this machine already takes a preset's policy when its starter's limits do not
 //!   apply (`lifecycle.rs`); under `holdAgentStartsToStarter` an approved no-prompt preset's
-//!   policy holds too, except for a sub-session, which stays within its parent.
+//!   policy holds too, except for a sub-session, which stays within its parent, and only for a
+//!   request that adds nothing of its own. The contents are read again at the spawn (args, env,
+//!   system prompt), so the exception holds only when the agent spawned from the approved digest
+//!   (`preset_bind.rs` `spawned_from`), else the starter's limits apply after all; the session
+//!   records the digest (`preset_policy_approval`), and a later spawn from other contents runs
+//!   it under `ask`.
 
 use super::*;
 use cmux_json::JsonSet as _;
