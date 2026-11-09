@@ -133,7 +133,8 @@ export function createFrameBudget(doc: Document, clock?: Clock): FrameBudget {
   const view = doc.defaultView;
   const time: Clock = clock ?? {
     now: () => view?.performance?.now() ?? Date.now(),
-    frame: (callback) => (typeof view?.requestAnimationFrame === "function" ? view.requestAnimationFrame(callback) : -1),
+    frame: (callback) =>
+      typeof view?.requestAnimationFrame === "function" ? view.requestAnimationFrame(callback) : -1,
     cancel: (handle) => {
       if (handle >= 0 && typeof view?.cancelAnimationFrame === "function") view.cancelAnimationFrame(handle);
     },

@@ -8,7 +8,13 @@
 // the person's prompt waits stays the live line, under the prompt.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { AFTER_SEND, LIVE_THINKING, SUPERSEDED, THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import {
+  AFTER_SEND,
+  LIVE_THINKING,
+  SUPERSEDED,
+  THINKING,
+  turnView,
+} from "../src/agent-session/acpmux/conversation/turns";
 
 const START = Date.UTC(2026, 10, 9, 19, 0, 0);
 const at = (second: number) => START + second * 1000;
@@ -47,7 +53,12 @@ for (const family of ["claude", "codex"]) {
     // The read ran when the person sent at 10 s (Leo's case): while it runs the live line names it,
     // under the prompt.
     const running = view(
-      [prompt, reply, row("act-1", "activity", 3, { items: [call("c-1", "Read relay.ts", "read", 3)] }), steer("waiting")],
+      [
+        prompt,
+        reply,
+        row("act-1", "activity", 3, { items: [call("c-1", "Read relay.ts", "read", 3)] }),
+        steer("waiting"),
+      ],
       family,
     );
     expect(running.at(-1)!.id).toBe(LIVE_THINKING);
@@ -56,7 +67,12 @@ for (const family of ["claude", "codex"]) {
     expect(running.some((each) => callIds([each], each.id).includes("c-1"))).toBe(false);
     // It ends at 12 s: its row comes after the prompt, and nothing above the prompt changed.
     const done = view(
-      [prompt, reply, row("act-1", "activity", 3, { items: [call("c-1", "Read relay.ts", "read", 3, 12)] }), steer("landed")],
+      [
+        prompt,
+        reply,
+        row("act-1", "activity", 3, { items: [call("c-1", "Read relay.ts", "read", 3, 12)] }),
+        steer("landed"),
+      ],
       family,
     );
     const list = ids(done);
@@ -100,7 +116,12 @@ for (const family of ["claude", "codex"]) {
 }
 
 test("a compaction running when the person sends stays the live line, under the prompt", () => {
-  const shaped = view([prompt, reply, row("compaction-9", "compaction", 5, { compaction: { state: "running" } }), steer("waiting")]);
+  const shaped = view([
+    prompt,
+    reply,
+    row("compaction-9", "compaction", 5, { compaction: { state: "running" } }),
+    steer("waiting"),
+  ]);
   const line = shaped.at(-1)!;
   expect(line.kind).toBe(THINKING);
   expect(line.liveState).toBe("compacting");

@@ -44,7 +44,11 @@ for (const family of ["claude", "codex"])
     const live = turnView(running("landed"), new Set(), { ...options, working: true });
     expect(live.some((each) => each.id === `${SUPERSEDED}-s1`)).toBe(false);
     const view = turnView(
-      [...running("landed"), row("r2", "assistant", { text: "Seed is hooked in." }), row("sum", "turnSummary", { status: "completed" })],
+      [
+        ...running("landed"),
+        row("r2", "assistant", { text: "Seed is hooked in." }),
+        row("sum", "turnSummary", { status: "completed" }),
+      ],
       new Set(),
       options,
     );
