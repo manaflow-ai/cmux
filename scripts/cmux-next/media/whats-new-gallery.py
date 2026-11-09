@@ -159,9 +159,20 @@ SELECTED_NOTE = re.compile(r"""^\s*note:\s*[\"'`]Selected\b""")
 
 
 def _noted(variant: str, lines: list[str], mark: re.Pattern) -> bool:
-    """Whether `variant`'s note, within 2 lines of its key, matches `mark`."""
+    """Whether `variant`'s own note matches `mark`: the least indented `note:` line of its block (the lines after
+    its key that are indented deeper), wherever its props, snapshot or play put it."""
     start = next((i for i, line in enumerate(lines) if _key(variant).search(line)), None)
-    return start is not None and any(mark.search(line) for line in lines[start + 1:start + 3])
+    if start is None:
+        return False
+    depth = len(lines[start]) - len(lines[start].lstrip())
+    notes = []
+    for line in lines[start + 1:]:
+        if line.strip() and len(line) - len(line.lstrip()) <= depth:
+            break
+        if re.match(r"\s*note:", line):
+            notes.append(line)
+    own = min(notes, key=lambda line: len(line) - len(line.lstrip()), default="")
+    return bool(own and mark.search(own))
 
 
 def changed_lines(commit: str, path: str) -> set[int]:
