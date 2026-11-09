@@ -371,6 +371,52 @@ class FixerFilesNeverRunAsTrustedPython(unittest.TestCase):
         self.assertEqual((self.checkout / "Sources/A.swift").read_text(), "let a = 1\n")
         self.assertEqual(self.untracked(), [])
 
+    def git_dir_trap(self, marker: Path) -> None:
+        """What a fixer that can write .git could leave: an fsmonitor command in .git/config and a post-checkout
+        hook, each of which runs MARKER's touch inside any later git command that reads the index or checks out."""
+        hook = self.tmp / "trap.sh"
+        hook.write_text(f"#!/bin/sh\ntouch '{marker}'\n")
+        hook.chmod(0o755)
+        with (self.checkout / ".git/config").open("a") as config:
+            config.write(f"[core]\n\tfsmonitor = {hook}\n")
+        post_checkout = self.checkout / ".git/hooks/post-checkout"
+        post_checkout.parent.mkdir(exist_ok=True)
+        post_checkout.write_text(f"#!/bin/sh\ntouch '{marker}'\n")
+        post_checkout.chmod(0o755)
+
+    def test_git_after_the_fixer_runs_no_fsmonitor_or_hook(self):
+        for mechanical in ("true", "false"):
+            with self.subTest(mechanical=mechanical):
+                for path in list(self.checkout.iterdir()):
+                    subprocess.run(["rm", "-rf", str(path)], check=True)
+                self.output.write_text("")
+                self.make_checkout()
+                marker = self.tmp / f"ran-{mechanical}"
+                self.git_dir_trap(marker)
+                result = self.run_step("Keep only a small mechanical diff", MECHANICAL=mechanical)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(marker.exists(), "a git command after the fixer ran a command from .git")
+
+    def test_a_fixer_that_changes_git_decides_nothing(self):
+        # The fixer edits a tracked file, writes an fsmonitor command into .git/config and answers "mechanical".
+        (self.checkout / "scripts").symlink_to(ROOT / "scripts")
+        (self.checkout / "Sources").mkdir()
+        (self.checkout / "Sources/A.swift").write_text("let a = 1\n")
+        self.git("init", "-q", "-b", "main")
+        self.git("add", "Sources")
+        self.git("commit", "-qm", "main")
+        report = self.tmp / "compile-report.json"
+        report.write_text(json.dumps({"head": "a" * 40, "fix": {
+            "break": {"errors": ["Sources/A.swift:1:1: error: x"]},
+            "culprit": {"pr": 1, "sha": "b" * 40, "title": "t"}}}))
+        self.tool("npm", "exit 0\n")
+        self.tool("claude", "echo 'let a = 2' > Sources/A.swift\n"
+                  "printf '[core]\\n\\tfsmonitor = touch planted-fsmonitor\\n' >> .git/config\n"
+                  "echo '{\"structured_output\": {\"mechanical\": true, \"summary\": \"fixed\"}}'\n")
+        result = self.run_step("Ask the fixer for a mechanical fix", REPORT=str(report))
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("decided=true", self.output.read_text().splitlines())
+
 
 if __name__ == "__main__":
     unittest.main()
