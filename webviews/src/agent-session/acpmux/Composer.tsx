@@ -901,6 +901,13 @@ function ComposerFrame({
   // before what was typed meanwhile, so nothing typed is ever replaced.
   const newChatKey = useNewChatStash();
   const stashChat = sessionId ?? newChatKey;
+  /// A stash or a restore is the person's own edit, as typing is: a durable draft read still out
+  /// for this chat merges with it (applyDraftRead) instead of writing acpmux's older draft over a
+  /// restored one whose stashed copy is already dropped.
+  const stashEdited = () => {
+    if (hydratedSession.current !== sessionId) editedBeforeHydration.current = true;
+    noteDraftEdited(sessionId);
+  };
   const {
     stashed,
     unstash,
@@ -914,6 +921,7 @@ function ComposerFrame({
     // for both): clearing would cancel it.
     loading: () => pendingRef.current.length > 0 || originalUploadsRef.current.size > 0,
     clear: () => {
+      stashEdited();
       notTyped();
       if (!field.current?.type("")) {
         setText("");
@@ -922,7 +930,10 @@ function ComposerFrame({
       attachmentsRef.current = attachmentsRef.current.filter((chip) => chip.shellRun);
       setAttachments((current) => current.filter((chip) => chip.shellRun));
     },
-    restore: (restoredText, restoredAttachments) => restoreDraft(restoredText, restoredAttachments),
+    restore: (restoredText, restoredAttachments) => {
+      stashEdited();
+      restoreDraft(restoredText, restoredAttachments);
+    },
     focus: () => field.current?.focus(),
   });
   // A new chat's stack follows the chat the tab shows: into its session once it has one, and to
