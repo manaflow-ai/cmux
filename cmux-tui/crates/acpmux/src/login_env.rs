@@ -1406,7 +1406,10 @@ fn startup_files() -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod machine_file_tests {
-    use super::{DELIVERED, allowed, delivered_names_in, machine_files_stamp_in, startup_files};
+    use super::{
+        DELIVERED, allowed, delivered_names_in, is_secret, machine_files_stamp_in, startup_files,
+        storable,
+    };
 
     /// A delivered name is not on the allow-list itself: only the local
     /// spawn paths (`pairs_for`) add it, so nested-session restoration and
@@ -1433,6 +1436,72 @@ mod machine_file_tests {
         assert!(allowed("META_API_KEY", "secret", Some("muse")));
         assert!(!allowed("MUSE_API_KEY", "secret", Some("gemini")));
         assert!(!allowed("META_API_KEY", "secret", Some("claude")));
+    }
+
+    /// A provider key exported in the login shell reaches the harnesses that
+    /// sign in with any provider's key (OpenCode, pi and its forks, cmux
+    /// Harness, Hermes) and no other family; it is kept as a secret, and no
+    /// other token comes in with it.
+    #[test]
+    fn provider_keys_reach_multi_provider_harnesses_only() {
+        const KEYS: [&str; 14] = [
+            "OPENROUTER_API_KEY",
+            "GROQ_API_KEY",
+            "TOGETHER_API_KEY",
+            "FIREWORKS_API_KEY",
+            "DEEPSEEK_API_KEY",
+            "MISTRAL_API_KEY",
+            "XAI_API_KEY",
+            "CEREBRAS_API_KEY",
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "GEMINI_API_KEY",
+            "GOOGLE_API_KEY",
+            "GOOGLE_GENERATIVE_AI_API_KEY",
+            "HF_TOKEN",
+        ];
+        for family in ["opencode", "pi", "omp", "cmux-harness", "hermes"] {
+            for key in KEYS {
+                assert!(allowed(key, "dummy", Some(family)), "{family} gets {key}");
+            }
+            assert!(allowed("OPENAI_BASE_URL", "http://127.0.0.1:11434/v1", Some(family)));
+            assert!(allowed("ANTHROPIC_BASE_URL", "https://gateway.example", Some(family)));
+            // Explicit names only: no prefix, and no other token.
+            for key in [
+                "OPENROUTER_REFERER_TOKEN",
+                "GROQ_SECRET",
+                "OPENAI_ORG_TOKEN",
+                "ANTHROPIC_AUTH_TOKEN",
+                "CLAUDE_CODE_OAUTH_TOKEN",
+                "CODEX_API_KEY",
+                "GITHUB_TOKEN",
+                "GH_TOKEN",
+                "NPM_TOKEN",
+                "AWS_SECRET_ACCESS_KEY",
+                "STRIPE_API_KEY",
+            ] {
+                assert!(!allowed(key, "dummy", Some(family)), "{family} never gets {key}");
+            }
+        }
+        // Every other family keeps its own list.
+        for key in ["OPENROUTER_API_KEY", "GROQ_API_KEY", "DEEPSEEK_API_KEY", "HF_TOKEN"] {
+            for family in [None, Some("claude"), Some("codex"), Some("gemini"), Some("muse")] {
+                assert!(!allowed(key, "dummy", family), "{family:?} never gets {key}");
+            }
+            for family in ["chief", "unii", "cursor", "fake"] {
+                assert!(!allowed(key, "dummy", Some(family)), "{family} never gets {key}");
+            }
+        }
+        assert!(!allowed("OPENAI_API_KEY", "dummy", Some("claude")));
+        assert!(!allowed("ANTHROPIC_API_KEY", "dummy", Some("codex")));
+        // Kept in memory as secrets: their names, never their values, reach the cache.
+        for key in KEYS {
+            assert!(storable(key, "dummy"), "{key} is kept");
+            assert!(is_secret(key, "dummy"), "{key} is a secret");
+        }
+        assert!(storable("OPENAI_BASE_URL", "http://127.0.0.1:11434/v1"));
+        assert!(!storable("GITHUB_TOKEN", "dummy"));
+        assert!(!storable("STRIPE_API_KEY", "dummy"));
     }
 
     /// Only the names of a delivered file, in the receiver's format; a link
