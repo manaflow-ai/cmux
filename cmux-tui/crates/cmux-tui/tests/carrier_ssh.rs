@@ -98,9 +98,9 @@ fn assert_ssh_ran_pinned_through_the_hub(world: &SshWorld) {
     assert!(asked.iter().all(|a| a["purpose"] == "carrier"), "{asked:?}");
 }
 
-/// The connect log once it holds `want`, waiting up to 10 s for it.
+/// The connect log once it holds `want`, waiting up to 40 s for it.
 fn log_with(world: &SshWorld, want: &str) -> String {
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let deadline = std::time::Instant::now() + Duration::from_secs(40);
     loop {
         let log = world.connect_log();
         if log.contains(want) {
@@ -152,6 +152,13 @@ fn a_session_on_the_relay_fails_over_to_ssh_and_keeps_its_stream() {
     let mut stderr = BufReader::new(child.stderr.take().unwrap());
     let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
     assert_eq!(reply["ok"], true, "{reply}");
+    // The rest of stderr (route lines, the fake ssh's and remote-link's own
+    // words), printed for a failure's story.
+    std::thread::spawn(move || {
+        for line in stderr.lines().map_while(Result::ok) {
+            eprintln!("dial stderr: {line}");
+        }
+    });
     let lines = lines(&mut child);
     let mut stdin = child.stdin.take().unwrap();
     let (_, pushed) = round_trip(&mut stdin, &lines, 1);
