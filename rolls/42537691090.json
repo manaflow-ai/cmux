@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42537691090",
+  "recorded_at": "2026-11-09T00:07:42Z",
+  "reason": "cmux-tui 4e56f97d02e3 changes the image's cmux-tui (pinned 3343dd4eabad)",
+  "dry_run": false,
+  "cmux_tui": "4e56f97d02e3905d33c8026c70538796958dbd52",
+  "fixes": [
+    {
+      "sha": "6b75fd1a01b93d409f109c40ab728ff084b3f9fc",
+      "mergedAt": "2026-11-08T15:37:49-08:00",
+      "subject": "Ultra Connection Mode: a setting that turns cmux-wg ultra mode on (Mac, and iPhone on cellular) (#38904)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T00:07:42Z",
+    "snapshot_id": "sh-78712b2ce4554911bba2c1f8456aa991",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42537691090): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1f0409f3ec49338301c442bb7a401efbf08eea50",
+    "image": "cloud-native-auto-4e56f97d-42537691090-1",
+    "revision": "ci-42537691090-1",
+    "at": "2026-11-09T00:07:42Z"
+  },
+  "rolled_back": false
+}
