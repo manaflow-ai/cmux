@@ -11,7 +11,8 @@ import Foundation
 ///
 /// Each write stops at its answer, at a refusal, or once its read no longer stands (`stands`): the daemon's record
 /// settled it (read, or a newer notification the person has not seen), the person changed it, or its daemon was
-/// torn down. A read also belongs to the daemon it was made on (`current`): a daemon of another generation numbers
+/// torn down (`alive`), which rolls it back too: the next daemon's record shows what it holds. A read also belongs to
+/// the daemon it was made on (`current`): a daemon of another generation numbers
 /// its notifications and surfaces anew, so the same number there may be a notification the person never saw, and a
 /// removed tab's handle may be another tab's. Once `current` fails the write ends and the read rolls back: the new
 /// record shows what it holds.
@@ -72,7 +73,7 @@ import Foundation
         // A read of this notification already on its way stands for this one too.
         let key = "\(tab.id)#\(reading.rawValue)"
         guard sending.insert(key).inserted else { return nil }
-        return send(stands: { tab.readingNotification == reading && alive() }, current: current,
+        return send(stands: { tab.readingNotification == reading }, current: { alive() && current() },
                     refused: { _ in tab.dropExpectedNotificationRead() }, answered: answered,
                     ended: { [weak self] in self?.sending.remove(key) }) {
             // The tab's surface as it is at this try: a daemon that came back may number it anew.
@@ -87,7 +88,7 @@ import Foundation
                                   current: @escaping @MainActor () -> Bool = { true },
                                   _ write: @escaping @MainActor () async throws -> Void) -> Task<Void, Never> {
         tab.expectMarkedUnread(false)
-        return send(stands: { tab.expectsMarkedUnread(false) && alive() }, current: current,
+        return send(stands: { tab.expectsMarkedUnread(false) }, current: { alive() && current() },
                     refused: { _ in tab.dropExpectedMarkedUnread(false) }, write)
     }
 
@@ -97,7 +98,7 @@ import Foundation
     public func clearAttention(_ request: TabAttention, of tab: TabModel, alive: @escaping @MainActor () -> Bool = { true },
                                current: @escaping @MainActor () -> Bool = { true },
                                _ write: @escaping @MainActor () async throws -> Void) -> Task<Void, Never> {
-        send(stands: { tab.expectsAttentionClear(request) && alive() }, current: current,
+        send(stands: { tab.expectsAttentionClear(request) }, current: { alive() && current() },
              refused: { _ in tab.dropExpectedAttentionClear(request) }, write)
     }
 }
