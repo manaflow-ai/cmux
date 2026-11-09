@@ -1337,7 +1337,8 @@ _cmux_terminal_history_prompt() {
 # while PROMPT_COMMAND runs, so it reads 1 there.
 
 # Sets _CMUX_BASH_HISTORY_NUMBER and _CMUX_BASH_HISTORY_TEXT from `history 1`
-# without a subshell.
+# without a subshell. An empty list (after `history -c`) reads as number 0, so
+# the next command, which bash numbers from 1 again, still counts as new.
 _cmux_bash_read_last_history_entry() {
     _CMUX_BASH_HISTORY_NUMBER=""
     _CMUX_BASH_HISTORY_TEXT=""
@@ -1345,6 +1346,10 @@ _cmux_bash_read_last_history_entry() {
     local line="" HISTTIMEFORMAT=
     builtin history 1 >| "$_CMUX_BASH_HISTORY_ENTRY_FILE" 2>/dev/null || return 1
     IFS= read -r line < "$_CMUX_BASH_HISTORY_ENTRY_FILE" || line=""
+    if [[ -z "$line" ]]; then
+        _CMUX_BASH_HISTORY_NUMBER=0
+        return 0
+    fi
     [[ "$line" =~ ^[[:space:]]*([0-9]+)\*?[[:space:]]+(.*)$ ]] || return 1
     _CMUX_BASH_HISTORY_NUMBER="${BASH_REMATCH[1]}"
     _CMUX_BASH_HISTORY_TEXT="${BASH_REMATCH[2]}"

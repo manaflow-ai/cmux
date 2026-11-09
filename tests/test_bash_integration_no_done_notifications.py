@@ -352,6 +352,15 @@ def test_bash_prompt_history_ignores_other_terminals_history() -> None:
                 bash.run("")
                 bash.run("gh pr merge 11")
                 bash.run("")
+
+                # Clearing history restarts bash's numbering at 1; the next
+                # command must still count as new. Drop the shared-history
+                # hooks first, since `history -n` would refill the list.
+                bash.run(' PROMPT_COMMAND="${PROMPT_COMMAND%%;history -a*}"')
+                bash.run("true")
+                bash.run("history -c")
+                bash.run("gh pr merge 13")
+                bash.run("")
                 bash.run("false")
                 bash.run("echo status=$?")
 
@@ -362,7 +371,7 @@ def test_bash_prompt_history_ignores_other_terminals_history() -> None:
             ]
             expected_payloads = [
                 f'report_pr_action merge --tab=tab-test --panel=panel-test --target="{target}"'
-                for target in ("7", "9", "11")
+                for target in ("7", "9", "11", "13")
             ]
             if actual_payloads != expected_payloads:
                 raise AssertionError(
