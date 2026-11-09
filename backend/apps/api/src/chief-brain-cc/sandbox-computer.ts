@@ -216,7 +216,8 @@ const shot = async (b: ChiefBrainDO, id: string): Promise<string> => {
  * succeeds carries a note to look again first.
  *
  * The lease is checked when a Chief action starts: an action already running (a type of a long text, an exec) may
- * finish after the person takes over.
+ * finish after the person takes over. A desktop setup checks again when its exec ends, before it writes anything: it
+ * runs for minutes and would end the person's hold by making a computer.
  */
 export const CONTROL_KEY = "cc_computer_control"
 export type Holder = "chief" | "human"
@@ -304,6 +305,8 @@ export const computerVerb = async (b: ChiefBrainDO, id: string, state: string, r
   if (op === "setup") {
     const r = await execAs(b, id, { command: script(SETUP), timeout_ms: 290_000, user: "root" })
     if (r.exit !== 0) return { status: 502, json: { error: `the desktop did not install (exit ${r.exit})`, stderr: r.stderr.slice(-2000) } }
+    // The person took over while it ran: their lease and the computer they hold stay, and this sandbox does not replace it.
+    if (humanHasControl(b)) return humanHasControlRefusal(b)
     const now = Date.now()
     const driver = /driver cua-driver/.test(r.stdout) ? "cua-driver" : "xdotool"
     // A new computer starts with the Chief in control.

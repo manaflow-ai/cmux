@@ -262,6 +262,63 @@ const failSetup = (): (() => void) => {
   return () => void spy.mockImplementation(inner)
 }
 
+/** While sandbox `vm`'s desktop setup runs on the fake, `during` runs first (the fetch fake of fakeCloud wrapped); the returned function undoes it. */
+const duringSetup = (vm: () => string | undefined, during: () => Promise<unknown>): (() => void) => {
+  const spy = vi.mocked(globalThis.fetch)
+  const inner = spy.getMockImplementation()!
+  spy.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = new Request(input, init)
+    const exec = /\/v5\/vms\/([^/]+)\/exec-await$/.exec(new URL(req.url).pathname)
+    if (req.method === "POST" && exec && exec[1] === vm()) {
+      const body = (await req.clone().json().catch(() => null)) as { command?: string } | null
+      if (body?.command?.includes("| base64 -d | bash")) await during()
+    }
+    return inner(req)
+  })
+  return () => void spy.mockImplementation(inner)
+}
+
+describe("the person takes over while a desktop setup runs", { timeout: 120_000 }, () => {
+  it("keeps the person's lease and the computer they hold, for another sandbox and for the same one", async () => {
+    const seen: Record<string, any> = {}
+    let setupOn: string | undefined
+    let token = ""
+    let agent = ""
+    const cloud = fakeCloud(
+      () => "computer",
+      async (s, n) => {
+        if (n !== 1) return
+        seen.a = (await call(s, { action: "create" })).body?.vm?.id
+        seen.setupA = await call(s, { action: "computer", id: seen.a, op: "setup" })
+        seen.b = (await call(s, { action: "create" })).body?.vm?.id
+        const undo = duringSetup(() => setupOn, async () => {
+          seen.took = await http("POST", `/v1/chiefs/${agent}/computer/control`, token, { action: "take_over" })
+        })
+        setupOn = seen.b
+        seen.switched = await call(s, { action: "computer", id: seen.b, op: "setup" })
+        seen.afterSwitch = (await http("GET", `/v1/chiefs/${agent}/computer`, token)).json.value
+        await http("POST", `/v1/chiefs/${agent}/computer/control`, token, { action: "hand_back" })
+        setupOn = seen.a
+        seen.again = await call(s, { action: "computer", id: seen.a, op: "setup" })
+        seen.afterAgain = (await http("GET", `/v1/chiefs/${agent}/computer`, token)).json.value
+        undo()
+      }
+    )
+    const made = await enabledChief("chief-cc-computer-setup-race", "cc")
+    token = made.token
+    agent = made.chief.id
+    expect((await send(token, made.chief.main_conversation, "k1", "use your computer")).ok).toBe(true)
+    await replies(token, made.chief.main_conversation, agent, 1)
+    expect(seen.setupA.status, JSON.stringify(seen.setupA)).toBe(200)
+    expect(seen.took.status, seen.took.text).toBe(200)
+    expect(seen.switched).toMatchObject({ status: 409, body: { code: "computer.human_has_control", control: { holder: "human", by: "human" } } })
+    expect(seen.afterSwitch).toMatchObject({ computer: { id: seen.a }, control: { holder: "human", by: "human" } })
+    expect(seen.again).toMatchObject({ status: 409, body: { code: "computer.human_has_control" } })
+    expect(seen.afterAgain).toMatchObject({ computer: { id: seen.a }, control: { holder: "human", by: "human" } })
+    expect(cloud.deleted).not.toContain(seen.a)
+  })
+})
+
 describe("a computer whose setup fails, and two asks at once", { timeout: 120_000 }, () => {
   it("deletes the sandbox a failed setup made, so a retry does not stack VMs, and makes one computer for two concurrent asks", async () => {
     const cloud = fakeCloud(() => "ok")
