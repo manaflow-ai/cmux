@@ -1,0 +1,177 @@
+{
+ "title": "Leo, 2026-11-09: a table opened from chat sits in the side panel on the right, and the line between it and the chat looked like a divider that could not be dragged. A reply's table opens in the side panel; its left edge then drags it wider, the chat narrowing with it (cmux#39090).",
+ "launch_args": [
+  "--showcase"
+ ],
+ "fakeHarness": {
+  "id": "fake",
+  "name": "Fake"
+ },
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "A wide window, so the chat has room for the panel beside it",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {
+     "frame": [
+      160,
+      85,
+      1600,
+      960
+     ]
+    }
+   },
+   "record": true,
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "A new agent chat",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "palette.newAgentChat",
+     "focus": true
+    }
+   },
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "On the fake harness",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "new_chat",
+     "harness": "fake"
+    }
+   },
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Hide the sidebar",
+   "cmux": [
+    "action",
+    "run",
+    "toggleSidebar"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "The chat alone in the window (zoom its pane)",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "toggleSplitZoom",
+     "target": "pane:{pane}"
+    }
+   },
+   "record": true,
+   "wait": 1.5,
+   "shot": false
+  },
+  {
+   "title": "A reply with a table (the fake agent echoes the prompt)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "Retried rows by failure, last 24 hours:\n\n| Failure | Retried rows |\n| --- | ---: |\n| 5xx | 412 |\n| Timeout | 187 |\n| 4xx | 23 |"
+    }
+   },
+   "wait": 4
+  },
+  {
+   "title": "Open table (the reply's, not the prompt's; the click reveals it as a Tab would, since a capture window gives no hover)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".cv-table-block:not(.cv-user .cv-table-block) button[aria-label=\"Open table\"]"
+    }
+   },
+   "record": true,
+   "wait": 2
+  },
+  {
+   "title": "Where the panel's edge is (a press that never moves changes nothing)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".acpmux-artifact > .ui-split-edge"
+    }
+   },
+   "record": true,
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "What lies under the drag's start point",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "hover",
+     "x": 864,
+     "y": 450
+    }
+   },
+   "record": true,
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Drag the panel's edge left, held",
+   "drag": {
+    "from": [
+     864,
+     450
+    ],
+    "to": [
+     714,
+     450
+    ],
+    "steps": 10,
+    "duration": 0.5,
+    "release": false
+   },
+   "wait": 0.5
+  },
+  {
+   "title": "On to the left, then drop",
+   "drag": {
+    "from": [
+     714,
+     450
+    ],
+    "to": [
+     564,
+     450
+    ],
+    "steps": 10,
+    "duration": 0.5,
+    "press": false
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "The page after the drop",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "readiness"
+    }
+   },
+   "record": true,
+   "wait": 0.2,
+   "shot": false
+  }
+ ]
+}
