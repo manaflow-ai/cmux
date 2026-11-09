@@ -9802,6 +9802,34 @@
       },
       "extra": false
     },
+    "DiffCommentsSendResult": {
+      "kind": "object",
+      "fields": {
+        "sent": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "How many comments the prompt carried: the length of ids."
+        },
+        "cleared": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "max_items": 500
+          },
+          "description": "The ids removed, in store order; a comment edited since the caller read it, or unknown, is not among them."
+        }
+      },
+      "extra": false
+    },
     "GitFileEntry": {
       "kind": "object",
       "fields": {
@@ -24630,6 +24658,103 @@
         "A stored comment is at most 64 KiB serialized (validation.invalid comment_too_large), and a root keeps at most 500 (operation.failed too_many_comments).",
         "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
         "operation.failed details.reason is the machine reason: no_state_directory (an in-memory session keeps no comments), too_many_comments or store_failed; extra.message explains it."
+      ]
+    },
+    "diff.comments.send": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "root": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The worktree root the comments belong to: an absolute path (starting with /, at most 4096 bytes, no NUL), used only as a key. Nothing reads the folder it names."
+          },
+          "acp_session": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The acpmux session id of a chat on this machine that gets the prompt: 1 to 128 visible ASCII characters."
+          },
+          "text": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 262144
+            },
+            "description": "The prompt the agent reads: every sent comment's block (file and line, the quoted lines, the comment), as the diff page writes it. Not blank, at most 256 KiB."
+          },
+          "ids": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 128
+              },
+              "min_items": 1,
+              "max_items": 500
+            },
+            "description": "The ids of the comments the prompt carries, 1 to 500; they are removed once the agent's session takes it."
+          },
+          "versions": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "Optional: each id's updatedAt as the caller last read it, at most 500. A sent comment whose updatedAt differs (edited since) is kept."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "DiffCommentsSendResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "The text goes to the acpmux session acp_session of this machine's acpmux as one prompt whose acpmux promptId is the idempotency key, queued behind a running turn and never steered into it; acpmux runs a prompt id once, so a retry under the same key never gives the agent the review twice.",
+        "Once acpmux takes the prompt, the named comments still at their versions are removed under the root's lock, as diff.comments.delete removes them; the root's lock is not held while acpmux takes the prompt. A refused send keeps every comment.",
+        "A replayed key returns the first result with replayed true and sends nothing; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: no_session (acpmux is not running, runs no such session, or moves it to another machine; nothing was sent), send_failed (acpmux refused the prompt), send_unsettled (the prompt went out and acpmux did not answer in time: the agent may have it, and a retry with the same key runs it once), no_state_directory or store_failed; extra.message explains it."
       ]
     },
     "frontend_projection.get": {

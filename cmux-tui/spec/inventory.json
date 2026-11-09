@@ -110,6 +110,7 @@
     "diff.comments.delete",
     "diff.comments.list",
     "diff.comments.save",
+    "diff.comments.send",
     "frontend_projection.get",
     "frontend_projection.put",
     "git.branches",

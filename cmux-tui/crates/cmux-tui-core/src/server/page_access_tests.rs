@@ -134,6 +134,7 @@ const FILE_SYSTEM: &[&str] = &[
     "diff.comments.list",
     "diff.comments.save",
     "diff.comments.delete",
+    "diff.comments.send",
     "session.journal.hook.put",
 ];
 

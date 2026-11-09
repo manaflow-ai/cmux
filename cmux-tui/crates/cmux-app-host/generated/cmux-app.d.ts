@@ -124,6 +124,7 @@ declare namespace Cmux {
   type DiffCommentsDeleteResult = { deleted: number; ids: Array<string> }
   type DiffCommentsListResult = { root: string; comments: Array<Cmux.DiffComment> }
   type DiffCommentsSaveResult = { comment: Cmux.DiffComment }
+  type DiffCommentsSendResult = { sent: number; cleared: Array<string> }
   type EgressHost = string
   type EmailAddress = string
   type EmailDomain = string

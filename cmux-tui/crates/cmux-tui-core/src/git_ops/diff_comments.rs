@@ -1,5 +1,5 @@
-//! `diff.comments.list|save|delete`: the diff page's review comments, kept
-//! by the session host until they are sent to the agent.
+//! `diff.comments.list|save|delete|send`: the diff page's review comments,
+//! kept by the session host until they are sent to the agent.
 //!
 //! Comments are keyed by a worktree root, an absolute path used only as a
 //! key: nothing reads the folder it names. Each root's comments are one
@@ -11,6 +11,10 @@
 //! Saves and deletes are keyed mutations in the session's
 //! `resource_mutations` ledger, serialized per root, so a retry replays the
 //! first result and concurrent writes never lose one another.
+//!
+//! A send (`send`) hands the caller's prompt to an acpmux session of this
+//! machine as one queued prompt; once acpmux takes it, the sent comments
+//! still at the caller's versions are removed, as a delete removes them.
 
 use std::collections::HashMap;
 use std::io;
@@ -28,8 +32,15 @@ use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_router::ParsedResourceRequest;
 use crate::{Mux, ResourceTarget};
 
+mod send;
+#[cfg(test)]
+#[path = "diff_comments/send_tests.rs"]
+mod send_tests;
+
 /// Advertised in identify: the session host owns `diff.comments.*`.
 pub(crate) const CAPABILITY: &str = "diff-comments-v1";
+/// Advertised in identify: the session host answers `diff.comments.send`.
+pub(crate) const SEND_CAPABILITY: &str = "diff-comments-send-v1";
 
 const DIRECTORY: &str = "diff-comments";
 /// The longest root, in bytes.
@@ -42,6 +53,10 @@ pub(super) const MAX_COMMENTS: usize = 500;
 pub(super) const MAX_DELETE_IDS: usize = 500;
 /// The longest caller-chosen id.
 const MAX_ID_LENGTH: usize = 128;
+/// The longest prompt a send hands over, in bytes.
+pub(super) const MAX_PROMPT_BYTES: usize = 256 * 1024;
+/// The longest acpmux session id a send names.
+const MAX_SESSION_LENGTH: usize = 128;
 
 pub(super) fn handles(operation: ResourceOperation) -> bool {
     matches!(
@@ -49,6 +64,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
         ResourceOperation::DiffCommentsList
             | ResourceOperation::DiffCommentsSave
             | ResourceOperation::DiffCommentsDelete
+            | ResourceOperation::DiffCommentsSend
     )
 }
 
@@ -74,6 +90,7 @@ pub(super) fn dispatch(
             let versions = versions(&request.fields)?;
             mutate(mux, &store, request, root, |file, _| Ok(delete(file, &ids, &versions)))
         }
+        ResourceOperation::DiffCommentsSend => send::send(mux, &store, request, root),
         // Dispatched only for the operations `handles` names; any other is refused, never a panic.
         _ => Err(ResourceError::operation_failed(
             operation,
@@ -95,12 +112,7 @@ fn mutate(
 ) -> Result<Value, ResourceError> {
     let operation = request.envelope.operation.wire_name();
     let key = super::checkpoint::mutation_key(request);
-    // Every diff comment mutation shares one identity: the root is in the
-    // fields, so a key reused for another root is idempotency.conflict.
-    let identity = Identity { repository_id: DIRECTORY, worktree_id: "" };
-    let selectors = serde_json::to_value(&request.selectors).unwrap_or(Value::Null);
-    let fields = Value::Object(request.fields.clone());
-    let fingerprint = ledger::fingerprint(operation, &selectors, &fields, &identity);
+    let fingerprint = fingerprint(request);
     store.exclusive(root, || {
         if let Some(replayed) = ledger::prior(mux, &key, operation, &fingerprint)? {
             return Ok(replayed);
@@ -112,6 +124,28 @@ fn mutate(
         }
         ledger::commit(mux, &key, operation, &fingerprint, &value, false, &request.actor)
     })
+}
+
+/// The fingerprint of a diff comment mutation. Every one shares one
+/// identity: the root is in the fields, so a key reused for another root is
+/// idempotency.conflict.
+fn fingerprint(request: &ParsedResourceRequest) -> Value {
+    let identity = Identity { repository_id: DIRECTORY, worktree_id: "" };
+    let selectors = serde_json::to_value(&request.selectors).unwrap_or(Value::Null);
+    let fields = Value::Object(request.fields.clone());
+    ledger::fingerprint(request.envelope.operation.wire_name(), &selectors, &fields, &identity)
+}
+
+/// A delivered send's clear: [`delete`]'s removal, answered as `{sent, cleared}`.
+fn cleared(
+    file: &mut File,
+    ids: &[String],
+    versions: &Map<String, Value>,
+    sent: usize,
+) -> (Value, bool) {
+    let (deleted, changed) = delete(file, ids, versions);
+    let cleared = deleted.get("ids").cloned().unwrap_or_else(|| json!([]));
+    (json!({"sent": sent, "cleared": cleared}), changed)
 }
 
 /// Stamps and stores `comment`: an edit of the comment its `id` names, or a
@@ -213,10 +247,36 @@ fn ids(fields: &Map<String, Value>) -> Result<Vec<String>, ResourceError> {
     if ids.len() > MAX_DELETE_IDS {
         return Err(ResourceError::validation_invalid(
             Some("ids"),
-            format!("a delete names at most {MAX_DELETE_IDS} ids"),
+            format!("a delete or send names at most {MAX_DELETE_IDS} ids"),
         ));
     }
     Ok(ids)
+}
+
+/// `acp_session`: the acpmux session id, 1 to 128 visible ASCII characters.
+fn acp_session(fields: &Map<String, Value>) -> Result<&str, ResourceError> {
+    let session = fields.get("acp_session").and_then(Value::as_str).unwrap_or_default();
+    if !(1..=MAX_SESSION_LENGTH).contains(&session.len())
+        || !session.bytes().all(|byte| byte.is_ascii_graphic())
+    {
+        return Err(ResourceError::validation_invalid(
+            Some("acp_session"),
+            format!("acp_session must be 1 to {MAX_SESSION_LENGTH} visible ASCII characters"),
+        ));
+    }
+    Ok(session)
+}
+
+/// `text`: the prompt, not blank, at most 256 KiB.
+fn prompt(fields: &Map<String, Value>) -> Result<&str, ResourceError> {
+    let text = fields.get("text").and_then(Value::as_str).unwrap_or_default();
+    if text.trim().is_empty() || text.len() > MAX_PROMPT_BYTES {
+        return Err(ResourceError::validation_invalid(
+            Some("text"),
+            format!("text must be a prompt of 1 to {MAX_PROMPT_BYTES} bytes"),
+        ));
+    }
+    Ok(text)
 }
 
 /// `versions`: optional, each id's `updatedAt` as the caller last read it.
@@ -382,6 +442,43 @@ mod tests {
         }
         let error = save(&mut file, "/r", "full", comment(json!({}))).unwrap_err();
         assert_eq!(error.details["reason"], "too_many_comments", "{error:?}");
+    }
+
+    #[test]
+    fn send_clears_only_comments_still_at_their_sent_version() {
+        let mut file = File::default();
+        let (a, _) = save(&mut file, "/r", "k1", comment(json!({"message": "a"}))).unwrap();
+        let (b, _) = save(&mut file, "/r", "k2", comment(json!({"message": "b"}))).unwrap();
+        let (a, b) = (a["comment"].clone(), b["comment"].clone());
+        let ids = [a["id"].as_str().unwrap().to_string(), b["id"].as_str().unwrap().to_string()];
+        let versions = Map::from_iter([
+            (ids[0].clone(), a["updatedAt"].clone()),
+            (ids[1].clone(), json!("1999-01-01T00:00:00.000Z")),
+        ]);
+        let (answer, changed) = cleared(&mut file, &ids, &versions, ids.len());
+        assert_eq!(answer, json!({"sent": 2, "cleared": [ids[0]]}));
+        assert!(changed);
+        assert_eq!(file.comments.len(), 1, "the comment edited since the send stays");
+        let (answer, changed) = cleared(&mut file, &ids[..1], &Map::new(), 1);
+        assert_eq!(answer, json!({"sent": 1, "cleared": []}));
+        assert!(!changed);
+    }
+
+    #[test]
+    fn send_fields_are_checked() {
+        let fields = |value: Value| value.as_object().unwrap().clone();
+        let ok = fields(json!({"acp_session": "fake-session-1", "text": "Review comment"}));
+        assert_eq!(acp_session(&ok).unwrap(), "fake-session-1");
+        assert_eq!(prompt(&ok).unwrap(), "Review comment");
+        for bad in [json!({}), json!({"acp_session": ""}), json!({"acp_session": "a b"})] {
+            let error = acp_session(&fields(bad)).unwrap_err();
+            assert_eq!(error.code, "validation.invalid");
+        }
+        let large = "x".repeat(MAX_PROMPT_BYTES + 1);
+        for bad in [json!({}), json!({"text": " \n"}), json!({"text": large})] {
+            assert_eq!(prompt(&fields(bad)).unwrap_err().code, "validation.invalid");
+        }
+        assert!(prompt(&fields(json!({"text": "x".repeat(MAX_PROMPT_BYTES)}))).is_ok());
     }
 
     #[test]

@@ -2077,6 +2077,7 @@
     "credential.mint",
     "credential.rotate",
     "credential.verify",
+    "diff.comments.send",
     "domain.claim",
     "domain.release",
     "domain.verify",
