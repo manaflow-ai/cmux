@@ -141,8 +141,8 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
             let interactive = follow && style.terminal;
             let mut out = std::io::stdout();
             if interactive {
-                // OSC 2: the tab is titled with the command.
-                let _ = write!(out, "\x1b]2;{}\x07", one_line(text(&found, "command")));
+                // OSC 2: the tab is titled with what the process is for (`title`).
+                let _ = write!(out, "\x1b]2;{}\x07", one_line(&title(&found)));
             }
             let _ = out.write_all(header(&found, style).as_bytes());
             let _ = out.flush();
@@ -458,11 +458,13 @@ impl Style {
     }
 }
 
-/// The lines above the output: the command, its folder, its start, the
-/// harness and how it went to the background, and its output file.
+/// The lines above the output: the command, the agent's name for it, what a
+/// timer waits for, its folder, its start, the harness and how it went to the
+/// background, and its output file.
 pub(crate) fn header(p: &Value, style: Style) -> String {
     let mut s = String::new();
-    s.push_str(&style.bold(&format!("$ {}", text(p, "command"))));
+    let command = text(p, "command");
+    s.push_str(&style.bold(&format!("$ {command}")));
     s.push('\n');
     let row = |s: &mut String, label: &str, value: &str| {
         if !value.is_empty() {
@@ -471,8 +473,27 @@ pub(crate) fn header(p: &Value, style: Style) -> String {
             s.push('\n');
         }
     };
+    // The agent's own name for it (Claude's `description`, "hold"), when the
+    // command is not just that name again.
+    let description = text(p, "description").trim();
+    if description != command.trim() {
+        row(&mut s, "named", description);
+    }
+    // A timer an agent set to wake itself (`sleep 840; echo t`) prints
+    // nothing until it ends: say so, and when (Leo, 2026-11-05, on a view
+    // reading only "$ hold": "what are you even holding for?").
+    let start = p.get("startedAt").and_then(Value::as_u64);
+    if let Some(secs) = timer_secs(command) {
+        let until = start.map(|at| format!(" · until {}", local_time(at + secs * 1000)));
+        let waits = format!(
+            "{}, then wakes the agent; it runs nothing else{}",
+            span(secs),
+            until.unwrap_or_default()
+        );
+        row(&mut s, "waits", &waits);
+    }
     row(&mut s, "folder", &tilde(text(p, "cwd")));
-    let started = p.get("startedAt").and_then(Value::as_u64).map(local_time).unwrap_or_default();
+    let started = start.map(local_time).unwrap_or_default();
     let harness = match text(p, "harness") {
         "claude" => "Claude Code",
         "codex" => "Codex",
@@ -539,6 +560,62 @@ pub(crate) fn footer(p: &Value, now: u64, style: Style, outcome: Outcome) -> Str
         s.push('\n');
     }
     lines(s, style)
+}
+
+/// The tab's title: a timer as "Waiting 14m · hold", else the agent's name
+/// for the process, else its command.
+pub(crate) fn title(p: &Value) -> String {
+    let command = text(p, "command");
+    let description = text(p, "description").trim();
+    match timer_secs(command) {
+        Some(secs) if description.is_empty() || description == command.trim() => {
+            format!("Waiting {}", span(secs))
+        }
+        Some(secs) => format!("Waiting {} · {description}", span(secs)),
+        None if !description.is_empty() => description.to_owned(),
+        None => command.to_owned(),
+    }
+}
+
+/// How long a command that only waits sleeps, in seconds: `sleep N` (with
+/// an `s`, `m`, `h` or `d` unit), then at most `echo`, `printf`, `true` or
+/// `:` steps joined by `;` or `&&`. None for a command that does anything else.
+pub(crate) fn timer_secs(command: &str) -> Option<u64> {
+    let mut steps = command.split([';', '\n']).flat_map(|s| s.split("&&")).map(str::trim);
+    let mut sleep = steps.next()?.split_whitespace();
+    if sleep.next()? != "sleep" {
+        return None;
+    }
+    let arg = sleep.next()?;
+    if sleep.next().is_some() {
+        return None;
+    }
+    let (digits, unit) = arg.split_at(arg.find(|c: char| !c.is_ascii_digit()).unwrap_or(arg.len()));
+    let n: u64 = digits.parse().ok()?;
+    let secs = match unit {
+        "" | "s" => n,
+        "m" => n * 60,
+        "h" => n * 3600,
+        "d" => n * 86_400,
+        _ => return None,
+    };
+    steps
+        .filter(|step| !step.is_empty())
+        .all(|step| {
+            matches!(step.split_whitespace().next(), Some("echo" | "printf" | "true" | ":"))
+                && !step.contains(['|', '>', '<', '`', '$'])
+        })
+        .then_some(secs)
+}
+
+/// A timer's length as written: `14m`, `2h`, `90s`, else as `human` reads it.
+fn span(secs: u64) -> String {
+    match secs {
+        0..60 => format!("{secs}s"),
+        _ if secs % 3600 == 0 => format!("{}h", secs / 3600),
+        _ if secs % 60 == 0 => format!("{}m", secs / 60),
+        _ => human(secs * 1000),
+    }
 }
 
 /// LF as CR LF for a terminal whose newline handling may be off.
