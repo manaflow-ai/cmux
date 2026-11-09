@@ -45,52 +45,91 @@ pub(super) enum Ready {
     Reused,
 }
 
+/// The folder inside a clone's folder that claims it while one start clones (module docs of
+/// [`ensure`]).
+pub(super) const CLAIM: &str = ".cmux-clone";
+
 /// `url` cloned into `dir` (an empty or missing folder), `reference` checked out when given; or
 /// the clone already in `dir` when its origin is `url`. Err: a `{code, message, details}` error.
 ///
-/// One start at a time does this for a folder ([`lock`]): a second start waits for the first's
-/// clone and checkout and then reuses it, so it never works in a clone that a failed checkout is
-/// about to take away.
+/// One start clones a folder: it claims it by making [`CLAIM`] inside it (a `mkdir`, which only
+/// one start wins, through any symlink to the folder), clones and checks out into the claim,
+/// moves the checkout up with `.git` last and removes the claim. Any other start meanwhile is
+/// answered `repo.cloning` (retryable), and none sees a clone before its checkout is done, so a
+/// failed checkout only ever removes what is inside its own claim. Reusing a clone writes
+/// nothing.
 pub(super) fn ensure(url: &str, reference: Option<&str>, dir: &Path) -> Result<Ready, Value> {
-    let _lock = lock(dir)?;
-    if is_nonempty(dir) {
-        // Only a folder with its own `.git` is asked: git would otherwise answer for a repository
-        // the folder sits in.
-        let origin = dir
-            .join(".git")
-            .exists()
-            .then(|| git(Some(dir), ["remote", "get-url", "origin"]).ok())
-            .flatten();
-        if origin.as_deref().is_some_and(|origin| same_remote(origin, url)) {
-            return Ok(Ready::Reused);
-        }
-        return Err(error(
-            "repo.dir_taken",
-            format!(
-                "{} already holds something other than a clone of {url}; give another folder \
-                 with --cwd DIR",
-                dir.display()
-            ),
-            json!({"dir": dir, "origin": origin}),
-        ));
+    let claim = dir.join(CLAIM);
+    if claim.exists() {
+        return Err(cloning(dir, &claim));
     }
+    if is_nonempty(dir) {
+        return reuse(url, dir);
+    }
+    let made = make_dir(dir)?;
+    match std::fs::create_dir(&claim) {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+            return Err(cloning(dir, &claim));
+        }
+        Err(err) => return Err(failed(dir, format!("could not claim {}: {err}", dir.display()))),
+    }
+    let result = clone_into(url, reference, dir, &claim);
+    let _ = std::fs::remove_dir_all(&claim);
+    if result.is_err() && made {
+        // Only when nothing else is in it: `remove_dir` leaves a folder that is not empty.
+        let _ = std::fs::remove_dir(dir);
+    }
+    result.map(|()| Ready::Cloned)
+}
+
+/// The clone already in `dir`, when its origin is `url`.
+fn reuse(url: &str, dir: &Path) -> Result<Ready, Value> {
+    // Only a folder with its own `.git` is asked: git would otherwise answer for a repository the
+    // folder sits in.
+    let origin = dir
+        .join(".git")
+        .exists()
+        .then(|| git(Some(dir), ["remote", "get-url", "origin"]).ok())
+        .flatten();
+    if origin.as_deref().is_some_and(|origin| same_remote(origin, url)) {
+        return Ok(Ready::Reused);
+    }
+    Err(error(
+        "repo.dir_taken",
+        format!(
+            "{} already holds something other than a clone of {url}; give another folder with \
+             --cwd DIR",
+            dir.display()
+        ),
+        json!({"dir": dir, "origin": origin}),
+    ))
+}
+
+/// `dir` made with its parents. Ok(true) when this call made it.
+fn make_dir(dir: &Path) -> Result<bool, Value> {
+    if let Some(parent) = dir.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| failed(dir, format!("could not make {}: {err}", parent.display())))?;
+    }
+    match std::fs::create_dir(dir) {
+        Ok(()) => Ok(true),
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+        Err(err) => Err(failed(dir, format!("could not make {}: {err}", dir.display()))),
+    }
+}
+
+/// The clone made inside `claim` and moved up into `dir`, `.git` last.
+fn clone_into(url: &str, reference: Option<&str>, dir: &Path, claim: &Path) -> Result<(), Value> {
+    let work = claim.join("checkout");
     // Blobless: the whole history's commits and trees now, each file's contents when read, so a
     // big repository starts as fast as a small one.
-    let existed = dir.exists();
     let clone = ["clone", "--quiet", "--filter=blob:none", "--", url].map(OsStr::new);
-    git(None, clone.into_iter().chain([dir.as_os_str()])).map_err(|said| {
+    git(None, clone.into_iter().chain([work.as_os_str()])).map_err(|said| {
         error("repo.clone_failed", format!("git clone {url} failed: {said}"), json!({"url": url}))
     })?;
     if let Some(reference) = reference {
-        git(Some(dir), ["checkout", "--quiet", reference]).map_err(|said| {
-            // The clone is this start's own (no other start reuses it before the lock is let go):
-            // take it away, so a retry clones again and checks the ref out instead of reusing a
-            // clone on the default branch. A folder that was there stays, with its permissions.
-            if existed {
-                empty(dir);
-            } else {
-                let _ = std::fs::remove_dir_all(dir);
-            }
+        git(Some(&work), ["checkout", "--quiet", reference]).map_err(|said| {
             error(
                 "repo.checkout_failed",
                 format!("cloned {url}, but git checkout {reference} failed: {said}"),
@@ -98,48 +137,36 @@ pub(super) fn ensure(url: &str, reference: Option<&str>, dir: &Path) -> Result<R
             )
         })?;
     }
-    Ok(Ready::Cloned)
-}
-
-/// The advisory lock on `dir`'s clone (`.NAME.cmux-clone.lock` beside it, made with its parent
-/// folders), held until the returned file is dropped.
-fn lock(dir: &Path) -> Result<std::fs::File, Value> {
-    let failed = |err: std::io::Error| {
-        error(
-            "repo.clone_failed",
-            format!("could not lock {} for its clone: {err}", dir.display()),
-            json!({"dir": dir}),
-        )
-    };
-    let (Some(parent), Some(name)) = (dir.parent(), dir.file_name()) else {
-        return Err(failed(std::io::Error::other("the folder has no parent")));
-    };
-    std::fs::create_dir_all(parent).map_err(failed)?;
-    let mut lock_name = std::ffi::OsString::from(".");
-    lock_name.push(name);
-    lock_name.push(".cmux-clone.lock");
-    // Only the advisory lock matters; the file holds no data, so opening it never truncates.
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(parent.join(lock_name))
-        .map_err(failed)?;
-    fs4::FileExt::lock(&file).map_err(failed)?;
-    Ok(file)
-}
-
-/// Everything in `dir` removed, `dir` itself kept.
-fn empty(dir: &Path) {
-    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-        let path = entry.path();
-        let _ = if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-            std::fs::remove_dir_all(&path)
-        } else {
-            std::fs::remove_file(&path)
-        };
+    let entries = std::fs::read_dir(&work)
+        .map_err(|err| failed(dir, format!("could not read the clone: {err}")))?;
+    let mut names: Vec<_> = entries.flatten().map(|entry| entry.file_name()).collect();
+    // `.git` last: a start that reads the folder meanwhile sees no clone, never half of one.
+    names.sort_by_key(|name| name == ".git");
+    for name in names {
+        std::fs::rename(work.join(&name), dir.join(&name)).map_err(|err| {
+            failed(dir, format!("could not move {} into place: {err}", name.to_string_lossy()))
+        })?;
     }
+    Ok(())
+}
+
+fn cloning(dir: &Path, claim: &Path) -> Value {
+    let mut error = error(
+        "repo.cloning",
+        format!(
+            "another start is cloning into {}; run this again once it is done (if none is, remove \
+             {})",
+            dir.display(),
+            claim.display()
+        ),
+        json!({"dir": dir}),
+    );
+    error["retryable"] = json!(true);
+    error
+}
+
+fn failed(dir: &Path, message: String) -> Value {
+    error("repo.clone_failed", message, json!({"dir": dir}))
 }
 
 /// Whether two remote URLs name one repository: equal once a trailing `/` and `.git` are dropped

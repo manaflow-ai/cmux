@@ -125,20 +125,42 @@ fn a_folder_inside_another_repository_is_not_read_as_its_clone() {
 }
 
 #[test]
-fn starts_on_one_folder_take_turns() {
+fn a_folder_another_start_is_cloning_is_left_to_it() {
     let root = tempfile::tempdir().unwrap();
+    let url = origin(root.path());
     let dir = root.path().join("dir");
-    let held = super::lock(&dir).unwrap();
-    let (tx, rx) = std::sync::mpsc::channel();
-    let waiter = std::thread::spawn({
-        let dir = dir.clone();
-        move || {
-            let _second = super::lock(&dir).unwrap();
-            tx.send(()).unwrap();
-        }
-    });
-    assert!(rx.recv_timeout(std::time::Duration::from_millis(200)).is_err());
-    drop(held);
-    rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
-    waiter.join().unwrap();
+    std::fs::create_dir_all(dir.join(super::CLAIM)).unwrap();
+    std::fs::write(dir.join("half"), "x").unwrap();
+    let error = ensure(&url, None, &dir).unwrap_err();
+    assert_eq!(
+        (error["code"].as_str(), error["retryable"].as_bool()),
+        (Some("repo.cloning"), Some(true))
+    );
+    // Through a symlink to the folder too: the claim is inside it.
+    let alias = root.path().join("alias");
+    std::os::unix::fs::symlink(&dir, &alias).unwrap();
+    assert_eq!(ensure(&url, None, &alias).unwrap_err()["code"], "repo.cloning");
+    assert!(dir.join("half").is_file());
+}
+
+#[test]
+fn reusing_a_clone_writes_nothing_beside_it() {
+    let root = tempfile::tempdir().unwrap();
+    let url = origin(root.path());
+    let parent = root.path().join("parent");
+    let dir = parent.join("dir");
+    assert_eq!(ensure(&url, None, &dir), Ok(Ready::Cloned));
+    let names = |path: &Path| {
+        let mut names: Vec<_> =
+            std::fs::read_dir(path).unwrap().flatten().map(|entry| entry.file_name()).collect();
+        names.sort();
+        names
+    };
+    // No claim is left, and nothing was made beside the clone.
+    assert!(!dir.join(super::CLAIM).exists());
+    assert_eq!(names(&parent), vec![std::ffi::OsString::from("dir")]);
+    let before = names(&dir);
+    assert_eq!(ensure(&url, None, &dir), Ok(Ready::Reused));
+    assert_eq!(names(&dir), before);
+    assert_eq!(names(&parent), vec![std::ffi::OsString::from("dir")]);
 }
