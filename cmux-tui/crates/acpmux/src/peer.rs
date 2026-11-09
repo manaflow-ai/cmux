@@ -2464,13 +2464,17 @@ impl Peer {
                             // A live frame can have been queued before the final replay page,
                             // yet be read after the gate opens. Its sequence already arrived.
                             if let Some((id, seq)) = &cursor_event {
-                                let mut tails = self.replay_tail.lock_or_recover();
-                                match tails.get(id) {
-                                    Some(tail) if *seq > 0 && tail >= seq => continue,
-                                    Some(_) => { tails.remove(id); }
-                                    None => {}
+                                let replayed = {
+                                    let mut tails = self.replay_tail.lock_or_recover();
+                                    match tails.get(id) {
+                                        Some(tail) if *seq > 0 && tail >= seq => true,
+                                        Some(_) => { tails.remove(id); false }
+                                        None => false,
+                                    }
+                                };
+                                if replayed {
+                                    continue;
                                 }
-                                drop(tails);
                                 // Sent on two paths while this one was in doubt: one merger
                                 // hands each event to the hub once and in order, and moves the
                                 // cursor as it does (`peer_dual.rs`).
