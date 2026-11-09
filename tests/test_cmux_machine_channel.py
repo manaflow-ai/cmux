@@ -190,6 +190,17 @@ class EarlyUploadAndAnotherPublisher(unittest.TestCase):
         self.checksums_again()
         self.assert_published_with(self.box.run(self.upload, GITHUB_RUN_ID="2"), f"{LINUX} build 2\n")
 
+    def test_the_early_job_uploads_all_four_binaries_at_once(self):
+        names = [f"{n}-{t}" for t in ("x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl")
+                 for n in ("cmux-tui", "cmux-tui-hook")]
+        for name in names:
+            (self.early_dir / name).write_text(f"{name} of run 1\n")
+        self.assertIn("uploaded", self.early().stdout)
+        prefix = self.box.r2 / f"cmux-tui/{self.box.sha}"
+        self.assertEqual(sorted(p.name for p in prefix.iterdir()), sorted(names))
+        for name in names:
+            self.assertEqual((prefix / name).read_text(), f"{name} of run 1\n")
+
     def test_a_rerun_of_all_jobs_keeps_its_own_earlier_upload(self):
         self.assertIn("uploaded", self.early(GITHUB_RUN_ID="2").stdout)
         self.assert_published_with(self.publish(), "linux build of run 1\n")  # the rebuild has other bytes
