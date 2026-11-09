@@ -570,45 +570,6 @@ public final class HomeNativeTranscriptView: NSView {
         super.viewWillMove(toWindow: newWindow)
         cursorHold?.remove(self)
         cursorHold = nil
-        if newWindow == nil { noteLeaving() }
-    }
-
-    /// Taken out of its parent: marked before AppKit tells it of anything else (leaving a hidden parent sends
-    /// `viewDidUnhide` before `viewWillMove(toWindow: nil)`; fleet step at 7866330de5).
-    public override func viewWillMove(toSuperview newSuperview: NSView?) {
-        super.viewWillMove(toSuperview: newSuperview)
-        if newSuperview == nil { noteLeaving() }
-    }
-
-    /// Leaving its window while the person sees it: a return into the same window before this turn ends is a
-    /// move on screen (``returnedToView``). A chat that was out of sight (a Home parked in an earlier turn,
-    /// which Cmd-I's Chief panel then takes) is not: it arrives at its newest message.
-    private func noteLeaving() {
-        guard let window, seenAtTurnEnd else { return }
-        windowLeftThisTurn = ObjectIdentifier(window)
-        leftWindowTurns += 1
-        let turn = leftWindowTurns
-        // task-owner: one main-actor turn; ends at once
-        Task { [weak self] in if self?.leftWindowTurns == turn { self?.windowLeftThisTurn = nil } }
-    }
-
-    /// The window this view left in the current main-actor turn, nil once that turn is over (a later leave
-    /// takes it over: only its own task clears it).
-    /// Its identity, not a weak reference: a view leaves while its window deallocates (a closing window), and a
-    /// weak reference to a deallocating object aborts the process.
-    private var windowLeftThisTurn: ObjectIdentifier?
-    private var leftWindowTurns = 0
-
-    /// Whether the person could see this chat when the turn of its last hide, show or move ended. The link
-    /// case hides Home and moves the chat into the Chief panel in one turn, so it still reads the turn before.
-    private var seenAtTurnEnd = false
-
-    private func checkSeenAtTurnEnd() {
-        // task-owner: one main-actor turn; ends at once
-        Task { [weak self] in
-            guard let self else { return }
-            self.seenAtTurnEnd = self.inWindowViewTree && !self.isHiddenOrHasHiddenAncestor
-        }
     }
 
     public override func viewDidMoveToWindow() {
@@ -619,9 +580,9 @@ public final class HomeNativeTranscriptView: NSView {
         if let linkPreviews {
             if window == nil || stopped { linkPreviews.coordinator.unregister(linkPreviews) } else { linkPreviews.coordinator.register(linkPreviews) }
         }
+        settleSightAtTurnEnd()
         guard let window else { return }
         // The toasts may have come or gone while the tab was out of the window.
-        checkSeenAtTurnEnd()
         CmuxToastAvoidance.reservingViewMoved(self, to: window)
         if attachmentPreparer != nil { attachmentPanel?.warmWhenIdle() }  // the "+" opens without making a panel
         observers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
@@ -631,26 +592,44 @@ public final class HomeNativeTranscriptView: NSView {
         windowStateChanged()
         // A theme change while the tab was hidden (equal palettes return early).
         applyTheme()
-        // Opened, or returned to (its tab shown again, the docked Home shown again): the chat
-        // rests at its newest message, wherever it was left (https://github.com/manaflow-ai/cmux/issues/34562).
-        // A move that keeps it on screen keeps the reader's place: the window's Chief panel takes Home's chat
-        // beside a link it opened, and gives it back, in one turn (`WindowController.syncChiefPanel`).
-        if returnedToView { showNewestOnReturn() }
     }
 
-    /// Shown again in the same window (a hidden tab or container unhidden): at the newest message too.
     public override func viewDidHide() {
         super.viewDidHide()
-        checkSeenAtTurnEnd()
+        settleSightAtTurnEnd()
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        checkSeenAtTurnEnd()
-        // AppKit also sends this as the view leaves a hidden parent (the Chief panel takes it out of a parked
-        // Home), before `window` is cleared: it is in no view tree then, and where it arrives decides.
-        if returnedToView { showNewestOnReturn() }
+        settleSightAtTurnEnd()
     }
+
+    /// Opened, or returned to (its tab shown again, the docked Home shown again, Cmd-I's Chief panel taking it
+    /// from a parked Home): the chat rests at its newest message, wherever it was left
+    /// (https://github.com/manaflow-ai/cmux/issues/34562). A move that keeps it on screen keeps the reader's
+    /// place: the window's Chief panel takes Home's chat beside a link it opened, and gives it back, in one turn
+    /// (`WindowRootView.show` hides Home, `ChiefPanelView.hold` moves its `HomeHostView`).
+    ///
+    /// So what counts is whether the person saw the chat when the last turn ended and sees it when this one
+    /// ends, not the hide, show and move events in between: AppKit's order for those depends on which view
+    /// moves (a view leaving a hidden parent hears `viewDidUnhide` before `viewWillMove(toWindow: nil)`).
+    /// The check runs on the main actor right after the turn, before the run loop commits its frame.
+    private func settleSightAtTurnEnd() {
+        guard !sightCheckPending else { return }
+        sightCheckPending = true
+        // task-owner: one main-actor turn; ends at once
+        Task { [weak self] in
+            guard let self else { return }
+            self.sightCheckPending = false
+            let seen = self.seenNow
+            if seen, !self.seenAtTurnEnd, !self.stopped { self.showNewestOnReturn() }
+            self.seenAtTurnEnd = seen
+        }
+    }
+
+    /// Whether the person could see this chat when the last turn with a hide, show or move ended.
+    private var seenAtTurnEnd = false
+    private var sightCheckPending = false
 
     /// The chat rests at its newest message as the person returns to it; `returnPins` counts them (tests).
     private func showNewestOnReturn() {
@@ -659,16 +638,9 @@ public final class HomeNativeTranscriptView: NSView {
     }
     private(set) var returnPins = 0
 
-    /// The person sees this chat again now: in its window's view tree, with no hidden ancestor, and not just
-    /// moved inside its window in this turn (left it and came back: the Chief panel's take and give-back).
-    private var returnedToView: Bool {
-        guard let window, !isHiddenOrHasHiddenAncestor, windowLeftThisTurn != ObjectIdentifier(window) else { return false }
-        return inWindowViewTree
-    }
-
-    /// In its window's view tree: not in a subtree that is being taken out of it.
-    private var inWindowViewTree: Bool {
-        guard let window else { return false }
+    /// In its window's view tree with no hidden ancestor.
+    private var seenNow: Bool {
+        guard let window, !isHiddenOrHasHiddenAncestor else { return false }
         let top = sequence(first: self as NSView, next: \.superview).reduce(self as NSView) { $1 }
         return top === window.contentView || top === window.contentView?.superview
     }
