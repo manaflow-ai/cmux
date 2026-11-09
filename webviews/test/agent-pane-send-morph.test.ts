@@ -72,7 +72,8 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
   ) => {
     // The follow-motion arm (followMotion.experiment.ts): the product's `send` caps the send step at
     // 120 ms (composerStates.css SEND-SLIM); `blocks` keeps the scale's full send step.
-    if (arm) await page.addInitScript((arm) => Object.assign(window, { cmuxExperiments: { "follow-motion": arm } }), arm);
+    if (arm)
+      await page.addInitScript((arm) => Object.assign(window, { cmuxExperiments: { "follow-motion": arm } }), arm);
     await page.addInitScript(() => {
       Object.assign(window, {
         webkit: { messageHandlers: { agentSession: { postMessage: async () => ({ ok: true, value: null }) } } },
@@ -203,73 +204,74 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
   test.each(["blocks", "send"] as const)(
     "at the bottom, the composer's words and screenshot become the sent message on the send motion (%s arm)",
     async (arm) => {
-    const page = await browser!.newPage({ viewport: { width: 900, height: 620 } });
-    try {
-      await openChat(page, undefined, arm);
-      const from = await compose(page);
-      await watch(page);
-      await page.keyboard.press("Enter");
-      const seen = await frames(page);
-      const first = seen[0]!;
+      const page = await browser!.newPage({ viewport: { width: 900, height: 620 } });
+      try {
+        await openChat(page, undefined, arm);
+        const from = await compose(page);
+        await watch(page);
+        await page.keyboard.press("Enter");
+        const seen = await frames(page);
+        const first = seen[0]!;
 
-      // The first frame: the composer is empty, and the copies are where it drew the prompt: the
-      // bubble's shell on its card, the words on its words, the screenshot on its chip.
-      expect(first.typed.trim(), "the composer empties in the send's first frame").toBe("");
-      expect(first.chips, "the chip leaves the composer in the send's first frame").toBe(0);
-      near(ghost(first, "bubble"), from.card, "the bubble starts as the composer's card");
-      near(ghost(first, "attachment"), from.chip, "the screenshot starts on its chip");
-      const words = first.ghosts.filter((entry) => entry.kind === "text" && entry.opacity > 0.99);
-      expect(words.length, `the words are drawn where they were typed (${JSON.stringify(first.ghosts)})`).toBe(1);
-      expect(Math.abs(words[0]!.left - from.words.left), "the words' left").toBeLessThan(1.5);
-      expect(Math.abs(words[0]!.top - from.words.top), "the words' top").toBeLessThan(1.5);
+        // The first frame: the composer is empty, and the copies are where it drew the prompt: the
+        // bubble's shell on its card, the words on its words, the screenshot on its chip.
+        expect(first.typed.trim(), "the composer empties in the send's first frame").toBe("");
+        expect(first.chips, "the chip leaves the composer in the send's first frame").toBe(0);
+        near(ghost(first, "bubble"), from.card, "the bubble starts as the composer's card");
+        near(ghost(first, "attachment"), from.chip, "the screenshot starts on its chip");
+        const words = first.ghosts.filter((entry) => entry.kind === "text" && entry.opacity > 0.99);
+        expect(words.length, `the words are drawn where they were typed (${JSON.stringify(first.ghosts)})`).toBe(1);
+        expect(Math.abs(words[0]!.left - from.words.left), "the words' left").toBeLessThan(1.5);
+        expect(Math.abs(words[0]!.top - from.words.top), "the words' top").toBeLessThan(1.5);
 
-      // Every frame: the copy or the sent message is drawn, never both and never neither, and the
-      // composer stays empty.
-      for (const frame of seen) {
-        const flying = frame.ghosts.length > 0;
-        expect(frame.typed.trim(), `the composer stays empty at ${frame.at} ms`).toBe("");
-        if (flying) {
-          if (frame.bubble) expect(frame.bubble.shown, `the bubble hides under its copy at ${frame.at} ms`).toBe(false);
-          if (frame.preview)
-            expect(frame.preview.shown, `the screenshot hides under its copy at ${frame.at} ms`).toBe(false);
-        } else {
-          expect(frame.bubble?.shown, `the bubble is drawn once its copy lands, at ${frame.at} ms`).toBe(true);
-          expect(frame.preview?.shown, `the screenshot is drawn once its copy lands, at ${frame.at} ms`).toBe(true);
+        // Every frame: the copy or the sent message is drawn, never both and never neither, and the
+        // composer stays empty.
+        for (const frame of seen) {
+          const flying = frame.ghosts.length > 0;
+          expect(frame.typed.trim(), `the composer stays empty at ${frame.at} ms`).toBe("");
+          if (flying) {
+            if (frame.bubble)
+              expect(frame.bubble.shown, `the bubble hides under its copy at ${frame.at} ms`).toBe(false);
+            if (frame.preview)
+              expect(frame.preview.shown, `the screenshot hides under its copy at ${frame.at} ms`).toBe(false);
+          } else {
+            expect(frame.bubble?.shown, `the bubble is drawn once its copy lands, at ${frame.at} ms`).toBe(true);
+            expect(frame.preview?.shown, `the screenshot is drawn once its copy lands, at ${frame.at} ms`).toBe(true);
+          }
         }
-      }
 
-      // One clock: the copies land on the send motion (MOTION_SEND_MS from the row's first frame) and then
-      // only the sent message is drawn, whole, with no entrance of its own after it.
-      const mounted = seen.findIndex((frame) => frame.bubble);
-      const landed = seen.findIndex((frame, index) => index > mounted && frame.ghosts.length === 0);
-      expect(mounted, "the sent row never drew").toBeGreaterThanOrEqual(0);
-      expect(landed, "the copies never landed").toBeGreaterThan(mounted);
-      const flight = seen[landed]!.at - seen[mounted]!.at;
-      expect(flight, "the flight's length").toBeGreaterThanOrEqual(SEND_STEP[arm] - 15);
-      expect(flight, "the flight's length").toBeLessThan(SEND_STEP[arm] + 70);
-      const last = seen[landed - 1]!;
-      near(ghost(last, "bubble"), last.bubble, "the bubble's copy lands on the bubble");
-      near(ghost(last, "attachment"), last.preview, "the screenshot's copy lands on its thumbnail");
-      for (const frame of seen.slice(landed)) {
-        expect(frame.bubble!.ink, `the bubble is whole once landed, at ${frame.at} ms`).toBeGreaterThan(0.99);
-        expect(frame.preview!.ink, `the screenshot is whole once landed, at ${frame.at} ms`).toBeGreaterThan(0.99);
-        near(frame.bubble, seen[landed]!.bubble, `the bubble stays where it landed at ${frame.at} ms`, 60);
+        // One clock: the copies land on the send motion (MOTION_SEND_MS from the row's first frame) and then
+        // only the sent message is drawn, whole, with no entrance of its own after it.
+        const mounted = seen.findIndex((frame) => frame.bubble);
+        const landed = seen.findIndex((frame, index) => index > mounted && frame.ghosts.length === 0);
+        expect(mounted, "the sent row never drew").toBeGreaterThanOrEqual(0);
+        expect(landed, "the copies never landed").toBeGreaterThan(mounted);
+        const flight = seen[landed]!.at - seen[mounted]!.at;
+        expect(flight, "the flight's length").toBeGreaterThanOrEqual(SEND_STEP[arm] - 15);
+        expect(flight, "the flight's length").toBeLessThan(SEND_STEP[arm] + 70);
+        const last = seen[landed - 1]!;
+        near(ghost(last, "bubble"), last.bubble, "the bubble's copy lands on the bubble");
+        near(ghost(last, "attachment"), last.preview, "the screenshot's copy lands on its thumbnail");
+        for (const frame of seen.slice(landed)) {
+          expect(frame.bubble!.ink, `the bubble is whole once landed, at ${frame.at} ms`).toBeGreaterThan(0.99);
+          expect(frame.preview!.ink, `the screenshot is whole once landed, at ${frame.at} ms`).toBeGreaterThan(0.99);
+          near(frame.bubble, seen[landed]!.bubble, `the bubble stays where it landed at ${frame.at} ms`, 60);
+        }
+        // The copy's way is continuous: the bubble's shell never jumps more than half of the way. The
+        // slim arm's 120 ms flight is a handful of frames, each a larger share of the way: only the
+        // full step is held to it.
+        if (arm === "blocks")
+          for (let index = 1; index < landed; index += 1) {
+            const [a, b] = [ghost(seen[index - 1]!, "bubble"), ghost(seen[index]!, "bubble")];
+            if (a && b)
+              expect(Math.abs(b.top - a.top), `the shell's step at ${seen[index]!.at} ms`).toBeLessThan(
+                Math.abs(from.card.top - last.bubble!.top) * 0.5 + 2,
+              );
+          }
+      } finally {
+        await page.close();
       }
-      // The copy's way is continuous: the bubble's shell never jumps more than half of the way. The
-      // slim arm's 120 ms flight is a handful of frames, each a larger share of the way: only the
-      // full step is held to it.
-      if (arm === "blocks")
-      for (let index = 1; index < landed; index += 1) {
-        const [a, b] = [ghost(seen[index - 1]!, "bubble"), ghost(seen[index]!, "bubble")];
-        if (a && b)
-          expect(Math.abs(b.top - a.top), `the shell's step at ${seen[index]!.at} ms`).toBeLessThan(
-            Math.abs(from.card.top - last.bubble!.top) * 0.5 + 2,
-          );
-      }
-    } finally {
-      await page.close();
-    }
-  },
+    },
   );
 
   // The host's echo of the prompt can come inside the flight: it gives the screenshot its lasting id,
