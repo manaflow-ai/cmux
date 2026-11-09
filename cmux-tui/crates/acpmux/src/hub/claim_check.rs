@@ -126,12 +126,17 @@ impl ClaimRuns {
         let Some(command) = command.or(started) else {
             return;
         };
-        let (kinds, hidden) = classify(&command);
+        let (mut kinds, mut hidden) = classify(&command);
+        let ok = !failed(update);
+        if !ok && classified_steps(&command) > 1 {
+            hidden |= kinds;
+            kinds = 0;
+        }
         self.runs.retain(|run| run.id != id);
         if self.runs.len() == RUNS {
             self.runs.pop_front();
         }
-        self.runs.push_back(Run { id: id.to_owned(), command, kinds, hidden, ok: !failed(update) });
+        self.runs.push_back(Run { id: id.to_owned(), command, kinds, hidden, ok });
     }
 
     /// The newest run a claim of `kind` (with `ran`, the command it names) is about.
@@ -240,6 +245,16 @@ impl Hub {
 }
 
 fn command(update: &Value) -> Option<String> {
+    // pi names its bash call's command only in its title (`tool_shell.rs` `add_terminal_input`),
+    // which this sees before that runs.
+    if update.pointer("/rawInput/command").is_none() {
+        let title = update.get("title").and_then(Value::as_str).map(str::trim).unwrap_or("");
+        return (update.pointer("/_meta/terminal_info").is_some()
+            && !title.is_empty()
+            && !title.eq_ignore_ascii_case("bash")
+            && title.len() <= MAX_COMMAND)
+            .then(|| title.to_owned());
+    }
     let command = match update.pointer("/rawInput/command")? {
         Value::String(command) => command.clone(),
         // Codex sends argv; `bash -lc "<script>"` is its script.
@@ -261,13 +276,20 @@ fn is_shell(program: &str) -> bool {
     matches!(program.rsplit('/').next(), Some("bash" | "sh" | "zsh"))
 }
 
+/// Whether the call failed: its status, or an exit code wherever its adapter reports one. This
+/// sees the update before `tool_shell.rs` copies pi's and OpenCode's into `rawOutput.exit_code`.
 fn failed(update: &Value) -> bool {
     update.get("status").and_then(Value::as_str) == Some("failed")
-        || update
-            .pointer("/rawOutput/exit_code")
-            .or_else(|| update.get("exitCode"))
-            .and_then(Value::as_i64)
-            .is_some_and(|code| code != 0)
+        || [
+            "/rawOutput/exit_code",
+            "/rawOutput/exitCode",
+            "/exitCode",
+            "/_meta/terminal_exit/exit_code",
+            "/rawOutput/metadata/exit",
+        ]
+        .iter()
+        .filter_map(|at| update.pointer(at).and_then(Value::as_i64))
+        .any(|code| code != 0)
 }
 
 /// Whitespace folded, for comparing a named command with a run's.
@@ -294,24 +316,27 @@ fn steps(command: &str) -> Vec<(&str, bool)> {
 }
 
 fn trusted_contains(command: &str, named: &str) -> bool {
-    steps(command).iter().any(|(step, speaks)| *speaks && squash(step).contains(named))
+    let steps = steps(command);
+    steps.iter().all(|(_, speaks)| *speaks)
+        && steps.iter().any(|(step, _)| squash(step).contains(named))
 }
 
 /// The claim kinds `command` runs, as bits: those its exit status speaks for, and the others.
+/// One step whose status it hides (`| tail`, `|| true`, `;`) hides them all: the chain's status is
+/// that step's, whatever ran before it.
 fn classify(command: &str) -> (u8, u8) {
-    let (mut kinds, mut hidden) = (0, 0);
-    for (step, speaks) in steps(command) {
-        // A multi-line or `;` step: each part is classified, none is trusted.
-        for part in step.split(['\n', ';', '|']) {
-            let bits = classify_simple(part);
-            if speaks {
-                kinds |= bits;
-            } else {
-                hidden |= bits;
-            }
-        }
-    }
-    (kinds, hidden & !kinds)
+    let steps = steps(command);
+    let all = steps
+        .iter()
+        .flat_map(|(step, _)| step.split(['\n', ';', '|']))
+        .fold(0, |bits, part| bits | classify_simple(part));
+    if steps.iter().all(|(_, speaks)| *speaks) { (all, 0) } else { (0, all) }
+}
+
+/// How many `&&` steps of `command` run a claim kind: a failed chain of two or more does not say
+/// which one failed, nor whether the later ones ran.
+fn classified_steps(command: &str) -> usize {
+    steps(command).iter().filter(|(step, _)| classify_simple(step) != 0).count()
 }
 
 const TESTS: u8 = 1;
@@ -333,7 +358,9 @@ fn classify_simple(part: &str) -> u8 {
             ["time" | "env" | "nice" | "command" | "exec" | "npx" | "bunx" | "sudo", rest @ ..] => {
                 words = rest
             }
-            ["pnpm" | "uv" | "poetry" | "pipenv", "exec" | "run", rest @ ..]
+            // `pnpm run` runs a package script, read below; `pnpm exec` runs a program.
+            ["pnpm", "exec", rest @ ..]
+            | ["uv" | "poetry" | "pipenv", "exec" | "run", rest @ ..]
                 if rest.first().is_some_and(|w| !w.starts_with('-')) =>
             {
                 words = rest
