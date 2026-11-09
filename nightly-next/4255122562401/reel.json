@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4255122562401",
+  "notes": "notes/4255122562401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 39053,
+      "title": "cmux-tui: log the cause of indeterminate topology, creation and session.open effects (port of #39021)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39066,
+      "title": "agent text: the browser footer check reads every script as acpmux does; the queued test needs its provenance",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39004,
+      "title": "cmux-wg bench: rd-link path, Cloud desktop media as rd datagrams on the link, against wg-tcp",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38350,
+      "title": "Composer: a pasted text chip is a compact row that opens its whole text in a viewer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39019,
+      "title": "cmux-vm: an image roll commit gets a short check when a passed check covers the same code",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39089,
+      "title": "Guards: classic.rs counts 13 classic /api/vm path-part arrays",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38121,
+      "title": "Agent chats paint their last view in the first frame after a restart",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
