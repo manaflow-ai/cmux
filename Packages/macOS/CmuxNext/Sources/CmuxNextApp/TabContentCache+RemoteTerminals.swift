@@ -22,7 +22,8 @@ extension TabContentCache {
             attachment: .unplaced(terminalResourceID: resource, generation: generation),
             initialSize: size ?? CellSize(cols: 80, rows: 24))
         let render = ledger.isRendering(key)
-        let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, policyBlocked: daemon.policyBlock.check, endpoint: { try await daemon.endpoint() })
+        let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, uploadsPasteboardFiles: daemon.machineID != "local",
+                                  policyBlocked: daemon.policyBlock.check, endpoint: { try await daemon.endpoint() })
         let session = TerminalSession(io: io, ownsGeometry: true)
         session.showsTerminal(identity, carrying: carried)
         // Its link state is the terminal's session's; it has no tab there.

@@ -12,12 +12,43 @@
 //! - `wg-tcp`: one userspace TCP connection through cmux-wg over loopback UDP
 //!   (RFB or the rd stream carrier through the Cloud tunnel).
 //! - `wg-dgram`: cmux-wg's datagram service, frames cut into datagrams with
-//!   no FEC or retransmission (the floor an rd media path could reach).
+//!   no retransmission (the floor an rd media path could reach).
+//! - `rd-link`: Cloud desktop media on the datagram path (cmuxterm-hq#7976):
+//!   the rd media engine (FEC, NACK resends, recovery keyframes) and the Mac
+//!   viewer's receiver and input channel, sealed by a `cmux-rd-link`
+//!   endpoint on each side over UDP, with input and feedback going back as
+//!   datagrams too (see `remote_stream_rd/link.rs`). `--rd-frames-in-flight`
+//!   overrides the engine's frames in flight (default: the link host's rule)
+//!   and `--rd-deadline-ms` the viewer's reassembly deadline (200).
+//!
+//! Fast-path selection (`wg-tcp` only):
+//! - `--paths lan:1,relay:40` gives the viewer one multipath underlay with a
+//!   path per entry (kind `lan`, `wan`, `region` or `relay`, then its round
+//!   trip in ms), each over its own in-process link, probed inside the
+//!   session; the host answers on whichever path last reached it.
+//!   `--drop-at 4:0` cuts path 0 (both directions) 4 s into the stream, as a
+//!   cable pulled or a Wi-Fi network left.
+//! - Two hosts: `--role host --listen 0.0.0.0:51830` on one machine and
+//!   `--role viewer --peer lan=192.168.1.20:51830 --peer tailnet=100.64.0.20:51830`
+//!   on the other (any labels; `--seed` must match). The viewer dials every
+//!   peer address as a path and reports which one carried the stream. Only
+//!   viewer-clock numbers (input to photon, frame gaps, bulk) are reported.
+//!
+//! `longest_frame_gap_ms` is the longest wait between two frames at the
+//! viewer: a path that dropped shows up there as a stall.
+//!
+//! `CMUX_WG_ULTRA` (`dup`, `fec:8:2`, `rs:4:4`, see `cmux_wg::UltraMode`) turns on
+//! ultra mode on both ends, and `CMUX_WG_ULTRA_HOST` gives the host its own
+//! (`off`: the viewer alone asked for it); the note says what it sent and
+//! rebuilt.
 //!
 //! `--rtt-ms` and `--loss-pct` put the WireGuard paths' UDP through an
 //! in-process link with that round trip and that loss in each direction;
-//! kernel TCP runs on plain loopback only. `scripts/remote-stream-bench.sh`
-//! runs the matrix. Prints one JSON object.
+//! kernel TCP runs on plain loopback only. `--bulk-bytes 0` skips the bulk
+//! transfer after the stream. `scripts/remote-stream-bench.sh`
+//! runs the matrix, `scripts/remote-stream-ultra-bench.sh` the ultra-mode one,
+//! `scripts/remote-stream-rd-link-bench.sh` `wg-tcp` against `rd-link`.
+//! Prints one JSON object.
 //!
 //! ```text
 //! cargo run --release -p cmux-wg --example remote_stream_bench -- \
@@ -27,11 +58,14 @@
 use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use cmux_wg::testing::config_pair;
-use cmux_wg::{Priority, WgNet};
+use cmux_wg::{
+    Multipath, MultipathControl, PathId, PathKind, Priority, ProbeConfig, SocketPath, WgNet,
+};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::time::{Instant, sleep_until, timeout, timeout_at};
@@ -47,6 +81,17 @@ const KIND_INPUT: u8 = 1;
 /// kind, seq, sent_us, echo_us.
 const HEADER: usize = 1 + 4 + 8 + 8;
 
+// The Mac viewer's Rust (cmux-rd-ffi is its own workspace, built only for
+// the app), compiled in from its source so the bench runs that exact code.
+#[allow(dead_code)]
+#[path = "../../cmux-rd-ffi/src/input.rs"]
+mod input;
+#[path = "remote_stream_rd/link.rs"]
+mod rd_link;
+#[allow(dead_code)]
+#[path = "../../cmux-rd-ffi/src/receiver.rs"]
+mod receiver;
+
 #[derive(Clone)]
 struct Args {
     path: String,
@@ -58,9 +103,28 @@ struct Args {
     /// Added round trip and loss on the WireGuard paths' UDP (see [`impair`]).
     rtt_ms: u64,
     loss_pct: f64,
+    /// `--paths`: (kind, round trip ms) per viewer path.
+    paths: Vec<(PathKind, u64)>,
+    /// `--drop-at S:I`: cut path I S seconds into the stream.
+    drop_at: Option<(u64, usize)>,
+    /// `--role host|viewer` for a two-host run; empty: one process.
+    role: String,
+    listen: Option<SocketAddr>,
+    /// `--peer LABEL=ADDR`, the viewer's paths in a two-host run.
+    peers: Vec<(String, SocketAddr)>,
+    seed: u64,
+    /// `--rd-frames-in-flight`: the rd engine's frames in flight (0: the
+    /// link host's rule).
+    rd_frames_in_flight: u32,
+    /// `--rd-deadline-ms`: how long the rd viewer waits for a frame's shards.
+    rd_deadline_ms: u64,
 }
 
 fn args() -> Args {
+    args_from(std::env::args().skip(1))
+}
+
+fn args_from(flags: impl IntoIterator<Item = String>) -> Args {
     let mut parsed = Args {
         path: "tcp".into(),
         keyframe_bytes: 200_000,
@@ -70,8 +134,16 @@ fn args() -> Args {
         bulk_bytes: 16 << 20,
         rtt_ms: 0,
         loss_pct: 0.0,
+        paths: Vec::new(),
+        drop_at: None,
+        role: String::new(),
+        listen: None,
+        peers: Vec::new(),
+        seed: 1,
+        rd_frames_in_flight: 0,
+        rd_deadline_ms: 200,
     };
-    let mut iter = std::env::args().skip(1);
+    let mut iter = flags.into_iter();
     while let Some(flag) = iter.next() {
         let value = iter.next().unwrap_or_default();
         let number = || value.parse::<u64>().unwrap_or(0);
@@ -84,10 +156,41 @@ fn args() -> Args {
             "--bulk-bytes" => parsed.bulk_bytes = number() as usize,
             "--rtt-ms" => parsed.rtt_ms = number(),
             "--loss-pct" => parsed.loss_pct = value.parse().unwrap_or(0.0),
+            "--paths" => parsed.paths = value.split(',').filter_map(parse_path).collect(),
+            "--drop-at" => {
+                parsed.drop_at = value
+                    .split_once(':')
+                    .and_then(|(at, index)| Some((at.parse().ok()?, index.parse().ok()?)));
+            }
+            "--role" => parsed.role = value.clone(),
+            "--listen" => parsed.listen = value.parse().ok(),
+            "--peer" => {
+                if let Some((label, address)) = value.split_once('=')
+                    && let Ok(address) = address.parse()
+                {
+                    parsed.peers.push((label.to_owned(), address));
+                }
+            }
+            "--seed" => parsed.seed = number(),
+            "--rd-frames-in-flight" => parsed.rd_frames_in_flight = number() as u32,
+            "--rd-deadline-ms" => parsed.rd_deadline_ms = number(),
             other => eprintln!("ignoring unknown flag {other}"),
         }
     }
     parsed
+}
+
+/// `lan:1` -> (DirectLan, 1).
+fn parse_path(text: &str) -> Option<(PathKind, u64)> {
+    let (kind, rtt) = text.split_once(':')?;
+    let kind = match kind {
+        "lan" => PathKind::DirectLan,
+        "wan" => PathKind::DirectWan,
+        "region" => PathKind::ViaCloudRegion,
+        "relay" => PathKind::DoRelay,
+        _ => return None,
+    };
+    Some((kind, rtt.parse().ok()?))
 }
 
 /// What the viewer and host recorded, in microseconds.
@@ -102,6 +205,11 @@ struct Record {
     late: u64,
     bulk_mbit_s: Option<f64>,
     note: String,
+    /// When the viewer last received a frame, and the longest gap between two.
+    last_frame_at_us: Option<u64>,
+    longest_frame_gap_us: u64,
+    /// The label of the path that carried the stream at its end.
+    final_path: Option<String>,
 }
 
 type Shared = Arc<Mutex<Record>>;
@@ -160,11 +268,20 @@ where
     H: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     V: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let (mut host_rx, mut host_tx) = tokio::io::split(host);
-    let (mut viewer_rx, mut viewer_tx) = tokio::io::split(viewer);
-    let pending_echo = Arc::new(Mutex::new(0u64));
     let end = Instant::now() + Duration::from_secs(args.seconds);
+    let host = host_half(host, args, clock.clone(), record.clone(), end);
+    let viewer = viewer_half(viewer, args, clock, record, end);
+    tokio::join!(host, viewer);
+}
 
+/// The host's end: frames at the target rate, each stamped with the input it
+/// answers. Returns once the frames are sent and the stream closed.
+async fn host_half<H>(host: H, args: &Args, clock: Arc<Clock>, record: Shared, end: Instant)
+where
+    H: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let (mut host_rx, mut host_tx) = tokio::io::split(host);
+    let pending_echo = Arc::new(Mutex::new(0u64));
     let host_reader = {
         let (clock, record, pending) = (clock.clone(), record.clone(), pending_echo.clone());
         tokio::spawn(async move {
@@ -205,6 +322,19 @@ where
             let _ = host_tx.shutdown().await;
         })
     };
+    let host_writer_abort = host_writer.abort_handle();
+    let drain = Duration::from_secs(args.seconds + 30);
+    let _ = timeout(drain, host_writer).await;
+    host_writer_abort.abort();
+    host_reader.abort();
+}
+
+/// The viewer's end: an input every 20 ms, and every frame timed on arrival.
+async fn viewer_half<V>(viewer: V, args: &Args, clock: Arc<Clock>, record: Shared, end: Instant)
+where
+    V: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let (mut viewer_rx, mut viewer_tx) = tokio::io::split(viewer);
     let viewer_writer = {
         let (clock, record) = (clock.clone(), record.clone());
         tokio::spawn(async move {
@@ -243,6 +373,10 @@ where
                 let now = clock.us();
                 let (_, seq, sent, echo) = parse_header(&body);
                 let mut record = lock(&record);
+                if let Some(last) = record.last_frame_at_us {
+                    record.longest_frame_gap_us = record.longest_frame_gap_us.max(now - last);
+                }
+                record.last_frame_at_us = Some(now);
                 if seq == 0 {
                     record.first_frame_us = Some(now);
                 } else {
@@ -257,23 +391,16 @@ where
             }
         })
     };
-    let (host_writer_abort, viewer_reader_abort) =
-        (host_writer.abort_handle(), viewer_reader.abort_handle());
+    let viewer_reader_abort = viewer_reader.abort_handle();
     let drain = Duration::from_secs(args.seconds + 30);
-    let _ = timeout(drain, async {
-        let _ = host_writer.await;
-        let _ = viewer_reader.await;
-    })
-    .await;
+    let _ = timeout(drain, viewer_reader).await;
     // A run that did not drain in time leaves nothing behind for the bulk run.
-    host_writer_abort.abort();
     viewer_reader_abort.abort();
     let viewer_writer_abort = viewer_writer.abort_handle();
     if let Ok(Ok(mut tx)) = timeout(Duration::from_secs(5), viewer_writer).await {
         let _ = tx.shutdown().await;
     }
     viewer_writer_abort.abort();
-    host_reader.abort();
 }
 
 /// Mbit/s from host to viewer on a fresh stream, over `bytes` or 60 s.
@@ -339,15 +466,23 @@ impl Rng {
 /// Forward datagrams from `from` to wherever `to` says, each after a fixed
 /// delay and each lost with probability `loss_pct`. The delay line is FIFO,
 /// so the link never reorders, like netem with a fixed delay.
+/// How one direction of a link misbehaves.
+struct Shape {
+    delay: Duration,
+    loss_pct: f64,
+    seed: u64,
+    /// Drop everything while set (a pulled cable).
+    cut: Arc<AtomicBool>,
+}
+
 fn impair_direction(
     from: Arc<UdpSocket>,
     out: Arc<UdpSocket>,
     to: Arc<Mutex<Option<SocketAddr>>>,
     learn: Option<Arc<Mutex<Option<SocketAddr>>>>,
-    delay: Duration,
-    loss_pct: f64,
-    seed: u64,
+    shape: Shape,
 ) {
+    let Shape { delay, loss_pct, seed, cut } = shape;
     let (line_tx, mut line_rx) = tokio::sync::mpsc::unbounded_channel::<(Instant, Vec<u8>)>();
     tokio::spawn(async move {
         let mut rng = Rng(seed);
@@ -356,7 +491,8 @@ fn impair_direction(
             if let Some(learn) = &learn {
                 *learn.lock().unwrap_or_else(PoisonError::into_inner) = Some(source);
             }
-            if !rng.chance(loss_pct)
+            if !cut.load(Ordering::Relaxed)
+                && !rng.chance(loss_pct)
                 && line_tx.send((Instant::now() + delay, buf[..n].to_vec())).is_err()
             {
                 break;
@@ -378,6 +514,16 @@ fn impair_direction(
 /// client dials the returned address; half the round trip is added each way.
 /// The tasks end with the process.
 async fn impair(server: SocketAddr, rtt_ms: u64, loss_pct: f64) -> io::Result<SocketAddr> {
+    impair_cuttable(server, rtt_ms, loss_pct, Arc::default()).await
+}
+
+/// [`impair`] that drops everything, both ways, while `cut` is set.
+async fn impair_cuttable(
+    server: SocketAddr,
+    rtt_ms: u64,
+    loss_pct: f64,
+    cut: Arc<AtomicBool>,
+) -> io::Result<SocketAddr> {
     let front = Arc::new(UdpSocket::bind("127.0.0.1:0").await?);
     let back = Arc::new(UdpSocket::bind("127.0.0.1:0").await?);
     let address = front.local_addr()?;
@@ -389,11 +535,10 @@ async fn impair(server: SocketAddr, rtt_ms: u64, loss_pct: f64) -> io::Result<So
         back.clone(),
         server,
         Some(client.clone()),
-        delay,
-        loss_pct,
-        0x9e37_79b9_7f4a_7c15,
+        Shape { delay, loss_pct, seed: 0x9e37_79b9_7f4a_7c15, cut: cut.clone() },
     );
-    impair_direction(back, front, client, None, delay, loss_pct, 0xd1b5_4a32_d192_ed03);
+    let shape = Shape { delay, loss_pct, seed: 0xd1b5_4a32_d192_ed03, cut };
+    impair_direction(back, front, client, None, shape);
     Ok(address)
 }
 
@@ -407,7 +552,19 @@ async fn start_wg(args: &Args) -> io::Result<(WgNet, WgNet, SocketAddr, SocketAd
         if shaped { impair(server_addr, args.rtt_ms, args.loss_pct).await? } else { server_addr };
     let pair = config_pair(dial);
     let viewer = WgNet::start(pair.client, client_socket).await.map_err(err)?;
-    let host = WgNet::start(pair.server, server_socket).await.map_err(err)?;
+    // `CMUX_WG_ULTRA_HOST` starts the host in its own mode (`off`: only the
+    // viewer turned ultra mode on, as with an app setting).
+    let host = match std::env::var("CMUX_WG_ULTRA_HOST")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .and_then(|v| cmux_wg::UltraMode::parse(&v))
+    {
+        Some(mode) => {
+            WgNet::start_with_ultra(pair.server, SocketPath::new(server_socket, None), mode)
+                .map_err(err)?
+        }
+        None => WgNet::start(pair.server, server_socket).await.map_err(err)?,
+    };
     Ok((
         viewer,
         host,
@@ -416,15 +573,182 @@ async fn start_wg(args: &Args) -> io::Result<(WgNet, WgNet, SocketAddr, SocketAd
     ))
 }
 
+/// The viewer's multipath underlay over one in-process link per `--paths`
+/// entry, all to the host's one socket. Returns the cut switch of each link.
+async fn start_wg_paths(
+    args: &Args,
+) -> io::Result<(WgNet, WgNet, SocketAddr, MultipathControl, Vec<Arc<AtomicBool>>)> {
+    let err = |error: cmux_wg::WgError| io::Error::other(error.to_string());
+    let server_socket = UdpSocket::bind("127.0.0.1:0").await?;
+    let server_addr = server_socket.local_addr()?;
+    let pair = config_pair(server_addr);
+    let (underlay, control) =
+        Multipath::with_probes(cmux_transport::SelectorConfig::default(), ProbeConfig::default());
+    let mut cuts = Vec::new();
+    for (kind, rtt_ms) in &args.paths {
+        let cut = Arc::new(AtomicBool::new(false));
+        let front = impair_cuttable(server_addr, *rtt_ms, args.loss_pct, cut.clone()).await?;
+        let socket = UdpSocket::bind("127.0.0.1:0").await?;
+        control.add_path(*kind, SocketPath::new(socket, Some(front)));
+        cuts.push(cut);
+    }
+    let viewer = WgNet::start_with_underlay(pair.client, underlay).map_err(err)?;
+    let host = WgNet::start(pair.server, server_socket).await.map_err(err)?;
+    Ok((viewer, host, SocketAddr::new(pair.server_v4, STREAM_PORT), control, cuts))
+}
+
+/// The label of the path carrying the session now (`--paths` index or
+/// `--peer` label), or `every` while datagrams go on every path.
+fn path_label(control: &MultipathControl, labels: &[(PathId, String)]) -> String {
+    let current = control.current();
+    labels
+        .iter()
+        .find(|(id, _)| Some(*id) == current)
+        .map_or_else(|| "every".to_owned(), |(_, label)| label.clone())
+}
+
+async fn run_wg_paths(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Result<()> {
+    let err = |error: cmux_wg::WgError| io::Error::other(error.to_string());
+    let (viewer_net, host_net, target, control, cuts) = start_wg_paths(args).await?;
+    let labels: Vec<(PathId, String)> = control
+        .paths()
+        .iter()
+        .enumerate()
+        .map(|(index, path)| (path.view.id, index.to_string()))
+        .collect();
+    if let Some((at, index)) = args.drop_at
+        && let Some(cut) = cuts.get(index).cloned()
+    {
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(at)).await;
+            cut.store(true, Ordering::Relaxed);
+        });
+    }
+    let mut listener = host_net.listen(STREAM_PORT).await.map_err(err)?;
+    let viewer = viewer_net.connect(target).await.map_err(err)?;
+    let host = listener.accept().await.ok_or_else(|| io::Error::other("no accept"))?;
+    stream_session(host, viewer, args, clock, record.clone()).await;
+    lock(&record).final_path = Some(path_label(&control, &labels));
+    viewer_net.shutdown().await;
+    host_net.shutdown().await;
+    // Bulk on a fresh tunnel over the same path set, nothing cut.
+    let (viewer_net, host_net, target, _control, _cuts) = start_wg_paths(args).await?;
+    let mut listener = host_net.listen(BULK_PORT).await.map_err(err)?;
+    let viewer = viewer_net.connect(SocketAddr::new(target.ip(), BULK_PORT)).await.map_err(err)?;
+    let host = listener.accept().await.ok_or_else(|| io::Error::other("no accept"))?;
+    lock(&record).bulk_mbit_s = bulk(host, viewer, args.bulk_bytes).await;
+    viewer_net.shutdown().await;
+    host_net.shutdown().await;
+    Ok(())
+}
+
+/// One key pair per role from `seed`, so two hosts agree on keys with no
+/// exchange. Bench only: anyone who knows the seed can join.
+fn seeded_pair(seed: u64, server: SocketAddr) -> cmux_wg::testing::ConfigPair {
+    let mut pair = config_pair(server);
+    let secret = |role: u8| {
+        let mut bytes = [0u8; 32];
+        bytes[..8].copy_from_slice(&seed.to_le_bytes());
+        bytes[8] = role;
+        x25519_dalek::StaticSecret::from(bytes)
+    };
+    let (client, host) = (secret(1), secret(2));
+    pair.client.private_key = zeroize::Zeroizing::new(client.to_bytes());
+    pair.server.private_key = zeroize::Zeroizing::new(host.to_bytes());
+    pair.client.peer_public_key = x25519_dalek::PublicKey::from(&host).to_bytes();
+    pair.server.peer_public_key = x25519_dalek::PublicKey::from(&client).to_bytes();
+    pair
+}
+
+/// The host end of a two-host run: one UDP socket, the stream, then bulk.
+async fn run_remote_host(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Result<()> {
+    let err = |error: cmux_wg::WgError| io::Error::other(error.to_string());
+    let listen = args.listen.ok_or_else(|| io::Error::other("--role host needs --listen"))?;
+    let socket = UdpSocket::bind(listen).await?;
+    let pair = seeded_pair(args.seed, listen);
+    let net = WgNet::start(pair.server, socket).await.map_err(err)?;
+    let mut stream = net.listen(STREAM_PORT).await.map_err(err)?;
+    let mut bulk_listener = net.listen(BULK_PORT).await.map_err(err)?;
+    let host = stream.accept().await.ok_or_else(|| io::Error::other("no accept"))?;
+    let end = Instant::now() + Duration::from_secs(args.seconds);
+    host_half(host, args, clock, record, end).await;
+    let mut host = bulk_listener.accept().await.ok_or_else(|| io::Error::other("no accept"))?;
+    let chunk = vec![0xa5u8; 64 * 1024];
+    let mut left = args.bulk_bytes;
+    while left > 0 {
+        let n = left.min(chunk.len());
+        host.write_all(&chunk[..n]).await?;
+        left -= n;
+    }
+    host.shutdown().await?;
+    // Let the last segments drain before the tunnel goes.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    net.shutdown().await;
+    Ok(())
+}
+
+/// The viewer end of a two-host run: a path per `--peer`, chosen by the
+/// selector.
+async fn run_remote_viewer(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Result<()> {
+    let err = |error: cmux_wg::WgError| io::Error::other(error.to_string());
+    let first = args.peers.first().ok_or_else(|| io::Error::other("--role viewer needs --peer"))?;
+    let pair = seeded_pair(args.seed, first.1);
+    let (underlay, control) =
+        Multipath::with_probes(cmux_transport::SelectorConfig::default(), ProbeConfig::default());
+    let mut labels = Vec::new();
+    for (label, address) in &args.peers {
+        let bind = if address.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" };
+        let socket = UdpSocket::bind(bind).await?;
+        let kind = if label.starts_with("lan") || label.starts_with("tb") {
+            PathKind::DirectLan
+        } else {
+            PathKind::DirectWan
+        };
+        labels
+            .push((control.add_path(kind, SocketPath::new(socket, Some(*address))), label.clone()));
+    }
+    let net = WgNet::start_with_underlay(pair.client, underlay).map_err(err)?;
+    let target = SocketAddr::new(pair.server_v4, STREAM_PORT);
+    let viewer = net.connect(target).await.map_err(err)?;
+    let end = Instant::now() + Duration::from_secs(args.seconds);
+    viewer_half(viewer, args, clock, record.clone(), end).await;
+    lock(&record).final_path = Some(path_label(&control, &labels));
+    let host_stub = net.connect(SocketAddr::new(pair.server_v4, BULK_PORT)).await.map_err(err)?;
+    let started = Instant::now();
+    let mut viewer = host_stub;
+    let mut buf = vec![0u8; 64 * 1024];
+    let mut got = 0usize;
+    let _ = timeout(Duration::from_secs(60), async {
+        while got < args.bulk_bytes {
+            match viewer.read(&mut buf).await {
+                Ok(0) | Err(_) => break,
+                Ok(n) => got += n,
+            }
+        }
+    })
+    .await;
+    lock(&record).bulk_mbit_s =
+        (got > 0).then(|| (got as f64 * 8.0) / started.elapsed().as_secs_f64() / 1e6);
+    net.shutdown().await;
+    Ok(())
+}
+
 async fn run_wg_tcp(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Result<()> {
+    if !args.paths.is_empty() {
+        return run_wg_paths(args, clock, record).await;
+    }
     let err = |error: cmux_wg::WgError| io::Error::other(error.to_string());
     let (viewer_net, host_net, _, target) = start_wg(args).await?;
     let mut listener = host_net.listen(STREAM_PORT).await.map_err(err)?;
     let viewer = viewer_net.connect(target).await.map_err(err)?;
     let host = listener.accept().await.ok_or_else(|| io::Error::other("no accept"))?;
     stream_session(host, viewer, args, clock, record.clone()).await;
+    lock(&record).note = ultra_note(&viewer_net, &host_net);
     viewer_net.shutdown().await;
     host_net.shutdown().await;
+    if args.bulk_bytes == 0 {
+        return Ok(());
+    }
     // A fresh tunnel, so frames still queued from the stream cannot share it.
     let (viewer_net, host_net, _, target) = start_wg(args).await?;
     let mut listener = host_net.listen(BULK_PORT).await.map_err(err)?;
@@ -543,12 +867,34 @@ async fn run_wg_dgram(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Res
     let _ = tokio::join!(host_task, viewer_task);
     let drops = host_net.datagram_drops();
     lock(&record).note = format!(
-        "no FEC or retransmit; sender drops stale {} full {}",
-        drops.media_stale, drops.media_full
+        "no retransmit; sender drops stale {} full {}; {}",
+        drops.media_stale,
+        drops.media_full,
+        ultra_note(&viewer_net, &host_net)
     );
     viewer_net.shutdown().await;
     host_net.shutdown().await;
     Ok(())
+}
+
+/// What ultra mode (`CMUX_WG_ULTRA`) sent and rebuilt on each end of the
+/// stream run.
+fn ultra_note(viewer: &WgNet, host: &WgNet) -> String {
+    let (viewer, host) = (viewer.ultra_stats(), host.ultra_stats());
+    format!(
+        "ultra {:?}: host parity {} copies {} overhead {} B of {} B rebuilt {}, viewer parity {} copies {} overhead {} B of {} B rebuilt {}",
+        cmux_wg::UltraMode::from_env(),
+        host.parity_sent,
+        host.copies_sent,
+        host.overhead_bytes,
+        host.data_bytes,
+        host.recovered,
+        viewer.parity_sent,
+        viewer.copies_sent,
+        viewer.overhead_bytes,
+        viewer.data_bytes,
+        viewer.recovered,
+    )
 }
 
 fn percentiles(values: &mut [u64]) -> String {
@@ -576,16 +922,37 @@ async fn main() -> io::Result<()> {
     let args = args();
     let clock = Arc::new(Clock(Instant::now()));
     let record: Shared = Arc::default();
-    match args.path.as_str() {
+    match (args.role.as_str(), args.path.as_str()) {
+        ("host", _) => return run_remote_host(&args, clock, record.clone()).await,
+        ("viewer", _) => run_remote_viewer(&args, clock, record.clone()).await?,
+        (_, path) => run_one_process(&args, path, clock, record.clone()).await?,
+    }
+    print_record(&args, &record);
+    Ok(())
+}
+
+async fn run_one_process(
+    args: &Args,
+    path: &str,
+    clock: Arc<Clock>,
+    record: Shared,
+) -> io::Result<()> {
+    let args = args.clone();
+    match path {
         "tcp" if args.rtt_ms > 0 || args.loss_pct > 0.0 => {
             return Err(io::Error::other("--rtt-ms and --loss-pct shape only the WireGuard paths"));
         }
         "tcp" => run_tcp(&args, clock, record.clone()).await?,
         "wg-tcp" => run_wg_tcp(&args, clock, record.clone()).await?,
         "wg-dgram" => run_wg_dgram(&args, clock, record.clone()).await?,
+        "rd-link" => rd_link::run(&args, clock, record.clone()).await?,
         other => return Err(io::Error::other(format!("unknown path {other}"))),
     }
-    let mut record = lock(&record);
+    Ok(())
+}
+
+fn print_record(args: &Args, record: &Shared) {
+    let mut record = lock(record);
     let received = record.frame_us.len() as u64 + u64::from(record.first_frame_us.is_some());
     let fps = received as f64 / args.seconds.max(1) as f64;
     let on_time = (received.saturating_sub(record.late)) as f64 / args.seconds.max(1) as f64;
@@ -597,7 +964,8 @@ async fn main() -> io::Result<()> {
         "{{\"path\":\"{}\",\"rtt_ms\":{},\"loss_pct\":{},\"frame_bytes\":{},\"fps_target\":{},\"seconds\":{},\
          \"first_frame_ms\":{},\"frames_sent\":{},\"frames_received\":{},\"fps\":{:.1},\
          \"fps_on_time\":{:.1},\"frame_ms\":{},\"inputs_sent\":{},\"input_ms\":{},\
-         \"input_to_photon_ms\":{},\"bulk_mbit_s\":{},\"note\":\"{}\"}}",
+         \"input_to_photon_ms\":{},\"bulk_mbit_s\":{},\"longest_frame_gap_ms\":{:.1},\
+         \"final_path\":\"{}\",\"paths\":\"{}\",\"drop_at\":\"{}\",\"note\":\"{}\"}}",
         args.path,
         args.rtt_ms,
         args.loss_pct,
@@ -614,7 +982,22 @@ async fn main() -> io::Result<()> {
         input_ms,
         photon_ms,
         json_number(record.bulk_mbit_s),
+        record.longest_frame_gap_us as f64 / 1000.0,
+        record.final_path.as_deref().unwrap_or(""),
+        if args.peers.is_empty() {
+            args.paths
+                .iter()
+                .map(|(kind, rtt)| format!("{}:{rtt}", kind.wire_name()))
+                .collect::<Vec<_>>()
+                .join(",")
+        } else {
+            args.peers
+                .iter()
+                .map(|(label, address)| format!("{label}={address}"))
+                .collect::<Vec<_>>()
+                .join(",")
+        },
+        args.drop_at.map(|(at, index)| format!("{at}:{index}")).unwrap_or_default(),
         note,
     );
-    Ok(())
 }

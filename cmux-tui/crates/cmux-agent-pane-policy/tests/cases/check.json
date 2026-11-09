@@ -524,6 +524,94 @@
   }
  },
  {
+  "name": "a review verdict for a chat outside the scope uses scope credit",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"_acpmux/review_verdict\",\"params\":{\"prUrl\":\"https://github.com/o/r/pull/1\",\"sessionId\":\"s9\",\"verdict\":\"changes\",\"comment\":\"fix it\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 12,
+    "method": "_acpmux/review_verdict",
+    "params": {
+     "prUrl": "https://github.com/o/r/pull/1",
+     "sessionId": "s9",
+     "verdict": "changes",
+     "comment": "fix it"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/review_verdict",
+    "page_id": "12",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": true,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": true,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "a review verdict for the pane's own chat keeps the gesture rule",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"_acpmux/review_verdict\",\"params\":{\"prUrl\":\"https://github.com/o/r/pull/1\",\"sessionId\":\"s1\",\"verdict\":\"changes\",\"comment\":\"fix it\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 12,
+    "method": "_acpmux/review_verdict",
+    "params": {
+     "prUrl": "https://github.com/o/r/pull/1",
+     "sessionId": "s1",
+     "verdict": "changes",
+     "comment": "fix it"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/review_verdict",
+    "page_id": "12",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": true,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": false
+   }
+  }
+ },
+ {
   "name": "live fork from outside the scope uses scope credit",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"acp.session.fork\",\"params\":{\"sessionId\":\"s9\",\"live\":true}}",
   "state": {
@@ -1892,6 +1980,72 @@
    "refuse": "transport.session_not_in_pane",
    "method": "_acpmux/btw",
    "id": "51",
+   "spend": null
+  }
+ },
+ {
+  "name": "memory_resolve for the pane's chat passes and needs a gesture",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":52,\"method\":\"_acpmux/memory_resolve\",\"params\":{\"sessionId\":\"s1\",\"offerId\":\"o1\",\"file\":\"CLAUDE.md\",\"accept\":[\"Use pnpm, not npm.\"],\"dismiss\":[]}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 52,
+    "method": "_acpmux/memory_resolve",
+    "params": {
+     "sessionId": "s1",
+     "offerId": "o1",
+     "file": "CLAUDE.md",
+     "accept": [
+      "Use pnpm, not npm."
+     ],
+     "dismiss": []
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/memory_resolve",
+    "page_id": "52",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": true,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "memory_resolve for a chat outside the scope is refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":53,\"method\":\"_acpmux/memory_resolve\",\"params\":{\"sessionId\":\"s9\",\"offerId\":\"o1\",\"file\":\"CLAUDE.md\",\"accept\":[\"Use pnpm, not npm.\"],\"dismiss\":[]}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "refuse": "transport.session_not_in_pane",
+   "method": "_acpmux/memory_resolve",
+   "id": "53",
    "spend": null
   }
  },

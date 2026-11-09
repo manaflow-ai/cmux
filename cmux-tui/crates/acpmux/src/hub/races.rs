@@ -246,7 +246,22 @@ impl Hub {
                 hub.wait_logs().await;
                 let _ = hub.adoption_ready.subscribe().wait_for(|ready| *ready).await;
             }
-            if let Err(error) = hub.run_race(&parent, &id, recover).await {
+            let mut result = hub.run_race(&parent, &id, recover).await;
+            // A failed race settles at once. One whose cleanup failed after its verdict or
+            // cancel was saved stays `reviewing` or `cancelled` with cleanup pending, which
+            // `fail_race` never moves: retry that cleanup a few times instead of leaving it to
+            // the next restart.
+            for delay in CLEANUP_RETRY_DELAYS {
+                // Checked after a success too: a cancel that came while the verdict's cleanup
+                // ran, and failed, leaves its own cleanup pending under an `Ok`.
+                let pending = hub.race_get(&parent, &id).is_ok_and(|r| cleanup_unfinished(&r));
+                if !pending {
+                    break;
+                }
+                tokio::time::sleep(*delay).await;
+                result = hub.run_race(&parent, &id, true).await;
+            }
+            if let Err(error) = result {
                 let _ = hub.race_update(&parent, &id, |r| {
                     fail_race(r, &error.message);
                 });
@@ -628,7 +643,7 @@ impl Hub {
             return Err(RpcError::internal("race cleanup has no persisted winner"));
         };
         if race.state == "cancelled" {
-            return Ok(());
+            return self.finish_cancel(parent, id).await;
         }
         if race.state != "reviewing" || !race.cleanup_pending {
             return Ok(());
@@ -660,6 +675,21 @@ impl Hub {
         }
         let reason = race.reason.clone().unwrap_or_default();
         self.race_progress(parent, id, |r| complete_race(r, &winner, &reason))?;
+        // A cancel that came meanwhile wins (`complete_race` leaves it), and its cleanup is
+        // this one's to finish when its own call failed.
+        self.finish_cancel(parent, id).await
+    }
+
+    /// Finishes a cancelled race's pending cleanup (`race_cancel` again); nothing otherwise.
+    async fn finish_cancel(
+        self: &Arc<Self>,
+        parent: &Arc<Session>,
+        id: &str,
+    ) -> Result<(), RpcError> {
+        let race = self.race_get(parent, id)?;
+        if race.state == "cancelled" && race.cleanup_pending {
+            self.race_cancel(parent, id).await?;
+        }
         Ok(())
     }
 
@@ -716,6 +746,20 @@ fn fail_race(race: &mut Race, error: &str) {
     }
     race.state = "failed".into();
     race.reason = Some(crate::secret_scan::mask(error));
+}
+
+/// The waits before each retry of a race's failed cleanup (`spawn_race`); past the last, the
+/// next restart retries it (`race_needs_resume`).
+const CLEANUP_RETRY_DELAYS: &[std::time::Duration] = &[
+    std::time::Duration::from_secs(5),
+    std::time::Duration::from_secs(30),
+    std::time::Duration::from_secs(120),
+];
+
+/// A saved verdict or cancel whose children are not all stopped yet: `run_race` finishes it.
+fn cleanup_unfinished(race: &Race) -> bool {
+    race.cleanup_pending
+        && ((race.state == "reviewing" && race.winner_id.is_some()) || race.state == "cancelled")
 }
 
 fn race_needs_resume(race: &Race) -> bool {

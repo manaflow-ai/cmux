@@ -261,6 +261,8 @@ pub(super) fn make_app(
         recovery_pages: HashMap::new(),
         recovery_replayed: HashMap::new(),
         recovery_start: HashMap::new(),
+        history_in_flight: HashSet::new(),
+        history_more: HashMap::new(),
         input: Editor::default(),
         input_images: Vec::new(),
         command: Editor::default(),

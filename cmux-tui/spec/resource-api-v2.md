@@ -748,6 +748,13 @@ metadata at the same level as terminal IDs; remote clients receive it like the
 rest of the agent value. An ended hook session still publishes a `delete`
 change for the agent.
 
+The snapshot and `agent.list` values of a hook agent may also carry
+`extra.last_reply`: the agent's last answer (Claude's `last_assistant_message`
+from its `Stop` hook), with whitespace folded to single spaces and cut to 200
+characters. It lives in the daemon's memory only: it is not journaled, not
+persisted, absent after a daemon restart until the next answer, and not part
+of the `agent` change event. Clients treat it as optional display text.
+
 ```json
 {
   "id": "agent_4f0c9f2a8e1b3d5c7a9e0b2d4f6a8c1e",

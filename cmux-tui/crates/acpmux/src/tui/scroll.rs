@@ -109,6 +109,9 @@ pub struct Viewport {
     /// (mouse y at press, offset at press) while the thumb is dragged.
     pub drag: Option<(u16, usize)>,
     pub hover: bool,
+    /// Rows from `offset` to the end to restore at the next `layout`: rows were added above
+    /// the viewport (an older page), so the rows on screen keep their place.
+    pub keep_below: Option<usize>,
 }
 
 impl Default for Viewport {
@@ -121,6 +124,7 @@ impl Default for Viewport {
             track: Rect::default(),
             drag: None,
             hover: false,
+            keep_below: None,
         }
     }
 }
@@ -136,6 +140,11 @@ impl Viewport {
         self.total = total;
         self.visible = visible;
         self.track = track;
+        if let Some(below) = self.keep_below.take()
+            && !self.follow
+        {
+            self.offset = total.saturating_sub(below);
+        }
         if self.follow {
             self.offset = self.max_offset();
         } else {

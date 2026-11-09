@@ -125,6 +125,7 @@ members = [
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
     "crates/acpmux-hot",
+    "crates/cmux-command-class",
 ]
 default-members = [
     "crates/acpmux",

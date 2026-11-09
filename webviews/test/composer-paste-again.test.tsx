@@ -161,11 +161,11 @@ async function paste(plain: string) {
   await settle();
 }
 
-/// 130 lines of a log (780 words, over the 750-word limit) with a blank line in it, which a paste keeps.
-const LOG = Array.from({ length: 130 }, (_, index) => `line ${index + 1} of the build log`)
+/// 600 lines of a log (3,600 words, over the 3,500-word limit) with a blank line in it, which a paste keeps.
+const LOG = Array.from({ length: 600 }, (_, index) => `line ${index + 1} of the build log`)
   .join("\n")
   .replace("line 13 of the build log\n", "line 13 of the build log\n\n");
-const OTHER = Array.from({ length: 130 }, (_, index) => `row ${index + 1} of the other table`).join("\n");
+const OTHER = Array.from({ length: 600 }, (_, index) => `row ${index + 1} of the other table`).join("\n");
 
 const send = (composer: RefObject<ComposerHandle | null>) =>
   act(async () => {

@@ -36,6 +36,13 @@ extension SettingsController {
         return true
     }
 
+    /// The settings the terminal font and the surface backgrounds follow: the loaded ones, so a font
+    /// size slider's preview never reloads Ghostty per tick, or the previewed ones while a Theme File
+    /// previews (one hover shows a whole look, its terminal font included).
+    public var lookFollowed: CmuxConfigSnapshot {
+        previewingKey == ThemeFileSetting.configPath.joined(separator: ".") ? applied : snapshot
+    }
+
     /// Ends a preview and restores the loaded settings.
     public func endPreview() {
         guard previewingKey != nil else { return }

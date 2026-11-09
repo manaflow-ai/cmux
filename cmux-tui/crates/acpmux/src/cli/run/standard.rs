@@ -486,7 +486,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     .first_prompt(&args, &v)
                     .filter(|_| !lost_race && launch::never_prompted(info));
                 if let Some(text) = &first {
-                    let prompt = PromptId::new(args.prompt_id.clone());
+                    let prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
                     let accepted = before_deadline(
                         deadline,
                         route_id,
@@ -522,7 +522,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // is interrupted while the app is opening its workspace.
             let queue_before_open = args.detach && !one_shot;
             if queue_before_open && let Some(text) = &first {
-                let prompt = PromptId::new(args.prompt_id.clone());
+                let prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
                 let accepted = before_deadline(
                     deadline,
                     route_id,
@@ -535,7 +535,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             if let Err(mut open_error) = show() {
                 if !queue_before_open && let Some(text) = &first {
-                    let prompt = PromptId::new(args.prompt_id.clone());
+                    let prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
                     if let Err(error) = before_deadline(
                         deadline,
                         route_id,
@@ -602,7 +602,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
             }
             if let Some(text) = first {
-                let prompt = PromptId::new(args.prompt_id.clone());
+                let prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
                 if one_shot {
                     let opts = CollectOpts {
                         timeout: args.timeout,
@@ -713,8 +713,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             })?;
             let from = from.or_else(|| notice.as_ref().map(|n| n.sender().to_owned()));
             // A relay names its sender by where it came from when it gave no --from: another
-            // agent's message, which queues and steers as one, never the person's.
-            let relayed = relay.relayed_from.clone().filter(|_| relay.relay.is_some());
+            // agent's message, which queues and steers as one, never the person's. The label fits
+            // `fromAgent`; the relay record (`relay_fields`) carries the whole name. The thread key
+            // comes from that cut label, so two relayed names sharing their first 64 characters
+            // share a thread (the record still tells them apart).
+            let relayed = relay
+                .relayed_from
+                .as_deref()
+                .filter(|_| relay.relay.is_some())
+                .map(crate::prompt_provenance::relayed_label)
+                .filter(|label| !label.is_empty());
             // The harness or app it runs in says where it came from: provenance beside the prompt,
             // self-reported (Leo, 2026-11-07: "ACPMux should also auto-detect that you sent it
             // from...").
@@ -867,7 +875,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 let id = before_deadline(deadline, &session, resolve_id(&client, &session)).await?;
                 let on_permission = OnPermission::parse(&on_permission)?;
                 // Never refuse: report what the prompt queues behind.
-                let info = before_deadline(deadline, &id, client.request(method::MUX_INFO, json!({"sessionId": id}))).await?;
+                // Read from a peer chat's mirrored row while its link's rows are current (`ROW_WILL_DO`).
+                let info = before_deadline(deadline, &id, client.request(method::MUX_INFO, json!({"sessionId": id, "row": true}))).await?;
                 // A session only the mesh hub reaches answers its info through the hub
                 // (`server/mesh_read.rs`), with no turn to follow here: the send goes through
                 // the hub as one to a name nobody here runs (below).
@@ -1392,8 +1401,9 @@ async fn to_parent(client: &crate::client::Client, target: &str) -> bool {
     let Some(own) = std::env::var("ACPMUX_SESSION_ID").ok().filter(|v| !v.trim().is_empty()) else {
         return false;
     };
-    let info =
-        |key: &str| client.request(method::MUX_INFO, json!({"sessionId": key, "waitLogs": false}));
+    let info = |key: &str| {
+        client.request(method::MUX_INFO, json!({"sessionId": key, "waitLogs": false, "row": true}))
+    };
     let Some(parent) = info(&own).await.ok().as_ref().and_then(started_by) else {
         return false;
     };

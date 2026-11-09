@@ -72,6 +72,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.parse
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -1882,7 +1883,10 @@ PACKAGE_JOBS = {
                   "Packages/Shared/", "Packages/iOS/", "cmux-tui/Cargo.toml", "cmux-tui/Cargo.lock",
                   "cmux-tui/rust-toolchain.toml", "cmux-tui/rust-toolchain", "cmux-tui/.cargo/",
                   "cmux-tui/crates/cmux-rd-core/", "cmux-tui/crates/cmux-rd-engine/", "cmux-tui/crates/cmux-rd-ffi/",
+                  # cmux-wg's remote_stream_bench example dev-depends on cmux-rd-link
+                  "cmux-tui/crates/cmux-rd-link/",
                   "cmux-tui/crates/cmux-rd-proto/", "cmux-tui/crates/cmux-remote-browser/",
+                  "cmux-tui/crates/cmux-terminal-prediction/",
                   "cmux-tui/crates/cmux-transport/", "cmux-tui/crates/cmux-wg/", "schemas/remote-tab/",
                   # cmux-wg's smoltcp is the vendored copy ([patch.crates-io] in cmux-next-ios/rust)
                   "cmux-tui/vendor/smoltcp/",
@@ -2144,6 +2148,56 @@ def touches(path: str, read: str) -> bool:
     return path.startswith(read) if read.endswith("/") else path == read or path.startswith(read + "/")
 
 
+# The pull request a fixed-on-base red may be excused for (2026-11-08, cmuxterm-hq#7948): next-autoland lands a head
+# with a base red since fixed, with no base merge, only when (1) an independent SHIP names that exact head, (2) it is
+# not risk:high, (3) GitHub does not call it conflicting, (4) the job was red at the PR's merge-base and (5) passes on
+# the newest base after it, and (6) none of the PR's files feeds the check. (5) and (6) are the rule above; this adds
+# (1)-(4), so a lane's own land and autoland's agree. Any one missing keeps the red: the head takes a base merge and a
+# run on the combined tree. The receipt grammar is risk_tier.py's (its one copy, as defaults_guard reads it). A merged
+# pull request (merge_audit) has no conflict to read.
+SCRIPT_DIR = Path(__file__).resolve().parent
+FIXED_ON_BASE_RISK = "risk:high"
+
+
+def receipt_grammar():
+    if str(SCRIPT_DIR) not in sys.path:
+        sys.path.insert(0, str(SCRIPT_DIR))
+    import risk_tier
+    return risk_tier
+
+
+def fixed_on_base_pull(repo: str, base: str, sha: str, name: str, merge_base: str, github) -> str:
+    """The pull request whose head is SHA, when (1)-(4) above hold for the red job NAME; raises Refused otherwise."""
+    pulls = [p for p in github.json(f"repos/{repo}/commits/{sha}/pulls?per_page=100") or []
+             if isinstance(p, dict) and (p.get("head") or {}).get("sha") == sha
+             and (p.get("base") or {}).get("ref") == base]
+    if len(pulls) != 1:
+        raise Refused(f"no single pull request into {base} has {sha[:12]} as its head ({len(pulls)} found)")
+    number = pulls[0].get("number")
+    pull = github.json(f"repos/{repo}/pulls/{number}")
+    labels = {str((label or {}).get("name") or "").lower() for label in pull.get("labels") or []}
+    if FIXED_ON_BASE_RISK in labels:
+        raise Refused(f"#{number} is {FIXED_ON_BASE_RISK}: it keeps its base merge and a run on the combined tree")
+    if pull.get("state") == "open" and (pull.get("mergeable") is False
+                                         or str(pull.get("mergeable_state") or "").lower() == "dirty"):
+        raise Refused(f"GitHub calls #{number} conflicting")
+    # A paginated read is its list of pages ([[comment, ...], ...]); signed_off reads the items.
+    comments = [item for page in github.json(f"repos/{repo}/issues/{number}/comments", paginate=True) or []
+                for item in _evidence.gh_pages.page_items(page)]
+    reviews = [item for page in github.json(f"repos/{repo}/pulls/{number}/reviews", paginate=True) or []
+               for item in _evidence.gh_pages.page_items(page)]
+    author = (pull.get("user") or {}).get("login") or ""
+    if not receipt_grammar().signed_off(comments, reviews, sha, author, pull):
+        raise Refused(f"#{number} has no independent SHIP at its exact head {sha[:12]}")
+    runs = github.json(f"repos/{repo}/commits/{merge_base}/check-runs?check_name={urllib.parse.quote(name, safe='')}&filter=latest&per_page=100")
+    seen = [run for run in (runs or {}).get("check_runs") or [] if isinstance(run, dict) and run.get("name") == name]
+    if not any(run.get("status") == "completed" and run.get("conclusion") in ("failure", "timed_out") for run in seen):
+        raise Refused(f"'{name}' has no red verdict at the merge-base {merge_base[:12]} "
+                      f"({', '.join(sorted({str(r.get('conclusion') or r.get('status')) for r in seen})) or 'none'}): "
+                      "the base red that would excuse it is not shown there")
+    return f"#{number}, SHIP at {sha[:12]}, red at the merge-base {merge_base[:12]}"
+
+
 def fixed_on_base(repo: str, base: str, sha: str, name: str, head_log: str, base_run: dict, github,
                   job: dict | None = None) -> str:
     """The audit line for a red job whose every failing test is fixed on the base (the rule above); raises Refused
@@ -2182,9 +2236,10 @@ def fixed_on_base(repo: str, base: str, sha: str, name: str, head_log: str, base
         if hit := [changed_path for changed_path in changed if any(touches(changed_path, r) for r in test_reads)]:
             raise Refused(f"{test} reads paths the PR changes: {'; '.join(hit[:5])}")
         reads.extend(r for r in test_reads if r not in reads)
+    pull = fixed_on_base_pull(repo, base, sha, name, merge_base, github)
     url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
     return (f"excused '{name}': fixed on base (passes at {tested[:12]} in {base} run {base_run['id']}, after the "
-            f"merge-base {merge_base[:12]}; PR does not touch {', '.join(reads)}) ({url}): "
+            f"merge-base {merge_base[:12]}; PR does not touch {', '.join(reads)}; {pull}) ({url}): "
             f"{'; '.join(sorted(tests))[:400]}")
 
 
