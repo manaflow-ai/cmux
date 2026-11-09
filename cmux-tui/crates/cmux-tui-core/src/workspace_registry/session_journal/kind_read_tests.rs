@@ -351,3 +351,119 @@ fn reducer_record_backfill_starts_over_when_its_segment_is_gone() {
     drop(registry);
     fs::remove_dir_all(root).unwrap();
 }
+
+/// A `terminal.output` record: what the output cleanup drops.
+fn sealed_terminal_output(index: usize) -> TestJournalRecord {
+    TestJournalRecord {
+        kind: "terminal.output".into(),
+        producer: JournalProducer { kind: "terminal".into(), id: "cmux-tui".into() },
+        subjects: vec![JournalSubject {
+            kind: "terminal".into(),
+            id: format!("term_{:032x}", index % 8),
+        }],
+        payload: {
+            use base64::Engine as _;
+            use sha2::Digest as _;
+            let bytes = format!("output {index} {}\r\n", "x".repeat(256)).into_bytes();
+            let start = index * 512;
+            let digest =
+                Sha256::digest(&bytes).iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+            json!({
+                "format": "cmux.terminal-output.v1",
+                "encoding": "base64",
+                "data": base64::engine::general_purpose::STANDARD.encode(&bytes),
+                "byte_count": bytes.len().to_string(),
+                "stream_offset_start": start.to_string(),
+                "stream_offset_end": (start + bytes.len()).to_string(),
+                "sha256": digest,
+            })
+        },
+    }
+}
+
+/// What a kind-scoped read returns, without the commit time.
+fn agent_read(registry: &WorkspaceRegistry) -> Vec<(u64, String, String, Value)> {
+    read_agent_records(registry)
+        .into_iter()
+        .map(|record| (record.sequence, record.event_id, record.kind, record.payload))
+        .collect()
+}
+
+/// The output cleanup swap rebuilds the sealed segments (`pack_segments`)
+/// under new ids, so the kept reducer records of the old segments must not
+/// survive it: the swap empties their table and forgets the backfill
+/// cursor, and the backfill fills the new segments. Here a registry whose
+/// sealed journal is mostly terminal output, with the reducer records kept
+/// and the backfill done, is staged and swapped at the next open. Afterwards
+/// the table is empty and the cursor gone; the kind-scoped read decodes the
+/// new segments and returns the same agent records; and the backfill keeps
+/// every one of them again, after which the read decodes no segment.
+#[test]
+fn an_output_cleanup_swap_drops_the_kept_reducer_records_and_the_backfill_rebuilds_them() {
+    use crate::workspace_registry::output_cleanup::{StageControl, StageOutcome, stage_registry};
+    let root = std::env::temp_dir()
+        .join(format!("cmux-reducer-record-swap-{}", new_uuid_v4().replace('-', "")));
+    let session = "reducer-record-swap";
+    let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+    let mut records = Vec::new();
+    for (index, record) in sealed_history(400).into_iter().enumerate() {
+        records.push(record);
+        records.extend((0..4).map(|output| sealed_terminal_output(index * 4 + output)));
+    }
+    registry.append_journal_records_for_test(&records);
+    registry.seal_journal_for_test("swap");
+    assert_eq!(kept_reducer_records(&registry), SEALED_AGENT_RECORDS as i64);
+    assert_eq!(run_reducer_record_backfill(&registry, usize::MAX), 0, "sealing kept every record");
+    let cursor_rows = |registry: &WorkspaceRegistry| -> i64 {
+        registry
+            .connection
+            .get()
+            .query_row(
+                "SELECT COUNT(*) FROM meta WHERE key = 'journal_segment_reducer_records_backfill'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(cursor_rows(&registry), 1, "the done backfill wrote its cursor");
+    let before = agent_read(&registry);
+    assert_eq!(before.len(), SEALED_AGENT_RECORDS);
+    let old_segments: Vec<String> = registry
+        .journal_segments()
+        .unwrap()
+        .into_iter()
+        .map(|segment| segment.segment_id)
+        .collect();
+    let db_path = registry.session_journal_database_path().unwrap();
+    drop(registry);
+
+    let outcome = stage_registry(
+        &db_path,
+        &StageControl { on_pending: &|| {}, next_segment: &|| true, stopped: Arc::new(|| false) },
+    )
+    .unwrap();
+    assert!(matches!(outcome, StageOutcome::Complete { .. }), "not staged: {outcome:?}");
+    let registry = WorkspaceRegistry::open(&root, session).unwrap();
+    assert!(
+        output_cleanup::previous_path(&db_path).is_file(),
+        "the open did not swap the registry"
+    );
+    let new_segments: Vec<String> = registry
+        .journal_segments()
+        .unwrap()
+        .into_iter()
+        .map(|segment| segment.segment_id)
+        .collect();
+    assert_ne!(new_segments, old_segments, "the swap packed new segments");
+
+    assert_eq!(kept_reducer_records(&registry), 0, "kept records of the old segments survived");
+    assert_eq!(cursor_rows(&registry), 0, "the backfill cursor survived the swap");
+    assert_eq!(agent_read(&registry), before, "the read after the swap decodes the segments");
+
+    assert!(run_reducer_record_backfill(&registry, usize::MAX) > 0);
+    assert_eq!(kept_reducer_records(&registry), SEALED_AGENT_RECORDS as i64);
+    destroy_sealed_segments(&registry);
+    assert_eq!(agent_read(&registry), before, "the read decodes no segment after the backfill");
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
