@@ -789,7 +789,9 @@ struct ClientReady {
 /// `recovering`: the link outlives a failed first connect, and says on stderr why each first
 /// dial failed (an owner that still reads only stderr learns the reason without waiting for an
 /// exit that no longer comes).
-/// The stderr line a recovering link writes once its `PATH.admin` socket is bound.
+/// The stderr line a recovering link writes once its `PATH.admin` socket is bound. The app
+/// matches it as `SSHMachineLink.socketReadyLine` (CmuxNextRemote/SSH/SSHMachineLink.swift);
+/// `tests/remote_connect_link_socket_ready.rs` checks the binary prints it before any dial reports.
 pub(crate) const LINK_SOCKET_READY_LINE: &str = "remote connect: link socket ready";
 
 async fn run_client(

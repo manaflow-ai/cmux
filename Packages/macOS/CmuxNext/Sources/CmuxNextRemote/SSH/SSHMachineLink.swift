@@ -456,7 +456,8 @@ public actor SSHMachineLink {
         return .ssh(cause)
     }
 
-    /// The line the link writes once its admin socket answers (`LINK_SOCKET_READY_LINE`).
+    /// The line the link writes once its admin socket answers: `LINK_SOCKET_READY_LINE` in
+    /// cmux-tui/crates/cmux-tui/src/remote_runtime.rs (tests/remote_connect_link_socket_ready.rs).
     static let socketReadyLine = "remote connect: link socket ready"
 
     /// While the link dials its first connection it says on stderr each time a dial failed and it
