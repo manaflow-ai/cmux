@@ -189,7 +189,7 @@ fn a_failed_first_connection_is_not_loaded_until_a_snapshot_comes() {
     assert_eq!(shown["groups"][0]["entries"][0]["id"], "fi_1", "{shown}");
 }
 
-fn person_session(user_payload: &str) -> serde_json::Value {
+fn person_session(user_payload: &str) -> Value {
     json!({
         "api_base_url": "https://api.cmux.test",
         "access_token": format!("eyJhbGciOiJub25lIn0.{user_payload}.sig"),
