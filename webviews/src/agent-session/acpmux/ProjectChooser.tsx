@@ -85,6 +85,9 @@ export function ProjectChooser({
   const currentKey = current
     ? rowKey({ cwd: current, label: "", ...(currentPeer ? { peer: currentPeer } : {}) })
     : undefined;
+  // No folder is checked whenever the face reads it (no folder and no label of the caller's), so
+  // the menu agrees with the chip. Only `noProject` makes a pick of it change nothing.
+  const noneChecked = noProject || (currentKey === undefined && currentLabel === undefined);
 
   // One row per repository; a lane's worktree or a scratch folder only when the search names it
   // (projectRepos.ts chooserRows).
@@ -99,7 +102,7 @@ export function ProjectChooser({
   }, [shown, onNoProject]);
   const rowsByKey = useMemo(() => new Map(rows.map((row) => [row.key, row])), [rows]);
   const isCurrent = (key: string) =>
-    rowsByKey.has(key) && (key === currentKey || (noProject && key === NO_PROJECT_KEY));
+    rowsByKey.has(key) && (key === currentKey || (noneChecked && key === NO_PROJECT_KEY));
   const typedPath = useMemo(() => {
     const value = query.trim();
     return value.startsWith("/") || value.startsWith("~/") ? value : undefined;
