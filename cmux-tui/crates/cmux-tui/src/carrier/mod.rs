@@ -84,14 +84,17 @@
 //! session per machine, dialed by the first accepted connection, and a mux
 //! control stream on it for each connection ([`serve`]).
 //!
-//! `cmux carrier capabilities [--json]` prints one JSON object on stdout and
-//! exits 0: the routes this build can carry a Cloud session over
-//! (`routes`), the faults a probe can inject (`faults`), and per carrier
-//! (`carriers.relay`, `carriers.ssh`) whether it is available (with a
-//! `reason` when not), can be probed, and which faults it takes
-//! ([`fault::capabilities`]). It needs no network, sign-in or app. The probe
-//! account's fault switch, `cmux cloud start-chat --carrier-fault`, is
-//! [`fault`]'s.
+//! `cmux carrier capabilities [--json] [--wg-hub PATH]` prints one JSON
+//! object on stdout and exits 0: the routes this device can carry a Cloud
+//! session over (`routes`), the faults a probe can inject (`faults`), and
+//! per carrier (`carriers.relay`, `carriers.ssh`) whether it is available
+//! (with a `code` and a `reason` when not), can be probed, and which faults
+//! it takes ([`fault::capabilities`]). ssh is available when the dial's own
+//! check of this device passes ([`ssh::ssh_ready`]: the tunnel hub at
+//! `--wg-hub` or the default socket answers, and the carrier key is there,
+//! made the first time as a dial makes it). It needs no network, sign-in or
+//! app. The probe account's fault switch, `cmux cloud start-chat
+//! --carrier-fault`, is [`fault`]'s.
 //!
 //! `cmux carrier tunnel --machine-id machine_… --name NAME --socket PATH`
 //! keeps this Mac's tunnel into the team's provider Cloud mesh up (attach,
@@ -449,21 +452,34 @@ fn key(args: &[String]) -> i32 {
     }
 }
 
-/// `capabilities` or `capabilities --json`, exactly (the answer is JSON either way).
-pub(crate) fn parse_capabilities(args: &[String]) -> bool {
-    match args {
-        [verb] => verb == "capabilities",
-        [verb, flag] => verb == "capabilities" && flag == "--json",
-        _ => false,
+/// `capabilities [--json] [--wg-hub PATH]`, each once (the answer is JSON
+/// either way): `Some(hub)`, the dial's `--wg-hub` checked the same way.
+pub(crate) fn parse_capabilities(args: &[String]) -> Option<Option<PathBuf>> {
+    let (verb, rest) = args.split_first()?;
+    if verb != "capabilities" {
+        return None;
+    }
+    let rest = match rest {
+        [flag, tail @ ..] if flag == "--json" => tail,
+        _ => rest,
+    };
+    match rest {
+        [] => Some(None),
+        [flag, hub] if flag == "--wg-hub" => {
+            let hub = PathBuf::from(hub);
+            (hub.is_absolute() && cmux_unix_socket::fits(&hub)).then_some(Some(hub))
+        }
+        _ => None,
     }
 }
 
-/// `cmux carrier capabilities [--json]`: this build's carriers on stdout.
+/// `cmux carrier capabilities [--json] [--wg-hub PATH]`: this device's
+/// carriers on stdout.
 fn capabilities(args: &[String]) -> i32 {
-    if !parse_capabilities(args) {
-        return usage("usage: cmux carrier capabilities [--json]");
-    }
-    let line = format!("{}\n", fault::capabilities(&fault::this_build()));
+    let Some(hub) = parse_capabilities(args) else {
+        return usage("usage: cmux carrier capabilities [--json] [--wg-hub PATH]");
+    };
+    let line = format!("{}\n", fault::capabilities(&fault::this_device(hub)));
     let mut stdout = std::io::stdout().lock();
     let _ = stdout.write_all(line.as_bytes());
     let _ = stdout.flush();
