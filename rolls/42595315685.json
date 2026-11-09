@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42595315685",
+  "recorded_at": "2026-11-09T09:50:54Z",
+  "reason": "cmux-tui 749c21135589 changes the image's cmux-tui (pinned 09d74d7a9929)",
+  "dry_run": false,
+  "cmux_tui": "749c211355890d9855664e804f8df0c8794218f3",
+  "fixes": [
+    {
+      "sha": "749c211355890d9855664e804f8df0c8794218f3",
+      "mergedAt": "2026-11-09T01:25:49-08:00",
+      "subject": "agent pane: out-of-credit and expired cloud sign-in errors say what to do (#39328)"
+    },
+    {
+      "sha": "98a0dc6a364cd7fa5480e454aa72d97065690144",
+      "mergedAt": "2026-11-09T09:25:44Z",
+      "subject": "cmux-action-catalog: cloud start-session --from-folder, as in the app (base red) (#39350)"
+    },
+    {
+      "sha": "cf9a521a49d90209295c24ebc32e923e14697d4e",
+      "mergedAt": "2026-11-09T01:23:49-08:00",
+      "subject": "billing: Cloud machine time joins the usage pool (cloud.machine_usd) (#39396)"
+    },
+    {
+      "sha": "11525b1a2353aa9e1549f5b66539cce528a09fa6",
+      "mergedAt": "2026-11-09T01:21:19-08:00",
+      "subject": "protocol: CloudPlan usage gains vm_hours_used_by_you (#39393)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T09:50:54Z",
+    "snapshot_id": "sh-dee1228a12b54411b4001adffd2474a4",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42595315685): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8ca9be067cc41b8fde1d2382f2086fa738d714c0",
+    "image": "cloud-native-auto-749c2113-42595315685-1",
+    "revision": "ci-42595315685-1",
+    "at": "2026-11-09T09:50:54Z"
+  },
+  "rolled_back": false
+}
