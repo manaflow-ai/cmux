@@ -117,21 +117,25 @@ pub enum ResumeSource {
 
 /// One resume can reach the agent both as a clock set and as a pause-watch
 /// gap (a provider whose boot clock runs through a pause and whose realtime
-/// is set late). Only the first is a resume; the other is a clock sync.
+/// is set late). A signal within [`SAME_RESUME_NS`] of the last resume from
+/// the other detector is that resume, seen again: a clock sync. Each detector
+/// fires once per resume, so a second signal from the same detector is
+/// always a new resume, and a resume absorbs at most one signal from the
+/// other.
 #[derive(Debug, Default)]
 pub struct ResumeOnce {
-    last_wall_ns: Option<i128>,
+    /// The last resume that has not yet absorbed the other detector's signal.
+    last: Option<(ResumeSource, i128)>,
 }
 
 impl ResumeOnce {
     /// Whether a resume signal from `source` at wall time `wall_ns` is a new
     /// resume.
     pub fn first(&mut self, source: ResumeSource, wall_ns: i128) -> bool {
-        let _ = source;
-        let same = self.last_wall_ns.is_some_and(|last| (wall_ns - last).abs() < SAME_RESUME_NS);
-        if !same {
-            self.last_wall_ns = Some(wall_ns);
-        }
+        let same = self.last.is_some_and(|(last_source, last_ns)| {
+            last_source != source && (wall_ns - last_ns).abs() < SAME_RESUME_NS
+        });
+        self.last = if same { None } else { Some((source, wall_ns)) };
         !same
     }
 }
