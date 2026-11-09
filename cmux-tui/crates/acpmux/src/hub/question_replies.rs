@@ -15,9 +15,15 @@
 //! asker's chat as a `lane_report` prompt. The receiver's notice says so, so it ends its turn
 //! with its answer instead of sending it as well.
 //!
-//! A notice that ran as its own turn reports when it ends (its turn ended before). One steered
-//! into a running turn waits for that turn's end (`Inbox::replies_due`): its reply is that turn's.
-//! A daemon restart forgets the replies due.
+//! The asker is the session the daemon bound the send to ([`asker_of`]), never a `from` a caller
+//! wrote. A reply belongs to one turn (review B2 of #39055): it is due under the prompt that
+//! carries the question (its own prompt, or the inbox notice) until that prompt's turn starts, or
+//! its steer is written into a running turn; then under that turn's id. Only that turn's end sends
+//! it, with what that turn did (`started`: a turn whose agent never got the prompt reports it
+//! failed, with no reply). A prompt that never reached a turn (a Stop or a refusal before it
+//! started) drops its replies. A lane's own parent hears the turn as a lane report already
+//! (`lane_reports.rs`), so it gets none. An asker on another machine gets none either: the reply
+//! goes only to a session here. A daemon restart forgets the replies due.
 
 use super::lane_reports::Report;
 use super::*;
@@ -38,83 +44,140 @@ pub(super) fn asker_of(provenance: Option<&Value>) -> Option<String> {
     (daemons || same).then_some(bound)
 }
 
-/// A reply due to the session that asked: its asker, the asking subagent (`{id, type}`) and the
-/// message it answers.
+/// Replies one session keeps due at most: past it the oldest go (a turn that never ended).
+const KEEP_DUE: usize = 64;
+
+/// A reply due to the session that asked: the prompt that carries the question, the turn that
+/// answers it once known, the asker, the asking subagent (`{id, type}`) and the caller that
+/// reads the reply on its send, if any (`PromptOptions::reply_reader`).
 #[derive(Debug, Clone)]
 pub(super) struct ReplyDue {
+    pub(super) prompt_id: String,
+    pub(super) turn: Option<String>,
     pub(super) asker: String,
     pub(super) subagent: Option<Value>,
+    pub(super) reader: Option<tokio::sync::watch::Receiver<bool>>,
+}
+
+impl ReplyDue {
+    /// A reply due under prompt `prompt_id`, whose turn is not known yet.
+    pub(super) fn pending(prompt_id: &str, asker: String, subagent: Option<Value>) -> Self {
+        Self { prompt_id: prompt_id.to_owned(), turn: None, asker, subagent, reader: None }
+    }
+
+    /// Its caller still reads the reply on its send: that reply is the answer, no report.
+    fn read_on_the_send(&self) -> bool {
+        self.reader.as_ref().is_some_and(|ended| !*ended.borrow())
+    }
+}
+
+/// Drops the replies still due under a prompt that never reached a turn, when that prompt's
+/// request ends (`turns.rs`).
+pub(super) struct PendingReply {
+    session: Arc<Session>,
+    prompt_id: String,
+}
+
+impl Drop for PendingReply {
+    fn drop(&mut self) {
+        let mut inbox = self.session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+        inbox.replies_due.retain(|d| d.turn.is_some() || d.prompt_id != self.prompt_id);
+    }
+}
+
+/// Adds `due` to `inbox`'s replies due, keeping at most [`KEEP_DUE`].
+pub(super) fn keep_due(inbox: &mut super::inbox::Inbox, due: ReplyDue) {
+    if inbox.replies_due.len() >= KEEP_DUE {
+        inbox.replies_due.remove(0);
+    }
+    inbox.replies_due.push(due);
 }
 
 impl Hub {
-    /// A question or block from session `asker` (another session here) that runs as a turn of
-    /// its own, not as an inbox notice (`turns.rs`: the inbox is off, the chat reads none, or
-    /// the asker started this chat), and that no caller reads the reply of: its reply goes
-    /// back when the turn that answers it ends. A lane's own parent hears it as a lane report
-    /// already (`lane_reports.rs`), so it is left out.
-    pub(super) fn question_reply_on_turn(
+    /// A question or block from session `asker` that runs as a prompt of its own, not as an
+    /// inbox notice (`turns.rs`: the inbox is off, the chat reads none, or the asker started this
+    /// chat), and that no caller reads the reply of: its reply is due under `prompt_id` until
+    /// that prompt's turn is known. The guard drops it if none ever is.
+    pub(super) fn question_reply_pending(
         &self,
-        session: &Session,
+        session: &Arc<Session>,
+        prompt_id: &str,
         asker: Option<String>,
         subagent: Option<Value>,
         class: Option<crate::prompt_class::PromptClass>,
         reads_reply: bool,
-    ) {
+    ) -> Option<PendingReply> {
         use crate::prompt_class::PromptClass;
-        let Some(asker) = asker.filter(|a| *a != session.id) else { return };
+        let asker = asker.filter(|a| *a != session.id)?;
         if reads_reply || !matches!(class, Some(PromptClass::Question | PromptClass::Block)) {
-            return;
-        }
-        let parent = self.lane_links(|links| links.get(&session.id).map(|l| l.parent.clone()));
-        if parent.as_deref() == Some(asker.as_str()) {
-            return;
+            return None;
         }
         let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
-        inbox.replies_due.push(ReplyDue { asker, subagent });
+        keep_due(&mut inbox, ReplyDue::pending(prompt_id, asker, subagent));
+        Some(PendingReply { session: session.clone(), prompt_id: prompt_id.to_owned() })
     }
 
-    /// The notice that carried `due`'s messages went in and ended (`inbox.rs` `notice_done`):
-    /// their replies go back now when it ran as its own turn (which ended), or when it was
-    /// `steered` into a turn that ended already; else at the end of that turn
-    /// ([`Hub::question_replies_turn_ended`]).
-    pub(super) fn question_replies_due(
+    /// Prompt `prompt_id` reached turn `turn_id`: its turn started (`turns.rs`), or its steer was
+    /// written into that running turn (`steer_end.rs`). The replies due under it are that turn's.
+    pub(super) fn question_reply_in_turn(&self, session: &Session, prompt_id: &str, turn_id: &str) {
+        let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+        for d in inbox.replies_due.iter_mut().filter(|d| d.turn.is_none()) {
+            if d.prompt_id == prompt_id {
+                d.turn = Some(turn_id.to_owned());
+            }
+        }
+    }
+
+    /// Prompt `prompt_id` (a notice, or a prompt of its own) ended: `went_in`, the replies due
+    /// under it that reached no turn go; not in (refused, or a Stop took its steer back unread),
+    /// they all go, also one tied to the turn its steer was written into. Its messages come again
+    /// as a new notice, with replies of their own.
+    pub(super) fn question_replies_settled(
+        &self,
+        session: &Session,
+        prompt_id: &str,
+        went_in: bool,
+    ) {
+        let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+        inbox.replies_due.retain(|d| d.prompt_id != prompt_id || (went_in && d.turn.is_some()));
+    }
+
+    /// `session`'s turn `turn_id` (number `turn`) ended (`inbox_turn_ended`): the replies due at
+    /// its end go back, with what it did (`started`: its agent got the prompt).
+    pub(super) fn question_replies_turn_ended(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        due: Vec<ReplyDue>,
-        steered: bool,
+        turn_id: &str,
+        turn: u64,
+        started: bool,
     ) {
+        let due: Vec<ReplyDue> = {
+            let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
+            let (due, keep) = std::mem::take(&mut inbox.replies_due)
+                .into_iter()
+                .partition(|d| d.turn.as_deref() == Some(turn_id));
+            inbox.replies_due = keep;
+            due
+        };
         if due.is_empty() {
             return;
         }
-        if steered && session.turn().is_some() {
-            let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
-            inbox.replies_due.extend(due);
-            return;
-        }
-        self.question_replies_send(session, due);
-    }
-
-    /// `session`'s turn ended: the replies due at its end go back (`inbox_turn_ended`).
-    pub(super) fn question_replies_turn_ended(self: &Arc<Self>, session: &Arc<Session>) {
-        let due = {
-            let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
-            std::mem::take(&mut inbox.replies_due)
-        };
-        if !due.is_empty() {
-            self.question_replies_send(session, due);
-        }
-    }
-
-    /// Reports `session`'s last turn to each asker in `due`, once per asker and subagent.
-    fn question_replies_send(self: &Arc<Self>, session: &Arc<Session>, due: Vec<ReplyDue>) {
+        // A lane's parent hears this turn as the lane's report (`lane_reports.rs`).
+        let parent = self.lane_links(|links| links.get(&session.id).map(|l| l.parent.clone()));
         let mut seen: Vec<(String, Option<Value>)> = Vec::new();
         for d in due {
+            if d.asker == session.id
+                || parent.as_deref() == Some(d.asker.as_str())
+                || d.read_on_the_send()
+            {
+                continue;
+            }
             let key = (d.asker.clone(), d.subagent.clone());
-            if seen.contains(&key) || d.asker == session.id {
+            if seen.contains(&key) {
                 continue;
             }
             seen.push(key);
-            let report = self.lane_capture_reply(session, d.subagent);
+            let report = self.lane_capture_reply(session, turn, started, d.subagent);
             let (hub, from, asker) = (self.clone(), session.id.clone(), d.asker);
             tokio::spawn(async move {
                 if let Err(e) = hub.question_reply_deliver(&asker, &from, &report).await {
@@ -133,8 +196,12 @@ impl Hub {
         report: &Report,
     ) -> Result<(), RpcError> {
         let local = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(asker).cloned();
-        let Some(p) = local else { return Ok(()) };
+        let Some(p) = local else {
+            tracing::debug!(asker, from, "question reply dropped: the asker is no session here");
+            return Ok(());
+        };
         if super::queue::closing(&p) {
+            tracing::debug!(asker, from, "question reply dropped: the asker's chat is closing");
             return Ok(());
         }
         let ended;

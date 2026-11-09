@@ -221,8 +221,8 @@ type Waiter = tokio::sync::watch::Sender<Option<super::queue::Answer>>;
 #[derive(Default)]
 pub struct Inbox {
     pub(super) items: Vec<Item>,
-    /// Replies to questions no caller waits for, due to their askers when the running turn ends
-    /// (`question_replies.rs`).
+    /// Replies to questions no caller waits for: due under the prompt that carries them until
+    /// its turn is known, then sent to their askers when that turn ends (`question_replies.rs`).
     pub(super) replies_due: Vec<super::question_replies::ReplyDue>,
     /// The notice in flight: its prompt id and the messages it carries. None goes after it until
     /// it ends, or, a turn of its own, until its prompt is written to the agent.
@@ -992,12 +992,6 @@ fn asks_a_session(item: &Item) -> bool {
         && !item.report
 }
 
-/// [`reply_goes_back`] once its notice ended: the notice took the waiting request off the item, so
-/// only its caller's connection says whether it still reads the reply.
-fn reply_goes_back_at_end(item: &Item) -> bool {
-    asks_a_session(item) && item.reader.as_ref().is_none_or(|ended| *ended.borrow())
-}
-
 /// The line a notice ends with that says how its senders get an answer, or None when none can:
 /// a sender that waits gets this turn's reply; a question nobody waits for gets it too, sent back
 /// when the turn ends; another session, `inbox_reply` or `acpmux send`; a subagent only the reply
@@ -1673,6 +1667,26 @@ impl Hub {
                     waiters.push((item.prompt_id.clone(), answer));
                 }
             }
+            // A question nobody may wait for: the turn this notice reaches answers its asker,
+            // unless its caller reads the reply on the send then (`question_replies.rs`).
+            let due: Vec<_> = inbox
+                .items
+                .iter()
+                .filter(|i| ids.contains(&i.prompt_id) && asks_a_session(i))
+                .filter_map(|i| {
+                    let sub = i.sender.get("subagent").filter(|s| s.is_object()).cloned();
+                    let mut due = super::question_replies::ReplyDue::pending(
+                        &notice_id,
+                        i.asker.clone()?,
+                        sub,
+                    );
+                    due.reader = i.reader.clone();
+                    Some(due)
+                })
+                .collect();
+            for d in due {
+                super::question_replies::keep_due(&mut inbox, d);
+            }
             inbox.in_flight = Some((notice_id.clone(), ids.clone()));
             let carry = Carry { notice: notice_id.clone(), ids: ids.clone(), steer, waiters };
             inbox.carrying.push(carry);
@@ -1707,8 +1721,6 @@ impl Hub {
         ids: &[String],
         result: super::queue::Answer,
     ) {
-        let mut replies_due = Vec::new();
-        let steered;
         let answered = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
             if inbox.in_flight.as_ref().is_some_and(|(id, _)| id == notice_id) {
@@ -1718,7 +1730,6 @@ impl Hub {
             let went_in = at.map(|i| inbox.written.remove(i)).is_some();
             let at = inbox.carrying.iter().position(|c| c.notice == notice_id);
             let carry = at.map(|i| inbox.carrying.remove(i));
-            steered = carry.as_ref().is_some_and(|c| c.steer);
             let waiters = carry.map(|c| c.waiters).unwrap_or_default();
             // Read under the inbox's lock, as `inbox_accept` reads it: a chat closed since
             // answers its waiting senders here, else `inbox_closed` did or will.
@@ -1728,26 +1739,6 @@ impl Hub {
                 let answer = if closed { Err(super::queue::closing_error()) } else { result };
                 for item in inbox.items.iter_mut().filter(|i| ids.contains(&i.prompt_id)) {
                     item.answered = Some(answer.clone());
-                }
-                // A question no caller reads the reply of: the turn's reply goes back to its
-                // asker (`question_replies.rs`). A caller that left before the end reads none.
-                if answer.is_ok() {
-                    let due = inbox
-                        .items
-                        .iter()
-                        .filter(|i| ids.contains(&i.prompt_id))
-                        .filter(|i| reply_goes_back_at_end(i))
-                        .filter_map(|i| {
-                            Some(super::question_replies::ReplyDue {
-                                asker: i.asker.clone()?,
-                                subagent: i
-                                    .sender
-                                    .get("subagent")
-                                    .filter(|s| s.is_object())
-                                    .cloned(),
-                            })
-                        });
-                    replies_due.extend(due);
                 }
                 for (_, waiter) in waiters {
                     waiter.send_replace(Some(answer.clone()));
@@ -1803,7 +1794,8 @@ impl Hub {
                 self.turn_cap_recheck(session);
             }
         }
-        self.question_replies_due(session, replies_due, steered);
+        // Its questions that reached no turn get no reply (`question_replies.rs`).
+        self.question_replies_settled(session, notice_id, answered.is_some());
         if let Some(answer) = answered {
             let mut msg = json!({"noticePromptId": notice_id, "promptIds": ids});
             match answer {
@@ -1897,9 +1889,16 @@ impl Hub {
 
     /// A turn ended (`finish_turn`, `fail_unstarted_turn`): a refusal during it no longer holds
     /// the next try back.
-    pub(super) fn inbox_turn_ended(self: &Arc<Self>, session: &Arc<Session>) {
+    /// `turn_id` and `turn` name the turn that ended; `started`: its agent got its prompt.
+    pub(super) fn inbox_turn_ended(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        turn_id: &str,
+        turn: u64,
+        started: bool,
+    ) {
         session.inbox.lock().unwrap_or_else(|e| e.into_inner()).refused_at = 0;
-        self.question_replies_turn_ended(session);
+        self.question_replies_turn_ended(session, turn_id, turn, started);
         self.inbox_review(session);
     }
 

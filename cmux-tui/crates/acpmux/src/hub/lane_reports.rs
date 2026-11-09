@@ -754,15 +754,17 @@ impl Hub {
         self.capture_report(session, turn, started, for_subagent)
     }
 
-    /// The report of `session`'s last turn, which just ended, for the session that asked it a
+    /// The report of `session`'s turn `turn`, which just ended, for the session that asked it a
     /// question without waiting (`question_replies.rs`), and the asking subagent, if any.
+    /// `started` as in [`Hub::lane_capture`]: a turn whose agent never got the prompt has no reply.
     pub(super) fn lane_capture_reply(
         &self,
         session: &Session,
+        turn: u64,
+        started: bool,
         for_subagent: Option<Value>,
     ) -> Report {
-        let turn = self.session_summary(session).get("turnCount").and_then(Value::as_u64);
-        self.capture_report(session, turn.unwrap_or(0), true, for_subagent)
+        self.capture_report(session, turn, started, for_subagent)
     }
 
     /// [`Hub::lane_capture`] with the subagent the report is for.
