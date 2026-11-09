@@ -65,6 +65,21 @@ import Testing
         #expect(video.kind == .file)
         #expect(video.video?.durationMs == 8_000)
         #expect(video.video?.width == 640 && video.video?.height == 360)
+        // Its path on the Mac (the preview reads it over `file-preview`) and its first frame as its poster.
+        #expect(video.macPath == "/Users/me/Movies/my clip/clip.mov")
+        #expect(video.posterID == "img1")
+        #expect(video.picture?.recordedImageID == "img1")
+    }
+
+    /// A video linked with no frames note (its frames were never read) stays a chip that opens it.
+    @Test func userMessageKeepsAVideoLinkWithoutFrames() throws {
+        let user = try json(#"""
+        {"seq":4,"dir":"mux","kind":"user_message","msg":{"turnId":"t","promptId":"p","text":"look","inlineParts":[{"kind":"text","text":"look"},{"kind":"file","name":"clip.mp4","uri":"file:///w/clip.mp4"},{"kind":"file","name":"notes.txt","uri":"file:///w/notes.txt"}]}}
+        """#)
+        guard case .userMessage(_, _, _, let attachments, _)? = records.map(user).first else { Issue.record("no user message"); return }
+        #expect(attachments.map(\.name) == ["clip.mp4"])
+        #expect(attachments.first?.video == nil)
+        #expect(attachments.first?.macPath == "/w/clip.mp4")
     }
 
     @Test @MainActor func videoGoesAsItsLinkThenItsFrames() {
