@@ -455,13 +455,14 @@ fn key(args: &[String]) -> i32 {
 /// `capabilities [--json] [--wg-hub PATH]`, each once (the answer is JSON
 /// either way): `Some(hub)`, the dial's `--wg-hub` checked the same way.
 pub(crate) fn parse_capabilities(args: &[String]) -> Option<Option<PathBuf>> {
-    let (verb, mut rest) = args.split_first()?;
+    let (verb, rest) = args.split_first()?;
     if verb != "capabilities" {
         return None;
     }
-    if rest.first().is_some_and(|flag| flag == "--json") {
-        rest = &rest[1..];
-    }
+    let rest = match rest {
+        [flag, tail @ ..] if flag == "--json" => tail,
+        _ => rest,
+    };
     match rest {
         [] => Some(None),
         [flag, hub] if flag == "--wg-hub" => {
