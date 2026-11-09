@@ -216,7 +216,14 @@ test("a starting prompt draws only in the chat it was sent in", () => {
 // Review of #39781: the first prompt's row draws what the chat's own sent row draws once it went
 // (direct.ts `sentPrompt`): a pasted block's text and range, and the attachments a Retry sends again.
 test("a new chat's first prompt row carries its paste and its attachments", () => {
-  const paste = { id: "paste-1", kind: "pasted" as const, name: "log.txt", mimeType: "text/plain", size: 9, text: "line\nline" };
+  const paste = {
+    id: "paste-1",
+    kind: "pasted" as const,
+    name: "log.txt",
+    mimeType: "text/plain",
+    size: 9,
+    text: "line\nline",
+  };
   const sends = [
     { id: "p1", text: "see this", attachments: [paste], at: 1, sentIn: { visit: 1 } },
   ] satisfies StartingSend[];
