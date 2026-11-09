@@ -1242,9 +1242,6 @@ button.cv-subagent > :last-child {
 
 /* ---------- Where a subagent ended (SubagentDoneLine.tsx) ---------- */
 /* A tool row like a background task's end; a failure in the danger color. */
-.cv-subagent-done:disabled {
-  cursor: default;
-}
 .cv-subagent-done[data-state="failed"] {
   color: var(--agent-status-failure);
 }
@@ -1258,20 +1255,6 @@ button.cv-subagent > :last-child {
   isolation: isolate;
   display: flex;
   min-width: 0;
-}
-.cv-subagent-done::before {
-  /* The line's one button owns the full row: its hit area reaches the duration and chevron while
-     those columns remain inert visual markers, so the row has no second navigation control. */
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: var(--layer-backdrop);
-}
-/* A line with a report (SubagentDoneLine.tsx `Line`): its words are no control, the whole row
-   toggles the report (headerToggle.ts) and the name chip opens the agent, so no hit area covers the
-   chip. */
-div.cv-subagent-done[data-toggle-line]::before {
-  content: none;
 }
 .cv-subagent-done-row > .cv-subagent-done {
   grid-template-columns: var(--cv-glyph-slot) minmax(0, 1fr);
@@ -1311,6 +1294,13 @@ div.cv-subagent-done[data-toggle-line]::before {
 }
 .cv-subagent-done-row > .cv-tool__chevron.is-idle {
   visibility: hidden;
+}
+/* The line is no control: only its name chip opens the subagent (SubagentDoneLine.tsx; Leo,
+   2026-11-05: "subagents need to have their clickable bit be highlighted instead of the whole line
+   click"). Pointing at the line lights nothing; pointing at the chip lights the chip (AgentTag.css)
+   and the chevron that marks it opens. */
+.cv-subagent-done-row:has(.cv-agent-tag.is-open:is(:hover, :focus-visible)) > .cv-subagent-done__chevron {
+  color: var(--cv-text);
 }
 .cv-subagent-done-row[data-state="failed"] .cv-subagent-done__time {
   color: var(--agent-status-failure);

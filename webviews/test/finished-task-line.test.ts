@@ -127,7 +127,9 @@ await requireBrowserLane("finished-task-line.test.ts", async () => {
         expect(found.fold).not.toBeNull();
         expect(line!.top).toBeGreaterThan(found.fold!);
         expect(line!.top).toBeLessThan(found.reply!);
-        // A click asks the app to open the task's chat.
+        // A click on its title chip asks the app to open the task's chat; the line itself opens nothing
+        // (Leo, 2026-11-05: "subagents need to have their clickable bit be highlighted instead of the
+        // whole line click").
         await page.evaluate(() => {
           const handler = (
             window as unknown as {
@@ -142,7 +144,9 @@ await requireBrowserLane("finished-task-line.test.ts", async () => {
             return post(message);
           };
         });
-        await page.click(".cv-task-line");
+        await page.click(".cv-task-line .cv-agent-activity__icon");
+        expect(await page.evaluate(() => (window as unknown as { __taskCalls: unknown[] }).__taskCalls.length)).toBe(0);
+        await page.click(".cv-task-line button.cv-agent-tag.is-open");
         const calls = await page.evaluate(
           () =>
             (window as unknown as { __taskCalls: { method?: string; params?: { sessionId?: string } }[] }).__taskCalls,
