@@ -103,12 +103,19 @@ pub(super) fn bound(m: &str) -> bool {
     matches!(m, method::SESSION_LOAD | method::SESSION_RESUME | method::MUX_ATTACH)
 }
 
-/// Whether `line` is a request or notification sent on both paths (`dual_requests::METHODS`).
+/// Whether `line` is a request or notification sent on both paths: decided by its content,
+/// by the rule the daemon dedupes by (`dual_requests::dual_safe`).
 pub(super) fn copied(line: &str) -> bool {
     let Ok(msg) = serde_json::from_str::<Value>(line) else { return false };
-    msg.get("method")
-        .and_then(Value::as_str)
-        .is_some_and(|m| crate::server::dual_requests::METHODS.contains(&m))
+    let Some(m) = msg.get("method").and_then(Value::as_str) else { return false };
+    crate::server::dual_requests::dual_safe(m, msg.get("params").unwrap_or(&Value::Null))
+}
+
+/// A `dualId` only this link writes: one a client put in what is forwarded is dropped.
+pub(super) fn drop_foreign_id(params: &mut Value) {
+    if let Some(mux) = params.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+        mux.remove("dualId");
+    }
 }
 
 /// The shadow the live link copies its frames to.
@@ -543,6 +550,13 @@ impl Peer {
                     frames.extend(self.shadow_resubscribe(run, &sid).await);
                 }
                 frames
+            }
+            // A prompt the shadow's copy ran was accepted there: told on that connection only.
+            Message::Notification { method: m, params } if m == method::MUX_PROMPT_ACCEPTED => {
+                let p = params.unwrap_or(Value::Null);
+                self.note_prompt_accepted(&p);
+                self.deliver(run.link, m, p).await;
+                Vec::new()
             }
             Message::Notification { method: m, params } => {
                 let p = params.unwrap_or(Value::Null);

@@ -311,12 +311,52 @@ async fn a_load_goes_on_the_links_path_alone_and_its_replay_reaches_the_hub() {
     tokio::time::timeout(WAIT, loading).await.unwrap().unwrap().unwrap();
     // The daemon runs a load or an attach that carries a dual id each time it comes.
     let stamped = json!({"sessionId": "s1", "_meta": {"acpmux": {"dualId": "n:1:1"}}});
+    let peer_link = Some(crate::server::dual_requests::PEER_LINK);
     for m in [method::SESSION_LOAD, method::MUX_ATTACH, method::SESSION_RESUME] {
-        assert_eq!(crate::server::dual_requests::key_for(m, Some(&stamped)), None, "{m}");
+        let key = crate::server::dual_requests::key_for(peer_link, m, Some(&stamped));
+        assert!(key.is_none(), "{m}");
     }
-    assert!(
-        crate::server::dual_requests::key_for(method::SESSION_PROMPT, Some(&stamped)).is_some()
-    );
+    let prompt =
+        crate::server::dual_requests::key_for(peer_link, method::SESSION_PROMPT, Some(&stamped));
+    assert!(prompt.is_some());
+}
+
+/// A prompt that carries a cloud turn runs only on the connection that prepared it: it goes
+/// on the link's path alone, with no dual id, and runs there (the daemon takes it as any
+/// prompt, `dual_requests::dual_safe`). A plain prompt still goes on both, and one a client
+/// stamped with a dual id of its own carries this link's instead.
+#[tokio::test]
+async fn a_cloud_turn_prompt_goes_on_one_path_and_runs_there() {
+    let mut rig = rig().await;
+    answer_shadow_attach(&mut rig, &[]).await;
+    let params = json!({"sessionId": "s1", "prompt": [],
+        "cloud_turn": {"purpose": "execute", "session": "s1", "turn": "t1"},
+        "_meta": {"acpmux": {"promptId": "t1"}}});
+    let peer = rig.peer.clone();
+    let asking = tokio::spawn(async move { peer.request(method::SESSION_PROMPT, params).await });
+    let on_link = next_text(&mut rig.primary).await;
+    assert_eq!(on_link["method"], method::SESSION_PROMPT);
+    assert_eq!(on_link.pointer("/params/_meta/acpmux/dualId"), None, "{on_link}");
+    assert_eq!(reads_text_within(&mut rig.shadow, Duration::from_millis(500)).await, None);
+    let peer_link = Some(crate::server::dual_requests::PEER_LINK);
+    let params = on_link.get("params");
+    let key = crate::server::dual_requests::key_for(peer_link, method::SESSION_PROMPT, params);
+    assert!(key.is_none(), "the daemon runs it as it comes");
+    let done = json!({"jsonrpc": "2.0", "id": on_link["id"], "result": {"stopReason": "end_turn"}});
+    send(&mut rig.primary, done).await;
+    let answer = tokio::time::timeout(WAIT, asking).await.unwrap().unwrap().unwrap();
+    assert_eq!(answer["stopReason"], "end_turn");
+    let params = json!({"sessionId": "s1", "prompt": [],
+        "_meta": {"acpmux": {"promptId": "t2", "dualId": "forged"}}});
+    let peer = rig.peer.clone();
+    let asking = tokio::spawn(async move { peer.request(method::SESSION_PROMPT, params).await });
+    let on_link = next_text(&mut rig.primary).await;
+    let on_shadow = next_text(&mut rig.shadow).await;
+    assert_eq!(on_link, on_shadow);
+    let dual_id = on_link.pointer("/params/_meta/acpmux/dualId").and_then(Value::as_str);
+    assert!(dual_id.is_some_and(|id| id.starts_with(&rig.peer.dual_nonce)), "{on_link}");
+    send(&mut rig.primary, json!({"jsonrpc": "2.0", "id": on_link["id"], "result": {}})).await;
+    tokio::time::timeout(WAIT, asking).await.unwrap().unwrap().unwrap();
 }
 
 /// F1: a load whose link switched paths before it answered is sent again on the next link,

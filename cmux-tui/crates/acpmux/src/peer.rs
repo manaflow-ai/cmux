@@ -1399,6 +1399,9 @@ impl Peer {
                 *self.pipelined_key.lock_or_recover() = Some(key.clone());
             }
         }
+        // Only this link stamps a `dualId` (`peer_dual.rs`).
+        let mut params = params;
+        dual::drop_foreign_id(&mut params);
         // One frame larger than the peer reads with would drop the link and every chat on it.
         let line = Message::request(id, m, params).bounded_line().map_err(RpcError::too_large)?;
         let tag = epoch.unwrap_or_else(|| self.link_epoch());
@@ -1465,7 +1468,21 @@ impl Peer {
         }
     }
 
-    pub async fn notify(&self, m: &str, params: Value) -> Result<(), RpcError> {
+    /// The peer accepted a prompt (`_acpmux/prompt_accepted`, on the link or the shadow): a
+    /// drop of the link from now on recovers its caller rather than failing it.
+    fn note_prompt_accepted(&self, p: &Value) {
+        let mut prompts = self.prompts.lock_or_recover();
+        for prompt in prompts.values_mut() {
+            if p.get("sessionId").and_then(Value::as_str) == Some(&prompt.session)
+                && p.get("promptId").and_then(Value::as_str) == Some(&prompt.prompt)
+            {
+                prompt.accepted = true;
+            }
+        }
+    }
+
+    pub async fn notify(&self, m: &str, mut params: Value) -> Result<(), RpcError> {
+        dual::drop_foreign_id(&mut params);
         // Read before the check, as in `request`: a frame tagged with a link
         // that went down is dropped by `serve`, never sent on the next one.
         let epoch = self.link_epoch();
@@ -2447,12 +2464,7 @@ impl Peer {
                             // Record before publishing the acceptance: a link can drop before the
                             // hub consumes its notice, but the original client still owns the turn.
                             if m == method::MUX_PROMPT_ACCEPTED {
-                                let mut prompts = self.prompts.lock_or_recover();
-                                for prompt in prompts.values_mut() {
-                                    if p.get("sessionId").and_then(Value::as_str) == Some(&prompt.session)
-                                        && p.get("promptId").and_then(Value::as_str) == Some(&prompt.prompt)
-                                    { prompt.accepted = true; }
-                                }
+                                self.note_prompt_accepted(&p);
                             }
                             let cursor_event = matches!(m.as_str(), method::MUX_EVENT | method::SESSION_UPDATE)
                                 .then(|| {
