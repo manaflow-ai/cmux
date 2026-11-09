@@ -164,13 +164,13 @@ import Testing
         #expect(updater.availableButton == nil)
     }
 
-    /// Automatic download and install is opt-in on every channel (Leo 2026-10-27: "ask before the
-    /// download + install step, and likewise for the reboot"): the dogfood apps ask as stable does.
-    @Test func automaticDownloadsAreOptInOnEveryChannel() {
-        #expect(!UpdateTrack.stable.downloadsAutomaticallyByDefault)
-        #expect(!UpdateTrack.rc.downloadsAutomaticallyByDefault)
-        #expect(!UpdateTrack.nightly.downloadsAutomaticallyByDefault)
-        #expect(!UpdateTrack.development.downloadsAutomaticallyByDefault)
+    /// Automatic download is on by default on every channel; the relaunch still waits for Restart to
+    /// Update (Leo 2026-11-07: "Yeah, let's do that, man. Let's get it done.").
+    @Test func automaticDownloadsAreOnByDefaultOnEveryChannel() {
+        #expect(UpdateTrack.stable.downloadsAutomaticallyByDefault)
+        #expect(UpdateTrack.rc.downloadsAutomaticallyByDefault)
+        #expect(UpdateTrack.nightly.downloadsAutomaticallyByDefault)
+        #expect(UpdateTrack.development.downloadsAutomaticallyByDefault)
     }
 
     /// `updates.status` (and `cmux version`) report whether this app downloads by itself, from its

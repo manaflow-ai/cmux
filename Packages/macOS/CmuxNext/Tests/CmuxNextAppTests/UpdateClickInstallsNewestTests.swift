@@ -117,7 +117,7 @@ import Testing
 
     /// Leo 2026-10-29: build 4091813159501 was staged at 18:16Z, 4092299464301 was on the feed at
     /// 18:19Z, and Restart to Update installed the stale one. The nightly asks before it downloads
-    /// (`updates.downloadAutomatically` off by default), and the click's read of the feed only ran
+    /// (`updates.downloadAutomatically` off by default then), and the click's read of the feed only ran
     /// when found updates downloaded by themselves. Now the click is the yes to the newest build's
     /// download too: the staged build gives way, the card says "Getting the Newest Build…", the
     /// newest build downloads with no second click, and it installs once staged.
