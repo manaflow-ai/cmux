@@ -198,6 +198,27 @@ public final class TabModel: Identifiable {
         readingNotification = notification.notification
     }
 
+    /// The marker and the Mark as Unread generation a key in this tab already read.
+    @ObservationIgnored private var keystrokeRead: NotificationID?
+    @ObservationIgnored private var keystrokeMarkRead: UInt64?
+
+    /// Whether a key may read the tab's unread marker: once per marker (Leo, 2026-11-09: "when im
+    /// typing in the composer the tab and workspace flicker"). Each key's read hid the dot at once;
+    /// a refused one (a daemon that is not connected) brought it back a round trip later and the
+    /// next key hid it again, so the tab's and the workspace row's dot blinked once per key.
+    public func takeKeystrokeRead() -> Bool {
+        guard let marker = notification?.notification, keystrokeRead != marker else { return false }
+        keystrokeRead = marker
+        return true
+    }
+
+    /// ``takeKeystrokeRead()`` for the Mark as Unread flag: a key clears one mark once.
+    public func takeKeystrokeMarkRead() -> Bool {
+        guard keystrokeMarkRead != markedUnreadGeneration else { return false }
+        keystrokeMarkRead = markedUnreadGeneration
+        return true
+    }
+
     /// Rolls back ``expectNotificationRead()`` when the acknowledge failed.
     public func dropExpectedNotificationRead() {
         if readingNotification != nil { readingNotification = nil }
