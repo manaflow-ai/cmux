@@ -629,6 +629,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
         run: bun test scripts/cmux-next/machine-join-e2e.test.ts
 
+      # The deploy check's retries: a failed Cloud journey runs once more, and db-release waits out a
+      # full database (fake bun and fake connect; no network, no secret).
+      - name: Validate the Cloud journey and deploy gate retries
+        if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
+        run: bun test scripts/cmux-next/cloud-journey-retry.test.ts
+
       # The machine vault E2E harness: cleanup, refusal, skip and leak paths (fake fetch and
       # fake CLIs; no network, no secret).
       - name: Validate the machine vault E2E harness

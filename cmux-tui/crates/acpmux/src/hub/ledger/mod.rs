@@ -9,7 +9,9 @@
 //! (`suppress`).
 //!
 //! A turn's cost is what its harness reported (`harnessCostUsd`), else its tokens at the bundled
-//! price table (`tableCostUsd`, `crate::pricing`), else it counts in `unpricedTurns`.
+//! price table (`tableCostUsd`, `crate::pricing`), else it counts in `unpricedTurns`. A bucket
+//! keeps the hour-long part of its cache writes (`cacheWrite1hTokens`), which the table prices at
+//! their own tier.
 //!
 //! Persisted append-only to `<home>/ledger/turns.jsonl` by a writer thread, so the append lock
 //! never waits on a disk: one `u` line per turn (or, after a compaction, per bucket) and one `s`
@@ -58,6 +60,10 @@ pub struct Totals {
     pub output_tokens: u64,
     pub cache_read_tokens: u64,
     pub cache_write_tokens: u64,
+    /// Of `cache_write_tokens`, the hour-long writes (priced at their own tier). 0 in lines from
+    /// before it was kept, whose writes were priced at the 5-minute rate.
+    #[serde(rename = "cacheWrite1hTokens")]
+    pub cache_write_1h_tokens: u64,
     /// What cache reads saved against the input price, at the bundled table
     /// (`PriceTable::cache_savings`), whoever priced the turn; 0 for a model the table lacks.
     pub cache_saved_usd: f64,
@@ -78,6 +84,7 @@ impl Totals {
         self.output_tokens += o.output_tokens;
         self.cache_read_tokens += o.cache_read_tokens;
         self.cache_write_tokens += o.cache_write_tokens;
+        self.cache_write_1h_tokens += o.cache_write_1h_tokens;
         self.cache_saved_usd += o.cache_saved_usd;
         self.turns += o.turns;
         self.tool_calls += o.tool_calls;
@@ -92,6 +99,7 @@ impl Totals {
             output_tokens: usage.output_tokens.unwrap_or(0),
             cache_read_tokens: usage.cache_read_tokens.unwrap_or(0),
             cache_write_tokens: usage.cache_write_tokens.unwrap_or(0),
+            cache_write_1h_tokens: usage.cache_write_1h_tokens.unwrap_or(0),
             turns,
             ..Default::default()
         };
@@ -322,6 +330,11 @@ pub(crate) enum Line {
         pv: String,
         #[serde(flatten)]
         totals: Totals,
+        /// `totals.cache_saved_usd` as the line recorded it, read only: None for a line from
+        /// before acpmux counted cache savings, which the fold prices again; a recorded zero (a
+        /// model the table lacked then) stays zero. Written through `totals`, never twice.
+        #[serde(rename = "cacheSavedUsd", default, skip_serializing)]
+        saved: Option<f64>,
     },
     /// A session's descriptive fields (merged into what came before).
     #[serde(rename = "s")]
@@ -571,6 +584,7 @@ impl Ledger {
             output_tokens: msg.get("outputTokens").and_then(Value::as_u64),
             cache_read_tokens: msg.get("cacheReadTokens").and_then(Value::as_u64),
             cache_write_tokens: msg.get("cacheWriteTokens").and_then(Value::as_u64),
+            cache_write_1h_tokens: msg.get("cacheWrite1hTokens").and_then(Value::as_u64),
         };
         let mut totals = Totals::priced(&model, &usage, 1);
         let version = crate::pricing::table().version.clone();
@@ -590,8 +604,14 @@ impl Ledger {
             self.emit(&mut s, Line::Session { sid: session.to_owned(), info });
         }
         s.add_bucket(session, &model, &version, record.at, &totals);
-        let line =
-            Line::Spend { sid: session.to_owned(), at: record.at, model, pv: version, totals };
+        let line = Line::Spend {
+            sid: session.to_owned(),
+            at: record.at,
+            model,
+            pv: version,
+            totals,
+            saved: None,
+        };
         self.emit(&mut s, line);
         drop(s);
         if needs_repo && let Some(cwd) = cwd {

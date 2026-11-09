@@ -81,6 +81,11 @@ fn refuses_tampering_other_keys_purposes_and_expiry() {
     let mut purpose = good.clone();
     purpose["purpose"] = json!("web");
     assert!(channel::verify(&envelope(&purpose, "test"), &keys(), 5_000).is_err());
+    // A Linux release file (cmux-tui/<commit>/release.json, the same key) is not a machine update,
+    // even one that names this channel.
+    let mut release = good.clone();
+    release["purpose"] = json!("cmux-linux-release");
+    assert!(channel::verify(&envelope(&release, "test"), &keys(), 5_000).is_err());
     // Expired.
     assert!(channel::verify(&envelope(&good, "test"), &keys(), 10_000).is_err());
 }
@@ -666,7 +671,7 @@ fn a_three_minute_pause_during_a_check_holds_its_flip() {
     // Paused 3 minutes during the staging download; the watch found it.
     watch.looked(at(181).0, true);
     let mut last = Some(0);
-    assert!(role::flip_look(&paths, &watch, &handled, &mut last, 0, at(182)));
+    assert!(role::flip_look(&paths, &watch, &handled, None, &mut last, 0, at(182)));
     let gate = gate::Gate::new(&paths);
     assert_eq!(gate.held_left(at(182).1), Some(role::CONNECT_HOLD));
     // The flip runs inside the gate, which refuses it while the hold is on.
@@ -726,6 +731,7 @@ fn another_process_keeps_its_own_restore_look() {
         &paths,
         looks.watch,
         looks.handled,
+        None,
         &mut last,
         3_600 * SECOND_NS,
         at(5),
@@ -775,9 +781,17 @@ fn a_restore_the_supervisor_has_not_dispatched_holds_the_flip() {
     let offset = 1_000 * SECOND_NS;
     let mut last = Some(offset);
     // A sync's drift: no hold.
-    assert!(!role::flip_look(&paths, &watch, &handled, &mut last, offset + SECOND_NS, at(6)));
+    assert!(!role::flip_look(&paths, &watch, &handled, None, &mut last, offset + SECOND_NS, at(6)));
     // Restored after an hour stopped: realtime moved against the boot clock.
-    assert!(role::flip_look(&paths, &watch, &handled, &mut last, offset + 3600 * SECOND_NS, at(7)));
+    assert!(role::flip_look(
+        &paths,
+        &watch,
+        &handled,
+        None,
+        &mut last,
+        offset + 3600 * SECOND_NS,
+        at(7)
+    ));
     assert_eq!(gate::Gate::new(&paths).held_left(at(7).1), Some(role::CONNECT_HOLD));
 }
 
@@ -973,8 +987,9 @@ fn a_cli_queued_restart_refuses_binds_until_the_service_restarts() {
     );
 }
 
-/// (c) The pending mark lasts at most RESTART_PENDING_FOR: a restart that
-/// never came can't block binds for ever.
+/// (c) The pending mark lasts at most RESTART_PENDING_FOR from when the
+/// restart was queued (`restart_queued`'s `now_ms`, not the run's start): a
+/// restart that never came can't block binds for ever.
 #[test]
 fn a_pending_restart_mark_expires_after_its_bound() {
     let (_dir, service, cli) = gate_handles();
@@ -1402,4 +1417,220 @@ fn a_pause_published_during_the_read_still_holds() {
         "a pause published during the read was missed"
     );
     assert_eq!(gate::Gate::new(&paths).held_left(at(181).1), Some(role::CONNECT_HOLD));
+}
+
+/// A spare paused 40 minutes in its pool (its watch's last look at `B0`),
+/// then resumed by the Scaler at 2400 s, before the service's watch woke:
+/// the record the operator's check reads, and the service's `Resumed` hold
+/// (the resume hold `--skip-resume-hold` skips).
+#[cfg(target_os = "linux")]
+fn resumed_spare() -> (tempfile::TempDir, Paths, crate::agent::PauseWatch) {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let file = paths.at(PAUSE_FILE);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let service = crate::agent::PauseWatch::new();
+    service.persist_to(file);
+    service.looked(B0, false);
+    gate::Gate::new(&paths).hold(at(2400).1, gate::CONNECT_HOLD, gate::HoldKind::Resume);
+    (dir, paths, service)
+}
+
+/// The refresh's flip step at `now`, its stop look inside the gate after
+/// `carrier` with `offset_now`.
+#[cfg(target_os = "linux")]
+fn refresh_flip(
+    paths: &Paths,
+    stops: &role::Stops<'_, '_>,
+    carrier: impl FnOnce() -> Result<Vec<String>, role::Unread>,
+    offset_now: i128,
+    now: (i128, u64),
+) -> role::Gated<()> {
+    let (gated, skipped) = role::flip_in_gate(
+        paths,
+        || now.1,
+        gate::Honor::AllButResume,
+        carrier,
+        || stops.in_gate(offset_now, now),
+        |_| Ok::<(), ()>(()),
+    );
+    assert_eq!(skipped, Some(gate::HoldKind::Resume), "the flag went past the resume's hold");
+    gated
+}
+
+/// Review F1 of #39032 at 51f0d38f: the Scaler's refresh
+/// (`--skip-resume-hold`) runs right after the resume it made, so the pause
+/// watch can still be waking from that resume when the check starts, and
+/// count it during the check. That is the wake whose hold the flag skips:
+/// neither stops the flip, before the gate or inside it. A plain check at the
+/// same point is held by it.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_refresh_own_resume_does_not_stop_its_flip() {
+    // Still waking through the whole check, or counted during it.
+    for counted_during in [false, true] {
+        let (_dir, paths, service) = resumed_spare();
+        let check = role::OtherLook::start(&paths, 0);
+        let looks = check.looks();
+        let stops = role::Stops::new(&looks, gate::Honor::AllButResume, at(2400).0);
+        assert!(!stops.before_gate(&paths, 0, at(2401)), "counted_during {counted_during}");
+        if counted_during {
+            service.looked(at(2402).0, true);
+        }
+        assert!(!stops.recount(&paths, at(2403)), "counted_during {counted_during}");
+        let gated = refresh_flip(&paths, &stops, || Ok(Vec::new()), 0, at(2404));
+        assert!(
+            matches!(gated, role::Gated::Flipped),
+            "counted_during {counted_during}: {gated:?}"
+        );
+
+        let plain = role::OtherLook::start(&paths, 0);
+        let looks = plain.looks();
+        let stops = role::Stops::new(&looks, gate::Honor::All, at(2405).0);
+        assert_eq!(
+            stops.before_gate(&paths, 0, at(2405)),
+            !counted_during,
+            "a plain check is held by a wake it found, and not by one counted before it started"
+        );
+    }
+}
+
+/// Review F1 of #39032 at 51f0d38f, the other half: a new pause or restore
+/// during the refresh still stops its flip. One found before the gate starts
+/// a resume hold the flag would skip, so the check keeps the stop and the
+/// gate holds on it; one during the carrier query is seen inside the gate.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_new_stop_during_the_refresh_stops_its_flip() {
+    let refresh = |paths: &Paths| {
+        let check = role::OtherLook::start(paths, 0);
+        assert!(check.looks().start.waking(at(2400).0));
+        check
+    };
+
+    // A new 3-minute pause after the watch counted the resume, found before the gate.
+    let (_dir, paths, service) = resumed_spare();
+    let check = refresh(&paths);
+    let looks = check.looks();
+    let stops = role::Stops::new(&looks, gate::Honor::AllButResume, at(2400).0);
+    service.looked(at(2402).0, true);
+    service.looked(at(2582).0, true);
+    assert!(stops.before_gate(&paths, 0, at(2583)));
+    let gated = refresh_flip(&paths, &stops, || Ok(Vec::new()), 0, at(2584));
+    assert!(matches!(gated, role::Gated::Held(_)), "a pause before the gate: {gated:?}");
+
+    // The watch counted the resume, then is waking again: stopped once more.
+    let (_dir, paths, service) = resumed_spare();
+    let check = refresh(&paths);
+    let looks = check.looks();
+    let stops = role::Stops::new(&looks, gate::Honor::AllButResume, at(2400).0);
+    service.looked(at(2402).0, true);
+    assert!(!stops.recount(&paths, at(2403)));
+    let gated = refresh_flip(&paths, &stops, || Ok(Vec::new()), 0, at(2402 + 60));
+    assert!(matches!(gated, role::Gated::Held(_)), "waking from a new pause: {gated:?}");
+
+    // Review F1 on ffbe82dc (#39366): the watch's first look since the check
+    // started counts nothing, then a real pause is counted. It is one count
+    // past the start and the watch is awake, but the pause came after a later
+    // look than the start's, so it is a new stop, not the refresh's own wake.
+    let (_dir, paths, service) = resumed_spare();
+    let check = refresh(&paths);
+    let looks = check.looks();
+    let stops = role::Stops::new(&looks, gate::Honor::AllButResume, at(2400).0);
+    service.looked(at(2402).0, false);
+    service.looked(at(2582).0, true);
+    assert!(stops.recount(&paths, at(2583)), "a pause after a look since the start");
+    let gated = refresh_flip(&paths, &stops, || Ok(Vec::new()), 0, at(2584));
+    assert!(matches!(gated, role::Gated::Held(_)), "a pause after a later look: {gated:?}");
+
+    // A pause during the carrier query, inside the gate.
+    let (_dir, paths, service) = resumed_spare();
+    let check = refresh(&paths);
+    let looks = check.looks();
+    let stops = role::Stops::new(&looks, gate::Honor::AllButResume, at(2400).0);
+    assert!(!stops.recount(&paths, at(2401)));
+    let carrier = || {
+        service.looked(at(2402).0, true);
+        service.looked(at(2582).0, true);
+        Ok(Vec::new())
+    };
+    let gated = refresh_flip(&paths, &stops, carrier, 0, at(2583));
+    assert!(matches!(gated, role::Gated::Held(_)), "a pause during the query: {gated:?}");
+
+    // A restore found before the gate, and one during the carrier query.
+    for before in [true, false] {
+        let (_dir, paths, _service) = resumed_spare();
+        let check = refresh(&paths);
+        let looks = check.looks();
+        let stops = role::Stops::new(&looks, gate::Honor::AllButResume, at(2400).0);
+        let jump = 3_600 * SECOND_NS;
+        if before {
+            assert!(stops.before_gate(&paths, jump, at(2401)));
+        }
+        let gated = refresh_flip(&paths, &stops, || Ok(Vec::new()), jump, at(2402));
+        assert!(matches!(gated, role::Gated::Held(_)), "a restore, before {before}: {gated:?}");
+    }
+}
+
+/// The pause record names the look each counted pause came after, written
+/// and read back across processes; a record without the field (an older
+/// build's) names none, so its counts are never a refresh's own wake.
+#[test]
+fn the_pause_record_names_the_look_a_pause_came_after() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pauses.json");
+    let watch = crate::agent::PauseWatch::new();
+    watch.persist_to(path.clone());
+    watch.looked(1_000, false);
+    watch.looked(9_000, true);
+    let read = crate::agent::PauseWatch::load(&path).seen();
+    assert_eq!((read.pauses, read.last_look_ns, read.pause_from_ns), (1, 9_000, 1_000));
+    watch.found();
+    let read = crate::agent::PauseWatch::load(&path).seen();
+    assert_eq!(
+        read.pause_from_ns,
+        i128::from(crate::agent::PAUSE_FROM_NONE),
+        "a clock set names no look"
+    );
+
+    fs::write(&path, r#"{"last_look_ns": 9000, "pauses": 1}"#).unwrap();
+    let old = crate::agent::PauseWatch::load(&path).seen();
+    assert_eq!(old.pause_from_ns, i128::from(crate::agent::PAUSE_FROM_NONE));
+}
+
+/// The flip's carrier read inside the gate holds the gate's flock, so it is
+/// bounded tighter ([`role::CARRIER_READ_IN_GATE`], 3 to 5 s) than the read
+/// outside it (20 s). A read past the bound (`timeout`'s 124) is busy: no
+/// flip, and no carrier look, so it never reads as no sessions, also past
+/// the carrier hold's bound.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_carrier_read_that_times_out_inside_the_gate_is_busy() {
+    use std::os::unix::process::ExitStatusExt as _;
+    use std::process::ExitStatus;
+
+    let limit = role::CARRIER_READ_IN_GATE;
+    assert!((3..=5).contains(&limit.as_secs()), "{limit:?}");
+    let timed_out =
+        std::process::Command::new("timeout").args(["1", "sleep", "5"]).status().unwrap();
+    assert_eq!(role::Unread::of(timed_out, limit), role::Unread::TimedOut(limit));
+    assert!(matches!(
+        role::Unread::of(ExitStatus::from_raw(1 << 8), limit),
+        role::Unread::Failed(_)
+    ));
+
+    for honor in [gate::Honor::All, gate::Honor::AllButResume] {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path());
+        let (gated, _) = role::flip_in_gate(
+            &paths,
+            || T0_MS,
+            honor,
+            || Err(role::Unread::TimedOut(limit)),
+            || false,
+            no_flip,
+        );
+        assert!(matches!(gated, role::Gated::Busy(_)), "{honor:?}: {gated:?}");
+        assert_eq!(gate::Gate::new(&paths).held_left(T0_MS), None, "a timeout is no new session");
+    }
 }

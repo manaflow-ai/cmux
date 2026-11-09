@@ -1374,10 +1374,31 @@ input box shows, is `blocked` with `dialog` (`folder_trust`,
 `update_prompt`) and a `reason`; a fresh hook record that says `blocked` is
 `agent_question`. Otherwise a fresh hook record that says idle (the
 `SessionStart` hook) or the agent's input box on screen is `ready`. Both count
-only once the screen stood still for 1 s. cmux never answers a dialog.
+only once the screen stood still for 1 s. cmux never answers a dialog. A
+blocked result also has the dialog's numbered `options` (`{number, label,
+selected}`) read from the screen; for `folder_trust` it has `accept_keys`, the
+keys that pick the trust option (for example `["down", "enter"]`), and
+`accept_label`, the label of the option those keys pick. The `reason` names
+the agent's terminal and says to ask the person and, when they agree to that
+label, run `cmux terminal <name> keys` with the keys (Enter alone can pick
+"No, exit" and end the agent). When the label also lets the agent act without
+asking for approval ("without asking", "bypass", "full access", ...), the
+reason adds a warning to tell the person. The reason is localized (English
+and Japanese).
 
-`--json` prints `{name, state, reason, dialog, harness, launcher, args, cwd,
-placement, workspace_id, screen_id, pane_id, tab_id, terminal_id, waited_ms}`.
+The new agent's pane splits the caller's pane (or the `--pane` pane) and takes
+its width only from that pane: every pane that existed before keeps its width
+(or height for a vertical row), so a person's 0.7 column stays 0.7. The agent
+panes next to the new one in that row (panes whose tabs' terminals all have
+the snapshot's `extra.agent_start` mark and still run; a tab's name does not
+count, and an exited agent kept with `--on-exit keep` keeps its width) then
+share their space equally, so the third agent of a row is not an
+eighth of it.
+
+`--json` prints `{name, state, reason, dialog, options, accept_keys,
+accept_label, harness, launcher, args, cwd, placement, workspace_id, screen_id,
+pane_id, tab_id, terminal_id, waited_ms}` (`options`, `accept_keys` and
+`accept_label` only when blocked on a dialog that shows them).
 `state` is `ready` (exit 0), `blocked` (exit 4), `timeout` (exit 124, default
 `--timeout` 90s), `exited` (exit 1) or `started` with `--no-wait` (exit 0).
 `harness` uses the one vocabulary of `terminal list --agents`.
