@@ -1652,6 +1652,114 @@ let package = Package(
         self.assertNotIn("reviewed raises of the pushed crash data", output)
         self.assertEqual(self.remote_head(), before)
 
+    # The crash ratchet (scripts/cmux-next/crash_ratchet.py, CI's cmux-next-guards "cmux-next crash ratchet" step)
+    # counts the Rust unwraps of each crate against crash-safety-baseline.json (cmux-tui-core: over a thousand). The
+    # gate's trees hold only the changed files, so their count never reached the row: #39304's first head (60550abe)
+    # added two non-test `.lock().unwrap()`, passed the hook and was refused by CI. A main-based push (no CmuxNext app
+    # entry in its tree) got no crash check at all: check-crash-safety.sh died on the missing file and only warned.
+    CRATE_FILE = "cmux-tui/crates/cmux-tui-core/src/undo_fixture.rs"
+    RUST_CLEAN = """use std::sync::Mutex;
+
+pub struct Snapshot {
+    state: Mutex<u32>,
+}
+
+impl Snapshot {
+    pub fn read(&self) -> u32 {
+        *self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+"""
+    RUST_LOCK_UNWRAP = RUST_CLEAN.replace("unwrap_or_else(std::sync::PoisonError::into_inner)", "unwrap()")
+    RUST_CLEAN_MORE = RUST_CLEAN + """
+pub fn twice(value: u32) -> u32 {
+    value.saturating_mul(2)
+}
+"""
+
+    def main_branch(self):
+        """origin/main as this clone fetched it: cut from feat-cmux-next's base, without the CmuxNext app entry (the
+        feat-only path check-crash-safety.sh reads) and with a clean cmux-tui crate file. Pushed past the hook."""
+        self.git("checkout", "--quiet", "-b", "main", "origin/feat-cmux-next")
+        self.git("rm", "--quiet", f"{PKG}/Sources/CmuxNextApp/CmuxNextApp.swift")
+        self.write(self.CRATE_FILE, self.RUST_CLEAN)
+        self.commit("main: its own tree")
+        self.assertEqual(self.push_ref("main", "--no-verify").returncode, 0)
+        self.git("fetch", "--quiet", "origin")
+        self.git("checkout", "--quiet", "-b", "topic", "--no-track", "origin/main")
+
+    def test_a_main_based_push_that_adds_a_lock_unwrap_is_refused(self):
+        self.main_branch()
+        self.write(self.CRATE_FILE, self.RUST_LOCK_UNWRAP)
+        self.commit("main-based: a lock().unwrap() in production code")
+
+        result = self.push_ref("topic")
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertFalse(self.remote_has("refs/heads/topic"), "the unwrap must not reach origin")
+        self.assertIn("cut from origin/main", output, "control: the push is judged as main-based")
+        self.assertIn("Crash ratchet", output)
+        self.assertIn(f"{self.CRATE_FILE}:", output)
+        self.assertIn("unwrap", output)
+
+    def test_a_main_based_clean_push_passes_with_no_crash_check_warning(self):
+        self.main_branch()
+        self.write(self.CRATE_FILE, self.RUST_CLEAN_MORE)
+        self.commit("main-based: clean Rust")
+
+        result = self.push_ref("topic")
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn("cut from origin/main", output, "control: the push is judged as main-based")
+        self.assertNotIn("FileNotFoundError", output)
+        self.assertNotIn("CmuxNextApp.swift", output)
+        self.assertNotIn("did not run cleanly", output)
+
+    def test_a_feat_based_push_that_adds_a_lock_unwrap_is_refused(self):
+        self.write(self.CRATE_FILE, self.RUST_CLEAN)
+        self.commit("base: a clean crate file")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(self.CRATE_FILE, self.RUST_LOCK_UNWRAP)
+        self.commit("a lock().unwrap() in production code")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the unwrap must not reach origin")
+        self.assertIn("Crash ratchet", output)
+        self.assertIn(f"{self.CRATE_FILE}:", output)
+        self.assertIn("unwrap", output)
+
+    def test_a_test_only_lock_unwrap_passes(self):
+        # The ratchet skips test code: an inline #[cfg(test)] module, and a file a `#[cfg(test)] mod name;` line in
+        # an unchanged file declares (the gate's trees need that declaring file to tell).
+        self.write("cmux-tui/crates/cmux-tui-core/src/lib.rs", "#[cfg(test)]\nmod test_support;\n")
+        self.commit("base: a test-only module declaration")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.write("cmux-tui/crates/cmux-tui-core/src/test_support.rs",
+                   self.RUST_LOCK_UNWRAP.replace("pub struct", "pub(crate) struct"))
+        self.write(self.CRATE_FILE, self.RUST_CLEAN + """
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn reads() {
+        let state = std::sync::Mutex::new(1);
+        assert_eq!(*state.lock().unwrap(), 1);
+    }
+}
+""")
+        self.commit("test-only lock().unwrap()")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     # A ratchet row a push lowers or deletes with the sites it removes (lead 2026-11-03, #33091): the installed
     # baseline cannot know the push lowered it, so it read the fix as "fewer than the baseline" and refused it. Each
     # tree reads its own row where that is lower; a raise or a new row still reads the installed copy.
