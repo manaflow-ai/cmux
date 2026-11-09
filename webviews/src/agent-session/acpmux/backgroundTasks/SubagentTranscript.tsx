@@ -39,6 +39,7 @@ import {
   windowRange,
   NestedAgents,
   runFold,
+  carryRange,
   transcriptBlocks,
   type TranscriptBlock,
 } from "./subagentTranscriptModel";
@@ -116,13 +117,24 @@ export function SubagentTranscript({
   }
   // Rows replaced by fewer (a workflow agent's transcript read again from a fresh page after its file
   // was cut or replaced): the window is taken again from the new rows, never left past their end.
-  // Rows read in above the first one (a workflow agent's older history): the window moves down by as
-  // many, so the rows the reader was on stay the ones mounted.
+  // The same rows drawn as fewer blocks (two work rows folded into one run as a call streams in) is
+  // not that: the window keeps the rows it mounted (carryRange). Rows read in above the first one (a
+  // workflow agent's older history): the window moves down by as many, so the rows the reader was on
+  // stay the ones mounted.
   const [seen, setSeen] = useState({ count: units.length, head: units[0]?.id });
+  // What the last committed render drew, read by the next render to tell the two apart.
+  const drawn = useRef({ units, rows: rows.length });
+  useLayoutEffect(() => {
+    drawn.current = { units, rows: rows.length };
+  });
   if (units.length !== seen.count || units[0]?.id !== seen.head) {
     setSeen({ count: units.length, head: units[0]?.id });
-    if (units.length < seen.count) setRange(windowRange(units));
-    else if (seen.head !== undefined && units[0]?.id !== seen.head) {
+    if (units.length < seen.count) {
+      const before = drawn.current;
+      setRange((current) =>
+        rows.length < before.rows ? windowRange(units) : carryRange(before.units, units, current),
+      );
+    } else if (seen.head !== undefined && units[0]?.id !== seen.head) {
       const moved = units.findIndex((unit) => unit.id === seen.head);
       if (moved < 0) setRange(windowRange(units));
       else
