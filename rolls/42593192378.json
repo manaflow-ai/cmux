@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42593192378",
+  "recorded_at": "2026-11-09T09:32:07Z",
+  "reason": "cmux-tui a91766dc82b3 changes the image's cmux-tui (pinned 6942a3f4c116)",
+  "dry_run": false,
+  "cmux_tui": "a91766dc82b39c9d1942d64c1ba4faf14dabad58",
+  "fixes": [
+    {
+      "sha": "a91766dc82b39c9d1942d64c1ba4faf14dabad58",
+      "mergedAt": "2026-11-09T00:59:19-08:00",
+      "subject": "cmux-tui: late host color replies are never input, CMUX_TUI_CLI, session peers in the agent context, identify build warning, resize redraw is not work (W5-Q B) (#39040)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T09:32:07Z",
+    "snapshot_id": "sh-8c392c92bb27485cbb6a89fc45f11969",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42593192378): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5938754455c385886f38cd3e7e161498439bc8cd",
+    "image": "cloud-native-auto-a91766dc-42593192378-1",
+    "revision": "ci-42593192378-1",
+    "at": "2026-11-09T09:32:07Z"
+  },
+  "rolled_back": false
+}
