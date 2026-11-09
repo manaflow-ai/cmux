@@ -30,7 +30,7 @@ use cmux_cloud_api::session::valid_machine;
 const PLACEHOLDER: &str = "cmux-vm-edge-placeholder";
 /// How long the person has to approve the device login (Codex's code lives 15 minutes).
 const DEVICE_WAIT: Duration = Duration::from_secs(15 * 60);
-// timeout: not a deadline: the remote poll interval; DEVICE_WAIT bounds the wait.
+// timeout: not a deadline: the pace of polls over exec (no push); each loop has its deadline.
 const POLL: Duration = Duration::from_secs(3);
 const LOG: &str = "$HOME/.cache/cmux/inference-login-codex.log";
 
@@ -373,7 +373,7 @@ async fn gateway_state(machine: &Machine<'_>) -> Result<Value, String> {
         request = request.header("x-cmux-team", team);
     }
     let v: Value = request
-        // timeout: an API call that never answers fails setup with an error.
+        // timeout: a stuck API call is an error: setup's, or one failed check of the start wait.
         .timeout(Duration::from_secs(20))
         .send()
         .await
