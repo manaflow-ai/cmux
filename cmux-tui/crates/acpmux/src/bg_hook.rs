@@ -139,9 +139,11 @@ pub const SUBAGENT_PATTERN: &str = "*'\"agent_id\"'*";
 
 /// The `Bash` calls [`main`] may answer, as shell `case` patterns on Claude Code's input
 /// (`agent_tools::hook_command`): a background shell, a subagent's call ([`subagent_mark`]), and
-/// for each [`SLOW`] entry its words in order. The plugin starts this binary only on a match, so
-/// the common call, the lead's quick foreground command, costs a shell and no process start. Each
-/// is wider than what it stands for; a false match only starts the binary, which answers nothing.
+/// for each [`SLOW`] entry its program and next word as written (`cargo test`), then the word it
+/// also needs. The plugin starts this binary only on a match, so the common call, the lead's quick
+/// foreground command, costs a shell and no process start. A false match only starts the binary,
+/// which answers as before; a slow command spelled another way (`cargo  test`) runs as asked, and
+/// `hub/auto_background.rs` moves it to the background after a minute, as for any long command.
 /// The 2026-11 context audit measured the unfiltered hook at about 20-40 ms on each of 84,542
 /// Bash calls.
 pub fn bash_patterns() -> Vec<String> {
@@ -151,8 +153,9 @@ pub fn bash_patterns() -> Vec<String> {
         .chain([SUBAGENT_PATTERN.to_owned()])
         .collect();
     for (tool, next, needs, _) in SLOW {
-        let words = [Some(*tool), *next, *needs].into_iter().flatten();
-        let pattern = format!("{}*", words.map(|w| format!("*'{w}'")).collect::<String>());
+        let first = next.map_or_else(|| (*tool).to_owned(), |next| format!("{tool} {next}"));
+        let then = needs.map(|w| format!("*' {w}'")).unwrap_or_default();
+        let pattern = format!("*'{first}'{then}*");
         if !all.contains(&pattern) {
             all.push(pattern);
         }
