@@ -1,6 +1,6 @@
 ---
 name: acpmux
-description: "Drive coding agents through acpmux, a daemon that keeps ACP agent sessions (Claude Code, Codex, OpenCode, pi, Gemini) alive as named sessions on this machine and on other machines you added. Use when a task says to run, prompt, wait on, or inspect an acpmux session, when ACPMUX_ENV=1, or when you need a second agent (a Claude, a Codex, an open model) for a subtask. Every command has --json."
+description: "Drive coding agents through acpmux, which keeps Claude Code, Codex, OpenCode, pi and Gemini sessions alive by name on this machine and others: run, prompt, wait on or inspect a session, or start a second agent for a subtask (also when ACPMUX_ENV=1). Every command has --json."
 ---
 
 # acpmux guide
@@ -20,6 +20,14 @@ test "${ACPMUX_ENV:-}" = 1 && echo "I am session $ACPMUX_SESSION_NAME ($ACPMUX_S
 
 When set, `@` names your own session (`acpmux last @`, `acpmux history @`).
 Sessions you start are siblings, not children: they outlive you.
+
+Inside a session, run the daemon's own CLI: `"$ACPMUX_BIN"` is one absolute
+path that runs it, also inside cmux. Use it in place of `acpmux` in every
+command, as in `"$ACPMUX_BIN" send NAME "text"`. The `acpmux` on your PATH can
+be another, older build (a login profile puts `~/.local/bin` first). A CLI
+older than the daemon does not say who runs it: the daemon records its sends as
+an unverified program, not as you or the person, and refuses it what only the
+person's terminal may do (`caller.old_client`).
 
 Inside cmux your `cmux-subsessions` MCP server starts children instead:
 `start_session` (with `worktree: true` for a worktree of its own, or `fork: true` for a
@@ -150,6 +158,12 @@ output says `queued behind …`.
 
 ### Messages between agents
 
+In a chat with acpmux's MCP tools, message with the `send` tool
+(`mcp__acpmux__send`; `cmux.acpmux_send` in a cmux_exec script), not
+`acpmux send` in Bash: one call, or `messages` for several, with `file`,
+`attach`, `class`, `pr`, `notice` and `supersede`, through the same outbox as
+`send --no-wait`. The CLI is for shells and scripts.
+
 From inside a session (`ACPMUX_ENV=1`) your send is your session's message, not
 the person's prompt. What the receiver gets depends on who you are to it:
 
@@ -158,6 +172,7 @@ the person's prompt. What the receiver gets depends on who you are to it:
 | the session that started it or first gave it work | a prompt, its own turn | yes | `send --wait` prints it |
 | another session, with `--wait` | a question in its inbox | yes | `send --wait` prints that turn's reply |
 | another session, with `--no-wait` | an action in its inbox | no: it goes with its next turn | it answers with `inbox_reply` or `acpmux send YOU` |
+| another session, `--no-wait --class question` or `block` | a question in its inbox | yes | that turn's report comes back to you (to your subagent, if one asked); not to a session on another machine |
 | the person, in a plain terminal | the person's prompt | yes | streamed |
 
 - `--class question` or `block` always wakes the receiver; `result` (an
@@ -176,9 +191,10 @@ the person's prompt. What the receiver gets depends on who you are to it:
   next Bash command or one of those MCP calls: a subagent that makes no such
   call any more does not get it. Once it has ended, the report goes to the
   lead, saying `This report is for your TYPE subagent ID`. If it ended with no
-  `SubagentStop` hook, its reports wait until no subagent of the lead runs. A
-  background task a subagent starts (`bg_start`) still sends its end message
-  to the lead's chat: a subagent passes `notify: false` and reads the task
+  `SubagentStop` hook, its reports wait until no subagent of the lead runs. The
+  end message of a background task it started (`bg_start`, `run_wait`) takes
+  the same rule. On a path that names no subagent (a cmux workflow script), a
+  subagent passes `notify: false` and reads the task
   with `bg_output`. The receiver reads `From another agent (LEAD's TYPE
   subagent ID)` and ends its turn with its answer; it does not send it to the
   lead.
@@ -190,8 +206,8 @@ the person's prompt. What the receiver gets depends on who you are to it:
   daemon keeps digests of its caller tokens, so `no proven session` after a
   restart is a bug, not a step to fix by hand.
 - An inbox notice ends with how to reply. Answer in your turn, with
-  `inbox_reply`, or with `acpmux send NAME`; never with your harness's own
-  SendMessage, which reaches no acpmux session.
+  `inbox_reply` or the `send` tool (`acpmux send NAME` without them); never
+  with your harness's own SendMessage, which reaches no acpmux session.
 - `wait` right after `send --no-wait` waits for the turn the message brings;
   it never answers with the idle state from before the message.
 

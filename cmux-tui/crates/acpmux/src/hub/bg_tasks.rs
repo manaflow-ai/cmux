@@ -37,14 +37,14 @@ const LIST_TAIL: u64 = 1 << 10;
 const START_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Who a background task starts as: a workflow's stable id, or the Claude Code subagent
-/// (`TYPE:ID`) whose MCP call starts it.
+/// (`{id, type}`, plain words) whose MCP call starts it.
 struct BgSpawn<'a> {
     fixed_id: Option<&'a str>,
-    subagent: Option<String>,
+    subagent: Option<Value>,
 }
 
 impl Hub {
-    fn bg_dir(&self, session: &Session) -> PathBuf {
+    pub(super) fn bg_dir(&self, session: &Session) -> PathBuf {
         crate::config::home().join("bg").join(&session.id)
     }
 
@@ -56,9 +56,10 @@ impl Hub {
 
     /// `_acpmux/bg/start`: runs `command` in `cwd` (the chat's folder by default), in the
     /// environment the chat's agent runs with ([`Hub::bg_env`]). With `notify`, the chat gets
-    /// one message when it ends ([`Hub::bg_notify`]). With `subagent` (`TYPE:ID`, the Claude Code
-    /// subagent whose MCP call starts it, `subagent_call.rs`), it runs as that subagent's Bash
-    /// would (`cli::sender::SUBAGENT_ENV`), so an `acpmux send` in it names that subagent.
+    /// one message when it ends ([`Hub::bg_notify`]). With `subagent` (`{id, type}`, plain words:
+    /// the Claude Code subagent whose MCP call starts it, `subagent_call.rs`), it runs as that
+    /// subagent's Bash would (`cli::sender::SUBAGENT_ENV`), so an `acpmux send` in it names that
+    /// subagent, and its end goes to that subagent while it runs (`bg_notify.rs`).
     pub async fn bg_start(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -67,7 +68,7 @@ impl Hub {
         description: Option<String>,
         notify: bool,
         result_line: bool,
-        subagent: Option<String>,
+        subagent: Option<Value>,
     ) -> Result<Value, RpcError> {
         let spawn = BgSpawn { fixed_id: None, subagent };
         self.bg_start_as(session, command, cwd, spawn, description, notify, result_line).await
@@ -143,8 +144,9 @@ impl Hub {
             )));
         }
         let mut env = self.bg_env(session, &meta).await?;
-        if let Some(mark) = subagent {
-            env.insert(crate::cli::sender::SUBAGENT_ENV.to_owned(), mark);
+        let word = |key: &str| subagent.as_ref()?.get(key)?.as_str();
+        if let (Some(kind), Some(sub)) = (word("type"), word("id")) {
+            env.insert(crate::cli::sender::SUBAGENT_ENV.to_owned(), format!("{kind}:{sub}"));
         }
         std::fs::create_dir_all(&dir).map_err(internal)?;
         let generation = bg_generation(&dir, true).map_err(internal)?;
@@ -189,6 +191,7 @@ impl Hub {
             description: description.map(|d| d.trim().to_owned()).filter(|d| !d.is_empty()),
             notify,
             result_line,
+            subagent,
         };
         bg_spawn(&runner, &spec).await.map_err(|e| RpcError::internal(format!("{e:#}")))?;
         // A stop or purge that came meanwhile missed it: it ends here.
@@ -258,6 +261,50 @@ impl Hub {
             .iter()
             .filter(|r| r.ended_at.is_none() && !bg_gone(&dir, &r.id))
             .count()
+    }
+
+    /// How many of the chat's tasks run that bring their end to the chat (`notify`,
+    /// `bg_notify.rs`): each is sure to give the chat another turn.
+    pub(super) fn bg_notifying_count(&self, session: &Session) -> usize {
+        let dir = self.bg_dir(session);
+        self.bg_records(&dir)
+            .iter()
+            .filter(|r| r.notify && r.ended_at.is_none() && !bg_gone(&dir, &r.id))
+            .count()
+    }
+
+    /// Tests: a task of the chat that runs (its record, and its lock held while the returned
+    /// file lives), with no runner behind it.
+    #[cfg(all(test, unix))]
+    pub(super) fn bg_fake_running(
+        &self,
+        session: &Session,
+        notify: bool,
+    ) -> std::io::Result<std::fs::File> {
+        use std::os::fd::AsRawFd;
+        let dir = self.bg_dir(session);
+        std::fs::create_dir_all(&dir)?;
+        let generation = bg_generation(&dir, true)?;
+        let id = format!("t{}", uuid::Uuid::new_v4().simple());
+        let record = Record {
+            id: id.clone(),
+            session_id: session.id.clone(),
+            generation,
+            notify,
+            ..Record::default()
+        };
+        bg_run::write_record(&dir, &record)?;
+        let lock = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(bg_run::lock_path(&dir, &id))?;
+        // SAFETY: flock on a descriptor this function owns.
+        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(lock)
     }
 
     /// `_acpmux/bg/list`: the chat's tasks, oldest first, each with the tail of its output.

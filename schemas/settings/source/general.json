@@ -664,7 +664,7 @@
               }
             }
           ],
-          "default": "previousNeighbor",
+          "default": "mostRecent",
           "keywords": [
             "close",
             "focus",

@@ -20,6 +20,9 @@ public final class SidebarCustomizationService: SidebarCustomization {
     /// Each decorated row's overrides; the sidebar bridge reads it inside its row observation.
     public private(set) var rowDecorations: [String: SidebarRowDecoration] = [:]
     @ObservationIgnored public var onRowDecorationsChange: (() -> Void)?
+    /// The Home chat's widget host (agents' widget parts, plans/cmux-next/chat-widgets-DESIGN.md), on
+    /// the same client and the same presence check.
+    @ObservationIgnored public private(set) lazy var chatWidgets = ChatWidgetHost(client: client, isPresented: isPresented)
     @ObservationIgnored private var rowsMount: AppMount?
     @ObservationIgnored private var rowsKey: String?
     @ObservationIgnored private var appsWatch: Task<Void, Never>?
@@ -137,10 +140,15 @@ final class AppHoverCardContent: SidebarCustomContent {
 
     var isReady: Bool { mount.model.status == .ready }
 
+    /// Why the card did not draw, in plain words: a script error's place and message (`Line 2,
+    /// column 12: expecting ';'`), else what failed (AppFailureCopy); a disconnected reason as it is.
     var errorText: String? {
         switch mount.model.status {
-        case .failed(let reason), .disconnected(let reason): reason
-        case .loading, .ready: nil
+        case .failed(let reason):
+            let copy = AppFailureCopy(reason: reason)
+            return copy.location ?? copy.title
+        case .disconnected(let reason): return reason
+        case .loading, .ready: return nil
         }
     }
 

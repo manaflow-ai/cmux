@@ -193,6 +193,7 @@ pub(crate) use turn_errors::is_limit_error;
 mod elevation;
 mod git_watch;
 mod github_owner;
+mod harness_sandbox;
 mod lane_report_reads;
 mod lane_report_subagents;
 mod lane_report_text;
@@ -206,6 +207,7 @@ pub(crate) mod mcp_probe;
 mod meta_save;
 mod offer_results;
 mod offers;
+mod question_replies;
 mod resume;
 mod secrets;
 mod seen;
@@ -237,6 +239,7 @@ mod stream;
 mod tags;
 mod tailnet_controller;
 mod tap;
+pub(crate) mod time_breakdown;
 mod titles;
 mod tool_paths;
 mod tool_read_images;
@@ -244,6 +247,7 @@ mod tool_shell;
 mod tools;
 pub(crate) mod turn_cap;
 mod turn_retry;
+mod update_repeats;
 mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
@@ -281,6 +285,7 @@ pub(crate) mod questions;
 mod remote_cwd;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
+mod review_brief;
 pub(crate) mod review_queue;
 mod touched;
 pub mod vm_boundary;
@@ -574,6 +579,11 @@ pub struct PromptOptions {
     /// hold in an idle chat that it does not wake is refused at once (`inbox.rs`
     /// `not_woken`), never left waiting for a turn that does not come.
     pub wake_or_fail: bool,
+    /// The sender waits for the reply and prints it (`readsReply`, `wakeOrFail`): its
+    /// connection's end, `true` once it left. An inbox message keeps it, so a notice says
+    /// "waiting" only while that caller is still there, and a question nobody waits for gets its
+    /// reply sent back (`hub/question_replies.rs`).
+    pub reply_reader: Option<tokio::sync::watch::Receiver<bool>>,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -871,6 +881,8 @@ pub struct Hub {
     #[cfg(test)]
     pub(super) queue_approval_off: AtomicBool,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
+    /// The one check of every watched transcript (`watch_tick.rs`).
+    pub(super) watch_ticker: watch::WatchTicker,
     /// The settings file watched for start-mode changes (`settings_watch.rs`).
     pub(super) settings_watch: settings_watch::SettingsWatchState,
     /// The HEAD of each attached session's folder, watched for a checkout (`git_watch.rs`).
@@ -952,6 +964,9 @@ pub struct Hub {
     pub(crate) briefs: dispatch::Briefs,
     /// Every Claude workflow of this daemon's chats (`workflow_index.rs`).
     pub(crate) workflow_index: workflow_index::WorkflowIndex,
+    /// Which predicted next prompts reach the person (`suggestion_gate.rs`): this daemon's own
+    /// chats and the peers' chats it relays to its person.
+    pub(crate) suggestion_gate: StdMutex<crate::suggestion_gate::Gate>,
 }
 
 /// Serialized forms of one closed session. Each form has its own generation and tag-expiry
@@ -1029,6 +1044,7 @@ impl Hub {
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
         let peer_paths = Arc::new(crate::peer_last_good::LastGood::open(home.as_deref()));
+        let suggestion_gate = StdMutex::new(crate::suggestion_gate::Gate::open(home.as_deref()));
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
@@ -1180,6 +1196,7 @@ impl Hub {
             #[cfg(test)]
             refuse_seam: Default::default(),
             harness_watch: Default::default(),
+            watch_ticker: Default::default(),
             settings_watch: Default::default(),
             git_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
@@ -1188,6 +1205,7 @@ impl Hub {
             person: Default::default(),
             presence: Default::default(),
             workflow_index: Default::default(),
+            suggestion_gate,
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             watched_moves: Default::default(),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
@@ -1450,6 +1468,7 @@ impl Hub {
             }
         }
         let last_seq = session.meta.lock().unwrap().last_seq;
+        self.catch_up_harness_sandbox(session, last_seq);
         if let Ok((extra, last)) = self.store.tail_after(&session.id, last_seq)
             && extra > 0
         {
@@ -1514,6 +1533,7 @@ impl Hub {
             harness_use: RwLock::new(()),
             idle_refusal_logged: AtomicU64::new(0),
             append_lock: StdMutex::new(()),
+            time_breakdown: StdMutex::new(Default::default()),
             meta_writer: Default::default(),
             message_ids: StdMutex::new(None),
             log_deferral: StdMutex::new(Default::default()),
@@ -1579,7 +1599,7 @@ impl Hub {
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
             applied: StdMutex::new(session::Applied::default()),
-            purged: AtomicBool::new(false),
+            purged: Arc::new(AtomicBool::new(false)),
             replaced: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             stops: AtomicU64::new(0),
@@ -1616,6 +1636,7 @@ impl Hub {
             stalled_recheck: AtomicU64::new(0),
             open_tools: StdMutex::new(Default::default()),
             loop_detector: StdMutex::new(Default::default()),
+            harness_sandbox_calls: StdMutex::new(Default::default()),
             stalled_counted: StdMutex::new(None),
             stalled_gen: AtomicU64::new(0),
             sign_in_refused_turn: StdMutex::new(None),
@@ -1631,6 +1652,8 @@ impl Hub {
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
             harness_turn: AtomicBool::new(false),
+            logged_init: StdMutex::new(Default::default()),
+            update_repeats: StdMutex::new(Default::default()),
             background_turns: StdMutex::new(Default::default()),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
@@ -2213,6 +2236,13 @@ impl Hub {
         };
         if stored {
             session.note_transfer_event(&record);
+            {
+                let mut breakdown =
+                    session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+                if breakdown.initialized {
+                    breakdown.record(&record);
+                }
+            }
             // The review queue's index and the audit trail: O(1), never blocking on a write.
             self.observe_for_review(session, &record);
         }
@@ -2235,6 +2265,9 @@ impl Hub {
             if record.dir == "mux" && record.kind == "turn_result" {
                 m.harness_failures.observe(&record.msg, record.seq, record.at);
             }
+            if record.dir == "mux" {
+                m.harness_sandbox.observe(&record.kind, &record.msg, record.at);
+            }
         }
         // The cost ledger's index: O(1), no IO (its writer thread writes the file).
         self.ledger.observe(session, &record);
@@ -2254,6 +2287,8 @@ impl Hub {
                 | "unstuck"
                 | "loop_detected"
                 | "loop_cleared"
+                | harness_sandbox::RECORD_KIND
+                | "harness_sandbox_recovered"
                 | work_below::RECORD_KIND
                 | asks_below::RECORD_KIND
                 | "queued"

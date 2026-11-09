@@ -172,3 +172,22 @@ test("a fork's transcript names the chat its history above came from", async () 
     client.close();
   }
 });
+
+// A fork acpmux refuses is feedback on the click: a toast in the pane (toastSink), never a
+// transcript row (review of #37629, F1).
+test("a failed fork says so in a toast, not a transcript row", async () => {
+  const { client, shown, answers } = await forkingClient();
+  const toasts: string[] = [];
+  client.toastSink = (text) => toasts.push(text);
+  try {
+    const forked = client.fork("live", undefined, true);
+    await Promise.resolve();
+    answers[0]!.reject(new Error("the chat has no finished turn"));
+    expect(await forked).toBeUndefined();
+    expect(shown.rows.some((row) => row.kind === "notice")).toBe(false);
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0]).toContain("the chat has no finished turn");
+  } finally {
+    client.close();
+  }
+});

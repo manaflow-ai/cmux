@@ -2790,10 +2790,11 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
       play: async (ctx) => {
-        // A settled run folds to its line; opened, it lists the calls, each opened in turn.
+        // A running turn keeps its calls in sight (cmux#38339); a run folded to its line opens to
+        // them. Each call is then opened in turn.
         await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-tool.is-toggle")));
-        if (ctx.document.querySelector(".cv-tools > .cv-tool.is-toggle")) await openFoldedRun(ctx);
         const closed = '.cv-tool.is-toggle[aria-expanded="false"]';
+        if (ctx.document.querySelectorAll(closed).length < ENVELOPE_TOOLS.length) await openFoldedRun(ctx);
         await ctx.waitFor(() => ctx.document.querySelectorAll(closed).length === ENVELOPE_TOOLS.length);
         // Each row centered first: the runner scrolls a target only as far as needed, which parks a row
         // at the transcript's foot, under Jump to latest (shown while a run is working), and the click

@@ -5,6 +5,7 @@ import { type Translate, translate } from "./i18n";
 import { withoutRelayLabel, withoutRelayLabelOfMessage } from "./conversation/relayEnvelope";
 import { readRetry, type RetryState } from "./subagents/retryState";
 import { senderSessionName } from "./senderIdentity";
+import { replacedSince } from "./sessionIndex";
 import { type SessionUsageStats, usageStatsOf } from "./usageStats";
 
 /** A session as the sidebar sees it, cut from acpmux's session summary. */
@@ -30,6 +31,11 @@ export type AcpmuxSessionEntry = {
   createdAt?: number;
   pendingPermissions?: number;
   unread?: boolean;
+  /** Turns that ended while nobody showed the chat, since a person last did (`unreadTurns`). */
+  unreadTurns?: number;
+  /** The log seq the person had seen when they last left the chat (`seenSeq`): where "New since
+   *  you looked" goes. */
+  seenSeq?: number;
   /** The status dot acpmux decided (`SessionSummary.indicator`, cx-zlox); absent for none. */
   indicator?: SessionIndicator;
   /** The machine the session runs on ("This Mac", or a cloud machine's name), and which kind it is. */
@@ -163,7 +169,7 @@ export function withoutChildren(entries: AcpmuxSessionEntry[]): AcpmuxSessionEnt
  * The Home inbox and the sidebar share this folding rule; acpmux may report a pending permission
  * or question before its indicator moves to "input". A lost host cannot answer its old asks.
  */
-export const folded = (entry: AcpmuxSessionEntry, parents: ReadonlySet<string>) => {
+export const folded = (entry: AcpmuxSessionEntry, parents: Pick<ReadonlySet<string>, "has">) => {
   const needsPerson =
     entry.indicator !== "lost" &&
     ((entry.pendingPermissions ?? 0) > 0 || entry.waitingOn !== undefined || entry.status === "waiting");
@@ -278,6 +284,8 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     createdAt: typeof session.createdAt === "number" ? session.createdAt : undefined,
     pendingPermissions: Number.isFinite(pending) ? pending : 0,
     unread: session.unread === true,
+    unreadTurns: count(session.unreadTurns),
+    seenSeq: count(session.seenSeq),
     indicator: INDICATORS.includes(session.indicator) ? session.indicator : undefined,
     host: text(session.host),
     peer: text(session.peer),
@@ -332,6 +340,8 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
   };
 }
 
+const count = (value: unknown) =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
 const time = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined);
 
 /** When the person or the agent last did something in a chat, from acpmux's session summary.
@@ -487,6 +497,71 @@ export function mostRecentProject(
   return firstProject(recentLocalFolders(sessions), home, known);
 }
 
+/// `sessions` as it was when what `fields` reads of them last changed: the same array while only
+/// other fields of a session change (a status dot, unread, a title, a cost), so a projection that
+/// reads only `fields` (a memo over it) runs again only when its input moved, and one session's
+/// change costs one entry's fields here, not the projection over every listed chat. The pane keeps
+/// an unchanged session's entry object (direct.ts `sessionEntryList`), so an entry seen last time is
+/// not read again. A session added, removed or moved in the list counts as a change.
+export class SessionsBy {
+  private kept: readonly AcpmuxSessionEntry[] | undefined;
+  private seen = new Map<string, { entry: AcpmuxSessionEntry; key: string; at: number }>();
+  private count = -1;
+  /// The list `of` was last given, which a list made from it in place (sessionIndex.ts
+  /// `noteReplaced`) is compared with at the replaced entries only.
+  private last: readonly AcpmuxSessionEntry[] | undefined;
+
+  constructor(private readonly fields: (entry: AcpmuxSessionEntry) => readonly unknown[]) {}
+
+  of(sessions: readonly AcpmuxSessionEntry[]): readonly AcpmuxSessionEntry[] {
+    if (sessions === this.kept) return (this.last = sessions);
+    const replaced = this.kept === undefined ? undefined : replacedSince(this.last, sessions);
+    this.last = sessions;
+    let moved = replaced === undefined && (this.kept === undefined || sessions.length !== this.count);
+    // Same length: updated in place, as an id not seen before marks the list moved. Another length
+    // starts again, so a session no longer listed leaves nothing behind.
+    if (moved) this.seen = new Map();
+    const positions = replaced ?? sessions.keys();
+    for (const at of positions) {
+      const entry = sessions[at]!;
+      const before = this.seen.get(entry.sessionId);
+      if (before?.entry === entry) {
+        if (before.at !== at) {
+          before.at = at;
+          moved = true;
+        }
+        continue;
+      }
+      const key = JSON.stringify(this.fields(entry));
+      if (key !== before?.key || at !== before.at) moved = true;
+      if (before) {
+        before.entry = entry;
+        before.key = key;
+        before.at = at;
+      } else this.seen.set(entry.sessionId, { entry, key, at });
+    }
+    // A session that left while another came keeps the same length: drop what it left behind.
+    if (this.seen.size > sessions.length) {
+      const listedIds = new Set(sessions.map((entry) => entry.sessionId));
+      for (const id of this.seen.keys()) if (!listedIds.has(id)) this.seen.delete(id);
+    }
+    this.count = sessions.length;
+    if (moved) this.kept = sessions;
+    return this.kept!;
+  }
+}
+
+/// What a session's folder lists read of it (``recentLocalFolders``, the pane's project pickers): its
+/// folder, where it runs, whether it is listed, and when it was last active.
+export const folderFields = (session: AcpmuxSessionEntry): readonly unknown[] => [
+  session.cwd,
+  session.host,
+  session.hostKind,
+  session.peer,
+  listed(session),
+  activityTime(session),
+];
+
 /// This Mac's chat folders, newest chat first, each once: not a private agent-home folder, `~` or a
 /// chat on another machine. `mostRecentProject` picks from it; a New Tab page keeps it for the next
 /// page's first frame (newtab/recentProject.ts).
@@ -496,13 +571,12 @@ export function recentLocalFolders(sessions: readonly AcpmuxSessionEntry[], limi
     if (!cwd || cwd === "~" || isAgentHome(cwd)) return false;
     return !session.peer && (!session.hostKind || session.hostKind === "local") && listed(session);
   });
-  const folders: string[] = [];
+  const folders = new Set<string>();
   for (const session of byRecency(local)) {
-    const cwd = session.cwd!.replace(/\/+$/, "");
-    if (!folders.includes(cwd)) folders.push(cwd);
-    if (folders.length >= limit) break;
+    folders.add(session.cwd!.replace(/\/+$/, ""));
+    if (folders.size >= limit) break;
   }
-  return folders;
+  return [...folders];
 }
 
 /// The first of `folders` (newest first) a New Tab may start in: not the home folder, and with

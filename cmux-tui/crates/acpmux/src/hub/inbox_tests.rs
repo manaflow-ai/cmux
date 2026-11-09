@@ -17,6 +17,7 @@ fn item(
         thread: thread.to_owned(),
         from: from.to_owned(),
         from_session: None,
+        asker: None,
         sender: Value::Null,
         class,
         report: false,
@@ -27,6 +28,7 @@ fn item(
         noticed: false,
         read: false,
         answer: None,
+        reader: None,
     }
 }
 
@@ -775,7 +777,7 @@ mod agent_messaging {
 
     /// A Claude Code subagent's message names the subagent beside its lead's session, and the notice
     /// says how each sender gets an answer: the one that waits gets this turn's reply, another
-    /// session `inbox_reply` or `acpmux send`, and a subagent only the reply to its own send.
+    /// session `inbox_reply` or the `send` tool, and a subagent only the reply to its own send.
     #[test]
     fn a_notice_names_a_subagent_and_says_how_each_sender_gets_its_answer() {
         let sub = json!({"id": "a0a68e7af3df5967e", "type": "general-purpose"});
@@ -798,6 +800,9 @@ mod agent_messaging {
         asked.sender = sender.clone();
         let (tx, _rx) = tokio::sync::watch::channel(None);
         asked.answer = Some(tx);
+        // Its caller reads the reply (`send --wait`) and is still connected.
+        let (_left, reader) = tokio::sync::watch::channel(false);
+        asked.reader = Some(reader);
         let hint = reply_hint(&[&asked]).expect("a hint");
         assert!(
             hint.starts_with("Reply with acpmux, not your harness's own messaging: "),
@@ -807,14 +812,17 @@ mod agent_messaging {
             hint.contains("goes back to claude-17's general-purpose subagent a0a68e7a, waiting"),
             "{hint}"
         );
-        assert!(hint.contains("`acpmux send claude-17` reaches claude-17 itself"), "{hint}");
+        assert!(
+            hint.contains("the send tool (to: \"claude-17\") reaches claude-17 itself"),
+            "{hint}"
+        );
 
         // Another session that no longer waits: the commands that reach it.
         let mut lane = item("p2", "from:lane-b", "lane-b", PromptClass::Result, 2, "merged");
         lane.from_session = Some("s-b".into());
         let hint = reply_hint(&[&lane]).unwrap();
         assert!(
-            hint.contains("To answer lane-b, inbox_reply or `acpmux send lane-b \"…\"`"),
+            hint.contains("To answer lane-b, inbox_reply or the send tool (to: \"lane-b\")"),
             "{hint}"
         );
         assert!(!hint.contains("goes back"), "nobody waits: {hint}");

@@ -8,6 +8,7 @@ import {
   codexModels,
   mockResolvable,
   mockSessions,
+  listedSession,
   newSessionSummary,
   sessionHistory,
   sessionSummary,
@@ -45,6 +46,8 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockSlowMethod?: string;
   /** Delay for `cmuxAcpmuxMockSlowMethod`; tests use a short delay, the gallery uses six seconds. */
   cmuxAcpmuxMockSlowMs?: number;
+  /** bench/update-one.bench.ts: that many more listed sessions beside the fixture's, with no history. */
+  cmuxAcpmuxMockListSize?: number;
 };
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -328,6 +331,19 @@ export class MockAcpmuxSocket {
       for (const { ago, ...step } of steps) this.record(entry.sessionId, step as Step, now - ago);
       if (entry.status === "running" || entry.permission) this.openTurns.add(entry.sessionId);
     }
+    const listSize = Number((globalThis as MockAuthGlobals).cmuxAcpmuxMockListSize ?? 0);
+    for (let index = 0; index < listSize; index += 1) this.sessions.push(listedSession(index, now));
+  }
+
+  /// One field change of one session (a status dot, unread, a rename, a cost), told the client the way
+  /// the daemon tells it: one `session_changed` with that session's summary. The row keeps its place.
+  /// `fields` may read the session's current summary (an unread toggle flips what it is).
+  changeSession(
+    target: string,
+    fields: Record<string, unknown> | ((current: Record<string, any>) => Record<string, unknown>),
+  ): void {
+    const current = this.sessions.find((entry) => entry.sessionId === target);
+    if (current) this.touch(target, typeof fields === "function" ? fields(current) : fields, false);
   }
 
   /// Claude lists its slash commands when a session starts, so the composer's + and `/` work.
@@ -418,12 +434,31 @@ export class MockAcpmuxSocket {
   /// No reply text streams, so whatever the transcript draws past the running turn is waste.
   async tickLoadTurn(
     target: string,
-    options: { seconds: number; tickMs: number; sidebarMs: number; lineSuffix?: string },
+    options: { seconds: number; tickMs: number; sidebarMs: number; lineSuffix?: string; backgroundCommands?: number },
   ): Promise<{ ticks: number; sidebar: number }> {
     const turn = Number(this.sessions.find((entry) => entry.sessionId === target)?.turnCount ?? 0) + 1;
     this.touch(target, { turnCount: turn, status: "running", indicator: "working" });
     this.emit(target, { mux: "user_message", msg: { text: `Turn ${turn}: run the long check` } });
     this.emit(target, { mux: "turn_started" });
+    // Shells sent to the background first, as Claude's Bash `run_in_background` does: each call ends at
+    // once and its shell keeps running, so the composer's hat (SubagentTray.tsx) shows it with its
+    // time ticking for the whole run. They are left running when the turn ends.
+    for (let index = 0; index < (options.backgroundCommands ?? 0); index += 1) {
+      const shell = `load-tick-${turn}-background-${index}`;
+      const command = `bun run dev --port ${4300 + index}`;
+      this.emit(target, {
+        update: tool(shell, "execute", command, "in_progress", {
+          rawInput: { command, run_in_background: true },
+        }),
+      });
+      this.emit(target, {
+        update: done(shell, {
+          content: [
+            { type: "content", content: { type: "text", text: `Command running in background with ID: ${shell}` } },
+          ],
+        }),
+      });
+    }
     const call = `load-tick-${turn}`;
     this.emit(target, {
       update: tool(call, "execute", "Run bun test --watch", "in_progress", {

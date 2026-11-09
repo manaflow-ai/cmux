@@ -157,6 +157,13 @@ export type AcpmuxFailover = { from: string; to: string };
 /// `key`: the chat and the record's seq, which the dismissal remembers (conversation/recapDismissed.ts).
 export type AcpmuxRecap = { key: string; text: string; awayMs?: number };
 
+/// "New since you looked" (conversation/SinceDivider.tsx): where the person left the chat, drawn
+/// after the record they had seen (acpmux `seenSeq`, `hub/seen.rs`) when turns ended since. The
+/// recap made for the same return (`since` on its record) draws on it instead of on its own row.
+export const SINCE_DIVIDER = "sinceDivider";
+/// `key`: the chat and the seq, which Jump to new follows the line by (seqs repeat across chats).
+export type AcpmuxSince = { key: string; seq: number; turns: number; recap?: AcpmuxRecap };
+
 /// A turn the agent ran on its own, which nobody prompted (acpmux `background_turn` records): a
 /// background task or subagent finished (`task_notification`), a scheduled wakeup or /loop tick
 /// (`scheduled`), or a hook (`system`). `running` until its ended record; then `quiet` is acpmux's
@@ -445,6 +452,8 @@ export type AcpmuxRow = {
   failover?: AcpmuxFailover;
   /// A recap row's recap.
   recap?: AcpmuxRecap;
+  /// The "New since you looked" row's mark.
+  since?: AcpmuxSince;
   /// A plan build row's builds (planBuild/PlanBuildCard.tsx): what a plan approval started off this chat.
   planBuild?: PlanBuild;
   /// A memory inbox row's offer (conversation/memoryInbox.ts): facts for the instructions file.
@@ -1072,6 +1081,30 @@ export function linkUp(connection: string): boolean {
   return connection !== "disconnected" && !connection.startsWith("connecting");
 }
 
+/** Incremental journal attribution for the Session Info "Where the time went" chart. */
+export type AcpmuxTimeCategory = {
+  id: string;
+  wallMs: number;
+  tokens?: number;
+};
+export type AcpmuxTimeSpan = {
+  turnSeq: number;
+  turnId?: string;
+  category: string;
+  startAt: number;
+  endAt: number;
+  tokens?: number;
+  /** Measured usage for the whole turn; phase/category attribution may be unavailable. */
+  turnTokens?: number;
+};
+export type AcpmuxTimeBreakdown = {
+  totalMs: number;
+  totalTokens?: number;
+  tokensComplete: boolean;
+  categories: AcpmuxTimeCategory[];
+  spans: AcpmuxTimeSpan[];
+};
+
 export type AcpmuxSnapshot = {
   type: "snapshot";
   /** The selected chat's daemon-owned retry, including the last automatic attempt. */
@@ -1142,6 +1175,8 @@ export type AcpmuxSnapshot = {
     /// What the session spends (acpmux `usageStats`, usageStats.ts): 24h tokens and cost, its
     /// autocompact cap, its subagents. Unset while the harness has no readable transcript.
     usageStats?: SessionUsageStats;
+    /// Incremental per-turn wall-time and token attribution for the Session Info timeline.
+    timeBreakdown?: AcpmuxTimeBreakdown;
     host?: string;
     /// What Claude Code's last init line said the chat runs on: its version, model id, route and
     /// folder, for Session Info's Environment and the `/status` card.
@@ -1284,6 +1319,9 @@ export type AcpmuxSnapshot = {
   clockOffsetMs?: number;
   /// acpmux serves `acp.session.fork` (operations.ts), so a turn can be forked from.
   canFork?: boolean;
+  /// The chat's own machine (a Cloud or SSH chat) opens its side chats there: New side chat and
+  /// `/side` (direct.ts `sideChatOnMachine`).
+  sideChatOnMachine?: true;
   /// acpmux serves the owner's Approve and Decline of a guest's prompt (initialize `queueApproval`).
   queueApproval?: boolean;
   canHandoff?: boolean;
@@ -1302,6 +1340,9 @@ export type AcpmuxSnapshot = {
   /// While two or more steers wait: the row of the person's newest one, the only one that offers
   /// Send now (direct.ts `newestOwnSteer`, conversation/PendingSteer.tsx).
   newestOwnSteer?: string;
+  /// The mark of "New since you looked" drawn in the rows (`SINCE_DIVIDER`, its `key`): Jump to new
+  /// follows it.
+  sinceKey?: string;
   permission?: AcpmuxPermission;
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;
@@ -1513,9 +1554,9 @@ const LIVE_STEP_EDGE = "+step";
 /// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
 /// #29965), `--cv-tool-row-height`.
 const TOOL_ROW_PT = 22;
-/// The room around "Worked for"'s rule (Lucas, 2026-11-07): 4 under its words, 12 over the next row,
+/// The room around "Worked for"'s rule (Lucas, 2026-11-07; Leo, 2026-11-09): 4 under its words, 8 over the next row,
 /// conversation.css `.cv-worked.has-divider.is-toggle`; no stack gap follows (MARK_WORKED).
-const WORKED_GAP_PT = gridLength("gap-foot") + gridLength("gap-inner");
+const WORKED_GAP_PT = gridLength("gap-foot") + gridLength("gap");
 const toolRowHeight = () => TOOL_ROW_PT * chromeScale;
 const TOOL_RUN_BOTTOM = 0;
 /// A one-line row that is not a tool run (`isLineRow`) draws one tool row's line, as a one-call run
@@ -2227,6 +2268,17 @@ function fallbackRowHeight(
       24 +
         Math.max(1, Math.ceil((row.recap?.text.length ?? 0) / Math.max(24, Math.floor(width / 8) - 6))) *
           metrics().lineHeight,
+    );
+  // "New since you looked" (conversation/SinceDivider.tsx): its 28px line, and under it the recap's
+  // card as a recap row is estimated.
+  if (row.kind === SINCE_DIVIDER)
+    return finish(
+      28 +
+        (row.since?.recap
+          ? 24 +
+            Math.max(1, Math.ceil(row.since.recap.text.length / Math.max(24, Math.floor(width / 8) - 6))) *
+              metrics().lineHeight
+          : 0),
     );
   // A memory offer (conversation/MemoryOfferCard.tsx): its file line, a 24px diff line per open fact
   // and the heading's, Accept all under two or more, in its 1px edges and 8px of row margins; settled,
@@ -3290,6 +3342,11 @@ export function mergeRowRanges(ranges: RowRange[]): RowRange[] {
 /// scrollbar drag that moves several viewports a frame) also mounts each view the next `steps`
 /// frames reach, with a margin for uneven frames: the rows between them and the capped lead are
 /// never on screen, so they are not built (cx-j33s4).
+/// A moving scroll within the cap also keeps `trail` px behind the view mounted: the rows the
+/// reader just passed, already drawn. Dropping them the moment they left the view made a quick
+/// reversal (up and down fast) scroll the compositor into bare background for a frame before its
+/// commit drew them again (Leo, 2026-11-08: "hard cutoffs where there's no text at all"). A fling
+/// past the cap skips it: the rows behind a jump were never mounted, and building them costs a frame.
 export function scrollLeadRanges(
   layoutModel: TranscriptLayout,
   scrollTop: number,
@@ -3297,10 +3354,15 @@ export function scrollLeadRanges(
   viewportHeight: number,
   steps: number,
   maxLead: number,
+  trail = 0,
 ): RowRange[] {
   const lead = Math.min(Math.abs(delta) * steps, maxLead);
+  if (Math.abs(delta) * steps <= maxLead) {
+    const behind = delta === 0 ? 0 : trail;
+    const top = delta < 0 ? scrollTop - lead : scrollTop - behind;
+    return [visibleLayoutRange(layoutModel, top, viewportHeight + lead + behind)];
+  }
   const ranges = [visibleLayoutRange(layoutModel, delta < 0 ? scrollTop - lead : scrollTop, viewportHeight + lead)];
-  if (Math.abs(delta) * steps <= maxLead) return ranges;
   const margin = Math.min(Math.abs(delta) / 4, viewportHeight / 2);
   for (let step = 1; step <= steps; step += 1)
     ranges.push(visibleLayoutRange(layoutModel, scrollTop + delta * step - margin, viewportHeight + 2 * margin));
