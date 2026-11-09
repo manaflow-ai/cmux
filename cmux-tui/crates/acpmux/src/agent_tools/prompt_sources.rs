@@ -146,6 +146,9 @@ impl AgentTools {
         if claude && self.plugin_dir.is_some() {
             for (path, body) in SKILL_FILES {
                 let Some(name) = path.strip_suffix("/SKILL.md") else { continue };
+                if !self.lists_skill(name) {
+                    continue;
+                }
                 // Store only the exact name/description frontmatter. The harness
                 // supplies its own catalog wrapper, hence this is an estimate.
                 let Some(frontmatter) =
@@ -248,7 +251,10 @@ mod tests {
         let parts = tools().context_parts(true);
         let skills: Vec<_> = parts.iter().filter(|p| p.source == "cmux-skill-listing").collect();
         let compiled = SKILL_FILES.iter().filter(|(p, _)| p.ends_with("/SKILL.md")).count();
-        assert_eq!(skills.len(), compiled);
+        // No `cmux-secrets` server here, so no `cmux-sudo` listing (`SKILL_SERVERS`).
+        assert_eq!(skills.len(), compiled - 1);
+        assert!(!skills.iter().any(|p| p.id.ends_with("skill-cmux-cmux-sudo")), "{skills:?}");
+        assert!(skills.iter().any(|p| p.id.ends_with("skill-cmux-cmux-cua")), "{skills:?}");
         assert!(skills.iter().any(|p| p.id.ends_with("skill-cmux-cmux-chat")), "{skills:?}");
         for skill in &skills {
             let text = skill.text.as_deref().unwrap();
@@ -285,7 +291,7 @@ mod tests {
         crate::context_inventory::record_tool_sources(&mut meta, parts.clone());
         let after = inspectable(&meta);
         // The skill descriptions plus the two rule fragments (asking, computer use).
-        assert_eq!((before, after), (0, compiled + 2));
+        assert_eq!((before, after), (0, skills.len() + 2));
         println!(
             "context-source-fixture: inspectable_before={before}, inspectable_after={after}, rows={}, text_parts={}, persisted_bytes={}, skill_description_tokens={}, full_skill_body_tokens={}",
             parts.len(),

@@ -858,19 +858,19 @@ test("the sidebar's surface says the open preview's height for the host's glass 
 // Leo 2026-11-08: "the animation also seems like it's a little bit slow". The preview opens on the
 // card's own curve, a fast start that settles long, the native glass's twin (Motion+AppKit.swift
 // cardCurve and cardDuration), and the room goes back once that motion has run.
-test("the preview opens on the card's curve, 265ms, the native glass's twin", () => {
+test("the preview opens on the card's curve, 180ms, the native glass's twin", () => {
   const css = readFileSync(new URL("../src/pages/changelog/updateSurfaces.css", import.meta.url), "utf8");
-  expect(css).toContain("--wn-preview-motion: 265ms;");
+  expect(css).toContain("--wn-preview-motion: 180ms;");
   expect(css).toContain("--wn-preview-ease: cubic-bezier(0.16, 1, 0.3, 1);");
   expect(css).toMatch(/\.wn-preview \{\s*transition: height var\(--wn-preview-motion\) var\(--wn-preview-ease\);/);
   const tsx = readFileSync(new URL("../src/pages/changelog/updatedPreview.ts", import.meta.url), "utf8");
-  expect(tsx).toContain("export const PREVIEW_CLOSE_MS = 265;");
+  expect(tsx).toContain("export const PREVIEW_CLOSE_MS = 180;");
   const swift = readFileSync(
     new URL("../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+AppKit.swift", import.meta.url),
     "utf8",
   );
   expect(swift).toContain("CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)");
-  expect(swift).toContain("cardDuration: TimeInterval = 0.265");
+  expect(swift).toContain("cardDuration: TimeInterval = 0.18");
 });
 
 // Review F2 of #37615: a preview the host's hover opened has no focus inside the card, so Escape

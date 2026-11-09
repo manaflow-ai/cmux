@@ -178,6 +178,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_check_repo_variables.py
 
+      - name: Validate the Cloud capture account provisioning
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cloud_capture_provision.py
+
       - name: Validate the cloud overflow switch
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cloud_overflow_switch.py
@@ -628,6 +632,12 @@ jobs:
       - name: Validate the machine join E2E harness
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
         run: bun test scripts/cmux-next/machine-join-e2e.test.ts
+
+      # The deploy check's retries: a failed Cloud journey runs once more, and db-release waits out a
+      # full database (fake bun and fake connect; no network, no secret).
+      - name: Validate the Cloud journey and deploy gate retries
+        if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
+        run: bun test scripts/cmux-next/cloud-journey-retry.test.ts
 
       # The machine vault E2E harness: cleanup, refusal, skip and leak paths (fake fetch and
       # fake CLIs; no network, no secret).

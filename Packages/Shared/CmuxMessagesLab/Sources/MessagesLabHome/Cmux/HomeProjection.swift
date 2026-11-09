@@ -26,6 +26,13 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var approvals: (any HomeApprovalDeciding)?
     var approvalWrites: [HomeApprovalWriteGate] = []
     var approvalCards: [String: HomeApprovalDisplay] = [:]
+    /// Each failed-turn card's Details and Copy state, by message (HomeProjection+TurnFailure).
+    var turnFailureCards: [ID: HomeTurnFailureRowProvider.Local] = [:]
+    /// Copy error's destination: the general pasteboard; tests record it.
+    var copyText: @MainActor (String) -> Void = { text in
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
     var approvalLatestEvent: TimeInterval = -1
     var isPersonApprovalEvent: (NSEvent) -> Bool = { _ in false }
     let homeStore: HomeStore
@@ -183,6 +190,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     func start() {
         controller.approvalDecision = { [weak self] ref, allow in _ = self?.decideApproval(ref, allow: allow) }
+        controller.turnFailureAction = { [weak self] ref, action in self?.turnFailureAction(ref, action) }
         refresh()
         noteObservedInputs()
         observe()
@@ -198,12 +206,16 @@ final class HomeProjection: @preconcurrency ChatIntents {
         turnPopover?.close()
         controller.intents = nil
         controller.approvalDecision = nil
+        controller.turnFailureAction = nil
     }
 
     // MARK: HomeStore -> projection
 
     func refresh() {
-        defer { refreshApprovalStates() }
+        defer {
+            refreshApprovalStates()
+            refreshTurnFailureStates()
+        }
         refreshPasses += 1
         if sendWhenConfirmed, homeStore.isConfirmed(conversation) {
             sendWhenConfirmed = false

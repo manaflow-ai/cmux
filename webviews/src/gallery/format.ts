@@ -101,6 +101,9 @@ export type ChipHostFixture = {
   images?: Record<string, string | null>;
   /** `media.load` answers: the URL the player plays for each path. */
   media?: Record<string, string>;
+  /** Methods the host refuses (`{ok: false}`), as a chat on another machine's host may refuse
+   *  `media.load` and `video.quickLook`. */
+  refused?: string[];
   browsers?: { id: string; name: string; icon?: string }[];
   /** `project.icon` answers: a project folder's favicon as a data URL (projectIcon.ts). */
   projectIcons?: Record<string, string>;
@@ -277,6 +280,13 @@ export type DiffPageVariant = VariantBase & {
   comments?: DiffCommentRecord[];
   /** The host sends comments to the diff's chat (Send to agent). */
   commentsSend?: boolean;
+  /** The diff's chat's review brief the in-page host answers (`cmux.diff.brief`), as acpmux's
+   * `_acpmux/review_brief` answers it; absent, the host serves no brief. */
+  reviewBrief?: unknown;
+  /** Plain English: the sentence the in-page host writes for a hunk whose patch contains each
+   * key (`cmux.diff.summary`, after `summaryDelayMs`), or a refusal reason `summaryCheck` answers.
+   * Absent, the host serves no summary op. */
+  summaries?: { sentences: Record<string, string>; delayMs?: number } | { refused: string };
 };
 
 /** The App Store page on an in-page cmuxPage host serving its supervisor projection. */

@@ -467,19 +467,6 @@
    "arithmetic_side_effects": 3,
    "cast_possible_truncation": 11
   },
-  "cmux-mux2": {
-   "unwrap_used": 0,
-   "expect_used": 11,
-   "panic": 0,
-   "unreachable": 0,
-   "todo": 0,
-   "unimplemented": 0,
-   "indexing_slicing": 18,
-   "string_slice": 0,
-   "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 25,
-   "cast_possible_truncation": 3
-  },
   "cmux-palette-ranker": {
    "unwrap_used": 0,
    "expect_used": 0,

@@ -152,15 +152,15 @@ final class AgentPageChats {
         tabs.pageChats.cloudReservation = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             if !request.release { CloudStartChat.warmSpare(services) } // never awaited: Send's gesture ticket waits only on the reserve
-            return await request.run(allowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud,
-                                     binary: services.cloud.move.cli, configuration: services.cloud.configuration, auth: services.cloud.auth,
-                                     install: { try await services.cloud.installIdentity.installToken() })
+            return await request.run(allowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud, binary: services.cloud.move.cli,
+                                     configuration: services.cloud.configuration, auth: services.cloud.auth, install: { try await services.cloud.installIdentity.installToken() },
+                                     reserved: { CloudStartChat.warmSpare(services, claimed: $0) }) // the reserve's own machine gets the login copy (never awaited)
         }
         tabs.pageChats.cloudEnvironment = { [weak services] request in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             return await request.run(
                 allowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud,
-                connection: services.machines.local.connection, platform: ArtifactsPageProvider.apiBaseURL()) {
+                connection: services.machines.local.connection, platform: services.cloud.configuration.artifactsAPIBaseURL()) {
                     let team = try await services.cloud.auth.accessTokenTeam(requested: nil)
                     return (try await services.cloud.installIdentity.accessToken(team: team)).accessToken
                 }

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
+import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { canonicalKey, carrierDial, carrierTicketProblem, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable, IDLE_JOURNEY_MS, listAllMachines, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 
 describe("cloud journey", () => {
@@ -499,6 +500,69 @@ describe("cloud journey: carrier ticket without a cmux binary", () => {
     expect(Buffer.from(noncanonical, "base64url").length).toBe(32);
     for (const daemon_key of [undefined, "k", `${key}=`, noncanonical, key.replace(/.$/, "+")])
       expect(carrierTicketProblem(200, answer({ daemon_key }), 1_000)).toContain("daemon_key");
+  });
+});
+
+describe("cloud journey: desktop link readback (--desktop-link)", () => {
+  // A stand-in for `cmux carrier dial --service desktop`: the status line, the host's `started` frame, then its link
+  // notes in the connect log; what the viewer sent goes to a file.
+  const fakeDesktop = (body: string) => {
+    const dir = mkdtempSync(join(tmpdir(), "journey-desktop-"));
+    const bin = join(dir, "cmux");
+    writeFileSync(bin, `#!/bin/bash\nprintf '%s\\n' "$*" > "${dir}/args"\nmkdir -p "$CMUX_TUI_STATE_DIR/carrier"; log="$CMUX_TUI_STATE_DIR/carrier/connect.log"\n${body}\n`, { mode: 0o755 });
+    return { dir, bin };
+  };
+  const api = { origin: "https://api.example", bearer: "session-value", team: undefined };
+  const started = `printf '\\001\\033\\000\\000\\000{"t":"started","session":1}'`;
+
+  test("reads the link's notes from the dial's own connect log, as the viewer that keeps the session", async () => {
+    const { dir, bin } = fakeDesktop(`echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+cat > "${"$"}{0%/*}/stdin" <&0 &
+sleep 0.3; ${started}
+printf 'cloud.desktop_link machine=vm_x answered\\ncloud.desktop_link machine=vm_x up\\ncloud.desktop_link machine=vm_x host_up\\n' >> "$log"
+wait`);
+    const r = await desktopLinkDial(bin, api, "vm_abcdefghij0123456789", 10_000, 2_000);
+    expect(r.error).toBeNull();
+    expect(r.lines).toEqual(["cloud.desktop_link machine=vm_x answered", "cloud.desktop_link machine=vm_x up", "cloud.desktop_link machine=vm_x host_up"]);
+    expect(r.controls).toEqual(["started"]);
+    expect(desktopLinkVerdict(r.lines)).toEqual({ up: true, why: "the link came up (up, host_up)" });
+    expect(readFileSync(join(dir, "args"), "utf8").trim()).toBe("carrier dial --machine vm_abcdefghij0123456789 --service desktop --deadline-ms 2000");
+    // The viewer's hello and start first, then feedback datagrams after `started`.
+    const sent = readFileSync(join(dir, "stdin"));
+    expect(sent[0]).toBe(1);
+    expect(sent.toString("latin1")).toContain('"t":"hello"');
+    expect(sent.toString("latin1")).toContain('"t":"start"');
+    expect(sent.includes(rdFrame(2, RD_FEEDBACK))).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+  }, 15_000);
+
+  test("a dial with no rd_link writes no note, and the verdict says the platform sent none", async () => {
+    const { dir, bin } = fakeDesktop(`echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+sleep 0.5`);
+    const r = await desktopLinkDial(bin, api, "vm_abcdefghij0123456789", 5_000, 2_000);
+    expect(r.lines).toEqual([]);
+    expect(r.error).toBe("carrier dial: ended while the desktop was open");
+    expect(desktopLinkVerdict(r.lines).why).toContain("sent no rd_link");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a refused dial is the error, with no note", async () => {
+    const { dir, bin } = fakeDesktop(`echo '{"ok":false,"error_code":"desktop_unavailable"}' >&2
+exit 1`);
+    const r = await desktopLinkDial(bin, api, "vm_abcdefghij0123456789", 5_000, 2_000);
+    expect(r.error).toContain("desktop_unavailable");
+    expect(r.lines).toEqual([]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("the verdict names an old image, a failed link, and the wire bytes match cmux-rd-proto", () => {
+    expect(desktopLinkVerdict(["cloud.desktop_link machine=vm_x not_answered"]).why).toContain("cmux-rd 0.2.3");
+    expect(desktopLinkVerdict(["cloud.desktop_link machine=vm_x answered", "cloud.desktop_link machine=vm_x failed no route"])).toEqual({ up: false, why: "the link did not come up: answered; failed no route" });
+    // Header: version 1, kind 7 (Feedback), 14 zero bytes; payload: acked 0, decode 0, no recovery, 0 arrivals, 0 NACKs.
+    expect([...RD_FEEDBACK]).toEqual([0x10, 7, ...Array(14).fill(0), ...Array(12).fill(0)]);
+    expect([...rdFrame(1, Buffer.from("ab"))]).toEqual([1, 2, 0, 0, 0, 97, 98]);
+    expect(maskAddresses("srflx 203.0.113.7:51820 host [2001:db8::1]:4000 vm_ab12")).toBe("srflx <addr> host <addr> vm_ab12");
+    expect(teamIdsIn({ personal_team: "team_6b6623866a52063af515" }, null, { team: "team_6b6623866a52063af515" })).toEqual(["team_6b6623866a52063af515"]);
   });
 });
 

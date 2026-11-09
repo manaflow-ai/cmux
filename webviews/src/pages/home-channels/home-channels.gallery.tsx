@@ -6,6 +6,7 @@ import { useState, type CSSProperties } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { PlayContext } from "../../gallery/play";
 import { UiProvider } from "../../ui/UiProvider";
+import { LOGIN_TESTS_MP4 } from "../../gallery/fixtures/toolImages";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { APP_ACTION_RUN, HomeChannelsPage, NEW_CLOUD_MACHINE } from "./HomeChannelsPage";
@@ -35,6 +36,8 @@ type Props = {
   refuseInbox?: boolean;
   /** Adds #media: images, a video with its poster and a PDF. */
   media?: boolean;
+  /** #media's video plays (a sample MP4); without it its link cannot be had. */
+  video?: boolean;
   /** Adds #launch, a channel two teammates share; Ana types in it. */
   teammates?: boolean;
   /** The theme's terminal selection color, as the app sets `--cmux-text-selection`. */
@@ -120,6 +123,7 @@ function HomeChannelsGallery({
   runs = "none",
   refuseInbox = false,
   media = false,
+  video = false,
   teammates = false,
   terminalSelection,
   route,
@@ -135,6 +139,7 @@ function HomeChannelsGallery({
   const [store] = useState(() => {
     const provider = offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox, media, teammates);
     if (provider) provider.hostGrants = hostGrants;
+    if (provider && video) provider.videoUrl = `data:video/mp4;base64,${LOGIN_TESTS_MP4}`;
     if (provider && extraChief) provider.addChief("Release Chief");
     let host: BridgePageClient | MockHomeProvider | null = hostGrants ? provider : null;
     if (hostBridge) {
@@ -421,6 +426,62 @@ export default componentEntry<Props>({
         await ctx.waitFor(
           () => ctx.document.querySelector(".hc-lightbox-bar .hc-att-name")?.textContent === "sidebar-after.png",
         );
+      },
+    },
+    "attachments-lightbox-video": {
+      note: "Leo 2026-11-04: \"i can neither preview a vid in place nor have it pop up anymore :(\". A video's Expand opens it in the lightbox, paused with its Play and length (the agent chat's player); it still plays in place.",
+      props: { select: "c-media", media: true, video: true },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.scroll({ selector: ".lg-main .hc-timeline" }, "bottom");
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".hc-att-video video")?.getAttribute("src")));
+        await ctx.click({ selector: ".hc-att-video .hc-att-expand" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox .cv-media__poster"));
+      },
+    },
+    "attachments-lightbox-video-playing": {
+      note: "Play in the lightbox: the video plays large with sound and the player's controls; the inline copy pauses.",
+      props: { select: "c-media", media: true, video: true },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.scroll({ selector: ".lg-main .hc-timeline" }, "bottom");
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".hc-att-video video")?.getAttribute("src")));
+        await ctx.click({ selector: ".hc-att-video .hc-att-expand" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox .cv-media__poster"));
+        await ctx.click({ selector: ".hc-lightbox .cv-media__poster" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox .cv-media__frame.is-playing"));
+      },
+    },
+    "attachments-lightbox-arrow-to-video": {
+      note: "From the first image, Left arrow wraps to the message's video (images, then videos): the lightbox steps among both.",
+      props: { select: "c-media", media: true, video: true },
+      checks: {
+        longFrameFailMs: openFrame,
+        layoutShiftMax: {
+          value: 0.05,
+          reason: "The arrow key swaps the lightbox's image for the video, which has its own size.",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".hc-att-grid img").length === 3);
+        await ctx.click({ selector: ".hc-att-image" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox img"));
+        await ctx.press("ArrowLeft");
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".hc-lightbox-bar .hc-att-name")?.textContent === "run-recording.mp4",
+        );
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox .cv-media__poster"));
+      },
+    },
+    "attachments-lightbox-video-unavailable": {
+      note: "A video whose link cannot be had (an owner without attachment reads): the lightbox shows its poster and says it cannot play here.",
+      props: { select: "c-media", media: true },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.scroll({ selector: ".lg-main .hc-timeline" }, "bottom");
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".hc-att-video video")?.getAttribute("poster")));
+        await ctx.click({ selector: ".hc-att-video .hc-att-expand" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox-unread.failed img"));
       },
     },
     "attachments-composer": {
