@@ -14,6 +14,8 @@ extension AgentTabStore {
         model.transport.workspaceID = { [weak self] in self.flatMap { $0.localWorkspaceKey(of: $0.resolve(provisional)) } }
         // Stage and Commit (cx-tcwj) run git on this Mac: never in a Cloud or SSH chat's same-named folder here.
         model.gitWritesHere = { [weak self] in self.flatMap { $0.gitLink?($0.resolve(provisional)) }?.isLocal == true }
+        // New Worktree in a Cloud or SSH chat runs git on that chat's machine, through its daemon's link.
+        model.gitWritesOnChatMachine = { [weak self] in self.flatMap { $0.gitLink?($0.resolve(provisional)) }?.isLocal == false }
         model.startFolders.resolve = { [weak self] proposed in
             guard let self, let workspace = workspace(holding: resolve(provisional)), let resource = workspace.resourceID else { return nil }
             guard var answer = await daemonForTab(resolve(provisional))?.agentStart(proposed, workspace: resource) else { return nil }
