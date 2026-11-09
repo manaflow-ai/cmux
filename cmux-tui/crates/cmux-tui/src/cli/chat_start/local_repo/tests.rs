@@ -47,8 +47,15 @@ fn a_ref_is_checked_out_and_a_missing_one_says_so() {
     assert_eq!(ensure(&url, Some("topic"), &dir), Ok(Ready::Cloned));
     let head = Command::new("git").arg("-C").arg(&dir).args(["branch", "--show-current"]).output();
     assert_eq!(String::from_utf8_lossy(&head.unwrap().stdout).trim(), "topic");
-    let error = ensure(&url, Some("no-such-ref"), &root.path().join("missing")).unwrap_err();
+    let missing = root.path().join("missing");
+    let error = ensure(&url, Some("no-such-ref"), &missing).unwrap_err();
     assert_eq!(error["code"], "repo.checkout_failed");
+    // No clone is left on the default branch for a retry to reuse.
+    assert!(!missing.exists());
+    let empty = root.path().join("empty");
+    std::fs::create_dir(&empty).unwrap();
+    assert!(ensure(&url, Some("no-such-ref"), &empty).is_err());
+    assert_eq!(std::fs::read_dir(&empty).unwrap().count(), 0);
 }
 
 #[test]

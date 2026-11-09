@@ -642,6 +642,10 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
         signed_in: || cloud_start_chat::app_signed_in(global),
         cloud_machines: || cloud_start_chat::app_machines(global),
     };
+    // Refused before any target is read, so a signed-out or ambiguous Cloud target says this.
+    if start.repo.is_some() && start.on.as_deref().is_some_and(names_cloud) {
+        return usage_failure(&UsageError::new(REPO_HERE_ONLY), global.output);
+    }
     let route = match route_start(&start, reads) {
         Ok(route) => route,
         Err(error) => return super::wire::print_local_error(&error, global.output, 1),
@@ -651,6 +655,8 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
         Err(error) => return usage_failure(&error, global.output),
     };
     let start = match route {
+        // Every other argument is checked before anything is cloned.
+        Route::Here if start.repo.is_some() && here_wait(&start).is_err() => start,
         Route::Here => match in_repo(start, global.output) {
             Ok(start) => start,
             Err(Failure::Usage(error)) => return usage_failure(&error, global.output),
@@ -693,6 +699,11 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
             Err(error) => usage_failure(&error, global.output),
         },
     }
+}
+
+/// Whether target `on` is a Cloud selector (`cloud`, `vm`, `vm:…`), never a chat here.
+pub(super) fn names_cloud(on: &str) -> bool {
+    on == "cloud" || on == "vm" || on.starts_with("vm:")
 }
 
 /// Why [`in_repo`] started nothing.

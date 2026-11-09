@@ -74,12 +74,19 @@ pub(super) fn ensure(url: &str, reference: Option<&str>, dir: &Path) -> Result<R
     }
     // Blobless: the whole history's commits and trees now, each file's contents when read, so a
     // big repository starts as fast as a small one.
+    let existed = dir.exists();
     let clone = ["clone", "--quiet", "--filter=blob:none", "--", url].map(OsStr::new);
     git(None, clone.into_iter().chain([dir.as_os_str()])).map_err(|said| {
         error("repo.clone_failed", format!("git clone {url} failed: {said}"), json!({"url": url}))
     })?;
     if let Some(reference) = reference {
         git(Some(dir), ["checkout", "--quiet", reference]).map_err(|said| {
+            // The clone is this call's own: take it away, so a retry clones again and checks the
+            // ref out instead of reusing a clone on the default branch.
+            let _ = std::fs::remove_dir_all(dir);
+            if existed {
+                let _ = std::fs::create_dir(dir);
+            }
             error(
                 "repo.checkout_failed",
                 format!("cloned {url}, but git checkout {reference} failed: {said}"),

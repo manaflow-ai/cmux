@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use super::{
     Parsed, Reads, Route, Start, TAKES_VALUE, USAGE, cloud_words, global_words, here_wait,
-    here_words, in_environment, new_args, parse, parse_with, pick_target, route, route_start,
-    setting_stream, start_words,
+    here_words, in_environment, names_cloud, new_args, parse, parse_with, pick_target, route,
+    route_start, setting_stream, start_words,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -518,4 +518,8 @@ fn a_chat_here_takes_a_repository() {
     assert!(TAKES_VALUE.contains(&"--repo"));
     // The local start matrix reads the usage block for `[--repo` (hq local_chat_probe.py takes_repo).
     assert!(USAGE.split("\n\n").next().unwrap().contains("[--repo URL]"));
+    for on in ["cloud", "vm", "vm:new", "vm:dev"] {
+        assert!(names_cloud(on), "{on}");
+    }
+    assert!(!names_cloud("here") && !names_cloud("studio-mac"));
 }
