@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextPages
 @testable import CmuxNextSidebar
 import CmuxNextSettings
+import CmuxNextTestSupport
 @testable import CmuxNextUpdater
 import Foundation
 import Testing
@@ -20,7 +21,7 @@ struct LaunchPolishVisibilityTests {
     @Test func whatsNewCardShowsAfterAnUpdateWithPreviewsOffByDefault() async throws {
         // User 13935: What's New shows after every update, no Labs gate; a Settings toggle turns it off.
         let suite = "launch-polish-visibility-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let center = WhatsNewCenter(currentVersion: "1.0.0", defaults: defaults, sources: [])
         let settings = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
@@ -34,7 +35,7 @@ struct LaunchPolishVisibilityTests {
 
     @Test func whatsNewCardHidesWhenTheSettingIsTurnedOffAndKeepsTheUpdate() async throws {
         let suite = "launch-polish-visibility-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let center = WhatsNewCenter(currentVersion: "1.0.0", defaults: defaults, sources: [])
         var settings = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
@@ -87,7 +88,7 @@ struct LaunchPolishVisibilityTests {
     /// the card's button doing nothing).
     @Test func updatedCardSeeWhatsNewOpensTheUpdatesSpanWithoutThePaletteAction() throws {
         let suite = "launch-polish-see-whats-new-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.see-whats-new", shortVersion: "1.0.0",
                                            build: "100", minimumSystemVersion: nil,

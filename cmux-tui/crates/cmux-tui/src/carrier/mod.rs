@@ -109,6 +109,7 @@ mod noise_key;
 mod route_log;
 mod secrets;
 mod serve;
+mod source;
 pub(crate) mod tunnel;
 mod tunnel_cli;
 
@@ -323,7 +324,8 @@ fn runtime() -> Result<tokio::runtime::Runtime, i32> {
         .map_err(|_| fail(&Failure::fatal(contract::Step::Relay, "no async runtime")))
 }
 
-/// The full-jitter draw of the session's own reconnect policy.
+/// The full-jitter draw of the session's own reconnect policy (the
+/// tunnel's retry waits, [`tunnel_cli`]).
 fn jitter(ceiling: Duration) -> Duration {
     cmux_remote::connection::ReconnectPolicy::default().retry_delay(ceiling)
 }
@@ -512,7 +514,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
         // before the desktop opened is dialed fresh, from the same budget
         // as the dial's own fresh sessions (`MAX_FRESH_SESSIONS` in all).
         let (dialed, desktop) = loop {
-            let dialed = client::dial(&plan, jitter).await;
+            let dialed = client::dial(&plan).await;
             match (dialed, args.service) {
                 (Ok(dialed), DialService::Desktop) => {
                     match open_desktop(&dialed.multiplexer, plan.deadline).await {
