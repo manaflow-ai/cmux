@@ -101,12 +101,12 @@ export function PromptText({
       // The node's own window: a test DOM may install none as a global.
       const style = node.ownerDocument.defaultView?.getComputedStyle?.(node);
       const lineHeight = parseFloat(style?.lineHeight ?? "");
-      // Clamped, the text is a box that scrolls; drawn whole it is no box of its own (CSS
-      // `display: contents`, so the bubble insets its text as before), and its lines measure it.
-      let height = node.scrollHeight;
-      if (!node.classList.contains("is-clamped")) {
-        height = drawnBox(node)?.height ?? 0;
-      }
+      // One measure open or clamped: the boxes its content is laid out in (`laidOutHeight`). Drawn
+      // whole the text is no box of its own (CSS `display: contents`, so the bubble insets its text
+      // as before), clamped it is a clipping box, and neither changes its content's boxes. Two
+      // measures (its lines' Range open, its scrollHeight clamped) disagreed on text clipped inside
+      // it, a folded pick's report: Show less flipped the fold until React's update limit.
+      const height = laidOutHeight(node);
       // No layout (a test DOM) keeps the guess.
       if (!height || !Number.isFinite(lineHeight)) return;
       const next = height > COLLAPSED_PROMPT_LINES * lineHeight + 1;
@@ -252,14 +252,38 @@ export function PromptText({
   );
 }
 
-/// The box `node`'s content is drawn in, for a prompt drawn whole (no box of its own): its text's.
-function drawnBox(node: Node): { top: number; bottom: number; height: number } | undefined {
+/// How tall `node`'s content is laid out, whether `node` is a box (clamped) or none (`display:
+/// contents`, drawn whole): from the top of its first box to the bottom of its last, each child an
+/// element's border box or a text's lines, going through children that are no box themselves. What
+/// a box clips inside it (a folded chip's report, a scroller's hidden lines) counts as the box, as
+/// it is drawn, never as the text it holds; a Range over all the text would count that text.
+/// 0 with no layout (a test DOM).
+function laidOutHeight(node: Node): number {
+  const view = node.ownerDocument?.defaultView;
   const range = node.ownerDocument?.createRange();
-  if (!range) return undefined;
-  range.selectNodeContents(node);
-  if (typeof range.getBoundingClientRect !== "function") return undefined;
-  const rect = range.getBoundingClientRect();
-  return rect.height ? rect : undefined;
+  if (!view || !range || typeof range.getBoundingClientRect !== "function") return 0;
+  let top = Infinity;
+  let bottom = -Infinity;
+  const add = (rect: { top: number; bottom: number; width: number; height: number }) => {
+    // An undrawn box (display: none) or blank text between blocks has no extent.
+    if (!rect.width && !rect.height) return;
+    top = Math.min(top, rect.top);
+    bottom = Math.max(bottom, rect.bottom);
+  };
+  const visit = (parent: Node) => {
+    for (let child = parent.firstChild; child; child = child.nextSibling) {
+      if (child.nodeType === 3) {
+        range.selectNodeContents(child);
+        add(range.getBoundingClientRect());
+      } else if (child.nodeType === 1) {
+        const element = child as Element;
+        if (view.getComputedStyle?.(element)?.display === "contents") visit(element);
+        else add(element.getBoundingClientRect());
+      }
+    }
+  };
+  visit(node);
+  return bottom > top ? bottom - top : 0;
 }
 
 /// One typed block of a sent prompt: Markdown when it is written in Markdown (promptMarkdown.ts),

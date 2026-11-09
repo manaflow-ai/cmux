@@ -238,6 +238,7 @@ await requireBrowserLane("ui-pick-sent-fold.browser.test.ts", async () => {
         () =>
           new Promise<void>((resolve) => {
             let left = 10;
+            // raf-read: it reads nothing in the frame; it only lets ten frames of ResizeObserver rounds run.
             const step = () => (--left ? requestAnimationFrame(step) : resolve());
             requestAnimationFrame(step);
           }),
