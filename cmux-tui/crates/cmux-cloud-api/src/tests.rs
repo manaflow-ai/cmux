@@ -360,7 +360,9 @@ fn an_scp_endpoint_comes_from_the_platform_never_classic() {
 #[test]
 fn an_unsafe_platform_scp_endpoint_or_refusal_is_not_answered() {
     let (origin, _) = fake(|_| {
-        ok(r#"{"host":"h","port":2222,"username":"cmux","hostPublicKey":"ssh-ed25519 AAA","expiresAtUnix":4102444800}"#)
+        ok(
+            r#"{"host":"h","port":2222,"username":"cmux","hostPublicKey":"ssh-ed25519 AAA","expiresAtUnix":4102444800}"#,
+        )
     });
     let args = json!({ "id": VM, "publicKey": "ssh-ed25519 CALLER" });
     assert!(matches!(
@@ -368,7 +370,11 @@ fn an_unsafe_platform_scp_endpoint_or_refusal_is_not_answered() {
         Err(Failure::Decoding(_))
     ));
     let (origin, _) = fake(|_| {
-        Some((409, r#"{"ok":false,"error":{"code":"machine.not_running","message":"Start it first."}}"#.into()))
+        Some((
+            409,
+            r#"{"ok":false,"error":{"code":"machine.not_running","message":"Start it first."}}"#
+                .into(),
+        ))
     });
     assert_eq!(
         go(&request(&origin, Auth::Worker, "vm.scp_endpoint", args)),
