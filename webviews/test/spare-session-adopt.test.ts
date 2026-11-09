@@ -301,7 +301,16 @@ test("an adopted chat the daemon does not list yet keeps its saved transcript on
     "chat.snapshot.put": async () => null,
   };
   const daemon = new Daemon(["newest"]);
-  const page = await spare(daemon);
+  // What a render paints: the last snapshot of each synchronous turn (React batches the rest).
+  const painted: AcpmuxSnapshot[] = [];
+  let turn: AcpmuxSnapshot | undefined;
+  const page = await spare(daemon, (snapshot) => {
+    if (turn === undefined) queueMicrotask(() => {
+      painted.push(turn!);
+      turn = undefined;
+    });
+    turn = snapshot;
+  });
   expect(await page.client.adoptSession(chat)).toBeUndefined();
   await flush();
   expect(page.last()?.missingSession).toBe(chat);
@@ -309,6 +318,10 @@ test("an adopted chat the daemon does not list yet keeps its saved transcript on
   expect(page.last()?.drewKeptTail).toBe(true);
   expect(text(page.last())).toContain("Retry added in the saved transcript.");
   expect(forgotten).toEqual([]);
+  // From the first frame that drew it, the transcript never leaves the screen.
+  const first = painted.findIndex((frame) => text(frame).includes("Retry added in the saved transcript."));
+  expect(first).toBeGreaterThanOrEqual(0);
+  for (const frame of painted.slice(first)) expect(text(frame)).toContain("Retry added in the saved transcript.");
 });
 
 test("a failed adoption cannot clear a chat selected after its list read", async () => {
