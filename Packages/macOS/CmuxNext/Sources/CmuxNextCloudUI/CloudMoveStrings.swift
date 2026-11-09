@@ -101,3 +101,30 @@ public struct CloudMoveStrings {
                               table: "Cloud", bundle: .module), machine, detail)
     }
 }
+
+/// Move to Cloud's stops in its words (the App's `CloudMove`, `CloudStartChat`).
+extension CloudMoveFailure {
+    /// A failed copy's failure: an outdated machine's Retry updates it first.
+    public static func syncing(_ answer: CloudMoveCLI.Answer, machine: String, retry: CloudMoveRetries.Retry) -> Self {
+        if answer.errorCode == CloudMoveStrings.outdatedCode { return Self(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating) }
+        return Self(message: CloudMoveStrings.syncFailed(machine, answer.error ?? answer.errorCode ?? ""), retry: retry)
+    }
+
+    /// The failure of a `cmux link agent move` answer, in plain words. `retry`
+    /// runs the move again on its machine; a garbage answer (a crash) may come
+    /// after the commit, so it is unresolved, never failed.
+    public static func moving(_ answer: CloudMoveCLI.Answer, machine: String, retry: CloudMoveRetries.Retry) -> Self {
+        switch answer.errorCode {
+        case "move_unresolved", CloudMoveCLI.badAnswer: Self(message: CloudMoveStrings.unresolved, retry: retry)
+        case "move_in_progress": Self(message: CloudMoveStrings.inProgress, retry: retry)
+        case "agent_session.team_vm_blocked": Self(message: CloudMoveStrings.teamMachine(machine))
+        case "agent_session.host_unverified": Self(message: CloudMoveStrings.unknownMachine(machine))
+        // This Mac's own daemon (the source) is never the machine to update.
+        case CloudMoveStrings.outdatedCode where answer.side != "source":
+            Self(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating)
+        case "source_unreachable", "target_unreachable": Self(message: CloudMoveStrings.unreachable(machine), retry: retry)
+        // A machine with no acpmux up yet (cmux#31198), too busy or too slow gave the chat back: the same move may work again.
+        default: Self(message: CloudMoveStrings.moveFailed(answer.error ?? answer.errorCode ?? ""), retry: answer.errorCode.map { ["agent_transfer.unavailable", "agent_transfer.limit", "agent_transfer.timeout"].contains($0) } == true ? retry : nil)
+        }
+    }
+}

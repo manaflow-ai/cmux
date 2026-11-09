@@ -153,7 +153,7 @@ struct CloudStartChat {
                          cloneState: copy.0.seedState, clonePhase: copy.0.seedPhase,
                          cloneStartedAt: copy.0.seedStartedAt, cloneFinishedAt: copy.0.seedFinishedAt,
                          start: .init(environmentId: plan.environmentId, setup: plan.setup)))
-            guard copy.0.ok else { throw CloudMove.failure(syncing: copy.0, machine: name, retry: again) }
+            guard copy.0.ok else { throw CloudMove.Failure.syncing(copy.0, machine: name, retry: again) }
             // The copy may take long: a chat whose account changed meanwhile opens nowhere, and this Mac's tab stays.
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             _ = await loginPassed
@@ -340,7 +340,7 @@ extension CloudStartSession {
         } catch {
             try Self.failed(account, now: services.cloud.account, request.asked(machine: name), CloudMoveStrings.syncFailed(name, CloudStrings.errorText(error)))
         }
-        guard copy.0.ok else { throw ActionFailure(message: CloudMove.failure(syncing: copy.0, machine: name, retry: .move(machineID: session.machineID)).message) }
+        guard copy.0.ok else { throw ActionFailure(message: CloudMove.Failure.syncing(copy.0, machine: name, retry: .move(machineID: session.machineID)).message) }
         return (copy.1.chat, copy.1.sourceTrusted)
     }
 }

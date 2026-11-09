@@ -149,7 +149,13 @@ pub fn line(facts: &Facts) -> Line {
     };
     let steps = STAGES.len();
     let step = step.saturating_add(1);
-    Line { text: format!("{step} of {steps} · {what} · {when}"), step, steps, eta_ms, refresh_ms: REFRESH_MS }
+    Line {
+        text: format!("{step} of {steps} · {what} · {when}"),
+        step,
+        steps,
+        eta_ms,
+        refresh_ms: REFRESH_MS,
+    }
 }
 
 /// The step, in the person's words.
@@ -235,8 +241,7 @@ mod tests {
 
     #[test]
     fn every_step_names_itself_and_counts() {
-        let texts: Vec<String> =
-            STAGES.iter().map(|stage| line(&facts(*stage, 0)).text).collect();
+        let texts: Vec<String> = STAGES.iter().map(|stage| line(&facts(*stage, 0)).text).collect();
         assert_eq!(
             texts,
             [
@@ -283,7 +288,10 @@ mod tests {
     fn a_step_past_its_usual_time_says_so_instead_of_a_wrong_eta() {
         let slow = line(&facts(Stage::Agent, 30_000));
         assert_eq!(slow.eta_ms, None);
-        assert_eq!(slow.text, "3 of 4 · Handing the agent to dev · taking longer than usual (usually about 10 s)");
+        assert_eq!(
+            slow.text,
+            "3 of 4 · Handing the agent to dev · taking longer than usual (usually about 10 s)"
+        );
     }
 
     #[test]
@@ -292,7 +300,10 @@ mod tests {
         copying.copy = Some(copy(0, 1_204));
         // Before it measured: a few seconds plus 4 ms a file, then the agent and the tab.
         assert_eq!(copy_typical_ms(copying.copy.as_ref()), 8_816);
-        assert_eq!(line(&copying).text, "2 of 4 · Copying the folder (1,204 files) · about 25 s left");
+        assert_eq!(
+            line(&copying).text,
+            "2 of 4 · Copying the folder (1,204 files) · about 25 s left"
+        );
         // A quarter done in 10 s: 30 s more, plus 13 s after it.
         copying.stage_ms = 10_000;
         copying.copy = Some(copy(301, 1_204));
