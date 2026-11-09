@@ -75,7 +75,7 @@ pub(super) fn hold_ms(status: u16) -> u64 {
 
 /// The person the credential speaks for: a JWT's `sub` (a Stack access token keeps it across its
 /// refreshes), else a digest of the credential itself.
-pub(super) fn subject(credential: &str) -> String {
+pub(crate) fn subject(credential: &str) -> String {
     let sub = credential
         .split('.')
         .nth(1)

@@ -230,12 +230,10 @@ mod calls {
         key: Zeroizing<Vec<u8>>,
     ) -> Result<Value, ResourceError> {
         let result = if request.call.starts_with("runs.") {
-            // The daemon's own sandboxed Runs (cloud_runs.rs): the call's credential is not used.
-            super::super::cloud_runs::engine(mux).perform(
-                &request.call,
-                request.team.as_deref(),
-                &request.args,
-            )
+            // The daemon's own sandboxed Runs (cloud_runs.rs): the credential only names whose
+            // Run it is (its person and team); it is never sent anywhere.
+            let owner = cmux_cloud_api::run_owner(request);
+            super::super::cloud_runs::engine(mux).perform(&request.call, Some(&owner), &request.args)
         } else {
             match tokio::runtime::Builder::new_current_thread().enable_all().build() {
                 Ok(runtime) => runtime.block_on(cmux_cloud_api::perform(request, key)),

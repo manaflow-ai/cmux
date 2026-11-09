@@ -76,6 +76,17 @@ pub struct Request {
     pub args: Map<String, Value>,
 }
 
+/// Whose a sandboxed Run is ([`sandbox::Engine::perform`]'s `owner`): the person the credential
+/// speaks for (a Stack token's `sub`, which its refreshes keep) and the team, so a Run made under
+/// one account is never read or cancelled under another on the same Mac.
+pub fn run_owner(request: &Request) -> String {
+    format!(
+        "{}|team:{}",
+        machine_io::session::subject(&request.credential),
+        request.team.as_deref().unwrap_or_default()
+    )
+}
+
 /// The request object and, after its line, the raw bytes a keyed start sends.
 pub fn parse(input: &[u8]) -> Result<(Request, Zeroizing<Vec<u8>>), String> {
     let mut parts = input.splitn(2, |&b| b == b'\n');

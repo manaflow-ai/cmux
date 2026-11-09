@@ -141,7 +141,11 @@ struct Run {
     /// `queued`, `running`, `cancelling`, `succeeded`, `failed` or `cancelled`.
     status: String,
     timed_out: bool,
+    /// The reply and the error stay in memory only: the store never holds what a Run answered
+    /// (an incognito send's reply leaves no file behind). A Run read back after a restart has none.
+    #[serde(skip_serializing, default)]
     reply: Option<String>,
+    #[serde(skip_serializing, default)]
     error: Option<String>,
     exit_code: Option<i64>,
     created_ms: i64,
@@ -325,27 +329,43 @@ impl Engine {
         self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// `runs.create|start|wait|cancel|sandbox`.
+    /// `runs.create|start|wait|cancel|sandbox` for `owner`, the person and team the call speaks for
+    /// ([`crate::run_owner`]). A Run is its owner's: another owner's wait or cancel finds no Run.
     pub fn perform(
         self: &Arc<Self>,
         call: &str,
-        team: Option<&str>,
+        owner: Option<&str>,
         args: &Map<String, Value>,
     ) -> Result<Value, Failure> {
         match call {
-            "runs.create" | "runs.start" => self.create(team, args),
+            "runs.create" | "runs.start" => self.create(owner, args),
             "runs.wait" => {
                 let id = id_arg(args)?;
+                self.owned(id, owner)?;
                 let held = optional_int(args, "timeoutMs").unwrap_or(WAIT_LIMIT_MS);
                 self.wait(
                     id,
                     Duration::from_millis(u64::try_from(held.clamp(0, WAIT_LIMIT_MS)).unwrap_or(0)),
                 )
             }
-            "runs.cancel" => self.cancel(id_arg(args)?),
-            "runs.sandbox" => self.sandbox(team, args),
+            "runs.cancel" => {
+                let id = id_arg(args)?;
+                self.owned(id, owner)?;
+                self.cancel(id)
+            }
+            "runs.sandbox" => self.sandbox(owner, args),
             other => Err(Failure::Transport(format!("no cloud api call {other:?}"))),
         }
+    }
+
+    /// The Run `id` when `owner` made it (its key's scope), else `run_not_found`.
+    fn owned(&self, id: &str, owner: Option<&str>) -> Result<(), Failure> {
+        let state = self.lock();
+        let run = state.runs.get(id).ok_or_else(not_found)?;
+        if run.key.split('\u{0}').next() != Some(owner.unwrap_or_default()) {
+            return Err(not_found());
+        }
+        Ok(())
     }
 
     fn create(

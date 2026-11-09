@@ -1167,3 +1167,31 @@ fn a_preview_refusal_is_read_within_the_calls_one_deadline() {
         assert_eq!(failure, Failure::http(500, None, None));
     });
 }
+
+#[test]
+fn a_runs_owner_is_the_tokens_person_and_the_team() {
+    // An unsigned JWT-shaped token: header `{}`, claims `{"sub": S}`.
+    let token = |sub: &str| {
+        use base64::Engine as _;
+        let claims = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(json!({ "sub": sub, "iat": 1 }).to_string());
+        format!("e30.{claims}.sig")
+    };
+    let call = |credential: String, team: Option<&str>| {
+        let mut call = request("http://127.0.0.1:1", Auth::Owner, "runs.wait", json!({}));
+        call.credential = credential;
+        call.team = team.map(str::to_owned);
+        run_owner(&call)
+    };
+    assert_eq!(call(token("u1"), Some("t1")), "sub:u1|team:t1");
+    // A refreshed token of the same person is the same owner; another person on the team is not.
+    let refreshed = {
+        use base64::Engine as _;
+        let claims = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(json!({ "sub": "u1", "iat": 2 }).to_string());
+        format!("e30.{claims}.other")
+    };
+    assert_eq!(call(refreshed, Some("t1")), call(token("u1"), Some("t1")));
+    assert_ne!(call(token("u2"), Some("t1")), call(token("u1"), Some("t1")));
+    assert_ne!(call(token("u1"), None), call(token("u1"), Some("t1")));
+}
