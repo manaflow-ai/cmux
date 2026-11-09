@@ -153,6 +153,10 @@ nonisolated enum PaletteStrings {
     static func chooseArgument(_ name: String) -> String {
         String(localized: "palette.chooseArgument", defaultValue: "Choose \(name)…", bundle: .module)
     }
+    /// The empty prompt of an optional argument the palette asks for (`isAskedInPalette`).
+    static func optionalArgument(_ name: String) -> String {
+        String(localized: "palette.optionalArgument", defaultValue: "\(name) (optional)", bundle: .module)
+    }
     static func submitTextFormat(title: String, text: String) -> String {
         String(localized: "palette.submitText", defaultValue: "\(title) “\(text)”", bundle: .module)
     }

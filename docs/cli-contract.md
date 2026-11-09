@@ -458,9 +458,8 @@ turn finished and nobody has viewed the terminal yet, `working`, `idle`,
 Blocked agents sort first, then done, working, idle, unknown and ended.
 Listing never clears `done`; viewing the tab in a client does. `--json` prints
 `[{terminal, harness, status, state, title, workspace_id, workspace, cwd,
-updated_at_ms, age_ms, source}]`: `status` is the word above (`null` for an
-ended session) and `state` is a deprecated alias that has the same word
-(`ended` for an ended session).
+updated_at_ms, age_ms, source}]`: `status` is the word above (`ended` for an
+ended session) and `state` is a deprecated alias that has the same word.
 
 Each `list --agents` row also has `name` (the tab's name when it is an agent
 name, see `cmux agent start`), `tab_id`, `tab_name`, `pane_id` and
@@ -490,7 +489,7 @@ wait ended idle (`reply_source: "hook"`); else it is `output`
 turn: `idle`, `done` (the turn finished and the terminal has an unread
 notification), `blocked`, `working` (the wait timed out) or `ended` (the
 program exited), from a session read after the wait (tried twice; when both
-reads fail, a finished turn says `idle`, never an older read's word); `state`
+reads fail, a finished turn says `unknown`, never an older read's word); `state`
 is the wait's own word (`idle`, `blocked`, `working`,
 `exited`). `--timeout` (default 5m) exits 124 with the output so far. A
 terminal whose agent waits on a dialog is refused (`agent.waiting_for_input`)

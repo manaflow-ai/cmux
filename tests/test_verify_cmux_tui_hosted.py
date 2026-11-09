@@ -16,7 +16,11 @@ and git ls-remote (no network) and checks what it does to the run:
 - --cancel-on-timeout cancels at the deadline;
 - Ctrl-C (SIGINT to the process group) cancels; SIGTERM or SIGHUP to the script does not;
 - a dispatch that gets HTTP 5xx is tried again (3 tries), a run GitHub created anyway is adopted,
-  and when every try fails the script says no run was created.
+  and when every try fails the script says no run was created;
+- one open run per commit, mode and filter: while a run this script dispatched for the same
+  commit and filter is still open, it does not dispatch, names that run and exits 4; an open
+  run of another filter or another commit, or a finished run, does not stop a dispatch.
+  About 37 cmux-tui runs queued on 2026-11-09, often several for one commit.
 """
 
 from __future__ import annotations
@@ -46,6 +50,11 @@ case "$*" in
       exit 1
     fi
     echo __RUN_ID__ ;;
+  "run list"*--commit*)
+    # The open-run lookup: one run per line, "id<TAB>status<TAB>title<TAB>url" (the
+    # script's --jq asks for @tsv). The test writes the lines to $STUB_DIR/open-runs.
+    if [[ "${FAKE_OPEN_LIST_FAILS:-0}" == 1 ]]; then echo "gh: Server Error (HTTP 503)" >&2; exit 1; fi
+    cat "$STUB_DIR/open-runs" 2>/dev/null || true ;;
   "run list"*)
     if [[ "${FAKE_LIST_FAILS:-0}" == 1 ]]; then echo "gh: Server Error (HTTP 503)" >&2; exit 1; fi
     # FAKE_LIST_FINDS=1: GitHub created the run despite the error, and lists it.
@@ -159,6 +168,25 @@ class Sandbox:
     def count(self, prefix: str) -> int:
         return sum(1 for line in self.calls() if line.startswith(prefix))
 
+    def head(self) -> str:
+        return (self.dir / "head").read_text(encoding="utf-8").strip()
+
+    def dispatched_request_id(self, args: list[str]) -> str:
+        """Run the script once and return the request_id it dispatched, then forget the calls."""
+        self.run(args, FAKE_STATES="completed|success|1", CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+        found = [part.split("=", 1)[1] for line in self.calls() for part in line.split()
+                 if part.startswith("inputs[request_id]=")]
+        assert len(found) == 1, self.calls()
+        for name in ("calls.log", "dispatches", "views"):
+            (self.dir / name).unlink(missing_ok=True)
+        return found[0]
+
+    def open_runs(self, *runs: tuple[str, str, str]) -> None:
+        """Runs of this commit that the run list shows: (id, status, title) each."""
+        lines = [f"{run_id}\t{status}\t{title}\thttps://github.com/manaflow-ai/cmux/actions/runs/{run_id}\n"
+                 for run_id, status, title in runs]
+        (self.dir / "open-runs").write_text("".join(lines), encoding="utf-8")
+
     def close(self) -> None:
         for group in self.groups:  # stub sleeps a killed waiter left behind
             try:
@@ -266,6 +294,66 @@ def cancel_on_timeout_flag_cancels(failures: list[str], name: str, box: Sandbox)
     check(failures, name, code == 1 and box.count("gh run cancel") == 1, box, out)
 
 
+def open_run_of_same_commit_and_filter_refuses(status: str):
+    def test(failures: list[str], name: str, box: Sandbox) -> None:
+        request_id = box.dispatched_request_id(["--filter", "alpha_test"])
+        box.open_runs(("9001", status, f"cmux-tui focused {request_id} @ {box.head()}"))
+        code, out = box.run(["--filter", "alpha_test"], FAKE_STATES="completed|success|1",
+                            CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+        check(failures, name, code == 4 and box.count("gh api -X POST") == 0
+              and "https://github.com/manaflow-ai/cmux/actions/runs/9001" in out
+              and box.count("glaeda-gh wait run") == 0, box, out)
+    return test
+
+
+def open_full_run_of_same_commit_refuses(failures: list[str], name: str, box: Sandbox) -> None:
+    request_id = box.dispatched_request_id(["--full"])
+    box.open_runs(("9002", "queued", f"cmux-tui full {request_id} @ {box.head()}"))
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, code == 4 and box.count("gh api -X POST") == 0
+          and "https://github.com/manaflow-ai/cmux/actions/runs/9002" in out, box, out)
+
+
+def open_run_of_another_filter_dispatches(failures: list[str], name: str, box: Sandbox) -> None:
+    other = box.dispatched_request_id(["--filter", "beta_test"])
+    box.open_runs(("9003", "queued", f"cmux-tui focused {other} @ {box.head()}"))
+    code, out = box.run(["--filter", "alpha_test"], FAKE_STATES="completed|success|1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, box.count("gh api -X POST") == 1 and "runs/9003" not in out, box, out)
+
+
+def open_run_of_another_mode_dispatches(failures: list[str], name: str, box: Sandbox) -> None:
+    other = box.dispatched_request_id(["--full"])
+    box.open_runs(("9004", "queued", f"cmux-tui full {other} @ {box.head()}"))
+    code, out = box.run(["--filter", "alpha_test"], FAKE_STATES="completed|success|1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, box.count("gh api -X POST") == 1, box, out)
+
+
+def open_run_of_another_commit_dispatches(failures: list[str], name: str, box: Sandbox) -> None:
+    request_id = box.dispatched_request_id(["--filter", "alpha_test"])
+    other_sha = "0" * 40 if box.head() != "0" * 40 else "1" * 40
+    box.open_runs(("9005", "queued", f"cmux-tui focused {request_id} @ {other_sha}"))
+    code, out = box.run(["--filter", "alpha_test"], FAKE_STATES="completed|success|1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, box.count("gh api -X POST") == 1, box, out)
+
+
+def finished_run_of_same_commit_and_filter_dispatches(failures: list[str], name: str, box: Sandbox) -> None:
+    request_id = box.dispatched_request_id(["--filter", "alpha_test"])
+    box.open_runs(("9006", "completed", f"cmux-tui focused {request_id} @ {box.head()}"))
+    code, out = box.run(["--filter", "alpha_test"], FAKE_STATES="completed|success|1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, box.count("gh api -X POST") == 1, box, out)
+
+
+def open_run_lookup_failure_still_dispatches(failures: list[str], name: str, box: Sandbox) -> None:
+    # The lookup only saves Mac time; a failed list must not block verification.
+    code, out = box.run(["--filter", "alpha_test"], FAKE_STATES="completed|success|1", FAKE_OPEN_LIST_FAILS="1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, box.count("gh api -X POST") == 1, box, out)
+
+
 def signal_case(signum: int, whole_group: bool, want_cancels: int, want_code: int):
     def test(failures: list[str], name: str, box: Sandbox) -> None:
         process = box.start(["--full"], FAKE_STATES="queued||1", FAKE_WAITER_SLEEP="60",
@@ -311,12 +399,26 @@ def main() -> int:
         ("Ctrl-C cancels the run", signal_case(signal.SIGINT, True, 1, 130)),
         ("SIGTERM does not cancel the run", signal_case(signal.SIGTERM, False, 0, 143)),
         ("SIGHUP does not cancel the run", signal_case(signal.SIGHUP, False, 0, 129)),
+        ("a queued run of the same commit and filter: no dispatch, exit 4",
+         open_run_of_same_commit_and_filter_refuses("queued")),
+        ("an in-progress run of the same commit and filter: no dispatch, exit 4",
+         open_run_of_same_commit_and_filter_refuses("in_progress")),
+        ("a waiting run of the same commit and filter: no dispatch, exit 4",
+         open_run_of_same_commit_and_filter_refuses("waiting")),
+        ("an open full run of the same commit: no second full dispatch, exit 4", open_full_run_of_same_commit_refuses),
+        ("an open run of another filter does not stop a dispatch", open_run_of_another_filter_dispatches),
+        ("an open full run does not stop a focused dispatch", open_run_of_another_mode_dispatches),
+        ("an open run of another commit does not stop a dispatch", open_run_of_another_commit_dispatches),
+        ("a finished run of the same commit and filter does not stop a dispatch",
+         finished_run_of_same_commit_and_filter_dispatches),
+        ("a failed open-run lookup still dispatches", open_run_lookup_failure_still_dispatches),
     ]:
         scenario(failures, name, test)
     if failures:
         print("\n\n".join(f"FAIL: {f}" for f in failures), file=sys.stderr)
         return 1
-    print("ok: verify-cmux-tui-hosted.sh leaves its run alone unless Ctrl-C or --cancel-on-timeout says otherwise")
+    print("ok: verify-cmux-tui-hosted.sh leaves its run alone unless Ctrl-C or --cancel-on-timeout says otherwise,"
+          " and keeps one open run per commit, mode and filter")
     return 0
 
 
