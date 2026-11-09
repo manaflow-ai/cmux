@@ -311,6 +311,21 @@ gets the defaults. Some requests still ask in full access, because the harness
 raises them itself (Claude Code's guard on an `rm` whose target it cannot
 resolve): your policy answers those, and `ask` sends them to a person.
 
+A policy narrower than approve-all holds or the chat does not run: the start
+fails, or a live agent stops, with `policy_unenforceable`. It holds through
+acpmux's own Claude Code gate, a harness mode that asks, OpenCode asked to ask,
+or an ACP agent that says at `initialize` that it asks before every tool call
+(`agentCapabilities._meta.acpmux.asksBeforeTools: true`). acpmux believes that
+claim only from an agent it started from a harness entry of its own config
+(`config.json` or a discovered harness), and only while that entry still has
+the argv and env the agent started with. It does not believe it from a folder
+profile (`.cmux/harnesses/*.toml`, which the repository supplies), from an
+entry changed or removed after the start, or from a fork or moved chat that
+has a copy of another agent's claim. Each claim is in the session events as
+`asks_before_tools_claim`, with `trusted` and, when false, `reason`
+(`not_started_here`, `not_a_config_entry`, `entry_changed`); see them with
+`acpmux session tail NAME`.
+
 ## 6. Other machines
 
 A session on another machine is named `MACHINE/NAME` (`big-red/review-42`), and every command takes that

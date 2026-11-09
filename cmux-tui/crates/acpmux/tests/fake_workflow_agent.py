@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Small ACP fixture for workflow correction and cancellation lifecycle tests."""
 import json
+import os
 import sys
 
 count = 0
@@ -46,10 +47,12 @@ for line in sys.stdin:
     params = request.get("params", {})
     rid = request.get("id")
     if method == "initialize":
-        # It runs no tool, so it asks before every one it runs: any acpmux policy holds.
-        send({"id": rid, "result": {"protocolVersion": 1, "agentCapabilities": {
-            "loadSession": True, "promptCapabilities": {},
-            "_meta": {"acpmux": {"asksBeforeTools": True}}},
+        # FAKE_ASK_CLAIM=1: it says it asks before every tool call (it runs none), so any acpmux
+        # policy holds on it. Off by default, as in fake_agent.py.
+        caps = {"loadSession": True, "promptCapabilities": {}}
+        if os.environ.get("FAKE_ASK_CLAIM") == "1":
+            caps["_meta"] = {"acpmux": {"asksBeforeTools": True}}
+        send({"id": rid, "result": {"protocolVersion": 1, "agentCapabilities": caps,
             "agentInfo": {"name": "workflow-fixture", "version": "1"},
             "_meta": {"steering": {"supported": True}}}})
     elif method == "session/new":

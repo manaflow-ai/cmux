@@ -993,7 +993,7 @@ mod tests {
         let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_workflow_agent.py");
         let mut config: crate::config::Config =
             serde_json::from_value(json!({"defaultHarness":"fake","autoResumeDelaysMs":[1000],
-            "harnesses":{"fake":{"argv":["python3",fixture]},"fake-alternate":{"argv":["python3",fixture,"alternate"]}}}))
+            "harnesses":{"fake":{"argv":["python3",fixture],"env":{"FAKE_ASK_CLAIM":"1"}},"fake-alternate":{"argv":["python3",fixture,"alternate"],"env":{"FAKE_ASK_CLAIM":"1"}}}}))
             .unwrap();
         config.store.mode = crate::config::StoreMode::Memory;
         let store =

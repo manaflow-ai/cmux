@@ -506,11 +506,11 @@ impl Hub {
             Box::pin(self.hold_to_starter(&session, starter, inherits_policy, mode_eligible))
                 .await?;
             // Every chat, eligible or not: a preset's or a pinned profile's policy holds too.
-            let default = self.config.read().await.permission_policy;
+            let cfg = self.config.read().await;
             // Any policy narrower than approve-all, however the chat got it, holds or the chat is
             // not created (`policy_mode.rs` `require_enforced`).
-            super::policy_mode::require_enforced(&session.meta(), default)?;
-            self.note_unenforced_policy(&session, default);
+            super::policy_mode::require_enforced(&session.meta(), &cfg)?;
+            self.note_unenforced_policy(&session, &cfg);
             Ok(())
         })
         .await;
@@ -1321,6 +1321,8 @@ impl Hub {
             m.agent_capabilities = init.get("agentCapabilities").cloned();
             m.steering = steering;
         }
+        // What it says about asking before its tools, and whether acpmux believes it.
+        self.note_asks_claim(session).await;
 
         if is_claude {
             // MDM may have forced full access off since `ensure_child` checked the profile: the

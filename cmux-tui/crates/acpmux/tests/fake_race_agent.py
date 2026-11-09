@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Hermetic ACP race fixture: real worktree writes and an event-driven overlap barrier."""
 import json
+import os
 import pathlib
 import socket
 import sys
@@ -57,9 +58,12 @@ for line in sys.stdin:
     request = json.loads(line)
     method, params, rid = request.get("method"), request.get("params", {}), request.get("id")
     if method == "initialize":
-        # It runs no tool, so it asks before every one it runs: any acpmux policy holds.
-        send({"id": rid, "result": {"protocolVersion": 1,
-              "agentCapabilities": {"loadSession": True, "_meta": {"acpmux": {"asksBeforeTools": True}}}, "authMethods": []}})
+        # FAKE_ASK_CLAIM=1: it says it asks before every tool call (it runs none), so any acpmux
+        # policy holds on it. Off by default, as in fake_agent.py.
+        caps = {"loadSession": True}
+        if os.environ.get("FAKE_ASK_CLAIM") == "1":
+            caps["_meta"] = {"acpmux": {"asksBeforeTools": True}}
+        send({"id": rid, "result": {"protocolVersion": 1, "agentCapabilities": caps, "authMethods": []}})
     elif method in ("session/new", "session/load"):
         cwd = params["cwd"]
         send({"id": rid, "result": {"sessionId": "race-fixture",
