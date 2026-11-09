@@ -23,9 +23,11 @@ once at close, so no request and no lock holder waits for the disk;
 known on disk, and `registry_wal_frame_bytes` how many bytes their WAL frames
 took (two reads around one change give that change's bytes). A PASSIVE
 checkpoint never shrinks the WAL file, so each connection sets
-`journal_size_limit` to 64 MiB: the file shrinks to that size only after a
-PASSIVE checkpoint copied the whole WAL (no reader still needs it) and a
-writer then commits, restarting the WAL from its first frame. A fully idle
+`journal_size_limit` to 64 MiB: the WAL restarts from its first frame, and the
+file shrinks to that size, at the first commit after a PASSIVE checkpoint
+copied the whole WAL and the last reader of the old WAL ended. A complete
+checkpoint alone does not make the next commit shrink it: a read transaction
+still open after the checkpoint delays the restart until it ends. A fully idle
 registry keeps its WAL at its size until its next commit. The syncer runs no
 TRUNCATE or RESTART checkpoint, which would hold the writer lock while it
 waited for readers and fail a transaction's read-to-write upgrade with

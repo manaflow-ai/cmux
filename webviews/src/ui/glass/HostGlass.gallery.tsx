@@ -6,14 +6,46 @@
 // frosted under the surface's box at the popover level's tint, as Glass.makeSurface draws it before
 // macOS 26 (Liquid Glass adds its own lit rim on 26). Each variant is a look of the page's part over
 // that glass; "clear" ships. The real material is in the Mac captures on the PR.
+// The `open-*` variants are the open and close as frames, left to right (Leo, 2026-11-09: "it loads
+// the placeholder, THEN the content... every single time"): which of the App's glass and the page's
+// content each frame shows, for each way of ordering them.
 import { type CSSProperties, useEffect } from "react";
 import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 import { componentEntry } from "../../gallery/format";
 
 type Scheme = "dark" | "light";
 type Look = "before" | "clear" | "rim" | "veil";
-/** The surface: Session Info's panel, or the model menu with its own page veil (% of the theme surface). */
-type Props = { look: Look; scheme: Scheme; menuVeil?: number };
+/** One frame of an open or close: the App's glass under the box, and the page's part over it (its
+ * content on no fill, its content on the page's own glass, or nothing). */
+type Frame = { label: string; app: boolean; page: "content" | "page-glass" | "none" };
+/** How a surface opens and closes: the base (content waits for the App's answer), the page's glass
+ * first, or content and glass together (ships). */
+type Order = "wait" | "page-first" | "together";
+/** The surface: Session Info's panel, or the model menu with its own page veil (% of the theme
+ * surface); or an open and close as frames. */
+type Props = { look: Look; scheme: Scheme; menuVeil?: number; order?: Order };
+
+const ORDERS: Record<Order, Frame[]> = {
+  wait: [
+    { label: "Mount", app: true, page: "none" },
+    { label: "Page busy (260 ms)", app: true, page: "none" },
+    { label: "Answer lands", app: true, page: "content" },
+    { label: "Close", app: true, page: "none" },
+  ],
+  "page-first": [
+    { label: "Mount", app: false, page: "page-glass" },
+    { label: "Page busy (260 ms)", app: true, page: "page-glass" },
+    { label: "Answer lands", app: true, page: "content" },
+    { label: "Close", app: false, page: "none" },
+  ],
+  together: [
+    { label: "Mount", app: true, page: "content" },
+    { label: "Page busy (260 ms)", app: true, page: "content" },
+    { label: "Answer lands", app: true, page: "content" },
+    { label: "Close", app: false, page: "none" },
+  ],
+};
+const MINI = { left: 16, top: 34, width: 200, height: 240, radius: 12 };
 
 const SCHEMES: Record<Scheme, Record<string, string>> = {
   dark: {
@@ -72,40 +104,105 @@ const ROWS = [
 const TRANSCRIPT =
   "I traced the stutter to the transcript's scroll handler: every wheel event read the composer's height, which forced a layout right after the virtualizer moved its rows. The fix reads the height once per frame from the resize observer that already watches the composer. ";
 
-function HostGlassGallery({ look, scheme, menuVeil }: Props) {
+function AppGlass({ box, scheme, at }: { box: typeof BOX; scheme: Scheme; at: { left: number; top: number } }) {
+  return (
+    <div
+      aria-hidden="true"
+      data-testid="app-glass"
+      style={{
+        position: "absolute",
+        left: box.left,
+        top: box.top,
+        width: box.width,
+        height: box.height,
+        borderRadius: box.radius,
+        overflow: "hidden",
+        boxShadow: "var(--elevation-2)",
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          inset: -40,
+          background: `url("${wallpaper}") ${-at.left + 40}px ${-at.top + 40}px / 100vw 100vh no-repeat`,
+          /* glass-raw-blur-allow: the gallery's stand-in for the App's native glass, not a page glass */
+          filter: "blur(30px) saturate(1.6)",
+        }}
+      />
+      <div style={{ position: "absolute", inset: 0, background: APP_TINT[scheme] }} />
+    </div>
+  );
+}
+
+function Rows({ rows }: { rows: string[][] }) {
+  return (
+    <>
+      {rows.map(([title, detail]) => (
+        <div key={title} style={{ display: "grid", padding: "var(--ds-space-2) var(--ds-space-4)" }}>
+          <span style={{ fontWeight: "var(--weight-emphasis)" }}>{title}</span>
+          <span style={{ color: "var(--cmux-text-secondary)" }}>{detail}</span>
+        </div>
+      ))}
+    </>
+  );
+}
+
+/** An open and close as four frames side by side, each a small stage with the chat beside its box. */
+function OpenFrames({ order, scheme }: { order: Order; scheme: Scheme }) {
+  useStage(scheme, true);
+  return (
+    <div style={{ display: "flex", gap: 12, padding: 12, color: "var(--cmux-text)", fontSize: "var(--text-body)" }}>
+      {ORDERS[order].map((frame, index) => (
+        <div key={frame.label} data-frame={index} style={{ position: "relative", width: 232, height: 290 }}>
+          <div style={{ fontWeight: "var(--weight-emphasis)" }}>{frame.label}</div>
+          <div style={{ position: "absolute", left: 8, top: 40, width: 216, lineHeight: 1.5, opacity: 0.8 }}>
+            {TRANSCRIPT.slice(0, 220)}
+          </div>
+          {frame.app ? (
+            <AppGlass box={MINI} scheme={scheme} at={{ left: 12 + index * 244 + MINI.left, top: 12 + MINI.top }} />
+          ) : null}
+          {frame.page === "none" ? null : (
+            <aside
+              className="ui-glass ui-glass-floats"
+              data-host-glass={frame.page === "content" ? "popover" : undefined}
+              data-host-glass-drawn={frame.page === "content" ? "1" : undefined}
+              style={{
+                position: "absolute",
+                left: MINI.left,
+                top: MINI.top,
+                width: MINI.width,
+                height: MINI.height,
+                borderRadius: MINI.radius,
+                padding: "var(--ds-space-2) 0",
+                display: "grid",
+                alignContent: "start",
+              }}
+            >
+              <Rows rows={ROWS.slice(0, 4)} />
+            </aside>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function HostGlassGallery({ look, scheme, menuVeil, order }: Props) {
+  return order ? (
+    <OpenFrames order={order} scheme={scheme} />
+  ) : (
+    <HostGlassPanel look={look} scheme={scheme} menuVeil={menuVeil} />
+  );
+}
+
+function HostGlassPanel({ look, scheme, menuVeil }: Props) {
   const host = look !== "before";
   useStage(scheme, host);
   return (
     <div style={{ position: "relative", height: 440, color: "var(--cmux-text)", fontSize: "var(--text-body)" }}>
       {/* The transcript stops short of the panel, as chatCut.ts leaves its box out. */}
       <div style={{ position: "absolute", left: 24, top: 40, width: 310, lineHeight: 1.5 }}>{TRANSCRIPT.repeat(3)}</div>
-      {host ? (
-        <div
-          aria-hidden="true"
-          data-testid="app-glass"
-          style={{
-            position: "absolute",
-            left: BOX.left,
-            top: BOX.top,
-            width: BOX.width,
-            height: BOX.height,
-            borderRadius: BOX.radius,
-            overflow: "hidden",
-            boxShadow: "var(--elevation-2)",
-          }}
-        >
-          <div
-            style={{
-              position: "absolute",
-              inset: -40,
-              background: `url("${wallpaper}") ${-BOX.left + 40}px ${-BOX.top + 40}px / 100vw 100vh no-repeat`,
-              /* glass-raw-blur-allow: the gallery's stand-in for the App's native glass, not a page glass */
-              filter: "blur(30px) saturate(1.6)",
-            }}
-          />
-          <div style={{ position: "absolute", inset: 0, background: APP_TINT[scheme] }} />
-        </div>
-      ) : null}
+      {host ? <AppGlass box={BOX} scheme={scheme} at={BOX} /> : null}
       <aside
         className="ui-glass ui-glass-floats"
         data-host-glass={host ? "popover" : undefined}
@@ -128,12 +225,7 @@ function HostGlassGallery({ look, scheme, menuVeil }: Props) {
             : {}),
         }}
       >
-        {ROWS.map(([title, detail]) => (
-          <div key={title} style={{ display: "grid", padding: "var(--ds-space-2) var(--ds-space-4)" }}>
-            <span style={{ fontWeight: "var(--weight-emphasis)" }}>{title}</span>
-            <span style={{ color: "var(--cmux-text-secondary)" }}>{detail}</span>
-          </div>
-        ))}
+        <Rows rows={ROWS} />
       </aside>
     </div>
   );
@@ -174,6 +266,22 @@ export default componentEntry<Props>({
     "model-70": {
       note: "A 70% page veil: reads as the solid card again.",
       props: { look: "clear", scheme: "dark", menuVeil: 70 },
+    },
+    "open-wait": {
+      note: "Before (Leo, 2026-11-09: 'it loads the placeholder, THEN the content... every single time'): the content waits for the App's answer, which waits behind the page's work after a popup mounts, so the App's glass shows empty for 260 to 530 ms; on close the glass stays a frame past the content.",
+      props: { look: "clear", scheme: "dark", order: "wait" },
+    },
+    "open-page-first": {
+      note: "The content on the page's own glass at once, the App's glass taking over when its answer lands: content in the first frame, but the material changes under it a beat later (a flat box, then glass).",
+      props: { look: "clear", scheme: "dark", order: "page-first" },
+    },
+    "open-together": {
+      note: "Ships: the content and the App's glass in the same frame, the way a native menu opens; the answer only confirms. On close both go in the same frame.",
+      props: { look: "clear", scheme: "dark", order: "together" },
+    },
+    "open-together-light": {
+      note: "Ships, light theme.",
+      props: { look: "clear", scheme: "light", order: "together" },
     },
     veil: {
       note: "The App's glass plus a 20% theme veil from the page: the wallpaper is calmer under the text, and the glass is denser than every native popover's.",

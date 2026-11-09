@@ -368,8 +368,10 @@ const steerThenQueued = (sentNow: boolean) => {
         newestOwnSteer: "user-steer-now",
       })
     : chat(rows, { isWorking: true, queue: [{ id: "p-queued-now", prompt: queued }] });
+  // Its own chat: what its Send now covers is kept per chat for the page's life (cmux#32846).
   return {
     ...running,
+    sessionId: "steer-send-now-queued",
     summary: {
       ...running.summary!,
       harness: "claude-sr2",
@@ -1452,6 +1454,28 @@ export default agentPaneEntry({
         await ctx.waitFor(() => !video.seeking && video.readyState >= 2);
       },
     },
+    "video-unplayable": {
+      note: 'Leo, 2026-11-04: "i can neither preview a vid in place nor have it pop up anymore :(". A dropped recording the host will not stream and Quick Look refuses too: a click says so on its tile, in the play glyph\'s place, instead of doing nothing.',
+      snapshot: chat(finished),
+      native: {
+        "chat.attach.dropped": {
+          items: [
+            { path: "/Users/dev/Desktop/Screenshot.png", folder: false },
+            { path: VIDEO_PATH, folder: false },
+          ],
+        },
+        "video.info": VIDEO_INFO,
+        "video.frames": VIDEO_FRAMES,
+        "media.load": { nativeError: { code: "media_refused" } },
+        "video.quickLook": { nativeError: { code: "media_refused" } },
+      },
+      play: async (ctx) => {
+        dropScreenshotAndVideo(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video img"));
+        await ctx.click({ selector: ".acpmux-attachment-video-open" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video-unplayable"));
+      },
+    },
     "video-reading": {
       note: "A dropped screen recording while the host still reads its poster: its tile spins in the shape it will have, its × removes it, and a send waits for it a few seconds at most (composer/videoAttachments.ts).",
       snapshot: chat(finished),
@@ -2124,6 +2148,9 @@ export default agentPaneEntry({
         await ctx.waitFor(() =>
           [...ctx.document.querySelectorAll(".cv-user")].some((n) => n.textContent?.includes("Then add a test")),
         );
+        // Neither steer offers Send now or the X again: the earlier one goes in with it.
+        if (ctx.document.querySelector(".cv-user__send-now, .cv-user__take-back"))
+          throw new Error("a steer sent now still shows Send now or the X");
       },
     },
     "steer-marks": {

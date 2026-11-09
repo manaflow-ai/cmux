@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 618,
+  "count": 619,
   "sections": [
     {
       "id": "general",
@@ -3685,6 +3685,14 @@
           "help": "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you.",
           "kind": "toggle",
           "default": false,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.floatOnHover",
+          "title": "Float Hidden Sidebar on Hover",
+          "help": "With the sidebar hidden, rest the pointer on the window's sidebar edge to show the sidebar over your content. It hides again when the pointer leaves it. Off, the sidebar shows only when you show it.",
+          "kind": "toggle",
+          "default": true,
           "group": "Sidebar"
         },
         {

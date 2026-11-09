@@ -6,7 +6,10 @@
 //! driving machine keeps a connection to, still delivers it there. With
 //! `"sendRelay": {"argv": ["relay", "send"]}` the CLI runs `relay send SESSION -` with the
 //! message on stdin and `ACPMUX_FROM` set to the sender it would have named, prints the
-//! command's stdout (its delivery id) and exits with its status.
+//! command's stdout (its delivery id) and exits with its status. A Claude Code subagent's send
+//! also sets `ACPMUX_FROM_SUBAGENT` (`TYPE:ID`) and `ACPMUX_FROM_LABEL` (`LEAD's TYPE subagent
+//! ID`), labels for the relay to show; `ACPMUX_FROM` stays the lead's name, the one reply address
+//! the relay has, so the far side's answer reaches the lead (W5-M (b), 2026-11-09).
 //!
 //! Only the no-session refusal relays: a target here or on a peer, down or not, is sent as
 //! always, and with no `sendRelay` nothing changes. The relay carries text only, so a send with
@@ -22,7 +25,7 @@
 
 use crate::cli::errors::{AppError, Code};
 use crate::cli::output::print_json;
-use crate::cli::sender::FROM_ENV;
+use crate::cli::sender::{FROM_ENV, Subagent};
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -180,13 +183,89 @@ pub(crate) fn sender(named: Option<&str>, env: impl Fn(&str) -> Option<String>) 
         .or_else(|| set("ACPMUX_SESSION_ID").and_then(|_| set("ACPMUX_SESSION_NAME")))
 }
 
+/// The env a relay gets with the subagent that sent the message (`TYPE:ID`), beside
+/// `ACPMUX_FROM`: a label within the session that sent it, never a reply address.
+pub(crate) const FROM_SUBAGENT_ENV: &str = "ACPMUX_FROM_SUBAGENT";
+/// The env a relay gets with who sent the message, for a person to read:
+/// `LEAD's TYPE subagent ID` for a subagent's send.
+pub(crate) const FROM_LABEL_ENV: &str = "ACPMUX_FROM_LABEL";
+
+/// At most this many bytes of the sender's name go in `ACPMUX_FROM_LABEL`.
+const LABEL_NAME_BYTES: usize = 64;
+
+/// A character the label leaves out of a sender's name: a control character, a Unicode line or
+/// paragraph separator (U+2028, U+2029), or a bidi control or mark (U+202A-U+202E,
+/// U+2066-U+2069, U+200E, U+200F, U+061C).
+fn hidden_in_a_label(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{061C}'
+                | '\u{200E}'
+                | '\u{200F}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202A}'..='\u{202E}'
+                | '\u{2066}'..='\u{2069}'
+        )
+}
+
+/// Who a relayed send is from: `name`, the relay's `ACPMUX_FROM` (the sender's session, where
+/// the far side's answer goes), and the Claude Code subagent of that session that sent it, if
+/// one did (`cli::sender::SUBAGENT_ENV`, or the MCP call's tool use id).
+#[derive(Debug, Default, Clone, PartialEq)]
+pub(crate) struct RelaySender {
+    pub name: Option<String>,
+    pub subagent: Option<Subagent>,
+}
+
+impl RelaySender {
+    /// `name`'s send, by the subagent `sub` (`{id, type}`, plain words) when one is given.
+    pub(crate) fn new(name: Option<String>, sub: Option<&Value>) -> Self {
+        let subagent = sub.and_then(|sub| {
+            let word = |key: &str| {
+                sub.get(key)
+                    .and_then(Value::as_str)
+                    .filter(|w| crate::cli::sender::subagent_word(w))
+                    .map(str::to_owned)
+            };
+            Some(Subagent { kind: word("type")?, id: word("id")? })
+        });
+        Self { name, subagent }
+    }
+
+    /// `ACPMUX_FROM_LABEL`: "lane's general-purpose subagent a0a68e7a". The name comes from
+    /// `--from`, `ACPMUX_FROM` or the session's name, which the sender chose: only its first
+    /// [`LABEL_NAME_BYTES`] bytes go in, with no character that breaks or reorders a line
+    /// ([`hidden_in_a_label`]), so it cannot add a line or hide text.
+    fn label(&self) -> Option<String> {
+        let sub = self.subagent.as_ref()?;
+        let name = self.name.as_deref().map(|name| {
+            let mut plain = String::new();
+            for c in name.chars().filter(|&c| !hidden_in_a_label(c)) {
+                if plain.len() + c.len_utf8() > LABEL_NAME_BYTES {
+                    break;
+                }
+                plain.push(c);
+            }
+            plain.trim().to_owned()
+        });
+        Some(match name.filter(|name| !name.is_empty()) {
+            Some(name) => format!("{name}'s {}", sub.label()),
+            None => sub.label(),
+        })
+    }
+}
+
 /// The cross-host audit line of one relayed send (`xhost_audit.rs`), never its text: `sent`
 /// when the relay took it, `refused` when it exited non-zero (nothing crossed machines).
-pub(crate) fn audit_sent(session: &str, text: &str, from: Option<&str>, done: &Relayed) {
+pub(crate) fn audit_sent(session: &str, text: &str, from: &RelaySender, done: &Relayed) {
+    let sub = from.subagent.as_ref().map(Subagent::to_value);
     crate::xhost_audit::record(
         if done.status == 0 { "sent" } else { "refused" },
-        json!({"via": "sendRelay", "to": session, "from": from, "bytes": text.len(),
-               "exit": done.status, "delivery": delivery_id(done.output.as_deref())}),
+        json!({"via": "sendRelay", "to": session, "from": from.name, "fromSubagent": sub,
+               "bytes": text.len(), "exit": done.status,
+               "delivery": delivery_id(done.output.as_deref())}),
     );
 }
 
@@ -225,7 +304,7 @@ pub(crate) fn relay_with_deadline(
     relay: &SendRelay,
     session: &str,
     text: &str,
-    from: Option<&str>,
+    from: &RelaySender,
     capture: bool,
     deadline: Option<Instant>,
 ) -> Result<Relayed> {
@@ -240,9 +319,16 @@ pub(crate) fn relay_with_deadline(
         .stderr(if capture { Stdio::piped() } else { Stdio::inherit() });
     #[cfg(unix)]
     std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
-    match from {
+    match &from.name {
         Some(from) => cmd.env(FROM_ENV, from),
         None => cmd.env_remove(FROM_ENV),
+    };
+    // Labels only, set or removed so an inherited value never names another sender.
+    match (&from.subagent, from.label()) {
+        (Some(sub), Some(label)) => cmd
+            .env(FROM_SUBAGENT_ENV, format!("{}:{}", sub.kind, sub.id))
+            .env(FROM_LABEL_ENV, label),
+        _ => cmd.env_remove(FROM_SUBAGENT_ENV).env_remove(FROM_LABEL_ENV),
     };
     let child = cmd.spawn().with_context(|| format!("cannot run the send relay {program:?}"))?;
     // Written beside the wait, so a relay that answers before reading it all never blocks us.
@@ -285,7 +371,7 @@ pub(crate) fn send_with_deadline(
     config: &SendRelay,
     session: &str,
     text: &str,
-    from: Option<&str>,
+    from: &RelaySender,
     attachments: bool,
     json_out: bool,
     deadline: Option<Instant>,
@@ -327,6 +413,10 @@ pub(crate) fn send_with_deadline(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn named(name: &str) -> RelaySender {
+        RelaySender { name: Some(name.to_owned()), subagent: None }
+    }
 
     #[test]
     fn the_audit_keeps_only_a_plain_delivery_id_of_the_relays_output() {
@@ -419,13 +509,14 @@ mod tests {
             SendRelay { argv: vec![script.display().to_string(), "send".into()], ls_argv: None };
 
         let done =
-            relay_with_deadline(&config, "lane-b", "hello\nthere", Some("vm/lane"), true, None)
+            relay_with_deadline(&config, "lane-b", "hello\nthere", &named("vm/lane"), true, None)
                 .unwrap();
         assert_eq!(done.status, 0);
         assert_eq!(done.output.as_deref(), Some("delivery-42"));
         assert_eq!(std::fs::read_to_string(&seen).unwrap(), "send|lane-b|-|vm/lane|hello\nthere");
 
-        let done = relay_with_deadline(&config, "refuse", "x", None, true, None).unwrap();
+        let done = relay_with_deadline(&config, "refuse", "x", &RelaySender::default(), true, None)
+            .unwrap();
         assert_eq!(done.status, 7);
         assert_eq!(std::fs::read_to_string(&seen).unwrap(), "send|refuse|-|unset|x");
 
@@ -437,19 +528,25 @@ mod tests {
         );
         let early = SendRelay { argv: vec![early.display().to_string()], ls_argv: None };
         let big = "x".repeat(1 << 20);
-        let e = relay_with_deadline(&early, "lane-b", &big, None, true, None).unwrap_err();
+        let e = relay_with_deadline(&early, "lane-b", &big, &RelaySender::default(), true, None)
+            .unwrap_err();
         assert!(e.to_string().contains("did not read the whole message"), "{e}");
 
         let missing =
             SendRelay { argv: vec![dir.join("absent").display().to_string()], ls_argv: None };
-        assert!(relay_with_deadline(&missing, "lane-b", "x", None, true, None).is_err());
+        assert!(
+            relay_with_deadline(&missing, "lane-b", "x", &RelaySender::default(), true, None)
+                .is_err()
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn a_relayed_send_with_attachments_is_refused() {
         let config = SendRelay { argv: vec!["/nonexistent/relay".into()], ls_argv: None };
-        let e = send_with_deadline(&config, "lane-b", "x", None, true, true, None).unwrap_err();
+        let e =
+            send_with_deadline(&config, "lane-b", "x", &RelaySender::default(), true, true, None)
+                .unwrap_err();
         assert_eq!(e.downcast_ref::<AppError>().map(|a| a.code), Some(Code::Usage));
         assert!(e.to_string().contains("text only"), "{e}");
     }
