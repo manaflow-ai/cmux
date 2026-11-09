@@ -310,4 +310,43 @@ mod tests {
             .unwrap();
         assert_eq!(git_text(&secret, "config", &place::Entry::Link, &git).unwrap(), None);
     }
+
+    /// A share of files reads no git state: an unreadable reflog never fails it.
+    #[test]
+    fn a_share_of_a_working_copy_reads_no_git_state() {
+        let root = tempfile::tempdir().unwrap();
+        let top = std::fs::canonicalize(root.path()).unwrap();
+        let git = |args: &[&str]| {
+            assert!(
+                std::process::Command::new("git")
+                    .arg("-C")
+                    .arg(&top)
+                    .args(args)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        };
+        git(&["init", "-q"]);
+        std::fs::write(top.join("a.txt"), "a\n").unwrap();
+        git(&["add", "a.txt"]);
+        git(&[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.invalid",
+            "commit",
+            "-q",
+            "-m",
+            "a",
+        ]);
+        let head = top.join(".git/logs/HEAD");
+        std::fs::set_permissions(&head, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let set = collect(&top, Rules::Share).unwrap();
+        std::fs::set_permissions(&head, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(
+            set.files.contains_key("a.txt")
+                && set.files.keys().all(|key| !key.starts_with(".git/"))
+        );
+    }
 }

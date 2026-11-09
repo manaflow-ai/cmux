@@ -196,6 +196,11 @@ pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
         }
         add_working(&mut set, &top, folder, &path)?;
     }
+    // A share of files sends no git state (`cmux link access` keeps no `.git` path), so it reads none:
+    // an unreadable reflog or config never fails it.
+    if rules == Rules::Share {
+        return Ok(set);
+    }
     let linked = git.own != git.common;
     let common = place::Dir::open(&git.common)?;
     walk_in(&common, "", &mut |relative, dir, name, entry| {
