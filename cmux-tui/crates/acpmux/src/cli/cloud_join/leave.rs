@@ -207,9 +207,11 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
         out["nodeKeyNote"] =
             json!("the running daemon makes a new, unjoined node key at its next use");
     }
-    if node_key_kept {
-        out["nodeKeyKept"] =
-            json!("the cmux link serves this node key, or a running process holds it");
+    if let (true, Some(fields)) = (node_key_kept, out.as_object_mut()) {
+        fields.insert(
+            "nodeKeyKept".into(),
+            json!("the cmux link serves this node key, or a running process holds it"),
+        );
     }
     if copy {
         out["hint"] = json!(
