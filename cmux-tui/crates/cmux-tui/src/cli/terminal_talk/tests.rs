@@ -336,6 +336,21 @@ impl Daemon for FakeDaemon {
     }
 }
 
+/// [`send::run_on`] on a fake clock: each sleep moves `now` on, so a stall
+/// limit passes with no real wait.
+fn send_on_fake_clock(
+    daemon: &FakeDaemon,
+    request: &SendRequest,
+) -> Result<Value, send::SendFailure> {
+    let start = Instant::now();
+    let elapsed = Cell::new(Duration::ZERO);
+    let now = || start + elapsed.get();
+    let mut sleep = |step: Duration| elapsed.set(elapsed.get() + step);
+    let mut clock =
+        super::super::agent_start::Clock { now: &now, sleep: &mut sleep, now_ms: 1_000 };
+    send::run_on(daemon, None, request, &mut clock)
+}
+
 fn quick(text: &str) -> SendRequest {
     SendRequest {
         settle: Duration::from_millis(40),
@@ -1309,11 +1324,13 @@ fn w5r_send_to_a_hook_agent_that_never_leaves_idle_is_stalled() {
         terminal["extra"] = json!({"agent": "claude", "agent_session_id": "5b0e7c1e-0d6c"});
     }
     let daemon = FakeDaemon::new(hooked, &[(1, RESUMED_EMPTY), (2, RESUMED_EMPTY)]);
+    // The default 10 s limit, on a fake clock.
     let request = SendRequest {
         timeout: Duration::from_secs(60),
+        poll: Duration::from_millis(500),
         ..quick("Reply with exactly P1_RESUMED_OK")
     };
-    let failure = send::run(&daemon, None, &request).expect_err("no turn started");
+    let failure = send_on_fake_clock(&daemon, &request).expect_err("no turn started");
     assert_eq!(failure.failure.error["code"], "send.not_submitted", "{:?}", failure.failure.error);
     assert_eq!(failure.failure.error["details"]["reason"], "no_agent_report");
 }

@@ -54,6 +54,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::super::Surface;
+use super::super::agent_start::Clock;
 use super::super::command::{self, CommandPlan, RequestPlan};
 use super::super::mcp::{Backend, CallFailure, FailureKind};
 use super::reply::{self, Reply};
@@ -537,6 +538,19 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
     session: Option<&str>,
     request: &SendRequest,
 ) -> Result<Value, SendFailure> {
+    let mut sleep = std::thread::sleep;
+    let mut clock = Clock { now: &Instant::now, sleep: &mut sleep, now_ms: super::now_ms() };
+    run_on(backend, session, request, &mut clock)
+}
+
+/// [`run`] on `clock`: the Enter delay, the polls and the stall limit use it
+/// (tests pass a fake one). Agent record times still compare with unix ms.
+pub(in crate::cli) fn run_on<B: Daemon + ?Sized>(
+    backend: &B,
+    session: Option<&str>,
+    request: &SendRequest,
+    clock: &mut Clock<'_>,
+) -> Result<Value, SendFailure> {
     if request.text.trim().is_empty() {
         return Err(SendFailure::local("usage.invalid", "send needs --text", json!({}), 2));
     }
@@ -629,9 +643,9 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         .map(|screen| reply::lines(screen.get("text").and_then(Value::as_str).unwrap_or_default()));
     let sent_ms = super::now_ms();
     write(&typed, "paste")?;
-    std::thread::sleep(request.enter_delay);
+    (clock.sleep)(request.enter_delay);
     write(&engine.encode(b"\r"), "enter")?;
-    let sent_at = Instant::now();
+    let sent_at = (clock.now)();
     let mut receipt = json!({
         "terminal": id,
         "idempotency_key": send_id,
@@ -656,6 +670,7 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
             reports_prompts: reports_prompts(terminal, agents, request),
         },
         &reads,
+        clock,
     )?;
     let shown_text = waited.screen.get("text").and_then(Value::as_str).unwrap_or_default();
     let unsubmitted = match waited.verdict {
@@ -840,6 +855,7 @@ fn wait<B: Daemon + ?Sized>(
     request: &SendRequest,
     watch: &Watch<'_>,
     reads: &Reads,
+    clock: &mut Clock<'_>,
 ) -> Result<Waited, SendFailure> {
     let mut settle = Settle::new(request.wait, request.settle, watch.sent_at);
     if watch.reports_prompts {
@@ -855,7 +871,7 @@ fn wait<B: Daemon + ?Sized>(
         let records = backend.request(session, agents.clone()).unwrap_or(Value::Null);
         let records = records.as_array().cloned().unwrap_or_default();
         let shown = reads.screen(backend, session, id, &[])?;
-        let now = Instant::now();
+        let now = (clock.now)();
         let finished = finished_since(&terminal, watch.before).cloned();
         let mut sample = sample(&terminal, &records, &shown, watch.sent_ms);
         sample.finished = finished.is_some();
@@ -886,7 +902,7 @@ fn wait<B: Daemon + ?Sized>(
                 agent_reported,
             });
         }
-        std::thread::sleep(request.poll.min(deadline.saturating_duration_since(now)));
+        (clock.sleep)(request.poll.min(deadline.saturating_duration_since(now)));
     }
 }
 
