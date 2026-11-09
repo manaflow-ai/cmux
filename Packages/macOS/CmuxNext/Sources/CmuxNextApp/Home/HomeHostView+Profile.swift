@@ -44,7 +44,11 @@ extension HomeHostView {
         return true
     }
 
-    func closeProfile() { panel.close(keyboardTo: focusTarget) }
+    func closeProfile() {
+        panel.close(keyboardTo: focusTarget)
+        // The chat's popup comes back as the panel goes, not at the next status read.
+        computerPopup.update()
+    }
 
     /// A new read of the Chief (a message, a turn, a move to the Cloud): the open panel follows it.
     func refreshProfile() {
