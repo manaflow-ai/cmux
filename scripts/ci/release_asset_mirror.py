@@ -236,10 +236,14 @@ def _land(request_or_url, sha256: str, out: Path, accept: str | None = None) -> 
 
 
 def fetch(url: str, sha256: str | None, out_path, deadline: float | None = None, *,
-          mirror: bool | None = None, upstream: bool | None = None,
+          mirror: bool | None = None, upstream: bool | None = None, also: tuple[str, ...] = (),
           sleep=time.sleep, clock=time.monotonic) -> str:
     """Put the asset at `url` into `out_path`, checked against `sha256` (None: the mirror's URL index names
-    it). Returns the source that served it: "mirror", "upstream" or "api". Raises FetchError."""
+    it). Returns the source that served it: "mirror", "upstream", "api" or "also". Raises FetchError.
+
+    `also`: the caller's own pinned endpoints for the same bytes (a public release-assets API URL, which
+    needs no token), tried in every round after the upstream URL. A caller's fallback must run during the
+    wait, not after it: a job's time limit can end before the deadline does."""
     out = Path(out_path)
     name = asset_name(url)
     if sha256 is not None:
@@ -310,6 +314,12 @@ def fetch(url: str, sha256: str | None, out_path, deadline: float | None = None,
                 try:
                     if attempt("api", through_api):
                         return "api"
+                except SourceFailed as failure:
+                    github_answers.append(failure.definitive)
+            for extra in also:
+                try:
+                    if attempt("also", lambda: _land(extra, want, out, "application/octet-stream")):
+                        return "also"
                 except SourceFailed as failure:
                     github_answers.append(failure.definitive)
         definitive_rounds = definitive_rounds + 1 if github_answers and all(github_answers) else 0
@@ -753,6 +763,8 @@ def main(argv: list[str] | None = None) -> int:
     which.add_argument("--from-index", action="store_true")
     get.add_argument("--out", required=True)
     get.add_argument("--deadline", type=float)
+    get.add_argument("--also", action="append", default=[], metavar="URL",
+                     help="another pinned endpoint for the same bytes, tried every round (repeatable)")
     for name in ("fill", "list"):
         sub = commands.add_parser(name)
         sub.add_argument("--ref", action="append", dest="refs")
@@ -766,7 +778,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "fetch":
         try:
-            fetch(args.url, None if args.from_index else args.sha256, args.out, args.deadline)
+            fetch(args.url, None if args.from_index else args.sha256, args.out, args.deadline,
+                  also=tuple(args.also))
         except FetchError as error:
             print(f"release-asset: {error}", file=sys.stderr)
             return 2 if error.kind == "config" else 1

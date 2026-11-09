@@ -155,6 +155,13 @@ class FetchTest(ServerCase):
             self.assertEqual(self.fetch(), "upstream")
         self.assertEqual(self.out.read_bytes(), ASSET)
 
+    def test_also_endpoint_serves_in_the_first_round_while_upstream_is_down(self):
+        self.server.routes["/up/asset.zip"] = [(504, b"gateway")]
+        self.server.routes["/api/asset"] = [(200, ASSET)]
+        self.assertEqual(self.fetch(also=(self.server.url + "/api/asset",)), "also")
+        self.assertEqual(self.sleeps, [])  # no waiting: the caller's endpoint ran in round one
+        self.assertEqual(self.out.read_bytes(), ASSET)
+
     def test_upstream_504_waits_and_succeeds_within_the_deadline(self):
         self.server.routes["/up/asset.zip"] = [(504, b"gateway"), (503, b"busy"), (200, ASSET)]
         self.assertEqual(self.fetch(), "upstream")
@@ -332,6 +339,30 @@ class DownloaderTest(ServerCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip().splitlines()[-1], str(runner_temp / "actionlint"))
         self.assertIn("mirror hit actionlint_1.7.7_linux_amd64.tar.gz", result.stderr)
+
+
+    def test_install_actionlint_tries_its_api_endpoint_every_round_within_the_job_budget(self):
+        # The guard jobs that install actionlint have minutes, not the reader's 15: the pinned asset API
+        # endpoint goes in every round (--also) and the wait is bounded, so the old fallback still runs.
+        fake_bin = self.work / "bin"
+        fake_bin.mkdir()
+        calls = self.work / "python3.argv"
+        (fake_bin / "python3").write_text(f"#!/bin/sh\nprintf '%s\\n' \"$@\" > {calls}\nexit 1\n")
+        (fake_bin / "curl").write_text("#!/bin/sh\nexit 22\n")
+        for tool in ("python3", "curl"):
+            (fake_bin / tool).chmod(0o755)
+        runner_temp = self.work / "runner"
+        runner_temp.mkdir()
+        env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}", "RUNNER_TEMP": str(runner_temp),
+               "ACTIONLINT_VERSION": "1.7.7", "ACTIONLINT_SHA256": ASSET_SHA, "ACTIONLINT_ASSET_ID": "42"}
+        result = subprocess.run(["bash", str(ROOT / "scripts/ci/install-actionlint.sh")], env=env,
+                                capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("trying immutable asset API endpoint", result.stderr)  # the old fallback still ran
+        argv = calls.read_text().splitlines()
+        self.assertEqual(argv[argv.index("--also") + 1],
+                         "https://api.github.com/repos/rhysd/actionlint/releases/assets/42")
+        self.assertLessEqual(float(argv[argv.index("--deadline") + 1]), 180)
 
 
 class ManifestTest(unittest.TestCase):
