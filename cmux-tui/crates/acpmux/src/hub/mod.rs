@@ -143,6 +143,7 @@ pub use model_options::{
 };
 pub mod ledger;
 mod model_hint;
+mod model_probe;
 mod models_view;
 mod paging;
 mod personal_stats;
@@ -205,6 +206,7 @@ pub(crate) mod mcp_probe;
 mod meta_save;
 mod offer_results;
 mod offers;
+mod question_replies;
 mod resume;
 mod secrets;
 mod seen;
@@ -215,6 +217,7 @@ mod silent_listing;
 mod silent_turn;
 mod stalled_turn;
 mod start_retry;
+mod start_watch;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
 pub(super) use session::{newest_first, prompt_text, short_text};
@@ -571,6 +574,11 @@ pub struct PromptOptions {
     /// hold in an idle chat that it does not wake is refused at once (`inbox.rs`
     /// `not_woken`), never left waiting for a turn that does not come.
     pub wake_or_fail: bool,
+    /// The sender waits for the reply and prints it (`readsReply`, `wakeOrFail`): its
+    /// connection's end, `true` once it left. An inbox message keeps it, so a notice says
+    /// "waiting" only while that caller is still there, and a question nobody waits for gets its
+    /// reply sent back (`hub/question_replies.rs`).
+    pub reply_reader: Option<tokio::sync::watch::Receiver<bool>>,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.

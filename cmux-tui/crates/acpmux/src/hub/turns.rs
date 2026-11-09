@@ -487,6 +487,7 @@ impl Hub {
                     opts.provenance.as_ref(),
                     opts.human_authenticated,
                     opts.wake_or_fail,
+                    opts.reply_reader.clone(),
                     &mut accept,
                 ))
                 .await;

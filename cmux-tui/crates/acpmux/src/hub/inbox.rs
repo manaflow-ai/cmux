@@ -177,6 +177,11 @@ pub(super) struct Item {
     pub(super) read: bool,
     /// The waiting `session/prompt` that sent it, answered by its notice.
     answer: Option<Waiter>,
+    /// Its sender's caller waits for the reply and prints it (`PromptOptions::reply_reader`):
+    /// `true` once that caller left. None for a send nobody reads the reply of (`--no-wait`, the
+    /// outbox, a restored message): its notice says no one waits, and a question's reply goes
+    /// back to its asker (`question_replies.rs`).
+    pub(super) reader: Option<tokio::sync::watch::Receiver<bool>>,
 }
 
 #[cfg(test)]
@@ -200,6 +205,7 @@ impl Item {
             noticed: true,
             read: false,
             answer: None,
+            reader: None,
         }
     }
 }
@@ -211,6 +217,9 @@ type Waiter = tokio::sync::watch::Sender<Option<super::queue::Answer>>;
 #[derive(Default)]
 pub struct Inbox {
     pub(super) items: Vec<Item>,
+    /// Replies to questions no caller waits for, due to their askers when the running turn ends
+    /// (`question_replies.rs`).
+    pub(super) replies_due: Vec<super::question_replies::ReplyDue>,
     /// The notice in flight: its prompt id and the messages it carries. None goes after it until
     /// it ends, or, a turn of its own, until its prompt is written to the agent.
     pub(super) in_flight: Option<(String, Vec<String>)>,
@@ -956,12 +965,42 @@ fn subagent_label(sender: &Value) -> Option<String> {
     Some(format!("{kind} subagent {}", id.chars().take(8).collect::<String>()))
 }
 
+/// Whether `item`'s sender waits for the reply now: its caller reads it
+/// (`PromptOptions::reply_reader`) and is still connected. An open request alone is no reader:
+/// the outbox's delivery of a `--no-wait` send keeps one open (bench round 4, A5).
+pub(super) fn reader_waits(item: &Item) -> bool {
+    item.answer.as_ref().is_some_and(|tx| tx.receiver_count() > 0)
+        && item.reader.as_ref().is_some_and(|ended| !*ended.borrow())
+}
+
+/// Whether the reply to `item` goes back to its asker when the turn ends
+/// (`question_replies.rs`): a question or a block from a session here that no caller waits for.
+pub(super) fn reply_goes_back(item: &Item) -> bool {
+    asks_a_session(item) && !reader_waits(item)
+}
+
+/// A question or a block from a session here, not a report.
+fn asks_a_session(item: &Item) -> bool {
+    matches!(item.class, PromptClass::Question | PromptClass::Block)
+        && item.from_session.is_some()
+        && !item.from.is_empty()
+        && !item.report
+}
+
+/// [`reply_goes_back`] once its notice ended: the notice took the waiting request off the item, so
+/// only its caller's connection says whether it still reads the reply.
+fn reply_goes_back_at_end(item: &Item) -> bool {
+    asks_a_session(item) && item.reader.as_ref().is_none_or(|ended| *ended.borrow())
+}
+
 /// The line a notice ends with that says how its senders get an answer, or None when none can:
-/// a sender that waits gets this turn's reply; another session, `inbox_reply` or `acpmux send`;
-/// a subagent only the reply to its own send. Without it the round-2 eval's receiver tried its
-/// harness's own SendMessage, failed, and answered with apologies.
+/// a sender that waits gets this turn's reply; a question nobody waits for gets it too, sent back
+/// when the turn ends; another session, `inbox_reply` or `acpmux send`; a subagent only the reply
+/// to its own send. Without it the round-2 eval's receiver tried its harness's own SendMessage,
+/// failed, and answered with apologies.
 fn reply_hint(items: &[&Item]) -> Option<String> {
     let mut waiting: Vec<String> = Vec::new();
+    let mut sent_back: Vec<String> = Vec::new();
     let mut later: Vec<String> = Vec::new();
     let mut leads: Vec<String> = Vec::new();
     fn add(list: &mut Vec<String>, name: String) {
@@ -972,13 +1011,14 @@ fn reply_hint(items: &[&Item]) -> Option<String> {
     for item in items {
         let session = item.from_session.is_some() && !item.from.is_empty();
         let sub = subagent_label(&item.sender);
-        let waits = item.answer.as_ref().is_some_and(|tx| tx.receiver_count() > 0);
-        if waits {
-            let shown = match &sub {
-                Some(sub) => format!("{}'s {sub}", item.from),
-                None => display_sender(&item.sender, &item.from),
-            };
-            add(&mut waiting, shown);
+        let shown = || match &sub {
+            Some(sub) => format!("{}'s {sub}", item.from),
+            None => display_sender(&item.sender, &item.from),
+        };
+        if reader_waits(item) {
+            add(&mut waiting, shown());
+        } else if reply_goes_back(item) {
+            add(&mut sent_back, shown());
         } else if session && sub.is_none() {
             add(&mut later, item.from.clone());
         }
@@ -991,6 +1031,13 @@ fn reply_hint(items: &[&Item]) -> Option<String> {
         parts.push(format!(
             "Your reply to this turn goes back to {}, waiting for it.",
             waiting.join(", ")
+        ));
+    }
+    if !sent_back.is_empty() {
+        parts.push(format!(
+            "End your turn with your answer: acpmux sends this turn's reply to {} when it ends; \
+             do not send it yourself as well.",
+            sent_back.join(", ")
         ));
     }
     for name in &later {
@@ -1150,6 +1197,7 @@ impl Hub {
         provenance: Option<&Value>,
         human_authenticated: bool,
         wake_or_fail: bool,
+        reader: Option<tokio::sync::watch::Receiver<bool>>,
         accept: &mut impl FnMut(Value),
     ) -> Result<Value, RpcError> {
         let text = prompt_text(blocks);
@@ -1215,6 +1263,10 @@ impl Hub {
                     // A resend of one it holds: answered with it.
                     Some(item) if !item.noticed || item.answer.is_some() => {
                         rx = item.answer.get_or_insert_with(|| tx.clone()).subscribe();
+                        // A resend that waits for the reply reads it.
+                        if reader.is_some() {
+                            item.reader = reader.clone();
+                        }
                         false
                     }
                     // A resend of one a notice carried and answered already (or before a restart):
@@ -1247,6 +1299,7 @@ impl Hub {
                             noticed: false,
                             read: false,
                             answer: Some(tx.clone()),
+                            reader: reader.clone(),
                         });
                         trim(&mut inbox);
                         true
@@ -1362,6 +1415,7 @@ impl Hub {
                     noticed: true,
                     read: true,
                     answer: None,
+                    reader: None,
                 });
                 trim(&mut inbox);
                 true
@@ -1643,6 +1697,8 @@ impl Hub {
         ids: &[String],
         result: super::queue::Answer,
     ) {
+        let mut replies_due = Vec::new();
+        let steered;
         let answered = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
             if inbox.in_flight.as_ref().is_some_and(|(id, _)| id == notice_id) {
@@ -1651,7 +1707,9 @@ impl Hub {
             let at = inbox.written.iter().position(|id| id == notice_id);
             let went_in = at.map(|i| inbox.written.remove(i)).is_some();
             let at = inbox.carrying.iter().position(|c| c.notice == notice_id);
-            let waiters = at.map(|i| inbox.carrying.remove(i).waiters).unwrap_or_default();
+            let carry = at.map(|i| inbox.carrying.remove(i));
+            steered = carry.as_ref().is_some_and(|c| c.steer);
+            let waiters = carry.map(|c| c.waiters).unwrap_or_default();
             // Read under the inbox's lock, as `inbox_accept` reads it: a chat closed since
             // answers its waiting senders here, else `inbox_closed` did or will.
             let closed = super::queue::closing(session);
@@ -1660,6 +1718,26 @@ impl Hub {
                 let answer = if closed { Err(super::queue::closing_error()) } else { result };
                 for item in inbox.items.iter_mut().filter(|i| ids.contains(&i.prompt_id)) {
                     item.answered = Some(answer.clone());
+                }
+                // A question no caller reads the reply of: the turn's reply goes back to its
+                // asker (`question_replies.rs`). A caller that left before the end reads none.
+                if answer.is_ok() {
+                    let due = inbox
+                        .items
+                        .iter()
+                        .filter(|i| ids.contains(&i.prompt_id))
+                        .filter(|i| reply_goes_back_at_end(i))
+                        .filter_map(|i| {
+                            Some(super::question_replies::ReplyDue {
+                                asker: i.from_session.clone()?,
+                                subagent: i
+                                    .sender
+                                    .get("subagent")
+                                    .filter(|s| s.is_object())
+                                    .cloned(),
+                            })
+                        });
+                    replies_due.extend(due);
                 }
                 for (_, waiter) in waiters {
                     waiter.send_replace(Some(answer.clone()));
@@ -1715,6 +1793,7 @@ impl Hub {
                 self.turn_cap_recheck(session);
             }
         }
+        self.question_replies_due(session, replies_due, steered);
         if let Some(answer) = answered {
             let mut msg = json!({"noticePromptId": notice_id, "promptIds": ids});
             match answer {
@@ -1810,6 +1889,7 @@ impl Hub {
     /// the next try back.
     pub(super) fn inbox_turn_ended(self: &Arc<Self>, session: &Arc<Session>) {
         session.inbox.lock().unwrap_or_else(|e| e.into_inner()).refused_at = 0;
+        self.question_replies_turn_ended(session);
         self.inbox_review(session);
     }
 
@@ -1926,6 +2006,7 @@ impl Hub {
                         noticed: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),
                         read: e.msg.get("deliveredRead") == Some(&Value::Bool(true)),
                         answer: None,
+                        reader: None,
                     });
                 }
                 "inbox_noticed" => {

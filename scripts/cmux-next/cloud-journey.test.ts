@@ -368,6 +368,13 @@ describe("guest carrier timeline", () => {
       + "bound.json +4319 ms; carrier.json +40000 ms");
   });
 
+  test("a machine bound before create answered reads as a claimed spare", () => {
+    // Booted 8.8 days ago from its snapshot base and bound 231.5 s before create answered.
+    const out = ["guest_now 1000000000 760954248", "wall bound.json 999768500"].join("\n");
+    expect(guestTimeline(out, 1_000_000_000, 999_999_900, 1_000_000_100)).toBe(
+      "after create's answer (±100 ms; a claimed spare: bound 231500 ms before create answered): guest boot -760954248 ms; bound.json -231500 ms");
+  });
+
   test("says so when the guest showed nothing", () => {
     expect(guestTimeline("", 10_000, 20_000, 20_100)).toBe("after create's answer (±50 ms): no guest clock read");
   });
