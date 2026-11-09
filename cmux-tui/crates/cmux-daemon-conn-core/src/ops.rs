@@ -215,8 +215,10 @@ pub fn call(op: &str, request: &Value) -> OpResult {
         ),
         "offline_intent_disposition" => {
             let answering = request.get("answering").and_then(Value::as_bool).unwrap_or(true);
+            let kind = text(request, "kind")?;
             Ok(json!({
-                "disposition": offline::disposition(text(request, "kind")?, answering),
+                "disposition": offline::disposition(kind, answering),
+                "sent": offline::maybe_sent(kind),
                 "bound_ms": offline::HOLD_BOUND_MS,
             }))
         }

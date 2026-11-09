@@ -7,6 +7,13 @@
 //! the action up with one refusal the person sees, and the visible state
 //! returns once. One transition each way, never a flip.
 //!
+//! A request that timed out may already sit in the daemon's queue: a
+//! client timeout cancels nothing there. Such an action is `sent`, and it is
+//! never replayed blindly nor refused for certain: once the daemon answers,
+//! the app settles it from the daemon's state (replay only if it did not
+//! land); past the bound with no answer, the one notice says it may still
+//! happen.
+//!
 //! The app keeps the held list (`DaemonStore` `HeldIntents`) and asks here:
 //! - [`disposition`]: hold or reject a failed command, by its error's kind
 //!   (the Swift `DaemonError` case name, as [`crate::errors::KINDS`]);
@@ -37,6 +44,12 @@ pub enum Disposition {
 const UNREACHED: [&str; 4] =
     ["notConnected", "connectionClosed", "daemonShutdown", "connectFailed"];
 
+/// The command may have reached the daemon before it failed with `kind`
+/// (a missed deadline), so a held copy is [`Held::sent`].
+pub fn maybe_sent(kind: &str) -> bool {
+    kind == "timedOut"
+}
+
 /// Hold or reject a command that failed with error `kind`. A missed
 /// deadline (`timedOut`) holds only while the heartbeat says the daemon is
 /// not answering (`answering` false): from a daemon that answers, a late
@@ -60,6 +73,10 @@ pub struct Held {
     /// goes back to held with its first `held_at_ms`).
     #[serde(default)]
     pub replaying: bool,
+    /// It may have reached the daemon ([`maybe_sent`]): settled from the
+    /// daemon's state instead of replayed, and never refused for certain.
+    #[serde(default)]
+    pub sent: bool,
 }
 
 /// What to do with the held actions now.
@@ -69,6 +86,13 @@ pub struct Sweep {
     pub replay: Vec<String>,
     /// Past the bound: give up, one refusal each, the visible state returns.
     pub expire: Vec<String>,
+    /// Sent ones with the daemon answering again: read whether each landed
+    /// from the daemon's state, and replay only those that did not.
+    pub settle: Vec<String>,
+    /// Sent ones past the bound with no answer: give up with the notice
+    /// that it may still happen ([`Text::unsure`]); the visible state returns
+    /// and the daemon's next state settles it.
+    pub unsure: Vec<String>,
     /// When the earliest still-held action expires (absolute, the app's
     /// clock); `None` when nothing waits on the clock.
     pub next_check_ms: Option<u64>,
@@ -85,8 +109,11 @@ pub fn sweep(held: &[Held], now_ms: u64, reachable: bool, bound_ms: u64) -> Swee
             continue;
         }
         let expires_at = entry.held_at_ms.saturating_add(bound_ms);
-        if now_ms >= expires_at {
-            out.expire.push(entry.id.clone());
+        if entry.sent && reachable {
+            out.settle.push(entry.id.clone());
+        } else if now_ms >= expires_at {
+            let list = if entry.sent { &mut out.unsure } else { &mut out.expire };
+            list.push(entry.id.clone());
         } else if reachable {
             out.replay.push(entry.id.clone());
         } else {
@@ -105,6 +132,9 @@ pub struct Text {
     pub when_back: String,
     /// The one refusal past the bound.
     pub refusal: String,
+    /// The notice past the bound for an action that may have reached the
+    /// daemon: not a refusal, since it may still land.
+    pub unsure: String,
 }
 
 /// The prefix of every refusal: what failed, before what was not done.
@@ -114,26 +144,34 @@ pub const REFUSAL_PREFIX: &str = "cmux couldn't reach its session service";
 /// `color`, `icon`; anything else is shown as given) on `name` (a tab or
 /// screen title).
 pub fn text(action: &str, name: &str) -> Text {
-    let (verb, done) = match action {
-        "close" => ("Close", format!("{name} wasn't closed")),
-        "rename" => ("Rename", format!("{name} wasn't renamed")),
-        "move" => ("Move", format!("{name} wasn't moved")),
-        "pin" => ("Pin", format!("{name} wasn't pinned")),
-        "unpin" => ("Unpin", format!("{name} wasn't unpinned")),
-        "color" => ("Change the color of", format!("{name}'s color wasn't changed")),
-        "icon" => ("Change the icon of", format!("{name}'s icon wasn't changed")),
+    let (verb, done, maybe) = match action {
+        "close" => ("Close", "wasn't closed", "may still close"),
+        "rename" => ("Rename", "wasn't renamed", "may still be renamed"),
+        "move" => ("Move", "wasn't moved", "may still move"),
+        "pin" => ("Pin", "wasn't pinned", "may still be pinned"),
+        "unpin" => ("Unpin", "wasn't unpinned", "may still be unpinned"),
+        "color" => ("Change the color of", "'s color wasn't changed", "'s color may still change"),
+        "icon" => ("Change the icon of", "'s icon wasn't changed", "'s icon may still change"),
         other => {
             return Text {
                 pending: other.to_string(),
                 when_back: format!("will {} when back", lowercase_first(other)),
                 refusal: format!("{REFUSAL_PREFIX}; \u{201c}{other}\u{201d} wasn't done"),
+                unsure: format!(
+                    "{REFUSAL_PREFIX}; \u{201c}{other}\u{201d} may still happen when it's back"
+                ),
             };
         }
+    };
+    // "Tab's color", "Tab wasn't closed": the possessive joins without a space.
+    let join = |words: &str| {
+        if words.starts_with('\'') { format!("{name}{words}") } else { format!("{name} {words}") }
     };
     let pending = format!("{verb} {name}");
     Text {
         when_back: format!("will {} when back", lowercase_first(&pending)),
-        refusal: format!("{REFUSAL_PREFIX}; {done}"),
+        refusal: format!("{REFUSAL_PREFIX}; {}", join(done)),
+        unsure: format!("{REFUSAL_PREFIX}; {} when it's back", join(maybe)),
         pending,
     }
 }
@@ -151,7 +189,7 @@ mod tests {
     use super::*;
 
     fn held(id: &str, at: u64) -> Held {
-        Held { id: id.to_string(), held_at_ms: at, replaying: false }
+        Held { id: id.to_string(), held_at_ms: at, replaying: false, sent: false }
     }
 
     #[test]
@@ -215,11 +253,31 @@ mod tests {
 
     #[test]
     fn a_replay_in_flight_does_not_expire_under_it() {
-        let list = [Held { id: "a".into(), held_at_ms: 0, replaying: true }];
+        let list = [Held { replaying: true, ..held("a", 0) }];
         let out = sweep(&list, HOLD_BOUND_MS * 2, false, HOLD_BOUND_MS);
         assert!(out.expire.is_empty());
         assert!(out.replay.is_empty());
         assert_eq!(out.next_check_ms, None);
+    }
+
+    #[test]
+    fn a_timed_out_close_is_never_refused_for_certain_and_settles_when_the_daemon_is_back() {
+        // The daemon is paused: the close times out, but may sit in its queue.
+        assert!(maybe_sent("timedOut"));
+        assert!(!maybe_sent("notConnected"));
+        let list = [Held { sent: true, ..held("a", 0) }, held("b", 0)];
+        // Past the bound with no answer: `a` gets the notice that it may
+        // still close, never "wasn't closed"; `b` never left, so it is refused.
+        let out = sweep(&list, HOLD_BOUND_MS, false, HOLD_BOUND_MS);
+        assert_eq!(out.unsure, ["a"]);
+        assert_eq!(out.expire, ["b"]);
+        assert!(out.replay.is_empty() && out.settle.is_empty());
+        // The daemon resumes before the bound: `a` is settled from its
+        // state, never sent a second time.
+        let back = sweep(&list, 60_000, true, HOLD_BOUND_MS);
+        assert_eq!(back.settle, ["a"]);
+        assert_eq!(back.replay, ["b"]);
+        assert!(back.expire.is_empty() && back.unsure.is_empty());
     }
 
     #[test]
@@ -230,6 +288,14 @@ mod tests {
         assert_eq!(
             close.refusal,
             "cmux couldn't reach its session service; Background task wasn't closed"
+        );
+        assert_eq!(
+            close.unsure,
+            "cmux couldn't reach its session service; Background task may still close when it's back"
+        );
+        assert_eq!(
+            text("color", "Logs").refusal,
+            "cmux couldn't reach its session service; Logs's color wasn't changed"
         );
         let other = text("Reorder tabs", "x");
         assert_eq!(other.pending, "Reorder tabs");
