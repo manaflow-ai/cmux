@@ -36,7 +36,7 @@ await requireBrowserLane("send-entrance-delivery-mark.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 800, height: 300 } });
     try {
       await page.emulateMedia({ reducedMotion: "no-preference" });
-      await page.setContent(`<!doctype html><html style="--agent-motion-send: 265ms; --agent-motion-send-fade: 265ms; --agent-motion-in: 120ms; --grid-cards-radius: 12px">
+      await page.setContent(`<!doctype html><html style="--agent-motion-send: 180ms; --agent-motion-send-fade: 180ms; --agent-motion-in: 120ms; --grid-cards-radius: 12px">
         <body style="margin:0"><div class="acpmux-thread" style="padding: 40px 40px 40px 400px">
           <article class="acpmux-row acpmux-user acpmux-row--message-enter"><div class="acpmux-row__message-presentation">
             <div class="cv-user"><div class="cv-user__body"><div class="cv-user__bubble" style="position: relative; width: 300px">
