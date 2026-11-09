@@ -782,7 +782,8 @@
         "CmuxNextAgentActivity",
         "CmuxNextChiefViews",
         "CmuxNextPages",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextTestSupport"
       ],
       "packages": [],
       "reads": []
@@ -1044,6 +1045,7 @@
       "targets": [
         "CmuxNextCompat",
         "CmuxNextDaemon",
+        "CmuxNextTestSupport",
         "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
@@ -1195,7 +1197,8 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextFilesTests",
       "targets": [
-        "CmuxNextFiles"
+        "CmuxNextFiles",
+        "CmuxNextTestSupport"
       ],
       "packages": [],
       "reads": []
@@ -1288,7 +1291,8 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextHangReportsTests",
       "targets": [
         "CmuxNextCompat",
-        "CmuxNextHangReports"
+        "CmuxNextHangReports",
+        "CmuxNextTestSupport"
       ],
       "packages": [],
       "reads": []

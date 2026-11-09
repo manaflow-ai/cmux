@@ -149,7 +149,12 @@ import { harnessModeName, highestMode } from "./harnessModes";
 import { insertRunChange, type RunChange, sessionStartOf } from "./conversation/sessionStart";
 import { reduceAgentPair } from "./conversation/agentPairs";
 import { pasteRanges } from "./conversation/promptCollapse";
-import { BACKGROUND_TURN, backgroundTurnRecord, backgroundTurnRowId } from "./conversation/backgroundTurns";
+import {
+  BACKGROUND_TURN,
+  backgroundTurnRecord,
+  backgroundTurnRowId,
+  isReactionNote,
+} from "./conversation/backgroundTurns";
 import { backgroundReactionLook, reactsOnCall } from "./conversation/backgroundReaction.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
@@ -6591,15 +6596,29 @@ export class AcpmuxDirectClient {
 
   /// A background turn that ended: its reply goes onto the call its reaction is on, when the turn
   /// folds it (a silent one, or a quiet one); a reply with something to say draws as a message.
+  /// Only a short quiet note goes onto the call: a reply with more to say is the main agent's own turn
+  /// (`ownTurn`), drawn at the reply column with its own footer, never as the call's or the
+  /// subagent's words (Leo, 2026-11-08: "the text in this situation isn't from the subagent?", on
+  /// three later turns of the chat's replies drawn as one block under "Subagent finished").
   private settleReaction(turn: string): void {
     const origin = this.reactionOrigins.get(turn);
-    const reaction = origin === undefined ? undefined : this.reactions.get(origin)?.reaction;
-    if (!origin || reaction?.turn !== turn) return;
-    const line = this.rows.get(backgroundTurnRowId(turn))?.background;
-    if (line?.quiet !== true && reaction.weight !== "silent") return;
-    // An earlier end of the same call left its words (`attachReaction` carried them): these follow.
+    if (!origin) return;
+    const id = backgroundTurnRowId(turn);
+    const row = this.rows.get(id);
+    const line = row?.background;
+    if (!row || !line || (line.quiet !== true && line.cause?.weight !== "silent")) return;
     const reply = this.rows.backgroundReply(turn);
-    if (reply) this.react(origin, { ...reaction, text: reaction.text ? `${reaction.text}\n\n${reply}` : reply });
+    if (!reply) return;
+    // acpmux calls it quiet (one short line, nothing new); the length is the pane's own floor.
+    if (line.quiet !== true || !isReactionNote(reply)) {
+      if (!line.ownTurn)
+        this.rows.set(id, { ...row, version: row.version + 1, background: { ...line, ownTurn: true } });
+      return;
+    }
+    const reaction = this.reactions.get(origin)?.reaction;
+    if (reaction?.turn !== turn) return;
+    // An earlier end of the same call left its words (`attachReaction` carried them): these follow.
+    this.react(origin, { ...reaction, text: reaction.text ? `${reaction.text}\n\n${reply}` : reply });
   }
 
   /// Puts `reaction` on call `origin`: an activity row's tool call, or the subagent it started

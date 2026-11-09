@@ -86260,6 +86260,81 @@
 
       ],
       "category" : "settings",
+      "cliName" : "settings personalize",
+      "computed" : {
+        "canonical_action_id" : "appearance.personalize",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "id" : "appearance.personalize",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "personalization",
+        "personalize",
+        "appearance",
+        "theme",
+        "accent",
+        "background",
+        "wallpaper",
+        "glass",
+        "chief",
+        "pet",
+        "font",
+        "density",
+        "sounds",
+        "make it yours"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "wand.and.stars",
+      "targets" : [
+
+      ],
+      "title" : "Personalization…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "settings",
       "cliName" : "settings increase-interface-size",
       "computed" : {
         "canonical_action_id" : "appearance.interfaceSize.increase",
