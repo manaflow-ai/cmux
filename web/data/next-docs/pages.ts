@@ -181,9 +181,10 @@ export const nextDocPages: NextDocPage[] = [
       { ul: [
         "Reported by the agent: the agent's own figure for the turn.",
         "Priced from the table: the turn's tokens at the price table that ships with cmux. The tab shows the table's version.",
-        "Partly priced: a group with both kinds.",
-        "No price known: a model the table does not list. The tab counts these turns.",
+        "Partly priced: a group whose turns had different sources, such as some reported and some from the table, or some with no price.",
+        "No price known: no turn had a price, because the table does not list the model.",
       ] },
+      { p: "A turn with no price adds nothing to the cost. When the tab counts turns with no price, the cost shown for that range or group is incomplete: the real cost is at least that much." },
       { p: "A table price is an estimate at list prices, not a bill. On a subscription, the figure is what the same tokens would cost on the API, not what you pay. A fork's copy of its parent's turns counts once, in the parent." },
       { h2: "Can I read agent spend from the command line?" },
       { code: "cmux acp ledger                              # the last 7 days, by repository\ncmux acp ledger --since 30d --by pr          # the last 30 days, by pull request\ncmux acp ledger --since 1d --by model --json # today, by model, as JSON", lang: "bash" },

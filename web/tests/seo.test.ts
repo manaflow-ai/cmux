@@ -1061,6 +1061,21 @@ describe("SEO middleware", () => {
     expect(canonicalEnglish.headers.get("location")).toBeNull();
   });
 
+  test("keeps the English-only cmux-next docs English during locale negotiation", () => {
+    for (const path of ["/docs/next", "/docs/next/own-keys"]) {
+      const localized = middleware(requestFor(`/ja${path}`, { "accept-language": "ja" }));
+      expect(localized.status).toBe(301);
+      expect(localized.headers.get("location")).toBe(`https://cmux.com${path}`);
+
+      const english = middleware(
+        requestFor(path, { "accept-language": "ja", cookie: "NEXT_LOCALE=ja" }),
+      );
+      expect(english.status).toBe(200);
+      expect(english.headers.get("x-middleware-rewrite")).toBe(`https://cmux.com/en${path}`);
+      expect(english.headers.get("location")).toBeNull();
+    }
+  });
+
   test("serves the English remote tmux docs without locale redirect loops", () => {
     const unsupportedLocale = middleware(
       requestFor("/de/docs/remote-tmux", { "accept-language": "de" }),

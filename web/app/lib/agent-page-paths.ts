@@ -496,6 +496,13 @@ function publicDocsPath(path: string): string {
   return /^\/docs\/next(?:\/|$)/u.test(path) ? path.replace(/^\/docs/u, "/docs/nightly") : path;
 }
 
+/** Whether a page's canonical path is a page that exists only in English. */
+export function isEnglishOnlyAgentPage(canonicalPath: string): boolean {
+  const { path } = basePagePath(canonicalPath);
+  const page = agentReadablePageByPath.get(publicDocsPath(path));
+  return page?.locales?.length === 1 && page.locales[0] === "en";
+}
+
 function isKnownAgentReadablePage(canonicalPath: string): boolean {
   const { path, locale } = basePagePath(canonicalPath);
   const page = agentReadablePageByPath.get(publicDocsPath(path));
