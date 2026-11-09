@@ -10,7 +10,12 @@
 // prompt on the send motion (conversation.css SEND-ENTRANCE), never flying from the composer, and the
 // composer's chip is gone in the same frame. Through the fade and the image's load the sent row keeps
 // its height, and the preview and the text beside it keep their places in it. Every frame from the
-// send is read, in the agent pane's dev entry (the composer's real send path).
+// send is read, in the agent pane's dev entry (the composer's real send path). Sent from the latest
+// row of a chat that already scrolls, the composer's prompt becomes the message instead (Leo,
+// 2026-11-08, ask-157340f908: "if you're at the bottom ... the transformation applies whatever's in
+// your composer into your depicted message"; agent-pane-send-morph.test.ts): the preview is still in
+// its slot at its size from its first frame, hidden under the copy that moves there, and drawn whole
+// in the frame the copy lands.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 // Locally: CMUX_BROWSER_TESTS=1 bun test test/agent-pane-send-transition.test.ts
@@ -25,9 +30,12 @@ type Box = { left: number; top: number; width: number; height: number };
 /// One frame of the sent row: its height, and the preview's and the bubble's boxes in the row's own
 /// coordinates (a chat that rises to the new prompt moves the row, not what is in it). `opacity`: the
 /// preview's drawn opacity (its own and every box's around it up to its row); `chips`: the composer's
-/// attachments still drawn; `hit`: its own row draws at the preview's center, so nothing covers it.
+/// attachments still drawn; `hit`: its own row draws at the preview's center, so nothing covers it;
+/// `shown`: the preview is visible (not hidden under a copy); `ghosts`: copies drawn over the pane.
 type Frame = {
   at: number;
+  shown: boolean;
+  ghosts: number;
   row: number;
   preview: Box;
   bubble?: Box;
@@ -104,6 +112,8 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
             const behind = !!composer && box.top + box.height / 2 >= composer.top;
             frames.push({
               at: Math.round(performance.now() - start),
+              shown: getComputedStyle(shown).visibility === "visible",
+              ghosts: document.querySelectorAll("[data-send-morph-ghost]").length,
               row: row.getBoundingClientRect().height,
               preview: inRow(row, shown),
               bubble: inRow(row, row.querySelector(".cv-user__bubble")),
@@ -164,6 +174,35 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
         frames[index - 1]!.opacity - 0.001,
       );
     expect(last.opacity, `${label}: the preview ends fully drawn`).toBeGreaterThan(0.99);
+  };
+
+  /// Sent from the latest row of a chat that scrolls: the preview is in its slot at its final size
+  /// from its first frame and stays there, hidden while the composer's copy of it moves there and
+  /// drawn whole, with no fade of its own, from the frame the copy lands (sendMorph.ts).
+  const expectMorphed = (frames: Frame[], chip: Box, label: string) => {
+    expect(frames.length, `${label}: the sent row was never drawn`).toBeGreaterThan(2);
+    const first = frames[0]!;
+    expect(first.preview.height, `${label}: the preview is larger than its chip from its first frame`).toBeGreaterThan(
+      chip.height + 10,
+    );
+    expect(first.chips, `${label}: the composer's chip is gone when the prompt appears`).toBe(0);
+    expect(first.ghosts, `${label}: the composer's prompt moves into the row`).toBeGreaterThan(0);
+    const landed = frames.findIndex((frame) => frame.ghosts === 0);
+    expect(landed, `${label}: the copy never landed`).toBeGreaterThan(0);
+    for (const [index, frame] of frames.entries()) {
+      near(frame.preview, first.preview, `${label}: the preview in its row at ${frame.at} ms`);
+      expect(frame.row, `${label}: the row's height at ${frame.at} ms`).toBe(first.row);
+      if (first.bubble) near(frame.bubble, first.bubble, `${label}: the text beside it at ${frame.at} ms`);
+      expect(frame.chips, `${label}: no chip comes back at ${frame.at} ms`).toBe(0);
+      expect(frame.shown, `${label}: hidden under its copy only while the copy flies, at ${frame.at} ms`).toBe(
+        index >= landed,
+      );
+      if (index >= landed) {
+        expect(frame.opacity, `${label}: drawn whole once landed, at ${frame.at} ms`).toBeGreaterThan(0.99);
+        expect(frame.hit, `${label}: the preview is painted, not covered, at ${frame.at} ms`).toBe(true);
+      }
+    }
+    expect(frames.at(-1)!.loaded, `${label}: the preview never loaded`).toBe(true);
   };
 
   /// The agent pane's dev entry with its in-page mock agent; the host answers `answers`' methods.
@@ -239,7 +278,7 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
     }
   });
 
-  test("sent into a chat that rises: the screenshot rises with its row, in place in it", async () => {
+  test("sent from the latest row of a chat that rises: the screenshot's copy lands in its slot, which rises with its row", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 520 } });
     try {
       await openPane(page);
@@ -259,7 +298,7 @@ await requireBrowserLane("agent-pane-send-transition.test.ts", async () => {
       const chip = await pasteScreenshot(page);
       await watchSentRow(page, "img.cv-user__image, .cv-user__image-placeholder");
       await page.keyboard.press("Enter");
-      expectInPlace(await sentFrames(page), chip, "overflowing chat");
+      expectMorphed(await sentFrames(page), chip, "overflowing chat");
     } finally {
       await page.close();
     }

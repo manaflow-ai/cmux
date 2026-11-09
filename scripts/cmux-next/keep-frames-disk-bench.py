@@ -117,7 +117,7 @@ def main():
             report["launch_failure"] = {"reason": error.reason, "detail": error.report.get("detail")}
             raise
         pid = bench.process.pid
-        # Beside the sidebar snapshot: a tagged build's state folder, cmux/tags/<tag>/ (SidebarSnapshotFile).
+        # Beside the sidebar snapshot: a tagged build's state folder, cmux-next/tags/<tag>/ (SidebarSnapshotFile).
         directory = os.path.join(bench.state_root(), "terminal-launch-frames")
         heavy_out = os.path.join(opts.out, "heavy")
         built = subprocess.run([sys.executable, KIT, "build", "--tag", opts.tag, "--app-socket", bench.socket,

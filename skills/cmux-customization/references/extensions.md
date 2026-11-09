@@ -89,6 +89,25 @@ views" in the Command Palette (no scope), `cmux action run app.open --app local/
 The whole op list with scopes is `cmux-tui/crates/cmux-app-host/generated/cmux-app.d.ts`
 (`cmux script types` prints it).
 
+## Chat widgets
+
+An app can draw a card inside a Home chat (plans/cmux-next/chat-widgets-DESIGN.md).
+It implements `cmux.chat.widget/1` with a render export; an agent sends a message
+part naming the app:
+
+```json
+{"type": "widget", "app": "cmux/pr-card", "props": {"repo": "manaflow-ai/cmux", "number": 38629},
+ "fallback": "PR #38629: Model picker finds any model", "url": "https://github.com/manaflow-ai/cmux/pull/38629"}
+```
+
+The Chief sends it with `send` `widget: {app, props, fallback, url?}`. The export gets
+`ctx.props` and `ctx.widget.key` (`<message>#<part>`) and returns a view; cmux draws it
+natively in the bubble (Text, Row, Button, a row of Buttons in an `HStack`, Badge,
+Divider, EmptyState, Panel titles; at most 14 items). Page long lists yourself (a page
+signal and Previous/Next), keep state that must outlive a relaunch in `cmux.storage`
+under `ctx.widget.key`, and refresh with `cmux.timer.every`. Clients without the app
+(the iPhone, a Mac without it) show `fallback`. Example: `samples/apps/pr-card`.
+
 ## Missing
 
 - **A titlebar or toolbar button.** `cmux.status/1` (a titlebar, room bar,

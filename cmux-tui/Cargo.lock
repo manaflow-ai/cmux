@@ -20,6 +20,7 @@ dependencies = [
  "clap",
  "cmux-agent-pane-policy",
  "cmux-chat-index",
+ "cmux-cloud-api",
  "cmux-cloud-client",
  "cmux-coderouter",
  "cmux-codex-acp",
@@ -1615,14 +1616,6 @@ dependencies = [
  "libc",
  "objc2-app-kit",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "cmux-mux2"
-version = "0.1.0"
-dependencies = [
- "ghostty-vt",
- "libc",
 ]
 
 [[package]]

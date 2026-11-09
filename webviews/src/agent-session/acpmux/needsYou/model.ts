@@ -12,6 +12,7 @@
 import type { AcpmuxAgentPair, AcpmuxPermission, AcpmuxRow, QueuedPrompt } from "../model";
 import { questionSummary, type AgentQuestion } from "../question/model";
 import type { AcpmuxSessionEntry } from "../sessionList";
+import { sessionIndex } from "../sessionIndex";
 import type { AttentionTab } from "./attentionTabs";
 
 /// What the ask wants: an allow or deny of a tool (`approval`), a pick among choices
@@ -102,7 +103,9 @@ const VERIFY = /^\s*(?:please\s+|can you\s+|could you\s+)?(?:verify|check|confir
 const CHIEF_NAME = /^chief\b/i;
 
 export function needsYouItems(input: NeedsYouInput): NeedsYouItem[] {
-  const byId = new Map(input.sessions.map((session) => [session.sessionId, session]));
+  // The list's shared index (sessionIndex.ts): its id map, and the few chats waiting on the person,
+  // so one session's change costs that session here, not a pass over every listed chat.
+  const byId = sessionIndex(input.sessions);
   const items: NeedsYouItem[] = [];
   const asked = new Set<string>();
   for (const watched of input.asks) {
@@ -148,8 +151,8 @@ export function needsYouItems(input: NeedsYouInput): NeedsYouItem[] {
   }
   // A chat that waits on the person with no ask read here (a chat on another computer, a grouped
   // request, or one whose ask is still being read): one item, so it is never missing from the list.
-  for (const session of input.sessions) {
-    if (asked.has(session.sessionId) || session.archived || !waitsOnPerson(session)) continue;
+  for (const session of byId.of("waiting")) {
+    if (asked.has(session.sessionId)) continue;
     items.push({
       id: `chat:${session.sessionId}`,
       ...waitingAsk(session),
@@ -162,18 +165,6 @@ export function needsYouItems(input: NeedsYouInput): NeedsYouItem[] {
   for (const tab of input.tabs ?? []) items.push(tabItem(tab));
   // Newest first, as every list of chats in the pane; an ask without a time last.
   return items.sort((a, b) => (b.at ?? 0) - (a.at ?? 0));
-}
-
-/// Something is pending on the person: acpmux counts an open request, names what the chat waits
-/// on, or says the chat is `waiting` (a secret request sets that with neither, hub/secrets.rs). A
-/// chat on another computer, or one whose status is unknown, still shows by its indicator alone. A
-/// local chat acpmux says is not waiting has nothing pending, whatever its dot last said. A chat
-/// acpmux marks `lost` (its machine is unreachable) waits on nobody: no one can answer its ask now,
-/// and the sidebar and tab strip mark it as an error, not as waiting (cx-zlox).
-function waitsOnPerson(session: AcpmuxSessionEntry): boolean {
-  if (session.indicator === "lost") return false;
-  if ((session.pendingPermissions ?? 0) > 0 || session.waitingOn || session.status === "waiting") return true;
-  return session.indicator === "input" && (Boolean(session.peer) || session.status === undefined);
 }
 
 /// What a chat whose ask is not read here waits on, as acpmux names it: a question by its first
@@ -193,7 +184,7 @@ function waitingAsk(session: AcpmuxSessionEntry): Pick<NeedsYouItem, "kind" | "a
 function askItem(
   watched: WatchedAsk,
   session: AcpmuxSessionEntry | undefined,
-  byId: ReadonlyMap<string, AcpmuxSessionEntry>,
+  byId: Pick<ReadonlyMap<string, AcpmuxSessionEntry>, "get">,
 ): NeedsYouItem {
   const { permission } = watched;
   const question = permission.question;
@@ -251,7 +242,7 @@ export function heldPairs(rows: readonly AcpmuxRow[]): AcpmuxAgentPair[] {
 function who(
   session: AcpmuxSessionEntry | undefined,
   sessionId: string,
-  byId: ReadonlyMap<string, AcpmuxSessionEntry>,
+  byId: Pick<ReadonlyMap<string, AcpmuxSessionEntry>, "get">,
 ): NeedsYouWho {
   const name = session?.displayTitle ?? session?.name ?? sessionId;
   const parent = session?.spawnedBy ? byId.get(session.spawnedBy) : undefined;

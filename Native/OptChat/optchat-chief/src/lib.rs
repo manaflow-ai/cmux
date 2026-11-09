@@ -9,6 +9,7 @@
 pub mod acpmux;
 pub mod acpmux_daemon;
 pub mod acpmux_peer;
+pub mod acpmux_wrapper;
 pub mod agent_chat;
 pub mod agent_keys;
 pub mod agent_memory;

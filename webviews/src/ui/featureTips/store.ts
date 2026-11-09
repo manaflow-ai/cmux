@@ -12,10 +12,6 @@ export interface TipHost {
   write(id: string, record: TipRecord): Promise<unknown>;
   /** Asks to show tip `id` about `feature`: true at most once per tip per install. */
   claim(id: string, feature: string | undefined): Promise<boolean>;
-  /** Takes `id` outside the tip budget, kept `closed` in the same step: true only to the first
-   *  caller per install, so two panes asking at once never both get it. For a one-time line that is
-   *  not a feature tip (the share nudge). */
-  reserve(id: string): Promise<boolean>;
 }
 
 /** The fewest days between two tips (Swift AgentPaneFeatureTipRecords.minimumDaysBetweenTips). */
@@ -44,11 +40,6 @@ export function memoryTipHost(initial: Record<string, string> = {}): TipHost & {
       if (host.lastShownAt !== null && host.now() - host.lastShownAt < TIP_INTERVAL_DAYS * 86_400_000) return false;
       host.records[id] = "shown";
       host.lastShownAt = host.now();
-      return true;
-    },
-    reserve: async (id: string) => {
-      if (host.records[id] !== undefined) return false;
-      host.records[id] = "closed";
       return true;
     },
   };

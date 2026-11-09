@@ -140,9 +140,20 @@ test("seen live, it shows once and the app keeps its record before it draws", as
   expect(state.current?.shown).toBe(false);
   await render(answered);
   expect(state.current?.shown).toBe(true);
-  expect(host.records[SHARE_NUDGE_ID]).toBe("closed");
+  // The app's claim keeps it and spends the tips' one 14-day budget.
+  expect(host.records[SHARE_NUDGE_ID]).toBe("shown");
+  expect(host.lastShownAt).not.toBeNull();
   await act(async () => state.current?.close());
   expect(state.current?.shown).toBe(false);
+});
+
+test("a tip that showed in the last 14 days holds the nudge for good", async () => {
+  const host = memoryTipHost();
+  host.lastShownAt = host.now() - 86_400_000;
+  const { state, render } = await mount(host, running);
+  await render(answered);
+  expect(state.current?.shown).toBe(false);
+  expect(host.records[SHARE_NUDGE_ID]).toBeUndefined();
 });
 
 test("a footer that lands a snapshot after the turn stops still shows it", async () => {
@@ -182,25 +193,24 @@ test("it goes when the next turn starts or a second chat appears", async () => {
   expect(second.state.current?.shown).toBe(false);
 });
 
-test("an app that cannot reserve the record shows no nudge", async () => {
+test("an app that keeps no records shows no nudge", async () => {
   const host: TipHost = {
     ...memoryTipHost(),
-    reserve: () => Promise.reject(new Error("tips.state.unsupported")),
+    read: () => Promise.reject(new Error("tips.state.noRecords")),
+    claim: () => Promise.reject(new Error("tips.state.unsupported")),
   };
   const { state, render } = await mount(host, running);
   await render(answered);
   expect(state.current?.shown).toBe(false);
 });
 
-test("two panes ending a turn at once: only one shows it, and no tip budget is spent", async () => {
+test("two panes ending a turn at once: the app's claim gives it to one only", async () => {
   const host = memoryTipHost();
   // Both panes ask before either answer lands, as two windows would.
-  const asked = await Promise.all([host.reserve(SHARE_NUDGE_ID), host.reserve(SHARE_NUDGE_ID)]);
+  const asked = await Promise.all([host.claim(SHARE_NUDGE_ID, undefined), host.claim(SHARE_NUDGE_ID, undefined)]);
   expect(asked.filter(Boolean)).toHaveLength(1);
-  expect(host.records[SHARE_NUDGE_ID]).toBe("closed");
-  expect(host.lastShownAt).toBeNull();
 
-  // Through the hook: the pane that loses the reservation draws nothing.
+  // Through the hook: a second pane on the same install draws nothing.
   const fresh = memoryTipHost();
   const first = await mount(fresh, running);
   await first.render(answered);

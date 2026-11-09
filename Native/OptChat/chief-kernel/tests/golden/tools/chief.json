@@ -462,6 +462,33 @@
         "text": {
           "description": "The message, in Markdown.",
           "type": "string"
+        },
+        "widget": {
+          "type": "object",
+          "description": "A card drawn natively in the chat by an installed cmux app's cmux.chat.widget/1 export (a PR status card: app cmux/pr-card, props {repo, number}). Clients without the app show fallback.",
+          "properties": {
+            "app": {
+              "type": "string",
+              "description": "The app id, publisher/name."
+            },
+            "props": {
+              "type": "object",
+              "description": "The widget's input data (at most 16 KiB)."
+            },
+            "fallback": {
+              "type": "string",
+              "description": "Plain text shown where the widget cannot draw (iPhone, notifications)."
+            },
+            "url": {
+              "type": "string",
+              "description": "An https link older builds show."
+            }
+          },
+          "required": [
+            "app",
+            "fallback"
+          ],
+          "additionalProperties": false
         }
       },
       "type": "object"

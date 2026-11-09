@@ -11,6 +11,10 @@ import Testing
 struct AgentPaneFeatureTipsTests {
     private static let browserTip = "agents-drive-visible-browser-tabs"
 
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
     private func defaults() throws -> UserDefaults {
         let suite = "AgentPaneFeatureTipsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(testSuiteName: suite))
@@ -27,14 +31,11 @@ struct AgentPaneFeatureTipsTests {
             == .featureTips(.claim(id: Self.browserTip, feature: "browser")))
         #expect(AgentPaneRequest(body: ["method": "tips.state", "params": ["claim": Self.browserTip]])
             == .featureTips(.claim(id: Self.browserTip, feature: nil)))
-        #expect(AgentPaneRequest(body: ["method": "tips.state", "params": ["reserve": "share-nudge"]])
-            == .featureTips(.reserve(id: "share-nudge")))
         let refused: [[String: Any]] = [
             ["id": "tip"], ["state": "closed"], ["id": "Tip", "state": "closed"], ["id": "tip", "state": "shown"],
             ["id": "tip", "state": "open"], ["id": "../tip", "state": "used"], ["id": 3, "state": "used"],
             ["id": String(repeating: "a", count: 81), "state": "used"], ["claim": "Tip"], ["claim": 1],
             ["claim": "tip", "feature": "Browser"], ["claim": "tip", "id": "tip"], ["id": "tip", "state": "used", "x": 1],
-            ["reserve": "Share"], ["reserve": 1], ["reserve": "share-nudge", "feature": "browser"],
         ]
         for params in refused {
             #expect(AgentPaneRequest(body: ["method": "tips.state", "params": params]) == .unsupported("tips.state"))
@@ -53,17 +54,6 @@ struct AgentPaneFeatureTipsTests {
         relaunched.settleInstall(launchedBefore: true)
         #expect(!relaunched.claim(Self.browserTip, feature: "browser"))
         #expect(relaunched.records[Self.browserTip] == "shown")
-    }
-
-    /// A reservation goes to the first caller only, is kept `closed`, and spends no tip budget.
-    @Test func reserveIsFirstCallerOnlyAndOutsideTheBudget() throws {
-        let shared = try defaults()
-        let store = AgentPaneFeatureTipRecords(defaults: shared)
-        store.settleInstall(launchedBefore: false)
-        #expect(store.reserve("share-nudge"))
-        #expect(!AgentPaneFeatureTipRecords(defaults: shared).reserve("share-nudge"))
-        #expect(store.records["share-nudge"] == "closed")
-        #expect(store.claim(Self.browserTip, feature: "browser"))
     }
 
     @Test func neverWhenTheBrowserWasUsed() throws {
@@ -126,5 +116,19 @@ struct AgentPaneFeatureTipsTests {
     @Test func theChatFollowsTheToggle() {
         let root = JSONValue.object(["updates": .object(["showFeatureTips": .bool(false)])])
         #expect(AgentPaneDisplaySetting(fileRoot: root).values["updates.showFeatureTips"] == .bool(false))
+    }
+
+    /// A page reads its tip records on every mount, the prewarmed New Tab spare's too: that read is
+    /// boot traffic and leaves the page untouched, so an existing chat's open (a subagent, a side
+    /// chat, a sender's chat on the right) still adopts the spare instead of making a cold page.
+    /// Every subagent open was refused the spare as "touched by featureTips". Leo, 2026-11-05:
+    /// "things just don't [freaking] open up fast enough on the right. / links. subagents. all".
+    @MainActor @Test func readingTheTipsLeavesTheSpareUntouched() async throws {
+        let model = AgentPaneModel(host: NoHost())
+        model.featureTipRecords = AgentPaneFeatureTipRecords(defaults: try defaults())
+        _ = await model.respond(to: .featureTips(.read))
+        #expect(!model.userTouched, "touched by \(model.touchedBy ?? "?")")
+        _ = await model.respond(to: .featureTips(.keep(id: Self.browserTip, state: "closed")))
+        #expect(model.userTouched)
     }
 }

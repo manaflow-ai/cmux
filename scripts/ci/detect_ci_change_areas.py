@@ -1157,6 +1157,11 @@ def is_web_change(path: str) -> bool:
         return True
     if path == "CHANGELOG.md":
         return True
+    # web/tests/next-docs.test.ts compares the generated docs references with
+    # these (web_subareas.UNIT_TESTS_EXACT); #38631 changed the catalog alone,
+    # skipped Web tests and turned them red on base.
+    if path in ("plans/cmux-next/action-surfaces.json", "schemas/settings/settings-schema.json"):
+        return True
     if is_web_bundle_input(path):
         return True
     return path in {

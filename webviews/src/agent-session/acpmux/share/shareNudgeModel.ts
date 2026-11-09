@@ -4,12 +4,12 @@
 // chat. Sharing is otherwise only in the chat's ••• menu (design chat-multiplayer.md, "Share
 // dialog"), so a new person had no way to learn a chat can be shared.
 //
-// Once per install is the app's to keep, like a feature tip's (design feature-tips.md): before the
-// line draws, the page reserves the nudge's record (`tips.state {reserve: "share-nudge"}`, kept
-// `closed` in the app's defaults in the same step as the check, so two panes ending a turn at once
-// never both show it; it spends no tip budget). An app that cannot reserve shows none, since a line
-// that could not stay gone must not show at all. No timer, no observer: it reacts to the turn's end
-// and to the person.
+// Once per install is the app's to keep, like a feature tip's (design feature-tips.md): the page
+// claims the nudge (`tips.state {claim: "share-nudge"}`, the app's defaults) before the line draws,
+// which the app grants only with no other tip in the last 14 days. The app checks the record and
+// keeps it in one step, so two panes ending a turn at once never both show it. An app that keeps no records
+// shows none, since a line that could not stay gone must not show at all. No timer, no observer:
+// it reacts to the turn's end and to the person.
 import { useEffect, useRef, useState } from "react";
 import type { TipHost } from "../../../ui/featureTips/store";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
@@ -135,18 +135,25 @@ export function useShareNudge(
     if (!ready) return;
     setPhase("asking");
     const session = chat.sessionId;
-    // Kept before it draws, by the app in one step: a page that reloads, or another pane or window
-    // ending a turn at the same time, never shows it again.
-    void host.reserve(SHARE_NUDGE_ID).then(
-      (show) => {
-        if (!mounted.current) return;
-        setShownIn(show ? session : undefined);
-        setPhase(show ? "shown" : "done");
-      },
-      () => {
-        if (mounted.current) setPhase("done");
-      },
-    );
+    void host
+      .read()
+      .then(async (state) => {
+        if (state.records[SHARE_NUDGE_ID] !== undefined) return false;
+        // The app's claim keeps it before it draws (a page that reloads, or another window, never
+        // shows it again) and says no within 14 days of any other tip: it spends the one budget
+        // the feature tips, the Cloud hint and the sidebar's card share.
+        return host.claim(SHARE_NUDGE_ID, undefined);
+      })
+      .then(
+        (show) => {
+          if (!mounted.current) return;
+          setShownIn(show ? session : undefined);
+          setPhase(show ? "shown" : "done");
+        },
+        () => {
+          if (mounted.current) setPhase("done");
+        },
+      );
   }, [ready, chat.sessionId, host]);
   // The moment passed: the person sent again, moved to another chat, made a second one, or
   // turned tips off.
