@@ -530,6 +530,17 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     crate::hub::watches::Watches::start(&hub);
     // The team hub's relay, when config.json names one (`server/mesh_relay.rs`).
     let mesh_relay = crate::server::mesh_relay::start_configured(&hub).await;
+    // The hub carrier on the same hub and credential (`hub_carrier.rs`): this machine serves its
+    // relay slot, and its peers dial over it. A copied home is off, as WireGuard is.
+    #[cfg(feature = "hub-carrier")]
+    let _hub_carrier = if clone_unsettled {
+        None
+    } else {
+        let websocket = ws_listener.as_ref().and_then(|(l, _)| l.local_addr().ok());
+        // The carrier runs only on the lock the WireGuard transport holds; it never takes its own.
+        let held = wireguard.as_ref().and_then(|transport| transport.key_holder());
+        crate::hub_carrier::start_configured(&hub, &home(), websocket, held).await
+    };
     // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
     hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));
     if let Some(key) = person_key {
@@ -634,8 +645,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     } else {
         None
     };
-    // A new peer token at every launch (`server/peer_auth.rs`): the only
-    // proof of a peer daemon, read by it over ssh, never over an RPC.
+    // A new peer token at every launch (`server/peer_auth.rs`), read by a peer over ssh only.
     let peer = if ws_listener.is_some() {
         match crate::server::peer_auth::PeerAuth::create(&home()) {
             Ok(auth) => Some(std::sync::Arc::new(auth)),
@@ -650,6 +660,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     };
     let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
     let peer_file = peer.as_ref().map(|a| a.path().to_owned());
+    let carrier_file = crate::server::carrier::start(&hub, &home()).await;
     let ws_shutdown = hub.ws_shutdown.clone();
     let ws_task = ws_listener.map(|(l, token)| {
         let auth = crate::server::WsAuth { local_app, peer };
@@ -1024,7 +1035,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     recheck_home();
     if !crate::config::home_lost() {
         let _ = std::fs::remove_file(home().join("daemon.pid"));
-        for file in [local_app_file, peer_file].into_iter().flatten() {
+        for file in [local_app_file, peer_file, carrier_file].into_iter().flatten() {
             let _ = std::fs::remove_file(file);
         }
     }

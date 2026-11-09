@@ -82,7 +82,8 @@ pub enum Via {
     Url,
     /// `ssh -W` to the configured `ssh://` URL.
     Ssh,
-    /// The hub relay (no live stream yet: never dialed, see [`Via::streams`]).
+    /// The hub relay: the hub carrier's stream with the `hub-carrier` feature, else mailbox
+    /// sends only and never dialed (see [`Via::streams`]).
     Hub,
 }
 
@@ -111,11 +112,11 @@ impl Via {
             .find(|via| via.as_str() == text)
     }
 
-    /// Whether this path can carry the peer's WebSocket today. The hub relay carries mailbox
-    /// sends only; when its stream carrier lands this turns true and it is dialed and probed
-    /// like the rest.
+    /// Whether this path can carry the peer's WebSocket. The hub relay does through the hub
+    /// carrier (`hub_carrier.rs`, the `hub-carrier` feature), and then it is dialed and probed
+    /// like the rest; without it the relay carries mailbox sends only.
     pub fn streams(self) -> bool {
-        !matches!(self, Self::Hub)
+        !matches!(self, Self::Hub) || cfg!(feature = "hub-carrier")
     }
 
     /// The selector compares paths by class first and only then by round trip: every path
@@ -216,7 +217,7 @@ impl Paths {
         self.paths.iter().map(|path| path.via)
     }
 
-    /// The paths that can carry a WebSocket (every one but the hub, today).
+    /// The paths that can carry a WebSocket (every one but the hub without the hub carrier).
     pub fn stream_vias(&self) -> Vec<Via> {
         self.vias().filter(|via| via.streams()).collect()
     }

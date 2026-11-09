@@ -194,18 +194,25 @@ impl LinkCell {
         let mut in_burst = 0_u32;
         let mut delay = policy.initial_delay;
         let mut reason: Option<String> = None;
+        // The deadline is polled first in every wait, as `ClientConnection`'s is: a wait that
+        // is ready at or past it still loses, so nothing goes on after it.
         loop {
-            if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
+            if expired(deadline) {
                 return Err(self.fail(DialStop::DeadlineExceeded { attempts }.into()));
             }
             while let Err(next) = bucket.take(tokio::time::Instant::now()) {
                 self.phase.send_replace(LinkPhase::Disconnected { reason: reason.clone() });
                 tokio::select! {
-                    () = tokio::time::sleep_until(next) => {}
+                    biased;
                     () = until(deadline) => {
                         return Err(self.fail(DialStop::DeadlineExceeded { attempts }.into()));
                     }
+                    () = tokio::time::sleep_until(next) => {}
                 }
+            }
+            // A token that arrived at the deadline starts nothing.
+            if expired(deadline) {
+                return Err(self.fail(DialStop::DeadlineExceeded { attempts }.into()));
             }
             attempts = attempts.saturating_add(1);
             in_burst = in_burst.saturating_add(1);
@@ -216,14 +223,14 @@ impl LinkCell {
             let mut network_moved = false;
             let outcome = tokio::select! {
                 biased;
+                () = until(deadline) => {
+                    return Err(self.fail(DialStop::DeadlineExceeded { attempts }.into()));
+                }
                 outcome = attempt() => outcome,
                 // A dial on the network that went away may hang until its timeout; drop it.
                 Ok(()) = network.changed() => {
                     network_moved = true;
                     DialOutcome::Retry(DialStop::NetworkChanged.into())
-                }
-                () = until(deadline) => {
-                    return Err(self.fail(DialStop::DeadlineExceeded { attempts }.into()));
                 }
             };
             let error = match outcome {
@@ -256,6 +263,9 @@ impl LinkCell {
             // flight still wakes the park.
             let woken = tokio::select! {
                 biased;
+                () = until(deadline) => {
+                    return Err(self.fail(DialStop::DeadlineExceeded { attempts }.into()));
+                }
                 Ok(()) = network.changed() => {
                     network.borrow_and_update();
                     true
@@ -265,9 +275,6 @@ impl LinkCell {
                     true
                 }
                 () = tokio::time::sleep(wait) => false,
-                () = until(deadline) => {
-                    return Err(self.fail(DialStop::DeadlineExceeded { attempts }.into()));
-                }
             };
             if parking || woken {
                 in_burst = 0;
@@ -283,6 +290,10 @@ impl LinkCell {
         self.phase.send_replace(LinkPhase::Failed { reason: error.to_string() });
         error
     }
+}
+
+fn expired(deadline: Option<tokio::time::Instant>) -> bool {
+    deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline)
 }
 
 /// Resolves at `deadline`, or never without one.
