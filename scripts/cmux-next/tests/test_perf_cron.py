@@ -470,16 +470,25 @@ class DiffTests(unittest.TestCase):
         self.assertFalse(cron.over_target("diff.sidecar.manifest_decode_p95", rows["diff.sidecar.manifest_decode_p95"], None))
         self.assertEqual(cron.part_for_row("diff.stream.p95"), "diff-viewer")
 
-    def test_a_busy_runner_divides_each_diff_row_by_its_bench_contention(self):
+    def test_a_busy_runner_divides_the_stream_row_by_its_bench_contention(self):
         report = {"sidecar": {"manifestDecodeP95Micros": 400, "sequentialReadMibPerSecond": 1024.0},
-                  "stream": {"p95Ms": 120.0}, "load": {"sidecar": 2.0, "stream": 1.0}}
+                  "stream": {"p95Ms": 120.0}, "load": {"sidecar": 1.0, "stream": 2.0}}
         rows = cron.rows_of_part(cron.PART_BY_NAME["diff-viewer"], report, budgets_mod, {"rows": {}})
-        self.assertEqual(rows["diff.sidecar.manifest_decode_p95"]["p95"], 200)
-        self.assertEqual(rows["diff.sidecar.manifest_decode_p95"]["raw_p95"], 400)
-        self.assertEqual(rows["diff.sidecar.manifest_decode_p95"]["load"], 2.0)
-        self.assertEqual(rows["diff.sidecar.read_ms_per_gib"]["p95"], 500.0)
-        self.assertEqual(rows["diff.stream.p95"]["p95"], 120.0, "a factor of 1 leaves the row as measured")
-        self.assertNotIn("load", rows["diff.stream.p95"])
+        self.assertEqual(rows["diff.stream.p95"]["p95"], 60.0)
+        self.assertEqual(rows["diff.stream.p95"]["raw_p95"], 120.0)
+        self.assertEqual(rows["diff.stream.p95"]["load"], 2.0)
+        self.assertEqual(rows["diff.sidecar.manifest_decode_p95"]["p95"], 400, "a factor of 1 leaves the row as measured")
+        self.assertNotIn("load", rows["diff.sidecar.manifest_decode_p95"])
+
+    def test_the_sidecar_medians_of_short_reads_are_never_scaled(self):
+        """#39309 F1: a busy run's 89.22 ms/GiB divided by 4 would make the next idle 74.03 a regression."""
+        report = {"sidecar": {"manifestDecodeP95Micros": 400, "sequentialReadMibPerSecond": 1024 * 1000 / 89.22},
+                  "stream": {"p95Ms": 120.0}, "load": {"sidecar": 4.0, "stream": 1.0}}
+        rows = cron.rows_of_part(cron.PART_BY_NAME["diff-viewer"], report, budgets_mod, {"rows": {}})
+        self.assertEqual(rows["diff.sidecar.read_ms_per_gib"]["p95"], 89.22)
+        self.assertEqual(rows["diff.sidecar.read_ms_per_gib"]["load"], 4.0)
+        self.assertNotIn("raw_p95", rows["diff.sidecar.read_ms_per_gib"])
+        self.assertEqual(rows["diff.sidecar.manifest_decode_p95"]["p95"], 400)
 
     def test_the_contention_factor_is_the_median_clamped(self):
         self.assertEqual(cron.contention_factor([1.01, 0.97, 1.0]), 1.0)

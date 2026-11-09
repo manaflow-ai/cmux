@@ -512,13 +512,17 @@ def rows_of_part(part, report, budgets_mod, budgets):
         versions = report.get("bench_versions") if isinstance(report.get("bench_versions"), dict) else {}
         load = report.get("load") if isinstance(report.get("load"), dict) else {}
         for name, (v, unit, floor) in values.items():
-            # Every diff row is a time (us, ms/GiB, ms): on a busy runner it is divided by its bench's contention.
-            factor = load.get(name.split(".")[1])
+            # On a busy runner a row of a LOAD_SCALED_BENCHES bench is divided by its bench's contention; any other
+            # row only records it.
+            bench = name.split(".")[1]
+            factor = load.get(bench)
             factor = factor if isinstance(factor, (int, float)) and factor > 1 else None
-            scaled = round(v / factor, 4) if factor else v
+            scaled = round(v / factor, 4) if factor and bench in LOAD_SCALED_BENCHES else v
             out[name] = {"p50": scaled, "p95": scaled, "unit": unit, "budget": DIFF_BUDGETS[name], "floor": floor}
             if factor:
-                out[name].update(raw_p95=v, load=factor)
+                out[name]["load"] = factor
+                if scaled != v:
+                    out[name]["raw_p95"] = v
             version = versions.get(name.split(".")[1])  # sidecar or stream
             out[name]["measure_version"] = version if isinstance(version, int) else DIFF_LEGACY_VERSION
     elif part["kind"] == "webui":
@@ -671,7 +675,12 @@ def version_changed(rows, base_rows):
 # when every core is taken, which is how much longer any CPU-bound step takes than on that host idle. The part probes
 # before and after each bench (none of the bench's processes run then) and divides that bench's time rows by the
 # median (rows_of_part); the web-ui part's suite does the same per bench itself (webviews/bench/hostLoad.ts).
+# Only a row whose samples are long enough to share the spin's slowdown is scaled (LOAD_SCALED_BENCHES): the sidecar
+# reports the median of short 16 MiB reads, which mostly picks reads the scheduler left whole, so dividing it by the
+# spin's factor turned a busy run's 89 ms/GiB into 22 and made the next idle 74 a regression (#39309 F1). Its rows
+# keep the factor as load, unscaled.
 CONTENTION_SPIN_S, CONTENTION_SPINS, CONTENTION_MAX = 0.02, 9, 8.0
+LOAD_SCALED_BENCHES = {"stream"}
 
 
 def spin_ratio(spin_s=CONTENTION_SPIN_S):
