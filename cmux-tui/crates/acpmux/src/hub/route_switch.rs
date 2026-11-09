@@ -413,8 +413,12 @@ impl Hub {
         });
         // A codex chat on a router, proxy or key with no fallback of its own may always go back to
         // the signed-in Codex login it would run on with no route at all, and does by itself.
-        let signed_in = named
-            .is_none()
+        // A route that names fallbacks of its own keeps to them, even when none can take the chat
+        // now: only one that names none moves by itself.
+        let signed_in = route
+            .file
+            .fallback
+            .is_empty()
             .then(|| account_fallback(&route, &family, home.as_deref(), dir.as_deref()))
             .flatten();
         if unbound && signed_in.is_none() {
@@ -477,7 +481,13 @@ fn account_fallback(
                 && a.file.account_home.as_deref().map(std::path::Path::new) == Some(h)
         })
     });
-    builtin.into_iter().chain(accounts).find(|r| {
+    // The accounts after the one that failed come first, then the rest: with A and B both out of
+    // their limits, a chat moves A -> B -> C, never back and forth between A and B.
+    let mut candidates: Vec<_> = builtin.into_iter().chain(accounts).collect();
+    if let Some(at) = candidates.iter().position(|r| r.id == failed.id) {
+        candidates.rotate_left(at + 1);
+    }
+    candidates.into_iter().find(|r| {
         if r.id == failed.id || r.file.disabled || !r.serves(family) {
             return false;
         }

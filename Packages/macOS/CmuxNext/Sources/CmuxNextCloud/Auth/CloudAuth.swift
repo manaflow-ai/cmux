@@ -27,6 +27,11 @@ public final class CloudAuth {
     public var isSignedIn: Bool { coordinator.isAuthenticated }
     public var isRestoring: Bool { coordinator.isRestoringSession }
     public var user: CMUXAuthUser? { coordinator.currentUser }
+    /// The signed-in account's platform user id (`user_…`, the API's `userIdFor`): the id a cmux-next
+    /// machine record names its `creator` by, never the Stack id in ``user``.
+    public var platformUserID: String? {
+        user.map { CloudAccessToken.backendUserID(stackProjectID: configuration.stackProjectID, stackUserID: $0.id) }
+    }
     /// The team cmux works in; every team-scoped feature reads it (``ActiveTeam``).
     @ObservationIgnored public let activeTeam: ActiveTeam
     /// The device's managed team (``ActiveTeam/managedTeamID``).
@@ -38,9 +43,12 @@ public final class CloudAuth {
     public var teams: [CMUXAuthTeam] { activeTeam.teams }
     /// The team API calls use (``ActiveTeam/id``).
     public var teamID: String? { activeTeam.id }
+    /// Who is signed in and in which team, nil signed out: a change means the account's data (its
+    /// machines, its team's lists) belongs to someone else now. Observable (both halves are).
+    public var accountKey: String? { isSignedIn ? "\(user?.id ?? "")|\(teamID ?? "")" : nil }
 
-    /// How a launch signs in from the credentials it was given (``DogfoodCredentials``).
-    struct LaunchSignIn: Equatable {
+    /// How a launch signs in from the credentials it was given (Rust's `LaunchSignIn`, cmux-cloud-config `auth`).
+    struct LaunchSignIn: Equatable, Codable {
         /// The debug sign-in surface: the ambient dogfood files and the `42` shortcut.
         var devAuth: Bool
         /// Whether the launch resolves credentials and signs in from them.
@@ -50,51 +58,92 @@ public final class CloudAuth {
         /// Whether the session lives in memory only: never read from or written to the Keychain, the
         /// credentials file or the defaults, so it ends with the process.
         var memoryOnly = false
+
+        static let noSignIn = LaunchSignIn(devAuth: false, autoLogin: false, replacesSession: false)
     }
 
-    /// ``LaunchSignIn`` for `configuration` launched with `environment`. The signed NEXT DEV build (a Release
-    /// compile) signs in only from an explicit `CMUX_AUTH_CREDENTIALS_FILE` (the proof passes it), never the
-    /// ambient files, keeps a session already signed in unless told to replace it, and gets no debug sign-in
-    /// surface. Signed cmux NIGHTLY signs in from an explicit file the same way, for end-to-end checks on a CI
-    /// Mac, with that launch's session in memory only (``LaunchSignIn/memoryOnly``): it never reads, writes or
-    /// replaces the session in its Keychain, and the next launch without the file is back on that session.
-    /// Every other Release build never signs in from the launch.
-    nonisolated static func launchSignIn(configuration: CloudConfiguration, environment: [String: String]) -> LaunchSignIn {
-        let explicitCredentialsFile = environment["CMUX_AUTH_CREDENTIALS_FILE"].map { !$0.isEmpty } ?? false
-        if !configuration.isDebugBuild, configuration.bundleID == nightlyBundleID, configuration.isProductionAuth,
-           explicitCredentialsFile {
-            return LaunchSignIn(devAuth: false, autoLogin: true, replacesSession: false, memoryOnly: true)
+    /// The facts Rust's launch rules read.
+    private struct Build: Encodable {
+        var bundleId: String?, isDebugBuild: Bool, isProductionAuth: Bool
+        init(_ configuration: CloudConfiguration) {
+            bundleId = configuration.bundleID
+            isDebugBuild = configuration.isDebugBuild
+            isProductionAuth = configuration.isProductionAuth
         }
-        if !configuration.isDebugBuild, configuration.bundleID == "com.cmuxterm.app.debug.next", explicitCredentialsFile {
-            return LaunchSignIn(devAuth: false, autoLogin: explicitCredentialsFile,
-                                replacesSession: explicitCredentialsFile && environment["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1")
-        }
-        let devAuth = configuration.isDebugBuild && (!configuration.isProductionAuth || explicitCredentialsFile)
-        let replaces = environment["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1"
-            || environment["CMUX_DEV_AUTH_PROFILE"] != nil || environment["CMUX_AUTH_CREDENTIALS_FILE"] != nil
-        return LaunchSignIn(devAuth: devAuth, autoLogin: devAuth, replacesSession: devAuth && replaces)
     }
 
-    /// Signed cmux NIGHTLY, the one shipped build that signs in from an explicit credentials file.
-    nonisolated static let nightlyBundleID = "com.cmuxterm.app.nightly"
+    /// ``LaunchSignIn`` for `configuration` launched with `environment` (Rust's `launch_sign_in`), and the files its
+    /// account pick reads. An FFI that does not answer never signs in from the launch.
+    nonisolated static func launchSignIn(configuration: CloudConfiguration, environment: [String: String],
+                                         home: String = NSHomeDirectory()) -> (signIn: LaunchSignIn, paths: [String]) {
+        struct Request: Encodable { var build: Build, environment: [String: String], home: String }
+        struct Reply: Decodable { var signIn: LaunchSignIn, paths: [String] }
+        let request = Request(build: Build(configuration), environment: environment, home: home)
+        guard let reply = CloudStartCore().call("cloud_auth_launch_sign_in", request, as: Reply.self) else { return (.noSignIn, []) }
+        return (reply.signIn, reply.paths)
+    }
 
-    /// The variables that choose a debug build's sign-in account. main strips
-    /// inherited CMUX_* variables before anything reads them (LaunchIdentity),
-    /// so these are captured first and reach CloudAuth only, never a child.
-    nonisolated static let authLaunchKeyNames: Set<String> = [
-        "CMUX_AUTH_CREDENTIALS_FILE", "CMUX_DEV_AUTH_PROFILE", "CMUX_DEV_AUTH_ACCOUNT", "CMUX_DEV_AUTH_REPLACE_SESSION",
-        "CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD",
-    ]
+    /// What the launch's sign-in does (Rust's `LaunchLogin`).
+    struct LaunchLogin: Decodable {
+        struct Credentials: Decodable { var email: String, password: String }
+        var credentials: Credentials?
+        var replaceSession: Bool
+        var allowsEnvironmentAutoLogin: Bool
+        var refusalLog: String?
+    }
 
-    /// The auth launch keys of `environment`.
+    /// The account the launch signs in from `paths` (``launchSignIn(configuration:environment:home:)``), read here: the
+    /// explicit `CMUX_AUTH_CREDENTIALS_FILE` only when it is this user's regular 0600 file. Values never leave this
+    /// process and are never logged.
+    nonisolated static func launchLogin(_ signIn: LaunchSignIn, paths: [String], environment: [String: String],
+                                        home: String = NSHomeDirectory()) -> LaunchLogin? {
+        struct Reads: Encodable { var environment: [String: String], home: String, files: [String: String], explicitFileSecure: Bool }
+        struct Request: Encodable { var signIn: LaunchSignIn, reads: Reads? }
+        var reads: Reads?
+        if signIn.autoLogin {
+            let explicit = environment["CMUX_AUTH_CREDENTIALS_FILE"].flatMap { $0.isEmpty ? nil : $0 }
+            let secure = explicit.map(ownerOnlyRegularFile) ?? false
+            var files: [String: String] = [:]
+            for path in paths where path != explicit || secure {
+                files[path] = try? String(contentsOfFile: path, encoding: .utf8)
+            }
+            reads = Reads(environment: environment, home: home, files: files, explicitFileSecure: secure)
+            // Each way the explicit file signs nobody in is logged (`auth`), so a launch left signed out says why; never a value.
+            if explicit != nil, !secure {
+                fileLog.notice("credentials file sign-in off: the file is not a regular file of this user, 0600 or stricter")
+            } else if let explicit, files[explicit] == nil {
+                fileLog.notice("credentials file sign-in off: the file could not be read")
+            }
+        }
+        let login = CloudStartCore().call("cloud_auth_launch_login", Request(signIn: signIn, reads: reads), as: LaunchLogin.self)
+        if let reads, let explicit = reads.environment["CMUX_AUTH_CREDENTIALS_FILE"], !explicit.isEmpty,
+           reads.files[explicit] != nil, login?.credentials == nil, login?.refusalLog == nil {
+            fileLog.notice("credentials file sign-in off: no CMUX_DOGFOOD_STACK_ or CMUX_UITEST_STACK_ email and password pair in it")
+        }
+        return login
+    }
+
+    private nonisolated static let fileLog = Logger(subsystem: "com.cmuxterm.app.next", category: "auth")
+
+    /// Whether `path` is a regular file owned by this user, 0600 or stricter (a symlink is not).
+    nonisolated static func ownerOnlyRegularFile(_ path: String) -> Bool {
+        var info = stat()
+        guard lstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG, info.st_uid == getuid() else { return false }
+        return info.st_mode & 0o077 == 0
+    }
+
+    /// The auth launch keys of `environment` (Rust's `launch_keys`): main strips inherited CMUX_* variables before
+    /// anything reads them (LaunchIdentity), so these are captured first and reach CloudAuth only, never a child.
     nonisolated static func launchAuthKeys(from environment: [String: String]) -> [String: String] {
-        environment.filter { authLaunchKeyNames.contains($0.key) }
+        struct Reply: Decodable { var keys: [String: String] }
+        return CloudStartCore().call("cloud_auth_launch_keys", ["environment": environment], as: Reply.self)?.keys ?? [:]
     }
 
     /// The environment CloudAuth reads: the process's, plus the captured auth
-    /// launch keys it no longer has (a value it still has wins).
+    /// launch keys it no longer has (a value it still has wins; Rust's `auth_environment`).
     nonisolated static func authEnvironment(process: [String: String], launch: [String: String]) -> [String: String] {
-        process.merging(launch) { current, _ in current }
+        struct Reply: Decodable { var environment: [String: String] }
+        return CloudStartCore().call("cloud_auth_environment", ["process": process, "launch": launch], as: Reply.self)?.environment ?? process
     }
 
     /// This process's auth launch keys, read at first use: main touches it
@@ -120,8 +169,9 @@ public final class CloudAuth {
         let environment = useCaptureFixture ? [:] : (explicitEnvironment
             ?? Self.authEnvironment(process: ProcessInfo.processInfo.environment, launch: Self.launchEnvironment))
         self.configuration = configuration
-        let signIn = useCaptureFixture ? LaunchSignIn(devAuth: false, autoLogin: false, replacesSession: false)
+        let launch = useCaptureFixture ? (signIn: LaunchSignIn.noSignIn, paths: [String]())
             : Self.launchSignIn(configuration: configuration, environment: environment)
+        let signIn = launch.signIn
         let tokenStore: any StackAuthTokenStoreProtocol
         let client: any AuthClient
         let authDefaults: any CMUXAuthKeyValueStore
@@ -160,24 +210,18 @@ public final class CloudAuth {
         )
         // The production client is composed above so the DEBUG capture branch
         // never constructs StackAuth's network client or touches Keychain.
-        // A debug build signs in from its dogfood credentials against the development project.
-        // Pointed at production (`CMUX_AUTH_ENVIRONMENT=production`), it does so only from an
-        // explicit `CMUX_AUTH_CREDENTIALS_FILE`, never from the ambient secrets files: that is how
-        // a hidden rig build signs a production test account in for end-to-end checks
-        // (cmux-next-ios/verify). A release build never reads either, except the signed NEXT DEV
-        // build, which reads an explicit file (``launchSignIn``).
-        // The variable is read from the process environment, so pass it per launch with
+        // Which launches sign in from which credentials is Rust's (``launchSignIn``); the account
+        // goes to the coordinator's auto-login as the `CMUX_UITEST_STACK_*` launch keys.
+        // The variables are read from the process environment, so pass them per launch with
         // `open --env`; an exported one would replace a production session signed in by browser.
-        let devAuth = signIn.devAuth
         var launchEnvironment = environment
-        var replaceSession = false
-        let decision: (credentials: DogfoodCredentials?, refusal: DogfoodCredentials.Refusal?) =
-            signIn.autoLogin ? DogfoodCredentials.decide(environment: environment, home: NSHomeDirectory()) : (nil, nil)
-        if let refusal = decision.refusal { Self.logRefusal(refusal) }
-        if let credentials = decision.credentials {
+        let login = signIn.autoLogin ? Self.launchLogin(signIn, paths: launch.paths, environment: environment) : nil
+        if let refusal = login?.refusalLog {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "auth").notice("\(refusal, privacy: .public)")
+        }
+        if let credentials = login?.credentials {
             launchEnvironment["CMUX_UITEST_STACK_EMAIL"] = credentials.email
             launchEnvironment["CMUX_UITEST_STACK_PASSWORD"] = credentials.password
-            replaceSession = signIn.replacesSession
         }
         let anchor = AuthPresentationContextProvider()
         coordinator = AuthCoordinator(
@@ -188,11 +232,9 @@ public final class CloudAuth {
             anchor: anchor,
             config: config,
             launch: AuthLaunchOptions(clearAuthRequested: false, mockDataEnabled: false, environment: launchEnvironment,
-                                      includesDevAuth: devAuth, replaceStoredSessionWithAutoLogin: replaceSession,
-                                      // A capture build (CloudConfiguration.isCaptureBuild) signs in from the launch's
-                                      // credentials though it is not compiled DEBUG (``launchSignIn``); the signed NEXT DEV
-                                      // build only from the file's resolved credentials, never raw launch keys.
-                                      allowsEnvironmentAutoLogin: signIn.devAuth || (signIn.autoLogin && decision.credentials != nil)),
+                                      includesDevAuth: signIn.devAuth, replaceStoredSessionWithAutoLogin: login?.replaceSession ?? false,
+                                      // A signed build signs in only from the file's resolved credentials, never raw launch keys.
+                                      allowsEnvironmentAutoLogin: login?.allowsEnvironmentAutoLogin ?? signIn.devAuth),
             isOnline: { !useCaptureFixture }
         )
         activeTeam = ActiveTeam(source: coordinator)
@@ -225,7 +267,8 @@ public final class CloudAuth {
         )
     }
 
-    /// This build's own Keychain store with its file fallback. Signed NEXT DEV on the NIGHTLY account
+    /// This build's own Keychain store with its file fallback; an empty legacy default adopts, once, a session
+    /// from the namespaced store its update used (``CloudConfiguration/namespacedLegacyStorage(homeDirectory:)``). Signed NEXT DEV on the NIGHTLY account
     /// (``CloudConfiguration/adoptsNightlySession``) instead keeps its session in memory only and, when it
     /// has none, adopts the one a running cmux NIGHTLY hands over (`nightlySession`). NIGHTLY's own session
     /// is only read, never changed or cleared, and a sign-out here leaves it alive on the server
@@ -237,10 +280,19 @@ public final class CloudAuth {
                            memoryOnly: Bool = false) -> any StackAuthTokenStoreProtocol {
         if memoryOnly { return MemoryStackTokenStore() }
         guard configuration.adoptsNightlySession else {
-            return FallbackTokenStore(
+            let own = FallbackTokenStore(
                 primary: KeychainStackTokenStore(service: configuration.keychainService),
                 fallback: FileStackTokenStore(directory: configuration.credentialsDirectory)
             )
+            let home = FileManager.default.homeDirectoryForCurrentUser
+            guard let previous = configuration.namespacedLegacyStorage(homeDirectory: home) else { return own }
+            // A session signed in while the update read the namespaced store is this app's own: adopted once,
+            // and cleared with a sign-out so the next launch does not sign the person back in.
+            let earlier = FallbackTokenStore(primary: KeychainStackTokenStore(service: previous.keychainService),
+                                             fallback: FileStackTokenStore(directory: previous.credentialsDirectory))
+            return ImportingTokenStore(primary: own, sources: [{
+                ImportedTokenPair(accessToken: await earlier.getStoredAccessToken(), refreshToken: await earlier.getStoredRefreshToken())
+            }], sharesSessions: false, forgetSources: { await earlier.clearTokens() })
         }
         let sources: [ImportingTokenStore.Source] = nightlySession.map { fetch in
             [{ await fetch().flatMap { ImportedTokenPair(accessToken: $0.accessToken, refreshToken: $0.refreshToken) } }]
@@ -271,6 +323,13 @@ public final class CloudAuth {
     public func start() { coordinator.start() }
 
     public func awaitRestored() async { await coordinator.awaitBootstrapped() }
+
+    /// The signed-in person's access token once the stored session has restored (a cold launch asks before it
+    /// has); nil signed out.
+    public func restoredAccessToken() async -> String? {
+        await awaitRestored()
+        return isSignedIn ? (try? await tokens().access) : nil
+    }
 
     /// A coherent access/refresh pair for one API call.
     public func tokens() async throws -> (access: String, refresh: String) {
@@ -308,6 +367,12 @@ public final class CloudAuth {
     /// Ends the sign-in in progress.
     public func cancelSignIn() { browserSignIn.cancelSignIn() }
 
+    /// ``signIn(selectAccount:)`` for a waiter that may give up: cancelling the task that awaits it
+    /// ends the sign-in in progress, so the next sign-in opens a fresh one instead of reusing it.
+    public func signInEndedOnCancel() async -> Bool {
+        await withTaskCancellationHandler { await signIn() } onCancel: { Task { @MainActor in self.cancelSignIn() } }
+    }
+
     public func signOut() async { await browserSignIn.signOut() }
 
     /// Whether `url` is a sign-in callback this build accepts, in any form
@@ -321,24 +386,6 @@ public final class CloudAuth {
     public func handleCallback(_ url: URL) async -> Bool {
         guard callbackRouter.isAuthCallbackURL(url) else { return false }
         return await browserSignIn.handleCallbackURL(url)
-    }
-}
-
-extension CloudAuth {
-    /// Why a tagged build starts signed out (no account names or emails beyond a mask).
-    nonisolated static func logRefusal(_ refusal: DogfoodCredentials.Refusal) {
-        let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "auth")
-        switch refusal {
-        case .noDeclaredAccount:
-            logger.notice("dev auto sign-in off: no declared account (~/.config/cmux/dev-account or CMUX_DEV_AUTH_ACCOUNT)")
-        case .accountMismatch(let found, let declared):
-            logger.notice("dev auto sign-in off: \(mask(found), privacy: .public) is not the declared \(mask(declared), privacy: .public)")
-        }
-    }
-
-    nonisolated static func mask(_ email: String) -> String {
-        guard let at = email.firstIndex(of: "@") else { return "***" }
-        return String(email.prefix(1)) + "***" + String(email[at...])
     }
 }
 

@@ -5,6 +5,8 @@ import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextHistoryDaemon
+import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import Observation
@@ -27,6 +29,8 @@ final class LocationTrailService {
     /// The trail's failure log (cx-hnmbt.14): each skipped settle, step, report and reply.
     let log = HistoryTrailLog()
     private var observation: Task<Void, Never>?
+    /// Forwards trackpad swipes to the page under the pointer; the page's commit runs `navigate`.
+    private var swipes: PageSwipeForwarder?
     /// Steps go to the daemon in order: one FIFO, so a step never overtakes the one before it.
     private let reports: AsyncStream<@Sendable () async -> Void>.Continuation
     private let reportDrain: Task<Void, Never>
@@ -68,6 +72,8 @@ final class LocationTrailService {
         services.pages.navigate = { [weak services] back in
             _ = services?.registry.perform(back ? "focusHistoryBack" : "focusHistoryForward", invocation: ActionInvocation(origin: .user))
         }
+        // A two-finger swipe over a page: the page draws it and asks for the same actions (history.md 4.2b).
+        swipes = PageSwipeForwarder { [weak self] in (self?.canNavigate(.back) ?? false, self?.canNavigate(.forward) ?? false) }
         let store = services.daemon.store
         // Another client changed the daemon's trail (the React History page): read it again.
         store.sideEvents.subscribe { [weak self] event in
@@ -236,9 +242,12 @@ final class LocationTrailService {
         trail.list(direction, scope: scope, isAvailable: isAvailable)
     }
 
-    /// The headed right-click / long-press list under the Debug Settings layout (history.md 4.2c).
+    /// The headed right-click / long-press list under the Debug Settings layout (history.md 4.2c). Listed rows show
+    /// their tabs' current titles: a chat named after its step was recorded is renamed in place (the order stays).
     func menuSections(_ direction: LocationTrailDirection, layout: LocationTrailMenuLayout) -> [LocationTrailMenuSection] {
-        trail.menuSections(direction, scope: scope, layout: layout, isAvailable: isAvailable)
+        let sections = trail.menuSections(direction, scope: scope, layout: layout, isAvailable: isAvailable)
+        guard trail.retitle(sections, liveTitle: liveTitle) else { return sections }
+        return trail.menuSections(direction, scope: scope, layout: layout, isAvailable: isAvailable)
     }
 
     /// Goes to a listed entry (`history.goTo`). False when the index is gone or not focusable.

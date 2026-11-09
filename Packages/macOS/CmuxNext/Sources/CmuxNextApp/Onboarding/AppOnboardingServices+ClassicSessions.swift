@@ -216,7 +216,7 @@ extension AppOnboardingServices {
             defaultEngine: engine
         )
         // A replaying terminal names its own environment: this Mac's terminal one.
-        if daemon.isLocal { builder.replayEnvironment = await services.environment.terminalEnvironmentProvider()() }
+        if daemon.isLocal { builder.replayEnvironment = await services.environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak services] in services?.settings?.snapshot.terminalTerm == .xtermGhostty })() }
         try await builder.build(blueprint)
     }
 
@@ -268,7 +268,7 @@ extension AppOnboardingServices {
             guard let title = tab.title, !title.isEmpty else { continue }
             // A page whose tab takes no name keeps the page's title.
             if tab.url != nil { try? await connection.renameTab(placed[index].surface, to: title) }
-            else { try await connection.renameTab(placed[index].surface, to: title) }
+            else { try await daemon.renameTab(placed[index].surface, to: title, in: WorkspaceKey(rawValue: workspaceID), on: connection) }
         }
         return placed
     }

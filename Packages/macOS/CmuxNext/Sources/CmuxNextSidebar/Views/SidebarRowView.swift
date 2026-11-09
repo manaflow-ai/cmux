@@ -51,6 +51,38 @@ class SidebarRowView: NSView {
         return nil
     }
 
+    /// The controls a hover shows and clears by paint (`setHoverPainted`, HOVER COMMIT): a row's x, ⋮, Unpin and tree
+    /// fold once they first showed. A cleared one (in the tree, at opacity 0) answers accessibility as a hidden one did:
+    /// it is not among the row's children and the row posts a layout change when it clears or shows. (AppKit's hit
+    /// test answers the row itself for a point on any of its controls, shown or cleared: fleet step 27165c46.)
+    /// Another control at opacity 0 (the speaker that the shown controls cover) stays a child, as before.
+    var hoverPaintedControls: [NSView] { [] }
+
+    /// The hover controls a hover cleared (shown once, now at opacity 0).
+    private var clearHoverControls: [NSView] { hoverPaintedControls.filter { !$0.isHidden && $0.alphaValue == 0 } }
+
+    /// The view an accessibility element stands for (a control answers through its cell).
+    private func accessibilityView(of element: Any?) -> NSView? { (element as? NSView) ?? (element as? NSCell)?.controlView }
+
+    override func accessibilityChildren() -> [Any]? {
+        guard let children = super.accessibilityChildren() else { return nil }
+        let clear = clearHoverControls
+        guard !clear.isEmpty else { return children }
+        return children.filter { child in !clear.contains { $0 === accessibilityView(of: child) } }
+    }
+
+    /// A hover control cleared or showed (`setHoverPainted`): VoiceOver's view of the row changed, as when the control
+    /// hid or showed. Marks that are no accessibility element (the badge, the keycap) post nothing.
+    func hoverControlReachChanged(_ control: NSView) {
+        guard hoverPaintedControls.contains(where: { $0 === control }) else { return }
+        postAccessibility(self, .layoutChanged, [.uiElements: [control.alphaValue > 0 ? control : self]])
+    }
+
+    /// Posts an accessibility notification for the row: AppKit's `NSAccessibility.post`; a test records the posts.
+    final var postAccessibility: @MainActor @Sendable (Any, NSAccessibility.Notification, [NSAccessibility.NotificationUserInfoKey: Any]?) -> Void = {
+        NSAccessibility.post(element: $0, notification: $1, userInfo: $2)
+    }
+
     /// Fingerprint of the last configured content. Reloads happen on every
     /// drag step, so rows skip work (symbol images, attributed strings,
     /// accessibility) when nothing they show has changed.

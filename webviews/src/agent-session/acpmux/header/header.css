@@ -34,6 +34,15 @@
 .acpmux-header-tools .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-header .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-bar .acpmux-header-tool:not(:disabled):hover{background:var(--acpmux-header-tool-hover,color-mix(in srgb,var(--agent-text) 8%,transparent))}
 .acpmux-header-tools .acpmux-header-tool:not(:disabled):is([aria-pressed=true],[data-popup-open]),.acpmux-floating-header .acpmux-header-tool:not(:disabled):is([aria-pressed=true],[data-popup-open]),.acpmux-floating-bar .acpmux-header-tool:not(:disabled):is([aria-pressed=true],[data-popup-open]){background:var(--acpmux-header-tool-on,color-mix(in srgb,var(--agent-text) 12%,transparent))}
 .acpmux-header-tools .acpmux-header-tool[aria-pressed=true],.acpmux-header-tools .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{color:var(--agent-lit-glyph,var(--agent-accent,var(--agent-text)))}
+/* A pane without the keyboard (pageKey.ts marks the root data-page-inactive) keeps its tools quiet: an open panel's
+   toggle drops its filled square and lit ink at rest and keeps only its solid glyph, so the selected state shows at rest
+   in the focused pane alone (Leo 2026-11-07: "does it make sense for, like, when you're not highlighted on a thing to
+   still ... be able to highlight whatever's going on down there?"). Hover and an open menu still light it, so it answers
+   the pointer as in the focused pane. HeaderIcon's lit ink is an inline color, hence the important on the glyph; an animated header motion draws the plate
+   in ::before (headerMotion.ts), quiet here too.
+   test/chat-header-unfocused-pane.test.ts keeps it so; gallery agent-pane.header-tools/unfocused-*. */
+[data-page-inactive] .acpmux-header-tools .acpmux-header-tool[aria-pressed=true]:not(:hover):not([data-popup-open]),[data-page-inactive] .acpmux-header-tools .acpmux-header-tool[aria-pressed=true]:not(:hover):not([data-popup-open])::before{background:none;color:var(--agent-muted)}
+[data-page-inactive] .acpmux-header-tools .acpmux-header-tool[aria-pressed=true]:not(:hover):not([data-popup-open]) .acpmux-header-glyph{color:inherit !important}
 .acpmux-floating-header .acpmux-header-tool,.acpmux-floating-bar .acpmux-header-tool{color:var(--agent-muted)}
 .acpmux-floating-header .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-bar .acpmux-header-tool:not(:disabled):hover,.acpmux-floating-header .acpmux-header-tool[data-popup-open],.acpmux-floating-bar .acpmux-header-tool[data-popup-open]{color:var(--agent-text)}
 .acpmux-floating-header .acpmux-header-tool[aria-pressed=true],.acpmux-floating-bar .acpmux-header-tool[aria-pressed=true],.acpmux-floating-header .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover,.acpmux-floating-bar .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{color:var(--agent-lit-glyph,var(--agent-accent,var(--agent-text)))}
@@ -44,8 +53,12 @@
 .ui-popup.acpmux-chat-menu-popover{width:256px;max-height:var(--available-height,min(540px,70vh));overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);transform-origin:var(--transform-origin);color:var(--agent-text);font-family:var(--font-ui);font-size:var(--text-control);line-height:var(--text-control--line-height);-webkit-user-select:none;user-select:none;cursor:default;outline:none;letter-spacing:var(--text-control--letter-spacing)}
 .ui-menu-item.acpmux-chat-menu-item{display:flex;align-items:center;gap:var(--cmux-menu-icon-gap);width:100%;min-height:var(--ui-row-height);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius);color:inherit;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-chat-menu-item>svg{flex:none;color:var(--agent-muted)}
+/* A row's picture (the chat's avatar on Set Chat Avatar…) sits where its glyph would, as round as the avatar on the chat's cards. */
+.acpmux-chat-menu-image{flex:none;display:block;width:14px;aspect-ratio:1;border-radius:50%;object-fit:cover}
 .ui-menu-item.acpmux-chat-menu-item[data-highlighted],.ui-menu-item.acpmux-chat-menu-item[data-popup-open]{background:var(--acpmux-menu-hover);outline:none}
 .ui-menu-item.acpmux-chat-menu-item[data-disabled]{color:var(--agent-muted);opacity:1}
+/* Delete Machine… and a paused machine's near delete date: the danger colour, its glyph too, even on a row no click runs. */
+.ui-menu-item.acpmux-chat-menu-item.ui-menu-item-destructive,.ui-menu-item.acpmux-chat-menu-item.ui-menu-item-destructive>svg{color:var(--cmux-app-danger,var(--agent-danger,var(--agent-text)))}
 .acpmux-chat-menu-label{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .acpmux-chat-menu-key{flex:none;color:var(--agent-muted);font-family:var(--font-ui);font-size:var(--text-detail);line-height:18px;letter-spacing:var(--text-detail--letter-spacing)}
 .ui-popup.acpmux-chat-menu-popover .ui-separator{height:.5px;margin:4px 8px;background:var(--agent-border)}
@@ -65,11 +78,10 @@
 .acpmux-header-status-content{display:flex;align-items:center;gap:4px;min-width:0;height:var(--acpmux-header-control-height)}
 /* The chat's name (ThreadTitle.tsx): plain text with no fill in any state, not a menu button. */
 .acpmux-thread-title{display:block;min-width:0;max-width:44vw;padding:0 4px;color:var(--agent-text);font-size:var(--text-control);font-weight:var(--weight-emphasis);line-height:var(--acpmux-header-control-height,26px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default;user-select:none}
-.acpmux-delete-dialog{max-width:360px;padding:var(--ui-popup-padding);color:var(--agent-text)}
+.acpmux-delete-dialog{max-width:360px;padding:var(--ds-space-4);color:var(--agent-text)}
 .acpmux-delete-dialog h2{margin:0;color:inherit;font-size:var(--text-control);font-weight:var(--weight-emphasis)}
 .acpmux-delete-dialog p{margin:8px 0 16px;color:var(--agent-muted);font-size:var(--text-detail)}
 .acpmux-delete-dialog-actions{display:flex;justify-content:flex-end;gap:8px}
-.acpmux-delete-dialog-confirm{background:var(--agent-status-failure);color:var(--agent-on-accent,var(--acpmux-base))}
 .acpmux-header-status-content>.acpmux-env-line{position:static;inset:auto;flex:0 1 auto;min-width:0;max-width:min(42vw,360px);height:var(--acpmux-header-control-height)}
 .acpmux-status{position:absolute;inset:0;display:flex;align-items:center;gap:5px;color:var(--agent-muted);font-size:var(--text-detail);overflow:hidden;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-status>svg{flex:none}
@@ -142,16 +154,17 @@
 .acpmux-pr-merge output{color:var(--agent-muted)}
 .acpmux-pr-merge output[role=alert]{color:var(--agent-status-failure)}
 .acpmux-pr-merge[data-step=merged] output{color:var(--agent-status-merged)}
-/* One row on top (header/tabRow.ts, the chrome.tabs.rowTools Debug setting): the App draws the pane's
+/* One row on top (header/tabRow.ts): the App draws the pane's
    tabs over the header's left part, so the header is the tab row's height, takes no clicks there and
    shows only its tools, left of the pane's own "…"; the transcript fades out under the row. */
 /* The tools in the row sit on the row's own surface, as the tabs beside them do: nothing on the page paints behind
    them, the shell paints the page's color only below the row (Leo, 2026-11-02, above; 2026-11-03, on the chat's color
    drawn as a rectangle behind the header buttons: "it's so obvious to just remove the thing"). The document root
    carries the page background (WebTheme's html rule, --cmux-surface-background: a chat's own color under
-   appearance.surfaces.agentPane), so it is clear here and the shell paints that background below the row instead.
+   appearance.surfaces.agentPane), so it is clear here (the root's data-acpmux-tab-row mark, header/tabRow.ts
+   useTabRowRoot) and the shell paints that background below the row instead.
    test/chat-header-tab-row-surface.test.ts loads the agent page's own sheets with WebTheme's rule. */
-html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
+:root[data-acpmux-tab-row]{background:transparent !important}
 .acpmux-shell[data-tab-row]{background:linear-gradient(transparent var(--acpmux-tab-row-height),var(--agent-page-bg) var(--acpmux-tab-row-height)),linear-gradient(transparent var(--acpmux-tab-row-height),var(--cmux-surface-background,transparent) var(--acpmux-tab-row-height))}
 .acpmux-header[data-tab-row]{position:relative;z-index:var(--layer-sticky);flex:0 0 var(--acpmux-tab-row-height);height:var(--acpmux-tab-row-height);padding:0 var(--acpmux-tab-row-inset) 0 0;background:transparent;pointer-events:none}
 .acpmux-header[data-tab-row] .acpmux-header-status-slot{visibility:hidden}
@@ -169,6 +182,7 @@ html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
    more tabs keep the row as before. The window drags from the strip's empty space, which the App keeps above the page.
    test/chat-header-solo-tab.test.ts keeps it so. */
 .acpmux-shell[data-tab-row][data-solo-tab]{background:linear-gradient(var(--agent-page-bg),var(--agent-page-bg)),var(--cmux-surface-background,transparent)}
+/* glass-raw-blur-allow: the solo tab row's soft edge fade over the chat, not a glass surface */
 .acpmux-stage[data-solo-tab]{--acpmux-solo-blur:6px}
 /* A line under the header (header/underHeader.ts: a Create Checkpoint review, a live chat's choice, a peer copy, a watched
    chat, a handoff error) keeps the transcript below it; the App drops data-solo-tab from the stage then
@@ -182,3 +196,239 @@ html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
 :root[data-reduce-transparency] .acpmux-stage[data-solo-tab]>.acpmux-header[data-tab-row]::before{content:none}
 
 .acpmux-worktree-apply>output{font-variant-numeric:tabular-nums}
+/* The three controls (headerTrio.ts, Debug agentChat.headerControls): "...", the panel toggle and New. Three
+   fixed controls never fold or wrap: the title gives way first, at any pane width. */
+.acpmux-header-tools[data-header-controls=trio]{flex:none;flex-wrap:nowrap}
+/* New is one split control: the face makes the last kind again, the narrow chevron lists them all. */
+.acpmux-header-new{flex:none;display:inline-flex;align-items:center}
+.acpmux-header-tools .acpmux-header-new .acpmux-header-new-face{border-start-end-radius:0;border-end-end-radius:0}
+.acpmux-header-tools .acpmux-header-new .acpmux-header-new-more{width:14px;border-start-start-radius:0;border-end-start-radius:0}
+/* The menu's preview of where the kind under the pointer opens: the chat, and the new tab right of it. */
+.acpmux-header-new-popover{min-width:220px}
+.acpmux-header-new-preview{margin:4px 4px 8px;padding:8px;border-radius:var(--ds-radius-md,6px);background:color-mix(in srgb,var(--agent-text) 5%,transparent);font-size:var(--text-caption);line-height:1.3}
+.acpmux-header-new-preview-pane{display:grid;grid-template-columns:1fr 1fr;gap:4px;aspect-ratio:5/2;margin-bottom:8px}
+.acpmux-header-new-preview-chat,.acpmux-header-new-preview-tab{border-radius:4px}
+.acpmux-header-new-preview-chat{display:flex;flex-direction:column;justify-content:flex-end;gap:4px;padding:8px;background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
+.acpmux-header-new-preview-chat>i{display:block;border-top:3px solid color-mix(in srgb,var(--agent-text) 18%,transparent);border-radius:4px}
+.acpmux-header-new-preview-chat>i:nth-child(2){width:70%}
+.acpmux-header-new-preview-tab{display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 14%,transparent);color:var(--agent-lit-glyph,var(--agent-accent,var(--agent-text)))}
+.acpmux-header-new-preview-text{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.acpmux-header-new-preview-name{font-weight:var(--weight-emphasis);color:var(--agent-text)}
+.acpmux-header-new-preview-detail{display:grid;margin-top:4px;color:var(--agent-muted)}
+.acpmux-header-new-preview-detail>span{grid-area:1/1}
+.acpmux-header-new-preview-detail>span:not([data-shown]){visibility:hidden}
+
+
+/* ---------- Header icon motion (headerMotion.ts, Debug Settings agentChat.headerMotion) ----------
+   Only with a style other than `still` (the shipped header sets no data-header-motion). Transform and
+   opacity only. `data-motion-mode` is the pane's motion gate as the page last read it (motionMode()):
+   `full` moves, `reduced` (Reduce Motion) fades without travel, `none` draws every end state at once. */
+
+/* The pressed plate lives under the glyph so it can grow out of it: a click that opens a panel grows it
+   from half size with the one spring; closing shrinks it back into the glyph, quicker (anything leaving). */
+.acpmux-header-tools[data-header-motion] .acpmux-header-tool {
+  position: relative;
+  isolation: isolate;
+}
+.acpmux-header-tools[data-header-motion] .acpmux-header-tool:not(:disabled):is([aria-pressed="true"], [data-popup-open]),
+.acpmux-header-tools[data-header-motion] .acpmux-header-tool:not(:disabled):is([aria-pressed="true"], [data-popup-open]):hover {
+  background: none;
+}
+.acpmux-header-tools[data-header-motion] .acpmux-header-tool::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  transform: scale(0.5);
+  pointer-events: none;
+}
+/* The glyph paints over the plate: a positioned later sibling, so no z-index is needed. */
+.acpmux-header-tools[data-header-motion] .acpmux-header-tool > .acpmux-header-glyph {
+  position: relative;
+}
+/* The fill only in the pressed state, so no header tool draws one at rest (chat-header-plain-icons.test.ts):
+   the plate grows in with it, and closing drops it at once. */
+.acpmux-header-tools[data-header-motion] .acpmux-header-tool:not(:disabled):is([aria-pressed="true"], [data-popup-open])::before {
+  background: var(--acpmux-header-tool-on, color-mix(in srgb, var(--agent-text) 12%, transparent));
+  opacity: 1;
+  transform: none;
+}
+.acpmux-header-tools[data-motion-mode="full"] .acpmux-header-tool::before {
+  transition:
+    opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1)),
+    transform var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
+}
+.acpmux-header-tools[data-motion-mode="full"] .acpmux-header-tool:is([aria-pressed="true"], [data-popup-open])::before {
+  transition:
+    opacity var(--cmux-motion-micro, 120ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1)),
+    transform var(--cmux-motion-large, 240ms) var(--cmux-ease-spring, cubic-bezier(0, 0, 0.58, 1));
+}
+.acpmux-header-tools[data-motion-mode="reduced"] .acpmux-header-tool::before {
+  transform: none;
+  transition: opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
+}
+
+/* The activity dot: a crisp 6px circle at Changes' top right, ringed in the page's colour so it reads
+   apart from the glyph. It is still, as every status dot is (no-breathing-dots.test.ts): it shows while
+   the turn runs or changes wait, and is gone when there is no work. */
+.acpmux-header-tools[data-activity-on="changes"] [data-quick-action="changes"]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  translate: -3px 3px;
+  width: 6px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--agent-accent, var(--agent-text));
+  box-shadow: 0 0 0 1.5px var(--agent-page-bg, Canvas);
+  pointer-events: none;
+}
+
+/* The morph's ghost (morphIntoTab): the glyph's square that travels to the page's right edge and
+   widens into a tab with the button's name, in the pressed plate's tint, then fades. */
+.acpmux-header-morph {
+  position: fixed;
+  z-index: var(--layer-tooltip, 1000);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 0 8px 0 4px;
+  border-radius: var(--ds-radius-md, 6px);
+  background: color-mix(in srgb, var(--agent-text) 12%, var(--agent-page-bg, Canvas));
+  color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
+  font-size: var(--text-detail);
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  pointer-events: none;
+  will-change: transform, clip-path, opacity;
+}
+.acpmux-header-morph > [data-icon],
+.acpmux-header-morph > .acpmux-header-glyph {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.acpmux-header-morph-label {
+  color: var(--agent-text);
+}
+
+/* The morph's hover preview (HeaderToolPreview.tsx): what a click opens, under the icon. */
+.acpmux-header-preview {
+  position: fixed;
+  z-index: var(--layer-tooltip, 1000);
+  box-sizing: border-box;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--agent-surface-elevated, Canvas);
+  color: var(--agent-text);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--agent-text) 14%, transparent);
+  font-size: var(--text-caption);
+  line-height: 1.3;
+  pointer-events: none;
+  animation: acpmux-header-preview-in var(--cmux-motion-micro, 120ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1)) both;
+}
+@keyframes acpmux-header-preview-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+:root:is([data-agent-motion="off"], [data-cmux-motion="off"]) .acpmux-header-preview {
+  animation: none;
+}
+:root:is([data-agent-motion="reduced"], [data-cmux-motion="reduced"]) .acpmux-header-preview {
+  animation-name: acpmux-header-preview-fade;
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-header-preview {
+    animation-name: acpmux-header-preview-fade;
+  }
+}
+@keyframes acpmux-header-preview-fade {
+  from {
+    opacity: 0;
+  }
+}
+.acpmux-header-preview-pane {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  aspect-ratio: 5 / 2;
+  margin-bottom: 8px;
+}
+.acpmux-header-preview-pane-down {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+.acpmux-header-preview-chat,
+.acpmux-header-preview-panel {
+  position: relative;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+}
+.acpmux-header-preview-chat {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 8px;
+}
+.acpmux-header-preview-chat > i {
+  display: block;
+  border-top: 3px solid color-mix(in srgb, var(--agent-text) 18%, transparent);
+  border-radius: 4px;
+}
+.acpmux-header-preview-chat > i:nth-child(2) {
+  width: 70%;
+}
+.acpmux-header-preview-panel {
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 45%, transparent);
+}
+.acpmux-header-preview[data-closes] .acpmux-header-preview-panel {
+  background: none;
+  box-shadow: none;
+  outline: 1px dashed color-mix(in srgb, var(--agent-text) 35%, transparent);
+  outline-offset: -1px;
+}
+.acpmux-header-preview-tab {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 20px;
+  border-radius: 4px;
+  background: var(--agent-surface-elevated, Canvas);
+  color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
+}
+.acpmux-header-preview-tab .acpmux-header-glyph {
+  width: 12px;
+  height: 12px;
+}
+.acpmux-header-preview-text {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.acpmux-header-preview-name {
+  font-weight: var(--weight-emphasis);
+}
+.acpmux-header-preview-key {
+  font: inherit;
+  color: var(--agent-muted);
+}
+.acpmux-header-preview-detail {
+  margin-top: 4px;
+  color: var(--agent-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

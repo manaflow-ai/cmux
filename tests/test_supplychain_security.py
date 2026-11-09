@@ -90,10 +90,21 @@ def test_dispatchable_jobs_with_external_credentials_use_environments() -> None:
             if not names and not inherited:
                 continue
             checked += 1
+            assert not inherited, f"{path.name} {job_name} inherits every caller secret"
+            uses = job.get("uses") or ""
+            if uses.startswith("./.github/workflows/"):
+                # A caller job cannot name an environment; the jobs of the called workflow that read the
+                # passed secrets must, so the environment's branch policy still bounds who gets them.
+                callee = yaml.load((ROOT / uses[2:]).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+                for callee_name, callee_job in (callee.get("jobs") or {}).items():
+                    if set(re.findall(r"secrets\.([A-Z][A-Z0-9_]*)", yaml.dump(callee_job))) - {"GITHUB_TOKEN"}:
+                        assert callee_job.get("environment"), (
+                            f"{path.name} {job_name} passes secrets to {uses} {callee_name}, which has no environment"
+                        )
+                continue
             assert job.get("environment"), (
                 f"{path.name} {job_name} can receive external credentials without an environment"
             )
-            assert not inherited, f"{path.name} {job_name} inherits every caller secret"
     assert checked >= 50, "dispatchable credential consumers were not comprehensively inspected"
 
     secretless_pr_jobs = (
@@ -162,15 +173,6 @@ def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> Non
 
 
 def test_environment_secret_rollout_keeps_untrusted_jobs_secretless() -> None:
-    reachability = workflow("cloud-vm-image-reachability.yml")["jobs"]["reachable"]
-    reachability_environment = reachability.get("environment", "")
-    assert "cloud-vm-image-reachability" in reachability_environment
-    assert "pull_request" in reachability_environment
-    assert "'cloud-vm-image-reachability' || ''" in reachability_environment
-
-    promotion = workflow("cloud-vm-image-contract.yml")["jobs"]["promote"]
-    assert promotion.get("environment") == "cloud-vm-image-promotion"
-
     image_promote = workflow("cloud-vm-image-promote.yml")
     assert set(image_promote["on"]) == {"workflow_dispatch"}
     assert image_promote.get("permissions") == {"contents": "read", "actions": "read"}

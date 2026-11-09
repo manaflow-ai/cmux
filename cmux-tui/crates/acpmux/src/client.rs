@@ -129,6 +129,7 @@ impl Client {
         // or whatever listens on a path the agent pointed the CLI at).
         let caller = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         let issuer = caller(crate::hub::person::CALLER_SOCKET_ENV);
+        let mut meta = serde_json::Map::new();
         if include_caller
             && let (Some(id), Some(token), true) = (
                 caller("ACPMUX_SESSION_ID"),
@@ -136,13 +137,15 @@ impl Client {
                 issuer.is_some_and(|socket| Path::new(&socket) == path),
             )
         {
-            let mut meta = serde_json::Map::new();
             meta.insert(
                 crate::hub::person::CALLER_FIELD.to_owned(),
                 json!({"sessionId": id, "token": token}),
             );
-            hello.set("_meta", json!({"acpmux": meta}));
         }
+        // Whether it runs in an acpmux session's environment, said positively: only a terminal
+        // declaration may be the owner's own send (`cli_caller.rs`).
+        crate::cli_caller::declare(&mut meta, caller);
+        hello.set("_meta", json!({"acpmux": meta}));
         let init = client.request(method::INITIALIZE, hello).await?;
         if let Some(session) = init.pointer("/_meta/acpmux/callerSessionId").and_then(Value::as_str)
         {
@@ -405,21 +408,104 @@ impl std::fmt::Display for DaemonError {
 
 impl std::error::Error for DaemonError {}
 
-/// A local socket/channel closure, never a JSON-RPC error received from the daemon.
+/// A local socket/channel closure, never a JSON-RPC error received from the daemon. `cause` says why, as a
+/// code (`panicked`, `dropped`, `crashed`, `socket_left`, `shut_down`), and `panic` the daemon's newest panic
+/// line from just before (its thread, location and time only, never its message): a panicked request task
+/// and a restart both leave the daemon running, and only the panic log tells them apart.
 #[derive(Debug)]
-pub struct TransportClosed(String);
+pub struct TransportClosed {
+    message: String,
+    pub cause: &'static str,
+    pub panic: Option<Value>,
+}
 
 impl std::fmt::Display for TransportClosed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.message)
     }
 }
 
 impl std::error::Error for TransportClosed {}
 
+/// How far back a logged panic still explains a closed connection.
+const PANIC_WINDOW_MS: u64 = 10 * 60 * 1000;
+/// The most of the panic log's end read for its newest line.
+const PANIC_TAIL_BYTES: u64 = 64 * 1024;
+
+/// The newest real panic in the daemon's panic log (`daemon::panic_log_path`) written within
+/// [`PANIC_WINDOW_MS`] of `now_ms` by the daemon whose pid file names `pid` (none without one): `{thread, location, at_ms}`, never the message or backtrace, which
+/// may quote data. None for no log, an older or test panic, or a line that does not parse.
+pub(crate) fn recent_panic(path: &std::path::Path, now_ms: u64, pid: Option<i32>) -> Option<Value> {
+    use std::io::{Read as _, Seek as _, SeekFrom};
+    // As every state file is read: never through a symlink, never blocking on a FIFO, owner-only.
+    let mut file = crate::config::private_state_file(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    file.seek(SeekFrom::Start(len.saturating_sub(PANIC_TAIL_BYTES))).ok()?;
+    let mut tail = Vec::new();
+    file.take(PANIC_TAIL_BYTES).read_to_end(&mut tail).ok()?;
+    let tail = String::from_utf8_lossy(&tail);
+    let line = tail.lines().rev().find(|l| !l.trim().is_empty())?;
+    let v: Value = serde_json::from_str(line).ok()?;
+    let at_ms = v.get("at_ms").and_then(Value::as_u64)?;
+    // Only this daemon's own panic: an earlier daemon's line is no cause of this one's drop.
+    let other_daemon =
+        pid.is_none_or(|p| v.get("pid").and_then(Value::as_i64) != Some(i64::from(p)));
+    if v.get("test").and_then(Value::as_bool) == Some(true)
+        || now_ms.saturating_sub(at_ms) > PANIC_WINDOW_MS
+        || other_daemon
+    {
+        return None;
+    }
+    let text =
+        |k: &str| v.get(k).and_then(Value::as_str).map(|s| s.chars().take(200).collect::<String>());
+    Some(json!({"thread": text("thread"), "location": text("location"), "at_ms": at_ms}))
+}
+
+/// The cause code and its sentence, from the pid file's pid, whether it runs, whether the socket is
+/// there, and a recent panic.
+pub(crate) fn closed_cause(
+    pid: Option<i32>,
+    alive: bool,
+    socket: bool,
+    panic: Option<&Value>,
+) -> (&'static str, String) {
+    let panicked = panic.map(|p| {
+        let s = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or("?").to_owned();
+        format!(
+            "; the daemon logged a panic on thread {} at {} just before",
+            s("thread"),
+            s("location")
+        )
+    });
+    let (cause, why) = match (pid, alive, socket) {
+        (Some(p), true, _) if panicked.is_some() => (
+            "panicked",
+            format!(
+                "the daemon (pid {p}) is still running but dropped this connection after an internal error"
+            ),
+        ),
+        (Some(p), true, _) => (
+            "dropped",
+            format!(
+                "the daemon (pid {p}) is still running but dropped this connection, usually because it was restarted (`acpmux daemon shutdown`, `acpmux machine update`, a reinstall) or hit an internal error"
+            ),
+        ),
+        (Some(p), false, _) => (
+            "crashed",
+            format!("the daemon (pid {p}) exited without cleaning up, most likely a crash"),
+        ),
+        (None, _, true) => {
+            ("socket_left", "the daemon stopped and left its socket behind".to_owned())
+        }
+        (None, _, false) => ("shut_down", "the daemon was shut down".to_owned()),
+    };
+    (cause, why + &panicked.unwrap_or_default())
+}
+
 /// "daemon connection closed" with a cause: the pid file and socket say
 /// whether the daemon is still running (it dropped us: a restart or an
-/// internal error), died without cleanup (a crash), or was shut down.
+/// internal error), died without cleanup (a crash), or was shut down; the
+/// panic log says whether a panic came just before.
 pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error {
     use std::io::Read as _;
 
@@ -438,27 +524,31 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
     #[cfg(not(unix))]
     let alive = pid.is_some();
     let socket = crate::config::socket_path().exists();
-    let why = match (pid, alive, socket) {
-        (Some(p), true, _) => format!(
-            "the daemon (pid {p}) is still running but dropped this connection, usually because it was restarted (`acpmux daemon shutdown`, `acpmux machine update`, a reinstall) or hit an internal error"
-        ),
-        (Some(p), false, _) => {
-            format!("the daemon (pid {p}) exited without cleaning up, most likely a crash")
-        }
-        (None, _, true) => "the daemon stopped and left its socket behind".to_owned(),
-        (None, _, false) => "the daemon was shut down".to_owned(),
-    };
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64);
+    let panic = recent_panic(&crate::daemon::panic_log_path(), now_ms, pid);
+    let (cause, why) = closed_cause(pid, alive, socket, panic.as_ref());
     let build = match daemon_build {
         Some(b) if b != crate::hub::build() => {
             format!(" It ran build {b}; this command is build {}.", crate::hub::build())
         }
         _ => String::new(),
     };
-    TransportClosed(format!(
-        "daemon connection closed while {context}: {why}.{build} The next acpmux command starts a daemon; its log is {}",
-        home.join("daemon.log").display()
-    )).into()
+    TransportClosed {
+        message: format!(
+            "daemon connection closed while {context}: {why}.{build} The next acpmux command starts a daemon; its log is {}",
+            home.join("daemon.log").display()
+        ),
+        cause,
+        panic,
+    }
+    .into()
 }
+
+#[cfg(test)]
+#[path = "client_closed_tests.rs"]
+mod closed_tests;
 
 #[cfg(test)]
 mod lineage_tests {

@@ -415,6 +415,8 @@ pub struct CloudMachine {
     pub hourly_rate_usd: Option<Option<WireNumber>>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
     pub running_since: Option<Option<i64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desktop: Option<bool>,
     pub revision: Revision,
 }
 
@@ -490,6 +492,8 @@ pub struct CloudPlanUsage {
     pub active: i64,
     pub saved: i64,
     pub vm_hours_used: Option<WireNumber>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub vm_hours_used_by_you: Option<Option<WireNumber>>,
     pub period_end: i64,
 }
 
@@ -564,6 +568,7 @@ wire_enum! {
     CloudVmReceiverPeerServicesItem {
         Daemon = "daemon",
         Ssh = "ssh",
+        Desktop = "desktop",
     }
 }
 

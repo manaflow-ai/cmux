@@ -108,3 +108,91 @@ fn a_cancelled_waiting_connect_answers_cancelled_and_reads_no_more() {
     assert_eq!(result["error"]["code"], "cmux.op.cancelled", "{result}");
     assert_eq!(clock.fire_all(), 0, "the cancelled op's read timer was dropped");
 }
+
+/// One frame of the machine's pushed state (cmux-platform MachineState), as
+/// the host passes it on (`apps-team-event`).
+fn pushed(host: &Host, status: &str, revision: &str) {
+    let mut record = common::link_machine(MACHINE, status);
+    record["revision"] = json!(revision);
+    host.send(&json!({ "type": "team.event", "event": "cloud.machine.state",
+        "data": { "v": 1, "t": "state", "machine": MACHINE, "revision": 1,
+            "state": { "machine": MACHINE, "status": status, "awake": status == "running",
+                "connected": false, "ready": false, "error": null, "record": record } } }));
+}
+
+/// The pushed state reaches the projection with no read: a machine the
+/// server never listed nor read shows the pushed record in its watch events.
+#[test]
+fn a_pushed_state_reaches_the_projection_with_no_read() {
+    let (mut host, _clock) = host_with_clock();
+    pushed(&host, "paused", "7");
+    let watch = loop {
+        let line = host.next_within(serve_common::WAIT).expect("a watch event");
+        if line["type"] == "event" && line["event"] == "cloud.machine.watch" {
+            break line;
+        }
+    };
+    assert_eq!(watch["data"]["type"], "upsert", "{watch}");
+    assert_eq!(watch["data"]["machine"]["id"], MACHINE, "{watch}");
+    assert_eq!(watch["data"]["machine"]["status"], "paused", "{watch}");
+    assert!(host.cloud.ops().is_empty(), "no read at all: {:?}", host.cloud.ops());
+    // An older push never undoes a newer one.
+    pushed(&host, "running", "6");
+    pushed(&host, "running", "8");
+    let next = loop {
+        let line = host.next_within(serve_common::WAIT).expect("a watch event");
+        if line["type"] == "event" && line["event"] == "cloud.machine.watch" {
+            break line;
+        }
+    };
+    assert_eq!(next["data"]["machine"]["revision"], "8", "the stale push made no event: {next}");
+    assert!(host.cloud.ops().is_empty(), "still no read: {:?}", host.cloud.ops());
+}
+
+/// A connect parked on a machine whose state is pushed answers on the push,
+/// and reads again only as a 10 s fallback, not every second.
+#[test]
+fn a_connect_to_a_pushed_machine_answers_on_the_push_not_on_a_read() {
+    let (mut host, clock) = host_with_clock();
+    pushed(&host, "starting", "2");
+    connect(&host, "1");
+    assert_eq!(result_within(&mut host, "1", Duration::from_millis(300)), None, "it waits");
+    assert_eq!(
+        clock.pending_delays(),
+        vec![Duration::from_secs(10)],
+        "one fallback read, 10 s out"
+    );
+    host.cloud.bind_now();
+    pushed(&host, "running", "3");
+    let result = result_within(&mut host, "1", serve_common::WAIT).expect("connect answers");
+    assert_eq!(result["ok"], true, "{result}");
+    assert_eq!(clock.fire_all(), 0, "the push answered it, not a due read");
+}
+
+/// A pushed removal is final: the machine leaves the projection, and a
+/// stale state frame that comes after it never brings it back.
+#[test]
+fn a_pushed_removal_is_final() {
+    let (mut host, _clock) = host_with_clock();
+    let watch = |host: &mut Host| loop {
+        let line = host.next_within(serve_common::WAIT).expect("a watch event");
+        if line["type"] == "event" && line["event"] == "cloud.machine.watch" {
+            break line;
+        }
+    };
+    pushed(&host, "running", "4");
+    assert_eq!(watch(&mut host)["data"]["type"], "upsert");
+    host.send(&json!({ "type": "team.event", "event": "cloud.machine.state",
+        "data": { "v": 1, "t": "removed", "machine": MACHINE, "revision": 2 } }));
+    let removed = watch(&mut host);
+    assert_eq!(removed["data"]["type"], "removed", "{removed}");
+    pushed(&host, "running", "5");
+    pushed(&host, "paused", "3");
+    while let Some(line) = host.next_within(Duration::from_millis(300)) {
+        assert!(
+            !(line["type"] == "event" && line["event"] == "cloud.machine.watch"),
+            "a stale frame after the removal made no event: {line}"
+        );
+    }
+    assert!(host.cloud.ops().is_empty(), "no read at all: {:?}", host.cloud.ops());
+}

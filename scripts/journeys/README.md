@@ -309,7 +309,8 @@ input-principles.md, hold-shortcuts-ux.md, repeat-runoff.md). Keys go out on the
 each, stamped with their scheduled time, so a main thread that falls behind sees a queue of old repeats as with a
 real held key; `debug.key {repeat: true}` sends an auto-repeat (the app's repeat gate reads that key as down).
 Steps: `spam_remember`, `hold_key` (one press, repeats every 33 ms from 250 ms, then the key is up; keeps the counts
-one frame after the key-up as `AS_release`), `hammer_key` (N physical presses within T seconds). Conditions:
+one frame after the key-up as `AS_release`), `hammer_key` (N physical presses within T seconds), `hammer_keys` (a pattern of
+shortcuts, such as Cmd-T then Cmd-W, played N times within T seconds). Conditions:
 `spam_counts` (tabs, panes, the focused pane's tabs, workspaces against a remembered count, by a delta or by the
 runs a hold reported), `spam_unchanged` (negative: nothing changed after the key-up, with `settle`),
 `spam_selected` (the selection moved N places, for Ctrl-Tab and Cmd-Shift-[ ]), `spam_runs`. The docstring has
@@ -351,6 +352,19 @@ The film judges read the in-app recorder's films (`debug.motion` `record_*` and 
 press) and `video-cases/judge_scan.py` (repeated pictures in motion). They run on the VM with the venv
 (`/work/tmp/bv-venv/bin/python -I`, numpy and imageio_ffmpeg), never on a mini. This folder holds the one copy;
 the kit branches' copies are older (REWRITE R-HARNESS, handoff/rewrites/R-HARNESS/DESIGN.md).
+
+`video-cases/judge_pixel.py` judges the pixel fixture films (the FRAME OWNER's kit, `cp/pixel-perfect-kit`
+`ext_pixel.py` `px_record_start`: terminals that run `pixel/tui_border.py` and pages that show `pixel/page.html`):
+each pane side's content edge on each scan line against the pane edge that cmux's own layer shows in the same film
+frame (the tab strip), on the film's own clock, and from the film's trace each terminal's surface (held, stale) and a
+primary-screen terminal's text wrap. Its JSON has the m6 rows (`m6`) and the cmux-ad m14, m18 and m20 rows (`m14`,
+`m18`, `m20`); `video-cases/judge_m14.py BASE ...` gives the m20 verdict per film (`--contract m18` or `m14` for the
+older ones; m20 also judges the film's missed refreshes from its kept `debug.frames` read, and a film with none cannot
+pass) (exit 0 every film passes, 1 a film fails, 2 a film is not judged and none fails; a usage error also exits 2).
+Each rule in `video-cases/test_judge_pixel.py` came as a red-then-green pair with an independent review (the FRAME
+OWNER's and pixel-perfect's; m14's by R-HARNESS); a change to a rule does the same. Its unit tests run with the goldens' TRUTH tier below (as every `video-cases/test_judge_*.py`); its film results
+are not in the goldens yet. `video-cases/m14_known_films.py` holds the m14 known-film checks, which read films outside
+the store: run them yourself after an m14 change.
 
 Every change to a judge reproduces the judge goldens. They have two tiers:
 

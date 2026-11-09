@@ -216,6 +216,18 @@ typedef struct {
 } CmuxMotionTabStripGeometry;
 
 /*
+ One terminal view's selection override and first-use hint.
+ `selection_press`: the left press held now went as an Option selection.
+ `hint_armed`: a plain press went to the program; its first drag shows the
+ hint. `hint_shown`: the hint showed in this terminal.
+ */
+typedef struct {
+    bool selection_press;
+    bool hint_armed;
+    bool hint_shown;
+} CmuxTerminalSelection;
+
+/*
  Writes every hover timing token (nanoseconds) to `out`. False for a null `out`.
 
  # Safety
@@ -398,8 +410,8 @@ bool cmux_motion_tween_base(uint8_t token, CmuxMotionTween *out);
 
 /*
  Seconds of tween token `token` under `policy`: 0 under speed off,
- Reduce Motion, or with the token's kind switched off (tabOpen and
- tabClose follow newTab); 0 for an unknown token.
+ Reduce Motion, or with the token's kind switched off (tabOpen follows
+ newTab); 0 for an unknown token.
  */
 double cmux_motion_tween_seconds(uint8_t token, CmuxMotionPolicy policy);
 
@@ -468,5 +480,52 @@ bool cmux_motion_mix_rgba(const double *from, const double *to, double t, uint8_
  `out` is null or points to a writable `CmuxMotionTabStripGeometry`.
  */
 bool cmux_motion_tab_strip_geometry(uint8_t density, CmuxMotionTabStripGeometry *out);
+
+/*
+ Whether a left press with `keys` needs to know if the program has the
+ mouse: Option alone, or no key while the hint has yet to show. False for a
+ null `state`.
+
+ # Safety
+ `state` is null or points to a readable `CmuxTerminalSelection`.
+ */
+bool cmux_terminal_selection_press_asks_capture(const CmuxTerminalSelection *state, uint32_t keys);
+
+/*
+ A left press with `keys`; `captured` is whether the program has the mouse.
+ Updates `state` and returns the keys Ghostty gets with the press (`keys`
+ for a null `state`).
+
+ # Safety
+ `state` is null or points to a writable `CmuxTerminalSelection`.
+ */
+uint32_t cmux_terminal_selection_press(CmuxTerminalSelection *state, uint32_t keys, bool captured);
+
+/*
+ The keys Ghostty gets with a drag or the release of the press held now
+ (`keys` for a null `state`).
+
+ # Safety
+ `state` is null or points to a readable `CmuxTerminalSelection`.
+ */
+uint32_t cmux_terminal_selection_following(const CmuxTerminalSelection *state, uint32_t keys);
+
+/*
+ A drag of the left press. True once per terminal, when the app shows the
+ hint. False for a null `state`.
+
+ # Safety
+ `state` is null or points to a writable `CmuxTerminalSelection`.
+ */
+bool cmux_terminal_selection_dragged(CmuxTerminalSelection *state);
+
+/*
+ The left button's release, after its keys went out. Does nothing for a
+ null `state`.
+
+ # Safety
+ `state` is null or points to a writable `CmuxTerminalSelection`.
+ */
+void cmux_terminal_selection_released(CmuxTerminalSelection *state);
 
 #endif  /* CMUX_MOTION_FFI_H */

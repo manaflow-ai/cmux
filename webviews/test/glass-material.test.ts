@@ -98,9 +98,12 @@ await requireBrowserLane("glass-material.test.ts", async () => {
         const page = await open(colorScheme, { ...window.attributes, "data-theme": colorScheme });
         for (const id of ["composer", "strip-composer"]) {
           const { shadow } = await look(page, id);
-          expect(layerAlpha(shadow, SPECULAR_BAND), `${id} specular band`).toBeGreaterThan(0.3);
-          expect(layerAlpha(shadow, RETURN_BAND), `${id} return along the bottom and right`).toBeGreaterThan(0.1);
-          expect(layerAlpha(shadow, SHEEN), `${id} sheen under the top edge`).toBeGreaterThan(0.05);
+          // In a dark theme the input box draws the material's light at half (composerStates.css,
+          // --acpmux-composer-glint; Leo 2026-11-07: "super duper prominent glass"): a 24% band, an
+          // 8% return and a 3.5% sheen. Present, never gone.
+          expect(layerAlpha(shadow, SPECULAR_BAND), `${id} specular band`).toBeGreaterThan(0.2);
+          expect(layerAlpha(shadow, RETURN_BAND), `${id} return along the bottom and right`).toBeGreaterThan(0.05);
+          expect(layerAlpha(shadow, SHEEN), `${id} sheen under the top edge`).toBeGreaterThan(0.03);
           expect(layerAlpha(shadow, DEPTH), `${id} depth shadow`).toBeGreaterThan(0.2);
           // The specular light is brighter than its return: lit from above.
           expect(layerAlpha(shadow, SPECULAR_BAND)).toBeGreaterThan(layerAlpha(shadow, RETURN_BAND));
@@ -154,6 +157,28 @@ await requireBrowserLane("glass-material.test.ts", async () => {
       expect(backdrop).toBe("none");
       expect(layerAlpha(shadow, SPECULAR_BAND)).toBe(-1);
       expect(layerAlpha(shadow, SHEEN)).toBe(-1);
+      // Nor the material's depth: the card keeps its old shadow.
+      expect(layerAlpha(shadow, DEPTH)).toBe(-1);
+      await page.close();
+    });
+
+  // The system's Reduce Transparency (prefers-reduced-transparency), with no host attribute: the
+  // same solid card, for the floating and the docked card alike.
+  for (const colorScheme of ["light", "dark"] as const)
+    test(`${colorScheme}, the system's Reduce Transparency: a solid card, no specular band, no frost, no depth`, async () => {
+      const page = await open(colorScheme, { "data-cmux-see-through": "", "data-glass": "plain" });
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send("Emulation.setEmulatedMedia", {
+        features: [{ name: "prefers-reduced-transparency", value: "reduce" }],
+      });
+      for (const id of ["composer", "docked-composer"]) {
+        const { fill, backdrop, shadow } = await look(page, id);
+        expect(fill, `${id} fill`).toBe(1);
+        expect(backdrop, `${id} backdrop`).toBe("none");
+        expect(layerAlpha(shadow, SPECULAR_BAND), `${id} specular band`).toBe(-1);
+        expect(layerAlpha(shadow, SHEEN), `${id} sheen`).toBe(-1);
+        expect(layerAlpha(shadow, DEPTH), `${id} depth`).toBe(-1);
+      }
       await page.close();
     });
 

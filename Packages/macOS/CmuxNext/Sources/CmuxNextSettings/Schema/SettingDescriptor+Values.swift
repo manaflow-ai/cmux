@@ -20,9 +20,9 @@ extension SettingDescriptor {
     /// outside the range are refused here, although the parser clamps them,
     /// so the window never writes a value that loads with a warning.
     public func accepts(_ value: JSONValue) -> Bool {
-        if path == CustomDensitiesSetting().configPath { return CustomDensitiesSetting.accepts(value) }
+        if path == CustomDensitiesSetting.configPath { return CustomDensitiesSetting.accepts(value) }
         if path == CommandLabelsSetting().configPath { return CommandLabelsSetting.accepts(value) }
-        if path == ThemeFileSetting.path { return value.stringValue.map(ThemeFileSetting.isValidName) ?? false }
+        if path == ThemeFileSetting.configPath { return value.stringValue.map(ThemeFileSetting.isValidName) ?? false }
         if path == ChatSettings.rootsPath {
             guard let items = value.arrayValue else { return false }
             let validator = ChatRootValidator()
@@ -30,7 +30,7 @@ extension SettingDescriptor {
         }
         switch kind {
         case .choice(let choices):
-            if path == BackdropSelectionSetting().configPath { return BackdropSelectionSetting.accepts(value) }
+            if path == BackdropSelectionSetting.configPath { return BackdropSelectionSetting.accepts(value) }
             return value.stringValue.map { text in choices.contains { $0.value == text } } ?? false
         case .choiceOrNumber(let choices, let number):
             if let text = value.stringValue { return choices.contains { $0.value == text } }
@@ -62,7 +62,7 @@ extension SettingDescriptor {
             return members["start"]?.stringValue.flatMap(QuietHours.minutes) != nil
                 && members["end"]?.stringValue.flatMap(QuietHours.minutes) != nil
         case .theme:
-            if path == ChromeThemeSetting().configPath { return value.stringValue.map(ChromeThemeSetting().isValid) ?? false }
+            if path == ChromeThemeSetting.configPath { return value.stringValue.map(ChromeThemeSetting().isValid) ?? false }
             return value.stringValue.map(AppThemeSetting().isValid) ?? false
         case .fontFamily:
             return value.stringValue.map(TerminalFontSetting().isValidFamily) ?? false

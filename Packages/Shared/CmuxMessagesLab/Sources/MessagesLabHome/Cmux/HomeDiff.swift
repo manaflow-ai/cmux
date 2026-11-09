@@ -159,7 +159,11 @@ struct HomeDiff: Equatable {
     /// Actions for one shown message; false when MessagesLab cannot express it.
     private static func changes(from o: TranscriptItem, to n: TranscriptItem, oldSummary: ConversationSummary?,
                                 newSummary: ConversationSummary?, me: ParticipantID, id: ID, into d: inout HomeDiff) -> Bool {
-        if !o.isRetracted, n.isRetracted { d.actions.append(.unsend(id)); return true }
+        if !o.isRetracted, n.isRetracted {
+            // A Chief chat drops the row (Delete, #36019); elsewhere Messages' unsend note.
+            d.actions.append(HomeMapping.hidesRetracted(newSummary, me: me) ? .delete(id) : .unsend(id))
+            return true
+        }
         // MessagesLab's `.edit` replaces one text bubble: a text that shows as
         // several (Messages' link rule) before or after the edit is a rebuild.
         // Mapped only for an edit: mapping both sides of every shown row on each store change

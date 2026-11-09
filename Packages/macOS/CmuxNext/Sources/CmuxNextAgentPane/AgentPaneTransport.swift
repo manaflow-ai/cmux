@@ -36,6 +36,9 @@ import CmuxNextCompat
     /// that froze (the app's hibernation) thaws first, so the work runs now instead of waiting on a
     /// page that runs no script (a push's completion paces the next one).
     public var beforePageWork: (@MainActor () -> Void)?
+    /// Tests: runs on the main actor after a pass's frames were read off it and before the main
+    /// actor decides the next one, where a reconnect can land. Nil in the app.
+    var afterAnalyze: (@MainActor () async -> Void)?
     /// Counts pushes, so a late completion of a previous connection's push is ignored.
     private var deliveries = 0
     private var pacerStorage: any AgentPaneTransportPacer
@@ -250,12 +253,12 @@ import CmuxNextCompat
     public func open(_ connection: AcpmuxConnection) async throws(AgentPaneTransportError) -> Int {
         close(connection: current)
         pacer.reset()
-        // A reconnect drops every ticket of the old connection.
-        gestures.clearTickets()
         questionKeyCredit = nil
         questionKeyTickets.removeAll()
         current += 1
         let id = current
+        // A reconnect drops every ticket of the old connection but the person's own send tickets.
+        gestures.carrySendTickets(to: id)
         localAppToken = connection.localAppToken
         socketPath = connection.socketPath
         remoteApprovals = connection.remote?.approvals
@@ -386,6 +389,9 @@ import CmuxNextCompat
             if let ticket = takeQuestionKeyTicket(intent) { return ticket }
             guard gestures.hasFreshAnswerGesture else { return nil }
         }
+        // A plan build answers the chat's plan approval or starts the plan in new worktrees: only
+        // right after the person's own click, as an answer (its chat is bound above).
+        if intent.method == "_acpmux/plan/build", !gestures.hasFreshAnswerGesture { return nil }
         // A prompt held for the folder trust answer right after a new chat's start: the start took
         // the send's gesture, and its credit becomes the prompt's ticket (the ticket outlives it).
         if intent.method == "session/prompt", !gestures.isAvailable,
@@ -418,7 +424,7 @@ import CmuxNextCompat
         decisions.reset()
         onQuestionStateChanged?()
         localAppToken = nil
-        promptRelay?.ended(byDaemon: false)
+        promptRelay?.ended()
     }
 
     func offerQuestionKeyCredit(target: PageQuestionKeyTarget, intent: AgentPaneGestureIntent,
@@ -484,9 +490,8 @@ import CmuxNextCompat
             gestures.clearTickets(connection: current)
             localAppToken = nil
             // A connection the daemon closed: its prompts go again on the next connection, where the
-            // page waits for them, unless Debug Settings agentPane.debug.lostPromptReplay is off (then
-            // they are the page's again).
-            promptRelay?.ended(byDaemon: deliver != nil && !AgentPaneTunables.lostPromptReplay.value)
+            // page waits for them.
+            promptRelay?.ended()
             // Kept in the log (notice, not info): the page's "connection interrupted" needs its reason.
             Self.logger.notice("agent pane transport closed connection=\(self.current, privacy: .public) code=\(batch.closed?.code ?? 0, privacy: .public) error=\(batch.closed?.error?.rawValue ?? "-", privacy: .public)")
         }

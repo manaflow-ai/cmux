@@ -6,5 +6,5 @@
 set -euo pipefail
 for appcast in $NIGHTLY_FEEDS; do
   python3 "$PUBLISH_TOOLING/ci/nightly_next_ring.py" retag --feed "nightly-out/$appcast" \
-    --out "nightly-out/$appcast" --mode "$DEV_RING" --verdicts-base "$NIGHTLY_NEXT_FEED_BASE"
+    --out "nightly-out/$appcast" --mode "$DEV_RING" --verdicts-base "$NIGHTLY_NEXT_VERDICTS_BASE"
 done

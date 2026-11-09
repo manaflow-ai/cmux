@@ -137,18 +137,29 @@ SWIFT_JOB_INPUTS = (
     "scripts/cmux-next/tests/sign-cmux-bundle-helpers.test.sh",
     "tests/test_check_app_personalities.sh",
     ".github/actions/setup-cmux-tui-rust/",
+    ".github/actions/runner-cargo-home/",
     # check-app-ffi-pin.sh's sources (the pinned CCmuxAppFFI release) and the
     # sidebar layout reducer's cargo test.
     "cmux-tui/crates/cmux-app-ffi/",
     "cmux-tui/crates/cmux-focus-core/",
     "cmux-tui/crates/cmux-cloud-start-core/",
     "cmux-tui/crates/cmux-cloud-config/",
+    "cmux-tui/crates/cmux-cloud-handlers/",
+    "cmux-tui/crates/cmux-cloud-machine/",
+    "cmux-tui/crates/cmux-cloud-tasks/",
+    "cmux-tui/crates/cmux-cookie-sync/",
+    "cmux-tui/crates/cmux-daemon-conn-core/",
+    "cmux-tui/crates/cmux-daemon-launch-core/",
+    "cmux-tui/crates/cmux-local-auth/",
     "cmux-tui/crates/cmux-imessage/",
     "cmux-tui/crates/cmux-layout-reducer/",
     "cmux-tui/crates/cmux-layout-reducer-ffi/",
     "cmux-tui/crates/cmux-rd-core/",
     "cmux-tui/crates/cmux-rd-proto/",
     "cmux-tui/crates/cmux-rd-ffi/",
+    # The SDK's C ABI (the app's daemon client). The SDK it wraps (cmux-tui/bindings/rust/)
+    # reaches the app only through the pinned FFI release, whose repin routes the Swift jobs.
+    "cmux-tui/crates/cmux-sdk-ffi/",
     "cmux-tui/rust-toolchain.toml",
     "scripts/cmux-next/build-app-ffi.sh",
 )
@@ -233,7 +244,7 @@ BUNDLE_INPUTS = (
     "Resources/markdown-viewer/marked.min.js",
     "scripts/build-webviews-app.sh", "scripts/check-webviews-bun-version.sh",
     "scripts/cmux-next/build-agent-pane-web.sh", "scripts/cmux-next/build-pages-web.sh",
-    "scripts/cmux-next/build-agent-activity-web.sh", "scripts/cmux-next/build-palette-ranker.sh",
+    "scripts/cmux-next/build-agent-activity-web.sh",
     "scripts/cmux-next/build-optchat-inspector-web.sh",
     "scripts/cmux-next/build-web-bundles.sh", "scripts/cmux-next/web-bundle-key.py",
     # Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
@@ -242,12 +253,13 @@ BUNDLE_INPUTS = (
     "schemas/sync-motion/*", "schemas/agent-pane/*",
     # The layout grid the transcript imports (src/agent-session/acpmux/transcriptGrid.ts).
     "schemas/layout-grid/layout-grid.json",
+    # The cloud catalog's wire types the Cloud page imports (src/pages/cloud/ops.ts).
+    "clients/ts/cloud/src/generated.ts",
+    "schemas/type-scale/type-scale.json",
     # The design scale the shared tooltip tokens import (src/ui/tooltipTokens.ts).
     "schemas/design-scale/design-scale.json",
-    # The UI font the gallery frame imports (src/gallery/frame/uiFont.ts).
-    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
 )
-BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity", "CmuxNextPalette")
+BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity")
 BUNDLE_SWIFT_TEST_REASON = "(no swift test suite reads a built bundle; only the tests that read this file run)"
 # Committed web bundles that ci-web rebuilds and compares (`--check`) on every pull request,
 # and that the app takes as a `.copy` resource: a change to them needs no compile.
@@ -321,14 +333,16 @@ def ci_only(path: str) -> bool:
 # never from a list here: a file moved to a macOS lane routes to the Mac tiers again. No cmux-next
 # Mac tier reads the registry itself.
 REGISTRY = "tests/test-execution.toml"
+# The registry's area fragments (scripts/ci/test_execution_registry.py), which replaced REGISTRY.
+REGISTRY_FRAGMENT = re.compile(r"tests/test-execution\.d/[^/]+\.toml")
 LINUX_LANE = "linux-guard"
 
 
 def linux_guard_tests(root: Path) -> frozenset[str]:
     """The registry's linux-guard test files; none when it or its reader cannot be read, so they keep their tiers."""
     try:
-        from test_execution_registry import load_registry  # noqa: PLC0415 - a copied router may come without it
-        entries = load_registry(root / REGISTRY)
+        from test_execution_registry import load_tree  # noqa: PLC0415 - a copied router may come without it
+        entries = load_tree(root)
     except (ImportError, OSError, ValueError, SyntaxError):
         return frozenset()
     return frozenset(str(entry.get("path")) for entry in entries
@@ -336,7 +350,8 @@ def linux_guard_tests(root: Path) -> frozenset[str]:
 
 
 def linux_only_test(path: str, linux_tests: frozenset[str]) -> bool:
-    return path in linux_tests or (path == REGISTRY and bool(linux_tests))
+    registry = path == REGISTRY or REGISTRY_FRAGMENT.fullmatch(path) is not None
+    return path in linux_tests or (registry and bool(linux_tests))
 
 
 # A test target's "reads" (ci-target-graph.py) are the repository paths its sources name in string

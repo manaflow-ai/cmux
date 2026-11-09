@@ -7,6 +7,41 @@ use crate::config::Config;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+/// How long a new session waits for the daemon's startup ([`Hub::wait_startup_within`]). Long
+/// enough for a loaded machine's adoption (each host's first hello is bounded, eight at once) and
+/// its login shell; a startup still not done by then is stuck, and the caller hears where.
+// timeout: a create must answer; a wedged startup otherwise held every new session forever.
+pub(crate) const NEW_SESSION_STARTUP_WAIT: std::time::Duration =
+    std::time::Duration::from_secs(180);
+
+/// What the startup is doing in `phase` (`Hub::loading_status`), for the error a waiter gets.
+fn phase_doing(phase: &str) -> &'static str {
+    match phase {
+        "loading-store" => "reading the session index",
+        "adopting" => "reattaching the agent hosts that outlived the previous daemon",
+        "loading-logs" | "starting-agents" => {
+            "importing the login environment and checking harness launchers"
+        }
+        _ => "starting",
+    }
+}
+
+/// The error of a wait for startup that ran past `wait` while in `phase`.
+pub(crate) fn startup_wait_error(phase: &str, wait: std::time::Duration) -> crate::rpc::RpcError {
+    let mut error = crate::rpc::RpcError::deadline_exceeded(
+        &format!("daemon startup (phase {phase}: {})", phase_doing(phase)),
+        wait,
+    );
+    error.message.push_str(
+        "; no session was created. `acpmux --json daemon status` shows the phase \
+         (`loading.phase`); try again once it reads ready",
+    );
+    if let Some(data) = error.data.as_mut().and_then(serde_json::Value::as_object_mut) {
+        data.insert("phase".into(), serde_json::json!(phase));
+    }
+    error
+}
+
 impl Hub {
     /// Hold session creation and agent spawns until `finish_startup`.
     pub fn begin_startup(&self, login_env: bool) {
@@ -34,10 +69,13 @@ impl Hub {
     /// reload the catalog so PATH discovery sees it, check launchers, then
     /// let spawns through and probe models.
     pub async fn finish_startup(self: &Arc<Self>) {
-        // deny-all as the default policy in config.json, a lockdown (`policy_mode.rs`): every chat
-        // without a policy of its own follows it. A stopped chat's saved mode is written now; an
-        // adopted agent is reached once startup is done (`child_for` waits for it).
-        if self.config.read().await.permission_policy == crate::config::PermissionPolicy::DenyAll {
+        // deny-all or review as the default policy in config.json, a lockdown (`policy_mode.rs`):
+        // every chat without a policy of its own follows it. A stopped chat's saved mode is
+        // written now; an adopted agent is reached once startup is done (`child_for` waits for it).
+        if matches!(
+            self.config.read().await.permission_policy,
+            crate::config::PermissionPolicy::DenyAll | crate::config::PermissionPolicy::Review
+        ) {
             let hub = self.clone();
             tokio::spawn(async move { hub.follow_default_policy().await });
         }
@@ -119,6 +157,21 @@ impl Hub {
     pub(crate) async fn wait_startup(&self) {
         let mut rx = self.startup_ready.subscribe();
         let _ = rx.wait_for(|ready| *ready).await;
+    }
+
+    /// [`Hub::wait_startup`] for a request that must answer: past `wait` it fails with a
+    /// retryable `deadline_exceeded` that names the startup phase it waited on
+    /// (`loading_status`). A startup that never ends (one agent host that never answers its
+    /// adoption hello) otherwise left every `session/new` with no reply at all.
+    pub(crate) async fn wait_startup_within(
+        &self,
+        wait: std::time::Duration,
+    ) -> Result<(), crate::rpc::RpcError> {
+        if tokio::time::timeout(wait, self.wait_startup()).await.is_ok() {
+            return Ok(());
+        }
+        let phase = self.loading_status()["phase"].as_str().unwrap_or("unknown").to_owned();
+        Err(startup_wait_error(&phase, wait))
     }
 
     /// Run `--version` on proxy launchers off the executor and mark the ones

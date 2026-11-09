@@ -1,5 +1,5 @@
 name: Cloud chat proof (staging and production, tagged DEV app)
-run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', inputs.request_id) || inputs.cleanup_machine != '' && format('Cloud machine cleanup ({0})', inputs.cleanup_machine) || format('Cloud chat proof ({0})', inputs.build) }}
+run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', inputs.request_id) || inputs.cleanup_machine != '' && format('Cloud machine cleanup ({0})', inputs.cleanup_machine) || format('Cloud chat proof ({0}, {1}{2}){3}', inputs.build, inputs.agent, inputs.from_folder && ', from a folder' || '', inputs.request_id != '' && format(' {0}', inputs.request_id) || '') }}
 
 # One manual trip through a Cloud chat from one tagged DEV build of the dispatched commit, signed in as
 # the agent test account on staging and production. The bundle is built once, then launched twice with
@@ -19,6 +19,8 @@ run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', in
 # signin_pubkey: no proof; the signin job mints the agent account's staging session, encrypts it to
 # that RSA public key (base64 PEM) and uploads only the ciphertext for a day, for the Mac holding the
 # private key (leo-workspace tools/dev-build-try) to seed its NEXT DEV app with. No password leaves.
+# signin_account: guest mints the second staging account's session instead (cmux-cloud-capture-guest@manaflow.dev,
+# CMUX_DOGFOOD_GUEST_STACK_*, cloud-capture-provision.yml journey-guest), for the guest side of a two-account test.
 on:
   workflow_dispatch:
     inputs:
@@ -44,11 +46,22 @@ on:
         required: false
         default: ""
         type: string
+      signin_account:
+        description: "With signin_pubkey: whose session to mint. owner: the agent test account. guest: the second staging account (chat-share guest)"
+        required: false
+        default: owner
+        type: choice
+        options: [owner, guest]
       request_id:
-        description: Names the sign-in run (its run-name), so the requester finds it
+        description: Names the run (its run-name), so the requester (a sign-in, the nightly dispatcher on main) finds it
         required: false
         default: ""
         type: string
+      from_folder:
+        description: Start the chat from a new plain folder on the runner (no Git), copied the composer's way; the reply must name a word only its file holds
+        required: false
+        default: false
+        type: boolean
       cleanup_machine:
         description: A leaked Cloud machine id (vm_<hex>) to inspect and kill from the published app, instead of a proof
         required: false
@@ -79,10 +92,24 @@ jobs:
       - name: Mint and encrypt the session
         env:
           PUBKEY_B64: ${{ inputs.signin_pubkey }}
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          SIGNIN_ACCOUNT: ${{ inputs.signin_account || 'owner' }}
+          OWNER_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          OWNER_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          GUEST_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_GUEST_STACK_EMAIL }}
+          GUEST_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_GUEST_STACK_PASSWORD }}
         run: |
           set -euo pipefail
+          # Each account's pair by its own name; a missing guest pair fails rather than minting the owner's session.
+          case "$SIGNIN_ACCOUNT" in
+            owner) CMUX_DOGFOOD_STACK_EMAIL="$OWNER_STACK_EMAIL"; CMUX_DOGFOOD_STACK_PASSWORD="$OWNER_STACK_PASSWORD" ;;
+            guest) CMUX_DOGFOOD_STACK_EMAIL="$GUEST_STACK_EMAIL"; CMUX_DOGFOOD_STACK_PASSWORD="$GUEST_STACK_PASSWORD" ;;
+            *) echo "::error::signin_account must be owner or guest"; exit 1 ;;
+          esac
+          if [ -z "$CMUX_DOGFOOD_STACK_EMAIL" ] || [ -z "$CMUX_DOGFOOD_STACK_PASSWORD" ]; then
+            echo "::error::no Stack pair for the $SIGNIN_ACCOUNT account in this environment"; exit 1
+          fi
+          export CMUX_DOGFOOD_STACK_EMAIL CMUX_DOGFOOD_STACK_PASSWORD
+          unset OWNER_STACK_PASSWORD GUEST_STACK_PASSWORD
           case "$PUBKEY_B64" in *[!A-Za-z0-9+/=]*) echo "::error::signin_pubkey is not base64"; exit 1;; esac
           printf '%s' "$PUBKEY_B64" | base64 -d > "$RUNNER_TEMP/pub.pem"
           openssl rsa -pubin -in "$RUNNER_TEMP/pub.pem" -noout
@@ -288,17 +315,18 @@ jobs:
         env:
           PROOF_PROMPT: ${{ inputs.prompt }}
           PROOF_AGENT: ${{ inputs.agent }}
+          PROOF_FROM_FOLDER: ${{ inputs.from_folder && '--from-folder' || '' }}
         run: |
           set -euo pipefail
           credentials="$CMUX_PROOF_CREDENTIALS"
           cp "$RUNNER_TEMP/cloud-chat-proof/staging.env" "$credentials"
           python3 -I scripts/cmux-next/cloud-chat-proof.py --app "$CMUX_PROOF_APP" --tag "$CMUX_PROOF_TAG" \
-            --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" --cloud-backend staging \
+            --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" $PROOF_FROM_FOLDER --cloud-backend staging \
             --expected-api-origin https://cloud-api-staging.cmux.dev --credentials-file "$credentials" \
             --evidence "$RUNNER_TEMP/cloud-chat-proof/staging-evidence.json"
           cp "$RUNNER_TEMP/cloud-chat-proof/prod.env" "$credentials"
           python3 -I scripts/cmux-next/cloud-chat-proof.py --app "$CMUX_PROOF_APP" --tag "$CMUX_PROOF_TAG" \
-            --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" --cloud-backend prod \
+            --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" $PROOF_FROM_FOLDER --cloud-backend prod \
             --expected-api-origin https://cloud-api.cmux.dev --credentials-file "$credentials" \
             --evidence "$RUNNER_TEMP/cloud-chat-proof/prod-evidence.json"
 

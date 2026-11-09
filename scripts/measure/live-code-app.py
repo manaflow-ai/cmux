@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""The app half of scripts/measure/live-code-app.sh: launch, patch twice, time and count pixels."""
+"""The app half of scripts/measure/live-code-app.sh: launch, patch twice, take a bad patch and roll it
+back, time each and count pixels."""
 import argparse
 import json
 import os
@@ -16,6 +17,10 @@ from bench_launch import BenchApp  # noqa: E402
 
 VIEW = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift")
 ORIGINAL = "layer?.backgroundColor = nil"
+# Home's transcript fills the view (layout sets its frame to bounds) and covers the layer's color, so the
+# first patch also insets it: the color then shows as a border around the chat (a fleet still of
+# try-pr-live-code.sh at 71936c52 counted 0 red pixels without it).
+FILL, INSET = "transcript.frame = bounds\n", "transcript.frame = bounds.insetBy(dx: 80, dy: 80)\n"
 
 
 def pixels(png):
@@ -50,8 +55,9 @@ def main():
     live = tempfile.mkdtemp(prefix="cmux-live-code.")
     live_log = os.path.join(live, "live-code.log")
     source = open(VIEW).read()
-    if ORIGINAL not in source:
-        sys.exit(f"live-code-app: {VIEW} no longer has {ORIGINAL}")
+    for needed in (ORIGINAL, FILL):
+        if needed not in source:
+            sys.exit(f"live-code-app: {VIEW} no longer has {needed.strip()}")
     result = {"build_s": opts.build_seconds, "generations": []}
     app = BenchApp(opts.app, out=opts.out, env={"CMUX_LIVE_CODE_DIR": live})
 
@@ -74,10 +80,12 @@ def main():
             time.sleep(0.05)
         return None
 
-    def patch(generation, old, new):
+    def patch(generation, old, new, *more):
         current = open(VIEW).read()
+        for before, after in ((old, new),) + more:
+            current = current.replace(before, after)
         with open(VIEW, "w") as f:
-            f.write(current.replace(old, new))
+            f.write(current)
         edited = time.time()
         run = subprocess.run([sys.executable, os.path.join(ROOT, "scripts/live-code/patch.py"), "--log", opts.log,
                               "--module", "CmuxNextApp", "--live", live, VIEW], capture_output=True, text=True)
@@ -99,14 +107,33 @@ def main():
                 entry.update(snap(generation))
         return entry
 
+    def roll_back(generation):
+        # A dropped `*.rollback` file undoes the newest patch (cmuxterm-hq#7149 L4).
+        dropped = time.time()
+        open(os.path.join(live, f"undo-{generation}.rollback"), "w").close()
+        entry = {"edit": "rollback"}
+        drawn = wait_line(rf"redrawn generation={generation} at=([\d.]+)", 30)
+        rolled = re.search(r"rolled back \S+ functions=(\d+) rollback_ms=(\d+)", open(live_log).read() if os.path.exists(live_log) else "")
+        if rolled:
+            entry.update(functions=int(rolled.group(1)), rollback_ms=int(rolled.group(2)))
+        if drawn:
+            entry["rollback_to_redraw_s"] = round(float(drawn.group(1)) - dropped, 2)
+            time.sleep(0.5)
+            entry.update(snap(generation))
+        return entry
+
     try:
         app.launch()
         result["pid"] = app.process.pid
+        result["ready_s"] = app.ready_seconds
         time.sleep(3)
         result["generations"].append(snap(0))
         red, blue = "layer?.backgroundColor = NSColor.systemRed.cgColor", "layer?.backgroundColor = NSColor.systemBlue.cgColor"
-        result["generations"].append(patch(1, ORIGINAL, red))
+        result["generations"].append(patch(1, ORIGINAL, red, (FILL, INSET)))
         result["generations"].append(patch(2, red, blue))
+        # A bad patch (red again, standing in for one a probe fails), then its rollback: blue again.
+        result["generations"].append(patch(3, blue, red))
+        result["generations"].append(roll_back(4))
         # Live means the same process all along (cmuxterm-hq#7149 L3: same pid).
         result["same_pid"] = app.process.poll() is None and app.process.pid in app.running_pids()
     finally:
@@ -122,12 +149,31 @@ def main():
         and gens.get(1, {}).get("red_px", 0) > base.get("red_px", 0) + 1000
         and gens.get(2, {}).get("blue_px", 0) > base.get("blue_px", 0) + 1000
         and gens.get(2, {}).get("red_px", 0) < gens.get(1, {}).get("red_px", 0))
+    # L4: the rollback brings generation 2's blue back, red gone, in under 2 s, in the same process.
+    rollback = gens.get(4, {})
+    result["rolled_back"] = bool(
+        result.get("same_pid")
+        and gens.get(3, {}).get("red_px", 0) > base.get("red_px", 0) + 1000
+        and rollback.get("blue_px", 0) > base.get("blue_px", 0) + 1000
+        # Red back to where it was before any patch (within 1000 px), not merely less of it.
+        and rollback.get("red_px", 0) <= base.get("red_px", 0) + 1000
+        and rollback.get("rollback_to_redraw_s", 99) < 2)
     with open(os.path.join(opts.out, "result.json"), "w") as f:
         json.dump(result, f, indent=2)
     print(json.dumps(result))
     if os.path.exists(os.path.join(opts.out, "live-code.log")):
         print(open(os.path.join(opts.out, "live-code.log")).read())
-    sys.exit(0 if result["shown"] else 1)
+    else:
+        # The engine writes "watching" first, so no log means it never started: say whether the app
+        # has the engine compiled in (its log lines are string literals) and what the app printed.
+        binary = app.binary  # "cmux DEV" in a tagged bundle
+        compiled = b"live code: cannot watch" in open(binary, "rb").read()
+        print(f"live-code-app: no live-code.log in {live}: the engine never started; "
+              f"its code is {'in' if compiled else 'NOT in'} {binary}")
+        if os.path.exists(app.log_path):
+            lines = [line for line in open(app.log_path, errors="replace") if "live" in line.lower()]
+            print("live-code-app: the app's log lines naming live code:\n" + "".join(lines[-20:]))
+    sys.exit(0 if result["shown"] and result["rolled_back"] else 1)
 
 
 if __name__ == "__main__":

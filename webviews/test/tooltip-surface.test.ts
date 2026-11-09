@@ -328,10 +328,13 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
     );
     const value = (name: string) => Number(swift.match(new RegExp(`static let ${name}: Double = ([\\d.]+)`))![1]);
     const desktop = fs.readFileSync(path.join(source, "pages/shared/desktop.css"), "utf8");
-    expect(desktop).toContain(`--tooltip-blur: blur(${value("blurRadius")}px)`);
+    // The tooltip is the chip glass level (design-scale glass): its blur and fallback tint are the level's.
+    expect(desktop).toContain("--tooltip-blur: var(--ds-glass-chip-blur);");
+    expect(desktop).toContain(`--ds-glass-chip-blur: blur(${value("blurRadius")}px)`);
     expect(desktop).toContain(
-      `--tooltip-tint: var(--cmux-tooltip-tint, color-mix(in srgb, var(--surface-popup) ${Math.round(value("minimumTintAlpha") * 100)}%, transparent));`,
+      "--tooltip-tint: var(--cmux-tooltip-tint, color-mix(in srgb, var(--surface-popup) var(--ds-glass-chip-tint), transparent));",
     );
+    expect(desktop).toContain(`--ds-glass-chip-tint: ${Math.round(value("minimumTintAlpha") * 100)}%;`);
     // The shadow is elevation 1 on both sides (TooltipSurface.shadow, --elevation-1).
     expect(swift).toContain("static var shadow: Elevation { PopupStyle.elevation1 }");
     expect(desktop).toContain("--tooltip-shadow: var(--elevation-1);");

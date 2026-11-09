@@ -229,6 +229,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_classic_cloud_routes.py
 
+      # Every host NEXT's code names is listed in docs/privacy.md, and the list
+      # stays exact (a row whose host left the code fails too).
+      - name: Validate NEXT's outbound hosts are listed
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_outbound_hosts.py
+
       - name: Validate the PR perf section check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_perf_section_check.py
@@ -236,6 +242,10 @@ jobs:
       - name: Validate the PR design spec check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_design_spec_check.py
+
+      - name: Validate the PR body checks run each lint on its own events
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_pr_body_checks.py
 
       - name: Validate the PR cloud backend check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1056,6 +1066,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_web_complexity_trusted_workflow.py
 
+      - name: Validate the web performance gate keeps measurement and validation apart
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_web_perf_validation_boundary.py
+
       - name: Validate every workflow guard is wired
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
@@ -1147,6 +1161,14 @@ jobs:
       - name: Validate rust-cache keeps self-hosted runners' ~/.cargo/bin
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_rust_cache_keeps_runner_bin.py
+
+      - name: Validate each shared-HOME runner gets its own CARGO_HOME
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: ./tests/test_setup_cmux_tui_rust_cargo_home.sh
+
+      - name: Validate every self-hosted rust-cache step cleans only its runner's CARGO_HOME
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_rust_cache_runner_cargo_home.py
 
       - name: Validate every job that can start acpmux gives it a home of the job's own
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1871,6 +1893,10 @@ jobs:
       - name: Validate the nightly-next pending notarization continuation
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_recovery.py
+
+      - name: Validate recovery app archives made on a Mac
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_recovery_app_archive.py
 
       - name: Validate asynchronous notarization status polling
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

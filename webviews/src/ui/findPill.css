@@ -47,18 +47,20 @@
   letter-spacing: var(--text-body--letter-spacing);
 }
 
-/* Reduce Transparency: the opaque popup surface, no blur (desktop.css also swaps the tint tokens). */
+/* Reduce Transparency: the opaque popup surface, no blur and no material rim (desktop.css also swaps the tint tokens). */
 @media (prefers-reduced-transparency: reduce) {
   .find-pill {
     background: var(--surface-popup, Canvas);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
+    box-shadow: var(--ui-popup-shadow, var(--elevation-2));
   }
 }
 :root[data-reduce-transparency] .find-pill {
   background: var(--surface-popup, Canvas);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+  box-shadow: var(--ui-popup-shadow, var(--elevation-2));
 }
 
 /* The pill drops a few points from the top edge it sits under (directional motion, Leo 2026-10-20). */

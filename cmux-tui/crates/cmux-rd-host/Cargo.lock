@@ -157,7 +157,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.1.0"
+version = "0.2.3"
 dependencies = [
  "cc",
  "cmux-encode",
@@ -195,6 +195,9 @@ dependencies = [
 [[package]]
 name = "cmux-transport"
 version = "0.1.0"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "core-foundation"

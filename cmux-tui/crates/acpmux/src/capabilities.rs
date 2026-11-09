@@ -126,6 +126,11 @@ pub const CAPABILITIES: &[Capability] = &[
     // Metadata-only paths for a focused chat's config and state files. The
     // daemon serves this surface on its local Unix socket only.
     Capability { id: "session-files-v1", wire: &[method::MUX_SESSION_FILES] },
+    // Who else works on these files, topic, branch or folder, here and on peers
+    // (`hub/touched.rs`).
+    Capability { id: "who-else-v1", wire: &[method::MUX_WHO_ELSE] },
+    // What turns cost, indexed by day and session (`hub/ledger`).
+    Capability { id: "cost-ledger-v1", wire: &[method::MUX_LEDGER] },
     // Who has a shared chat open and who types in it (`hub/presence.rs`); the attach reply's
     // `presence` comes with it.
     Capability { id: "chat-presence-v1", wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },
@@ -188,6 +193,13 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "agent-hold-v1", wire: &[method::MUX_AGENT_HOLD] },
     // Retry a chat's failed last turn now: the Retry button (`hub/auto_resume/retry_turn.rs`).
     Capability { id: "turn-retry-v1", wire: &[method::MUX_RETRY] },
+    // The sudo card (`hub/elevation.rs`): `elevation_request` / `elevation_decision` records, and
+    // an approver-signed `secret_submit` that answers one. A phone asks for those kinds only
+    // under this id, since an older peer refuses an attach with more than 8 kinds.
+    Capability {
+        id: "elevation-cards-v1",
+        wire: &[method::MUX_ELEVATION_REQUEST, method::MUX_SECRET_SUBMIT],
+    },
     // `_acpmux/retry` with `subagentId`: resume a failed subagent now
     // (`hub/subagent_retry_manual.rs`). A daemon without this id does not
     // retry a subagent, so the pane shows a subagent's Retry button only
@@ -243,6 +255,8 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "agent-session-turn-rewind-v1",
         wire: &[method::AGENT_SESSION_TURN_PREPARE, method::AGENT_SESSION_TURN_ABANDON],
     },
+    // The person's Accept or Dismiss on what a chat learned (`server/memory_inbox.rs`).
+    Capability { id: "memory-inbox-v1", wire: &[method::MUX_MEMORY_RESOLVE] },
     // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).
     Capability {
         id: "agent-login-v1",

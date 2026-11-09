@@ -16,6 +16,8 @@ struct PaneArrival: Equatable {
     /// The pane that gave up the space (the split pane), when one did: the new pane and its divider follow where it
     /// shows across the split's axis (`SplitMotion.ride`, `follow`). Nil for a dock column or a handoff.
     var giver: PaneID?
+    /// The pane slides in at its final width instead of growing from a sliver (``slidingIn(target:clipMaxX:)``).
+    var slides = false
 
     /// The arrival of a pane whose frame will be `target`, given every pane's
     /// frame before (`previous`) and after (`next`) the change; nil when no
@@ -74,15 +76,45 @@ struct PaneArrival: Equatable {
     /// otherwise. Compared where the panes show (strip panes shift with the
     /// scroll `offset` and the strip's origin, which a dock moves); the seed
     /// is in the new pane's own coordinates.
+    /// `slidesBeside`: whether a pane opening on the right of this pane slides in (``slidingIn(target:clipMaxX:)``); the
+    /// screen answers true for a pane whose content holds its layout while it moves (an agent chat).
     static func split(_ previous: [PaneID: CGRect], from old: ScreenGeometry, to new: ScreenGeometry,
-                      offset: CGFloat) -> [PaneID: PaneArrival] {
+                      offset: CGFloat, slidesBeside: (PaneID) -> Bool = { _ in false }) -> [PaneID: PaneArrival] {
         let before = shown(previous, in: old, offset: offset), after = shown(new.panes, in: new, offset: offset)
         let added = after.keys.filter { before[$0] == nil }
         guard added.count == 1, before.keys.allSatisfy({ after[$0] != nil }), let pane = added.first, let target = after[pane],
               var arrival = of(target: target, previous: before, next: after) ?? docking(pane, target: target, from: old, to: new)
         else { return [:] }
+        if let beside = arrival.giver ?? leftNeighbour(of: target, in: after, skipping: pane), slidesBeside(beside) {
+            arrival = arrival.slidingIn(target: target, clipMaxX: new.clipMaxX)
+        }
         if new.scrolls(pane: pane) { arrival.seed.origin.x -= new.viewShift(offset: offset) }
         return [pane: arrival]
+    }
+
+    /// A panel opening on a chat's right (Leo 2026-11-06: "their agent pane flows smoothly when a thing opens up on the
+    /// right even when there's big lag on the computer"): the new pane enters at its final width from where the sliver
+    /// would start, past the screen's trailing edge, and slides in on the split spring while the chat's edge makes room.
+    /// Both of its sides travel the same distance on the same spring, so its size never changes: its page lays out once,
+    /// at its final size, and every frame after only moves it (a Chromium or WebKit page is not resized per frame).
+    /// Content still moves while it animates (Lawrence 2026-10-18); nothing is held under a clip. Only a pane that grows
+    /// in from the left, rightwards, and rests against the screen's trailing edge: one opening between two panes would
+    /// cover its right neighbour.
+    func slidingIn(target: CGRect, clipMaxX: CGFloat) -> PaneArrival {
+        guard seed.width == 0, edgeOffset.dx > 0, target.maxX >= clipMaxX - 1 else { return self }
+        var arrival = self
+        arrival.seed = CGRect(x: seed.minX, y: seed.minY, width: target.width, height: seed.height)
+        arrival.slides = true
+        return arrival
+    }
+
+    /// The pane `target` opens beside on its left (a pane gap away, sharing rows), for an arrival no pane gave space to
+    /// (a dock column): `pane` itself is skipped.
+    private static func leftNeighbour(of target: CGRect, in panes: [PaneID: CGRect], skipping pane: PaneID) -> PaneID? {
+        panes.filter { other, rect in
+            other != pane && rect.maxX <= target.minX + 1 && target.minX - rect.maxX <= 32
+                && min(rect.maxY, target.maxY) - max(rect.minY, target.minY) > 1
+        }.max { $0.value.maxX < $1.value.maxX }?.key
     }
 
     /// Panes only went away: a close (an unsplit, a strip column closed

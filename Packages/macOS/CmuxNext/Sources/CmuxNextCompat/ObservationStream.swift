@@ -73,6 +73,8 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
     public typealias Failure = Never
 
     private let emit: @MainActor @Sendable () -> Element
+    /// Where the stream was made (`#fileID:#line`): ``ObservationWakes`` names the observers a change woke by it.
+    let site: ObservationSite
     /// Set by `current(_:)`: the tracking armed by the evaluation it returned, and that value.
     private let primed: Primed?
     /// `==` of an `Equatable` element, known where the stream is made (the `Element: Equatable` initializers);
@@ -97,15 +99,17 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
     /// value that it read. Disfavored: an `Equatable` element takes the initializer that knows its `==`
     /// (without it Swift picked this one for every call site, ObservationStreamEqualityTests).
     @_disfavoredOverload
-    public init(_ emit: @escaping @MainActor @Sendable () -> Element) {
+    public init(_ emit: @escaping @MainActor @Sendable () -> Element, fileID: StaticString = #fileID, line: UInt = #line) {
         self.emit = emit
+        site = ObservationSite(fileID: fileID, line: line)
         primed = nil
         knownEquality = nil
     }
 
-    fileprivate init(_ emit: @escaping @MainActor @Sendable () -> Element, primed: Primed?,
+    fileprivate init(_ emit: @escaping @MainActor @Sendable () -> Element, site: ObservationSite, primed: Primed?,
                      knownEquality: (@Sendable (Element, Element) -> Bool)?) {
         self.emit = emit
+        self.site = site
         self.primed = primed
         self.knownEquality = knownEquality
     }
@@ -117,17 +121,18 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
     /// gets the primed tracking; another starts as a plain stream. Always the
     /// `withObservationTracking` path (also with the native opt-in).
     @MainActor @_disfavoredOverload
-    public static func current(_ emit: @escaping @MainActor @Sendable () -> Element) -> (value: Element, later: ObservationStream) {
-        primedStream(emit, knownEquality: nil)
+    public static func current(_ emit: @escaping @MainActor @Sendable () -> Element, fileID: StaticString = #fileID,
+                               line: UInt = #line) -> (value: Element, later: ObservationStream) {
+        primedStream(emit, site: ObservationSite(fileID: fileID, line: line), knownEquality: nil)
     }
 
     /// Evaluates `emit` now with tracking and returns that value with the stream primed on that tracking.
     @MainActor
-    fileprivate static func primedStream(_ emit: @escaping @MainActor @Sendable () -> Element,
+    fileprivate static func primedStream(_ emit: @escaping @MainActor @Sendable () -> Element, site: ObservationSite,
                                          knownEquality: (@Sendable (Element, Element) -> Bool)?) -> (value: Element, later: ObservationStream) {
-        let state = ChangeState()
+        let state = ChangeState(site: site)
         let value = LegacyIterator.track(emit, state: state)
-        return (value, ObservationStream(emit, primed: Primed(state: state, value: value), knownEquality: knownEquality))
+        return (value, ObservationStream(emit, site: site, primed: Primed(state: state, value: value), knownEquality: knownEquality))
     }
 
     /// The tracking and the first value for ``Iterator``: the primed ones (`current(_:)`) for the first iterator.
@@ -147,7 +152,7 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
         if #available(macOS 26, *), ObservationStreamNativeOptIn.enabled {
             return Iterator(native: NativeIterator(emit), equality: equality)
         }
-        return Iterator(legacy: LegacyIterator(emit: emit), equality: equality)
+        return Iterator(legacy: LegacyIterator(emit: emit, site: site), equality: equality)
     }
 
     /// How an iterator compares a re-evaluation with the value it emitted last.
@@ -263,9 +268,9 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
         private let state: ChangeState
         private var started: Bool
 
-        init(emit: @escaping @MainActor @Sendable () -> Element) {
+        init(emit: @escaping @MainActor @Sendable () -> Element, site: ObservationSite) {
             self.emit = emit
-            state = ChangeState()
+            state = ChangeState(site: site)
             started = false
         }
 
@@ -304,10 +309,14 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
         /// there, as with the system type).
         @MainActor
         static func track(_ emit: @MainActor @Sendable () -> Element, state: ChangeState) -> Element {
-            withObservationTracking {
-                emit()
-            } onChange: { [state] in
-                state.changed()
+            state.site.tracking {
+                withObservationTracking {
+                    emit()
+                } onChange: { [state] in
+                    state.site.woke()
+                    ObservationWakes.record(site: state.site, instance: ObjectIdentifier(state))
+                    state.changed()
+                }
             }
         }
     }
@@ -322,6 +331,12 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
         }
 
         private let inner = Mutex(Inner())
+        /// The stream's `#fileID:#line` (``ObservationWakes``).
+        let site: ObservationSite
+
+        init(site: ObservationSite) {
+            self.site = site
+        }
 
         /// The will-set callback: wakes the waiting `next()`, or marks the
         /// state dirty so the next `next()` does not wait.
@@ -377,14 +392,15 @@ public struct ObservationStream<Element: Sendable>: AsyncSequence, Sendable {
 extension ObservationStream where Element: Equatable {
     /// Makes a sequence of the values of `emit`, as the unconstrained initializer does; an equal
     /// re-evaluation wakes no consumer.
-    public init(_ emit: @escaping @MainActor @Sendable () -> Element) {
-        self.init(emit, primed: nil, knownEquality: { $0 == $1 })
+    public init(_ emit: @escaping @MainActor @Sendable () -> Element, fileID: StaticString = #fileID, line: UInt = #line) {
+        self.init(emit, site: ObservationSite(fileID: fileID, line: line), primed: nil, knownEquality: { $0 == $1 })
     }
 
     /// ``ObservationStream/current(_:)`` for an `Equatable` element.
     @MainActor
-    public static func current(_ emit: @escaping @MainActor @Sendable () -> Element) -> (value: Element, later: ObservationStream) {
-        primedStream(emit, knownEquality: { $0 == $1 })
+    public static func current(_ emit: @escaping @MainActor @Sendable () -> Element, fileID: StaticString = #fileID,
+                               line: UInt = #line) -> (value: Element, later: ObservationStream) {
+        primedStream(emit, site: ObservationSite(fileID: fileID, line: line), knownEquality: { $0 == $1 })
     }
 }
 

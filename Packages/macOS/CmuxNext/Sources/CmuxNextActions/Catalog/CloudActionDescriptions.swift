@@ -21,8 +21,8 @@ nonisolated enum CloudActionDescriptions {
             After 30 s it answers pending: true and the create goes on: check `cmux cloud list-machines` \
             before another. Options: --size small|medium|large|xlarge, --name, --persistent (no idle \
             pause), --bootstrap-script FILE (--bootstrap lane for a lane host), --machine-config FILE (a \
-            .cmux/machine.toml), answering bootstrap, machine_config and enrollment. An agent's create may \
-            ask the person first.
+            .cmux/machine.toml), --environment ID|NAME (boot in that Cloud environment), answering bootstrap, \
+            machine_config and enrollment. An agent's create may ask the person first.
             """,
         "palette.cloud.fork": """
             Forks the machine (--target machine:<id>) into a new machine. Answers at once with no id; the \
@@ -94,12 +94,6 @@ nonisolated enum CloudActionDescriptions {
             per repo; no token stored), else a GitHub CLI sign-in there. No token leaves this Mac. Returns ok, \
             method (app or device), fallback_reason, gh_status (app, logged_in, pending, missing or failed), \
             the identity it set and, while a sign-in waits, device_code and verification_uri; --focus opens that page.
-            """,
-        "cloudEnrollMachine": """
-            Makes the machine (--target machine:<id>) an ssh host and an acpmux peer of this Mac: authorizes \
-            --ssh-key (default ~/.ssh/id_ed25519.pub) for its cmux user, pins its host key, writes a Host \
-            block in ~/.ssh/cmux-cloud/config named --name that dials through this app's tunnel, then peers \
-            acpmux. Returns ssh_host, address, steps_done, steps_pending, rerun_command and registry_command.
             """,
         "cloudFilesList": """
             Lists a directory on the machine (--target machine:<id> --path /absolute/dir) and returns path, \
@@ -188,8 +182,9 @@ nonisolated enum CloudActionDescriptions {
             """,
         "cloudListMachines": """
             Returns the app's Cloud machines: loaded, count, account.signed_in and machines, each with \
-            machine_id, target (machine:<id>), title, status, owner, created_by and created_at. created_by is \
-            the creator's user ID, or null when unavailable. loaded false means the list is not known yet \
+            machine_id, target (machine:<id>), title, status, owner, created_by, created_at and error. created_by is \
+            the creator's user ID, or null when unavailable. error is the platform's {code, message} for the \
+            machine's last failed change (why it failed), or null when there is none. loaded false means the list is not known yet \
             (signed out, or still loading after 25 s with pending: true), not that there are none.
             """,
         "cloudNewTerminal": """
@@ -206,22 +201,17 @@ nonisolated enum CloudActionDescriptions {
             `cmux cloud new-terminal-on-machine --target machine:<id> --focus` opens and shows a workspace.
             """,
         "cloudOpenDesktop": """
-            Shows the machine's desktop (--target machine:<id>) in a new workspace on this Mac: its noVNC \
-            page in a browser tab, reached over this Mac's Cloud tunnel with no port opened here (--viewer \
-            web, the default). Refused when the machine has no desktop or address, or the browser is \
-            unavailable. Answers at once with no fields, before the page loads.
+            Shows the machine's desktop (--target machine:<id>) in a new workspace on this Mac: the \
+            agent's display as a live video stream over the machine's carrier (--viewer rd, the only \
+            viewer), opened watching (Take over in the pane gives you the mouse and keyboard, Hand back \
+            returns them). Only the machine's creator can open it, on a cmux NEXT machine that serves a \
+            desktop; anything else is refused at once, as is a classic machine. Answers at once with no \
+            fields, before the desktop shows.
             """,
         "cloudRenameMachine": """
             Renames the machine (--target machine:<id> --name <name>; an empty name clears it). Answers at \
             once, before the rename is done. Without --name it asks the person for the name in the app, so a \
             script or agent passes --name.
-            """,
-        "cloudShareMachine": """
-            Shares app-started chats on a team machine (--target machine:<id>) with a teammate \
-            (--teammate <user id>), or takes the share back (--revoke). Only the machine's creator or a \
-            team admin may change shares. Without --teammate it answers the machine's teammates as \
-            `teammates` [{user_id, name, shared}]; in the app it opens a page of them, where Return \
-            shares or stops sharing.
             """,
         "cloudKillMachine": """
             Deletes the machine (--target machine:<id>) and everything on it. Destructive: a CLI or agent \
@@ -236,7 +226,7 @@ nonisolated enum CloudActionDescriptions {
             Returns no fields.
             """,
         "cloudCopyLink": """
-            Opens a port of the machine (--port) through cmux Cloud and copies its link to the clipboard. \
+            Makes the platform's expiring share link for a port of the machine (--port) and copies it to the clipboard. \
             Not a CLI verb.
             """,
         "cloudCopyPort": """

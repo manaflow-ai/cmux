@@ -1448,127 +1448,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The cmux-tui daemon is not connected."
+            "value": "cmux's background service isn't connected."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui デーモンに接続されていません。"
+            "value": "cmux のバックグラウンドサービスに接続されていません。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "خدمة cmux-tui غير متصلة."
+            "value": "خدمة cmux في الخلفية غير متصلة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui daemon nije povezan."
+            "value": "Pozadinski servis cmuxa nije povezan."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui-dæmonen er ikke forbundet."
+            "value": "cmux’ baggrundstjeneste er ikke forbundet."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der cmux-tui-Daemon ist nicht verbunden."
+            "value": "Der Hintergrunddienst von cmux ist nicht verbunden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "El daemon de cmux-tui no está conectado."
+            "value": "El servicio en segundo plano de cmux no está conectado."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le daemon cmux-tui n’est pas connecté."
+            "value": "Le service d’arrière-plan de cmux n’est pas connecté."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il daemon cmux-tui non è connesso."
+            "value": "Il servizio in background di cmux non è connesso."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "daemon cmux-tui មិនបានភ្ជាប់ទេ។"
+            "value": "សេវាផ្ទៃខាងក្រោយរបស់ cmux មិនបានភ្ជាប់ទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui 데몬이 연결되어 있지 않습니다."
+            "value": "cmux 백그라운드 서비스가 연결되어 있지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui-daemonen er ikke tilkoblet."
+            "value": "Bakgrunnstjenesten til cmux er ikke tilkoblet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Demon cmux-tui nie jest połączony."
+            "value": "Usługa w tle cmux nie jest połączona."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O daemon cmux-tui não está conectado."
+            "value": "O serviço em segundo plano do cmux não está conectado."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Демон cmux-tui не подключен."
+            "value": "Фоновая служба cmux не подключена."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "daemon ของ cmux-tui ไม่ได้เชื่อมต่อ"
+            "value": "บริการเบื้องหลังของ cmux ไม่ได้เชื่อมต่อ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui arka plan hizmeti bağlı değil."
+            "value": "cmux arka plan hizmeti bağlı değil."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Демон cmux-tui не підключено."
+            "value": "Фонова служба cmux не підключена."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Daemon cmux-tui chưa được kết nối."
+            "value": "Dịch vụ nền của cmux chưa kết nối."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui 守护进程未连接。"
+            "value": "cmux 的后台服务未连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui 背景程式未連線。"
+            "value": "cmux 的背景服務未連線。"
           }
         }
       }
@@ -17977,127 +17977,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use is off. Turn it on in Settings > Computer Use."
+            "value": "Computer Use is off. Turn it on in Settings > Agents > Computer Use."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use はオフです。設定 > Computer Use でオンにしてください。"
+            "value": "Computer Use はオフです。設定 > エージェント > Computer Use でオンにしてください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "استخدام الكمبيوتر متوقف. شغّله من الإعدادات > Computer Use."
+            "value": "استخدام الكمبيوتر متوقف. شغّله من الإعدادات > الوكلاء > Computer Use."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use je isključen. Uključite ga u Postavke > Computer Use."
+            "value": "Computer Use je isključen. Uključite ga u Postavke > Agenti > Computer Use."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use er slået fra. Slå det til under Indstillinger > Computer Use."
+            "value": "Computer Use er slået fra. Slå det til under Indstillinger > Agenter > Computer Use."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use ist aus. Schalte es unter Einstellungen > Computer Use ein."
+            "value": "Computer Use ist aus. Schalte es unter Einstellungen > Agenten > Computer Use ein."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use está desactivado. Actívalo en Ajustes > Computer Use."
+            "value": "Computer Use está desactivado. Actívalo en Ajustes > Agentes > Computer Use."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use est désactivé. Activez-le dans Réglages > Computer Use."
+            "value": "Computer Use est désactivé. Activez-le dans Réglages > Agents > Computer Use."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use è disattivato. Attivalo in Impostazioni > Computer Use."
+            "value": "Computer Use è disattivato. Attivalo in Impostazioni > Agenti > Computer Use."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use បានបិទ។ បើកវានៅក្នុង ការកំណត់ > Computer Use។"
+            "value": "Computer Use បានបិទ។ បើកវានៅក្នុង ការកំណត់ > ភ្នាក់ងារ > Computer Use។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use가 꺼져 있습니다. 설정 > Computer Use에서 켜세요."
+            "value": "Computer Use가 꺼져 있습니다. 설정 > 에이전트 > Computer Use에서 켜세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use er av. Slå det på under Innstillinger > Computer Use."
+            "value": "Computer Use er av. Slå det på under Innstillinger > Agenter > Computer Use."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use jest wyłączone. Włącz je w Ustawienia > Computer Use."
+            "value": "Computer Use jest wyłączone. Włącz je w Ustawienia > Agenci > Computer Use."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O Computer Use está desativado. Ative-o em Ajustes > Computer Use."
+            "value": "O Computer Use está desativado. Ative-o em Ajustes > Agentes > Computer Use."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use выключен. Включите его в Настройки > Computer Use."
+            "value": "Computer Use выключен. Включите его в Настройки > Агенты > Computer Use."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use ปิดอยู่ เปิดได้ที่ การตั้งค่า > Computer Use"
+            "value": "Computer Use ปิดอยู่ เปิดได้ที่ การตั้งค่า > เอเจนต์ > Computer Use"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use kapalı. Ayarlar > Computer Use bölümünden açın."
+            "value": "Computer Use kapalı. Ayarlar > Aracılar > Computer Use bölümünden açın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use вимкнено. Увімкніть його в Налаштування > Computer Use."
+            "value": "Computer Use вимкнено. Увімкніть його в Налаштування > Агенти > Computer Use."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use đang tắt. Bật trong Cài đặt > Computer Use."
+            "value": "Computer Use đang tắt. Bật trong Cài đặt > Tác tử > Computer Use."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use 已关闭。请在“设置 > Computer Use”中打开。"
+            "value": "Computer Use 已关闭。请在“设置 > 智能体 > Computer Use”中打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use 已關閉。請在「設定 > Computer Use」中開啟。"
+            "value": "Computer Use 已關閉。請在「設定 > 代理 > Computer Use」中開啟。"
           }
         }
       }

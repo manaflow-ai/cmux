@@ -4,6 +4,23 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesDeviceSettings {
+    pub value: TeamPolicyValuesDeviceSettingsValue,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyVersion {
+    pub version: i64,
+    pub values: TeamPolicyValues,
+    pub changed: Vec<PolicyKey>,
+    pub actor: Option<String>,
+    pub at: i64,
+    pub reason: Option<String>,
+    pub rollback_of: Option<i64>,
+}
+
 wire_enum! {
     TeamRole {
         Owner = "owner",

@@ -6,12 +6,15 @@ import Darwin
 import Foundation
 import MachO
 
-enum LiveCodeError: Error, CustomStringConvertible {
+nonisolated enum LiveCodeError: Error, CustomStringConvertible {
     case open(String)
     case noImage
     case noInterposer
     case nothingToReplace
     case layoutChanged([String])
+    case notOurTeam(String)
+    case nothingToUndo
+    case copy(String)
 
     var description: String {
         switch self {
@@ -20,12 +23,16 @@ enum LiveCodeError: Error, CustomStringConvertible {
         case .noInterposer: "dyld_dynamic_interpose is not available"
         case .nothingToReplace: "the patch defines no function this build has (built against another build?)"
         case .layoutChanged(let types): "stored properties changed, rebuild instead: \(types.joined(separator: ", "))"
+        case .notOurTeam(let detail): "not signed by this app's team: \(detail)"
+        case .nothingToUndo: "no patch is applied"
+        case .copy(let detail): "cannot take a private copy: \(detail)"
         }
     }
 }
 
-/// The Mach-O side: the patch's code symbols, matched by name to this executable's.
-enum Interposer {
+/// The Mach-O side: the patch's code symbols, matched by name to this executable's. Nonisolated:
+/// LiveCode's engine actor calls it, off the main thread.
+nonisolated enum Interposer {
     private struct Tuple {
         var replacement: UnsafeRawPointer
         var replacee: UnsafeRawPointer
@@ -34,19 +41,25 @@ enum Interposer {
     private typealias DynamicInterpose = @convention(c) (UnsafePointer<mach_header>, UnsafeRawPointer, Int) -> Void
 
     /// Loads the patch, off the main thread: dlopen holds dyld's loader lock while it maps and binds.
-    /// Returns its handle's bit pattern, which ``apply(handle:dylib:)`` takes on the main actor.
-    nonisolated static func load(_ path: String) throws -> Int {
-        // concurrency-allow: called only from LiveCode.apply's detached task, never on the main thread
+    /// Returns its handle's bit pattern, which ``apply(handle:dylib:current:)`` takes.
+    static func load(_ path: String) throws -> Int {
+        // concurrency-allow: called only from LiveEngine, an actor off the main thread
         guard let handle = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
             throw LiveCodeError.open(String(cString: dlerror()))
         }
         return Int(bitPattern: handle)
     }
 
-    @MainActor
+    /// One applied patch: each function it replaced, with its new code and the code it replaced
+    /// (the executable's, or an earlier patch's). Rollback repoints `after` back to `before`.
+    struct Applied {
+        var after: [String: UnsafeRawPointer]
+        var before: [String: UnsafeRawPointer]
+    }
+
     /// `current` holds each replaced function's newest code: dyld repoints the bindings that hold the
     /// replacee, which after the first patch is that patch's copy, not the executable's.
-    static func apply(handle bits: Int, dylib path: String, current: inout [String: UnsafeRawPointer]) throws -> Int {
+    static func apply(handle bits: Int, dylib path: String, current: inout [String: UnsafeRawPointer]) throws -> Applied {
         guard let handle = UnsafeMutableRawPointer(bitPattern: bits) else { throw LiveCodeError.open("no handle") }
         guard let index = (0..<_dyld_image_count()).last(where: { String(cString: _dyld_get_image_name($0)) == path
             || URL(fileURLWithPath: String(cString: _dyld_get_image_name($0))).resolvingSymlinksInPath().path == URL(fileURLWithPath: path).resolvingSymlinksInPath().path
@@ -62,6 +75,7 @@ enum Interposer {
         guard changed.isEmpty else { throw LiveCodeError.layoutChanged(changed) }
         var tuples: [Tuple] = []
         var replaced: [String: UnsafeRawPointer] = [:]
+        var before: [String: UnsafeRawPointer] = [:]
         for (name, address) in codeSymbols(header: header, slide: slide) {
             // Swift functions only, that the executable also defines.
             guard name.hasPrefix("_$s"), let old = dlsym(mainOnly, String(name.dropFirst())), UnsafeRawPointer(old) != address else { continue }
@@ -72,20 +86,40 @@ enum Interposer {
                 tuples.append(Tuple(replacement: address, replacee: previous))
             }
             replaced[name] = address
+            before[name] = current[name] ?? original
         }
-        guard !tuples.isEmpty, let main = _dyld_get_image_header(0) else { throw LiveCodeError.nothingToReplace }
+        guard !tuples.isEmpty else { throw LiveCodeError.nothingToReplace }
+        try repoint(tuples, to: replaced, interpose: interpose)
+        current.merge(replaced) { $1 }
+        return Applied(after: replaced, before: before)
+    }
+
+    /// Undoes `patch`, the newest applied: every function it replaced runs the code it replaced
+    /// again. The patch's image stays loaded (no dlclose); nothing points at it.
+    static func revert(_ patch: Applied, current: inout [String: UnsafeRawPointer]) throws -> Int {
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "dyld_dynamic_interpose") else {
+            throw LiveCodeError.noInterposer
+        }
+        let tuples = patch.after.compactMap { name, now in patch.before[name].map { Tuple(replacement: $0, replacee: now) } }
+        guard !tuples.isEmpty else { throw LiveCodeError.nothingToReplace }
+        try repoint(tuples, to: patch.before, interpose: unsafeBitCast(symbol, to: DynamicInterpose.self))
+        current.merge(patch.before) { $1 }
+        return tuples.count
+    }
+
+    /// Hands `tuples` to dyld, then repoints the executable's already bound pointers to `targets`.
+    private static func repoint(_ tuples: [Tuple], to targets: [String: UnsafeRawPointer], interpose: DynamicInterpose) throws {
+        guard let main = _dyld_get_image_header(0) else { throw LiveCodeError.noImage }
         tuples.withUnsafeBytes { bytes in
             if let base = bytes.baseAddress { interpose(main, base, tuples.count) }
         }
         // dyld_dynamic_interpose leaves a pointer that is already bound on the old code: a `body`
         // SwiftUI called before this patch kept drawing the build's view. Repoint those too.
-        let rebound = rebind(header: main, slide: _dyld_get_image_vmaddr_slide(0), to: replaced)
+        let rebound = rebind(header: main, slide: _dyld_get_image_vmaddr_slide(0), to: targets)
         if rebound.failed > 0 {
             // Those calls still reach the old code: say so rather than report a clean patch.
             FileHandle.standardError.write(Data("cmux live code: \(rebound.failed) symbol pointers stayed on the old code (mprotect failed)\n".utf8))
         }
-        current.merge(replaced) { $1 }
-        return replaced.count
     }
 
     /// Repoints the image's symbol pointers (`__la_symbol_ptr`, `__got`; the executable is linked
@@ -93,7 +127,7 @@ enum Interposer {
     /// Its calls to its own Swift functions go through these (`-interposable`), and once dyld has
     /// bound one, `dyld_dynamic_interpose` does not rewrite it. Returns how many it wrote, and how
     /// many it could not (a page `mprotect` refused).
-    @MainActor @discardableResult
+    @discardableResult
     static func rebind(header: UnsafePointer<mach_header>, slide: Int,
                        to replacements: [String: UnsafeRawPointer]) -> (written: Int, failed: Int) {
         let base = UnsafeRawPointer(header)

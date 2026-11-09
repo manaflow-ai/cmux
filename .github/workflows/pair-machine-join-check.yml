@@ -1,0 +1,87 @@
+name: Pairing machine join check
+
+# Why a code-paired box got no machine credential in production (cmux#36687: cmux-api mints the box's join token on
+# cmux-platform-production over the PLATFORM binding with INTERNAL_TOKEN; any refusal pairs the box without one).
+# 1. Names only: is INTERNAL_TOKEN set on cmux-api (production) and on cmux-platform-production? A Worker secret's
+#    value cannot be read back, so this says present or absent, never a value.
+# 2. Tails cmux-api (production) for tail_minutes and prints only its `pair.machine_join.*` log lines (msg and
+#    status, never a header, body or token): dispatch the pairing probe meanwhile and the line says which it is
+#    (no_platform_token: the secret is missing; refused 401: it differs from the platform's; 403: role; 404:
+#    no join registry).
+# Dispatch from feat-cmux-next. The push trigger (this file only) registers the workflow, since a dispatch needs it on
+# the default branch or already known (as platform-prod-secrets.yml did, #32470), and runs it once with the default
+# tail. Reads only the Cloudflare secrets, in cmux-next-production as platform-prod-secrets.yml does.
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/pair-machine-join-check.yml]
+  workflow_dispatch:
+    inputs:
+      tail_minutes:
+        description: "minutes to tail cmux-api production (1-20)"
+        required: false
+        default: "8"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pair-machine-join-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    environment: cmux-next-production
+    timeout-minutes: 25
+    steps:
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - name: INTERNAL_TOKEN on both Workers (names only)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          WR="npx -y wrangler@4.156.0"
+          for w in cmux-api cmux-platform-production; do
+            out="$($WR secret list --name "$w" --format json)" || { echo "::error::wrangler secret list failed for $w"; exit 1; }
+            has="$(printf '%s' "$out" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const l=JSON.parse(d);console.log(Array.isArray(l)&&l.some(s=>s.name==="INTERNAL_TOKEN")?"present":"ABSENT")})')"
+            echo "$w INTERNAL_TOKEN: $has"
+            echo "- \`$w\` INTERNAL_TOKEN: $has" >> "$GITHUB_STEP_SUMMARY"
+          done
+      - name: Tail cmux-api production for pair.machine_join lines
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+          MINUTES: ${{ inputs.tail_minutes }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          minutes="${MINUTES:-8}"
+          case "$minutes" in ''|*[!0-9]*) minutes=8 ;; esac
+          [ "$minutes" -ge 1 ] || minutes=1
+          [ "$minutes" -le 20 ] || minutes=20
+          echo "tailing cmux-api production for ${minutes}m"
+          # Only a log line whose JSON msg starts with pair.machine_join is printed, and only its msg and status.
+          status=0
+          timeout "${minutes}m" npx -y wrangler@4.156.0 tail cmux-api --format json 2> "$RUNNER_TEMP/tail.err" | node -e '
+            const rl = require("readline").createInterface({ input: process.stdin })
+            let buf = ""
+            const take = (ev) => {
+              for (const l of ev.logs ?? []) for (const m of l.message ?? []) {
+                let j; try { j = typeof m === "string" ? JSON.parse(m) : m } catch { continue }
+                if (j && typeof j.msg === "string" && j.msg.startsWith("pair.machine_join")) {
+                  const line = `${new Date(ev.eventTimestamp ?? Date.now()).toISOString()} ${j.msg}${typeof j.status === "number" ? ` status ${j.status}` : ""}`
+                  console.log(line)
+                  require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY, `- ${line}\n`)
+                }
+              }
+            }
+            rl.on("line", (s) => { buf += s; try { const ev = JSON.parse(buf); buf = ""; take(ev) } catch {} })
+          ' || status=$?
+          echo "tail ended"
+          [ "$status" = 0 ] || [ "$status" = 124 ] || exit "$status"

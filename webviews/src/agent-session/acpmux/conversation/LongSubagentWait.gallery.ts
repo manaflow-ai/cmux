@@ -51,7 +51,7 @@ export default agentPaneEntry({
       ),
     },
     "finished-step": {
-      note: "Between steps the line holds the last finished step with its own time (3m 27s), then the turn's clock after a dot.",
+      note: "Between steps: the finished step stays in its run and the line reads Thinking at once, the turn's clock named after a dot (Leo, 2026-11-07).",
       snapshot: chat(
         [
           prompt(),

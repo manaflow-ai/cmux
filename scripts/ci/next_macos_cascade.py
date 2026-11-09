@@ -221,7 +221,8 @@ class Placement:
     why: str
     # The labels a feed's compile counts as full (fresh_stalled()); release-compile's re-run route reads them.
     fresh_stall: tuple[str, ...] = ()
-    # Jobs for which every owned and Blacksmith macOS target is full/dead;
+    # Jobs for which every owned and Blacksmith macOS target is full/dead, or that a Blacksmith macOS
+    # label took (they are still listed in `jobs` until fleet_gateway() confirms an idle gateway runner);
     # cmux-next sends these to the thin build-fleet gateway.
     fleet_jobs: tuple[str, ...] = ()
     # Jobs allowed to consume retry_runner on a rescue attempt, capped by MAX_PER_RUN and pool room.
@@ -904,7 +905,14 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
         label_full_or_dead(label, seen.snapshot, live=live.get(label, 0), queued=waiting.get(label, 0),
                            now=seen.observed_at)
         for label in route_labels)
-    fleet_jobs = tuple(job for job in unplaced if job in requested_fleet) if all_routes_blocked else ()
+    # A job with a build-fleet client that a Blacksmith macOS label took is listed too: the fleet builds it
+    # warm on owned Macs, where Blacksmith builds it cold and the fast tier ran out its 20 minutes compiling
+    # (cmux#38130, run 42434830670: attempt 1's seeded package build still compiling at 18 min on 6 vCPU).
+    # side_lane_placement.fleet_gateway() keeps it on the fleet only with an idle gateway runner for its
+    # client, and then takes it off the Blacksmith label; without one it keeps that label.
+    on_blacksmith = {job for names in placed.values() for job in names}
+    fleet_jobs = tuple(job for job in jobs if job in requested_fleet and (
+        job in on_blacksmith or all_routes_blocked and job in unplaced))
     # The overflow label counts the slots this run's own jobs just took: they fit, so they start, and hold
     # the pool's vCPUs as jobs in flight do.
     # A run with a feed's compile keeps its overflow off a fresh-stalled label too: the compile's re-run reads it.
@@ -956,6 +964,8 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
                 "so only a feed's compile takes it")
     if fleet_jobs:
         why += f"; {', '.join(fleet_jobs)} reserved for the fleet gateway"
+        if on_blacksmith & set(fleet_jobs):
+            why += " (a warm owned build before a cold Blacksmith macOS one)"
     left = [job for job in left if job not in fleet_jobs]
     if left:
         why += f"; {', '.join(left)} stay queued on the owned label"

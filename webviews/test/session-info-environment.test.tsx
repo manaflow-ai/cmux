@@ -11,7 +11,8 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
 import { chatProject, internalFolder } from "../src/agent-session/acpmux/session-info/chatFolders";
-import { EnvironmentSection, environmentToSave } from "../src/agent-session/acpmux/session-info/EnvironmentSection";
+import { EnvironmentSection } from "../src/agent-session/acpmux/session-info/EnvironmentSection";
+import { environmentToSave } from "../src/agent-session/acpmux/session-info/environmentSectionModel";
 import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { setNativeHost } from "../src/agent-session/acpmux/native";
 import { translate } from "../src/agent-session/acpmux/i18n";
@@ -182,10 +183,11 @@ test("a repository's chat lists its project by name, its path only in the toolti
   await act(async () => buttons[0]!.click());
   expect(folders).toEqual([`${HOME}/Projects/cmux`]);
 
-  // The repository and the branch are links, which the pane opens in the browser.
+  // The repository is the project folder, so it has no row of its own: the folder is named by it, and
+  // the branch is a link to it on GitHub, which the pane opens in the browser.
+  expect(environment.textContent).not.toContain("manaflow-ai/cmux");
   const links = [...environment.querySelectorAll<HTMLAnchorElement>("a.acpmux-session-info-row")];
   expect(links.map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
-    ["manaflow-ai/cmux", "https://github.com/manaflow-ai/cmux"],
     ["leo/next-backgrounds", "https://github.com/manaflow-ai/cmux/tree/leo/next-backgrounds"],
   ]);
 
@@ -246,24 +248,60 @@ test("the machine row says where the chat runs: Local, SSH or Cloud beside the m
   ]);
 });
 
-test("a Cloud chat says plainly what its machine is and how long its files last; a local or SSH chat does not", async () => {
+test("no chat's Environment carries a note under its machine, a Cloud chat's included", async () => {
+  // Lucas, 2026-11-05, Session Info lab: "we should remove this 'A Linux machine in cmux Cloud. Its
+  // files stay between chats until the machine is deleted.'" The machine row's Cloud says where it runs.
   const container = installDom();
   root = createRoot(container);
   const base = { sessionId: "s", cwd: SCRATCHPAD } as Summary;
-  const note = async (summary: Summary, peerKinds?: Record<string, "ssh" | "cloud">) => {
+  const notes = async (summary: Summary, peerKinds?: Record<string, "ssh" | "cloud">) => {
     await act(async () =>
       root!.render(<EnvironmentSection summary={summary} machineName="studio-mac" peerKinds={peerKinds} />),
     );
-    return container.querySelector<HTMLElement>('[data-note="cloud-lifetime"]')?.textContent;
+    return container.querySelectorAll(".acpmux-session-info-note").length;
   };
-  const lifetime = translate("cloudRepository.lifetime");
-  expect(lifetime).toContain("Linux");
-  expect(lifetime).toContain("until the machine is deleted");
-  // A Cloud chat with no repository and no repository route still says it.
-  expect(await note({ ...base, hostKind: "cloud", host: "cloud-01" })).toBe(lifetime);
-  expect(await note({ ...base, peer: "vm-1" }, { "vm-1": "cloud" })).toBe(lifetime);
-  expect(await note(base)).toBeUndefined();
-  expect(await note({ ...base, peer: "build-box" }, { "build-box": "ssh" })).toBeUndefined();
+  expect(await notes({ ...base, hostKind: "cloud", host: "cloud-01" })).toBe(0);
+  expect(await notes({ ...base, peer: "vm-1" }, { "vm-1": "cloud" })).toBe(0);
+  expect(await notes(base)).toBe(0);
+});
+
+test("Environment's Changes sits under the branch, counts the chat's edits and opens the diff", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const opened: string[] = [];
+  const summary = { sessionId: "s", cwd: `${HOME}/Projects/cmux`, branch: "leo/next" } as Summary;
+  await act(async () =>
+    root!.render(
+      <EnvironmentSection
+        summary={summary}
+        machineName="studio-mac"
+        repository="manaflow-ai/cmux"
+        edits={{ additions: 311, deletions: 193 }}
+        onOpenChanges={() => opened.push("changes")}
+      />,
+    ),
+  );
+  const rows = [...container.querySelectorAll<HTMLElement>(".acpmux-session-info-row")];
+  const names = rows.map((row) => row.querySelector(".acpmux-session-info-row__name")?.textContent);
+  expect(names.indexOf(translate("header.changes"))).toBe(names.indexOf("leo/next") + 1);
+  const changes = rows.find((row) => row.textContent?.startsWith(translate("header.changes")))!;
+  expect(changes.tagName).toBe("BUTTON");
+  expect(changes.querySelector(".acpmux-diff-add")?.textContent).toBe("+311");
+  expect(changes.getAttribute("aria-expanded")).toBeNull();
+  await act(async () => changes.click());
+  expect(opened).toEqual(["changes"]);
+  // A folder in no repository has no branch, so no Changes either.
+  await act(async () =>
+    root!.render(
+      <EnvironmentSection
+        summary={{ ...summary, branch: undefined }}
+        machineName="studio-mac"
+        edits={{ additions: 1, deletions: 0 }}
+        onOpenChanges={() => undefined}
+      />,
+    ),
+  );
+  expect(container.textContent).not.toContain(translate("header.changes"));
 });
 
 test("Cloud repository rows follow the native route flag and keep the machine row", async () => {
@@ -294,7 +332,7 @@ test("Cloud repository rows follow the native route flag and keep the machine ro
   expect(unavailable.textContent).not.toContain("Default");
 });
 
-test("an attached repository matching the folder repository keeps one linked row", async () => {
+test("an attached repository matching the folder repository is the project row, never a second row", async () => {
   const container = installDom();
   setNativeHost(async (method) => {
     if (method === "cloud.repo.attached")
@@ -317,12 +355,12 @@ test("an attached repository matching the folder repository keeps one linked row
     );
     await Promise.resolve();
   });
+  // The folder's repository names the project row; it is not listed again as an attached one.
   const repositoryRows = [...container.querySelectorAll<HTMLElement>(".acpmux-session-info-row")].filter(
     (row) => row.textContent === "acme/atlas",
   );
-  expect(repositoryRows).toHaveLength(1);
-  expect(repositoryRows[0]?.tagName).toBe("A");
-  expect(repositoryRows[0]?.getAttribute("href")).toBe("https://github.com/acme/atlas");
+  expect(repositoryRows).toHaveLength(0);
+  expect(container.querySelector('[title="/home/chats/s"]')?.textContent).toBe("atlas");
   expect(container.textContent).toContain("other/tools");
 });
 
@@ -417,27 +455,15 @@ test("Environment Save also handles a synchronous callback failure", async () =>
   expect(container.querySelector('[role="alert"]')).not.toBeNull();
 });
 
-// Leo, 2026-10-29, on the composer mode menu's "Granted access" section: "What is this bottom
-// fucking bullshit?" The grants moved here: each one is a row with its own Revoke.
-test("what the chat was granted is listed last, each with Revoke", async () => {
+// Lucas, 2026-11-05: "Trusted this chat's private folder" read as noise, and ChatGPT's panel lists no
+// grants. Revoke Granted Access in the chat menu lists them (header/grantsMenu.ts).
+test("Environment lists no grant rows", async () => {
   const base = chat(scratchRows);
-  const revoked: string[] = [];
   const environment = await renderSessionInfo({
     summary: { ...base.summary!, cwd: SCRATCHPAD, branch: undefined, worktree: undefined },
     machineName: "studio-mac",
     rows: scratchRows,
-    grants: [
-      { id: "folder-trust", label: "Trusted scratchpad", onRemove: () => revoked.push("folder-trust") },
-      { id: "chat-permission", label: "Allow for this chat", onRemove: () => revoked.push("chat-permission") },
-    ],
   });
-  const rows = [...environment.querySelectorAll<HTMLElement>("li[data-grant]")];
-  expect(rows.map((row) => row.dataset.grant)).toEqual(["folder-trust", "chat-permission"]);
-  expect(rows[0]!.textContent).toContain("Trusted scratchpad");
-  const revoke = rows[0]!.querySelector<HTMLButtonElement>("button")!;
-  expect(revoke.textContent).toBe(translate("permission.revoke"));
-  expect(revoke.getAttribute("aria-label")).toBe(`${translate("permission.revoke")}: Trusted scratchpad`);
-  await act(async () => revoke.click());
-  await act(async () => rows[1]!.querySelector<HTMLButtonElement>("button")!.click());
-  expect(revoked).toEqual(["folder-trust", "chat-permission"]);
+  expect(environment.querySelector("li[data-grant]")).toBeNull();
+  expect(environment.textContent).not.toContain(translate("permission.revoke"));
 });

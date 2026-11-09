@@ -7,7 +7,8 @@
 # Usage: scripts/cmux-next/os-matrix.sh --build JOB_ID [--os 14,15] [--suite smoke|fuzz|repro:NAME|exec:NAME]
 #                                       [--seed N] [--minutes N] [--ref SHA] [--attempt N] [--out DIR]
 #   --build    a done fleet `cmux` build job (cmux-ci build cmux ...). The smoke needs a DEV build
-#              (the release socket refuses debug.* calls). The build may be of any commit.
+#              (the release socket refuses debug.* calls) or a bench Release (`--release` of a tag in
+#              release_bench_tags, scripts/cmux-next/cmux-next.dogfood.conf). The build may be of any commit.
 #   --nightly  newest or a NIGHTLY feed build number, in place of --build: the onboarding suite only
 #              (vm.sh downloads that DMG from the feed on the Tart host).
 #   --os       macOS majors, comma-separated, from scripts/fuzz/macos-matrix/images.json
@@ -78,8 +79,19 @@ esac
 CI=${CMUX_CI:-$HOME/.local/bin/cmux-ci}
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "run os-matrix.sh from a cmux worktree" >&2; exit 2; }
 if [[ -z "$REF" ]]; then
-  git -C "$ROOT" fetch -q origin feat-cmux-next || { echo "os-matrix: git fetch failed" >&2; exit 75; }
-  REF=$(git -C "$ROOT" rev-parse FETCH_HEAD)
+  # The tip without a write to the clone: other runs and agents share it, and a ref, FETCH_HEAD or
+  # maintenance lock held by their fetch failed a `git fetch origin feat-cmux-next` here (exit 75),
+  # and a FETCH_HEAD read after it could name their commit. ls-remote reads the sha only; the fetch
+  # of that exact sha, only when its commit is missing, writes objects and no ref or FETCH_HEAD. It
+  # does not go into submodules (on-demand recursion fetches there and writes their refs when the
+  # tip moves a submodule pointer) or follow tags (a tagOpt=--tags config would write refs/tags).
+  REF=$(git -C "$ROOT" ls-remote --heads origin feat-cmux-next \
+    | awk '$2 == "refs/heads/feat-cmux-next" {print $1; exit}') || REF=""
+  [[ "$REF" =~ ^[0-9a-f]{40}$ ]] || { echo "os-matrix: cannot read the feat-cmux-next tip from origin" >&2; exit 75; }
+  git -C "$ROOT" cat-file -e "$REF^{commit}" 2>/dev/null \
+    || git -C "$ROOT" fetch -q --no-write-fetch-head --no-auto-maintenance --no-recurse-submodules --no-tags \
+      origin "$REF" \
+    || { echo "os-matrix: cannot fetch $REF from origin" >&2; exit 75; }
 fi
 [[ "$REF" =~ ^[0-9a-f]{40}$ ]] || { echo "--ref needs a 40-character commit" >&2; exit 2; }
 images=$(git -C "$ROOT" show "$REF:scripts/fuzz/macos-matrix/images.json") || {

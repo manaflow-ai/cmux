@@ -31,6 +31,8 @@ public final class OmnibarTabBinding {
         addressBar.allowsChromiumSchemes = tab.engineKind == .cef
         addressBar.onPageInfo = { [weak self] in self?.pageInfo.toggle() }
         addressBar.onEvent = { [weak self] event in self?.handle(event) }
+        // A link dragged out of the location icon is named after the page, as in a tab's toolbar.
+        addressBar.pageTitle = { [weak self] in self?.tab.state.title }
         addressBar.onTypedHTTPSUpgrade = { [weak self] url in
             guard let self else { return }
             httpsFallback.expect(url, current: tab.state.loadError)

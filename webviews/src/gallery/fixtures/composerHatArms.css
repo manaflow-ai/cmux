@@ -1,0 +1,79 @@
+/* Gallery only: the tucked composer hat's arms that did not ship (composerHat.experiment.ts), for
+   Compare arms. The app ships the `grow` arm alone (subagents.css). */
+
+/* fade: the same widening pill, the count at its final place, uncovered by the pill's edge. */
+.acpmux-tray-pull[data-hat="fade"] .acpmux-tray-pull__slot {
+  justify-content: flex-start;
+}
+
+/* crossfade: two fixed pills, idle and counted, crossfade; width and chevron take their end at once.
+   The pills take the hat's pseudo elements, so this arm draws no bridge. */
+.acpmux-tray-pull[data-hat="crossfade"] .acpmux-tray-pull__hat {
+  background: none;
+  box-shadow: none;
+}
+.acpmux-tray-pull[data-hat="crossfade"] .acpmux-tray-pull__hat::before,
+.acpmux-tray-pull[data-hat="crossfade"] .acpmux-tray-pull__hat::after {
+  content: "";
+  position: absolute;
+  /* Under the hat's chevron and count, over the page. */
+  z-index: var(--layer-backdrop);
+  top: 0;
+  bottom: 0;
+  height: auto;
+  opacity: 1;
+  border-radius: var(--ds-radius-control, 6px);
+  background: var(--glass-tint, color-mix(in srgb, var(--glass-surface, Canvas) 18%, transparent));
+  box-shadow: var(--glass-rim-shadow, inset 0 0 0 var(--cmux-hairline) var(--glass-edge));
+  transition: opacity var(--agent-motion-move) var(--agent-ease-out);
+}
+.acpmux-tray-pull[data-hat="crossfade"] .acpmux-tray-pull__hat::before {
+  right: auto;
+  left: 50%;
+  width: var(--acpmux-tray-pull-control-width);
+  transform: translateX(-50%);
+}
+.acpmux-tray-pull[data-hat="crossfade"] .acpmux-tray-pull__hat::after {
+  left: 0;
+  right: 0;
+  width: auto;
+  transform: none;
+  opacity: 0;
+}
+.acpmux-tray-pull[data-hat="crossfade"] .acpmux-tray-pull__hat[data-shown]::before {
+  opacity: 0;
+}
+.acpmux-tray-pull[data-hat="crossfade"] .acpmux-tray-pull__hat[data-shown]::after {
+  opacity: 1;
+}
+.acpmux-tray-pull[data-hat="crossfade"] .acpmux-tray-pull__slot {
+  transition: opacity var(--agent-motion-move) var(--agent-ease-out);
+}
+
+/* badge: the pill keeps its idle width and the chevron its place; the count is a badge on the corner. */
+.acpmux-tray-pull[data-hat="badge"] .acpmux-tray-pull__slot,
+.acpmux-tray-pull[data-hat="badge"] .acpmux-tray-pull__slot[data-shown] {
+  position: absolute;
+  top: calc(-1 * var(--ds-space-2));
+  left: calc(100% - var(--ds-space-2));
+  justify-content: center;
+  width: auto;
+  min-width: var(--ds-space-4);
+  height: var(--ds-space-4);
+  padding: 0 var(--ds-space-1);
+  overflow: visible;
+  border-radius: 999px;
+  background: var(--agent-accent);
+  color: var(--agent-accent-text, var(--agent-page-bg));
+  font-size: var(--text-caption);
+  line-height: var(--ds-space-4);
+}
+.acpmux-tray-pull[data-hat="badge"] .acpmux-tray-pull__slot {
+  transform: translateY(2px);
+  transition:
+    opacity var(--agent-motion-move) var(--agent-ease-out),
+    transform var(--agent-motion-move) var(--agent-ease-out);
+}
+.acpmux-tray-pull[data-hat="badge"] .acpmux-tray-pull__slot[data-shown] {
+  transform: none;
+}

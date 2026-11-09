@@ -7,7 +7,8 @@ import CmuxNextDesign
 /// opens the Teleport menu (``ChiefTeleportMenuBuilder``), whose picks run the app's `chief.moveTo`
 /// and `chief.moveRollback` through ``ChiefTeleportModel``.
 ///
-/// It follows ``ChiefTeleportModel/location`` and ``ChiefTeleportModel/phase`` and reads the home's
+/// It follows ``ChiefTeleportModel/location``, ``ChiefTeleportModel/shownPhase`` (a move the home's
+/// hold says runs too) and the fork, and reads the home's
 /// marker again each time it joins a window. No animation: each change draws in one frame.
 @MainActor
 public final class ChiefTeleportChip: NSView {
@@ -77,7 +78,7 @@ public final class ChiefTeleportChip: NSView {
         // task-owner: this view (cancelled when it leaves its window; it ends at the first change after
         // the view is released); event-driven (Observation).
         watch = Task { [weak self, model] in
-            for await _ in ObservationStream({ ChiefTeleportChipShown(location: model.location, phase: model.phase) }) {
+            for await _ in ObservationStream({ ChiefTeleportChipShown(location: model.location, phase: model.shownPhase, fork: model.marks.fork?.name) }) {
                 self?.show()
             }
         }
@@ -87,7 +88,7 @@ public final class ChiefTeleportChip: NSView {
 
     /// Reads the model and draws the chip for it.
     func show() {
-        let phase = model.phase
+        let phase = model.shownPhase
         let place = Self.placeTitle(model.location, current: model.menu().currentTitle)
         let text: String
         let symbol: String
@@ -102,7 +103,13 @@ public final class ChiefTeleportChip: NSView {
             symbol = "exclamationmark.triangle"
         case .idle, .done, .rolledBack:
             tone = model.location == .thisMac ? .here : .away
-            if saysAway, case .host = model.location { text = ChiefTeleportStrings.awayOn(place) } else { text = place }
+            if saysAway, case .host = model.location {
+                text = ChiefTeleportStrings.awayOn(place)
+            } else if model.location == .thisMac, model.marks.fork != nil {
+                text = ChiefTeleportStrings.withFork(place)
+            } else {
+                text = place
+            }
             symbol = Self.placeSymbol(model.location)
         }
         label.stringValue = text
@@ -203,7 +210,7 @@ public final class ChiefTeleportChip: NSView {
     // MARK: Words and glyphs
 
     /// The place's words: the menu's name for it (a host's group name), else the chip's own.
-    static func placeTitle(_ location: ChiefLocation, current: String?) -> String {
+    nonisolated static func placeTitle(_ location: ChiefLocation, current: String?) -> String {
         if let current { return current }
         return switch location {
         case .thisMac: ChiefTeleportStrings.thisMac
@@ -230,4 +237,5 @@ public final class ChiefTeleportChip: NSView {
 private nonisolated struct ChiefTeleportChipShown: Equatable {
     var location: ChiefLocation
     var phase: ChiefTeleportPhase
+    var fork: String?
 }

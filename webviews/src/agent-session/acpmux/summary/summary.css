@@ -6,6 +6,9 @@
 .acpmux-summary-card[data-placement=popover]{position:absolute;z-index:var(--layer-sticky);top:48px;right:var(--ds-space-3);width:min(288px,calc(100% - 2 * var(--ds-space-3)));max-height:calc(100% - 60px);border-radius:var(--ui-popup-radius)}
 .acpmux-summary-card[data-placement=inline]{position:relative;flex:0 0 var(--acpmux-summary-column-width);min-width:0;max-height:100%;overflow:hidden;padding:var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);border-left:var(--cmux-hairline, .5px) solid var(--agent-border);background:var(--agent-page-bg);box-shadow:var(--acpmux-popup-elevation)}
 .acpmux-summary-card--reserve{visibility:hidden;pointer-events:none}
+/* The column clips its rows, so its drag edge sits just inside its left edge (ui/SplitEdge.css). */
+.acpmux-summary-card[data-placement=inline]>.ui-split-edge[data-side=left]{left:0}
+.acpmux-summary-card[data-placement=inline]>.ui-split-edge::after{left:0;translate:none}
 .acpmux-main[data-summary=inline]{min-width:0}
 /* The inline Summary is beside the chat, not inside its stage: it must leave the native shared
    tab row empty too. The same column width keeps the tools at the pane edge while the chat narrows. */
@@ -14,10 +17,12 @@
 .acpmux-shell[data-tab-row]:has(>.acpmux-summary-card[data-placement=inline]){--acpmux-summary-push:var(--acpmux-summary-column-width)}
 /* Under the tab row when the header's tools sit in it (header/tabRow.ts). */
 .acpmux-header[data-tab-row]~.acpmux-summary-card{top:calc(var(--acpmux-tab-row-height) + var(--ds-space-2))}
-.acpmux-inspecting>.acpmux-summary-card,.acpmux-stage:has(.acpmux-find)>.acpmux-summary-card{visibility:hidden}
+/* The Find bar is the scroller's own child: a `:has()` over the whole stage would be checked again for every node a
+   streamed chunk inserts (test/agent-pane-stream-composer-still.test.ts). */
+.acpmux-inspecting>.acpmux-summary-card,.acpmux-stage:has(>.acpmux-scroll>.acpmux-find)>.acpmux-summary-card{visibility:hidden}
 /* While hidden, the popover blurs nothing under it (ui/glass/seeThroughBlur.ts): no Find bar or
    transcript stays blurred under an invisible card. Above glass.css's filter rule in specificity. */
-:root[data-cmux-see-through] :is(.acpmux-inspecting,.acpmux-stage:has(.acpmux-find))>[data-glass-under~=summary]{filter:none}
+:root[data-cmux-see-through] :is(.acpmux-inspecting,.acpmux-stage:has(>.acpmux-scroll>.acpmux-find))>[data-glass-under~=summary]{filter:none}
 .acpmux-summary-card__head{flex:none;display:flex;align-items:center;gap:2px;padding:var(--ds-space-1) var(--ds-space-1) var(--ds-space-1) var(--ds-space-2)}
 .acpmux-summary-card[data-placement=inline] .acpmux-summary-card__head{height:28px;padding:0 0 var(--ds-space-1)}
 .acpmux-summary-card__fold{flex:1;min-width:0;display:flex;align-items:center;gap:var(--ds-space-2);height:26px;padding:0 var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);background:none;color:inherit;font:inherit;text-align:left}
@@ -119,7 +124,7 @@
 :root[data-status-indicators=static] .acpmux-summary-dot[data-state=failed]::after{content:"✕"}
 :root[data-status-indicators=static] .acpmux-summary-dot[data-state=running]::after{content:"";inset:var(--ds-space-1);border-radius:50%;background:var(--surface-popup)}
 /* The chat's gallery (GalleryDialog.tsx): over the pane as the image viewer is, a grid of the chat's images and render cards. */
-.acpmux-chat-gallery{position:fixed;inset:0;z-index:var(--layer-modal);width:auto;margin-inline:0;display:flex;flex-direction:column;background:color-mix(in srgb,var(--cmux-surface-solid,var(--agent-page-bg)) 94%,transparent);-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);color:var(--agent-text);outline:none}
+.acpmux-chat-gallery{position:fixed;inset:0;z-index:var(--layer-modal);width:auto;margin-inline:0;display:flex;flex-direction:column;background:color-mix(in srgb,var(--cmux-surface-solid,var(--agent-page-bg)) var(--ds-glass-popover-tint),transparent);-webkit-backdrop-filter:var(--ds-glass-popover-blur);backdrop-filter:var(--ds-glass-popover-blur);color:var(--agent-text);outline:none}
 /* Reduce Transparency: the gallery is a solid page, unblurred, as the other blurred acpmux surfaces are. The page background is clear in a translucent window, so the solid color is the opaque surface token the composer uses. */
 @media (prefers-reduced-transparency:reduce){.acpmux-chat-gallery{background:var(--cmux-surface-solid, var(--acpmux-base, Canvas));-webkit-backdrop-filter:none;backdrop-filter:none}}
 :root[data-reduce-transparency] .acpmux-chat-gallery{background:var(--cmux-surface-solid, var(--acpmux-base, Canvas));-webkit-backdrop-filter:none;backdrop-filter:none}
@@ -144,22 +149,6 @@
    container's first/last-child margin resets across that extra box. */
 .cv-md>.cv-block-tail:first-child>div:first-child>:first-child{margin-top:0}
 .cv-md>.cv-block-tail:last-child>div:first-child>:last-child{margin-bottom:0}
-/* The recap card above the composer (RecapCard.tsx): when the last turn ended on a question, the answer's last paragraph muted and clamped to three lines, the question, then Yes (accent) and Not now (quiet), × at the top right. On the composer card's two edges, as the running tray is (bottomStack.css --acpmux-stack-outset), and its corner. */
-.acpmux-recap{padding:0 0 var(--ds-space-2);padding-inline:calc(var(--cv-inset) - var(--acpmux-stack-outset,0px)) calc(var(--cv-inset-end,var(--cv-inset)) - var(--acpmux-stack-outset,0px));font-size:var(--text-control);line-height:var(--text-control--line-height);letter-spacing:var(--text-control--letter-spacing)}
-.acpmux-quick .acpmux-recap{padding:var(--ds-space-2) var(--ds-space-2) 0}
-.acpmux-recap__card{position:relative;padding:var(--ds-space-3) calc(var(--ds-space-6) + var(--ds-space-1)) var(--ds-space-3) var(--ds-space-3);border:var(--cmux-hairline, .5px) solid var(--agent-border);border-radius:var(--acpmux-composer-radius,11px);background:var(--acpmux-composer-tray);color:var(--agent-text)}
-.acpmux-recap__summary{margin:0 0 var(--ds-space-2);color:var(--agent-muted);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;overflow-wrap:anywhere}
-.acpmux-recap__question{margin:0;overflow-wrap:anywhere}
-.acpmux-recap__actions{display:flex;flex-wrap:wrap;gap:var(--ds-space-2);margin-top:var(--ds-space-2)}
-.acpmux-recap__button{display:inline-flex;align-items:center;height:26px;padding:0 var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);font:inherit;font-size:var(--text-control);white-space:nowrap;letter-spacing:var(--text-control--letter-spacing)}
-.acpmux-recap__yes{background:var(--agent-accent);color:var(--agent-accent-text,#fff)}
-.acpmux-recap__yes:hover{background:color-mix(in srgb,var(--agent-accent) 88%,var(--agent-text))}
-.acpmux-recap__yes .acpmux-keycap{margin:0 0 0 var(--ds-space-2)}
-.acpmux-recap__later{background:none;color:var(--agent-muted)}
-.acpmux-recap__later:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
-.acpmux-recap__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
-.acpmux-recap__dismiss{position:absolute;top:var(--ds-space-2);right:var(--ds-space-2)}
-.acpmux-recap__error{margin:var(--ds-space-2) 0 0;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
 /* The summary card's Background tasks (SummaryTasks.tsx): every command is a compact card so its
    description and state stay visible; long lists use the View all row instead of hiding completed
    work behind an aggregate count. */

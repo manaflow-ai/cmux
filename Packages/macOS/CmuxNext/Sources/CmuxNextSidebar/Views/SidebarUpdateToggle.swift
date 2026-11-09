@@ -141,7 +141,7 @@ final class SidebarUpdateToggle: NSView {
         case .checkbox:
             let boxFrame = CGRect(x: 0, y: (b.height - side) / 2, width: side, height: side)
             box.frame = boxFrame
-            box.cornerRadius = Metrics.space1
+            box.cornerRadius = Metrics.controlCornerRadius
             hasLaidOutSwitch = false
             knob.isHidden = true
             let inset = side * 0.18

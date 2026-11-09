@@ -674,6 +674,10 @@ mod pairing_gate_tests;
 #[path = "chief_profile_ws_tests.rs"]
 mod chief_profile_ws_tests;
 
+#[cfg(all(test, unix))]
+#[path = "palette_rank_page_tests.rs"]
+mod palette_rank_page_tests;
+
 /// The peer executable is read only while the peer key or token still
 /// names the same process (review 2 finding 3): a stale pid version, as a
 /// process that reused the pid would have, reads nothing.

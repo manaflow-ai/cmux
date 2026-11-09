@@ -364,9 +364,17 @@ jobs:
             # Registry edits that only register Linux guards do not change the
             # native test lanes. Missing history keeps the detector fail-open.
             registry_base_args=()
-            if grep -Fxq 'tests/test-execution.toml' /tmp/cmux-ci-changed-files.txt; then
-              registry_base="$(mktemp "${RUNNER_TEMP:-/tmp}/cmux-test-registry-base.XXXXXX")"
-              if git show "$BASE_SHA:tests/test-execution.toml" > "$registry_base"; then
+            # The registry is tests/test-execution.d/*.toml (the single tests/test-execution.toml
+            # before the split); the base's registry files go to a directory the detector reads.
+            if grep -Eq '^tests/(test-execution\.toml|test-execution\.d/[^/]+\.toml)$' /tmp/cmux-ci-changed-files.txt; then
+              registry_base="$(mktemp -d "${RUNNER_TEMP:-/tmp}/cmux-test-registry-base.XXXXXX")"
+              registry_base_files=()
+              while IFS= read -r registry_file; do
+                registry_base_files+=("$registry_file")
+              done < <(git ls-tree --name-only "$BASE_SHA" -- tests/test-execution.toml tests/test-execution.d/ 2>/dev/null \
+                | grep -E '^tests/(test-execution\.toml|test-execution\.d/[^/]+\.toml)$' || true)
+              if [ "${#registry_base_files[@]}" -gt 0 ] \
+                && git --literal-pathspecs archive "$BASE_SHA" -- "${registry_base_files[@]}" | tar -x -C "$registry_base"; then
                 registry_base_args=(--test-registry-base "$registry_base")
               fi
             fi
@@ -1172,10 +1180,12 @@ jobs:
 
       - name: Verify published GhosttyKit release and checksum
         env:
-          # A missing GitHub release should fail quickly rather than spending
-          # the helper's nightly retry budget on a known 404.
-          GHOSTTYKIT_DOWNLOAD_RETRIES: "0"
-          GHOSTTYKIT_DOWNLOAD_RETRY_DELAY: "1"
+          # A missing GitHub release still fails within a minute, not after the
+          # helper's nightly retry budget. Three resumed retries let a github.com
+          # 504 or stalled transfer pass: on 2026-11-08 a single slow or 504
+          # response turned this check red on every feat-cmux-next PR.
+          GHOSTTYKIT_DOWNLOAD_RETRIES: "3"
+          GHOSTTYKIT_DOWNLOAD_RETRY_DELAY: "5"
         run: ./scripts/download-prebuilt-ghosttykit.sh --verify-only
 
   browser:
@@ -1206,6 +1216,10 @@ jobs:
     # every job below that needs `changes` (tests/test_ci_portable_job_placement.py).
     needs: [changes]
     if: ${{ (!cancelled() && needs.changes.result == 'success' && (needs.changes.outputs.web != 'false' || needs.changes.outputs.agent_session_web != 'false')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}
+    # actions: read: the webview base replay reads the base's flake history artifact (ci-web.yml).
+    permissions:
+      contents: read
+      actions: read
     uses: ./.github/workflows/ci-web.yml
     with:
       web: ${{ needs.changes.outputs.web }}
@@ -1633,7 +1647,7 @@ jobs:
 
   # A red web check on a pull request into feat-cmux-next gets one "red: <check>" comment (the
   # checks stay advisory there; chief 2026-10-12). cmux-next-guards.yml calls the same workflow
-  # after its app-size job (the CmuxNextApp size cap); both update one comment.
+  # after its own-change-checks job (the CmuxNextApp size cap among its steps); both update one comment.
   pr-red-checks:
     needs: [web]
     if: ${{ (always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","dev-build"]'), github.event.label.name)) }}

@@ -57,6 +57,17 @@ struct CloudCredentialTransferTests {
 
     /// A Release copy whose switch went off, or whose consent was taken back, during the confirm or
     /// the sign-in: the last check before the write stops it, and nothing reaches the machine.
+    /// A Keychain that does not answer is not "no cached login": the start's record must tell them apart.
+    @Test func anUnreadableCacheIsNotAMissingOne() async {
+        #expect(await CloudCredentialTransfer.cachedLogin { Self.token } == .cached)
+        #expect(await CloudCredentialTransfer.cachedLogin { nil } == .none)
+        #expect(await CloudCredentialTransfer.cachedLogin { throw CloudCredentialTransfer.Failure.storeFailed } == .unreadable)
+        #expect(await CloudCredentialTransfer.cachedLogin(provider: .codex, teamID: "team", userID: "user") == .none)
+        // The start records which one it was.
+        #expect(CloudCredentialTransfer.CachedLogin.cached.startOutcome == nil)
+        #expect(CloudCredentialTransfer.CachedLogin.unreadable.startOutcome != CloudCredentialTransfer.CachedLogin.none.startOutcome)
+    }
+
     @Test func aCopyTurnedOffBeforeTheWriteWritesNothing() async {
         let r = Recorder()
         r.cached = Self.token
@@ -145,6 +156,33 @@ struct CloudCredentialTransferTests {
         let started = ContinuousClock.now
         await #expect(throws: CloudCredentialTransfer.Failure.machineNotReady) { try await r.run() }
         #expect(ContinuousClock.now - started < .seconds(1) && r.logins == 0 && r.writes.isEmpty)
+    }
+
+    /// A login read from cmux's cache at once is delivered on the guest check just made: one preflight exec, not two
+    /// (cmuxterm-hq#8060). A sign-in in between, or a slow Keychain read, checks the guest again before the write.
+    @Test func aCachedLoginIsDeliveredOnOneGuestCheck() async throws {
+        let cached = Recorder(); cached.cached = Self.token
+        try await cached.run()
+        #expect(cached.commands.filter { $0 == CloudCredentialInstaller.preflight }.count == 1 && cached.writes.count == 1)
+        let signedIn = Recorder()
+        try await signedIn.run()
+        #expect(signedIn.commands.filter { $0 == CloudCredentialInstaller.preflight }.count == 2 && signedIn.writes.count == 1)
+        let slow = Recorder(); slow.cached = Self.token
+        var transfer = slow.transfer
+        transfer.recheckAfter = .zero
+        try await transfer.run(currentTeamID: { slow.team }, currentUserID: { slow.user }, confirmed: true, effects: slow.effects)
+        #expect(slow.commands.filter { $0 == CloudCredentialInstaller.preflight }.count == 2)
+    }
+
+    /// The owner check still runs again before the write, cached login or not: it is local and costs no round trip.
+    @Test func aCachedLoginStillChecksTheOwnerBeforeTheWrite() async {
+        let r = Recorder(); r.cached = Self.token
+        var effects = r.effects
+        effects.callerOwnsVM = { await MainActor.run { defer { r.owner = false }; return r.owner } } // owned once, then not
+        await #expect(throws: CloudCredentialTransfer.Failure.sharedMachine) {
+            try await r.transfer.run(currentTeamID: { r.team }, currentUserID: { r.user }, confirmed: true, effects: effects)
+        }
+        #expect(r.writes.isEmpty)
     }
 
     @Test func firstTransferStoresThenDeliversAndRepeatReusesScopedCache() async throws {

@@ -39,7 +39,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// The Vite server pages load from (``PageDevServer``, Debug only), nil for the bundled pages.
     let devServer: PageDevServer?
     /// Fetches one file from ``devServer`` (tests replace it).
-    var fetchDevServer: @Sendable (URL) async -> (Data, HTTPURLResponse)? = { await PageDevServer.fetch($0) }
+    var fetchDevServer: @Sendable (URLRequest) async -> (Data, HTTPURLResponse)? = { await PageDevServer.fetch($0) }
     /// The live override (``WebDevOverride/current``; tests replace it).
     var liveOverride: @Sendable () -> WebDevOverride = { WebDevOverride.current }
     /// The projection windows (``WebProjection/shared``; tests replace it).
@@ -64,7 +64,12 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     private func served(_ url: URL) -> Served? {
         guard url.scheme?.lowercased() == PageDescriptor.scheme,
               let host = url.host?.lowercased() else { return nil }
-        return resolve(host)
+        if let served = resolve(host) { return served }
+        // The Artifacts pane reuses the exact agent bootstrap. No other cross-origin
+        // path (including query/fragment variants) is resolved through its bundle.
+        guard PageArtifactFrame.isFrame(url), let served = resolve("cmux.artifacts"),
+              served.page.id.lowercased() == "cmux.artifacts" else { return nil }
+        return served
     }
 
     /// The page's directory inside this module's resource bundle (`Resources/pages/<resource>`).
@@ -113,7 +118,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// the update that page loaded with (``WebBundleServedViews``), any other the active one.
     func reply(to url: URL, range: String? = nil, webView: WKWebView? = nil) async -> Reply? {
         guard let served = served(url) else { return nil }
-        if served.page.id.lowercased() == PageArtifactFrame.pageID, PageArtifactFrame.isFrame(url) {
+        if PageArtifactFrame.parentIDs.contains(served.page.id.lowercased()), PageArtifactFrame.isFrame(url) {
             return Self.artifactReply(url: url)
         }
         var live = liveOverride()
@@ -122,8 +127,13 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         if let projected { live.server = projected }
         let launchServer = projected == nil ? devServer : nil
         if let devServer = launchServer ?? live.server, let remote = devServer.url(for: url, page: served.page) {
-            if let (body, response) = await fetchDevServer(remote), devServer.isOwn(response.url),
-               launchServer != nil || response.statusCode < 400 {
+            let request = devServer.request(for: remote)
+            // The document must be HTML, or the page falls back to its bundled one (or, for the launch
+            // variable, fails): an answer drawn as text shows the page's source.
+            let document = PageDevServer.isDocument(url, page: served.page)
+            if let (body, response) = await fetchDevServer(request), devServer.answered(response, to: request),
+               launchServer != nil || response.statusCode < 400,
+               !document || PageDevServer.isHTML(response.value(forHTTPHeaderField: "Content-Type")) {
                 let type = response.value(forHTTPHeaderField: "Content-Type").flatMap(Self.validMIMEType)
                     ?? Self.mimeType(forExtension: remote.pathExtension)
                 return Self.reply(url: url, csp: devServer.csp(for: served.page), status: response.statusCode, mimeType: type, body: body)
@@ -154,6 +164,30 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         }
     }
 
+    /// A Chromium page's file while the live web loop runs: ``reply(to:range:webView:)`` for a
+    /// handler of `page` at `root`, as Chromium takes it, with that reply's CSP. A 404 when there is
+    /// no root or no reply.
+    static func liveChromiumResponse(to url: URL, range: String?, page: PageDescriptor, root: URL?,
+                                     dynamicSource: (any PageDynamicResourceSource)?) async -> PageChromiumResponse {
+        guard let root else { return .notFound }
+        let handler = PageSchemeHandler(page: page, root: root, dynamicSource: dynamicSource)
+        guard let reply = await handler.reply(to: url, range: range) else { return .notFound }
+        return chromiumResponse(reply)
+    }
+
+    /// `reply` as Chromium takes it: status, type, body, the byte-range headers and the CSP.
+    nonisolated static func chromiumResponse(_ reply: Reply) -> PageChromiumResponse {
+        let response = reply.response
+        var range: [String: String] = [:]
+        for name in ["Content-Range", "Accept-Ranges"] {
+            if let value = response.value(forHTTPHeaderField: name) { range[name] = value }
+        }
+        let type = response.value(forHTTPHeaderField: "Content-Type").flatMap(validMIMEType)
+            ?? response.mimeType ?? "application/octet-stream"
+        return PageChromiumResponse(status: response.statusCode, mimeType: type, body: reply.body, rangeHeaders: range,
+                                    csp: response.value(forHTTPHeaderField: "Content-Security-Policy"))
+    }
+
     /// The answer to a request under a dynamic prefix, in either engine: the source's resource with
     /// its type (a malformed or missing type falls back to the name's extension), else a 404.
     static func dynamicResponse(to request: PageResourceRequest,
@@ -162,6 +196,14 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         let fallback = mimeType(forExtension: request.path.last.map { ($0 as NSString).pathExtension } ?? "")
         let type = resource.mimeType.flatMap(validMIMEType) ?? fallback
         return PageChromiumResponse(status: 200, mimeType: type, body: resource.data)
+    }
+
+    /// The source's answer at once (``PageReadyResourceSource``), as ``dynamicResponse(to:source:)``
+    /// gives it; nil when it has none ready.
+    static func readyResponse(to request: PageResourceRequest, source: any PageReadyResourceSource) -> PageChromiumResponse? {
+        guard let resource = source.readyResource(for: request) else { return nil }
+        let fallback = mimeType(forExtension: request.path.last.map { ($0 as NSString).pathExtension } ?? "")
+        return PageChromiumResponse(status: 200, mimeType: resource.mimeType.flatMap(validMIMEType) ?? fallback, body: resource.data)
     }
 
     /// A ranged source's answer as it set it (206 and `Content-Range` for a range), else a 404 with
@@ -240,10 +282,10 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// for another scheme or page, a path with `.` or `..` components, or a path that leaves
     /// `root`. An empty path is the page's ``PageDescriptor/entry``.
     nonisolated static func route(for url: URL, page: PageDescriptor, root: URL) -> Route? {
-        guard page.owns(url) else { return nil }
-        if page.id.lowercased() == PageArtifactFrame.pageID, PageArtifactFrame.isArtifactURL(url) {
-            return PageArtifactFrame.isFrame(url) ? .artifact : nil
+        if PageArtifactFrame.isArtifactURL(url) {
+            return PageArtifactFrame.parentIDs.contains(page.id.lowercased()) && PageArtifactFrame.isFrame(url) ? .artifact : nil
         }
+        guard page.owns(url) else { return nil }
         var components = url.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
         if components.isEmpty { components = [page.entry] }
         guard !components.contains(where: { $0 == ".." || $0 == "." }) else { return nil }

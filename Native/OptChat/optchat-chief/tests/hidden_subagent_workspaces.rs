@@ -1,6 +1,7 @@
-//! Chief subagents run hidden by default (#26386: their workspaces filled the
-//! sidebar's topic groups between the user's own). The setting
-//! `subagents.showWorkspaces` opts back in; `control show ID` opens one
+//! A short Chief subagent runs hidden (#26386: their workspaces filled the
+//! sidebar's topic groups between the user's own; a1018: the Chief chooses,
+//! chief_sidebar_choice.rs). The setting `subagents.showWorkspaces` shows
+//! every one; `control show ID` opens one
 //! hidden subagent's workspace and `control hide ID` closes it again, while
 //! the subagent keeps working.
 
@@ -97,7 +98,9 @@ fn setup_with(
             h.tx.clone(),
             Arc::new(|_: &str| {}),
         )
-        .with_workspaces(Some(ws)),
+        .with_workspaces(Some(ws))
+        // No user rules: the defaults, never the developer's own file.
+        .with_user_settings(Some(h.dir.path().join("cmux-next.json"))),
     );
     (h, sp)
 }
@@ -166,7 +169,8 @@ fn by_default_a_subagent_runs_hidden_and_show_and_hide_toggle_its_workspace() {
     // Hidden: nothing in the sidebar, and the answer says so and how to show it.
     assert!(recorder.opened.lock().unwrap().is_empty(), "{answer}");
     assert!(answer.contains("hidden"), "{answer}");
-    assert!(answer.contains("subagents.showWorkspaces"), "{answer}");
+    // A short task under the Chief's default `auto` (sidebar_choice.rs).
+    assert!(answer.contains("short task"), "{answer}");
     assert!(answer.contains("\"show\""), "{answer}");
     assert!(
         !answer.contains("ws_"),

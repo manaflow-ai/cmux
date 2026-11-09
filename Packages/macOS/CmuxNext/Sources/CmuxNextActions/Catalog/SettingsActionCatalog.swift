@@ -92,14 +92,14 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.installCLI", defaultValue: "Install cmux CLI in PATH", bundle: .module),
                 keywords: ["command line", "shell"], category: .settings, symbol: "terminal", surfaces: [.palette],
                 // Another app's `cmux` at /usr/local/bin is never replaced
-                // silently: `--replace` replaces it, `--cmux_next` installs
+                // silently: `--replace` replaces it, `--cmux-next` installs
                 // /usr/local/bin/cmux-next beside it; without either the app
                 // installs cmux-next beside it and its toast offers Replace.
                 arguments: [
                     ActionArgument(name: "replace",
                                    title: String(localized: "argument.installCLI.replace", defaultValue: "Replace Another App's cmux", bundle: .module),
                                    kind: .bool, isRequired: false),
-                    ActionArgument(name: "cmux_next",
+                    ActionArgument(name: "cmuxNext",
                                    title: String(localized: "argument.installCLI.cmuxNext", defaultValue: "Install as cmux-next", bundle: .module),
                                    kind: .bool, isRequired: false),
                 ],
@@ -129,6 +129,38 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.checkForUpdates", defaultValue: "Check for Updates…", bundle: .module),
                 keywords: ["update", "version", "sparkle"], category: .settings, symbol: "arrow.down.circle",
                 surfaces: [.palette, .menu], cliName: "settings check-for-updates", mainMenu: .app
+            ),
+            // Live Web Reload (docs/cmux-next/hot-reload.md): load cmux's web UI from a checkout's dev
+            // server, so a saved edit shows at once with no build. The CLI is `cmux live start|stop`.
+            ActionDescriptor(
+                id: "liveWeb.start",
+                title: String(localized: "action.liveWeb.start", defaultValue: "Edit cmux Live…", bundle: .module),
+                hint: String(localized: "action.liveWeb.start.hint",
+                             defaultValue: "Change cmux's own UI and see it here at once, or let your agent do it. No build.",
+                             bundle: .module),
+                keywords: ["live web reload", "hot reload", "dev server", "edit", "web ui", "webviews", "vite", "checkout", "develop"],
+                category: .settings, symbol: "bolt.horizontal.circle", surfaces: [.palette],
+                arguments: [CatalogArgument.optionalPathString]
+            ),
+            ActionDescriptor(
+                id: "liveWeb.stop",
+                title: String(localized: "action.liveWeb.stop", defaultValue: "Stop Editing cmux Live", bundle: .module),
+                keywords: ["live web reload", "hot reload", "dev server", "built-in", "bundled", "web ui"],
+                category: .settings, symbol: "bolt.horizontal.circle.fill", surfaces: [.palette]
+            ),
+            // Swift live mode (docs/cmux-next/live-code.md): a tagged build restarts into the live code
+            // build of its commit and back, sessions kept. The CLI is `cmux live start|stop --swift`.
+            ActionDescriptor(
+                id: "liveSwift.start",
+                title: String(localized: "action.liveSwift.start", defaultValue: "Start Swift Live Mode", bundle: .module),
+                keywords: ["live code", "hot reload", "hot swap", "swift", "patch", "interposable", "labs", "restart"],
+                category: .settings, symbol: "swift", surfaces: [.palette]
+            ),
+            ActionDescriptor(
+                id: "liveSwift.stop",
+                title: String(localized: "action.liveSwift.stop", defaultValue: "Stop Swift Live Mode", bundle: .module),
+                keywords: ["live code", "hot reload", "swift", "normal build", "optimized", "labs", "restart"],
+                category: .settings, symbol: "swift", surfaces: [.palette]
             ),
             ActionDescriptor(
                 id: "updates.whatsNew",
@@ -241,79 +273,79 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "appearance.animations.newTab.toggle",
-                title: String(localized: "action.appearance.animations.newTab.toggle", defaultValue: "Toggle New Tab Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.newTab.toggle", defaultValue: "New Tab Animations", bundle: .module),
                 keywords: ["animation", "motion", "tab", "new tab", "appearance"], category: .settings,
                 symbol: "plus.rectangle.on.rectangle", surfaces: [.palette], cliName: "settings toggle-new-tab-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.newWorkspace.toggle",
-                title: String(localized: "action.appearance.animations.newWorkspace.toggle", defaultValue: "Toggle New Workspace Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.newWorkspace.toggle", defaultValue: "New Workspace Animations", bundle: .module),
                 keywords: ["animation", "motion", "workspace", "sidebar", "appearance"], category: .settings,
                 symbol: "sidebar.left", surfaces: [.palette], cliName: "settings toggle-new-workspace-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.toggle",
-                title: String(localized: "action.appearance.animations.toggle", defaultValue: "Toggle All Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.toggle", defaultValue: "All Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "no animations", "disable", "reduce motion", "instant"], category: .settings,
                 symbol: "sparkles", surfaces: [.palette], cliName: "settings toggle-all-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.sidebar.toggle",
-                title: String(localized: "action.appearance.animations.sidebar.toggle", defaultValue: "Toggle Sidebar Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.sidebar.toggle", defaultValue: "Sidebar Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "sidebar", "row", "group", "reorder"], category: .settings,
                 symbol: "sidebar.left", surfaces: [.palette], cliName: "settings toggle-sidebar-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.tabs.toggle",
-                title: String(localized: "action.appearance.animations.tabs.toggle", defaultValue: "Toggle Tab Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.tabs.toggle", defaultValue: "Tab Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "tab", "tab bar"], category: .settings,
                 symbol: "rectangle.split.3x1", surfaces: [.palette], cliName: "settings toggle-tab-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.panes.toggle",
-                title: String(localized: "action.appearance.animations.panes.toggle", defaultValue: "Toggle Pane and Window Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.panes.toggle", defaultValue: "Pane and Window Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "pane", "split", "zoom", "window"], category: .settings,
                 symbol: "rectangle.split.2x1", surfaces: [.palette], cliName: "settings toggle-pane-and-window-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.overlays.toggle",
-                title: String(localized: "action.appearance.animations.overlays.toggle", defaultValue: "Toggle Menu and Card Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.overlays.toggle", defaultValue: "Menu and Card Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "menu", "popover", "palette", "toast", "card"], category: .settings,
                 symbol: "menubar.rectangle", surfaces: [.palette], cliName: "settings toggle-menu-and-card-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.hoverCards.toggle",
-                title: String(localized: "action.appearance.animations.hoverCards.toggle", defaultValue: "Toggle Hover Card Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.hoverCards.toggle", defaultValue: "Hover Card Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "hover card", "tooltip"], category: .settings,
                 symbol: "rectangle.on.rectangle", surfaces: [.palette], cliName: "settings toggle-hover-card-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.home.toggle",
-                title: String(localized: "action.appearance.animations.home.toggle", defaultValue: "Toggle Home and Chat Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.home.toggle", defaultValue: "Home and Chat Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "home", "chief", "chat", "bubble"], category: .settings,
                 symbol: "bubble.left.and.bubble.right", surfaces: [.palette], cliName: "settings toggle-home-and-chat-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.cursor.toggle",
-                title: String(localized: "action.appearance.animations.cursor.toggle", defaultValue: "Toggle Agent Cursor Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.cursor.toggle", defaultValue: "Agent Cursor Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "cursor", "agent", "ripple"], category: .settings,
                 symbol: "cursorarrow.motionlines", surfaces: [.palette], cliName: "settings toggle-agent-cursor-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.indicators.toggle",
-                title: String(localized: "action.appearance.animations.indicators.toggle", defaultValue: "Toggle Spinner and Progress Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.indicators.toggle", defaultValue: "Spinner and Progress Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "spinner", "progress", "pulse", "loading"], category: .settings,
                 symbol: "progress.indicator", surfaces: [.palette], cliName: "settings toggle-spinner-and-progress-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.feedback.toggle",
-                title: String(localized: "action.appearance.animations.feedback.toggle", defaultValue: "Toggle Highlight and Color Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.feedback.toggle", defaultValue: "Highlight and Color Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "hover", "highlight", "color", "theme"], category: .settings,
                 symbol: "hand.point.up.left", surfaces: [.palette], cliName: "settings toggle-highlight-and-color-animations"
             ),
             ActionDescriptor(
                 id: "appearance.animations.web.toggle",
-                title: String(localized: "action.appearance.animations.web.toggle", defaultValue: "Toggle Web Page Animations", bundle: .module),
+                title: String(localized: "action.appearance.animations.web.toggle", defaultValue: "Web Page Animations", bundle: .module),
                 keywords: ["animation", "motion", "appearance", "web", "page", "css"], category: .settings,
                 symbol: "globe", surfaces: [.palette], cliName: "settings toggle-web-page-animations"
             ),
@@ -343,19 +375,19 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "appearance.paneBorder.toggle",
-                title: String(localized: "action.appearance.paneBorder.toggle", defaultValue: "Toggle Pane Borders", bundle: .module),
+                title: String(localized: "action.appearance.paneBorder.toggle", defaultValue: "Pane Borders", bundle: .module),
                 keywords: ["border", "outline", "hairline", "pane", "appearance", "layout"], category: .settings,
                 symbol: "square.dashed", surfaces: [.palette], cliName: "settings toggle-pane-border"
             ),
             ActionDescriptor(
                 id: "appearance.panePadding.toggle",
-                title: String(localized: "action.appearance.panePadding.toggle", defaultValue: "Toggle Pane Padding", bundle: .module),
+                title: String(localized: "action.appearance.panePadding.toggle", defaultValue: "Pane Padding", bundle: .module),
                 keywords: ["padding", "gap", "inset", "edge to edge", "pane", "appearance", "layout"], category: .settings,
                 symbol: "rectangle.inset.filled", surfaces: [.palette], cliName: "settings toggle-pane-padding"
             ),
             ActionDescriptor(
                 id: "appearance.paneCorners.toggle",
-                title: String(localized: "action.appearance.paneCorners.toggle", defaultValue: "Toggle Rounded Pane Corners", bundle: .module),
+                title: String(localized: "action.appearance.paneCorners.toggle", defaultValue: "Rounded Pane Corners", bundle: .module),
                 keywords: ["corner", "radius", "rounded", "square", "pane", "appearance", "layout"], category: .settings,
                 symbol: "square.on.square", surfaces: [.palette], cliName: "settings toggle-pane-corners"
             ),
@@ -427,7 +459,7 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "focusRing.toggle",
-                title: String(localized: "action.focusRing.toggle", defaultValue: "Toggle Focus Ring", bundle: .module),
+                title: String(localized: "action.focusRing.toggle", defaultValue: "Focus Ring", bundle: .module),
                 keywords: ["focus", "ring", "outline", "highlight", "pane", "appearance"], category: .settings,
                 symbol: "square.dashed.inset.filled", surfaces: [.palette], cliName: "settings toggle-focus-ring"
             ),
@@ -445,13 +477,13 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "focusRing.singlePane.toggle",
-                title: String(localized: "action.focusRing.singlePane.toggle", defaultValue: "Toggle Focus Ring for a Single Pane", bundle: .module),
+                title: String(localized: "action.focusRing.singlePane.toggle", defaultValue: "Focus Ring for a Single Pane", bundle: .module),
                 keywords: ["focus", "ring", "single", "one", "pane", "appearance"], category: .settings,
                 symbol: "square.inset.filled", surfaces: [.palette], cliName: "settings toggle-single-pane-focus-ring"
             ),
             ActionDescriptor(
                 id: "appearance.paneBorderWidth.toggle",
-                title: String(localized: "action.appearance.paneBorderWidth.toggle", defaultValue: "Toggle Thick Pane Borders", bundle: .module),
+                title: String(localized: "action.appearance.paneBorderWidth.toggle", defaultValue: "Thick Pane Borders", bundle: .module),
                 keywords: ["border", "width", "thick", "thin", "hairline", "pane", "appearance", "layout"], category: .settings,
                 symbol: "lineweight", surfaces: [.palette], cliName: "settings toggle-thick-pane-borders"
             ),
@@ -532,6 +564,18 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
+            // Leo 2026-11-04: "shouldn't the nightly itself or whatever stable app be able to simply do this? Like the
+            // view if you wanna separate it out". The app's UI from your checkout's gallery dev server in a window of
+            // the running app (`ViewWindow`), no DEV or shell build; `port`, `width`, `height` and any mock app key
+            // (`fixture`, `density`, `script`, ...) as arguments (Debug menu, DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "debug.viewWindow",
+                title: String(localized: "action.debug.viewWindow", defaultValue: "Open View Window", bundle: .module),
+                keywords: ["view", "window", "preview", "shell", "live", "hot reload", "dev server", "gallery", "mock app", "checkout", "debug"],
+                category: .settings, symbol: "macwindow.on.rectangle", surfaces: [.palette, .menu], mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
             // Leo 2026-11-05 (HQ#7149 L10): "the view of the app that's separate ... with your actual config, your
             // actual settings": a real window of this app whose pages load from a worktree's dev server, the other
             // windows untouched (WebProjection, CmuxNextPages; Debug menu, DEV and NIGHTLY).
@@ -544,6 +588,7 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                     ActionArgument(name: "server", title: String(localized: "argument.projection.server", defaultValue: "Server", bundle: .module), kind: .string, isRequired: false),
                     ActionArgument(name: "worktree", title: String(localized: "argument.projection.worktree", defaultValue: "Worktree", bundle: .module), kind: .string, isRequired: false),
                     ActionArgument(name: "test", title: String(localized: "argument.projection.test", defaultValue: "Test Command", bundle: .module), kind: .string, isRequired: false),
+                    ActionArgument(name: "page", title: String(localized: "argument.projection.page", defaultValue: "Page", bundle: .module), kind: .string, isRequired: false),
                 ],
                 mainMenu: .debug,
                 isDebugOnly: true,
@@ -591,43 +636,50 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 cliName: "settings customize-appearance", mainMenu: .view
             ),
             ActionDescriptor(
+                id: "appearance.personalize",
+                title: String(localized: "action.appearance.personalize", defaultValue: "Personalization…", bundle: .module),
+                keywords: ["personalization", "personalize", "appearance", "theme", "accent", "background", "wallpaper", "glass", "chief", "pet", "font", "density", "sounds", "make it yours"],
+                category: .settings, symbol: "wand.and.stars", surfaces: [.palette, .keyboard],
+                cliName: "settings personalize"
+            ),
+            ActionDescriptor(
                 id: "appearance.interfaceSize.increase",
-                title: String(localized: "action.appearance.interfaceSize.increase", defaultValue: "Increase Interface Size", bundle: .module),
-                keywords: ["appearance", "font", "chrome", "bigger", "zoom"], category: .settings,
+                title: String(localized: "action.appearance.interfaceSize.increase", defaultValue: "Increase Text Size", bundle: .module),
+                keywords: ["appearance", "font", "text", "size", "interface", "chrome", "bigger"], category: .settings,
                 symbol: "plus.magnifyingglass", surfaces: [.palette], cliName: "settings increase-interface-size"
             ),
             ActionDescriptor(
                 id: "appearance.interfaceSize.decrease",
-                title: String(localized: "action.appearance.interfaceSize.decrease", defaultValue: "Decrease Interface Size", bundle: .module),
-                keywords: ["appearance", "font", "chrome", "smaller", "zoom"], category: .settings,
+                title: String(localized: "action.appearance.interfaceSize.decrease", defaultValue: "Decrease Text Size", bundle: .module),
+                keywords: ["appearance", "font", "text", "size", "interface", "chrome", "smaller"], category: .settings,
                 symbol: "minus.magnifyingglass", surfaces: [.palette], cliName: "settings decrease-interface-size"
             ),
             ActionDescriptor(
                 id: "appearance.interfaceSize.reset",
-                title: String(localized: "action.appearance.interfaceSize.reset", defaultValue: "Reset Interface Size", bundle: .module),
-                keywords: ["appearance", "font", "chrome", "default"], category: .settings, symbol: "textformat.size",
+                title: String(localized: "action.appearance.interfaceSize.reset", defaultValue: "Reset Text Size", bundle: .module),
+                keywords: ["appearance", "font", "text", "size", "interface", "chrome", "default"], category: .settings, symbol: "textformat.size",
                 surfaces: [.palette], cliName: "settings reset-interface-size"
             ),
             // Ctrl-Shift-Cmd-= / - / 0 scale all app text (Lawrence 2026-10-19: "for changing font size we
             // should do Command+Shift+Control++ and -"); Ctrl-Cmd-= is Equalize Splits, as in Ghostty.
             ActionDescriptor(
                 id: "appearance.uiScale.increase",
-                title: String(localized: "action.appearance.uiScale.increase", defaultValue: "Increase Interface Scale", bundle: .module),
-                keywords: ["appearance", "scale", "chrome", "bigger", "zoom"],
+                title: String(localized: "action.appearance.uiScale.increase", defaultValue: "Increase App Zoom", bundle: .module),
+                keywords: ["appearance", "scale", "interface", "pages", "bigger", "zoom"],
                 defaultShortcut: Shortcut("=", modifiers: [.control, .shift, .command]), category: .settings,
                 symbol: "plus.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings increase-interface-scale", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "appearance.uiScale.decrease",
-                title: String(localized: "action.appearance.uiScale.decrease", defaultValue: "Decrease Interface Scale", bundle: .module),
-                keywords: ["appearance", "scale", "chrome", "smaller", "zoom"],
+                title: String(localized: "action.appearance.uiScale.decrease", defaultValue: "Decrease App Zoom", bundle: .module),
+                keywords: ["appearance", "scale", "interface", "pages", "smaller", "zoom"],
                 defaultShortcut: Shortcut("-", modifiers: [.control, .shift, .command]), category: .settings,
                 symbol: "minus.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings decrease-interface-scale", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "appearance.uiScale.reset",
-                title: String(localized: "action.appearance.uiScale.reset", defaultValue: "Reset Interface Scale", bundle: .module),
-                keywords: ["appearance", "scale", "chrome", "default", "zoom"],
+                title: String(localized: "action.appearance.uiScale.reset", defaultValue: "Reset App Zoom", bundle: .module),
+                keywords: ["appearance", "scale", "interface", "pages", "default", "zoom"],
                 defaultShortcut: Shortcut("0", modifiers: [.control, .shift, .command]), category: .settings,
                 symbol: "1.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings reset-interface-scale", mainMenu: .view
             ),

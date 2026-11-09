@@ -26,6 +26,9 @@ where
     );
     #[cfg(target_vendor = "apple")]
     fatal_faults_end_the_owner();
+    // Under `dx serve --hot-patch`, take patches for this process.
+    #[cfg(feature = "hotpatch")]
+    cmux_tui_core::hotpatch::connect();
     // The daemon is ready: apps with an `always` server start off this path.
     #[cfg(unix)]
     cmux_tui_core::server::start_apps_when_ready(mux);
@@ -123,42 +126,6 @@ where
     Ok(())
 }
 
-/// R-LIFECYCLE stage 1's switch (handoff/rewrites/R-LIFECYCLE/DESIGN.md
-/// section 7). The keepers rule is on unless it is `0` (the app's
-/// `CMUX_NEXT_TUI_OWNER_KEEPERS=0`, DaemonDiagnosticKnobs.swift): an off
-/// switch is for a dogfood report of an owner that stopped when it should
-/// not have, and is deleted with `dev_orphan_exit.rs` once S1 has passed
-/// dogfood. Before R-LIFECYCLE ORPHANS the rule ran only with `1`, which no
-/// app set, so every quit of an app with no terminal left its owners
-/// running (STATUS 1370, 8519; the fleet repro on build 3a43a131).
-pub(crate) const OWNER_KEEPERS_ENV: &str = "CMUX_TUI_OWNER_KEEPERS";
-
-/// The switch as this process started with it ([`take_owner_keepers_switch`]).
-static OWNER_KEEPERS_SWITCH: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-
-/// Reads [`OWNER_KEEPERS_ENV`] once and removes it from this process, so no
-/// terminal, hook or agent the owner starts inherits it (a `server ensure`
-/// run from such a shell would otherwise turn the rule off unasked). An
-/// `ensure` passes an off switch on to the owner it spawns
-/// ([`owner_keepers_switch`]).
-///
-/// # Safety
-///
-/// Call it while no other thread exists: removing an environment variable
-/// is unsound while another thread can read the environment.
-pub(crate) unsafe fn take_owner_keepers_switch() {
-    let on = !matches!(std::env::var(OWNER_KEEPERS_ENV).as_deref(), Ok("0"));
-    // SAFETY: forwarded from this function's contract (no other thread yet).
-    unsafe { std::env::remove_var(OWNER_KEEPERS_ENV) };
-    let _ = OWNER_KEEPERS_SWITCH.set(on);
-}
-
-/// Whether the keepers rule is on for this process (on unless its switch
-/// was `0`).
-pub(crate) fn owner_keepers_switch() -> bool {
-    OWNER_KEEPERS_SWITCH.get().copied().unwrap_or(true)
-}
-
 /// Whether `session` is an app's: its session (`cmux-app`, `cmux-app-*`,
 /// BuildIdentity+AppNames.swift) or its Chief session (`cmux-chief-<home
 /// hash>`, ChiefHome.swift; `cmux chief` starts the same one). Both are
@@ -169,13 +136,14 @@ fn app_owned_session(session: &str) -> bool {
 }
 
 /// The keepers watch for an app's owner ([`app_owned_session`]) that
-/// clients reach only through its socket, unless the switch is off.
+/// clients reach only through its socket. R-LIFECYCLE stage 1 has no switch
+/// (PERF FLAGS deleted `CMUX_TUI_OWNER_KEEPERS`): the rule always runs.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn start_owner_keepers(
     mux: &Arc<Mux>,
     reached_only_by_socket: bool,
 ) -> Option<cmux_tui_core::server::OwnerKeepersWatch> {
-    if !(owner_keepers_switch() && app_owned_session(&mux.session) && reached_only_by_socket) {
+    if !(app_owned_session(&mux.session) && reached_only_by_socket) {
         return None;
     }
     let watched = cmux_tui_core::server::watch_owner_keepers(mux, |mux, keepers| {
@@ -195,7 +163,7 @@ fn start_owner_keepers(
     match watched {
         Ok(watch) => Some(watch),
         Err(error) => {
-            // No watch thread: the owner runs on as it would with the switch off.
+            // No watch thread: the owner runs on until something stops it.
             crate::client_log::stderr_log!(
                 "lifecycle",
                 "{BIN}: cannot start the owner keepers watch: {error}"

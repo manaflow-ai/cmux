@@ -2,6 +2,7 @@
 import CmuxMobileDesign
 import CmuxMobileDiff
 import CmuxMobileMarkdown
+import CmuxMobileModel
 import Observation
 import OSLog
 import SwiftUI
@@ -583,6 +584,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             self?.layout.forgetHeights()
             self?.environmentChanged()
         }
+        MemoryPressure.shared.register(self) { [weak self] in self?.relieveMemoryPressure() }
         observe()
         reload()
     }
@@ -629,6 +631,30 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         scrollDelegate?.scrollViewDidEndDragging?(scrollView, willDecelerate: decelerate)
+        if !decelerate { spillIfResting() }
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        scrollDelegate?.scrollViewDidEndDecelerating?(scrollView)
+        spillIfResting()
+    }
+
+    // MARK: Memory
+
+    /// The reader rests at the newest turn: turns past the window go to disk
+    /// (`AgentChatStore.spillOlder`), and scrolling up brings them back. Not on the tab grid's
+    /// card, which holds its transcript.
+    func spillIfResting() {
+        guard surface.following, !surface.holdsTranscript, !collectionView.isTracking,
+              store.turns.count > AgentChatStore.windowTrigger else { return }
+        store.spillOlder(keeping: AgentChatStore.windowKeep)
+    }
+
+    /// A memory warning: every turn above the one the reader is on goes to disk.
+    func relieveMemoryPressure() {
+        let reading = surface.following ? nil
+            : layout.firstRow(below: collectionView.contentOffset.y + collectionView.adjustedContentInset.top).flatMap { rows[$0.id]?.turnID }
+        store.spillOlder(keeping: AgentChatStore.pressureKeep, protecting: reading)
     }
 
     func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
@@ -925,6 +951,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         loaded = true
         if !missing.isEmpty { prepare(missing, urgent: false) }
         queueWarmUp(ids)
+        spillIfResting()
     }
 
     /// Applies a disclosure change the list has not reloaded for yet (its observation reloads on
@@ -1199,6 +1226,8 @@ final class ChatRowLookup {
             for call in calls { hasher.combine(disclosures.isOpen("tool-\(call.id)")) }
         case .thought:
             hasher.combine(disclosures.isOpen("thought-\(row.id)"))
+        case .whoElse(let id, _):
+            hasher.combine(disclosures.isOpen(WhoElseCard.disclosureKey(id)))
         case .edit(let call, _):
             // A running edit draws as its tool row.
             hasher.combine(disclosures.isOpen("diff-\(call.id)"))
@@ -1341,14 +1370,15 @@ extension ChatRow {
         }
     }
 
-    static let hostedReuseKeys = ["prompt", "block", "thought", "tool", "toolGroup", "edit", "plan", "permission", "question",
-                                  "subagents", "working", "editedFiles", "stopped", "failed", "actions", "nextStep", "other"]
+    static let hostedReuseKeys = ["prompt", "incoming", "block", "thought", "tool", "toolGroup", "edit", "plan", "permission", "question",
+                                  "subagents", "working", "editedFiles", "stopped", "failed", "actions", "nextStep", "whoElse", "other"]
 
     /// The SwiftUI reuse pool: one per kind, so a reused cell keeps its view structure.
     var hostedReuseKey: String {
         switch kind {
         case .sessionStart: "other"
         case .prompt: "prompt"
+        case .incoming: "incoming"
         case .block: "block"
         case .thought: "thought"
         case .tool: "tool"
@@ -1364,14 +1394,15 @@ extension ChatRow {
         case .failed: "failed"
         case .actions: "actions"
         case .nextStep: "nextStep"
+        case .whoElse: "whoElse"
         }
     }
 
-    /// Views of this row keep state of their own (`QuestionCard`'s answers, a code card or a
-    /// failure's disclosure).
+    /// Views of this row keep state of their own (`QuestionCard`'s answers, a code card, a
+    /// failure's disclosure or an incoming stack's open lines).
     var keepsViewState: Bool {
         switch kind {
-        case .question, .failed, .block, .nextStep: true
+        case .question, .failed, .block, .nextStep, .incoming: true
         default: false
         }
     }
@@ -1403,7 +1434,12 @@ extension ChatRow {
         switch kind {
         case .sessionStart: return 46
         case .prompt(let text, let attachments, _, _):
-            return lines(text) * perLine + 22 + (attachments.isEmpty ? 0 : 156)
+            // A reply's leading quote draws as its own block, 6 above the reply (UserBubble).
+            let drawn = NextStepAsk.replyQuote(text).map { (lines($0.quote) + lines($0.body)) * perLine + 6 } ?? lines(text) * perLine
+            return drawn + 22 + (attachments.isEmpty ? 0 : 156)
+        case .incoming(let incoming, let attachments, _):
+            return (incoming.messages.count == 1 ? 46 + lines(incoming.text) * perLine : 46 + CGFloat(incoming.messages.count) * 40)
+                + (attachments.isEmpty ? 0 : 156)
         case .block(_, let block):
             switch block.kind {
             case .heading: return 30
@@ -1425,6 +1461,9 @@ extension ChatRow {
         case .failed: return 170
         case .actions: return 44
         case .nextStep(let ask, let answer, _): return answer == nil ? 96 + CGFloat(ask.options.count) * 50 : 64
+        case .whoElse(_, let call):
+            let rows = min(call.answer?.sessions.count ?? 0, WhoElseCall.rowsShown)
+            return 32 + CGFloat(rows) * 48 + (call.hiddenCount(shown: rows) > 0 ? 32 : 0) + (call.unreachedNote == nil ? 0 : 20)
         }
     }
 }

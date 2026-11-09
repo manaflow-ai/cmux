@@ -4,12 +4,15 @@ import CmuxNextIcons
 
 /// The shared notice card above the footer (BOTTOM-LEFT-CARDS K1; Lawrence
 /// 2026-10-09): every message to the user in this slot (the "Did you know"
-/// tip, the update status) is this card. An optional heading, an icon
-/// beside the title (a small spinner while work has no measured progress),
-/// one short detail of up to two lines, an optional progress bar, up to
-/// two buttons (the call to action filled, the others quiet) with an
-/// optional shortcut beside them, and an x. Rows a notice does not use take
-/// no room. Hidden without a notice. It sits on the composer's surface
+/// tip, the update status) is this card. An optional icon on its own row
+/// above the title (a small spinner while work has no measured progress),
+/// an optional heading, a detail, an optional progress bar, up to two
+/// buttons (the call to action filled, the others quiet) with an optional
+/// shortcut beside them, and an x. Every row starts at the card's padding,
+/// the icon's too; the title, detail and list lines wrap in full and a
+/// button that does not fit starts a new row, so the card is as tall as
+/// what it says (``measureFrames(for:width:dismissWidth:placement:measuring:)``). Rows a
+/// notice does not use take no room. Hidden without a notice. It sits on the composer's surface
 /// (`CardSurfaceView`, Leo 2026-10-13), as every sidebar card does, its
 /// veil in the theme's glass tint (``CardSurfaceView/takesThemeTint``, as
 /// the Updated card's): opaque under Reduce Transparency. Leo 2026-11-03,
@@ -19,9 +22,12 @@ final class SidebarNoticeCardView: NSView {
     var onAction: ((String, String) -> Void)?
     var onDismiss: ((String) -> Void)?
     private(set) var notice: SidebarNoticeCard?
+    /// The last notice shown: the card lays it out during its exit, when ``notice`` is nil.
+    private var laidOut: SidebarNoticeCard?
     let eyebrowLabel = ChromeLabel(labelWithString: "")
-    let titleLabel = ChromeLabel(labelWithString: "")
-    private let detailLabel = ChromeLabel(wrappingLabelWithString: "")
+    /// The title and detail wrap in full at the card's width (Leo 2026-11-05: the hang-reports card's detail ended in "…").
+    let titleLabel = SidebarNoticeCardView.wrappingLabel()
+    private let detailLabel = SidebarNoticeCardView.wrappingLabel()
     private let shortcutLabel = ChromeLabel(labelWithString: "")
     /// List lines under the detail (a changelog), one label each.
     private var lineLabels: [ChromeLabel] = []
@@ -36,9 +42,10 @@ final class SidebarNoticeCardView: NSView {
     /// The notice the card shows (or last showed, during its exit) has a switch action.
     private var hasSwitch = false
     let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 9 }, label: "")
-    /// The control on the right, vertically centred in the card (``SidebarNoticeCard/trailing``):
-    /// a running download's cancel.
-    let trailingButton = SidebarIconButton(symbol: "xmark.circle.fill", pointSize: { SidebarNoticeCardView.trailingGlyph }, label: "")
+    /// The card's own control (``SidebarNoticeCard/trailing``), a quiet text button at the top right, on the
+    /// title's row: a running download's Cancel. Lawrence 2026-11-07: "cancel button is ugly not taking up
+    /// full width here" (the round cancel sat beside the progress bar, which stopped short of it).
+    let trailingButton = SidebarCardTextButton()
     /// The text button that replaces the x when the notice names one (``SidebarNoticeCard/dismissTitle``).
     let dismissButton = SidebarCardTextButton()
     /// The card's surface: the composer's, opaque under Reduce Transparency.
@@ -58,29 +65,25 @@ final class SidebarNoticeCardView: NSView {
     /// - Parameter motionPolicy: The motion settings the card's transitions follow (`Motion.overlays.policy`).
     init(frame: NSRect = .zero, reduceTransparency: ReduceTransparency = .shared,
          motionPolicy: @escaping @MainActor () -> MotionPolicy = { Motion.overlays.policy }) {
-        surface = CardSurfaceView(cornerRadius: Metrics.space3, reduceTransparency: reduceTransparency)
+        surface = CardSurfaceView(cornerRadius: Metrics.surfaceCornerRadius, reduceTransparency: reduceTransparency)
         self.motionPolicy = motionPolicy
         super.init(frame: frame)
         wantsLayer = true
         surface.takesThemeTint = true
         addSubview(surface)
         addSubview(content)
-        for label in [eyebrowLabel, titleLabel, shortcutLabel] {
+        for label in [eyebrowLabel, shortcutLabel] {
             label.lineBreakMode = .byTruncatingTail
             label.maximumNumberOfLines = 1
         }
-        detailLabel.maximumNumberOfLines = 2
-        detailLabel.lineBreakMode = .byWordWrapping
-        detailLabel.truncatesLastVisibleLine = true
-        detailLabel.isSelectable = false
         shortcutLabel.alignment = .right
         icon.imageScaling = .scaleProportionallyDown
         content.wantsLayer = true
         // Nothing draws past the card's rounded edge: a card laid out narrower than its rows (a sidebar laid out
         // small) drew its switch past its leading edge, alone, with no card around it (Lawrence msg 19185).
         content.layer?.masksToBounds = true
-        track.cornerRadius = 1.5
-        bar.cornerRadius = 1.5
+        track.cornerRadius = Metrics.capsuleRadius(CGSize(width: 3, height: 3))
+        bar.cornerRadius = Metrics.capsuleRadius(CGSize(width: 3, height: 3))
         // The bar lives in the track, which clips it: the unmeasured sweep never leaves the track.
         track.masksToBounds = true
         content.layer?.addSublayer(track)
@@ -88,9 +91,6 @@ final class SidebarNoticeCardView: NSView {
         closeButton.takesKeyFocus = true
         closeButton.onPress = { [weak self] in self?.closePressed() }
         dismissButton.onPress = { [weak self] in if let id = self?.notice?.id { self?.onDismiss?(id) } }
-        trailingButton.takesKeyFocus = true
-        trailingButton.takesFirstClick = true
-        trailingButton.showsLabelToolTip = true
         trailingButton.onPress = { [weak self] in
             guard let id = self?.notice?.id, let action = self?.notice?.trailing?.id else { return }
             self?.onAction?(id, action)
@@ -127,6 +127,7 @@ final class SidebarNoticeCardView: NSView {
             spinner.spin(false)
             return
         }
+        laidOut = notice
         // A new message in a card already on screen (Checking… to Up to Date) crossfades.
         if let previous, wasShowing, Self.changesMessage(from: previous, to: notice) {
             presence.transition.crossfade(content.layer)
@@ -139,17 +140,15 @@ final class SidebarNoticeCardView: NSView {
         if previous?.lines != notice.lines {
             lineLabels.forEach { $0.removeFromSuperview() }
             lineLabels = notice.lines.prefix(Self.maxLines).map { line in
-                let label = ChromeLabel(labelWithString: "• " + line)
-                label.lineBreakMode = .byTruncatingTail
-                label.maximumNumberOfLines = 1
-                label.themedToolTip = line
+                let label = Self.wrappingLabel()
+                label.stringValue = Self.bullet + line
                 content.addSubview(label)
                 return label
             }
         }
         shortcutLabel.stringValue = notice.shortcut ?? ""
         shortcutLabel.isHidden = notice.shortcut == nil || notice.actions.isEmpty
-        let spins = notice.progress == .indeterminate && notice.leadingSpinner
+        let spins = Self.spins(notice)
         icon.isHidden = notice.symbol == nil || spins
         spinner.spin(spins)
         closeButton.isHidden = notice.dismissLabel == nil || notice.dismissTitle != nil
@@ -165,8 +164,7 @@ final class SidebarNoticeCardView: NSView {
         }
         trailingButton.isHidden = notice.trailing == nil
         if let trailing = notice.trailing {
-            trailingButton.setSymbol(trailing.symbol)
-            trailingButton.label = trailing.label
+            trailingButton.configure(title: trailing.label, help: nil)
             trailingButton.setAccessibilityIdentifier("cmux.sidebar.notice.action.\(trailing.id)")
         }
         let help = [notice.title, notice.detail].compactMap { $0 }.joined(separator: ". ")
@@ -288,96 +286,242 @@ final class SidebarNoticeCardView: NSView {
     /// List lines a notice shows.
     static let maxLines = 4
     private static let closeSide: CGFloat = 16
-    /// The right-hand control's glyph and hit square: well above the x's, on the shared spacing tokens.
-    static var trailingGlyph: CGFloat { Metrics.space6 + Metrics.space1 }
-    static var trailingSide: CGFloat { Metrics.space6 + Metrics.space4 + Metrics.space2 }
 
-    /// The card's height for `notice`: padding, the heading, the title, two
-    /// detail lines, the progress bar and the button row when present.
-    static func height(for notice: SidebarNoticeCard) -> CGFloat {
-        let line = lineHeight
-        var height = padding + line.body + padding
-        if notice.eyebrow != nil { height += line.caption }
-        if notice.detail != nil { height += Metrics.space1 + 2 * line.caption }
-        if !notice.lines.isEmpty { height += Metrics.space1 + CGFloat(min(notice.lines.count, maxLines)) * line.caption }
+    /// Where a card with a symbol (or its spinner) draws it. Leo 2026-11-05, on the hang-reports card: "why is the
+    /// text under it? Also giving negative space away ... the buttons and the subtitle text is in a different
+    /// indentation level". The card ships ``above``; the others are the gallery's directions
+    /// (`AASidebarNoticeCardGalleryTests`). A card with neither starts every row at the card's padding.
+    enum GlyphPlacement: CaseIterable, Sendable {
+        /// On the x's row, above the title: the title, detail and buttons start at the card's padding, as the icon does.
+        case above
+        /// In a leading column beside the title: the title, detail and buttons start after it.
+        case column
+        /// Before the title on its row: the detail and buttons start at the card's padding.
+        case inline
+    }
+
+    /// Where the card draws its symbol (``GlyphPlacement``).
+    var glyphPlacement = GlyphPlacement.above { didSet { needsLayout = true } }
+
+    /// Every row's frame for a notice in a card `width` wide, and the card's height: the one measure
+    /// that sizes the card (``height(for:width:)``) and places its views (`layout()`), so the
+    /// card is always as tall as its wrapped title, detail, lines and button rows.
+    struct Frames {
+        /// The symbol or spinner; nil for none.
+        var glyph: CGRect?
+        /// The glyph has a row of its own (``GlyphPlacement/above``), which the x shares.
+        var glyphRow = false
+        var eyebrow: CGRect?
+        var title = CGRect.zero
+        var detail: CGRect?
+        var lines: [CGRect] = []
+        var progress: CGRect?
+        /// The buttons, in order; a button that does not fit after the one before starts a new row.
+        var buttons: [CGRect] = []
+        /// The last button row's top, and where its buttons end (the shortcut and the switch go after them).
+        var lastRow: (y: CGFloat, end: CGFloat) = (0, 0)
+        var height: CGFloat = 0
+    }
+
+    /// Unmeasured work shows a spinner where the symbol goes.
+    private static func spins(_ notice: SidebarNoticeCard) -> Bool { notice.progress == .indeterminate && notice.leadingSpinner }
+
+    /// A loading card's detail counts (bytes, seconds): tabular digits keep each count's width.
+    private static func detailFont(_ notice: SidebarNoticeCard?) -> NSFont {
+        notice?.progress != nil ? Typography.captionDigits : Typography.caption
+    }
+
+    /// A label that wraps at its width with no line limit and never truncates.
+    private static func wrappingLabel() -> ChromeLabel {
+        let label = ChromeLabel(wrappingLabelWithString: "")
+        label.maximumNumberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        label.truncatesLastVisibleLine = false
+        label.isSelectable = false
+        return label
+    }
+
+    /// The height `text` takes in `font` wrapped in a label frame `width` wide, measured in `label` (made by
+    /// ``wrappingLabel()``, as the card's own labels are).
+    private static func textHeight(_ text: String, font: NSFont, width: CGFloat, in label: ChromeLabel) -> CGFloat {
+        label.font = font
+        label.stringValue = text
+        return ceil(label.size(forWidth: width).height)
+    }
+
+    /// A button's width for its title: the label and its inset, never wider than the row.
+    private static func buttonWidth(_ title: String, row: CGFloat) -> CGFloat {
+        let text = ceil((title as NSString).size(withAttributes: [.font: SidebarUpdateButton.font]).width)
+        return max(0, min(row, text + 2 * Metrics.space4))
+    }
+
+    /// The height of a card showing `notice` `width` wide, for a card not made yet (tests, the gallery). The slot
+    /// asks its card (``height(for:width:)``), which keeps its last measure.
+    static func height(for notice: SidebarNoticeCard, width: CGFloat, placement: GlyphPlacement = .above) -> CGFloat {
+        let dismiss = SidebarCardTextButton(), trailing = SidebarCardTextButton()
+        dismiss.configure(title: notice.dismissTitle ?? "", help: nil)
+        trailing.configure(title: notice.trailing?.label ?? "", help: nil)
+        return measureFrames(for: notice, width: width, dismissWidth: notice.dismissTitle == nil ? 0 : dismiss.fittingWidth,
+                             trailingWidth: notice.trailing == nil ? 0 : trailing.fittingWidth,
+                             placement: placement, measuring: wrappingLabel()).height
+    }
+
+    /// This card's height for `notice` (the one it shows) in a card `width` wide.
+    func height(for notice: SidebarNoticeCard, width: CGFloat) -> CGFloat { frames(for: notice, width: width).height }
+
+    /// The rows of `notice` (the one the card shows) in a card `width` wide. The sidebar sizes the slot and the card
+    /// lays itself out on every pass: the text is measured again only when the notice, width or type size changes.
+    private func frames(for notice: SidebarNoticeCard, width: CGFloat) -> Frames {
+        let dismissWidth = notice.dismissTitle == nil ? 0 : dismissButton.fittingWidth
+        let trailingWidth = notice.trailing == nil ? 0 : trailingButton.fittingWidth
+        let key = FramesKey(notice: notice, width: width, dismissWidth: dismissWidth, trailingWidth: trailingWidth, placement: glyphPlacement,
+                            scale: [Self.padding, Metrics.space1, Metrics.space2, Metrics.space4, Typography.caption.pointSize,
+                                    Typography.bodyEmphasized.pointSize, SidebarUpdateButton.font.pointSize, SidebarUpdateButton.height],
+                            faces: [Typography.caption.fontName, Typography.bodyEmphasized.fontName, SidebarUpdateButton.font.fontName])
+        if let measured, measured.key == key { return measured.frames }
+        let frames = Self.measureFrames(for: notice, width: width, dismissWidth: dismissWidth, trailingWidth: trailingWidth,
+                                        placement: glyphPlacement, measuring: measuring)
+        measured = (key, frames)
+        return frames
+    }
+
+    private struct FramesKey: Hashable {
+        var notice: SidebarNoticeCard
+        var width: CGFloat
+        var dismissWidth: CGFloat
+        var trailingWidth: CGFloat
+        var placement: GlyphPlacement
+        /// Every spacing and type size the rows are measured in (the trailing control's side included), and the faces.
+        var scale: [CGFloat]
+        var faces: [String]
+    }
+
+    /// Measures wrapped text the way the card's labels lay it out.
+    private let measuring = SidebarNoticeCardView.wrappingLabel()
+    /// The last measure (``frames(for:width:)``).
+    private var measured: (key: FramesKey, frames: Frames)?
+
+    /// The rows of `notice` in a card `width` wide, top to bottom: padding, the glyph's row (``GlyphPlacement/above``),
+    /// the heading, the title, the detail (two lines at least, so a loading card never changes height), the list lines,
+    /// the progress bar, the button rows, padding. The title, detail and lines wrap in full; nothing truncates.
+    private static func measureFrames(for notice: SidebarNoticeCard, width: CGFloat, dismissWidth: CGFloat, trailingWidth: CGFloat,
+                                      placement: GlyphPlacement, measuring: ChromeLabel) -> Frames {
+        let pad = padding, line = lineHeight, glyphSide = line.body
+        var frames = Frames()
+        let showsGlyph = notice.symbol != nil || spins(notice)
+        frames.glyphRow = showsGlyph && placement == .above
+        // The card's own control (a download's Cancel) is a text button on the first row, at the top right, as the
+        // text dismiss is: only that row leaves it room. The detail and the bar span the whole inner width in every
+        // stage (Lawrence 2026-11-07: "cancel button is ugly not taking up full width here").
+        let trailingRoom = notice.trailing == nil ? 0 : trailingWidth + Metrics.space1
+        let closeRoom = notice.dismissTitle != nil ? dismissWidth + Metrics.space1
+            : (notice.dismissLabel == nil ? 0 : closeSide) + trailingRoom
+        let titleX = pad + (showsGlyph && !frames.glyphRow ? glyphSide + Metrics.space2 : 0)
+        let bodyX = placement == .column ? titleX : pad
+        var y = pad
+        if frames.glyphRow {
+            frames.glyph = CGRect(x: pad, y: y, width: glyphSide, height: glyphSide)
+            y += glyphSide + Metrics.space2
+        }
+        if notice.eyebrow != nil {
+            frames.eyebrow = CGRect(x: pad, y: y, width: max(0, width - 2 * pad - (frames.glyphRow ? 0 : closeRoom)), height: line.caption)
+            y += line.caption
+        }
+        if showsGlyph, !frames.glyphRow { frames.glyph = CGRect(x: pad, y: y, width: glyphSide, height: glyphSide) }
+        // The title shares the x's row when nothing is above it, and the text button's (``SidebarNoticeCard/dismissTitle``) always.
+        let titleHasX = !frames.glyphRow && (notice.eyebrow == nil || notice.dismissTitle != nil)
+        let titleWidth = max(0, width - pad - titleX - (titleHasX ? closeRoom : 0))
+        let titleHeight = max(line.body, textHeight(notice.title, font: Typography.bodyEmphasized, width: titleWidth, in: measuring))
+        frames.title = CGRect(x: titleX, y: y, width: titleWidth, height: titleHeight)
+        y += titleHeight
+        let bodyWidth = max(0, width - pad - bodyX)
+        if let detail = notice.detail {
+            let height = max(2 * line.caption, textHeight(detail, font: detailFont(notice), width: bodyWidth, in: measuring))
+            frames.detail = CGRect(x: bodyX, y: y + Metrics.space1, width: bodyWidth, height: height)
+            y += Metrics.space1 + height
+        }
+        let lines = notice.lines.prefix(maxLines)
+        if !lines.isEmpty { y += Metrics.space1 }
+        for text in lines {
+            let height = max(line.caption, textHeight(Self.bullet + text, font: Typography.caption, width: bodyWidth, in: measuring))
+            frames.lines.append(CGRect(x: bodyX, y: y, width: bodyWidth, height: height))
+            y += height
+        }
         // Every loading stage keeps the bar's row (Lawrence 2026-10-20: "needs better loading
         // indicator"): Checking to Downloading to Installing never changes the card's height.
-        if notice.progress != nil { height += Metrics.space2 + barHeight }
-        if !notice.actions.isEmpty { height += Metrics.space2 + SidebarUpdateButton.height }
-        return ceil(height)
+        if notice.progress != nil {
+            y += Metrics.space2
+            frames.progress = CGRect(x: bodyX, y: y, width: bodyWidth, height: barHeight)
+            y += barHeight
+        }
+        if !notice.actions.isEmpty {
+            y += Metrics.space2
+            let rowEnd = width - pad, row = max(0, rowEnd - bodyX)
+            var x = bodyX
+            for action in notice.actions.filter({ !$0.isSwitch }).prefix(2) {
+                let wide = Self.buttonWidth(action.title, row: row)
+                // A button that does not fit after the one before starts the next row: none is squeezed or cut off.
+                if x > bodyX, x + wide > rowEnd {
+                    x = bodyX
+                    y += SidebarUpdateButton.height + Metrics.space2
+                }
+                frames.buttons.append(CGRect(x: x, y: y, width: wide, height: SidebarUpdateButton.height))
+                x += wide + Metrics.space2
+            }
+            frames.lastRow = (y, x)
+            y += SidebarUpdateButton.height
+        }
+        frames.height = ceil(y + pad)
+        return frames
     }
+
+    /// A list line's mark.
+    private static let bullet = "• "
 
     override func layout() {
         super.layout()
         let b = bounds, pad = Self.padding, line = Self.lineHeight, close = Self.closeSide
         surface.frame = b
-        surface.cornerRadius = Metrics.space3
-        content.layer?.cornerRadius = Metrics.space3
+        surface.cornerRadius = Metrics.surfaceCornerRadius
+        content.layer?.cornerRadius = Metrics.surfaceCornerRadius
         content.layer?.cornerCurve = .continuous
         content.frame = b
         eyebrowLabel.font = Typography.caption
         titleLabel.font = Typography.bodyEmphasized
-        detailLabel.font = Typography.caption
+        // The exit shows the last notice as it was.
+        let shown = notice ?? laidOut
+        detailLabel.font = Self.detailFont(shown)
         shortcutLabel.font = Typography.caption
         let dismissWidth = dismissButton.fittingWidth, dismissHeight = SidebarCardTextButton.height
-        let titleY = pad + (eyebrowLabel.isHidden ? 0 : line.caption)
-        dismissButton.frame = NSRect(x: b.width - pad / 2 - dismissWidth, y: titleY + (line.body - dismissHeight) / 2,
-                                     width: dismissWidth, height: dismissHeight)
-        let width = max(0, b.width - 2 * pad)
-        // The right-hand control, vertically centred in the whole card; the text and the bar stop
-        // a grid step short of it.
-        let trailingSide = Self.trailingSide
-        let trailingRoom = trailingButton.isHidden ? 0 : trailingSide + Metrics.space4
-        trailingButton.frame = NSRect(x: b.width - pad - trailingSide, y: ((b.height - trailingSide) / 2).rounded(),
-                                      width: trailingSide, height: trailingSide)
-        let closeRoom = !dismissButton.isHidden ? dismissWidth + Metrics.space1 : closeButton.isHidden ? trailingRoom : close
-        var y = pad
-        if !eyebrowLabel.isHidden {
-            eyebrowLabel.frame = NSRect(x: pad, y: y, width: max(0, width - closeRoom), height: line.caption)
-            y += line.caption
-        }
-        let showsGlyph = !icon.isHidden || !spinner.isHidden
-        let glyphSide = line.body, textX = pad + (showsGlyph ? glyphSide + Metrics.space2 : 0)
-        icon.frame = NSRect(x: pad, y: y, width: glyphSide, height: glyphSide)
+        let rows = shown.map { frames(for: $0, width: b.width) } ?? Frames()
+        eyebrowLabel.frame = rows.eyebrow ?? .zero
+        icon.frame = rows.glyph ?? NSRect(x: pad, y: rows.title.minY, width: line.body, height: line.body)
         spinner.frame = icon.frame
-        let titleWidth = max(0, b.width - pad - textX - (eyebrowLabel.isHidden || !dismissButton.isHidden ? closeRoom : 0))
-        titleLabel.frame = NSRect(x: textX, y: y, width: titleWidth, height: line.body)
-        // The x centers on the first line's capitals, the heading's or else the title's (live-qa
-        // 2026-10-21: centered in the padding corner it sat a point above the heading).
-        let first = eyebrowLabel.isHidden ? titleLabel : eyebrowLabel
-        let capMid = first.frame.minY + first.firstBaselineOffsetFromTop - (first.font?.capHeight ?? 0) / 2
-        let scale = window?.backingScaleFactor ?? 2
-        closeButton.frame = NSRect(x: b.width - pad / 2 - close, y: ((capMid - close / 2) * scale).rounded() / scale,
-                                   width: close, height: close)
-        y += line.body
-        let textWidth = max(0, b.width - pad - textX - trailingRoom)
-        if !detailLabel.isHidden {
-            detailLabel.preferredMaxLayoutWidth = textWidth
-            detailLabel.frame = NSRect(x: textX, y: y + Metrics.space1, width: textWidth, height: 2 * line.caption)
-            y += Metrics.space1 + 2 * line.caption
-        }
-        if !lineLabels.isEmpty { y += Metrics.space1 }
-        for label in lineLabels {
+        titleLabel.frame = rows.title
+        detailLabel.frame = rows.detail ?? .zero
+        for (label, frame) in zip(lineLabels, rows.lines) {
             label.font = Typography.caption
-            label.frame = NSRect(x: textX, y: y, width: textWidth, height: line.caption)
-            y += line.caption
+            label.frame = frame
         }
-        if notice?.progress != nil {
-            y += Metrics.space2
-            layoutProgress(CGRect(x: textX, y: y, width: textWidth, height: Self.barHeight))
-        } else {
-            layoutProgress(nil)
-        }
-        let rowY = b.height - pad - SidebarUpdateButton.height
-        var x = pad
-        for button in actionButtons {
-            let titleWidth = ceil((button.title as NSString).size(withAttributes: [.font: SidebarUpdateButton.font]).width)
-            let buttonWidth = min(max(0, b.width - pad - x), titleWidth + 2 * Metrics.space4)
-            button.frame = NSRect(x: x, y: rowY, width: buttonWidth, height: SidebarUpdateButton.height)
-            x = button.frame.maxX + Metrics.space2
-        }
+        // The x and the text button sit on the first row: the glyph's own, else the heading's or the title's. The x
+        // centers on that row's capitals (live-qa 2026-10-21: centered in the padding corner it sat a point above the heading).
+        let first = eyebrowLabel.isHidden ? titleLabel : eyebrowLabel
+        let rowMid = rows.glyphRow ? icon.frame.midY
+            : first.frame.minY + first.firstBaselineOffsetFromTop - (first.font?.capHeight ?? 0) / 2
+        let dismissMid = rows.glyphRow ? icon.frame.midY : titleLabel.frame.minY + line.body / 2
+        dismissButton.frame = NSRect(x: b.width - pad / 2 - dismissWidth, y: dismissMid - dismissHeight / 2, width: dismissWidth, height: dismissHeight)
+        let scale = window?.backingScaleFactor ?? 2
+        closeButton.frame = NSRect(x: b.width - pad / 2 - close, y: ((rowMid - close / 2) * scale).rounded() / scale,
+                                   width: close, height: close)
+        // The card's Cancel: a text button on the first row at the top right, left of the x when the card has one.
+        let trailingWidth = trailingButton.fittingWidth
+        let trailingEnd = closeButton.isHidden ? b.width - pad / 2 : closeButton.frame.minX - Metrics.space1
+        trailingButton.frame = NSRect(x: trailingEnd - trailingWidth, y: dismissMid - dismissHeight / 2, width: trailingWidth, height: dismissHeight)
+        layoutProgress(rows.progress)
+        for (button, frame) in zip(actionButtons, rows.buttons) { button.frame = frame }
+        let rowY = rows.lastRow.y, x = rows.lastRow.end
         if let actionSwitch {
-            // The switch shows whole on the button row, after the buttons, or not at all: squeezed, it drew its
+            // The switch shows whole on the last button row, after the buttons, or not at all: squeezed, it drew its
             // control past its own leading edge (Lawrence msg 19185).
             let size = actionSwitch.fittingSize
             let fits = hasSwitch && b.width - pad - x >= size.width

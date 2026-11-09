@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 4633d08bededb0f16f8bbc5de5cbbeb5f06e9d44a544162fa5efc76c6e47e3f7.
+// cmux-tui mux protocol 12, IR 62625fc976e69a44b62563b404477f91207f431e3b472e3b79007ead92baffb6.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -73,6 +73,9 @@ pub struct AgentRecord {
     pub since_ms: Option<u64>,
     pub source: AgentSource,
     pub state: AgentState,
+    /// What the person sees: \`working\`, \`blocked\`, \`done\` (the agent finished a turn and no client has shown its tab since; \`state\` is \`idle\` then), \`idle\` or \`unknown\`; null for an ended session (\`state\` \`done\`). Reading never clears \`done\`; a frontend's tab acknowledgement does. Absent from older daemons: use \`state\`.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub status: Optional<AgentState>,
     pub surface: Id,
     pub updated_at_ms: u64,
 }
@@ -1945,6 +1948,10 @@ pub struct ServerStatsWritePath {
     pub effect_intent_failures: u64,
     pub effect_intents: u64,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub registry_wal_file_bytes: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub registry_wal_file_high_water_bytes: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub registry_wal_frame_bytes: Option<u64>,
     pub request_effect_commits: u64,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -2780,6 +2787,22 @@ pub struct TerminalKeyInput {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub unshifted_codepoint: Optional<String>,
     pub utf8: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalLastCommand {
+    pub command: String,
+    pub ended_at_ms: String,
+    pub exit_code: Nullable<i32>,
+    pub started_at_ms: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalLastCommandResult {
+    pub last_command: Nullable<TerminalLastCommand>,
+    pub terminal_id: String,
 }
 
 #[rustfmt::skip]

@@ -12,7 +12,7 @@
 set -euo pipefail
 feeds=()
 for appcast in appcast.xml appcast-arm64.xml appcast-x86_64.xml; do
-  feeds+=(--feed-if-present "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
+  feeds+=(--feed "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
 done
 # A cmux NEXT build is superseded only by a newer cmux NEXT build. Classic NIGHTLY publishes on its own
 # schedule from the same run-id counter, so a classic run that started later and published first sank every

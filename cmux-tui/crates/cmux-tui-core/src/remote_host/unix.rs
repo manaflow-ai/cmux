@@ -105,7 +105,9 @@ pub(crate) fn paths_for(daemon_socket: &Path, state_root: &Path) -> Paths {
     if !crate::server::unix_socket_path_fits(&runtime.join("w-screen.sock")) {
         runtime = crate::platform::fallback_runtime_dir().join(leaf);
     }
-    let scope_digest = digest(state_root.as_os_str().as_encoded_bytes());
+    // The name from before NEXT's folder move: the build keeps its Keychain items, so its device.
+    let scope_root = cmux_agent_pane_policy::build_identity::path_identity(state_root);
+    let scope_digest = digest(scope_root.as_os_str().as_encoded_bytes());
     Paths {
         runtime,
         state: state_root.join("remote"),
@@ -196,20 +198,23 @@ impl RemoteHostSupervisor {
             return Ok(self.status());
         }
         let connection = Inner::ensure(&self.inner)?;
-        connection.call("config", json!({
-            "computer_use": config.computer_use,
-            "screen_sharing": config.screen_sharing,
-            "headless": config.headless,
-        }))?;
+        connection.call(
+            "config",
+            json!({
+                "computer_use": config.computer_use,
+                "screen_sharing": config.screen_sharing,
+                "headless": config.headless,
+            }),
+        )?;
         Ok(self.status())
     }
 
     /// One request to the host, starting it first when it is wanted and none runs.
     pub(crate) fn call(&self, method: &str, params: Value) -> Result<Value, String> {
-        // Nothing turned on (the app's remote.enabled off, or signed out with Computer Use off):
+        // Nothing turned on (Computer Use off or Legacy, and signed out of Screen Sharing):
         // no host starts for a request, so an off switch never runs cmux Remote.
         if !lock(&self.inner.config).wanted() {
-            return Err("cmux Remote is off (remote.enabled in cmux)".into());
+            return Err("cmux Remote is off: turn on Computer Use (Upstream driver) or sign in for Screen Sharing".into());
         }
         let connection = Inner::ensure(&self.inner)?;
         connection.call(method, params)
@@ -283,7 +288,9 @@ impl Inner {
             let staged = platform::stage(&paths.state)?;
             if let Some(record) = read_record(&paths.record()) {
                 match Self::adopt(this, &record) {
-                    Ok(connection) if record.bundle_digest == staged.digest => return Ok(connection),
+                    Ok(connection) if record.bundle_digest == staged.digest => {
+                        return Ok(connection);
+                    }
                     Ok(connection) if connection.busy() => {
                         // Another build serving a session: keep it until it reports idle, then replace it.
                         *lock(&this.upgrade_pending) = true;
@@ -293,35 +300,52 @@ impl Inner {
                         // Another build, idle: drain it now and start this build's copy in this call.
                         connection.notify("drain");
                         if !connection.wait_closed(Duration::from_secs(10)) {
-                            return Err("the previous cmux Remote did not stop for the upgrade".into());
+                            return Err(
+                                "the previous cmux Remote did not stop for the upgrade".into()
+                            );
                         }
                         let _ = std::fs::remove_file(paths.record());
                     }
                     // A live recorded host that did not answer is never replaced by a second one
                     // (both would hold the same sockets and device); the next call tries again.
-                    Err(reason) if platform::process_start(record.pid) == Some((record.start_sec, record.start_usec)) => {
-                        return Err(format!("cmux Remote pid {} is running but did not answer: {reason}", record.pid));
+                    Err(reason)
+                        if platform::process_start(record.pid)
+                            == Some((record.start_sec, record.start_usec)) =>
+                    {
+                        return Err(format!(
+                            "cmux Remote pid {} is running but did not answer: {reason}",
+                            record.pid
+                        ));
                     }
-                    Err(reason) => eprintln!("cmux-tui: cmux Remote: not adopting pid {}: {reason}", record.pid),
+                    Err(reason) => eprintln!(
+                        "cmux-tui: cmux Remote: not adopting pid {}: {reason}",
+                        record.pid
+                    ),
                 }
             }
             let config = lock(&this.config).clone();
             let secret = mint_secret()?;
-            let pid = platform::spawn_host(&staged, paths, &json!({
-                "supervisor_secret": secret,
-                "daemon_build": env!("CARGO_PKG_VERSION"),
-                "computer_use": config.computer_use,
-                "screen_sharing": config.screen_sharing,
-                "headless": config.headless,
-                "daemon_socket": paths.daemon_socket.display().to_string(),
-            }), READY_TIMEOUT)?;
-            let (start_sec, start_usec) = platform::process_start(pid).ok_or("the new host exited at once")?;
+            let pid = platform::spawn_host(
+                &staged,
+                paths,
+                &json!({
+                    "supervisor_secret": secret,
+                    "daemon_build": env!("CARGO_PKG_VERSION"),
+                    "computer_use": config.computer_use,
+                    "screen_sharing": config.screen_sharing,
+                    "headless": config.headless,
+                    "daemon_socket": paths.daemon_socket.display().to_string(),
+                }),
+                READY_TIMEOUT,
+            )?;
+            let (start_sec, start_usec) =
+                platform::process_start(pid).ok_or("the new host exited at once")?;
             let record = HostRecord {
                 pid,
                 start_sec,
                 start_usec,
                 secret,
-                bundle_digest: staged.digest.clone(),
+                bundle_digest: staged.digest,
                 socket: paths.supervisor_socket(),
             };
             write_record(&paths.record(), &record);
@@ -340,7 +364,11 @@ impl Inner {
     }
 
     /// Connects, says hello, and starts reading the host's answers and events.
-    fn connect(this: &Arc<Self>, record: HostRecord, adopted: bool) -> Result<Arc<Connection>, String> {
+    fn connect(
+        this: &Arc<Self>,
+        record: HostRecord,
+        adopted: bool,
+    ) -> Result<Arc<Connection>, String> {
         let stream = std::os::unix::net::UnixStream::connect(&record.socket)
             .map_err(|error| format!("cannot connect to {}: {error}", record.socket.display()))?;
         #[cfg(target_os = "macos")]
@@ -355,9 +383,11 @@ impl Inner {
         stream_timeout(reader.get_ref(), Some(READY_TIMEOUT));
         reader.read_line(&mut line).map_err(|error| format!("no hello from the host: {error}"))?;
         stream_timeout(reader.get_ref(), None);
-        let answer: Value = serde_json::from_str(&line).map_err(|_| "the host's hello is not JSON".to_string())?;
+        let answer: Value =
+            serde_json::from_str(&line).map_err(|_| "the host's hello is not JSON".to_string())?;
         if answer.get("type").and_then(Value::as_str) != Some("hello") {
-            let message = answer.pointer("/error/message").and_then(Value::as_str).unwrap_or("refused");
+            let message =
+                answer.pointer("/error/message").and_then(Value::as_str).unwrap_or("refused");
             return Err(format!("the host refused this daemon: {message}"));
         }
         let pid = record.pid;
@@ -378,11 +408,18 @@ impl Inner {
             .name("remote-host-read".into())
             .spawn(move || Self::read(&weak, &reading, reader))
             .map_err(|error| format!("cannot read the host: {error}"))?;
-        eprintln!("cmux-tui: cmux Remote pid {pid} {}", if adopted { "adopted" } else { "started" });
+        eprintln!(
+            "cmux-tui: cmux Remote pid {pid} {}",
+            if adopted { "adopted" } else { "started" }
+        );
         Ok(connection)
     }
 
-    fn read(this: &Weak<Self>, connection: &Arc<Connection>, mut reader: BufReader<std::os::unix::net::UnixStream>) {
+    fn read(
+        this: &Weak<Self>,
+        connection: &Arc<Connection>,
+        mut reader: BufReader<std::os::unix::net::UnixStream>,
+    ) {
         let mut line = String::new();
         loop {
             line.clear();
@@ -439,8 +476,9 @@ impl Inner {
             Duration::ZERO
         } else {
             let mut backoff = lock(&this.backoff);
-            let backoff = backoff
-                .get_or_insert_with(|| Backoff::new(Duration::from_millis(200), Duration::from_secs(30)));
+            let backoff = backoff.get_or_insert_with(|| {
+                Backoff::new(Duration::from_millis(200), Duration::from_secs(30))
+            });
             if ran >= HEALTHY_RUN {
                 backoff.reset();
             }
@@ -484,7 +522,8 @@ impl Connection {
     /// One request whose answer nobody waits for.
     fn notify(&self, method: &str) {
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let _ = writeln!(lock(&self.writer), "{}", json!({"id": id, "method": method, "params": {}}));
+        let _ =
+            writeln!(lock(&self.writer), "{}", json!({"id": id, "method": method, "params": {}}));
     }
 
     /// Waits until the host's connection ended, at most `limit`; whether it did.
@@ -500,7 +539,8 @@ impl Connection {
 
     fn call(&self, method: &str, params: Value) -> Result<Value, String> {
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let (sender, receiver): (SyncSender<Value>, Receiver<Value>) = std::sync::mpsc::sync_channel(1);
+        let (sender, receiver): (SyncSender<Value>, Receiver<Value>) =
+            std::sync::mpsc::sync_channel(1);
         lock(&self.pending).insert(id, sender);
         let request = json!({"id": id, "method": method, "params": params});
         if writeln!(lock(&self.writer), "{request}").is_err() {
@@ -515,7 +555,10 @@ impl Connection {
             return Ok(answer.get("result").cloned().unwrap_or(Value::Null));
         }
         let code = answer.pointer("/error/code").and_then(Value::as_str).unwrap_or("failed");
-        let message = answer.pointer("/error/message").and_then(Value::as_str).unwrap_or("cmux Remote refused");
+        let message = answer
+            .pointer("/error/message")
+            .and_then(Value::as_str)
+            .unwrap_or("cmux Remote refused");
         Err(format!("{code}: {message}"))
     }
 }
@@ -535,7 +578,10 @@ fn mint_secret() -> Result<String, String> {
 }
 
 fn read_config(path: &Path) -> RemoteConfig {
-    std::fs::read(path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
+    std::fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
 }
 
 fn write_config(path: &Path, config: &RemoteConfig) {

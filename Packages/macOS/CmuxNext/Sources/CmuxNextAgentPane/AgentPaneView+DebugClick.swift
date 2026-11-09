@@ -27,17 +27,29 @@ extension AgentPaneView {
         }
         if (!target) return JSON.stringify({ error: 'no visible element matches' });
         // What the page sees of the click (`page_events` in the result).
-        const seen = [];
+        // `__cmuxDebugClickButtons`: each pointer and mouse event's `buttons` (`pointerdown:1`), as the page read them.
+        const seen = [], buttons = [];
         window.__cmuxDebugClick = seen;
-        for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click']) {
+        window.__cmuxDebugClickButtons = buttons;
+        for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
             window.addEventListener(type, function note(e) {
                 if (window.__cmuxDebugClick !== seen) return window.removeEventListener(type, note, true);
-                seen.push(type + (e.isTrusted ? '' : '?'));
+                if (type !== 'click') buttons.push(type + ':' + e.buttons);
+                if (type !== 'pointerup') seen.push(type + (e.isTrusted ? '' : '?'));
             }, true);
         }
         target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        // A control shown only while its block is hovered (a reply table's Open and Copy) takes no
+        // pointer until then, and a capture slot's window is never key, so WebKit gives the page no
+        // hover there: the native click would fall through to what lies under it. Focusing it first
+        // reveals it the way a keyboard user's Tab does (`:focus-within`), so the click lands on it.
+        let focused = false;
+        if (getComputedStyle(target).pointerEvents === 'none') {
+            const control = target.closest('button, a[href], input, select, textarea, [tabindex]');
+            if (control instanceof HTMLElement) { control.focus({ preventScroll: true }); focused = document.activeElement === control; }
+        }
         const r = target.getBoundingClientRect();
-        return JSON.stringify({ x: r.left + r.width / 2, y: r.top + r.height / 2, tag: target.tagName.toLowerCase() });
+        return JSON.stringify({ x: r.left + r.width / 2, y: r.top + r.height / 2, tag: target.tagName.toLowerCase(), focused });
         """
 
     /// The element of the chat's page matching `selector` (CSS), or by `text` (its visible text or
@@ -57,6 +69,12 @@ extension AgentPaneView {
 
     /// Whether the chat shows in Chromium (its clicks go through DevTools, ``debugPress(x:y:)``).
     public var debugShowsChromium: Bool { page?.showsChromium == true }
+    /// Whether this pane has the native keyboard: its window is key with the first responder in this pane, or a chat
+    /// shown in Chromium has the keys (its own key child window).
+    public var debugHoldsKeyboard: Bool {
+        if chromiumPage?.hasKeys == true { return true }
+        return window?.isKeyWindow == true && (window?.firstResponder as? NSView)?.isDescendant(of: self) == true
+    }
 
     /// Whether the chat is to show in Chromium but Chromium has not attached yet: the page shows
     /// nothing until it does, or until it falls back to WebKit.
@@ -94,8 +112,8 @@ extension AgentPaneView {
 
     /// A trusted DevTools left click at `x`,`y` (CSS pixels) on a chat shown in Chromium; false
     /// otherwise (``PageWebView/debugPress(x:y:)``).
-    public func debugPress(x: Double, y: Double) async -> Bool {
-        await page?.debugPress(x: x, y: y) ?? false
+    public func debugPress(x: Double, y: Double, beforeRelease: (() -> Void)? = nil) async -> Bool {
+        await page?.debugPress(x: x, y: y, beforeRelease: beforeRelease) ?? false
     }
 
     /// The chat's file input `selector` takes the files at `paths`, as a pick in Chromium's open panel

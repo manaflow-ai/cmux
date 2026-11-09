@@ -17,6 +17,7 @@ on:
       - ".github/scripts/cmux-tui-spec-changed.py"
       - ".github/scripts/test_cmux_tui_spec_changed.py"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/actions/runner-cargo-home/**"
       - "scripts/cmux-next/rust_panic_ratchet.py"
       - "scripts/cmux-next/rust-panic-baseline.json"
       - "plans/cmux-next/rust-panic-free.md"
@@ -30,6 +31,7 @@ on:
       - "schemas/link-token/keyset-vectors.json"
       - "schemas/link-token/native.json"
       - "schemas/link-token/vectors.json"
+      - "schemas/settings/source/agent-cache.json"
       - "schemas/settings/source/agent-retry.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
@@ -37,6 +39,7 @@ on:
       - "skills/cmux-browser/**"
       - "skills/cmux-cua/SKILL.md"
       - "skills/cmux-customization/**"
+      - "skills/cmux-live/SKILL.md"
       - "skills/cmux/SKILL.md"
   # Every pull request (no paths): feat-cmux-next requires `clippy (changed cmux-tui
   # packages)`, and a required check must report. The `changes` job below says whether
@@ -202,7 +205,7 @@ jobs:
           if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]] \
             && git fetch --no-tags --depth=1 origin "$BASE_SHA" \
             && changed=$(git diff --no-renames --name-only "$BASE_SHA" HEAD); then
-            if ! grep -qE '^(cmux-tui/(crates/acpmux/|Cargo\.(toml|lock)$|rust-toolchain(\.toml)?$|\.cargo/)|\.github/workflows/cmux-tui-spec\.yml$|\.github/actions/setup-cmux-tui-rust/)' <<<"$changed"; then
+            if ! grep -qE '^(cmux-tui/(crates/acpmux/|Cargo\.(toml|lock)$|rust-toolchain(\.toml)?$|\.cargo/)|\.github/workflows/cmux-tui-spec\.yml$|\.github/actions/setup-cmux-tui-rust/|\.github/actions/runner-cargo-home/)' <<<"$changed"; then
               run=false
               echo "No acpmux or cmux-tui build input changed since ${BASE_SHA:0:12}; nothing to check." >> "$GITHUB_STEP_SUMMARY"
             fi

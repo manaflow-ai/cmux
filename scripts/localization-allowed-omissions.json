@@ -14,6 +14,17 @@
       }
     }
   },
+  "settings.choice.groupGradientAurora": {
+    "source": "Aurora",
+    "identityLocales": {
+      "es": {
+        "reason": "Aurora is the standard Spanish word for the dawn and the polar lights, the gradient's name.",
+        "values": [
+          "Aurora"
+        ]
+      }
+    }
+  },
   "settings.choice.agentChatPresentationMessages": {
     "source": "Messages",
     "identityLocales": {
@@ -2278,13 +2289,13 @@
   "home.title": {
     "source": "Home",
     "identityLocales": {
-      "de": "Home is the product name of cmux's Home area (the Chief and its conversations), kept in Latin letters in German so it matches the command and setting names that say Home (action.home.show, action.home.switchView, settings.labs.classicHome)."
+      "de": "Home is the product name of cmux's Home area (the Chief and its conversations), kept in Latin letters in German so it matches the command and setting names that say Home (action.home.show, action.home.switchView)."
     }
   },
   "argument.home.view.messages": {
     "source": "Home",
     "identityLocales": {
-      "de": "Home is the product name of cmux's Home area (the Chief and its conversations), kept in Latin letters in German so it matches the command and setting names that say Home (action.home.show, action.home.switchView, settings.labs.classicHome)."
+      "de": "Home is the product name of cmux's Home area (the Chief and its conversations), kept in Latin letters in German so it matches the command and setting names that say Home (action.home.show, action.home.switchView)."
     }
   },
   "home.list.title": {
@@ -7149,6 +7160,14 @@
       "pt-BR": "Manual is the Portuguese adjective for a hand-set order, spelled as in English."
     }
   },
+  "github.tab.title": {
+    "class": "brand",
+    "source": "GitHub"
+  },
+  "github.page.title": {
+    "class": "brand",
+    "source": "GitHub"
+  },
   "remote.status.title": {
     "class": "brand",
     "source": "cmux Remote"
@@ -7197,5 +7216,192 @@
     "identityLocales": {
       "de": "Host is the usual German term for the computer that shares its screen."
     }
+  },
+  "settingsWindow.harnesses.accounts.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": {
+        "reason": "Name is the standard German noun for a name.",
+        "values": [
+          "Name"
+        ]
+      }
+    }
+  },
+  "chatDisplay.uiFontInter": {
+    "class": "brand",
+    "source": "Inter"
+  },
+  "settings.choice.agentChatUiFontInter": {
+    "class": "brand",
+    "source": "Inter"
+  },
+  "chatDisplay.uiFontVerdana": {
+    "class": "brand",
+    "source": "Verdana"
+  },
+  "settings.choice.agentChatUiFontVerdana": {
+    "class": "brand",
+    "source": "Verdana"
+  },
+  "chatDisplay.uiFontRoboto": {
+    "class": "brand",
+    "source": "Roboto"
+  },
+  "settings.choice.agentChatUiFontRoboto": {
+    "class": "brand",
+    "source": "Roboto"
+  },
+  "chatDisplay.uiFontPlex": {
+    "class": "brand",
+    "source": "IBM Plex Sans"
+  },
+  "settings.choice.agentChatUiFontPlex": {
+    "class": "brand",
+    "source": "IBM Plex Sans"
+  },
+  "chatDisplay.uiFontSourceSans": {
+    "class": "brand",
+    "source": "Source Sans 3"
+  },
+  "settings.choice.agentChatUiFontSourceSans": {
+    "class": "brand",
+    "source": "Source Sans 3"
+  },
+  "chatDisplay.uiFontGeist": {
+    "class": "brand",
+    "source": "Geist"
+  },
+  "chatDisplay.uiFontHanken": {
+    "class": "brand",
+    "source": "Hanken Grotesk"
+  },
+  "chatDisplay.uiFontAtkinson": {
+    "class": "brand",
+    "source": "Atkinson Hyperlegible Next"
+  },
+  "chatDisplay.uiFontCmuxSans": {
+    "class": "brand",
+    "source": "cmux Sans"
+  },
+  "settings.choice.agentChatUiFontGeist": {
+    "class": "brand",
+    "source": "Geist"
+  },
+  "settings.choice.agentChatUiFontHanken": {
+    "class": "brand",
+    "source": "Hanken Grotesk"
+  },
+  "settings.choice.agentChatUiFontAtkinson": {
+    "class": "brand",
+    "source": "Atkinson Hyperlegible Next"
+  },
+  "settings.choice.agentChatUiFontCmuxSans": {
+    "class": "brand",
+    "source": "cmux Sans"
+  },
+  "chatDisplay.uiFontSystemUi": {
+    "source": "System",
+    "identityLocales": {
+      "da": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "nb": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "settings.choice.agentChatUiFontSystemUi": {
+    "source": "System",
+    "identityLocales": {
+      "da": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "nb": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "chatDisplay.uiFont": {
+    "source": "Interface",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "pt-BR": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "onboarding.agents.title": {
+    "source": "Agents",
+    "identityLocales": {
+      "fr": {
+        "reason": "Agents is the standard French plural noun for AI agents (the Agents onboarding window's title).",
+        "values": [
+          "Agents"
+        ]
+      }
+    }
+  },
+  "settingsPage.personalization.chief": {
+    "class": "brand",
+    "source": "Chief"
+  },
+  "settingsPage.personalization.theme": {
+    "source": "Theme",
+    "identityLocales": {
+      "de": {
+        "reason": "Theme is the standard German noun for an app's color theme.",
+        "values": [
+          "Theme"
+        ]
+      }
+    }
+  },
+  "home.firstRun.switchKeys.tabs": {
+    "source": "Tab 1–9",
+    "identityLocales": {
+      "de": {
+        "reason": "Tab is the standard German noun for a window tab. The translated German entry is still required.",
+        "values": [
+          "Tab 1–9"
+        ]
+      },
+      "vi": {
+        "reason": "Tab is the standard Vietnamese UI word for a window tab. The translated Vietnamese entry is still required.",
+        "values": [
+          "Tab 1–9"
+        ]
+      }
+    }
+  },
+  "action.new.terminal": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "action.new.browser": {
+    "source": "Browser",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "settings.choice.dictationSourceCmux": {
+    "class": "brand",
+    "source": "cmux"
+  },
+  "settings.choice.dictationSourceChatgpt": {
+    "class": "brand",
+    "source": "ChatGPT"
+  },
+  "settings.choice.dictationSourceClaude": {
+    "class": "brand",
+    "source": "Claude"
+  },
+  "settings.choice.dictationSourceGemini": {
+    "class": "brand",
+    "source": "Gemini"
+  },
+  "settings.choice.dictationSourceWisprFlow": {
+    "class": "brand",
+    "source": "Wispr Flow"
+  },
+  "settings.choice.dictationSourceSuperwhisper": {
+    "class": "brand",
+    "source": "Superwhisper"
   }
 }

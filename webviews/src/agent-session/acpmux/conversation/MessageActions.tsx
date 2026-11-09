@@ -1,11 +1,11 @@
 // The buttons of a message's action row, shared by a prompt's (UserBubble.tsx, PromptActions for
 // the Chief's), another agent's message's (ReceivedActions) and an answer's (TurnRows.tsx TurnFooter), as Claude Code desktop
-// draws them: the message's age ("8 minutes ago"; "Oct 20, 2026, 10:16 PM" above it on hover), a
+// draws them: the message's age ("8 minutes ago"; "Oct 20, 2026, 10:16 PM" above it on hover; MessageTime, the same for a reply), a
 // prompt's read receipt, Copy, Retry, Fork from here (its title and what it does), Pin, Read
 // aloud and More (the message's right-click menu), each glyph ROW_ICON px in a 24 px button. The rows show on hover or keyboard focus only,
 // with Claude's fade (conversation.css).
 import { useContext, useRef, useState, type ReactNode } from "react";
-import { PresentationContext } from "./PresentationContext";
+import { PresentationContext } from "./presentationContextModel";
 import { useLabelClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -14,56 +14,52 @@ import { BookmarkIcon } from "../threadMinimap/BookmarkIcon";
 import { useRowMark } from "../threadMinimap/promptMarks";
 import { AlertCircle, Check, DoubleCheck, Pin, Retry, Speaker, Spinner, StopReading, TurnFork } from "./icons";
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
-import { exactTime, nextRelativeTime, nextReplyTime, relativeTime, replyTime } from "./relativeTime";
+import { exactTime, messageAge, nextMessageAge } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
+import { copyMarkdownResult } from "../richClipboard";
 import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { RowReplyButton } from "./SelectionReply";
 import { RetryTargetContext, TurnActionsContext, type QueuedActions } from "./turnActions";
 import { retryPlacement } from "./turns";
 import { useTranscriptReadOnly } from "./readOnly";
-
-/// A hover row's glyph size: Claude's 16 px icons, each in a 24 px (--cv-meta-row) button.
-export const ROW_ICON = 16;
-
-/// The message's age, relative and live; the exact date and time above it on hover, as Claude's.
-export function MessageTime({ at, className }: { at: number; className: string }) {
-  const now = useLabelClock(at, nextRelativeTime);
+import { ROW_ICON } from "./messageActionsModel";
+import { resendsAttachments } from "../inlinePrompt";
+/// The message's age, relative and live ("just now", "8 minutes ago", "yesterday", "Oct 18" past a
+/// week: messageAge), the exact date and time above it on hover, as Claude's. A prompt's, another
+/// agent's and a reply's rows all draw this one label (Leo, 2026-11-08: "the timestamps for the agent
+/// and then the timestamps for the user, they need to be congruent"). `detail` is a second tooltip
+/// line under the exact time (a reply's Worked for and tokens). Every label shares one page timer
+/// (clock.ts useLabelClock, ui/pageClock.ts subscribePageDeadline), woken only at the nearest minute
+/// some label's words change; a date from an earlier year holds none.
+export function MessageTime({ at, className, detail }: { at: number; className: string; detail?: string }) {
+  const now = useLabelClock(at, nextMessageAge);
   const language = usePaneLanguage();
+  const exact = exactTime(at, language);
   return (
     <time
       className={className}
       dateTime={new Date(at).toISOString()}
-      /* tooltip-allow: the row shows the age; the tooltip gives the exact date and time, as Claude's */ title={exactTime(
-        at,
-        language,
-      )}
+      /* tooltip-allow: the row shows the age; the tooltip gives the exact date and time, as Claude's */ title={exact}
       data-tooltip-side="top"
+      data-tooltip-detail={detail}
+      /* The widest age of its first hour, in this language: the prompt row reserves its width in
+         the real font (conversation.css .cv-user__time::before), so the minute's words change in place. */
+      data-age-widest={messageAge(at, at + 59 * 60_000, language)}
     >
-      {relativeTime(at, now, language)}
+      {messageAge(at, now, language)}
     </time>
   );
 }
 
-/// A reply's time at the end of its action row, after the buttons, as ChatGPT's: the exact date and
-/// time ("Oct 18, 5:41 AM"), hidden at rest and shown while the reader points at the reply
-/// (conversation.css `.cv-turn-time`; Leo, 2026-11-02: "notice how on hover it reveals the exact
-/// timestamp. let's follow those."). `detail`, when given, is its tooltip (the turn's time and tokens).
+/// A reply's time at the end of its action row, after the buttons, hidden at rest and shown while the
+/// reader points at the reply (conversation.css `.cv-turn-time`; Leo, 2026-11-02: "notice how on
+/// hover it reveals the exact timestamp"): the same relative age a prompt's row writes, its exact
+/// date and time on hover (Leo, 2026-11-08: "Right now it's just, like in our app, only the user has
+/// that sort of relative time thing. The agent in ours only has the exact timestamp."), with
+/// `detail` (the turn's time and tokens) on the tooltip's second line when given.
 export function ReplyTime({ at, detail }: { at: number; detail?: string }) {
-  const now = useLabelClock(at, nextReplyTime);
-  const language = usePaneLanguage();
-  return (
-    <time
-      className="cv-turn-time"
-      dateTime={new Date(at).toISOString()}
-      /* tooltip-allow: the turn's time and tokens, which the row no longer spells out (Leo, 2026-11-02) */ title={
-        detail
-      }
-      data-tooltip-side="top"
-    >
-      {replyTime(at, now, language)}
-    </time>
-  );
+  return <MessageTime at={at} className="cv-turn-time" detail={detail} />;
 }
 
 /// Shared footer rail for sent, received and answer rows. Timestamp text and every action stay on
@@ -82,25 +78,20 @@ export function MessageDot() {
 }
 
 /// Copy through CopyButton (its name as a tooltip, a check once the clipboard took the text), at the
-/// row's compact size.
+/// row's compact size. The message goes as Claude's and ChatGPT's do: its Markdown as the plain text
+/// and its HTML beside it, so Notes, Slack, Docs and Mail paste its headings, bullets and code
+/// (richClipboard.ts).
 export function MessageCopy({ text }: { text: string }) {
   const t = useT();
-  return <CopyButton text={text} label={t("turn.copy")} className="cv-iconbtn cv-iconbtn--compact" size={ROW_ICON} />;
-}
-
-/// Use the live host action when the page has one: unlike the turn context's legacy callback, it
-/// returns the fork promise so the button can stay pending until the new agent is ready. Gallery
-/// and unit-test callers keep their injected fallback.
-export function forkWithFeedback(throughSeq: number, fallback: () => unknown): unknown {
-  const action = globalThis.window?.cmuxAcpmuxActions?.["chat.fork"];
-  if (!action) return fallback();
-  return action({ throughSeq }).then((sessionId) => {
-    // direct.fork reports refusal by returning no session id after it has written the localized
-    // transcript notice; turn that sentinel into the button's terminal error state too.
-    // l10n-allow: the button's error state only; the transcript notice already says why.
-    if (sessionId === undefined || sessionId === null || sessionId === false) throw new Error("fork failed");
-    return sessionId;
-  });
+  return (
+    <CopyButton
+      text={text}
+      label={t("turn.copy")}
+      className="cv-iconbtn cv-iconbtn--compact"
+      size={ROW_ICON}
+      copy={copyMarkdownResult}
+    />
+  );
 }
 
 /// Fork from here, with Claude's tooltip: the title, then that this chat stays as it is. The host
@@ -286,14 +277,26 @@ export function ReadReceipt({ row }: { row: AcpmuxRow }) {
 /// Retry, and Retry with another model when the harness has several: sends prompt row `rowId`
 /// (`prompt`, as the agent got it) again. Only the Messages view's prompts draw it, sent or queued;
 /// in the transcript the last turn's Retry is its reply footer's (TurnRows.tsx TurnFooter).
+/// `hasAttachment`: the prompt carries attachments that can all go again, so an attachment-only
+/// prompt (no text) still gets Retry.
 /// `held`: the prompt is a steer the agent has not read yet (PendingSteer.tsx's row). Its Retry
 /// stays in the row, as the sent row's does, but cannot be pressed and has no model menu: a resend
 /// while the steer still waits would reach the agent twice (cmux#34613, #34614).
-export function PromptRetry({ rowId, prompt, held = false }: { rowId: string; prompt: string; held?: boolean }) {
+export function PromptRetry({
+  rowId,
+  prompt,
+  hasAttachment = false,
+  held = false,
+}: {
+  rowId: string;
+  prompt: string;
+  hasAttachment?: boolean;
+  held?: boolean;
+}) {
   const t = useT();
   const { retry, retryWith } = useContext(TurnActionsContext);
   const readOnly = useTranscriptReadOnly();
-  if (!retry || !prompt || readOnly) return null;
+  if (!retry || (!prompt && !hasAttachment) || readOnly) return null;
   return (
     <span className="cv-message-retry">
       <button
@@ -336,19 +339,19 @@ export function PromptActions({
     (retryTarget?.promptId === row.id &&
       retryPlacement(retryTarget, { canRetry: canResend, readOnly, messages: false }) === "prompt");
   const prompt = row.resend ?? row.text ?? "";
+  // An attachment-only prompt (turns.ts offersRetry) retries when all its attachments can go again.
+  const retryProps = { rowId: row.id, prompt, hasAttachment: resendsAttachments(row) };
   const actions = (
     <MessageFooterRow>
       <MessageTime at={row.at} className="cv-user__time" />
       <MessageCopy text={text} />
-      {promptRetry && <PromptRetry rowId={row.id} prompt={prompt} />}
+      {promptRetry && <PromptRetry {...retryProps} />}
       <PinButton rowId={row.id} bookmark />
     </MessageFooterRow>
   );
   return (
     <div className="cv-user__actions">
-      {pending
-        ? pending(actions, { retry: promptRetry ? <PromptRetry rowId={row.id} prompt={prompt} held /> : null })
-        : actions}
+      {pending ? pending(actions, { retry: promptRetry ? <PromptRetry {...retryProps} held /> : null }) : actions}
     </div>
   );
 }

@@ -21,7 +21,7 @@ pub static VERBS: &[VerbSpec] = &[
     VerbSpec {
         path: &["pair"],
         positionals: &[],
-        flags: &[("api-origin", true), ("name", true)],
+        flags: &[("api-origin", true), ("name", true), ("invite", true)],
         help: "server.pair.begin",
     },
     VerbSpec {
@@ -41,6 +41,18 @@ pub static VERBS: &[VerbSpec] = &[
         positionals: &[],
         flags: &[("purge", false), ("no-backup", false), PG_BIN],
         help: "stop and remove the service, shim and store; keep state unless --purge",
+    },
+    VerbSpec {
+        path: &["up"],
+        positionals: &[],
+        flags: &[],
+        help: "start the installed service and keep it started across logins",
+    },
+    VerbSpec {
+        path: &["down"],
+        positionals: &[],
+        flags: &[],
+        help: "stop the service and keep it stopped across logins; keep the install",
     },
     VerbSpec {
         path: &["status"],

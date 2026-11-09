@@ -270,7 +270,13 @@ reaches `linux-b/review` when no other live session is called `review`. A sub-se
 `PARENT/SHORT`) also answers to its short name: `acpmux send lane-3` reaches
 `coord/lane-3` when no session on any host has that name or id and none here has a
 name starting with it; `HOST/SHORT` looks on that host only. A name nothing matches is
-refused with the close matches. Closed sessions count
+refused with the close matches. A name typed loosely still finds its one session
+(`src/name_match.rs`): failing an exact name, the same name in another case (`td2-a` for
+`td2-A`), then a unique prefix (here, or on the host `HOST/…` names), then the name without
+case or `-`, `_` and spaces (`td2_a`). `HOST` in `HOST/NAME`, `new --host` and
+`dispatch --host` read a machine the same way (`LANE-VM-2` for `lane-vm-2`, or a unique prefix of it).
+Only the first step that matches counts; several matches there are refused with each one,
+never guessed. Closed sessions count
 only when no live one matches. Several live matches are refused (exit 2,
 `session_ambiguous`), never picked; a session here does not win over a peer's. The refusal
 lists each choice and the exact command for it:
@@ -370,8 +376,17 @@ acpmux ls --since 24h --limit 100 --json                     # sessions changed 
 acpmux ls --json --live --fields name,status,peer             # what an agent should read: `ls --json` alone is every record
 acpmux session tail NAME --since <sessionId>:<seq> --follow   # raw events as JSON lines; a cursor past the log is exit 2
 acpmux compare -m claude -m codex/gpt-5.5 "prompt"                    # one temporary session per harness, run one after another
+# Race CLI commands run inside an authenticated acpmux agent session:
+acpmux race new -m codex/gpt-6.1-sol -m codex/gpt-6-astra --reviewer claude/opus --reviewer-effort medium "task"
+acpmux race show RACE                                          # candidate replies, worktrees and reviewer choice
+acpmux race stats                                              # each model's wins / completed races
+acpmux race stop RACE                                          # cancel this race's work, retain its record
 acpmux guide                                                  # the agent guide (also --guide, --skill); acpmux daemon schema prints the RPC surface
 ```
+
+Race commands default to the authenticated calling agent's own chat. `--parent CHAT` may
+name that chat or a descendant it can manage; it does not authenticate an ordinary terminal.
+Use the chat's **menu → Tools → Race models** control in cmux NEXT from an ordinary terminal.
 
 Waits run in the daemon: a per-session `stateSeq` bumps on every status, permission and
 turn change and the wait subscribes to hub events, so nothing is missed between the check
@@ -388,7 +403,13 @@ produces one notice without resolving. Failed deliveries remain visible in the l
 on a relevant session/peer change or restart. A one-shot watch is removed after delivery.
 Unreadable watch state is preserved as `watches.json.bad-<timestamp>`; the daemon starts
 with no watches. Older cursor fields default safely. Peer replay uses eight workers.
-The CLI and MCP watch tools are not exposed yet; `acpmux wait` remains the script interface.
+The same three are `acpmux watch add|ls|rm` and the `acpmux` MCP server's `watch_add`,
+`watch_ls` and `watch_rm` tools, on the local socket only; inside an agent session the recipient
+defaults to that session. A wake counts as delivered when the recipient's daemon accepts it
+(queued or steered into its turn), not when its agent has read it; `watch ls` lists every wake
+not accepted yet with its outbox state. Removing a watch stops new wakes, and wakes it already
+owes are still delivered (`watch_rm` answers how many). `acpmux wait` remains the blocking
+script interface.
 
 Agents spawned by acpmux get `ACPMUX_ENV=1`, `ACPMUX_SESSION_ID`, `ACPMUX_SESSION_NAME` and
 `ACPMUX_SOCKET`, and `@` names that session (`acpmux last @`), so an agent can drive its own
@@ -430,8 +451,12 @@ unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 `agentStartTimeoutMs` (default 90000) bounds a cold agent start (spawn, `initialize`,
 session load or new, config replay): past it the request fails with code -32000 and
 `data.reason` `deadline_exceeded` (`data.wait` `agent_start`), the agent is ended, the
-session stays open, and the log gets `agent_start_timed_out`. A person's start has no such
-bound. Neither has a `session/new` with `_meta.acpmux.waitStart` from a local connection that is
+session stays open, and the log gets `agent_start_timed_out`. A prompt whose start misses it is
+not failed: its turn stays open, the log gets `agent_start_retrying` `{turnId, promptId, attempt,
+of, delayMs, error}`, the row reads `starting`, and the start is tried again after 10, 20 and
+40 s (a ninth of the budget, doubling). A Stop, a stop of the session, its move or the daemon's
+shutdown ends that wait; when the 4 tries run out the turn fails with the deadline error, which
+says how many tries it took. A person's start has no such bound. Neither has a `session/new` with `_meta.acpmux.waitStart` from a local connection that is
 no agent's or lane's (the Chief's own sessions): its log gets `agent_start_waiting` as it starts,
 and it fails the same way only once its harness has used no CPU, with no thread ready, for 5
 minutes.
@@ -1239,7 +1264,11 @@ own environment lacks. Every child: PATH (login PATH first), MISE_*, ASDF_*, NVM
 BUN_INSTALL, HTTPS_PROXY, HTTP_PROXY, ALL_PROXY, NO_PROXY (both cases),
 NODE_EXTRA_CA_CERTS, SSL_CERT_FILE, SSL_CERT_DIR. Claude harnesses also: ANTHROPIC_*, CLAUDE_*,
 DISABLE_*, *_TELEMETRY; AWS_* only with the person's own CLAUDE_CODE_USE_BEDROCK (a profile's switch unlocks only AWS_PROFILE, AWS_REGION, AWS_DEFAULT_REGION, AWS_CONFIG_FILE, AWS_SHARED_CREDENTIALS_FILE); GOOGLE_*, CLOUDSDK_*, GCLOUD_*, CLOUD_ML_REGION, VERTEX_REGION_* (non-secret ones only from a profile's switch) only
-with CLAUDE_CODE_USE_VERTEX. Codex harnesses also: OPENAI_*, CODEX_*. Nothing else (GITHUB_TOKEN,
+with CLAUDE_CODE_USE_VERTEX. Codex harnesses also: OPENAI_*, CODEX_*. Gemini: GEMINI_*, GOOGLE_*.
+Muse: MUSE_*, META_*. OpenCode, pi, omp, cmux Harness and Hermes also: a fixed list of provider
+keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, GROQ_API_KEY, DEEPSEEK_API_KEY, HF_TOKEN
+and the rest of `PROVIDER_KEYS` in `src/login_env.rs`, plus ANTHROPIC_BASE_URL and OPENAI_BASE_URL),
+exact names only. Nothing else (GITHUB_TOKEN,
 GH_TOKEN, NPM_TOKEN, ...) unless `loginEnvAllow` in config.json names it (exact names or `PREFIX_*`;
 default empty), or (for local launches only, never a remote-origin one) it is a machine declaration below or a name delivered to this machine in `~/.config/cmux/machine-secrets.env`
 (`cmux cloud deliver-secrets`; its value is never cached). Local child launches also read
@@ -1307,7 +1336,8 @@ returns once the message is on disk here, and the daemon delivers it when the pe
    a direct send did.
 5. **Status.** `acpmux send --status ID` (`_acpmux/send_status {deliveryId, waitMs?}`) reads it;
    `acpmux send --status` with no id (`{list: true, caller?, limit?}`) lists every message, newest
-   first. `acpmux session inbox SESSION` ends with the messages that session sent and their
+   first. The `acpmux` MCP server's `send_status` tool is the same for an agent: a `deliveryId`
+   from `send`, or none for the messages its chat sent. `acpmux session inbox SESSION` ends with the messages that session sent and their
    state, and `acpmux ls` ends with how many still wait (`outboxPending` in `_acpmux/status`).
    Delivered, held and failed deliveries are kept for a day.
 
@@ -1455,7 +1485,9 @@ Harnesses found on PATH join the configured ones at every start: `claude`, `code
 When no config exists, harnesses are imported from `~/.acpx/config.json` (its `agents` block) and from adapters on PATH. `claude`, `claude-cr` and `claude-sr` are reserved for acpmux's own Claude Code adapter (`claude-stdio`): when `claude` or `sr` is on PATH (or a CodeRouter route is configured), an `~/.acpx` entry of that name is ignored. Only `config.json` rebinds them.
 
 - `permissionPolicy`: `ask` routes `session/request_permission` to attached clients and waits.
-  `approve-all`, `approve-reads`, `approve-edits` (reads and edits auto, shell asks), and `deny-all` answer locally. Per-session override with
+  `approve-all`, `approve-reads`, `approve-edits` (reads and edits auto, shell asks), `deny-all`, and `review`
+  (a reviewer's read-only shell: reads, searches and read-only shell commands such as `git log/diff/show`, `grep`,
+  `rg`, `ls`, `cat`, `sed -n` run unasked; every write or other command is denied at once) answer locally. Per-session override with
   `acpmux set NAME policy=...`. A chat an agent starts from inside its own session (`acpmux new|run`,
   `cmux agents chat new`, a local `dispatch`) with no policy or mode of its own starts at the person's configured default
   (`defaultPermissionMode`, the daemon policy), as a start with no proven session does; a starter in full access passes
@@ -1479,17 +1511,15 @@ When no config exists, harnesses are imported from `~/.acpx/config.json` (its `a
   would free; `--archive DIR` keeps the old segments under `DIR/<chat id>/<pass>/events/`;
   `--older-than-days N` and `--only CHAT` narrow it.
   Read when the daemon starts.
-- `store.journal`: `true` sends every event-log line through one append-only journal in
-  `journal/` as well (default `false`, a dogfood switch). A line is then durable within one group
-  commit (an OS crash or a power loss keeps it), and the next start writes back into a chat's log
-  every line it lost. `journal-projected.json` names how far the logs are synced. Lines the start
-  could not write into a log that changed without the journal (a run with the switch off after a
-  crash, or an older build) go to `journal-unapplied/`. Turning it off is safe: the next start
-  writes the journal's lines into the logs first. A failed log sync stops the daemon for a restart,
-  which writes the logs again: it exits with status 74, and its supervisor (or the next client)
-  starts it again. A reply and an acknowledged event wait until what they show is durable. With it
-  on, an event line over 64 MiB (the journal's record limit) is refused, and its log does not get
-  it either; with it off, the log takes it. Read when the daemon starts.
+- The event log goes through one append-only journal in `journal/` as well. A line is durable
+  within one group commit (an OS crash or a power loss keeps it), and the next start writes back
+  into a chat's log every line it lost. `journal-projected.json` names how far the logs are synced.
+  Lines the start could not write into a log that changed without the journal (an older build after
+  a crash) go to `journal-unapplied/`. A failed log sync stops the daemon for a restart, which
+  writes the logs again: it exits with status 74, and its supervisor (or the next client) starts it
+  again. A reply and an acknowledged event wait until what they show is durable. An event line over
+  64 MiB (the journal's record limit) is refused, and its log does not get it either. The old
+  `store.journal` key is ignored.
 - `websocket`: optional. The same protocol over WebSocket text frames, for remote clients such
   as a dashboard or a Durable Object. Put it behind a tunnel; the token is a bearer token.
 
@@ -1657,6 +1687,14 @@ records of a failed turn, and so on the session's `lastTurn`. The error's own me
 
 Each session logs every JSON-RPC line in both directions plus acpmux records, with a
 per-session sequence number. Clients resume from a sequence number after a disconnect.
+
+That sequence number is the one resume cursor of a chat, on every route: a client attaches
+with `afterSeq` = the last `seq` it holds and drops duplicates by `seq`. Transports below
+acpmux keep their own positions only to replay frames within one connection: the Cloud
+carrier's lanes (interactive, control, bulk, tunnel) are transport scheduling, are never
+persisted, and are never a cursor a client sees or sends. After a relay drop, a route switch
+or a new dial, the chat resumes from acpmux's `seq`, so nothing is lost or shown twice
+([Cloud carrier roles](docs/carrier-roles.md#the-resume-cursor)).
 
 `acpmux export` writes a bundle: `session.json`, `events/*.ndjson`, the adapter's own session
 files under `native/` when the adapter is known (Codex rollouts, Claude Code project files),

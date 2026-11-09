@@ -21,7 +21,11 @@
 //! marker line, and commits the new incarnation. A launch failure records
 //! the loss again as `restart_failed`; a terminal that used up its attempts
 //! ends as `restart_exhausted`. Neither respawns again, and the tab shows
-//! that typed end instead of a generic host loss.
+//! that typed end instead of a generic host loss. A launch that found no free
+//! PTY (more terminals than `kern.tty.ptmx_max` after a reboot) also parks
+//! the tabs (`relaunch.on_show`), so the app starts the shell when its
+//! workspace is shown. A failed launch leaves the row with no incarnation;
+//! the manual restart takes such a row too.
 //!
 //! The launch and seed (`terminal_respawn/launch.rs`) and the pre-fill
 //! (`terminal_respawn/prefill.rs`): an agent session's resume runs at the
@@ -59,6 +63,9 @@ const DELAY_ENV: &str = "CMUX_TUI_TEST_RESPAWN_DELAY_MS";
 /// Test override of the respawn gate's slots (default: available
 /// parallelism).
 const SLOTS_ENV: &str = "CMUX_TUI_TEST_RESPAWN_SLOTS";
+/// Fails this many respawn launches after the row reopened, as a launch that
+/// found no free PTY does (tests of a tab left `restart_failed`).
+const LAUNCH_FAILURES_ENV: &str = "CMUX_TUI_TEST_RESPAWN_LAUNCH_FAILURES";
 
 /// The respawn gate: first respawn attempts take turns in the order they
 /// were scheduled, at most one per CPU at once. A respawn replays its seed
@@ -113,6 +120,8 @@ pub(crate) struct TerminalRespawns {
     /// yet (Reopen Closed of an archived terminal, ARCHIVE-1). The launch
     /// takes it; the creator removes it when the creation fails.
     seeds: Mutex<HashMap<String, Vec<u8>>>,
+    /// Respawn launches still to fail on purpose ([`LAUNCH_FAILURES_ENV`]).
+    injected_launch_failures: AtomicU64,
 }
 
 /// At most this many command argvs are kept; the oldest goes first.
@@ -158,7 +167,20 @@ impl TerminalRespawns {
             wake: (Mutex::new(()), Condvar::new()),
             argv: Mutex::default(),
             seeds: Mutex::default(),
+            injected_launch_failures: AtomicU64::new(
+                std::env::var(LAUNCH_FAILURES_ENV)
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(0),
+            ),
         }
+    }
+
+    /// Whether this launch fails on purpose ([`LAUNCH_FAILURES_ENV`]).
+    fn take_injected_launch_failure(&self) -> bool {
+        self.injected_launch_failures
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |left| left.checked_sub(1))
+            .is_ok()
     }
 
     /// Give the launch of reserved terminal `terminal_id` the seed `seed`.
@@ -206,7 +228,10 @@ pub(super) enum RespawnDecision {
 pub(super) struct RespawnPlan {
     pub(super) terminal_id: String,
     pub(super) public_id: TerminalPublicId,
-    pub(super) old_incarnation: String,
+    /// The incarnation this attempt replaces. None only for a user restart
+    /// of a terminal whose earlier respawn launch failed after its row
+    /// reopened (`restart_failed`): that row has no incarnation left.
+    pub(super) old_incarnation: Option<String>,
     /// The `host_lost` reason.
     pub(super) cause: String,
     /// The first placement: the new runtime's slot and tab identity.
@@ -434,7 +459,7 @@ impl Mux {
         Some(RespawnDecision::Planned(Box::new(RespawnPlan {
             terminal_id: terminal_id.to_string(),
             public_id,
-            old_incarnation,
+            old_incarnation: Some(old_incarnation),
             cause,
             slot,
             identity: TabResourceIdentity::new(tab_id, content),
@@ -454,6 +479,7 @@ impl Mux {
         let public_id = plan.public_id.clone();
         let (old_incarnation, cause) = (plan.old_incarnation.clone(), plan.cause.clone());
         let recorded = plan.recorded.clone();
+        let user_restart = plan.user_restart;
         let outcome = self.respawn_terminal(plan);
         self.pending_terminals.lock().unwrap_or_else(PoisonError::into_inner).retain(
             |_, (id, pending)| id != &terminal_id || *pending != PendingTerminal::Respawning,
@@ -469,7 +495,10 @@ impl Mux {
                     crate::terminal_loss_log::record_terminal_respawned(
                         &root,
                         &terminal_id,
-                        (&old_incarnation, new_incarnation.as_deref().unwrap_or_default()),
+                        (
+                            old_incarnation.as_deref().unwrap_or_default(),
+                            new_incarnation.as_deref().unwrap_or_default(),
+                        ),
                         &cause,
                         prefilled,
                     );
@@ -488,6 +517,17 @@ impl Mux {
                     "{}: {error:#}",
                     crate::terminal_end::RESPAWN_FAILED_DETAIL
                 ));
+                // No free PTY (a respawn of every terminal after a reboot or a
+                // kill of everything, more than `kern.tty.ptmx_max`): park the
+                // tabs, recorded before the end commit, as PTY reclaim parks
+                // idle shells, so the app starts each one when its workspace
+                // is shown instead of leaving it dead.
+                if pty_reclaim::is_pty_exhaustion(&error) {
+                    self.note_pty_exhausted();
+                    if !user_restart {
+                        self.park_tabs_without_pty(&public_id);
+                    }
+                }
                 // A failure before the row reopened leaves the respawnable
                 // receipt: rewrite it, so no later owner retries forever. A
                 // reopened (launching) row takes a normal exit commit.
@@ -498,6 +538,31 @@ impl Mux {
                 self.record_terminal_end(&terminal_id);
                 self.emit(MuxEvent::TreeChanged);
             }
+        }
+    }
+
+    /// Keep the tabs of `public_id`, whose respawn found no free PTY, as
+    /// parked (`relaunch: {on_show}`): the app starts the shell on the
+    /// workspace's next show, in the launch record's directory.
+    #[cfg(any(unix, windows))]
+    fn park_tabs_without_pty(&self, public_id: &TerminalPublicId) {
+        let content = ContentPublicId::Terminal(public_id.clone());
+        let tabs = self.with_state(|state| {
+            state
+                .placements_of_content(&content)
+                .iter()
+                .filter_map(|slot| state.resource_indexes.tab_ids.get(slot))
+                .map(|tab_id| KeptTab {
+                    tab_id: tab_id.to_string(),
+                    cwd: None,
+                    title: None,
+                    on_show: true,
+                    last_command: None,
+                })
+                .collect::<Vec<_>>()
+        });
+        if let Err(error) = self.commit_kept_tabs(&tabs) {
+            eprintln!("cmux-tui: could not park terminal {public_id} after no free PTY: {error:#}");
         }
     }
 
@@ -544,7 +609,7 @@ impl Mux {
                 self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             let Some(revision) = registry.begin_terminal_respawn(
                 &plan.terminal_id,
-                &plan.old_incarnation,
+                plan.old_incarnation.as_deref(),
                 plan.user_restart,
             )?
             else {
@@ -569,6 +634,14 @@ impl Mux {
         }
         let terminal_id = TerminalId::from_hex(&plan.terminal_id)
             .context("terminal id is not a canonical UUIDv4")?;
+        if self.terminal_respawns.take_injected_launch_failure() {
+            use crate::terminal_host_protocol::{HostLaunchFailure, HostLaunchFailureKind};
+            return Err(HostLaunchFailure::bounded(
+                HostLaunchFailureKind::PtyCapacityExhausted,
+                "injected: PTY capacity exhausted".into(),
+            )
+            .into());
+        }
         let surface = Surface::respawn_hosted(
             plan.slot,
             launch.options,
@@ -629,10 +702,18 @@ impl Mux {
         self.publish_resource_event();
         let _ = self.retry_pending_agent_hooks_for_terminal(&plan.public_id);
         self.reconcile_agent_roster_projections_for_terminal(&plan.public_id);
+        // Only a shell the freeing tier parked offers its last command again.
+        let freed_last = plan
+            .kept
+            .iter()
+            .filter(|kept| kept.on_show)
+            .find_map(|kept| kept.last_command.as_ref())
+            .map(|last| last.command.as_str());
         let prefill = self.respawn_prefill(
             &plan.terminal_id,
             record.as_ref(),
             crate::user_settings::resume_agents(),
+            freed_last,
         );
         Ok(Some((surface, prefill)))
     }

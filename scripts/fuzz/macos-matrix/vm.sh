@@ -100,6 +100,8 @@ printf '#!/bin/sh\necho admin\n' >"$RUN/askpass.sh"; chmod 700 "$RUN/askpass.sh"
 export SSH_ASKPASS="$RUN/askpass.sh" SSH_ASKPASS_REQUIRE=force DISPLAY=none
 SSH_OPTS=(-o PubkeyAuthentication=no -o PreferredAuthentications=password,keyboard-interactive -o NumberOfPasswordPrompts=1)
 SSHB=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5 "${SSH_OPTS[@]}")
+# Run inside the throwaway guest only: the apps macOS opens at first login, which would sit over the run.
+GUEST_QUIT_FIRST_LOGIN_APPS='pkill -x "System Settings" || true; pkill -x Terminal || true'
 
 image_ref() {  # FUZZ_IMAGE_<major> (e.g. ghcr.io/cirruslabs/macos-sonoma-vanilla:14.8.7) overrides the pin
   local override; override=$(eval "echo \${FUZZ_IMAGE_$1:-}")
@@ -149,7 +151,7 @@ print(next((i.get("host_os_min", "") for i in json.load(open(sys.argv[1]))["imag
   local vncarg; vncarg=$(python3 -I -c 'import sys,urllib.parse as u;p=u.urlparse(sys.argv[1]);print("%s:%s:%s"%(p.hostname,p.port,u.unquote(p.password or "")))' "$vnc")
   if [[ "$SUITE" == onboarding ]]; then
     # The person installs the DMG: the suite copies it into the guest itself, unopened.
-    ssh "${SSHB[@]}" "admin@$ip" 'pkill -x "System Settings" || true; pkill -x Terminal || true' </dev/null || true
+    ssh "${SSHB[@]}" "admin@$ip" "$GUEST_QUIT_FIRST_LOGIN_APPS" </dev/null || true
     python3 -I "$HERE/onboarding/onboarding.py" --ssh "admin@$ip" --vnc "$vncarg" --dmg "$BUILD_DMG" --vmeye "$VMEYE_BIN" \
       --agent "$AGENT_BIN" --nightly-build "${NIGHTLY_BUILD:-}" --out "$out" --ssh-opt=-oPubkeyAuthentication=no \
       --ssh-opt=-oPreferredAuthentications=password,keyboard-interactive --ssh-opt=-oNumberOfPasswordPrompts=1 \
@@ -158,7 +160,7 @@ print(next((i.get("host_os_min", "") for i in json.load(open(sys.argv[1]))["imag
     return 0
   fi
   scp "${SSHB[@]}" -q "$BUILD_ZIP" "admin@$ip:/Users/admin/build.zip" </dev/null
-  local app; app=$(ssh "${SSHB[@]}" "admin@$ip" 'set -e; pkill -x "System Settings" || true; pkill -x Terminal || true; rm -rf ~/fuzzapp; mkdir ~/fuzzapp;
+  local app; app=$(ssh "${SSHB[@]}" "admin@$ip" "set -e; $GUEST_QUIT_FIRST_LOGIN_APPS; "'rm -rf ~/fuzzapp; mkdir ~/fuzzapp;
     ditto -x -k ~/build.zip ~/fuzzapp; ls -d ~/fuzzapp/*.app | head -1' </dev/null)
   local common=(--ssh "admin@$ip" --vnc "$vncarg" --app "$app" --out "$out" --ssh-opt=-oPubkeyAuthentication=no
     --ssh-opt=-oPreferredAuthentications=password,keyboard-interactive --ssh-opt=-oNumberOfPasswordPrompts=1)

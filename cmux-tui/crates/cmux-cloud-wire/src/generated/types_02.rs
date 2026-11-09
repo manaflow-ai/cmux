@@ -144,6 +144,14 @@ pub struct HomeChief {
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
     pub archived_at: Option<Timestamp>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<HomeChiefChannel>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeChiefChannel {
+    pub conversation: ConversationId,
+    pub title: String,
 }
 
 /// rev after the op; seq and message_id for a new message; change is the committed Change.
@@ -200,6 +208,9 @@ pub struct HomeConversationSummary {
     pub read_cursors: BTreeMap<String, i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<ConversationKind>,
+    /// A channel's own Chief (channel.create): it is woken only by this conversation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel_chief: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -843,6 +854,7 @@ wire_enum! {
         AutomationDynamicWorkers = "automation.dynamic_workers",
         EgressRequests = "egress.requests",
         ModelSpendUsd = "model.spend_usd",
+        CloudMachineUsd = "cloud.machine_usd",
     }
 }
 
@@ -888,11 +900,4 @@ pub struct PairingInfo {
     pub cmux_version: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Vec<ServerCapability>>,
-}
-
-wire_enum! {
-    PairingInfoArch {
-        X8664 = "x86_64",
-        Aarch64 = "aarch64",
-    }
 }

@@ -136,6 +136,7 @@ framework! {
         fn CGDisplayCopyDisplayMode(display: u32) -> CGDisplayModeRef;
         fn CGDisplayModeGetPixelWidth(mode: CGDisplayModeRef) -> usize;
         fn CGDisplayModeGetPixelHeight(mode: CGDisplayModeRef) -> usize;
+        fn CGDisplayModeGetRefreshRate(mode: CGDisplayModeRef) -> f64;
         fn CGDisplayModeRelease(mode: CGDisplayModeRef);
         fn CGRectMakeWithDictionaryRepresentation(dictionary: CFDictionaryRef, rect: *mut CGRect) -> u8;
         fn CGEventSourceCreate(state: i32) -> CGEventSourceRef;
@@ -166,6 +167,7 @@ framework! {
     pub mod sck = "/System/Library/Frameworks/ScreenCaptureKit.framework/ScreenCaptureKit" {
         static SCStreamFrameInfoStatus: CFStringRef;
         static SCStreamFrameInfoDirtyRects: CFStringRef;
+        static SCStreamFrameInfoDisplayTime: CFStringRef;
     }
 }
 

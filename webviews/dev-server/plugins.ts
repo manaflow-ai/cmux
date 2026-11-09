@@ -22,7 +22,7 @@
 // CMUX_MARKDOWN_DEV_READONLY_ROOTS (colon-separated folders whose files open read only),
 // CMUX_MARKDOWN_DEV_FILE.
 import { execFileSync, spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import type { ServerResponse } from "node:http";
 import os from "node:os";
@@ -77,6 +77,7 @@ import {
   splitStyles,
 } from "./markdownHost";
 import { galleryHost, galleryModules } from "./galleryHost";
+import { perfLintOnSave } from "./perfLint";
 import { viteCacheDir } from "./viteCacheDir.mjs";
 
 const webviewsRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -87,8 +88,10 @@ export const DEV_SERVER_PORT = Number(process.env.CMUX_WEBVIEWS_DEV_PORT) || 420
 /// All dev-server plugins, for vite.config.ts.
 export function cmuxDevServer(): Plugin[] {
   return [
+    devServerToken(),
     appHostServer(),
     devServerShell(),
+    perfBudgetsDevEntry(),
     agentPaneHost(),
     pagesHost(),
     viewerEmptyHost(),
@@ -98,7 +101,103 @@ export function cmuxDevServer(): Plugin[] {
     editorHost(),
     galleryHost(),
     { ...galleryModules(), apply: "serve" },
+    perfLintOnSave(),
   ];
+}
+
+/// The runtime perf budgets (src/devkit/perfBudgets.ts) as the first script of every HTML page this
+/// server serves: warnings in the console while you edit under `cmux live`. Serve only, so no built
+/// bundle carries them; `CMUX_PERF_BUDGETS=off` leaves them out (a page can also turn them off, see
+/// perfBudgets.dev.ts).
+export function perfBudgetsDevEntry(): Plugin {
+  const entry = path.join(webviewsRoot, "src/devkit/perfBudgets.dev.ts");
+  let src = "/src/devkit/perfBudgets.dev.ts";
+  return {
+    name: "cmux-dev-perf-budgets",
+    apply: "serve",
+    configResolved(config) {
+      const relative = path.relative(config.root, entry);
+      src =
+        relative.startsWith("..") || path.isAbsolute(relative)
+          ? `/@fs${entry}`
+          : `/${relative.split(path.sep).join("/")}`;
+    },
+    transformIndexHtml() {
+      if (process.env.CMUX_PERF_BUDGETS === "off") return [];
+      return [{ tag: "script", attrs: { type: "module", src }, injectTo: "head-prepend" }];
+    },
+  };
+}
+
+/// How this server proves to a cmux app that it is the user's (PageDevServer.token in CmuxNextPages):
+/// `web-dev.json` (next to cmux-next.json, 0600, written by scripts/cmux-next/web-overlay.sh) names
+/// this server and a `token`. The app sends a fresh random nonce with each request and loads only an
+/// answer whose proof header is HMAC-SHA256(token, nonce), so the token never crosses the wire and a
+/// process that takes the port of a stopped server serves the app nothing. CMUX_WEB_DEV_TOKEN wins
+/// over the file (a server on another machine behind a tunnel). Read per request, so a token
+/// written after the server started counts.
+export const DEV_NONCE_HEADER = "x-cmux-dev-nonce";
+export const DEV_PROOF_HEADER = "X-Cmux-Dev-Proof";
+
+export function devServerProof(token: string, nonce: string): string {
+  return createHmac("sha256", token).update(nonce).digest("hex");
+}
+
+export function devServerTokenFrom(
+  env: NodeJS.ProcessEnv,
+  read: (file: string) => string | undefined,
+): string | undefined {
+  const fromEnv = env.CMUX_WEB_DEV_TOKEN?.trim();
+  if (fromEnv) return fromEnv;
+  const config = env.CMUX_NEXT_CONFIG_FILE ?? path.join(os.homedir(), ".config", "cmux", "cmux-next.json");
+  const raw = read(path.join(path.dirname(config), "web-dev.json"));
+  if (!raw) return undefined;
+  try {
+    const token = (JSON.parse(raw) as { token?: unknown }).token;
+    return typeof token === "string" && token.length > 0 ? token : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function devServerToken(): Plugin {
+  const read = (file: string) => {
+    try {
+      return fs.readFileSync(file, "utf8");
+    } catch {
+      return undefined;
+    }
+  };
+  return {
+    name: "cmux-dev-server-token",
+    apply: "serve",
+    // Before every other plugin's middleware: the agent pane's host is `enforce: "pre"` too, and
+    // Vite runs pre plugins first, so without this its /agent-pane/ answer left before the proof.
+    enforce: "pre",
+    configureServer(server) {
+      server.middlewares.use((request, response, next) => {
+        const nonce = request.headers[DEV_NONCE_HEADER];
+        if (typeof nonce === "string" && nonce.length > 0 && nonce.length <= 128) {
+          const token = devServerTokenFrom(process.env, read);
+          if (token) response.setHeader(DEV_PROOF_HEADER, devServerProof(token, nonce));
+        }
+        next();
+      });
+      // After Vite's own middleware: its SPA fallback rewrote a file it does not have to the root
+      // index.html (the diff viewer) with a 200. cmux, which sends the nonce, takes a 200 and falls
+      // back to the overlay or bundled copy only on a 4xx, so a bundled page's chunk, stylesheet or
+      // JSON became HTML (the page's React content went blank) and a page missing from this checkout
+      // was the diff viewer. cmux gets a 404; a browser keeps the fallback (the guest page's routes).
+      return () => {
+        server.middlewares.use((request, response, next) => {
+          const asked = new URL(request.originalUrl ?? "/", "http://localhost").pathname;
+          const fellBack = request.url === "/index.html" && asked !== "/" && asked !== "/index.html";
+          if (fellBack && request.headers[DEV_NONCE_HEADER]) return send(response, 404, "text/plain", "");
+          next();
+        });
+      };
+    },
+  };
 }
 
 /// worker-pool.ts spawns `./diff-worker.mjs` next to itself, which the build emits; in dev that
@@ -133,6 +232,9 @@ function appHostServer(): Plugin {
     config(config) {
       const port = config.server?.port;
       if (typeof port !== "number" || port === 0) return;
+      // A proxy in front of this server (scripts/ci/projection_check.py) names its own port, so the
+      // page's socket goes through it: the page's CSP allows only the server the app fetches from.
+      const clientPort = Number(process.env.CMUX_WEBVIEWS_HMR_CLIENT_PORT) || port;
       return {
         server: {
           // Vite 8 builds the client's socket address from `server.ws` (`server.hmr.host` and
@@ -141,16 +243,11 @@ function appHostServer(): Plugin {
           ws:
             config.server?.ws === false
               ? false
-              : { protocol: "ws", host: "127.0.0.1", clientPort: port, ...config.server?.ws },
+              : { protocol: "ws", host: "127.0.0.1", clientPort, ...config.server?.ws },
           fs: config.server?.fs?.allow
             ? undefined
             : {
-                allow: [
-                  webviewsRoot,
-                  path.join(webviewsRoot, "..", "schemas/settings"),
-                  // The UI font's WOFF2 (src/gallery/frame/uiFont.ts).
-                  path.join(webviewsRoot, "..", "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts"),
-                ],
+                allow: [webviewsRoot, path.join(webviewsRoot, "..", "schemas/settings")],
               },
         },
       };
@@ -201,6 +298,7 @@ const indexPage = `<!doctype html>
 <li><a href="/markdown">/markdown</a>: markdown editor, <code>?file=&lt;path&gt;</code>; <a href="/markdown?pick">/markdown?pick</a>: its empty state; <a href="/markdown/viewer">/markdown/viewer</a>: the classic viewer shell</li>
 <li><a href="/editor">/editor</a>: code editor (Monaco), <code>?file=&lt;absolute path&gt;</code>; <a href="/editor?pick">/editor?pick</a>: its empty state</li>
 <li><a href="/history/?mock">/history/?mock</a>: History page against the in-page mock provider</li>
+<li><a href="/stash/?mock">/stash/?mock</a>: Stashed Tabs page against the in-page mock provider</li>
 <li><a href="/apps/?mock">/apps/?mock</a>: App Store page against the in-page mock provider (<code>#/discover?layout=list|split</code>, <code>#/installed</code>)</li>
 <li><a href="/cloud/?mock">/cloud/?mock</a>: Cloud page against the in-page mock provider (<code>&amp;layout=cards</code> for the cards layout)</li>
 <li><a href="/keybindings/?mock">/keybindings/?mock</a>: Keyboard Shortcuts page against the in-page mock provider</li>

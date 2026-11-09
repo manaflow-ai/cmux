@@ -22,6 +22,9 @@
             "text": "Inbox lists what needs you first, with the task beside it. Changes apply at once."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "TasksLayoutPreference"
+          },
           "choices": [
             {
               "value": "list",

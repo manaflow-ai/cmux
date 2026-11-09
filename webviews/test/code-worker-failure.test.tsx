@@ -138,7 +138,7 @@ test("a mounted highlighted card drops Pierre on worker failure and can recover 
 
 test("a streaming handoff stays readable when its eager worker fails after mount", async () => {
   const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
-  const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/CodeBlock");
+  const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/codeBlockModel");
   await loadHighlightedCode();
   document.documentElement.dataset.agentMotion = "off";
   await draw(<Markdown streaming>{"```ts\nconst value = 3;\n```\n\nStill arriving"}</Markdown>);

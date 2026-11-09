@@ -292,6 +292,7 @@ fn failure_lines(r: &Value, now: u64) -> Vec<String> {
             "capacity" => "capacity: the provider or the gateway is full",
             "transport" => "a dropped connection",
             "agent_exited" => "the agent process's exit",
+            "context" => "a chat past its context window (it compacts first)",
             other => other,
         };
         lines.push(format!(
@@ -525,6 +526,10 @@ pub(crate) fn parse_tags(assignments: &[String]) -> Result<Value> {
     Ok(Value::Object(tags))
 }
 
+/// How many times `ensure` reconnects after the daemon closed its connection
+/// during the lookup or the create.
+const ENSURE_RECONNECTS: usize = 2;
+
 pub(crate) async fn ensure(
     client: Arc<Client>,
     name: &str,
@@ -536,6 +541,7 @@ pub(crate) async fn ensure(
     effort: Option<String>,
     tags: Vec<String>,
     harness_from: Option<String>,
+    full_record: bool,
     json_out: bool,
 ) -> Result<()> {
     let (agent, model) = match &target {
@@ -554,66 +560,87 @@ pub(crate) async fn ensure(
         .into());
     }
     let tags = parse_tags(&tags)?;
-    let existing = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
     let full = match &host {
         Some(h) => format!("{h}/{name}"),
         None => name.to_owned(),
     };
-    let found = existing.get("sessions").and_then(Value::as_array).and_then(|a| {
-        a.iter().find(|s| s.get("name").and_then(Value::as_str) == Some(full.as_str())).cloned()
-    });
-    let (v, created) = match found {
-        Some(s) => (s, false),
-        None => {
-            if let Some(hint) = crate::session_name::naming_hint(name) {
-                eprintln!("{hint}");
-            }
-            let mut meta = json!({"name": name});
-            if let Some(a) = &agent {
-                meta["harness"] = json!(a);
-            }
-            if let Some(p) = &preset {
-                meta["preset"] = json!(p);
-            }
-            if let Some(p) = &policy {
-                meta["policy"] = json!(p);
-            }
-            if let Some(h) = &host {
-                meta["peer"] = json!(h);
-            }
-            if let Some(m) = &model {
-                meta["model"] = json!(m);
-            }
-            if let Some(e) = &effort {
-                meta["effort"] = json!(e);
-            }
-            if !tags.as_object().is_none_or(|m| m.is_empty()) {
-                meta["tags"] = tags;
-            }
-            if let Some(p) = &harness_from {
-                meta.set(crate::hub::lineage::successor::HARNESS_FROM_FIELD, json!(p));
-            }
-            meta["argv"] = json!(crate::cli::entry::original_args());
-            let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
-            let cwd = match (&host, cwd) {
-                (_, Some(c)) => Some(c),
-                (Some(_), None) => None,
-                (None, None) => Some(default_ensure_cwd(std::env::current_dir()?)),
+    // A daemon restarted during the lookup or the create closes the connection
+    // with no reply, and the create may already have happened: reconnect and
+    // look for the session by its name again before making it, so a retry finds
+    // that one and never makes a second (`new --reuse` does the same).
+    let mut client = client;
+    let mut reconnects = 0;
+    let (v, created) = loop {
+        let attempt = async {
+            let existing = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
+            let found = existing.get("sessions").and_then(Value::as_array).and_then(|a| {
+                a.iter()
+                    .find(|s| s.get("name").and_then(Value::as_str) == Some(full.as_str()))
+                    .cloned()
+            });
+            let attempt = match found {
+                Some(s) => (s, false),
+                None => {
+                    if let Some(hint) = crate::session_name::naming_hint(name) {
+                        eprintln!("{hint}");
+                    }
+                    let mut meta = json!({"name": name});
+                    if let Some(a) = &agent {
+                        meta["harness"] = json!(a);
+                    }
+                    if let Some(p) = &preset {
+                        meta["preset"] = json!(p);
+                    }
+                    if let Some(p) = &policy {
+                        meta["policy"] = json!(p);
+                    }
+                    if let Some(h) = &host {
+                        meta["peer"] = json!(h);
+                    }
+                    if let Some(m) = &model {
+                        meta["model"] = json!(m);
+                    }
+                    if let Some(e) = &effort {
+                        meta["effort"] = json!(e);
+                    }
+                    if !tags.as_object().is_none_or(|m| m.is_empty()) {
+                        meta["tags"] = tags.clone();
+                    }
+                    if let Some(p) = &harness_from {
+                        meta.set(crate::hub::lineage::successor::HARNESS_FROM_FIELD, json!(p));
+                    }
+                    meta["argv"] = json!(crate::cli::entry::original_args());
+                    let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
+                    let cwd = match (&host, cwd.clone()) {
+                        (_, Some(c)) => Some(c),
+                        (Some(_), None) => None,
+                        (None, None) => Some(default_ensure_cwd(std::env::current_dir()?)),
+                    };
+                    if let Some(c) = cwd {
+                        p.set("cwd", json!(c));
+                    }
+                    let v = client.request(method::SESSION_NEW, p).await?;
+                    crate::cli::run::launch::print_new_warnings(&v);
+                    let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
+                    (client.request(method::MUX_INFO, json!({"sessionId": id})).await?, true)
+                }
             };
-            if let Some(c) = cwd {
-                p.set("cwd", json!(c));
+            Ok::<_, anyhow::Error>(attempt)
+        }
+        .await;
+        match attempt {
+            Err(error) if reconnects < ENSURE_RECONNECTS && daemon_closed_error(&error) => {
+                reconnects += 1;
+                client = reconnect_after_update().await?;
             }
-            let v = client.request(method::SESSION_NEW, p).await?;
-            crate::cli::run::launch::print_new_warnings(&v);
-            let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
-            (client.request(method::MUX_INFO, json!({"sessionId": id})).await?, true)
+            done => break done?,
         }
     };
     let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
     if json_out {
         let mut out = v.clone();
         out["created"] = json!(created);
-        print_json(&out);
+        print_json(&crate::cli::output::session_record(out, full_record));
     } else {
         println!(
             "{} {name} ({})",

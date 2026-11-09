@@ -26,7 +26,8 @@ enum HomeMapping {
         return key.replacingOccurrences(of: "%", with: "%25").replacingOccurrences(of: ":", with: "%3A")
     }
 
-    /// A hash's bubble picture (`HomeMedia.asset`), nil until it is ready.
+    /// A hash's bubble picture (`HomeMedia.asset`), or a table picture source's thumbnail
+    /// (`HomeTablePictures.asset`: a local path, `file:` or `https` URL), nil until it is ready.
     typealias Media = (String) -> String?
 
     /// A link card's fetched preview (`LinkPreviews.cached`), nil: the domain card.
@@ -78,6 +79,12 @@ enum HomeMapping {
         return PartRef(messageId: r.id, partIndex: homePart == 0 ? last : r.owners.firstIndex(of: homePart) ?? last)
     }
 
+    /// A Chief chat draws no row for a retracted message (Delete, #36019); other chats keep
+    /// Messages' "You unsent a message" note.
+    static func hidesRetracted(_ summary: ConversationSummary?, me: ParticipantID) -> Bool {
+        summary?.kind(me: me) == .chief
+    }
+
     /// The client id prefix of Chief's first-launch welcome messages (CmuxNext `ChiefWelcome`).
     static let welcomeKeyPrefix = "chief-welcome-"
 
@@ -102,7 +109,12 @@ enum HomeMapping {
         message.parent = parent(item, roots: roots)
         // The Chief's messages to its agents and their reports: asides under its reply (no avatar, no name).
         if item.agentMessage != nil { message.cmuxAside = true }
-        if !item.isRetracted, !item.parts.isEmpty, parts.isEmpty {
+        if item.isRetracted, hidesRetracted(summary, me: me) {
+            // A Chief chat shows no "unsent" row: a deleted message is gone (#36019).
+            message.deletedAt = message.retractedAt
+            message.replyTo = nil
+            message.parent = nil
+        } else if !item.isRetracted, !item.parts.isEmpty, parts.isEmpty {
             // Nothing to read (a Chief turn's done marker, a work part with no preview): kept so
             // its seq still moves the read cursor, drawn as no row and counted as no reply.
             message.deletedAt = Instant.format(item.createdAt)
@@ -153,6 +165,15 @@ enum HomeMapping {
             let shown: [Part]
             if summary?.owner == .local, isChief(item.author, summary), case .question(let question) = p,
                let card = HomeApprovalRowProvider.part(question) { shown = [card] }
+            else if case .widget(let widget) = p, let widgets = HomeWidgetRowProvider.installed,
+                    let card = widgets.part(widget, key: HomeWidgetRowProvider.key(item, part: i)) { shown = [card] }
+            // A failed Chief turn's "(turn failed on …: …)" tail is a card in plain words, after what it said.
+            else if isChief(item.author, summary), case .text(let text, _) = p, let failure = HomeTurnFailure(text: text),
+                    let card = HomeTurnFailureRowProvider.part(failure) {
+                let lead = failure.lead.isEmpty ? [] : self.parts(.text(failure.lead), media: media, progress: item.attachmentProgress,
+                                                                   markdown: markdown, links: links)
+                shown = lead + [card]
+            }
             else { shown = self.parts(p, media: media, progress: item.attachmentProgress, markdown: markdown, links: links) }
             parts += shown
             owners += Array(repeating: i, count: shown.count)
@@ -230,13 +251,14 @@ enum HomeMapping {
     }
 
     /// `text` cut at its pipe tables: the text pieces by `textParts`, each table a table or plan card.
-    /// nil when it has no table, or tables are off (Debug Settings > Home > Rich tables), or no provider
-    /// is installed: the text then maps as it always did, tables as written in the bubble.
+    /// nil when it has no table or no provider is installed: the text then maps as it always did,
+    /// tables as written in the bubble.
     /// A table's pictures (`![alt](source)` in its cells) resolve to local files with `media`: a
-    /// `cmux-attachment:<hash>` source is the message's attachment of that hash (the Chief's uploads), a
-    /// file in Home's media folder is itself; any other source has no file (its alt text shows).
+    /// `cmux-attachment:<hash>` source is the message's attachment of that hash (the Chief's uploads,
+    /// `media(hash)`); a local path, `file:` or `https` URL is its thumbnail (`media(source)`,
+    /// ``HomeTablePictures``); any other source, or one without a file yet, shows its alt text.
     static func tableParts(_ text: String, media: Media = { _ in nil }, _ textParts: (String) -> [Part]) -> [Part]? {
-        guard HomeTableRowProvider.isOn, HomeTableRowProvider.installed != nil else { return nil }
+        guard HomeTableRowProvider.installed != nil else { return nil }
         let segments = HomeTableSplitter().segments(in: text)
         guard segments.contains(where: { if case .table = $0 { return true } else { return false } }) else { return nil }
         var out: [Part] = []
@@ -252,6 +274,7 @@ enum HomeMapping {
                 pending += pending.isEmpty ? piece : "\n" + piece
             case .table(var table, let raw):
                 table.pictures = pictures(of: table, media: media)
+                table.loading = loadingPictures(of: table, media: media)
                 if let card = HomeTableRowProvider.part(table, raw: raw) {
                     flush()
                     out.append(card)
@@ -273,18 +296,37 @@ enum HomeMapping {
         guard !sources.isEmpty else { return nil }
         var out: [String: String] = [:]
         for source in sources {
-            if source.hasPrefix(tableAttachmentScheme) {
-                if let path = media(String(source.dropFirst(tableAttachmentScheme.count))) { out.updateValue(path, forKey: source) }
-            } else if let url = source.hasPrefix("/") ? URL(fileURLWithPath: source) : URL(string: source), url.isFileURL {
-                out.updateValue(url.path, forKey: source)
-            }
+            let key = source.hasPrefix(tableAttachmentScheme) ? String(source.dropFirst(tableAttachmentScheme.count)) : source
+            guard source.hasPrefix(tableAttachmentScheme) || HomeTablePictures.handles(source), let asset = media(key),
+                  !asset.hasPrefix(HomeTablePictures.loadingPrefix) else { continue }
+            out.updateValue(localPath(asset), forKey: source)
         }
         return out
     }
 
+    /// `table`'s pictures still loading (`media` gave ``HomeTablePictures/loadingMark(_:)``), with their pixel
+    /// sizes; nil when none is.
+    static func loadingPictures(of table: HomeTable, media: Media) -> [String: [Int]]? {
+        var out: [String: [Int]] = [:]
+        for source in ([table.header] + table.rows).flatMap({ $0 }).flatMap({ HomeTableCell(markdown: $0).images.map(\.source) })
+        where HomeTablePictures.handles(source) {
+            guard let mark = media(source), mark.hasPrefix(HomeTablePictures.loadingPrefix) else { continue }
+            let size = mark.dropFirst(HomeTablePictures.loadingPrefix.count).split(separator: "x").compactMap { Int($0, radix: 10) }
+            out.updateValue(size.count == 2 ? size : [0, 0], forKey: source)
+        }
+        return out.isEmpty ? nil : out
+    }
+
+    /// A picture asset as a path: ``HomeMedia`` hands out `file:` URL strings (MessagesLab's bubbles read
+    /// that form), the table card reads paths; a bare path stays as it is.
+    static func localPath(_ asset: String) -> String {
+        guard asset.hasPrefix("file:"), let url = URL(string: asset), url.isFileURL else { return asset }
+        return url.path
+    }
+
     /// The attachment hashes `text`'s tables show in their cells (each one draws there, not again below).
     static func tableAttachmentHashes(_ text: String) -> Set<String> {
-        guard text.contains(tableAttachmentScheme), HomeTableRowProvider.isOn, HomeTableRowProvider.installed != nil else { return [] }
+        guard text.contains(tableAttachmentScheme), HomeTableRowProvider.installed != nil else { return [] }
         var out: Set<String> = []
         for case .table(let table, _) in HomeTableSplitter().segments(in: text) {
             for cell in ([table.header] + table.rows).flatMap({ $0 }) {
@@ -414,9 +456,10 @@ enum HomeMapping {
             return .attachment(attachment(ref, picture: media(ref.hash), progress: progress.value(for: ref.hash))) // // crash program: dictionary read
         case .location(let place):
             return .location(latitude: place.latitude, longitude: place.longitude, title: place.label, subtitle: nil)
-        case .work, .approval, .question:
+        case .work, .approval, .question, .widget:
             // Agent session, approval and question cards are not MessagesLab rows
             // yet: their text. The question card moves to the custom-row seam.
+            // A widget without an installed host shows its fallback text.
             return .text(p.plainText, runs: [])
         }
     }

@@ -1,0 +1,240 @@
+/* Stashed Tabs page; the shared base (colors, menu) is shared/pageBase.css. It shares the History
+   page's header, search field and row metrics, so the two sibling pages read as one. */
+.stash-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-width: 0;
+}
+
+.stash-page[aria-busy="true"] .stash-list {
+  opacity: 0.6;
+}
+
+.stash-header {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px var(--page-edge) 12px;
+  border-bottom: 1px solid var(--page-separator);
+}
+
+.stash-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 12px;
+  row-gap: 4px;
+  min-width: 0;
+}
+
+.stash-title {
+  flex: 1 1 120px;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--text-heading);
+  line-height: var(--text-heading--line-height);
+  font-weight: var(--weight-emphasis);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stash-text-button {
+  white-space: nowrap;
+  border: 0;
+  background: transparent;
+  color: var(--page-text-2);
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: default;
+}
+
+.stash-text-button:hover:not(:disabled) {
+  background: var(--page-hover);
+}
+
+.stash-text-button:disabled {
+  color: var(--page-text-3);
+}
+
+.stash-text-button.primary {
+  color: var(--page-text);
+  font-weight: var(--weight-emphasis);
+}
+
+.stash-text-button.danger:not(:disabled) {
+  color: var(--cmux-app-danger, var(--page-text-2));
+}
+
+.stash-search,
+.stash-import-text {
+  width: 100%;
+  font: inherit;
+  font-size: var(--text-title);
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--page-separator);
+  background: transparent;
+  color: inherit;
+  outline: none;
+  user-select: text;
+}
+
+.stash-search:focus,
+.stash-import-text:focus {
+  border-color: var(--page-text-3);
+}
+
+.stash-search::placeholder {
+  color: var(--page-text-3);
+}
+
+.stash-import {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stash-import-hint,
+.stash-notice {
+  margin: 0;
+  font-size: var(--text-detail);
+  color: var(--page-text-2);
+  overflow-wrap: anywhere;
+}
+
+.stash-import-text {
+  font-size: var(--text-body);
+  block-size: 8lh;
+  resize: vertical;
+}
+
+.stash-import-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.stash-list {
+  flex: 1;
+  overflow-y: auto;
+  /* Rows pad their hover pill by 8 px: their text starts on the page edge. */
+  padding: 4px calc(var(--page-edge) - 8px) 16px;
+}
+
+.stash-group {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
+
+.stash-group-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 12px 8px 4px;
+  min-width: 0;
+}
+
+.stash-group-name {
+  margin: 0;
+  font-size: var(--text-body);
+  font-weight: var(--weight-emphasis);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.stash-meta {
+  flex-shrink: 0;
+  font-size: var(--text-caption);
+  color: var(--page-text-3);
+  white-space: nowrap;
+}
+
+.stash-count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Restore All stays on the header row (the name truncates first); its text ends where the rows' times end. */
+.stash-group-restore {
+  flex-shrink: 0;
+  margin-inline-start: auto;
+  margin-inline-end: -8px;
+}
+
+.stash-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  border-radius: 6px;
+}
+
+/* A row lights under the pointer and while its menu is open (the row the menu acts on). */
+.stash-row:hover,
+.stash-row:has([data-popup-open]),
+.stash-row[data-popup-open] {
+  background: var(--page-hover);
+}
+
+.stash-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+
+.stash-row-icon {
+  display: inline-flex;
+  width: 16px;
+  justify-content: center;
+  color: var(--page-text-2);
+}
+
+.stash-row-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.stash-row-aside {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: var(--text-caption);
+  color: var(--page-text-3);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.stash-row-time {
+  margin-inline-start: auto;
+  white-space: nowrap;
+  font-size: var(--text-caption);
+  color: var(--page-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.stash-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: var(--page-text-3);
+  padding: 24px;
+  text-align: center;
+}

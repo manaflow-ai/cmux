@@ -12,6 +12,10 @@ enum TabBarPlaygroundSection: Int, CaseIterable {
     case pinnedGap
     /// One radius for tabs and panes, nested corners concentric (Lawrence 2026-11-04).
     case cornerRadius
+    /// A hovered tab's x in its status's slot (Leo 2026-11-05).
+    case hoverClose
+    /// A tab's hover card: its width and how it first shows (Leo 2026-11-07).
+    case hoverCard
 
     var title: String {
         switch self {
@@ -20,6 +24,8 @@ enum TabBarPlaygroundSection: Int, CaseIterable {
         case .trailingControls: String(localized: "tabs.playground.section.trailing", defaultValue: "Trailing Controls", bundle: .module)
         case .pinnedGap: String(localized: "tabs.playground.section.pinnedGap", defaultValue: "Pinned Tabs Gap", bundle: .module)
         case .cornerRadius: String(localized: "tabs.playground.section.cornerRadius", defaultValue: "Corner Radius", bundle: .module)
+        case .hoverClose: String(localized: "tabs.playground.section.hoverClose", defaultValue: "Hover Close", bundle: .module)
+        case .hoverCard: String(localized: "tabs.playground.section.hoverCard", defaultValue: "Hover Card", bundle: .module)
         }
     }
 
@@ -30,6 +36,8 @@ enum TabBarPlaygroundSection: Int, CaseIterable {
         case .trailingControls: TrailingControlsPlaygroundVariants().all
         case .pinnedGap: PinnedGapPlaygroundVariants().all
         case .cornerRadius: ConcentricCornerPlaygroundVariants().all
+        case .hoverClose: HoverClosePlaygroundVariants().all
+        case .hoverCard: HoverCardEntrancePlaygroundVariants().all
         }
     }
 }

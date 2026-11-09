@@ -14,6 +14,7 @@ import CmuxNextMacScreen
 import CmuxNextOnboarding
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextWindowRules
 import Observation
 
 /// Agent actions. Fork Conversation (``AgentForkDestination``): an agent chat tab forks through
@@ -39,8 +40,8 @@ enum AgentHandlers {
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let terminalDictation = TerminalDictation()
-        registry.bind("agentPaneZoomIn", run: { invocation in try setAgentPaneZoom(by: AgentPaneZoomSetting.step, context: context, invocation: invocation) })
-        registry.bind("agentPaneZoomOut", run: { invocation in try setAgentPaneZoom(by: -AgentPaneZoomSetting.step, context: context, invocation: invocation) })
+        registry.bind("agentPaneZoomIn", run: { invocation in try setAgentPaneZoom("agentPaneZoomIn", by: AgentPaneZoomSetting.step, context: context, invocation: invocation) })
+        registry.bind("agentPaneZoomOut", run: { invocation in try setAgentPaneZoom("agentPaneZoomOut", by: -AgentPaneZoomSetting.step, context: context, invocation: invocation) })
         registry.bind("agentPaneZoomReset", run: { invocation in try resetAgentPaneZoom(context, invocation: invocation) })
         // The Chief chat follows the same setting (HomeNativeTranscriptView.followZoom): no view to look up.
         registry.bindEffect("home.zoomIn", requires: nil, effect: { _ in
@@ -125,13 +126,16 @@ enum AgentHandlers {
             _ = registry.perform("palette.newAgentChat", invocation: invocation)
             return .done
         })
+        registry.bindEffect("palette.newCloudChat", effect: { invocation in  // New Agent Chat's tab; its seed picks Cloud
+            withAgentPane(invocation, context: context, seed: AgentPaneSeed(picksCloud: true)) { $0.openAgentTab(seed: .picksCloud(after: $0.agentSeedFromSelectedTab())) }
+            return .done })
         registry.bindAgentPaneSessionInfo { invocation in
-            focusedAgentView(context, invocation)?.toggleSessionInfo()
+            focusedAgentView(.toggleSessionInfo, context, invocation)?.toggleSessionInfo()
         }
         // Read only: no refusal while the palette asks whether a row is enabled, or on. The New Tab page runs none of the chat's controls.
         registry.bindAgentPageCommands(available: { invocation in chatView(context, invocation).map { $0.model.newTab == nil ? $0.model.pageCommands : [] } },
                                        state: { chatView(context).flatMap { $0.model.newTab == nil ? $0.model.header?.shown?() : nil } }, run: { command, invocation in
-            focusedAgentView(context, invocation)?.run(command)
+            focusedAgentView(ActionID(command), context, invocation)?.run(command)
         })
         registry.bindAgentPaneInspector { invocation in
             guard let pane = context.scope(invocation).pane else { return context.refuse(MiscHandlerStrings.noPane) }
@@ -141,7 +145,7 @@ enum AgentHandlers {
             view.toggleInspector()
         }
         registry.bind(.stopTurn, run: { invocation in
-            guard let view = focusedAgentView(context, invocation) else { return }
+            guard let view = focusedAgentView(.stopTurn, context, invocation) else { return }
             view.stopTurn()
         })
         registry.bind("agentPane.togglePointerInspector", unavailable: {
@@ -181,7 +185,7 @@ enum AgentHandlers {
                 if AgentPaneView.stopDictation() { return }
                 return context.refuse(MiscHandlerStrings.noAgentChat)
             }
-            view.toggleDictation()
+            view.toggleDictation(byPerson: invocation.isPersonsOwnRun)
         })
         // Its palette row says whether the dictation a run would end listens (read only, no refusal).
         registry.setDictationPaletteState(focusedTerminal: { if case .terminal = context.scope().pane?.currentContent { true } else { false } },
@@ -198,25 +202,18 @@ enum AgentHandlers {
             context.services.palette.show(page: AgentChatsPalettePage(services: context.services).page(),
                                           relativeTo: context.activeWindow?.window)
         })
-        let permissionCommands: [(ActionID, String)] = [
-            ("agentPane.permission.allowOnce", "permissionAllowOnce"),
-            ("agentPane.permission.allowChat", "permissionAllowChat"),
-            ("agentPane.permission.deny", "permissionDeny"),
-            ("agentPane.permission.expand", "permissionExpand"),
-            ("agentPane.permission.retry", "permissionRetry"),
-            ("agentPane.permission.revoke", "permissionRevoke"),
-            ("agentPane.permission.refresh", "permissionRefresh"),
-        ]
-        for (id, command) in permissionCommands {
-            registry.bind(id, run: { invocation in
-                guard let view = selectedChat(context, invocation) else { return context.refuse(MiscHandlerStrings.noAgentChat) }
+        // The permission rows and their page commands (cmux-window-rules `chat::agent::tables`).
+        for row in WindowRules.chatAgentTables?.permissionCommands ?? [] {
+            let command = row.command
+            registry.bind(ActionID(rawValue: row.action), run: { invocation in
+                guard let view = selectedChat(context, invocation) else { return context.registry.refuse(.noChat, ActionID(rawValue: row.action)) }
                 view.runPermissionAction(command, byPerson: invocation.origin == .user)
             })
         }
         // Previous and Next Turn and Bookmarked Prompt step the agent chat's transcript (cx-f7c).
         for step in AgentTranscriptStep.allCases {
             registry.bind(ActionID(rawValue: step.actionID), run: { invocation in
-                guard let view = selectedChat(context, invocation) else { return context.refuse(MiscHandlerStrings.noAgentChat) }
+                guard let view = selectedChat(context, invocation) else { return context.registry.refuse(.noChat, ActionID(rawValue: step.actionID)) }
                 view.step(step)
             })
         }
@@ -227,7 +224,7 @@ enum AgentHandlers {
             guard invocation.allowsViewChange else {
                 return context.refuse(MiscHandlerStrings.continueInNeedsFocus)
             }
-            guard let view = selectedChat(context, invocation) else { return context.refuse(MiscHandlerStrings.noAgentChat) }
+            guard let view = selectedChat(context, invocation) else { return context.registry.refuse(.noChat, "agentPane.continueIn") }
             view.showContinueIn()
         })
         // The focused chat's page takes the keyboard, then opens the model picker, file search,
@@ -244,13 +241,12 @@ enum AgentHandlers {
                 run(view)
             })
         }
-        registry.publishSideSessions()
         registry.bind("agentPane.createCheckpoint", run: { invocation in
             guard invocation.allowsViewChange else {
                 return context.refuse(MiscHandlerStrings.checkpointNeedsFocus)
             }
             guard let view = selectedChat(context, invocation), view.model.checkpointAvailable else {
-                return context.refuse(MiscHandlerStrings.noAgentChat)
+                return context.registry.refuse(selectedChat(context, invocation) == nil ? .noChat : .notStarted, "agentPane.createCheckpoint")
             }
             view.showCreateCheckpoint()
         })
@@ -280,8 +276,8 @@ enum AgentHandlers {
 
     private static let agentPaneZoomPath = AgentPaneZoomSetting.configPath
 
-    private static func focusedAgentView(_ context: AppActionContext, _ invocation: ActionInvocation = ActionInvocation()) -> AgentPaneView? {
-        guard let view = chatView(context, invocation) else { return context.refuse(MiscHandlerStrings.noAgentChat) }
+    private static func focusedAgentView(_ id: ActionID, _ context: AppActionContext, _ invocation: ActionInvocation) -> AgentPaneView? {
+        guard let view = chatView(context, invocation) else { return context.registry.refuse(.noChat, id) }
         return view
     }
 
@@ -296,15 +292,15 @@ enum AgentHandlers {
         context.scope(invocation).pane?.currentTabKey.flatMap { context.services.agentTabs.existingView($0) }
     }
 
-    private static func setAgentPaneZoom(by delta: Double, context: AppActionContext, invocation: ActionInvocation) throws {
+    private static func setAgentPaneZoom(_ id: ActionID, by delta: Double, context: AppActionContext, invocation: ActionInvocation) throws {
         try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
-        guard let view = focusedAgentView(context, invocation) else { return }
+        guard let view = focusedAgentView(id, context, invocation) else { return }
         view.zoom = try stepAgentPaneZoom(by: delta, context: context)
     }
 
     private static func resetAgentPaneZoom(_ context: AppActionContext, invocation: ActionInvocation) throws {
         try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
-        guard let view = focusedAgentView(context, invocation) else { return }
+        guard let view = focusedAgentView("agentPaneZoomReset", context, invocation) else { return }
         try resetAgentPaneZoom(context)
         view.zoom = AgentPaneZoomSetting.fallback
     }
@@ -314,12 +310,12 @@ enum AgentHandlers {
     private static func stepAgentPaneZoom(by delta: Double, context: AppActionContext) throws -> Double {
         try AppearanceHandlers.requireUnmanaged(agentPaneZoomPath, context)
         let current = context.services.settings.map { $0.snapshot.agentPaneZoom } ?? Double(context.design.agentPaneZoom)
-        let next = min(max(current + delta,
-                           AgentPaneZoomSetting.range.lowerBound), AgentPaneZoomSetting.range.upperBound)
-        context.design.agentPaneZoom = CGFloat(next)
-        context.writeSetting("set agent chat zoom", agentPaneZoomPath, .number(next), reloadOnFailure: true)
-        SurfaceZoomIndicator.show(percent: Int((next * 100).rounded()), in: context.services.windows.active?.window)
-        return next
+        // The step and its clamp are cmux-window-rules `chat::agent::zoom`; no answer leaves the zoom as it is.
+        guard let step = WindowRules().chatZoom(current: current, delta: delta, range: AgentPaneZoomSetting.range) else { return current }
+        context.design.agentPaneZoom = CGFloat(step.zoom)
+        context.writeSetting("set agent chat zoom", agentPaneZoomPath, .number(step.zoom), reloadOnFailure: true)
+        SurfaceZoomIndicator.show(percent: step.percent, in: context.services.windows.active?.window)
+        return step.zoom
     }
 
     /// `agentPane.zoom` back to 100%, live and in cmux.json.
@@ -407,15 +403,10 @@ enum AgentHandlers {
         // A new row is as tall as the agent's row (New Row's G3 rule).
         let rowHeight = pane.workspace?.layoutModel.newRowHeight(below: pane.layoutPaneID) ?? 1000
         let logger = context.daemon.logger
-        let refusals = context.services.refusalHUD
-        let windows = context.services.windows
+        let refusals = context.services.refusalHUD, windows = context.services.windows
         let repair = context.services.emptyWorkspaces
         // A fork into a new workspace is placed like Cmd-N: in the current group (cx-caoh).
-        let key = WorkspaceKey.generate()
-        if destination == .workspace || destination == .window {
-            let windows = context.services.windows
-            NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows), windows: windows)
-        }
+        let key = destination == .workspace || destination == .window ? NewWorkspacePlacements.placedKey(in: windows) : WorkspaceKey.generate()
         Task {
             do {
                 // The shell line first: an acpmux fork that fails opens no empty terminal.
@@ -472,23 +463,34 @@ enum AgentHandlers {
     /// invocation's pane, else the focused one.
     private static func openFile(_ invocation: ActionInvocation, context: AppActionContext) throws {
         let path = invocation["path"]?.stringValue ?? ""
-        // No path (the File menu, a shortcut, `cmux file open`): the cmux picker (R89).
-        guard !path.isEmpty else { return try ViewerHandlers.openFilePicker(invocation, context: context) }
-        // The palette and the control socket accept only the catalog's choices;
-        // an in-app caller that passes another place is refused, not ignored.
-        let place = invocation["where"]?.stringValue ?? AgentPaneFileTarget.tab.rawValue
-        guard let target = AgentPaneFileTarget(rawValue: place) else { throw ActionFailure(message: MiscHandlerStrings.invalidPlace(place)) }
-        // A path named in a Cloud pane belongs to that machine, so a local editor is refused there. The
-        // editor needs no pane: with none named or focused (no window open), the file is this Mac's.
-        let paneless = target == .editor && !context.namesPane(invocation) && context.services.windows.active?.focusedPane == nil
+        // The place and the path checks are cmux-window-rules `chat::agent::file_place` and `file_check`: no path
+        // opens the cmux picker (R89); a place outside the catalog's is refused, not ignored; the editor needs no
+        // pane when none is named or focused (no window open), so the file is this Mac's. A path named in a Cloud
+        // pane belongs to that machine, so a local editor is refused there.
+        let rules = WindowRules()
+        let place = rules.chatFilePlace(path: path, place: invocation["where"]?.stringValue, namesPane: context.namesPane(invocation),
+                                        hasFocusedPane: context.services.windows.active?.focusedPane != nil)
+        let target: AgentPaneFileTarget, paneless: Bool
+        switch place {
+        case .picker?: return try ViewerHandlers.openFilePicker(invocation, context: context)
+        case .invalidPlace(let place)?: throw ActionFailure(message: MiscHandlerStrings.invalidPlace(place))
+        case .open(let name, let opensPaneless)?:
+            guard let named = AgentPaneFileTarget(rawValue: name) else { throw ActionFailure(message: MiscHandlerStrings.invalidPlace(name)) }
+            target = named
+            paneless = opensPaneless
+        case nil: throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path))
+        }
         let pane = paneless ? nil : context.paneController(invocation)
         guard paneless || pane != nil else { return }
         // Open as Text applies on the file's machine, including Cloud Markdown.
         let asText = invocation["asText"]?.boolValue ?? (invocation["asText"]?.stringValue == "true")
         if let pane, !pane.daemon.isLocal {
-            guard path.hasPrefix("/"), !path.contains("\u{0}") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
             let url = URL(fileURLWithPath: path)
-            guard target == .tab else { throw ActionFailure(message: RemoteFilePageFiles.remotePreview(url.lastPathComponent)) }
+            switch rules.chatFileCheck(path: path, target: target.rawValue, remote: true) {
+            case .some(nil): break
+            case .some(.remotePreview?): throw ActionFailure(message: RemoteFilePageFiles.remotePreview(url.lastPathComponent))
+            case .some(.notAbsolute?), nil: throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path))
+            }
             if let reason = context.services.viewers.openFile(url, on: pane.daemon, from: pane, userChose: invocation.origin == .user, asText: asText) {
                 throw ActionFailure(message: reason)
             }
@@ -497,7 +499,9 @@ enum AgentHandlers {
         // A tab is the file pages (diff-host S6, S7) or, for HTML and SVG, a browser tab that
         // renders the page (u18051); Open as Text and Edit Source show its source.
         if target == .tab, let pane {
-            guard path.hasPrefix("/") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
+            guard case .some(nil) = rules.chatFileCheck(path: path, target: target.rawValue, remote: false) else {
+                throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path))
+            }
             guard let url = AgentPaneFileOpen.resolve(path) else { throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path)) }
             // `cmux open` run from an agent chat: a quote from the file's viewer goes back to that chat.
             if let session = invocation.callerAgentSession, let chat = context.services.agentTabs.tab(showing: session) {

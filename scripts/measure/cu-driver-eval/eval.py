@@ -36,6 +36,9 @@ def results(out: Path, run: str, suites_dir: Path, blocked: str) -> None:
     suites = {}
     ab = load(suites_dir / "input-ab" / "input-ab.json")
     suites["input_ab"] = ab if ab else {"ok": False, "errors": [blocked or "the input A/B wrote no input-ab.json"]}
+    arena = load(suites_dir / "arena" / "summary.json")  # arena/arena.py's, when the step ran the arena
+    if arena:
+        suites["arena"] = arena
     out.write_text(json.dumps({"schema": SCHEMA, "run": run_info, "suites": suites}, indent=2, sort_keys=True) + "\n")
 
 
@@ -85,10 +88,18 @@ def summary(results_path: Path, out: Path, previous: Path | None) -> None:
     prev = load(previous) if previous else None
     run = data.get("run") or {}
     lines = ["# Computer Use driver eval", ""]
-    lines.append(f"{run.get('host', '?')}, macOS {run.get('macos', '?')}, {run.get('display', '?')}, rev `{str(run.get('rev', '?'))[:12]}`, {run.get('at', '?')}")
+    lines.append(f"{run.get('host', '?')}, macOS {run.get('macos', '?')}, {run.get('display') or (run.get('screen', '?') + ' points')}, rev `{str(run.get('rev', '?'))[:12]}`, {run.get('at', '?')}")
     if run.get("blocked"):
         lines += ["", f"**Blocked:** {run['blocked']}"]
     ab = (data.get("suites") or {}).get("input_ab") or {}
+    bench = results_path.parent / "bench-v2" / "summary.md"  # bench_v2.py's, when the step ran Bench v2
+    if bench.is_file() and not ab.get("rows"):
+        out.write_text("\n".join(lines + ["", bench.read_text().rstrip()]) + "\n")
+        return
+    arena = results_path.parent / "arena" / "summary.md"  # arena/arena.py's, when the step ran the arena
+    if arena.is_file() and not ab.get("rows"):
+        out.write_text("\n".join(lines + ["", arena.read_text().rstrip()]) + "\n")
+        return
     lines += ["", "## Input A/B", ""]
     if not ab.get("rows"):
         lines.append("No trials ran. " + "; ".join(ab.get("errors") or []))

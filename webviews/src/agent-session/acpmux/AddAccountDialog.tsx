@@ -5,6 +5,7 @@ import { DialogButton } from "../../ui/DialogButton";
 import type { NewChatAccount } from "./chatAccounts";
 import { useT, type StringKey } from "./i18n";
 import "./addAccount.css";
+import { accountIdFor } from "./addAccountDialogModel";
 
 type Kind = "direct-subscription" | "direct-api-key";
 /** new: a fresh login folder of its own; cli: the CLI's own login on this Mac; key: an API key. */
@@ -15,20 +16,6 @@ const BRANDS: Record<string, { brand: StringKey; cli: StringKey; folder: string 
   claude: { brand: "picker.addBrand.claude", cli: "picker.addCli.claude", folder: "~/.claude" },
   codex: { brand: "picker.addBrand.codex", cli: "picker.addCli.codex", folder: "~/.codex" },
 };
-
-/** A route id from a name: lowercase letters, digits and `-` (routes.rs), unique among `taken`. */
-export function accountIdFor(name: string, fallback: string, taken: readonly string[]): string {
-  const slug = (text: string) =>
-    text
-      .normalize("NFKD")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 48);
-  const base = slug(name) || slug(fallback) || "account";
-  if (!taken.includes(base)) return base;
-  for (let n = 2; ; n++) if (!taken.includes(`${base}-${n}`)) return `${base}-${n}`;
-}
 
 /** The picker adds a local route. Rust validates it; existing accounts and bindings stay intact.
  * Nobody types an id or a folder: the id comes from the name, and a new login gets its own folder
@@ -63,7 +50,9 @@ export function AddAccountDialog({
   const sending = useRef(false);
   const [error, setError] = useState<string>();
   const brand = known ? t(known.brand) : family;
-  const cli = known ? t(known.cli) : t("picker.harnessLogin");
+  // The family's own name for a CLI cmux has no product name for ("gemini login"), never the
+  // generic "CLI login", which the sentences around it would double ("the CLI login login").
+  const cli = known ? t(known.cli) : family;
   // A second login is "ChatGPT 2", then 3, ...: the first number no route has taken.
   const nextName = () => {
     for (let n = 2; ; n++) {
@@ -119,7 +108,7 @@ export function AddAccountDialog({
         if (!open && !pending) onClose();
       }}
       label={title}
-      className="acpmux-add-account"
+      className="ui-glass ui-glass-floats acpmux-add-account"
     >
       <form
         onSubmit={(event) => {

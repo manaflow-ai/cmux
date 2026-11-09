@@ -43,7 +43,8 @@ public final class TakeoverTap: @unchecked Sendable {
                 trusted: @escaping @Sendable () -> Bool = { AXIsProcessTrusted() },
                 listenKeys: @escaping @Sendable () -> Bool = { CGPreflightListenEventAccess() }) {
         let ref = TapRef()
-        gate = TakeoverGate(rule: rule, starter: { ref.tap?.ensureStarted() })
+        gate = TakeoverGate(rule: rule, starter: { ref.tap?.ensureStarted() },
+                            focus: TakeoverFocusProbe.personFocus(ownPID: getpid()))
         self.trusted = trusted
         self.listenKeys = listenKeys
         ref.tap = self

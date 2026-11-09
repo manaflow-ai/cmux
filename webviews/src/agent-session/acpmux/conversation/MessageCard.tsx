@@ -14,14 +14,16 @@ import { useContext, useId, useLayoutEffect, useMemo, useRef, useState, useSyncE
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { messageDelivery, notDeliveredReason, type AgentMessage, type Delivery } from "./agentMessages";
-import { AgentMessageRow, messagePreview } from "./AgentMessageRow";
+import { AgentMessageRow } from "./AgentMessageRow";
+import { messagePreview } from "./agentMessageRowModel";
 import { AgentNamesContext, AgentOpenContext, recipientName, shortId } from "./agentNames";
 import { useFindReveal } from "./chatFind";
 import { Envelope } from "./icons";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { AgentMessageBody } from "./AgentMessageBody";
 import { wholeLineCut } from "./lineCut";
-import { targetChat } from "./SentMessageLine";
+import { ExpandRow } from "./ExpandRow";
+import { targetChat } from "./sentMessageLineModel";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 
 export function MessageCard({
@@ -160,16 +162,13 @@ function MessageText({ item, text, messageAt }: { item: AcpmuxActivity; text: st
         <AgentMessageBody text={text} messageAt={messageAt} />
       </div>
       {cutAt !== undefined && (
-        <button
-          type="button"
+        <ExpandRow
           className="cv-user__more cv-message__more"
-          aria-expanded={expanded}
-          aria-controls={id}
-          data-find-skip=""
-          onClick={() => setExpanded(!expanded)}
-        >
-          {t(expanded ? "message.less" : "message.more")}
-        </button>
+          open={expanded}
+          controls={id}
+          onToggle={() => setExpanded(!expanded)}
+          label={t(expanded ? "message.less" : "message.more")}
+        />
       )}
     </>
   );

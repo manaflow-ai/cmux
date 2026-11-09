@@ -19,15 +19,20 @@
   --glass-surface: var(--cmux-surface-solid, Canvas);
   /* The fill. With no wallpaper still to bend it is plain glass's; while the lens draws it is
      clearer (below): the bend, not the frost, says it is glass. */
-  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-plain-tint), transparent);
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-chrome-tint), transparent);
   /* The frost inside the glass, a length (the lens blurs by it; the CSS fallback too). */
+  /* glass-raw-blur-allow: the lens shader's own frost (lens.ts reads it), not a CSS backdrop level */
   --glass-blur: 2px;
   /* The light blur the surface itself keeps while the lens draws, so page text under a menu, a
      hover card or the composer frosts instead of reading crisp through the tint. Small enough that
      the lens's bend still shows through it. */
+  /* glass-raw-blur-allow: the lens mode's frost, the radius of --ds-glass-lens-blur */
   --glass-frost: 6px;
   /* How far the rim bends the wallpaper, CSS px (the lens's displacement at the edge). */
   --glass-refraction: 22px;
+  /* --glass-refract (unset here: rimRefraction.ts's default, ios): how a floating glass's rim
+     bends the page under it where the page blurs itself (seeThroughBlur.ts): none, subtle, ios
+     or strong. A surface sets it on itself. */
   /* The specular rim's strength, 0 to 1. */
   --glass-rim: 1;
   /* The chromatic split of the bend (Spectrum only): blue bends 1 + 2x as far as red. */
@@ -99,7 +104,7 @@
 
 /* Plain glass: today's blur glass, the default (any root that is not lens or spectrum). */
 :root:not([data-glass="lens"], [data-glass="spectrum"]) {
-  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-plain-tint), transparent);
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-chrome-tint), transparent);
   --glass-backdrop: var(--surface-blur);
 }
 :root:not([data-glass="lens"], [data-glass="spectrum"]),
@@ -114,13 +119,26 @@
   --glass-backdrop: var(--ds-glass-lens-blur);
 }
 
-/* A popup is glass of its own: it never inherits the tint of the surface it opens from (the
-   composer's solid card on an opaque window would make a slash or mention menu opaque). */
-.ui-popup.ui-glass {
-  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-plain-tint), transparent);
-  --glass-backdrop: var(--surface-blur);
+/* GLASS LEVELS (desktop.css, schemas/design-scale glass; Leo 2026-11-06: "we have, like, a ton of
+   varying glassiness on stuff for some reason"). A glass surface is one of four levels, and the level
+   fixes its tint, blur and edge: chrome (the root default above: panes, bars, rails), popover, menu
+   and chip (the tooltip rule below). A popup is glass of its own: it never inherits the tint of the
+   surface it opens from (the composer's solid card on an opaque window would make a slash or mention
+   menu opaque).
+   - popover: every popup and hover card (popovers, pickers, the combobox, the omnibar, a link's or a
+     session's hover card);
+   - menu: menus, context menus, a select's menu and the toolbar and page menus.
+   While the lens draws, every level takes the lens's clearer tint and frost (the mode, below). */
+.ui-popup.ui-glass,
+.ui-card.ui-glass {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-popover-tint), transparent);
+  --glass-backdrop: var(--ds-glass-popover-blur);
 }
-:root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) .ui-popup.ui-glass {
+.ui-popup.ui-glass:is(.ui-menu, .ui-context-menu, .ui-select-popup, .toolbar-menu, .page-menu, .acpmux-menu, .acpmux-slash-menu) {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-menu-tint), transparent);
+  --glass-backdrop: var(--ds-glass-menu-blur);
+}
+:root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) :is(.ui-popup, .ui-card).ui-glass {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-lens-tint), transparent);
   --glass-backdrop: var(--ds-glass-lens-blur);
 }
@@ -156,7 +174,7 @@
    rim. Reduce Transparency keeps the opaque fill and the hairline rim (below), and
    appearance.borders none clears the rim and the sheen (--glass-rim 0); the shadow stays. */
 :root {
-  --glass-material-blur: 24px;
+  --glass-material-blur: var(--ds-glass-popover-radius); /* the popover level's radius; the material keeps its own vivid saturation */
   --glass-material-saturate: 1.8;
   --glass-material-backdrop: blur(var(--glass-material-blur)) saturate(var(--glass-material-saturate));
 }
@@ -184,10 +202,13 @@
     0 12px 32px -12px light-dark(color-mix(in srgb, black 22%, transparent), color-mix(in srgb, black 55%, transparent)),
     0 2px 6px -2px light-dark(color-mix(in srgb, black 12%, transparent), color-mix(in srgb, black 35%, transparent));
 }
-:root:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency]) .ui-glass.ui-glass-material {
-  --glass-rim-shadow: var(--glass-material-rim), inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
-  --glass-elevation: var(--glass-material-depth);
-  --glass-backdrop: var(--glass-material-backdrop);
+/* Under the system's Reduce Transparency as under the host's: none of the material, the solid card. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency]) .ui-glass.ui-glass-material {
+    --glass-rim-shadow: var(--glass-material-rim), inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
+    --glass-elevation: var(--glass-material-depth);
+    --glass-backdrop: var(--glass-material-backdrop);
+  }
 }
 
 /* SVG REFRACTION (svgRefraction.ts; the gallery's and the latency harness's comparison, never set by a
@@ -214,7 +235,7 @@
      (desktop.css --ds-glass-fisheye-*), so the bent words frost instead of reading through the disc
      (Leo 2026-11-03: "this is a little too transparent"). cmux#32577 shipped 14% and no frost. */
   --glass-fisheye-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-fisheye-tint, 50%), transparent);
-  --glass-fisheye-frost: var(--ds-glass-fisheye-frost, blur(2.5px) saturate(1.15));
+  --glass-fisheye-frost: var(--ds-glass-fisheye-frost);
 }
 @media not (prefers-reduced-transparency: reduce) {
   @supports not (-webkit-backdrop-filter: none) {
@@ -276,6 +297,47 @@
     }
     :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency]) .ui-glass[data-glass-over] {
       --glass-underlay: 0%;
+    }
+    /* HOST GLASS (hostGlass.ts; Leo 2026-11-06: "why the f*** is this not glass? Like the way the
+       native menus are"). A surface marked data-host-glass has the App's own glass under the page:
+       the native popover material with its tint, edge and shadow (AgentPaneView+HostGlass.swift). It
+       draws its content in the first frame that paints it, as the App puts its glass there (Leo,
+       2026-11-09: "it loads the placeholder, THEN the content... every single time"), and only its
+       content: no tint, blur, rim or shadow of its own, as on a native popover. Only a surface the
+       reporter has not seen yet (no drawn mark) is hidden, and it marks one in the task it mounts in.
+       A surface the App does not draw (data-host-glass-drawn="0": past the deadline, an older App)
+       keeps the page's glass above, as does one over the composer (data-glass-keeps-underlay,
+       seeThroughBlur.ts): no filter may blur the composer, so its underlay hides it there. A cover
+       surface (data-host-glass-cover: menus, popovers) goes clear only where the page under it blurs
+       in place (data-glass-over), so no text reads crisp through it. --host-glass-fill and
+       --host-glass-edge are the gallery's knobs (HostGlass.gallery.tsx); the shipped look is none of
+       either. */
+    :root[data-host-glass-on] [data-host-glass]:not([data-host-glass-drawn]) {
+      filter: opacity(0);
+    }
+    :root[data-host-glass-on][data-cmux-see-through]
+      [data-host-glass][data-host-glass-drawn="1"]:not([data-glass-keeps-underlay]):is(
+        :not([data-host-glass-cover]),
+        [data-glass-over]
+      ).ui-glass.ui-glass {
+      background: var(--host-glass-fill, transparent);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      box-shadow: var(--host-glass-edge, none);
+    }
+  }
+}
+
+/* A HOVER CARD BLURS WHAT IT COVERS, IN EVERY CHROMIUM PAGE (Leo 2026-11-05, on the hover previews:
+   "this awkward wannabe glass but kind of just opaque thing"). Chromium draws a backdrop-filter's
+   blurred copy over the page's pixels, so the transcript's text read crisp through a hover card's
+   tint even in an opaque page. A hover card that covers the chat (chatUnderGlass.ts hoverCardGlass)
+   makes those blocks blur themselves inside its rounded rect, as the see-through rule above does.
+   Its own filters only: another surface's kept holes (the Summary's while Find hides it) stay off. */
+@media not (prefers-reduced-transparency: reduce) {
+  @supports not (-webkit-backdrop-filter: none) {
+    :root:not([data-glass-lens], [data-reduce-transparency]) [data-glass-under~="hover-card"] {
+      filter: var(--glass-under-filter-hover-card);
     }
   }
 }
@@ -359,8 +421,12 @@
   --surface-card-veil: light-dark(rgb(252 252 252 / 45%), rgb(28 28 28 / 42%));
   --surface-card-rim-top: light-dark(rgb(255 255 255 / 80%), rgb(255 255 255 / 22%));
   --surface-card-rim-bottom: light-dark(rgb(0 0 0 / 8%), rgb(255 255 255 / 4%));
+  --surface-group-radius: 6px; /* the sidebar's group headers and a group's pane behind its members, over the sidebar's own glass: the group's color tints the veil */
+  --surface-group-veil: light-dark(rgb(252 252 252 / 20%), rgb(28 28 28 / 6%));
+  --surface-group-rim-top: light-dark(rgb(255 255 255 / 75%), rgb(255 255 255 / 24%));
+  --surface-group-rim-bottom: light-dark(rgb(0 0 0 / 8%), rgb(255 255 255 / 4%));
   --surface-toast-radius: 9px; /* toasts: a rounded rect, never a capsule, even on one line */
-  --surface-toast-veil: light-dark(rgb(252 252 252 / 55%), rgb(28 28 28 / 42%));
+  --surface-toast-veil: light-dark(color-mix(in srgb, var(--glass-surface) 55%, transparent), color-mix(in srgb, var(--glass-surface) 42%, transparent));
   --surface-toast-rim-top: light-dark(rgb(255 255 255 / 85%), rgb(255 255 255 / 30%));
   --surface-toast-rim-bottom: light-dark(rgb(0 0 0 / 10%), rgb(255 255 255 / 6%));
   --surface-sheet-radius: 14px; /* dialogs, confirms, prompt bars and sheets: a little denser veil for longer text */

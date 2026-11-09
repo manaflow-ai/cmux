@@ -144,6 +144,9 @@ public final class LiveCoordinator {
     @ObservationIgnored private let snapshots: LiveSnapshotStore
     @ObservationIgnored private var snapshot: LiveSnapshot?
     @ObservationIgnored private var snapshotSavePending = false
+    /// The spaces on screen are the launch snapshot's one space, not the account's list yet
+    /// (Stack's team list has not answered): a pairing code is not judged against them.
+    @ObservationIgnored private(set) var spacesFromSnapshot = false
     /// The team whose registration, Macs and presence are running or done.
     @ObservationIgnored private var startedTeamID: String?
     /// The team the Feed's items came from. Feed items carry no Mac, so on a switch they
@@ -211,6 +214,8 @@ public final class LiveCoordinator {
         // The Feed as this phone last saw it; the Mac's history merges in on connect.
         let archive = FeedArchive.forAccount(userID)
         feedStore.useReadMarks(readMarks ?? .forAccount(userID))
+        // Events past the Feed's window wait on disk while the app runs, not in memory.
+        feedStore.useSpill(.inCaches("feed", scope: userID))
         feedStore.replaceAll(archive.load())
         feedStore.onItemsChange = { [weak self] items in
             self?.scheduleFeedSave(archive)
@@ -313,6 +318,7 @@ public final class LiveCoordinator {
         self.snapshot = snapshot
         store.teams = [Team(id: snapshot.teamID, name: snapshot.teamName, macs: snapshot.macs)]
         store.activeTeamID = snapshot.teamID
+        spacesFromSnapshot = true
         var workspaces: [Workspace] = []
         for mac in snapshot.macs {
             guard let saved = snapshot.workspaces[mac.id] else { continue }
@@ -375,6 +381,7 @@ public final class LiveCoordinator {
         // A team the phone already shows (picked, or followed to a Mac) stays active.
         let keep = list.contains { $0.id == store.activeTeamID } ? store.activeTeamID : selectedID
         store.applyLiveTeams(list, selectedID: keep)
+        spacesFromSnapshot = false
         activeTeamChanged()
         for team in list { loadPrefs(team.id) }
         if discoveryTask == nil { startDiscovery() }

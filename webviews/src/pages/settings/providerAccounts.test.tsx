@@ -1,6 +1,7 @@
 // Agents > Harnesses accounts (acpmux `_acpmux/accounts`): a provider row says whose login it uses
-// and its plan, lists every account routing may use with its switch, Add account makes a Codex
-// shadow home and its sign-in, and a daemon without accounts keeps today's card.
+// and its plan, lists every account routing may use with its switch, Add account (Codex and Claude)
+// makes a login folder and its sign-in or an API-key account, each row offers Make Default, Rename,
+// Sign In / Sign Out and Remove, and a daemon without accounts keeps today's card.
 import { act } from "react";
 import { afterAll, expect, test } from "bun:test";
 import { installDom } from "./testDom";
@@ -26,6 +27,7 @@ const accounts: ProviderAccount[] = [
     email: "alex@example.com",
     enabled: true,
     builtin: true,
+    default: true,
   },
   {
     id: "codex-2",
@@ -79,11 +81,23 @@ test("a provider row says whose login it uses and its plan; each account shows w
   );
   expect(rows[1]!.querySelector('[role="switch"]')?.getAttribute("aria-checked")).toBe("false");
   expect(codex.querySelector('[data-account-action="add"]')).not.toBeNull();
-  // Claude lists its login, signed out with a Sign In, and has no Add account.
+  // The default says so and offers no Make Default; the other does, and only an added one is removable.
+  expect(rows[0]!.querySelector("[data-account-default]")?.textContent).toBe("Default");
+  expect(rows[0]!.querySelector('[data-account-action="default"]')).toBeNull();
+  expect(rows[0]!.querySelector('[data-account-action="remove"]')).toBeNull();
+  // A disabled account offers no Make Default: new chats would run on an account turned off.
+  expect(rows[1]!.querySelector('[data-account-action="default"]')).toBeNull();
+  expect(rows[1]!.querySelector('[data-account-action="remove"]')).not.toBeNull();
+  // Signed in: Sign Out, not Sign In.
+  expect(rows[1]!.querySelector('[data-account-action="signOut"]')).not.toBeNull();
+  expect(rows[1]!.querySelector('[data-account-action="signIn"]')).toBeNull();
+  // Claude lists its login, signed out with a Sign In and no Rename (acpmux keeps no file for it),
+  // and has Add account too.
   const claude = card(page.container).querySelector<HTMLElement>('[data-harness="claude"]')!;
   expect(claude.querySelector("[data-harness-account-auth]")?.textContent).toBe("Not signed in");
   expect(claude.querySelector('[data-account="claude-login"] [data-account-action="signIn"]')).not.toBeNull();
-  expect(claude.querySelector('[data-account-action="add"]')).toBeNull();
+  expect(claude.querySelector('[data-account="claude-login"] [data-account-action="rename"]')).toBeNull();
+  expect(claude.querySelector('[data-account-action="add"]')).not.toBeNull();
   // A harness of no account family lists none.
   expect(card(page.container).querySelector('[data-harness="aider"] [data-harness-accounts]')).toBeNull();
   page.unmount();
@@ -98,7 +112,10 @@ test("the switch asks the host to let routing use the account, and Add account t
   expect(codex().querySelector('[data-account="codex-2"] [role="switch"]')?.getAttribute("aria-checked")).toBe("true");
   await act(async () => codex().querySelector<HTMLButtonElement>('[data-account-action="add"]')!.click());
   await settle();
-  expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountAdd", family: "codex" });
+  await act(async () => codex().querySelector<HTMLButtonElement>('[data-account-action="addConfirm"]')!.click());
+  await settle();
+  expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountAdd", family: "codex", way: "new" });
+  expect(codex().querySelector("[data-account-add]")).toBeNull();
   const added = codex().querySelector<HTMLElement>('[data-account="codex-3"]')!;
   expect(added.textContent).toContain("ChatGPT 3");
   expect(added.querySelector("[data-account-auth]")?.textContent).toBe("Not signed in");
@@ -107,6 +124,160 @@ test("the switch asks the host to let routing use the account, and Add account t
   expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountSignIn", account: "codex-3" });
   page.unmount();
 });
+
+test("an account whose usage was read at rest shows its 5-hour and weekly limits in the plan usage card", async () => {
+  const usage = {
+    windows: [
+      { id: "session", usedPercent: 22, windowMins: 300 },
+      { id: "weekly", usedPercent: 41, windowMins: 10080 },
+    ],
+    plan: "pro",
+  };
+  const page = await withAccounts({
+    accounts: accounts.map((account) => (account.id === "codex-login" ? { ...account, usage } : account)),
+  });
+  const codex = card(page.container).querySelector<HTMLElement>('[data-harness="codex"]')!;
+  const read = codex.querySelector<HTMLElement>('[data-account="codex-login"] [data-account-usage]')!;
+  const windows = [...read.querySelectorAll<HTMLElement>(".acpmux-plan-usage-window")];
+  expect(windows.map((w) => w.querySelector(".acpmux-plan-usage-value")?.textContent)).toEqual(["22%", "41%"]);
+  expect([...read.querySelectorAll("progress")].map((bar) => bar.getAttribute("value"))).toEqual(["22", "41"]);
+  // Settings has no pane browser: the card's usage-page link is left out.
+  expect(read.querySelector(".acpmux-plan-usage-link")).toBeNull();
+  // An account with no usage read (not signed in, Claude, a keychain login) shows no card.
+  expect(codex.querySelector('[data-account="codex-2"] [data-account-usage]')).toBeNull();
+  page.unmount();
+});
+
+test("Claude's Add account takes an API key by its reference, with the name typed", async () => {
+  const page = await withAccounts();
+  const claude = () => card(page.container).querySelector<HTMLElement>('[data-harness="claude"]')!;
+  await act(async () => claude().querySelector<HTMLButtonElement>('[data-account-action="add"]')!.click());
+  await settle();
+  const form = claude().querySelector<HTMLElement>('[data-account-add="claude"]')!;
+  const select = form.querySelector<HTMLSelectElement>("select")!;
+  expect([...select.options].map((option) => option.textContent)).toEqual([
+    "Sign in with a new Claude login",
+    "Use an API key",
+  ]);
+  await act(async () => {
+    select.value = "key";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await settle();
+  const confirm = () => claude().querySelector<HTMLButtonElement>('[data-account-action="addConfirm"]')!;
+  expect(confirm().disabled).toBe(true);
+  const [name, secret] = [...claude().querySelectorAll<HTMLInputElement>("[data-account-add] input")];
+  await act(async () => {
+    typeInto(name!, "Work key");
+    typeInto(secret!, "keychain:anthropic-work");
+  });
+  await settle();
+  await act(async () => confirm().click());
+  await settle();
+  expect(page.provider.harnessRuns.at(-1)).toEqual({
+    action: "accountAdd",
+    family: "claude",
+    way: "key",
+    name: "Work key",
+    secret: "keychain:anthropic-work",
+  });
+  const added = claude().querySelector<HTMLElement>('[data-account="claude-2"]')!;
+  expect(added.querySelector("[data-account-auth]")?.textContent).toBe("Authenticated · API key");
+  expect(added.querySelector("[data-account-folder]")).toBeNull();
+  expect(added.querySelector('[data-account-action="signOut"]')).toBeNull();
+  // Its Remove question speaks of the key, not a login folder it does not have.
+  await act(async () => added.querySelector<HTMLButtonElement>('[data-account-action="remove"]')!.click());
+  const ask = claude().querySelector<HTMLElement>('[data-account="claude-2"] [data-account-remove-confirm]')!;
+  expect(ask.textContent).toContain("The API key stays where it is stored.");
+  expect(ask.textContent).not.toContain("login folder");
+  page.unmount();
+});
+
+test("Make Default, Rename, Sign Out and Remove each ask the host for their account", async () => {
+  const page = await withAccounts();
+  const row = () => card(page.container).querySelector<HTMLElement>('[data-account="codex-2"]')!;
+  const press = async (action: string) => {
+    await act(async () => row().querySelector<HTMLButtonElement>(`[data-account-action="${action}"]`)!.click());
+    await settle();
+  };
+  // Turned on for routing, it may be the default.
+  await act(async () => row().querySelector<HTMLElement>('[role="switch"]')!.click());
+  await settle();
+  await press("default");
+  expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountDefault", account: "codex-2" });
+  expect(row().querySelector("[data-account-default]")).not.toBeNull();
+  await press("rename");
+  const input = row().querySelector<HTMLInputElement>("[data-account-rename] input")!;
+  expect(input.value).toBe("ChatGPT 2");
+  await act(async () => typeInto(input, "Work"));
+  await act(async () => row().querySelector<HTMLFormElement>("[data-account-rename]")!.requestSubmit());
+  await settle();
+  expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountRename", account: "codex-2", name: "Work" });
+  expect(row().querySelector(".harness-account-name")?.textContent).toContain("Work");
+  await press("signOut");
+  expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountSignOut", account: "codex-2" });
+  // Remove asks first, in the row; only the confirm sends it.
+  const runs = page.provider.harnessRuns.length;
+  await press("remove");
+  expect(page.provider.harnessRuns.length).toBe(runs);
+  expect(row().querySelector("[data-account-remove-confirm]")?.textContent).toContain("Remove “Work” from cmux?");
+  expect(row().querySelector("[data-account-remove-confirm]")?.textContent).toContain("login folder stays");
+  await press("confirmRemove");
+  expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountRemove", account: "codex-2" });
+  expect(card(page.container).querySelector('[data-account="codex-2"]')).toBeNull();
+  page.unmount();
+});
+
+test("Remove's confirm cancels with Cancel or Escape and sends nothing", async () => {
+  const page = await withAccounts();
+  const row = () => card(page.container).querySelector<HTMLElement>('[data-account="codex-2"]')!;
+  const confirm = () => row().querySelector<HTMLElement>("[data-account-remove-confirm]");
+  const runs = page.provider.harnessRuns.length;
+  await act(async () => row().querySelector<HTMLButtonElement>('[data-account-action="remove"]')!.click());
+  expect(confirm()?.getAttribute("role")).toBe("alertdialog");
+  // Remove gives way to the question while it is open.
+  expect(row().querySelector('[data-account-action="remove"]')).toBeNull();
+  await act(async () => row().querySelector<HTMLButtonElement>('[data-account-action="cancelRemove"]')!.click());
+  expect(confirm()).toBeNull();
+  // Opening it again puts focus on Cancel, and Escape there closes it.
+  await act(async () => row().querySelector<HTMLButtonElement>('[data-account-action="remove"]')!.click());
+  const cancel = row().querySelector<HTMLButtonElement>('[data-account-action="cancelRemove"]')!;
+  expect(document.activeElement).toBe(cancel);
+  await act(async () => {
+    cancel.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+  expect(confirm()).toBeNull();
+  await settle();
+  expect(page.provider.harnessRuns.length).toBe(runs);
+  expect(row()).not.toBeNull();
+  page.unmount();
+});
+
+test("a signed-out account shows no usage, even one read before its sign-out", async () => {
+  const usage = { windows: [{ id: "session", usedPercent: 50, windowMins: 300 }], plan: "plus" };
+  const page = await withAccounts({
+    accounts: accounts.map((account) => (account.id === "codex-2" ? { ...account, usage, signedIn: false } : account)),
+  });
+  expect(card(page.container).querySelector('[data-account="codex-2"] [data-account-usage]')).toBeNull();
+  page.unmount();
+});
+
+test("coming back to Settings asks the host to read back an account's sign-in or sign-out", async () => {
+  const page = await withAccounts();
+  await act(async () => {
+    window.dispatchEvent(new Event("focus"));
+  });
+  await settle();
+  expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "focus" });
+  page.unmount();
+});
+
+/** Sets a controlled input's value the way typing does (React tracks the native setter). */
+function typeInto(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+  setter.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
 
 test("a daemon without accounts keeps today's card: no account lines, lists or Add account", async () => {
   const page = await renderPage({ path: "/settings/agents" });

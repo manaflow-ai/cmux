@@ -193,13 +193,21 @@ pub fn record(meta: &mut SessionMeta, home: Option<&Path>) -> bool {
     moves
 }
 
-/// The base a shadow home links its conversations to, if `home` is a shadow.
+/// The base a shadow home links its conversations to, if `home` is a shadow: the folder its
+/// `sessions` link names (`route_shadow::link` links `<base>/sessions`), not where that resolves
+/// to, which is elsewhere when the base's own `sessions` is a link to other storage.
 fn base_of_shadow(home: &Path) -> Option<PathBuf> {
     let sessions = home.join("sessions");
     if !sessions.symlink_metadata().ok()?.file_type().is_symlink() {
         return None;
     }
-    sessions.canonicalize().ok()?.parent().map(Path::to_path_buf)
+    let target = std::fs::read_link(&sessions).ok()?;
+    let target = if target.is_absolute() { target } else { home.join(target) };
+    // A login folder whose own conversations live in other storage links `sessions` too: only a
+    // link to a login (its `auth.json`, or the CLI's own home) makes `home` a shadow.
+    let base = target.parent()?.to_path_buf();
+    (base.join("auth.json").exists() || crate::route_shadow::codex_base().as_ref() == Some(&base))
+        .then_some(base)
 }
 
 /// The login folder `route` runs a chat now in `current` (None: the CLI's own)
@@ -280,5 +288,25 @@ pub fn switch_allowed(current: Option<&Path>, to: &Route) -> Result<(), RouteErr
                 .into(),
         )),
         _ => Ok(()),
+    }
+}
+
+#[cfg(all(test, unix))]
+mod shadow_base_tests {
+    use super::*;
+
+    #[test]
+    fn a_shadows_base_is_the_login_folder_even_when_its_sessions_live_elsewhere() {
+        let root = std::env::temp_dir().join(format!("acpmux-shadow-base-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (base, store, shadow) = (root.join("base"), root.join("store"), root.join("shadow"));
+        std::fs::create_dir_all(store.join("sessions")).unwrap();
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(base.join("auth.json"), "{}").unwrap();
+        std::os::unix::fs::symlink(store.join("sessions"), base.join("sessions")).unwrap();
+        crate::route_shadow::link(&shadow, &base).unwrap();
+        assert_eq!(base_of_shadow(&shadow), Some(base.clone()));
+        assert_eq!(base_of_shadow(&base), None, "a login with its sessions elsewhere is no shadow");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

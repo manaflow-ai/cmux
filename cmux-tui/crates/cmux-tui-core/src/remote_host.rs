@@ -26,7 +26,6 @@
 //! (`server/remote_host_command.rs`), and raising access needs the app or the
 //! person (the command's origin rule).
 
-
 /// Advertised by `identify` once `remote-host-status` and `remote-host-call` exist.
 pub(crate) const REMOTE_HOST_CAPABILITY: &str = "remote-host-v1";
 
@@ -57,7 +56,11 @@ mod imp {
     }
 
     impl crate::mux::Mux {
-        pub fn configure_remote_host(self: &std::sync::Arc<Self>, _daemon_socket: &std::path::Path) {}
+        pub fn configure_remote_host(
+            self: &std::sync::Arc<Self>,
+            _daemon_socket: &std::path::Path,
+        ) {
+        }
     }
 }
 #[cfg(not(unix))]

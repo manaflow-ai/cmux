@@ -3800,6 +3800,137 @@
         }
       }
     },
+    "control.error.argumentGivenTwice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ argument '%2$@' is given twice, as '%3$@' and '%4$@'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الوسيط '%2$@' في %1$@ مُعطى مرتين، باسم '%3$@' و'%4$@'"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ argument '%2$@' je zadan dvaput, kao '%3$@' i '%4$@'"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ argument '%2$@' er angivet to gange, som '%3$@' og '%4$@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ Argument '%2$@' ist doppelt angegeben, als '%3$@' und '%4$@'"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@: el argumento '%2$@' se indica dos veces, como '%3$@' y '%4$@'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ : l'argument '%2$@' est donné deux fois, comme '%3$@' et '%4$@'"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@: l'argomento '%2$@' è indicato due volte, come '%3$@' e '%4$@'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ の引数 '%2$@' が '%3$@' と '%4$@' の2回指定されています"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អាគុយម៉ង់ '%2$@' របស់ %1$@ ត្រូវបានផ្ដល់ពីរដង ជា '%3$@' និង '%4$@'"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 인수 '%2$@'가 '%3$@'와 '%4$@'로 두 번 지정되었습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ argument '%2$@' er oppgitt to ganger, som '%3$@' og '%4$@'"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@: argument '%2$@' podano dwa razy, jako '%3$@' i '%4$@'"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@: o argumento '%2$@' foi informado duas vezes, como '%3$@' e '%4$@'"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@: аргумент '%2$@' указан дважды, как '%3$@' и '%4$@'"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อาร์กิวเมนต์ '%2$@' ของ %1$@ ถูกระบุสองครั้ง เป็น '%3$@' และ '%4$@'"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ bağımsız değişkeni '%2$@' iki kez verildi: '%3$@' ve '%4$@'"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@: аргумент '%2$@' вказано двічі, як '%3$@' і '%4$@'"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@: đối số '%2$@' được truyền hai lần, dưới dạng '%3$@' và '%4$@'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 的参数 '%2$@' 被指定了两次：'%3$@' 和 '%4$@'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 的引數 '%2$@' 被指定了兩次：'%3$@' 和 '%4$@'"
+          }
+        }
+      }
+    },
     "control.error.noSuchArgument": {
       "extractionState": "manual",
       "localizations": {

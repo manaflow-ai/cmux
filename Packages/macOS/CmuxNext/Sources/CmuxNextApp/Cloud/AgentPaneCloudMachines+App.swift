@@ -9,7 +9,7 @@ extension AgentPaneCloudMachines {
 
     /// The App's answers to `cloudMachine.*`: the machines of the account signed in now
     /// (``CloudService``, never another user's or team's list), and Open Machine, Resume Machine,
-    /// Pause Machine and passive typing prewarm on one of them, run as the person's own.
+    /// Pause Machine, Kill Machine and passive typing prewarm on one of them, run as the person's own.
     func wire(_ services: AppServices) {
         let inventory: @MainActor (Duration) async -> Inventory = { [weak services] age in
             guard let services, services.cloud.isSignedIn else { return Inventory(signedIn: false, loaded: false, machines: []) }
@@ -22,7 +22,7 @@ extension AgentPaneCloudMachines {
                 return Inventory(signedIn: services.cloud.isSignedIn, loaded: false, machines: [])
             }
             let machines = services.machines.cloud.compactMap { session in
-                session.effectiveStatus == .destroyed ? nil : Machine(id: session.machineID, name: session.machine.title, stage: session.stage.name)
+                session.effectiveStatus == .destroyed ? nil : Machine(id: session.machineID, name: session.machine.title, stage: session.stage.name, evictAt: session.machine.evictAt)
             }
             return Inventory(signedIn: true, loaded: true, machines: machines, account: services.cloud.account, complete: complete)
         }
@@ -38,18 +38,14 @@ extension AgentPaneCloudMachines {
                     return (session.effectiveStatus, session.stageInput.daemonConnected)
                 },
                 resume: { services.machines.session(id)?.attach(origin: .user) },
-                connect: { services.machines.session(id)?.retryNow() }
+                connect: { services.machines.session(id)?.retry() }
             )
         }
-        open = { [weak services] id in
-            services.map { Self.perform("cloudOpenMachine", on: id, services: $0) { _ in true } } ?? false
-        }
-        resume = { [weak services] id in
-            services.map { Self.perform("cloudResumeMachine", on: id, services: $0) { $0.effectiveStatus == .paused } } ?? false
-        }
-        pause = { [weak services] id in
-            services.map { Self.perform("cloudPauseMachine", on: id, services: $0) { $0.effectiveStatus == .running } } ?? false
-        }
+        open = { [weak services] id in services.map { Self.perform("cloudOpenMachine", on: id, services: $0) { _ in true } } ?? false }
+        resume = { [weak services] id in services.map { Self.perform("cloudResumeMachine", on: id, services: $0) { $0.effectiveStatus == .paused } } ?? false }
+        pause = { [weak services] id in services.map { Self.perform("cloudPauseMachine", on: id, services: $0) { $0.effectiveStatus == .running } } ?? false }
+        // Kill Machine is destructive: as the person's own run, the registry shows its confirmation sheet first.
+        delete = { [weak services] id in services.map { Self.perform("cloudKillMachine", on: id, services: $0) { $0.effectiveStatus != .deleting } } ?? false }
         prewarm = { [weak services] id in
             guard let services else { return false }
             let cloud = services.cloud, status = services.machines.cloud.first(where: { $0.machineID == id })?.effectiveStatus

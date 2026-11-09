@@ -14,6 +14,34 @@ const ORPHAN_END_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 /// own wait for the answer (`link::connect`).
 const HELLO_LINGER: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// How long the end of the harness group waits for a blocking thread to read the process tree
+/// before it reads it on the event loop itself ([`blocking_or_inline`]).
+// timeout: a blocking thread that never comes (a pids cap at its spawn) must not wedge the host.
+const TREE_READ_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// `work` on a blocking thread, or inline on the caller's task once `wait` passed with no thread
+/// taking it. A host's runtime has one thread of its own: its one blocking thread waits on the
+/// harness for its whole life (`wait_exit_unreaped`), so any other blocking work needs a new one.
+/// When that thread cannot be made (EAGAIN under a cgroup's `pids.max`), tokio queues the work
+/// until a thread is free, which here is never: the event loop stopped for good, and every daemon
+/// that connected after waited on a hello no one read.
+pub(super) async fn blocking_or_inline<T, F>(wait: std::time::Duration, work: F) -> T
+where
+    T: Send + 'static,
+    F: Fn() -> T + Send + Sync + 'static,
+{
+    let work = Arc::new(work);
+    let queued = work.clone();
+    match tokio::time::timeout(wait, tokio::task::spawn_blocking(move || queued())).await {
+        Ok(Ok(value)) => value,
+        // A panic, or no thread in time: the queued copy, if it ever runs, only reads.
+        Ok(Err(_)) | Err(_) => {
+            tracing::warn!("no blocking thread within {wait:?}; reading on the event loop");
+            work()
+        }
+    }
+}
+
 /// What a host with no controller still holds for a next daemon ([`OrphanExit`]).
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct Pending {
@@ -154,11 +182,10 @@ impl State {
         if let Some(pg) =
             self.pgid.filter(|_| self.leader_alive.load(std::sync::atomic::Ordering::SeqCst))
         {
-            self.under = tokio::task::spawn_blocking(|| {
+            self.under = blocking_or_inline(TREE_READ_WAIT, || {
                 super::super::tree::descendants(&[std::process::id()])
             })
-            .await
-            .unwrap_or_default();
+            .await;
             // SAFETY: the harness leads this process group.
             unsafe { libc::killpg(pg, libc::SIGTERM) };
             let alive = self.leader_alive.clone();
@@ -392,5 +419,42 @@ mod tests {
         assert!(!hello_waits(true, false, false), "the exit is in");
         assert!(!hello_waits(false, true, false), "the end stopped waiting for the exit");
         assert!(!hello_waits(false, false, true), "only a daemon can drain the capped output");
+    }
+
+    /// The wedge of a host whose second blocking thread could not be made: its one blocking
+    /// thread waits on the harness, so work queued behind it never ran and the event loop stopped
+    /// (2026-11-06, a host spawned under a review box's `pids.max`). A pool capped at one thread
+    /// stands in for the failed spawn: the read still happens, on the caller's task.
+    #[test]
+    fn work_with_no_blocking_thread_free_runs_inline() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .max_blocking_threads(1)
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let (release, held) = std::sync::mpsc::channel::<()>();
+            // The harness waiter: holds the only blocking thread until the test ends.
+            let waiter = tokio::task::spawn_blocking(move || held.recv().ok());
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let read = tokio::time::timeout(
+                Duration::from_secs(10),
+                super::blocking_or_inline(Duration::from_millis(100), || 7),
+            )
+            .await;
+            assert_eq!(read.ok(), Some(7), "the read waited for a thread that never came");
+            release.send(()).unwrap();
+            waiter.await.unwrap();
+        });
+    }
+
+    #[test]
+    fn work_runs_on_a_free_blocking_thread() {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let main = std::thread::current().id();
+        let ran_on = runtime.block_on(super::blocking_or_inline(Duration::from_secs(10), || {
+            std::thread::current().id()
+        }));
+        assert_ne!(ran_on, main, "a free blocking thread takes the work off the event loop");
     }
 }

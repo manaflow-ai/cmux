@@ -1,7 +1,7 @@
 public import CmuxHomeCore
 import CmuxNextCloud
 import CmuxNextCompat
-public import CmuxNextHome
+public import CmuxNextHomeModel
 public import CmuxNextActions
 import Foundation
 public import Observation
@@ -186,6 +186,51 @@ public final class HomeDirectory {
         chiefs.removeAll { $0.id == record.id }
         chiefs.append(record)
         return record
+    }
+
+    /// Chief channels (plans/cmux-next/chief-channels-DESIGN.md): `channel.create` makes a group the user
+    /// owns with its own Chief scoped to it, then each person is invited on the channel (an email gets
+    /// `invite.create`, an account `participants.add`). One person's refusal is that person's result; the
+    /// channel stays. An empty title throws `validation.invalid` before any call.
+    /// - Parameters:
+    ///   - title: The channel's name (trimmed, 1 to 200 characters).
+    ///   - chiefName: The channel Chief's name; nil: "<title> Chief".
+    ///   - people: Who to invite, in order.
+    /// - Returns: The channel Chief, the channel and one result per person.
+    public func createChannel(title: String, chiefName: String?, people: [HomeChannelPerson]) async throws -> HomeChannelCreation {
+        let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name.count <= 200 else { throw FeedServiceError.owner(code: "validation.invalid", message: "title") }
+        var params: [String: Any] = ["title": name]
+        if let chief = chiefName?.trimmingCharacters(in: .whitespacesAndNewlines), !chief.isEmpty { params["display_name"] = chief }
+        let key = "channel-create-" + UUID().uuidString.lowercased()
+        let value = try await ensuringUser {
+            try Self.value(try await self.call("v1/ops", ["op": "channel.create", "params": params, "idempotency_key": key, "origin": "user"]))
+        }
+        guard let record = HomeChiefRecord.parse(value), let conversation = record.mainConversation else { throw FeedServiceError.badReply }
+        chiefs.removeAll { $0.id == record.id }
+        chiefs.append(record)
+        var invited: [HomeChannelCreation.Invited] = []
+        for (index, person) in people.enumerated() {
+            let body: [String: Any]
+            switch person {
+            case .email(let address):
+                body = ["op": "invite.create", "idempotency_key": "\(key):invite:\(index)", "origin": "user",
+                        "params": ["conversation": conversation, "address": ["email": address],
+                                   "display_name": String(address.prefix { $0 != "@" })]]
+            case .account(let id):
+                body = ["op": "participants.add", "idempotency_key": "\(key):add:\(index)", "origin": "user",
+                        "params": ["conversation": conversation, "participant": ["id": id, "kind": "human"]]]
+            }
+            do {
+                _ = try Self.value(try await call("v1/ops", body))
+                invited.append(.init(who: person.label, ok: true))
+            } catch FeedServiceError.owner(let code, _) {
+                invited.append(.init(who: person.label, ok: false, code: code))
+            } catch {
+                invited.append(.init(who: person.label, ok: false, code: "unreachable"))
+            }
+        }
+        return HomeChannelCreation(chief: record, conversation: conversation, invited: invited)
     }
 
     /// `chief.delete` at the record's revision: the Chief goes for good (only its tombstone stays),

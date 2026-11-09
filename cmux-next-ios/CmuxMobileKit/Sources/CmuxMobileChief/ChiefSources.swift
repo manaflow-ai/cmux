@@ -391,6 +391,19 @@ public final class ChiefSources {
         cloud.use(ChiefOfflineBackend(reason: reason))
     }
 
+    #if DEBUG
+    /// Demo and UI tests only: a ready Cloud Chief named `name` over the mock
+    /// Chief, with no Cloud service, so Home shows it beside the Mac Chief.
+    public func showDemoCloudChief(named name: String) {
+        let chief = CloudChief(id: "agent_demo_cloud", displayName: name, isDefault: true,
+                               mainConversation: "conv_demo_cloud", rev: 1, brainPlace: nil)
+        let identity = chief.identity(userID: "user_demo")
+        cloudChiefs = [chief]
+        cloudState = .ready(chief)
+        cloud.use(ChiefMockBackend(identity: identity), identity: identity)
+    }
+    #endif
+
     // MARK: Lookup
 
     enum Lookup: Sendable {

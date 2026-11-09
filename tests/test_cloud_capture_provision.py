@@ -129,6 +129,44 @@ class Provision(unittest.TestCase):
         self.assertEqual(open_sealed(bundle["secrets"]["CMUX_DOGFOOD_STACK_PASSWORD"], pk, sk), PASSWORD)
         self.assertTrue(provision.GRANT_ONLY_EMAIL.fullmatch(target.email))
 
+    def test_the_guest_target_makes_a_named_second_account_under_its_own_secret_names(self):
+        fake = FakeStack([{"id": "user-1", "primary_email": "cmux-cloud-capture-journey@manaflow.dev",
+                           "password": "journey-password", "client_read_only_metadata": {"cmuxVmPlan": "pro"}}])
+        key, pk, sk = keypair()
+        target = provision.TARGETS["journey-guest"]
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "bundle.json"
+            action = provision.provision(stack(fake), out, log=lambda _: None, lib=SODIUM, key_id="42", key=key,
+                                         make_password=lambda: PASSWORD, target=target)
+            bundle = json.loads(out.read_text())
+        self.assertEqual(action, "created")
+        self.assertEqual(fake.users["user-1"]["password"], "journey-password")  # the owner account is untouched
+        created = [r for r in fake.requests if r[0] == "POST" and r[1] == "/users"][0][3]
+        self.assertEqual(created["primary_email"], "cmux-cloud-capture-guest@manaflow.dev")
+        self.assertIs(created["primary_email_verified"], True)
+        self.assertEqual(created["display_name"], "Capture Guest")
+        self.assertTrue(created["profile_image_url"].startswith("https://"))
+        self.assertEqual((bundle["repo"], bundle["environment"]), ("manaflow-ai/cmux", "cmux-next-vm-image-dev"))
+        self.assertEqual(sorted(bundle["secrets"]),
+                         ["CMUX_DOGFOOD_GUEST_STACK_EMAIL", "CMUX_DOGFOOD_GUEST_STACK_PASSWORD"])
+        self.assertEqual(open_sealed(bundle["secrets"]["CMUX_DOGFOOD_GUEST_STACK_PASSWORD"], pk, sk), PASSWORD)
+        self.assertEqual(target.project, provision.STAGING_PROJECT_ID)
+        self.assertTrue(provision.GRANT_ONLY_EMAIL.fullmatch(target.email))
+
+    def test_rotating_the_guest_keeps_its_name_and_image(self):
+        fake = FakeStack([{"id": "user-2", "primary_email": "cmux-cloud-capture-guest@manaflow.dev", "password": "old",
+                           "display_name": "renamed", "client_read_only_metadata": {}}])
+        key, _, _ = keypair()
+        with tempfile.TemporaryDirectory() as tmp:
+            action = provision.provision(stack(fake), Path(tmp) / "b.json", log=lambda _: None, lib=SODIUM,
+                                         key_id="42", key=key, make_password=lambda: PASSWORD,
+                                         target=provision.TARGETS["journey-guest"])
+        self.assertEqual(action, "rotated")
+        patch = [r for r in fake.requests if r[0] == "PATCH"][0][3]
+        self.assertEqual(patch["display_name"], "Capture Guest")
+        self.assertIn("profile_image_url", patch)
+        self.assertIs(patch["primary_email_verified"], True)
+
     @unittest.skipIf(SODIUM is None, "needs the system libsodium")
     def test_the_production_target_makes_its_account_in_the_production_project(self):
         fake = FakeStack()
@@ -154,6 +192,29 @@ class Provision(unittest.TestCase):
         self.assertIn("production test account", lines[0])
         self.assertIn("Stack user id user-new", lines[0])
         self.assertNotIn(PASSWORD, lines[0])
+
+    @unittest.skipIf(SODIUM is None, "needs the system libsodium")
+    def test_the_production_journey_target_has_its_own_account_sealed_to_the_journey_environment(self):
+        probe = provision.TARGETS["production"]
+        fake = FakeStack([{"id": "user-1", "primary_email": probe.email, "password": "probe-password",
+                           "client_read_only_metadata": {"cmuxVmPlan": "pro"}}])
+        key, pk, sk = keypair()
+        target = provision.TARGETS["journey-production"]
+        prod = provision.Stack(provision.PRODUCTION_PROJECT_ID, "server-key", "client-key", transport=fake,
+                               expected_project=provision.PRODUCTION_PROJECT_ID)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "bundle.json"
+            action = provision.provision(prod, out, log=lambda _: None, lib=SODIUM, key_id="42", key=key,
+                                         make_password=lambda: PASSWORD, target=target)
+            bundle = json.loads(out.read_text())
+        self.assertEqual(action, "created")
+        self.assertEqual(fake.users["user-1"]["password"], "probe-password")  # the probe's account is untouched
+        self.assertTrue(all(r[2]["x-stack-project-id"] == provision.PRODUCTION_PROJECT_ID for r in fake.requests))
+        created = [r for r in fake.requests if r[0] == "POST" and r[1] == "/users"]
+        self.assertEqual(created[0][3]["primary_email"], "cmux-cloud-capture-journey-prod@manaflow.dev")
+        self.assertEqual((bundle["repo"], bundle["environment"]), ("manaflow-ai/cmux", "cmux-next-cloud-journey"))
+        self.assertEqual(sorted(bundle["secrets"]), ["CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"])
+        self.assertEqual(open_sealed(bundle["secrets"]["CMUX_DOGFOOD_STACK_PASSWORD"], pk, sk), PASSWORD)
 
     def test_an_existing_account_is_rotated_keeping_other_metadata(self):
         fake = FakeStack([{"id": "user-1", "primary_email": provision.EMAIL.upper(), "password": "old",

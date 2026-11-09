@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextPages
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import WebKit
 
 /// Projection windows (``WebProjection``): a page in a projection's window loads from that window's
 /// server, a page in any other window keeps its own files, and a test run finds its projection.
-@MainActor
+@MainActor @Suite(.closesItsWindows)
 struct WebProjectionTests {
     @Test func onlyTheProjectionWindowsPagesLoadFromItsServer() async throws {
         let bundled = try temporaryDirectory()
@@ -14,10 +15,12 @@ struct WebProjectionTests {
         try Data("bundled".utf8).write(to: bundled.appending(path: PageDescriptor.markdown.entry))
         let projection = WebProjection(), handler = PageSchemeHandler(page: .markdown, root: bundled, devServer: nil)
         let projectionWindow = window(), mainWindow = window()
+        defer { [projectionWindow, mainWindow].forEach { $0.closeAfterTest() } }
         let projected = webView(in: projectionWindow), untouched = webView(in: mainWindow)
         handler.liveOverride = { WebDevOverride() }
         handler.projection = projection
-        handler.fetchDevServer = { url in
+        handler.fetchDevServer = { request in
+            guard let url = request.url else { return nil }
             let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "text/html"])
             return response.map { (Data("served by \(url.port ?? 0)".utf8), $0) }
         }
@@ -49,11 +52,13 @@ struct WebProjectionTests {
         let handler = PageSchemeHandler(page: .markdown, root: bundled, devServer: PageDevServer(root: launch))
         handler.liveOverride = { WebDevOverride() }
         handler.projection = projection
-        handler.fetchDevServer = { url in
+        handler.fetchDevServer = { request in
+            guard let url = request.url else { return nil }
             let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "text/html"])
             return response.map { (Data("served by \(url.port ?? 0)".utf8), $0) }
         }
         let projectionWindow = window(), mainWindow = window()
+        defer { [projectionWindow, mainWindow].forEach { $0.closeAfterTest() } }
         let projected = webView(in: projectionWindow), untouched = webView(in: mainWindow)
         let opened = try projection.open(server: "http://127.0.0.1:4293/", worktree: nil, test: nil)
         projection.windowID = { $0 === projectionWindow ? opened.windowID : "main" }

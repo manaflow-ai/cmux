@@ -33,14 +33,14 @@ def definitions(path, names):
 
 GOLDEN = definitions(ROOT.parent / "ci/frame-pacing/golden.py", {"EPS", "THRESHOLDS", "motion", "percentile"})
 MEASURE = definitions(ROOT / "pane-perf-terminal.py",
-                      {"WINDOW_ACTIONS", "WINDOW_RESTORE", "WINDOW_TARGET_HZ", "WINDOW_REFRESH_TOLERANCE", "WINDOW_MAX_STEP",
-                       "finite_nonnegative", "first_window", "measure"})
+                      {"WINDOW_ACTIONS", "WINDOW_RESTORE", "WINDOW_TARGET_HZ", "WINDOW_REFRESH_TOLERANCE", "WINDOW_MAX_STEP", "WINDOW_MIN_INTERMEDIATE",
+                       "finite_nonnegative", "first_window", "moving_frames", "measure"})
 
 
 def measured(values=None, *, name="window-zoom", refresh=PERIOD, monitor_refresh=PERIOD,
              intervals=None, missed=0, frame_count=144, trace_missing=False, restore=True,
              after=None, action_error=None):
-    values = values if values is not None else [900 + 45 * i for i in range(13)]
+    values = values if values is not None else [900 + 540 * i / 21 for i in range(22)]
     times = [0]
     for interval in intervals if intervals is not None else [refresh or PERIOD] * (len(values) - 1):
         times.append(times[-1] + interval)
@@ -76,14 +76,15 @@ def measured(values=None, *, name="window-zoom", refresh=PERIOD, monitor_refresh
 
 class WindowZoomMotion(unittest.TestCase):
     def test_smooth_120_hz_zoom_passes_and_keeps_trace(self):
-        result = measured()
+        values = [900 + 20 * i for i in range(22)]
+        result = measured(values)
         self.assertIsNone(result["error"])
         self.assertEqual(result["window_frame_missed"], 0)
-        self.assertEqual(result["window_max_step"], 0.083)
-        self.assertEqual(len(result["window_trace"]["samples"]), 13)
+        self.assertEqual(result["window_max_step"], 0.048)
+        self.assertEqual(len(result["window_trace"]["samples"]), 22)
 
     def test_smooth_120_hz_restore_passes(self):
-        result = measured(list(reversed([900 + 45 * i for i in range(13)])), name="window-unzoom")
+        result = measured(list(reversed([900 + 20 * i for i in range(22)])), name="window-unzoom")
         self.assertIsNone(result["error"])
         self.assertEqual(result["window_after"], NORMAL)
 
@@ -96,9 +97,25 @@ class WindowZoomMotion(unittest.TestCase):
         self.assertEqual(result["window_max_step"], 0.998)
         self.assertIn("geometry step", result["error"] or "")
 
+    def test_short_but_evenly_spaced_motion_is_rejected(self):
+        for name, values in (
+            ("window-zoom", [900 + 45 * i for i in range(13)]),
+            ("window-unzoom", list(reversed([900 + 45 * i for i in range(13)]))),
+        ):
+            with self.subTest(name=name):
+                result = measured(values, name=name)
+                self.assertIn("at least 20", result["error"] or "")
+
     def test_shared_max_step_boundary(self):
-        self.assertIsNone(measured([900, 1035, 1170, 1305, 1440])["error"])
-        self.assertIn("geometry step", measured([900, 1008, 1170, 1305, 1440])["error"] or "")
+        smooth = [900 + 540 * i / 21 for i in range(22)]
+        self.assertIsNone(measured(smooth)["error"])
+        intervals = [540 / 21] * 21
+        intervals[10] = 150
+        intervals[11:] = [(540 - intervals[10] - sum(intervals[:10])) / 10] * 10
+        values = [900]
+        for interval in intervals:
+            values.append(values[-1] + interval)
+        self.assertIn("geometry step", measured(values)["error"] or "")
 
     def test_smooth_60_hz_trace_is_rejected_even_with_zero_misses(self):
         result = measured(refresh=1000 / 60, monitor_refresh=1000 / 60)

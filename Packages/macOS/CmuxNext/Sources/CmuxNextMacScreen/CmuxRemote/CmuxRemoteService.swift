@@ -86,7 +86,7 @@ public final class CmuxRemoteService {
         if lastConfig == nil {
             await apply(computerUse: config.computerUse, screenSharing: config.screenSharing, headless: config.headless)
         }
-        // `remote.enabled` off sends both switches off: the app's own helper and host serve.
+        // Both switches off (Computer Use off or not Upstream, and signed out): the app's own helper and host serve.
         return available && (config.computerUse || config.screenSharing)
     }
 
@@ -162,7 +162,7 @@ public final class CmuxRemoteService {
     public func followHub(_ hub: DeviceHub?, userID: String?, hubURL: URL?, devices: CmuxRemoteDevices) {
         anchorTimer.cancel()
         guard let hub, let userID, !userID.isEmpty, let hubURL else {
-            // Only a running cmux Remote hears it: with remote.enabled off nothing opens a channel.
+            // Only a running cmux Remote hears it: with both switches off nothing opens a channel.
             // task-owner: one sign-out line to the worker; nothing waits on it.
             Task { [weak self] in
                 guard await self?.waitAvailable() == true else { return }

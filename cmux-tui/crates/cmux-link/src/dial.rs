@@ -19,8 +19,7 @@ pub const MAX_LINK_TOKEN_BYTES: usize = 8192;
 /// One bounded signed token plus the service/epoch JSON envelope.
 pub const MAX_HELLO_BYTES: usize = MAX_LINK_TOKEN_BYTES + 128;
 
-/// The services a link stream can reach. Slice 1 has only the session
-/// daemon's remote entry.
+/// The services a link stream can reach.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Service {
@@ -33,6 +32,15 @@ pub enum Service {
     /// (full tree). Only the server's owner (`owner_session`); every other
     /// peer is refused.
     OwnerSession,
+    /// The machine's agent display as `cmux.rd/1` (the root-only socket
+    /// `/run/cmux-rd/desktop.sock`). Cloud hosts only, and only for the
+    /// machine's creator: the platform mints it for no one else and the
+    /// receiving policy lists it for no other peer.
+    Desktop,
+    /// The acpmux daemon's loopback WebSocket listener on a paired machine.
+    /// The link only carries the bytes: acpmux still checks its listener
+    /// token and peer proof on the upgrade, so pairing grants nothing more.
+    Acpmux,
 }
 
 /// How the stream reaches the peer. Lane 10's UI shows "same network only"
@@ -159,34 +167,6 @@ pub enum ReloadOp {
     Reload,
 }
 
-/// `{"op":"link.cloud_event","event":"removed"|"upsert","host":...,
-/// "revision":N}`: a Cloud machine event that cmux-cloud forwards to the
-/// link (cloud-client-contract.md 1.7 cache rules 1 and 4). `removed` drops
-/// the record and closes open links to that host; `upsert` drops a record
-/// older than `revision`. The reply is `{"ok":true}`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CloudEventRequest {
-    pub op: CloudEventOp,
-    pub event: CloudEvent,
-    pub host: String,
-    #[serde(default)]
-    pub revision: Option<u64>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CloudEventOp {
-    #[serde(rename = "link.cloud_event")]
-    CloudEvent,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CloudEvent {
-    Removed,
-    Upsert,
-}
-
 /// The first line on an overlay link stream: `{"service":"daemon"}` to a
 /// paired peer, `{"service":...,"link_token":...,"epoch":...}` to a Cloud
 /// host (the host checks the token before it serves anything).
@@ -305,6 +285,9 @@ mod tests {
         let cloud =
             ServiceHello { service: Service::Ssh, link_token: Some("tok".into()), epoch: Some(3) };
         assert_eq!(line(&cloud), "{\"service\":\"ssh\",\"link_token\":\"tok\",\"epoch\":3}\n");
+        let desktop = ServiceHello { service: Service::Desktop, link_token: None, epoch: None };
+        assert_eq!(line(&desktop), "{\"service\":\"desktop\"}\n");
+        assert_eq!(line(&ServiceHello::paired(Service::Acpmux)), "{\"service\":\"acpmux\"}\n");
         assert_eq!(
             line(&DialReply::failed(DialError::HostPaused)),
             "{\"ok\":false,\"path_state\":\"unreachable\",\"relay_available\":false,\"error_code\":\"host_paused\"}\n"

@@ -50,6 +50,7 @@ extension UpdaterService {
     /// (the download already running, or staged) does nothing.
     public func downloadClicked() {
         syncFlowPhase()
+        log.append("download clicked (\(flow.phase))")
         if downloadAgainIfCancelled() { return }
         guard case .available = flow.phase else {
             log.append("update-found answer ignored: nothing waits on that step (\(flow.phase))")
@@ -65,6 +66,7 @@ extension UpdaterService {
     /// or when the download finishes. `willRelaunch` records keep sessions.
     public func installClicked() {
         syncFlowPhase()
+        log.append("restart to update clicked (\(flow.phase))")
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("install_clicked")
         #endif
@@ -180,6 +182,7 @@ extension UpdaterService {
         dropPulledAvailable()
         let phase = indicatorPhase
         guard phase != flow.phase else { return }
+        transferRate.record(phase, at: now())
         if userCheckRunning, phase != .checking { userCheckRunning = false }
         #if DEBUG || CMUX_BENCH_HOOKS
         if phase.harnessName != flow.phase.harnessName { UpdateHarness.mark("phase.\(phase.harnessName)") }
@@ -322,8 +325,9 @@ extension UpdaterService {
         }
         // Downloads came on (the setting, the link or the policy): an update a check found while they
         // were off downloads now instead of waiting for a click (the driver's own state decides; a
-        // no-op when none waits).
-        if resumed { acceptAvailable() }
+        // no-op when none waits). On the build the person picked it keeps waiting for their click (#36419),
+        // unless the organization requires it.
+        if resumed && (required || !runsPickedBuild) { acceptAvailable() }
     }
 
     /// Follows the link's Low Data Mode and cost (path events, no polling).

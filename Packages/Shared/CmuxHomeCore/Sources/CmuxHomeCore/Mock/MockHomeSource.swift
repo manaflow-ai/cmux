@@ -30,6 +30,9 @@ public actor MockHomeSource: HomeSource {
 
     /// What ``agentSessions(_:of:)`` answers (``setAgentSessions(_:)``).
     private var agentSessionRefs: [HomeAgentSessionRef] = []
+    /// What ``agentStarts()`` yields (``setStartedAgents(_:)``), and its readers.
+    private var startedAgentPeers: Set<String> = []
+    private var agentStartReaders: [UUID: AsyncStream<Set<String>>.Continuation] = [:]
 
     private let options: Options
     private let clock: any Clock<Duration>
@@ -551,6 +554,25 @@ public actor MockHomeSource: HomeSource {
     public func agentSessions(_ peers: [String], of conversation: ConversationID) async -> [HomeAgentSessionRef] {
         agentSessionRefs.filter { peers.contains($0.peer) }
     }
+
+    /// Sets the mock Chief's agents that have a session; every ``agentStarts()`` reader gets the new set.
+    ///
+    /// - Parameter peers: The agent ids (`a<n>`) with a session.
+    public func setStartedAgents(_ peers: Set<String>) {
+        startedAgentPeers = peers
+        for reader in agentStartReaders.values { reader.yield(peers) }
+    }
+
+    public func agentStarts() async -> AsyncStream<Set<String>> {
+        let (stream, continuation) = AsyncStream.makeStream(of: Set<String>.self, bufferingPolicy: .bufferingNewest(1))
+        let id = UUID()
+        agentStartReaders[id] = continuation
+        continuation.yield(startedAgentPeers)
+        continuation.onTermination = { [weak self] _ in Task { await self?.dropAgentStartReader(id) } }
+        return stream
+    }
+
+    private func dropAgentStartReader(_ id: UUID) { agentStartReaders[id] = nil }
 
     // MARK: Owner logic
 

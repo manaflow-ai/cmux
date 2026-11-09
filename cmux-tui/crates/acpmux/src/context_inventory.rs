@@ -183,6 +183,25 @@ pub fn preset_is_editable(meta: &SessionMeta, cfg: &Config) -> bool {
     verified_prompt_text(meta, cfg).is_some()
 }
 
+/// What a remote viewer (a WebSocket or peer link) gets: harness-reported counts, never cmux-owned
+/// prompt text, the saved override contents or this machine's paths (a memory file keeps only its file name).
+pub fn redact_for_remote(inventory: &mut ContextInventory) {
+    inventory.can_edit_overrides = false;
+    for part in &mut inventory.parts {
+        part.text = None;
+        if part.source == "memory" {
+            let name = Path::new(&part.label).file_name().and_then(|n| n.to_str());
+            part.label = name.unwrap_or("Memory file").to_owned();
+        }
+    }
+    inventory.overrides.project_key.clear();
+    inventory.overrides.cwd.clear();
+    inventory.overrides.default_text = None;
+    inventory.overrides.user = None;
+    inventory.overrides.project = None;
+    inventory.overrides.parts.clear();
+}
+
 /// Build an inventory from the latest harness report and cmux-owned state.
 pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
     let mut parts = Vec::new();
@@ -268,7 +287,10 @@ pub fn override_block(text: &str, scope: &str) -> Value {
 /// Capture preset bytes as well as the injected addition so later config edits do not
 /// change the effective text reported for an existing chat.
 pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
-    let mut parts = snapshot(cfg, &meta.cwd);
+    let mut parts = snapshot_for(cfg, &meta.cwd, &meta.harness, meta.remote_origin);
+    // A folder set up for another harness: its instructions, which this one does not read itself.
+    let family = family_for_folder(cfg, &meta.harness);
+    parts.extend(crate::folder_instructions::part(&family, &meta.cwd));
     if let Some(default) = verified_prompt_text(meta, cfg) {
         let text = meta.cmux_preset_prompt.clone().unwrap_or(default);
         parts.push(ContextPart {
@@ -326,7 +348,14 @@ pub fn record_preset_source(meta: &mut SessionMeta, part: Option<ContextPart>) {
 pub fn append_snapshot(parts: Option<&[ContextPart]>, blocks: &mut Vec<Value>) {
     for part in parts.into_iter().flatten().filter(|p| {
         p.included
-            && matches!(p.source.as_str(), "cmux-default" | "cmux-user" | "cmux-project")
+            && matches!(
+                p.source.as_str(),
+                "cmux-default"
+                    | "cmux-user"
+                    | "cmux-project"
+                    | GUIDANCE_SOURCE
+                    | crate::folder_instructions::SOURCE
+            )
             && p.channel.as_deref().is_none_or(|channel| channel == "user-context")
     }) {
         if let Some(text) = part.text.as_deref() {
@@ -341,6 +370,49 @@ pub fn record_tool_sources(meta: &mut SessionMeta, parts: Vec<ContextPart>) {
     let snapshot = meta.cmux_context.get_or_insert_with(Vec::new);
     snapshot.retain(|part| !part.id.starts_with("cmux-source-"));
     snapshot.extend(parts);
+}
+
+/// The source of cmux's built-in chat guidance and the person's skill index
+/// (`agent_guidance.rs`), sent as `<cmux-guidance-context>`.
+pub const GUIDANCE_SOURCE: &str = "cmux-guidance";
+
+/// [`snapshot`] plus the chat guidance for a session of profile `harness`. The guidance is
+/// its own part, so a person's guidance override (which replaces the default rule) keeps it;
+/// the `agents.guidance.*` settings turn it off.
+pub fn snapshot_for(
+    cfg: &Config,
+    cwd: &Path,
+    harness: &str,
+    remote_origin: bool,
+) -> Vec<ContextPart> {
+    let mut parts = snapshot(cfg, cwd);
+    let guidance = crate::agent_guidance::for_session(cfg, harness, remote_origin);
+    parts.extend(guidance.map(guidance_part));
+    parts
+}
+
+pub fn guidance_part(text: String) -> ContextPart {
+    ContextPart {
+        id: "cmux-guidance".into(),
+        source: GUIDANCE_SOURCE.into(),
+        label: "cmux chat guidance and your skills (first-turn context)".into(),
+        tokens: estimated_tokens(&text),
+        included: true,
+        editable: false,
+        measurement: "estimated".into(),
+        source_bytes: Some(text.len() as u64),
+        channel: Some("user-context".into()),
+        text: Some(text),
+    }
+}
+
+/// The family whose own instruction files a profile reads: a Claude Code
+/// profile under its own family name (`claude-sr2`) still reads `CLAUDE.md`.
+pub fn family_for_folder(cfg: &Config, harness: &str) -> String {
+    cfg.harnesses
+        .get(harness)
+        .map(|p| crate::config::store_family(harness, p))
+        .unwrap_or_else(|| harness.to_string())
 }
 
 /// Capture settings once when the session is created. Project text replaces user text.
@@ -387,6 +459,28 @@ mod tests {
         assert_eq!(got.provider_total_tokens, Some(20));
         assert!(got.parts.iter().any(|p| p.source == "harness" && p.tokens == 20 && !p.editable));
         assert!(got.parts.iter().any(|p| p.source == "cmux-user" && p.editable));
+    }
+
+    #[test]
+    fn a_remote_viewer_gets_counts_but_no_local_paths_or_cmux_text() {
+        let mut meta: SessionMeta = serde_json::from_value(json!({"schema":"acpmux.session.v1","id":"s","name":"s","harness":"claude","cwd":"/Users/me/repo","status":"idle","createdAt":0,"updatedAt":0})).unwrap();
+        meta.context_breakdown = Some(json!({
+            "categories":[{"id":"memory","name":"Memory files","tokens":30,"kind":"used"}],
+            "memoryFiles":[{"path":"/Users/me/.claude/CLAUDE.md","tokens":30}],
+            "totalTokens":30,"maxTokens":100
+        }));
+        let mut cfg = Config::default();
+        cfg.context_overrides.user = Some("read concurrently".into());
+        meta.cmux_context = Some(snapshot(&cfg, &meta.cwd));
+        let mut got = inventory(&meta, &cfg);
+        redact_for_remote(&mut got);
+        let memory = got.parts.iter().find(|p| p.source == "memory").expect("memory part");
+        assert_eq!(memory.tokens, 30);
+        assert_eq!(memory.label, "CLAUDE.md");
+        let wire = serde_json::to_string(&got).unwrap();
+        assert!(!wire.contains("/Users/me"), "a local path reached a remote viewer: {wire}");
+        assert!(!wire.contains("read concurrently"), "cmux text reached a remote viewer: {wire}");
+        assert!(!got.can_edit_overrides);
     }
 
     #[test]
@@ -473,6 +567,24 @@ mod tests {
         let mut blocks = Vec::new();
         append_snapshot(Some(&captured), &mut blocks);
         assert!(blocks.is_empty());
+    }
+
+    #[test]
+    fn chat_guidance_is_its_own_first_turn_block_beside_a_persons_override() {
+        let mut cfg = Config::default();
+        cfg.context_overrides.user = Some("my rule".into());
+        let mut parts = snapshot(&cfg, Path::new("/repo"));
+        parts.push(guidance_part(crate::agent_guidance::AGENT_GUIDANCE.into()));
+        let mut blocks = Vec::new();
+        append_snapshot(Some(&parts), &mut blocks);
+        assert_eq!(blocks.len(), 2, "{blocks:?}");
+        let text = blocks[1]["text"].as_str().unwrap();
+        assert!(
+            text.starts_with("<cmux-guidance-context>") && text.contains("update_plan"),
+            "{text}"
+        );
+        assert_eq!(blocks[1]["_meta"]["acpmux"]["contextSource"], "cmux-guidance");
+        assert!(blocks[0]["text"].as_str().unwrap().contains("my rule"));
     }
 
     #[test]

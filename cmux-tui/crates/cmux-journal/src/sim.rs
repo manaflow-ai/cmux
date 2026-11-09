@@ -120,10 +120,14 @@ struct Fs {
     failures: u64,
     /// The next file sync with at least this many dirty pages fails once with this error.
     fail_sync: Option<(usize, io::ErrorKind)>,
+    /// Every file sync fails with this error until cleared (a failing disk).
+    fail_all_syncs: Option<io::ErrorKind>,
     /// Once an injected failure happened, the operation this many after it crashes.
     crash_after_failure: Option<u64>,
     /// Each read evicts the dropped pages it read (`SimStorage::evict_dropped_pages_after_read`).
     evict_after_read: bool,
+    /// The next sync stops once under way (`SimStorage::hold_next_sync`).
+    sync_hold: Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>,
 }
 
 /// What an operation does: run, fail once, or crash the process.
@@ -148,8 +152,10 @@ impl Fs {
             peak_open_files: 0,
             failures: 0,
             fail_sync: None,
+            fail_all_syncs: None,
             crash_after_failure: None,
             evict_after_read: false,
+            sync_hold: None,
         }
     }
 
@@ -199,8 +205,18 @@ impl Fs {
     }
 }
 
-/// Sleeps the sync delay with the lock released; `None` when the process crashed meanwhile.
+/// Sleeps the sync delay with the lock released, after a hold if one was asked for
+/// (`SimStorage::hold_next_sync`); `None` when the process crashed meanwhile.
 fn slow_sync<'a>(mut guard: MutexGuard<'a, Fs>, fs: &'a Mutex<Fs>) -> Option<MutexGuard<'a, Fs>> {
+    if let Some((arrived, release)) = guard.sync_hold.take() {
+        drop(guard);
+        let _ = arrived.send(());
+        let _ = release.recv();
+        guard = lock(fs);
+        if guard.crashed {
+            return None;
+        }
+    }
     let delay = guard.sync_delay;
     if !delay.is_zero() {
         drop(guard);
@@ -248,6 +264,17 @@ impl SimStorage {
         lock(&self.fs).sync_delay = delay;
     }
 
+    /// The next sync stops once under way, with the process's lock released: it says so on the
+    /// returned receiver, then waits until the returned sender sends or is dropped. A test knows
+    /// from it that the writer is inside a sync, with no timer. A crash meanwhile
+    /// ([`SimStorage::restart`]) fails that sync when it goes on.
+    pub fn hold_next_sync(&self) -> (std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
+        let (arrived_tx, arrived) = std::sync::mpsc::channel();
+        let (release, release_rx) = std::sync::mpsc::channel();
+        lock(&self.fs).sync_hold = Some((arrived_tx, release_rx));
+        (arrived, release)
+    }
+
     pub fn is_crashed(&self) -> bool {
         lock(&self.fs).crashed
     }
@@ -266,6 +293,12 @@ impl SimStorage {
     /// disk gets none of them: the worst case of a write-back error ([module docs](self)).
     pub fn fail_next_sync(&self, pages: usize, kind: io::ErrorKind) {
         lock(&self.fs).fail_sync = Some((pages, kind));
+    }
+
+    /// From now on every file sync fails with `kind` and the disk gets none of its pages, until
+    /// called with None: a failing disk, whose writer retries without end.
+    pub fn fail_all_syncs(&self, kind: Option<io::ErrorKind>) {
+        lock(&self.fs).fail_all_syncs = kind;
     }
 
     /// Once the next injected failure happened, the `n`-th operation after it (1 = the next one)
@@ -633,6 +666,11 @@ impl StorageFile for SimHandle {
     fn sync(&mut self, level: SyncLevel) -> io::Result<()> {
         let mut fs = lock(&self.fs);
         let step = fs.begin()?;
+        if let (Step::Run, Some(kind)) = (&step, fs.fail_all_syncs) {
+            fs.machine.file(self.inode)?.failed_sync(None);
+            fs.note_failure();
+            return Err(failed(kind));
+        }
         if let (Step::Run, Some((pages, kind))) = (&step, fs.fail_sync) {
             let file = fs.machine.file(self.inode)?;
             if file.dirty.len() >= pages {

@@ -16,7 +16,8 @@ import Foundation
 /// daemon adopts the terminals and chats that kept running and resumes what it interrupted (Leo:
 /// "OUR SHIT IS HARDLY EVER GOING TO GO IDLE ... IT RESUMES WHATEVER IT INTERRUPTED"). So it has no
 /// idle check of its own and `whileBusy` changes nothing; it answers `busy` only when the CLI
-/// cannot update now. A machine whose daemon the app refused (`incompatible`) goes first: it cannot
+/// cannot update now, or while a chat start brings the machine up (``Source/starting``: a start in flight
+/// does not resume after a restart, it fails). A machine whose daemon the app refused (`incompatible`) goes first: it cannot
 /// connect, so nothing on it is in use through the app.
 nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
     /// The machine's daemon as the app last saw it.
@@ -41,6 +42,10 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
         /// older (`judged`), and only while the machine still runs it; nil when the machine has no
         /// way for it (no Cloud API exec, or no pinned build of `build` in this app).
         var legacy: @Sendable (_ build: DaemonBuildCommit, _ judged: String) async -> CloudMoveCLI.Answer? = { _, _ in nil }
+        /// Whether a chat start is bringing the machine up now (``CloudStartGate``): the update then answers
+        /// busy instead of restarting the daemon under the start, and the policy asks again after its backoff.
+        /// Always false for a start's own update (its daemon refused the start), which must run.
+        var starting: @Sendable () async -> Bool = { false }
     }
 
     let machineID: String
@@ -59,9 +64,9 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
     /// The Rust target of every Cloud machine (images/cmux-vm: x86_64).
     static let cloudTarget = "x86_64-unknown-linux-gnu"
 
-    /// The machine's build while its daemon is connected, also one that serves everything this app
-    /// uses; nil while it is not, and while the toggles are off (``CloudTunables``). The policy
-    /// then leaves the machine alone, also one it queued before.
+    /// The machine's build while its daemon is connected, whatever it serves, also one read as refused
+    /// (an update to the build it names changes nothing: 2026-11-07, one per reconnect, each under a start);
+    /// nil while no handshake is live (a dropped link's last one is not it), and while the toggles are off: left alone.
     ///
     /// Never a move back: a Cloud daemon's build string carries no date, so the policy cannot tell
     /// an older build from a newer one (another app, a newer nightly, moved the machine forward).
@@ -71,8 +76,7 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
     /// capability this app uses was never updated automatically, so it stayed on its image's
     /// build after every app update (a VM on 8b3b1891 under an app on 52b77ef2f).
     func currentBuild() async -> String? {
-        guard enabled(), let daemon = await source.daemon(), daemon.level != .incompatible,
-              let build = daemon.build, !build.isEmpty else { return nil }
+        guard enabled(), let build = await source.daemon()?.build, !build.isEmpty else { return nil }
         return build
     }
 
@@ -88,7 +92,10 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
     func update(to build: DaemonBuildCommit, whileBusy: Bool) async -> DaemonUpdateOutcome {
         // Gone or not connected now: try again later. A toggle turned off since the policy read the
         // machine: no update starts; asked again, the machine reports no build and is dropped.
-        guard enabled(), await source.daemon() != nil else { return .busy }
+        guard enabled(), let daemon = await source.daemon() else { return .busy }
+        // No restart under a start bringing the machine up (prod, 2026-11-05: "cmux-tui connection closed: EOF"); mid-turn
+        // updates stay. A refused daemon is never held: a start cannot connect to it, so it waits for this update.
+        if daemon.level != .incompatible, await source.starting() { return .busy }
         var outcome: DaemonUpdateOutcome
         var answer: CloudMoveCLI.Answer?, pinned: String?
         do {

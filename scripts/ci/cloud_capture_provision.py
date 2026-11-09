@@ -28,12 +28,22 @@ made above is created verified; this does the same for one made some other way.
 `--target journey` does the same for the Cloud journey's own staging account, sealed to this repository's
 cmux-next-vm-image-dev environment as CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD (TARGETS below).
 
+`--target journey-guest` makes a second staging account (cmux-cloud-capture-guest@manaflow.dev, display name
+"Capture Guest", a profile image), sealed to the same cmux-next-vm-image-dev environment as
+CMUX_DOGFOOD_GUEST_STACK_EMAIL and _PASSWORD: the other side of a two-account test such as a chat share (the journey
+account owns the chat, the guest is invited to it; the share room refuses an unverified email, and this account is
+created verified). cloud-chat-proof.yml's signin job mints its session with `signin_account: guest`.
+
 `--target production` makes the production test account (cmux-cloud-capture-prod@manaflow.dev) in the
 PRODUCTION Stack project, with the same plan grant, sealed to cmuxterm-hq's cloud-capture environment as
 CLOUD_PROBE_PRODUCTION_STACK_EMAIL and _PASSWORD: the hourly production Cloud chat probe signs in as it
 (cmuxterm-hq synthetic-probes.yml app-chat-production). It runs in environment cloud-vm-production, whose server
 key belongs to that project; each target names the one project it may touch. The run also prints the account's
 Stack user id (not a secret), which a GitHub OIDC session trust row pins (hq#7076).
+
+`--target journey-production` does the same for the production Cloud journey's own account
+(cmux-cloud-capture-journey-prod@manaflow.dev), sealed to this repository's cmux-next-cloud-journey environment as
+CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD (cloud-journey-prod.yml, backend.yml journey-production).
 
 Runs in .github/workflows/cloud-capture-provision.yml (environment cloud-vm-staging). The bundle is
 stored with `python3 scripts/ci/sealed_secrets.py put BUNDLE`; docs/ci-sealed-secrets.md.
@@ -72,8 +82,10 @@ class Target:
     `put` checks both against the live key."""
 
     def __init__(self, email, display_name, repo, environment, key_id, key, email_secret, password_secret,
-                 project=STAGING_PROJECT_ID):
+                 project=STAGING_PROJECT_ID, profile_image_url=None):
         self.email, self.display_name, self.project = email, display_name, project
+        # Set on create and on every rotation when given, so a person looking at a two-account test tells them apart.
+        self.profile_image_url = profile_image_url
         self.repo, self.environment, self.key_id, self.key = repo, environment, key_id, key
         self.email_secret, self.password_secret = email_secret, password_secret
 
@@ -90,6 +102,13 @@ TARGETS = {
     "journey": Target("cmux-cloud-capture-journey@manaflow.dev", "cmux cloud journey", "manaflow-ai/cmux",
                       "cmux-next-vm-image-dev", "3380204578043523366", "wOq7reXDAHystKwvJikDgeR+KKcU8k+s8gV/E0CHzVk=",
                       "CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD"),
+    # The journey account's guest: a second staging account for two-account tests (a chat share: one owner, one
+    # guest), in the same environment under its own secret names, so the journey's pair is never shadowed.
+    "journey-guest": Target("cmux-cloud-capture-guest@manaflow.dev", "Capture Guest", "manaflow-ai/cmux",
+                            "cmux-next-vm-image-dev", "3380204578043523366",
+                            "wOq7reXDAHystKwvJikDgeR+KKcU8k+s8gV/E0CHzVk=",
+                            "CMUX_DOGFOOD_GUEST_STACK_EMAIL", "CMUX_DOGFOOD_GUEST_STACK_PASSWORD",
+                            profile_image_url="https://cmux.com/icon.png"),
     # The hourly production Cloud chat probe (cmuxterm-hq synthetic-probes.yml app-chat-production): the shipped
     # NIGHTLY app signed in to production, `cmux cloud start-chat --wait`. The only target in the production project.
     "production": Target("cmux-cloud-capture-prod@manaflow.dev", "cmux cloud probe (production)",
@@ -97,6 +116,15 @@ TARGETS = {
                          "jjGF/Nq5EeX9Ye2kCKwzDsZaAJETgKx/H8cQgQPv9AY=",
                          "CLOUD_PROBE_PRODUCTION_STACK_EMAIL", "CLOUD_PROBE_PRODUCTION_STACK_PASSWORD",
                          project=PRODUCTION_PROJECT_ID),
+    # The production Cloud journey (cloud-journey-prod.yml hourly, backend.yml journey-production): both run in this
+    # repository's cmux-next-cloud-journey environment and read the production pair as CMUX_DOGFOOD_STACK_*, which
+    # shadows the repository's dev pair (production refuses that one with EMAIL_PASSWORD_MISMATCH). Its own
+    # account, so rotating it never signs the probe's account out.
+    "journey-production": Target("cmux-cloud-capture-journey-prod@manaflow.dev", "cmux cloud journey (production)",
+                                 "manaflow-ai/cmux", "cmux-next-cloud-journey", "3380204578043523366",
+                                 "phe+RfKRmKGeO9B3rCULM4jdTzJX8aS7LbvGrIoTFWM=",
+                                 "CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD",
+                                 project=PRODUCTION_PROJECT_ID),
 }
 CAPTURE = TARGETS["capture"]
 EMAIL = CAPTURE.email
@@ -171,22 +199,25 @@ class Stack:
             raise ProvisionError(f"{len(matches)} staging users have that email; refusing to pick one")
         return matches[0] if matches else None
 
-    def create(self, email, password, display_name=CAPTURE.display_name):
-        user = self.server("POST", "/users", {
-            "primary_email": email, "primary_email_verified": True, "primary_email_auth_enabled": True,
-            "password": password, "display_name": display_name,
-            "client_read_only_metadata": {PLAN_KEY: PLAN}})
+    def create(self, email, password, display_name=CAPTURE.display_name, profile_image_url=None):
+        body = {"primary_email": email, "primary_email_verified": True, "primary_email_auth_enabled": True,
+                "password": password, "display_name": display_name, "client_read_only_metadata": {PLAN_KEY: PLAN}}
+        if profile_image_url:
+            body["profile_image_url"] = profile_image_url
+        user = self.server("POST", "/users", body)
         if not user.get("id"):
             raise ProvisionError("Stack created the user but returned no id")
         return user
 
-    def rotate(self, user, password):
+    def rotate(self, user, password, profile=None):
+        """New password, the plan grant and a verified email; PROFILE (display_name, profile_image_url) when given."""
         metadata = user.get("client_read_only_metadata")
         metadata = dict(metadata) if isinstance(metadata, dict) else {}
         metadata[PLAN_KEY] = PLAN
-        self.server("PATCH", f"/users/{urllib.parse.quote(user['id'])}", {
-            "password": password, "primary_email_verified": True, "primary_email_auth_enabled": True,
-            "client_read_only_metadata": metadata})
+        body = {"password": password, "primary_email_verified": True, "primary_email_auth_enabled": True,
+                "client_read_only_metadata": metadata}
+        body.update(profile or {})
+        self.server("PATCH", f"/users/{urllib.parse.quote(user['id'])}", body)
 
     def grant(self, user):
         """Sets the operator plan grant and marks the primary email verified, keeping the account's other metadata
@@ -233,10 +264,12 @@ def provision(stack, out, log=print, lib=None, key_id=None, key=None, make_passw
     try:
         user = stack.find(email)
         if user is None:
-            user = stack.create(email, password, target.display_name)
+            user = stack.create(email, password, target.display_name, target.profile_image_url)
             action = "created"
         else:
-            stack.rotate(user, password)
+            profile = ({"display_name": target.display_name, "profile_image_url": target.profile_image_url}
+                       if target.profile_image_url else None)
+            stack.rotate(user, password, profile)
             action = "rotated"
         if stack.plan(user["id"]) != PLAN:
             raise ProvisionError(f"the account's {PLAN_KEY} did not read back as {PLAN!r}")

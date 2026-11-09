@@ -15,7 +15,7 @@
 // - Off (the `sessions.promptSuggestions` setting off, no Debug tunable, no experiment) nothing
 //   draws; suggested tasks on (`applySuggestedTasks`) alone draws the card; `applyPreview` does not.
 // - Another agent's message (`agent_message` provenance, a Claude Code `<cross-session-message>`
-//   in an adopted chat's history) draws as one disclosure line from that agent, toggle or not; Claude
+//   in an adopted chat's history) draws as one message line from that agent, toggle or not; Claude
 //   Code's task notifications and reminders there draw no raw XML.
 // - Reply on such a line sends the typed answer as this chat's cmux agent message to the sending
 //   chat: one `_acpmux/app_reply` naming this chat, that chat, the message's thread and the message
@@ -366,8 +366,9 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
     test("Do it here answers the offer here and sends its prompt to this chat", async () => {
       const page = await openChat({ offered: [single] });
       await card(page).getByText(single.title).waitFor({ timeout: 10_000 });
-      // A lone offer's card is headed with the list's own word, no noun (cg-ui-coord, 10-15).
-      expect(await card(page).getByText("Suggested", { exact: true }).count()).toBe(1);
+      // A lone offer's card is headed "New session", as Claude desktop's suggested-session card is
+      // (Leo, 2026-11-05: "I want to be able to, like, recommend Claude to be able to do that as well").
+      expect(await card(page).getByText("New session", { exact: true }).count()).toBe(1);
       await card(page).getByRole("button", { name: "Do it here" }).click();
       await waitUntil(() => calls.some((c) => c.method === "session/prompt"));
       const respondAt = calls.findIndex((c) => c.method === "_acpmux/offer_respond");
@@ -537,7 +538,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
   describe("messages from other agents", () => {
     const incoming = (page: Page) => page.locator(".cv-received");
     /// The pointer on a message's line: its hover actions (Reply, Retry, ⋯) take clicks only then.
-    const hoverLine = (card: Locator) => card.locator(":scope > .cv-disclosure__line").hover();
+    const hoverLine = (card: Locator) => card.locator(":scope > .cv-agentmsg__line").hover();
     /// One message as cmux's agent_message_prompt.rs `render` writes it: the prompt's text.
     const renderedMessage = (body: string, { id = "m-1", from = "Grid fix (acp:child-3)", reply = true } = {}) =>
       [
@@ -581,7 +582,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       expect(await card.locator(".cv-received__preview").innerText()).toBe(
         "The grid fix is on cmux/grid-fix; tests pass.",
       );
-      expect(await card.locator(".cv-disclosure__panel").count()).toBe(0);
+      expect(await card.locator(".cv-agentmsg__card").count()).toBe(0);
       expect(await card.getByRole("button", { name: "Details" }).count()).toBe(0);
       expect(await page.locator(".cv-user__bubble").filter({ hasText: "The grid fix is on" }).count()).toBe(0);
       // Opened, the whole message, and the prompt as the agent got it (cmux's envelope, message id
@@ -618,7 +619,9 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
       expect(await card.locator(".cv-received__preview").innerText()).toBe("Step 1 of the landing report.");
-      expect(await card.locator(".cv-disclosure__line").evaluate((el) => el.getBoundingClientRect().height)).toBe(22);
+      expect(
+        await card.locator(":scope > .cv-agentmsg__line").evaluate((el) => el.getBoundingClientRect().height),
+      ).toBe(22);
       expect(await page.locator(".cv-received__body, .cv-received__show, [data-cut]").count()).toBe(0);
       const toggle = card.getByRole("button", { name: /Message from Grid fix/ });
       expect(await toggle.getAttribute("aria-expanded")).toBe("false");
@@ -632,8 +635,10 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       await textBox.getByText("Step 20 of the landing report.").waitFor({ timeout: 5_000 });
       expect(await textBox.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
       expect(await textBox.locator("p").count()).toBe(20);
-      await toggle.click();
-      await card.locator(".cv-disclosure__panel").waitFor({ state: "detached", timeout: 5_000 });
+      // Opened, the toggle button holds no words and has no box of its own (AgentMessageRow.css):
+      // the pointer closes it from the line, here its chevron.
+      await card.locator(":scope > .cv-agentmsg__line .cv-agentmsg__chevron").click();
+      await card.locator(".cv-agentmsg__card").waitFor({ state: "detached", timeout: 5_000 });
       expect(await toggle.getAttribute("aria-expanded")).toBe("false");
       await page.close();
     });
@@ -847,11 +852,13 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       await field.waitFor({ timeout: 5_000 });
       await field.fill("Rebase first");
       const toggle = card.getByRole("button", { name: /Message from Grid fix/ });
-      await toggle.click();
-      // Closed with the message, nothing sent, and the focus on the chevron rather than lost.
+      // Opened, the toggle button has no box of its own (AgentMessageRow.css): the pointer closes
+      // the message from its line, here its chevron.
+      await card.locator(":scope > .cv-agentmsg__line .cv-agentmsg__chevron").click();
+      // Closed with the message, nothing sent, and the focus on the line's toggle rather than lost.
       await field.waitFor({ state: "detached", timeout: 5_000 });
       expect(await toggle.getAttribute("aria-expanded")).toBe("false");
-      await page.waitForFunction(() => document.activeElement?.classList.contains("cv-disclosure__toggle"), undefined, {
+      await page.waitForFunction(() => document.activeElement?.classList.contains("cv-agentmsg__toggle"), undefined, {
         timeout: 5_000,
       });
       expect(sentReply()).toBe(false);

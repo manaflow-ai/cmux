@@ -26,15 +26,19 @@ import argparse
 import json
 import math
 import os
+import secrets
 import select
+import shutil
+import socket
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
 SCHEMA = "cmux.cu-driver-eval.input-ab/1"
-ROUTES = ["cg-pid", "sl-pid", "session-tap", "nsevent-pid", "stamped-pid"]
+ROUTES = ["cg-pid", "sl-pid", "session-tap", "nsevent-pid", "stamped-pid", "stamped-sl", "stamped-cg"]
 GESTURES = ["click", "key", "scroll"]
 CONDITIONS = ["background", "foreground"]
 # The gesture's point, window-local below the title bar, outside the user's window (layout()).
@@ -103,22 +107,88 @@ class Log:
         return None
 
 
+def base_env() -> dict[str, str]:
+    """What any process of the login session has; a cmux-cua arm adds only cmux's own variables."""
+    return {k: os.environ[k] for k in ("HOME", "PATH", "TMPDIR", "USER", "LOGNAME", "LANG", "SHELL") if k in os.environ}
+
+
+def serve_argv(binary: str, socket_path: str) -> list[str]:
+    """`cmux-cua serve` as ComputerUseHelperDaemon.arguments builds it: each optional flag only
+    when the helper's manifest declares it (an older helper exits on an unknown flag), with
+    serve.motion implied from binary_version 0.8.12 on (CuaHelperManifestReader.parse)."""
+    capabilities: set[str] = set()
+    try:
+        manifest = json.loads(subprocess.run([binary, "manifest"], capture_output=True, timeout=10).stdout)
+        capabilities = {c for c in manifest.get("capabilities", []) if isinstance(c, str)}
+        version = str(manifest.get("binary_version", "")).split("-", 1)[0].split(".")
+        if all(part.isdigit() for part in version) and [int(p) for p in version] + [0] * 3 >= [0, 8, 12]:
+            capabilities.add("serve.motion")
+    except (OSError, ValueError, subprocess.TimeoutExpired, AttributeError):
+        pass
+    argv = [binary, "serve", "--socket", socket_path, "--no-permissions-gate", "--cursor-shape", "cmux",
+            "--idle-hide-ms", "10000"]
+    if "serve.motion" in capabilities:
+        argv += ["--glide-ms", "150", "--dwell-ms", "30"]
+    if "serve.owner-pid" in capabilities:
+        argv += ["--owner-pid", str(os.getpid())]
+    return argv
+
+
 class Mcp:
     """A Cua Driver build over MCP stdio, in this process tree so it inherits this step's
-    Accessibility grant and measures exactly the downloaded binary: cua-driver with `mcp --direct`
-    (no daemon), cmux-cua with `mcp --no-daemon-relaunch` (never hands off to an installed
-    cmux Computer Use.app). No fallback to plain `mcp`, which may hand the work to another build."""
+    Accessibility grant and measures exactly the downloaded binary. cua-driver runs `mcp --direct`
+    (no daemon). cmux-cua runs as cmux runs it: `serve --socket` on a socket of this run with the
+    environment the app gives its helper (ComputerUseHelperDaemon.environment), and `mcp --socket`
+    with the agent token and CMUX_CUA_MCP_FORCE_PROXY=1, as acpmux spawns it (agent_tools.rs). Its
+    standalone `mcp` looks for the app's tag-scoped helper, which no eval host runs. No fallback to
+    plain `mcp`, which may hand the work to another build."""
 
     def __init__(self, name: str, binary: str, stderr_path: Path):
         self.name, self.next_id, self.timeouts, self.buffer = name, 1, 0, b""
+        self.server: subprocess.Popen | None = None
+        self.state: Path | None = None
+        self.stderr = open(stderr_path, "ab")
         env = None
         if name.startswith("cmux-cua"):
-            argv = [binary, "mcp", "--no-daemon-relaunch"]
-            env = {**os.environ, "CMUX_CUA_MCP_NO_RELAUNCH": "1"}
+            state = Path(tempfile.mkdtemp(prefix="cu-eval-cmux-cua-"))
+            socket_path, token = str(state / "cua.sock"), secrets.token_hex(16)
+            # Exactly ComputerUseHelperDaemon.environment over a login session's basics: nothing of
+            # this runner's environment (no CMUX_CUA_* of its own) reaches the helper.
+            serve_env = {**base_env(), "CMUX_CUA_EXTERNAL_PERMISSION_FLOW": "1", "CMUX_CUA_PERMISSIONS_GATE": "0",
+                         "CMUX_CUA_RESPONSIBILITY_DISCLAIMED": "1", "CMUX_CUA_TELEMETRY_ENABLED": "false",
+                         "CMUX_CUA_UPDATE_CHECK": "false", "CMUX_CUA_CURSOR_LABEL": "cmux",
+                         "CMUX_CUA_STATE_DIR": str(state), "CMUX_CUA_SOCKET_AUTH_TOKEN": token,
+                         "CMUX_CUA_SOCKET_HOST_AUTH_TOKEN": secrets.token_hex(16)}
+            self.state = state
+            self.server = subprocess.Popen(serve_argv(binary, socket_path), stdin=subprocess.DEVNULL,
+                                           stdout=self.stderr, stderr=self.stderr, env=serve_env)
+            # bind() makes the file before listen(): wait until a connect is accepted.
+            deadline, listening = time.time() + 20, False
+            while not listening and self.server.poll() is None and time.time() < deadline:
+                probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                try:
+                    probe.connect(socket_path)
+                    listening = True
+                except OSError:
+                    time.sleep(0.1)
+                finally:
+                    probe.close()
+            if not listening:
+                self.close()
+                raise RuntimeError(f"{name}: serve did not listen on its socket (exit {self.server.poll()})")
+            argv = [binary, "mcp", "--socket", socket_path]
+            # Exactly the cmux-cua MCP server's environment in acpmux's agent_tools.rs.
+            env = {**base_env(), "CMUX_CUA_MCP_FORCE_PROXY": "1", "CMUX_CUA_TELEMETRY_ENABLED": "false",
+                   "CMUX_CUA_UPDATE_CHECK": "false", "CMUX_CUA_CURSOR_GRADIENT": "#12c7f5,#2d8cff,#6c5cff",
+                   "CMUX_CUA_CURSOR_BLOOM": "#2d8cff", "CMUX_CUA_CURSOR_LABEL": "cmux",
+                   "CMUX_CUA_SOCKET_AUTH_TOKEN": token}
         else:
             argv = [binary, "mcp", "--direct"]
-        self.stderr = open(stderr_path, "ab")
-        self.proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.stderr, env=env)
+        try:
+            self.proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.stderr, env=env)
+        except Exception:
+            self.close()
+            raise
         try:
             self.request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
                                         "clientInfo": {"name": "cu-driver-eval", "version": "1"}}, timeout=30)
@@ -170,23 +240,32 @@ class Mcp:
                 continue
             self.timeouts = 0
             if "error" in message:
-                raise RuntimeError(json.dumps(message["error"])[:300])
+                raise RuntimeError(json.dumps(message["error"])[:1200])
             return message.get("result") or {}
 
     def call(self, tool: str, args: dict) -> dict:
         result = self.request("tools/call", {"name": tool, "arguments": args})
         if result.get("isError"):
             text = " ".join(part.get("text", "") for part in result.get("content", []) if isinstance(part, dict))
-            raise RuntimeError(f"{tool}: {text.strip()[:300]}")
+            raise RuntimeError(f"{tool}: {text.strip()[:1200]}")
         return result
 
     def close(self) -> None:
-        if self.proc.poll() is None:
+        proc = getattr(self, "proc", None)
+        if proc is not None and proc.poll() is None:
             try:
-                self.proc.stdin.close()
-                self.proc.wait(timeout=5)
+                proc.stdin.close()
+                proc.wait(timeout=5)
             except Exception:
-                self.proc.kill()
+                proc.kill()
+        if self.server is not None and self.server.poll() is None:
+            self.server.terminate()
+            try:
+                self.server.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.server.kill()
+        if self.state is not None:
+            shutil.rmtree(self.state, ignore_errors=True)
         self.stderr.close()
 
 
@@ -197,6 +276,7 @@ class Run:
         self.app = str(self.bin / "cu-eval-app")
         self.procs: list[subprocess.Popen] = []
         self.errors: list[str] = []
+        self.obstruction: dict | None = None
         self.trials = open(self.out / "trials.jsonl", "w")
 
     def launch(self, argv: list[str], name: str) -> subprocess.Popen:
@@ -285,7 +365,15 @@ def trial(run: Run, arm: str, drivers: dict, target: dict, witness: dict, gestur
                 mcp.call("scroll", {**base, "x": lx * scale, "y": ly * scale, "direction": "down", "by": "line",
                                     "amount": SCROLL_LINES})
     except Exception as error:
-        row["error"] = str(error)[:300]
+        row["error"] = str(error)[:1200]
+        # A driver that refuses because a window is in front: keep what was on screen, once a run.
+        # A diagnostic that fails leaves the trial as the driver's refusal.
+        if "in front" in row["error"] and run.obstruction is None:
+            try:
+                windows = sh([run.inject, "windows"]).get("windows")
+            except Exception as failed:
+                windows = {"error": str(failed)[:600]}
+            run.obstruction = {"arm": arm, "target": target["name"], "error": row["error"], "windows": windows}
     row["call_ms"] = round((time.monotonic() - started) * 1000, 1)
     time.sleep(AFTER_S)
     after = sh([run.inject, "observe"])
@@ -439,10 +527,13 @@ def main() -> int:
                     width = (facts.get("window_bounds") or {}).get("width")
                     if facts.get("screenshot_width") and width:
                         target["pixels_per_point"][arm] = facts["screenshot_width"] / width
-                    else:
-                        run.errors.append(f"{arm} get_window_state on {name}: no screenshot size; used the backing scale")
+                    else:  # its own words for the missing image, when it gave any
+                        why = {k: v for k, v in facts.items() if isinstance(v, (str, bool, int, float))
+                               and any(w in k for w in ("screenshot", "capture", "error", "permission", "warning"))}
+                        run.errors.append(f"{arm} get_window_state on {name}: no screenshot size; used the backing scale "
+                                          f"{json.dumps(why)[:600]}")
                 except Exception as error:
-                    run.errors.append(f"{arm} get_window_state on {name}: {str(error)[:200]}")
+                    run.errors.append(f"{arm} get_window_state on {name}: {str(error)[:1200]}")
             for rep in range(args.reps):
                 for condition in CONDITIONS:
                     for gesture in GESTURES:
@@ -451,7 +542,7 @@ def main() -> int:
                                 t = trial(run, arm, drivers, target, witness, gesture, condition, park)
                             except Exception as error:
                                 t = {"arm": arm, "target": name, "gesture": gesture, "condition": condition,
-                                     "setup_failed": str(error)[:300]}
+                                     "setup_failed": str(error)[:1200]}
                             t["rep"] = rep
                             all_trials.append(t)
                             run.trials.write(json.dumps(t, sort_keys=True) + "\n")
@@ -459,7 +550,7 @@ def main() -> int:
             run.stop(target["proc"])
         result["arms"] = arms
     except Exception as error:
-        run.errors.append(str(error)[:300])
+        run.errors.append(str(error)[:1200])
         result.setdefault("arms", ROUTES + list(drivers))
     finally:
         for mcp in drivers.values():
@@ -474,6 +565,7 @@ def main() -> int:
     result["rows"] = aggregate(all_trials)
     result["wins"] = wins(result["rows"], result["arms"], names)
     result["errors"] = run.errors
+    result["obstruction"] = run.obstruction
     (out / "input-ab.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     # Exit 4 when no trial got past setup: rows of setup failures alone are not a measurement.
     measured = any("setup_failed" not in t and "unsupported" not in t for t in all_trials)

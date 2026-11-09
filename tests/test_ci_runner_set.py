@@ -28,7 +28,7 @@ TARGETS = {
     "gallery-health.yml": {"health"},
     "web-validation.yml": {"changes", "build", "tests", "database", "web-validation"},
     "pr-checks.yml": {"base-only", "size", "ui-review", "split"},
-    "pr-cloud-backend-check.yml": {"cloud-backend"},
+    "pr-body-checks.yml": {"body"},
 }
 
 
@@ -91,6 +91,82 @@ class RunnerSetTests(unittest.TestCase):
                     # Past the fork branches, no Blacksmith size is written down.
                     self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
                     self.assertNotRegex(runs_on, r"RUNNER_POOLS\)\.linux_\d")
+
+    def test_cmux_next_pr_quiet_period_comes_before_every_mac_job(self) -> None:
+        # A PR run sleeps until about 5 minutes after the PR's last push, so a newer push cancels a
+        # run that has spent only the sleep. Leo, 2026-11-05: "i meant can you do all of htem".
+        import json
+
+        jobs = yaml.safe_load((WORKFLOWS / "cmux-next.yml").read_text())["jobs"]
+        gate = jobs["pr-quiet-period"]
+        # The sleep holds no hosted Ubuntu slot: the org's 20 hosted jobs at once are for the routers
+        # and report steps (2026-11-07: the sleeps held 6 of 20 on average), so it is no hosted light job.
+        self.assertNotIn("cmux-next.yml#pr-quiet-period",
+                         json.loads((ROOT / ".github" / "runners.json").read_text())["hosted_light_jobs"])
+        self.assertNotIn("needs", gate)
+        self.assertIn("github.event_name == 'pull_request'", gate["if"])
+        self.assertIn("github.run_attempt == 1", gate["if"])
+        # landing.md: a leo-named-fix PR lands with no wait.
+        self.assertIn("!contains(github.event.pull_request.labels.*.name, 'leo-named-fix')", gate["if"])
+        # Hosted Ubuntu only outside manaflow-ai; a fork PR takes the smallest fixed size, every other
+        # run the smallest pool (review F1 of #36353: a sleep never takes a bigger runner than it needs).
+        self.assertEqual(gate["runs-on"].count("'ubuntu-24.04'"), 1)
+        self.assertTrue(gate["runs-on"].startswith("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "))
+        self.assertEqual(re.findall(r"'blacksmith-[^']+'", gate["runs-on"]), ["'blacksmith-2vcpu-ubuntu-2404'"])
+        self.assertTrue(gate["runs-on"].rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux_2 }}"))
+        self.assertEqual(gate["permissions"], {})
+        self.assertTrue(all(step.get("continue-on-error") for step in gate["steps"]))
+        # Only the Mac jobs wait for it (Leo, 2026-11-08, choosing "the Linux checks start at once and only
+        # the Mac jobs wait": "yeah"). macos-placement waits for it directly, so the Mac jobs are placed from
+        # a reading taken after the wait, and runs when it is skipped (pushes, dispatches, re-runs).
+        self.assertIn("pr-quiet-period", jobs["macos-placement"]["needs"])
+        self.assertTrue(jobs["macos-placement"]["if"].startswith("${{ !cancelled() && "), jobs["macos-placement"]["if"])
+
+        def needs(name: str) -> list[str]:
+            value = jobs[name].get("needs") or []
+            return [value] if isinstance(value, str) else list(value)
+
+        def ancestors(name: str) -> set[str]:
+            seen: set[str] = set()
+            stack = needs(name)
+            while stack:
+                need = stack.pop()
+                if need not in seen:
+                    seen.add(need)
+                    stack.extend(needs(need))
+            return seen
+
+        # Every Mac job (a runs-on that can name a macOS label, or a build-fleet client on the gateway runner
+        # that a Mac job's placement judged) waits for it. app-compile-fleet's runner only hands the head to
+        # the build fleet's Linux compile, on a gateway runner judged at once (app-compile-placement), and a
+        # push-only DEV landing compile never runs on a pull request.
+        starts_at_once = {"app-compile-fleet", "dev-landing-compile"}
+        mac = {name for name, job in jobs.items()
+               if ("macos" in str(job.get("runs-on", "")) or "gateway_runner" in str(job.get("runs-on", "")))
+               and name not in starts_at_once}
+        self.assertTrue({"fast-tier", "swift-canary", "swift-test", "daemon-test", "generated-files", "release-compile",
+                         "cmux-scheme-compile", "swift-canary-fleet", "fast-tier-fleet"} <= mac, sorted(mac))
+        for name in sorted(mac):
+            with self.subTest(job=name):
+                self.assertIn("pr-quiet-period", ancestors(name), f"{name} takes a Mac before the quiet period ends")
+        self.assertTrue(jobs["dev-landing-place"]["if"].startswith("${{ github.event_name == 'push'"))
+        self.assertEqual(needs("dev-landing-compile"), ["dev-landing-place"])
+        # The Linux work starts at once: none of it waits for the sleep.
+        for name in ("portable-placement", "push-head-preflight", "path_route", "checks", "fast-tier-cargo",
+                     "web-bundles", "app-compile-placement", "app-compile-fleet"):
+            with self.subTest(job=name):
+                self.assertNotIn("pr-quiet-period", ancestors(name), f"{name} waits for the quiet period")
+        # The run's group still cancels the whole run, the early Linux jobs included, on a newer push.
+        document = yaml.safe_load((WORKFLOWS / "cmux-next.yml").read_text())
+        self.assertIn("github.event_name == 'pull_request' ||", document["concurrency"]["cancel-in-progress"])
+        # The implicit success() reads every ancestor, the skipped gate included (a push, a re-run), so each
+        # job after it says how it treats a skipped or failed need (#35871).
+        for name, job in jobs.items():
+            if "pr-quiet-period" not in ancestors(name):
+                continue
+            with self.subTest(job=name):
+                self.assertRegex(str(job.get("if", "")), r"always\(\)|cancelled\(\)|failure\(\)",
+                                 f"{name} would skip whenever pr-quiet-period skips")
 
     def test_fast_checks_keeps_the_broker_overflow_set(self) -> None:
         runs_on = str((yaml.safe_load((WORKFLOWS / "fast-checks.yml").read_text()) or {})["jobs"]["checks"]["runs-on"])

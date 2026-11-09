@@ -11,13 +11,13 @@ struct CloudWorkspaceSetupSizeTests {
     private static let english = Locale(identifier: "en_US")
 
     private static func limits(_ json: String) throws -> CloudMachineLimits {
-        try JSONDecoder().decode(CloudMachineLimits.self, from: Data(json.utf8))
+        try CloudMachineRules().read("limits", Data(json.utf8), as: CloudMachineLimits.self, context: "limits")
     }
 
     private static func machine(_ id: String, cpu: Int, memoryMb: Int, rate: Double?) throws -> CloudMachine {
         let rateField = rate.map { #","hourlyRateUsd":\#($0)"# } ?? ""
         let json = #"{"id":"\#(id)","provider":"freestyle","status":"running","size":{"cpu":\#(cpu),"memoryMb":\#(memoryMb)}\#(rateField)}"#
-        return try JSONDecoder().decode(CloudMachine.self, from: Data(json.utf8))
+        return try CloudMachine.classic(Data(json.utf8))
     }
 
     private static let planLimits = #"{"maxActiveVms":5,"activeVmCount":1,"planId":"pro","memoryOptionsMb":[16384,4096,8192],"vcpusByMemoryMb":{"4096":2,"8192":4,"16384":8}}"#

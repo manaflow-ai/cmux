@@ -230,6 +230,20 @@ pub(crate) struct TerminalScreenSnapshot {
     pub(crate) osc_progress: String,
 }
 
+/// Which text a [`TerminalScreenSnapshot`] carries (`terminal.screen.read`
+/// fields `unwrap` and `lines`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum ScreenText {
+    /// The live screen, one line per row (the default).
+    #[default]
+    Rows,
+    /// The live screen with soft wraps joined into logical lines.
+    Unwrapped,
+    /// The last `count` lines of scrollback and screen together; logical
+    /// lines when `unwrap`, else rows.
+    LastLines { count: usize, unwrap: bool },
+}
+
 /// Nonblocking probe for the terminal mouse protocol and reporting mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PointerSemanticProbe {
@@ -281,6 +295,9 @@ pub struct AttachStream {
     /// parser boundary; write this after it and after the colors, right
     /// before the live stream that completes it.
     pub pending_sequence: Arc<[u8]>,
+    /// Rows of history older than the replay's first row, left out by a
+    /// tail replay (`replay_history_rows`); `None` for a whole replay.
+    pub history_rows_omitted: Option<u64>,
     pub stream: AttachFrameReceiver,
     pub(crate) lifecycle: AttachLifecycle,
 }

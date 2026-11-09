@@ -125,6 +125,128 @@ fn resolves_cost(hub: &Hub) -> Duration {
 }
 
 #[test]
+#[ignore = "lane-2-shaped synthetic benchmark"]
+fn lane2_update_resend_bench() {
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    const STEADY_PEERS: usize = 18;
+    const STEADY_ROWS: usize = 3_000;
+    const RESEND_ROWS: usize = 1_860;
+    const STEADY_NOTICES: usize = 8;
+    let dir = std::env::temp_dir().join(format!("acpmux-l2-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    #[cfg(unix)]
+    std::fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(0o1777)).unwrap();
+    let mut cfg = Config::default();
+    cfg.store.mode = crate::config::StoreMode::Local;
+    let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &dir).unwrap());
+    let mut peers = Vec::new();
+    for n in 0..=STEADY_PEERS {
+        let name = format!("peer-{n}");
+        let peer = Peer::new(&name, "ws://127.0.0.1:9", None, None, hub.peer_notices.clone());
+        hub.peers.lock().unwrap().insert(name.clone(), peer.clone());
+        let rows = if n == 0 { RESEND_ROWS } else { STEADY_ROWS };
+        hub.apply_peer_notice(
+            &name,
+            peer.generation,
+            PeerNotice::Sessions((0..rows).map(row).collect()),
+        );
+        peers.push(peer);
+    }
+    for peer in &peers {
+        peer.cache_saved_at.store(0, Ordering::SeqCst);
+    }
+    hub.cache_test_writes.store(0, Ordering::SeqCst);
+    let mut events = hub.events.subscribe();
+    let start = Arc::new(std::sync::Barrier::new(STEADY_PEERS + 2));
+    let done = Arc::new(AtomicBool::new(false));
+    let max_reader_us = Arc::new(AtomicU64::new(0));
+    let reader_samples = Arc::new(AtomicU64::new(0));
+    let max_lease_us = Arc::new(AtomicU64::new(0));
+    let reader_hub = hub.clone();
+    let reader_start = start.clone();
+    let reader_done = done.clone();
+    let reader_max = max_reader_us.clone();
+    let reader_count = reader_samples.clone();
+    let lease_max = max_lease_us.clone();
+    let reader = std::thread::spawn(move || {
+        reader_start.wait();
+        while !reader_done.load(Ordering::Acquire) {
+            let t = Instant::now();
+            std::hint::black_box(reader_hub.remote_sessions());
+            reader_max.fetch_max(t.elapsed().as_micros() as u64, Ordering::Relaxed);
+            let t = Instant::now();
+            drop(reader_hub.peer_leases.lock().unwrap());
+            lease_max.fetch_max(t.elapsed().as_micros() as u64, Ordering::Relaxed);
+            reader_count.fetch_add(1, Ordering::Relaxed);
+        }
+    });
+    let mut steady = Vec::new();
+    for (n, peer) in peers.iter().enumerate().skip(1) {
+        let hub = hub.clone();
+        let peer = peer.clone();
+        let start = start.clone();
+        steady.push(std::thread::spawn(move || {
+            start.wait();
+            for i in 0..STEADY_NOTICES {
+                let mut changed = row(i % STEADY_ROWS);
+                changed["updatedAt"] = json!(100 + i);
+                hub.apply_peer_notice(
+                    &peer.name,
+                    peer.generation,
+                    PeerNotice::SessionChanged {
+                        session: changed,
+                        kind: "status".into(),
+                        seq: n as u64,
+                    },
+                );
+            }
+        }));
+    }
+    let churn_hub = hub.clone();
+    let churn_peer = peers[0].clone();
+    let churn_start = start.clone();
+    let churn = std::thread::spawn(move || {
+        churn_start.wait();
+        let mut list: Vec<Value> = (0..RESEND_ROWS).map(row).collect();
+        for (i, row) in list.iter_mut().enumerate().take(5) {
+            row["updatedAt"] = json!(900 + i);
+        }
+        let t = Instant::now();
+        churn_hub.apply_peer_notice(
+            &churn_peer.name,
+            churn_peer.generation,
+            PeerNotice::Sessions(list),
+        );
+        t.elapsed()
+    });
+    let resend_cost = churn.join().unwrap();
+    for worker in steady {
+        worker.join().unwrap();
+    }
+    done.store(true, Ordering::Release);
+    reader.join().unwrap();
+    let mut event_count = 0u64;
+    while events.try_recv().is_ok() {
+        event_count += 1;
+    }
+    eprintln!(
+        "lane2-update-bench peers={} steady_rows={} resend_rows={} steady_notices={} resend_us={:.0} reader_samples={} reader_max_us={} peer_leases_max_us={} events={} writes={} rows={} linux_synthetic=true",
+        STEADY_PEERS,
+        STEADY_ROWS,
+        RESEND_ROWS,
+        STEADY_NOTICES,
+        resend_cost.as_secs_f64() * 1e6,
+        reader_samples.load(Ordering::Relaxed),
+        max_reader_us.load(Ordering::Relaxed),
+        max_lease_us.load(Ordering::Relaxed),
+        event_count,
+        hub.cache_test_writes.load(Ordering::Relaxed),
+        hub.remote_sessions().len()
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn a_resolve_among_thousands_of_peer_rows_copies_only_those_it_could_name() {
     let (hub, _peers) = linked(50, 160);
     assert_eq!(hub.remote_sessions().len(), 8_000);

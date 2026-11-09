@@ -17,48 +17,19 @@ import Foundation
 import Observation
 
 extension AppServices {
-    /// The loopback port of a Cloud machine's `cmux-rd` desktop host (`--port`).
-    static let cloudDesktopRdPort: UInt16 = 4103
-
-    /// Open Desktop's `cmux-rd` viewer: Cloud machine `machine`'s desktop host on its private
-    /// address, reached over the app's token-gated Cloud tunnel, with the session token Open
-    /// Desktop fetched (read again for every session, so a Reconnect after Open Desktop fetched a
-    /// new one uses it). `control` is the tab's mode: a tab
-    /// someone confirmed from a Connect card asks for view only. Nil without the machine or token.
-    func cloudDesktopRdTransport(machine: String, control: Bool) -> (@MainActor () -> RemoteRdStreamTransport?)? {
-        let key = machine.lowercased()
-        guard let id = machines.cloud.first(where: { $0.machineID.lowercased() == key })?.machineID,
-              cloud.desktopRdTokens[key] != nil else { return nil }
-        // Over the Cloud tunnel to the host on the machine's private address (it needs nothing from
-        // the machine's daemon, so any machine with the host works), not the daemon link.
-        guard let hub = remoteLocalhost.cloudTunnelSocket, let address = machines.cloudTunnelAddress(machine: id),
-              let opener = HubLoopbackOpener(hub: hub, address: address) else { return nil }
-        let cloud = cloud
-        return {
-            guard let token = cloud.desktopRdTokens[key] else { return nil }
-            let hello = RemoteRdHello(user: "cmux", install: "cmux-next-\(ProcessInfo.processInfo.processIdentifier)", token: token)
+    /// Open Desktop's `cmux-rd` viewer: the machine's desktop host over the carrier, a new
+    /// `cmux carrier dial --service desktop` per session with the platform origin and the person's
+    /// access token (``CloudCarrierDial/Connector``, ended with the account); each session's transport in the mode it asks for.
+    func cloudDesktopRdTransport(machine: String) -> (@MainActor (_ control: Bool) -> RemoteRdStreamTransport?)? {
+        guard cloud.auth.isSignedIn, !cloud.policyDisabled, let session = machines.cloud.first(where: { $0.machineID.lowercased() == machine.lowercased() }),
+              let dial = CloudCarrierDial.Connector(machine: session.machineID, service: .desktop, cli: cloud.binary, auth: cloud.auth, platform: cloud.configuration.relayAPIBaseURL(),
+                                                    team: session.machine.team, stateDirectory: cloud.tuiState, streams: cloud.desktopStreams) else { return nil }
+        return { control in
             let carrier = RemoteRdStreamCarrier {
-                let tunnel = try await opener.openTunnel(host: "localhost", port: Self.cloudDesktopRdPort)
-                let reader = LoopbackTunnelReader(tunnel)
-                return RemoteRdByteStream(read: { try? await reader.read() }, write: { try await tunnel.write($0) },
-                                          close: { tunnel.close() })
+                let stream = try await dial.open()
+                return RemoteRdByteStream(read: { await stream.read() }, write: { try await stream.send($0) }, close: { stream.close() })
             }
-            return RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: UUID().uuidString, control: control)
-        }
-    }
-
-    /// Open Desktop's native viewer: Cloud machine `machine`'s websockify port (6901, next to its
-    /// noVNC) over this Mac's own Cloud tunnel, with the hub's client token; no port opens on this
-    /// Mac. Nil when the tunnel cannot reach it (signed out, the machine without an address).
-    func cloudDesktopTransport(machine: String) -> (@Sendable () async throws -> RemoteViewPageSession.CloudDesktopStream)? {
-        guard let hub = remoteLocalhost.cloudTunnelSocket, let address = machines.cloudTunnelAddress(machine: machine),
-              let opener = HubLoopbackOpener(hub: hub, address: address) else { return nil }
-        return {
-            let tunnel = try await opener.openTunnel(host: "localhost", port: 6901)
-            let reader = LoopbackTunnelReader(tunnel)
-            return RemoteViewPageSession.CloudDesktopStream(read: { try await reader.read() },
-                                                            write: { try await tunnel.write($0) },
-                                                            close: { tunnel.close() })
+            return RemoteRdStreamTransport(carrier: carrier, hello: RemoteRdHello.cloudDesktop(), startKey: UUID().uuidString, control: control)
         }
     }
 
@@ -119,8 +90,8 @@ extension AppServices {
         iphone.pairNotices = IPhonePairNotices(post: { [weak self] in self?.notifications.desktop.post(id: IPhonePairNotices.id, title: $0,
             body: $1, surface: nil, workspace: nil, defaultSound: true, category: IPhonePairNotices.category) },
             withdraw: { [weak self] in self?.notifications.desktop.withdraw([IPhonePairNotices.id]) })
-        // The GitHub App lease goes when a sign-out starts (its install revoke may fail).
-        cloud.willSignOut.append { [weak self] in self?.githubAppLease.signOutStarted() }
+        // A sign-out starts: the GitHub App lease goes (its install revoke may fail), and the person's own sign-out forgets the paired phones.
+        cloud.willSignOut.append { [weak self] in self?.githubAppLease.signOutStarted(); self?.iphone.signOutStarted() }
         let cloud = cloud, machines = machines
         return Task { [weak self] in
             var account: (user: String, team: String)?
@@ -173,38 +144,11 @@ extension AppServices {
             let route = self.pages.storeKey(of: tab.id).flatMap { (self.pages.provider(.phone) as? PhonePageTab)?.route(for: $0) }
             return .some((route ?? tab.pageRoute).flatMap { PhoneDeviceID($0) })
         } : nil
-        let desktops = CloudDesktopSurfaceSources { [weak self] target in
-            guard let self else { throw CloudDesktopSurfaceSources.Failure.forbidden }
-            return try await self.phoneCloudDesktop(target)
-        }
+        // No Cloud desktop for the phone until it has a carrier route of its own (phoneCloudLinks says so).
         return MobileHostSurfaceClosures(start: { tab, onExit in
-            if CloudDesktopSurfaceSources.target(of: tab) != nil { return try await desktops.start(tab: tab, onExit: onExit) }
             guard let phoneTabs else { throw SimulatorSurfaceSources.Failure.notPhoneTab }
             return try await phoneTabs.start(tab: tab, onExit: onExit)
-        }, stop: { tab in
-            if CloudDesktopSurfaceSources.target(of: tab) != nil { await desktops.stop(tab: tab) } else { await phoneTabs?.stop(tab: tab) }
-        }, stopAll: { await desktops.stopAll(); await phoneTabs?.stopAll() }, streamsSimulators: phoneTabs != nil)
-    }
-
-    /// One Cloud desktop start for the phone: exactly one owned link of that machine and team (the
-    /// same check as hostd's), the same account after the hop, a running machine and a tunnel.
-    private func phoneCloudDesktop(_ target: CloudDesktopSurfaceSources.Target) async throws -> CloudDesktopSurfaceSources.Grant {
-        typealias Failure = CloudDesktopSurfaceSources.Failure
-        let account = (cloud.auth.user?.id, cloud.auth.teamID)
-        let matches = await phoneCloudLinks().links.filter { $0.machineID == target.machine && $0.teamID == target.team }
-        // `phone.cloudDesktop` (default off): the person lets phones view the machine's screen.
-        guard settings?.snapshot.sessions.phoneSeesCloudDesktop == true, account.0 != nil, matches.count == 1, let link = matches.first, link.owner, cloud.auth.isSignedIn,
-              cloud.auth.user?.id == account.0, cloud.auth.teamID == account.1,
-              let session = machines.session(link.machineID) else { throw Failure.forbidden }
-        guard session.machine.shownStatus == .running else { throw Failure.asleep }
-        guard let open = cloudDesktopTransport(machine: session.machineID) else { throw Failure.unreachable }
-        let frames = CloudDesktopFrames(machine: session.machineID, open: open), machines = machines, cloud = cloud, settings = settings
-        return .init(feed: SurfaceFrameFeed(start: { frames.start(frame: $0, ended: $1) }, stop: { frames.stop() }),
-                     label: session.machineID) { [weak session, weak settings] in
-            guard let session, settings?.snapshot.sessions.phoneSeesCloudDesktop == true else { return false }
-            return cloud.auth.isSignedIn && cloud.auth.user?.id == account.0 && cloud.auth.teamID == account.1
-                && machines.session(session.machineID) === session && session.machine.shownStatus == .running
-        }
+        }, stop: { tab in await phoneTabs?.stop(tab: tab) }, stopAll: { await phoneTabs?.stopAll() }, streamsSimulators: phoneTabs != nil)
     }
 
     /// Forward the account's app-link Cloud machines to Rust hostd (asleep ones with no socket),
@@ -217,13 +161,15 @@ extension AppServices {
               let team = MacInstallIdentity.team(ofToken: token) else { return MobileHostCloudLinks() }
         var result: [MobileHostCloudLink] = []
         for session in machines.cloud {
-            guard let link = session.appLink, !session.machine.isGoneForPhones else { continue }
+            guard !session.machine.isGoneForPhones else { continue }
+            let link = session.appLink
             let socket = await link.currentLinkSocket
             guard machines.session(session.machineID) === session, !session.machine.isGoneForPhones else { continue }
-            result.append(MobileHostCloudLink(machine: session.machine, machineID: session.machineID, teamID: team, socket: socket, cachedOwner: link.ownership.callerOwnsVM, user: user))
+            result.append(MobileHostCloudLink(machine: session.machine, machineID: session.machineID, teamID: team, socket: socket, cachedOwner: link.ownership.callerOwnsVM, user: cloud.auth.platformUserID ?? user))
         }
         // An account transition during either actor hop invalidates the whole answer.
         guard cloud.auth.isSignedIn, cloud.auth.user?.id == user, cloud.auth.teamID == selectedTeam else { return MobileHostCloudLinks() }
-        return MobileHostCloudLinks(paid: machines.cloudLimits?.paysForCloud ?? false, desktops: settings?.snapshot.sessions.phoneSeesCloudDesktop == true, links: result)
+        // No desktops: a phone has no carrier route to a Cloud desktop yet, whatever `phone.cloudDesktop` says.
+        return MobileHostCloudLinks(paid: machines.cloudLimits?.paysForCloud ?? false, desktops: false, links: result)
     }
 }

@@ -27,7 +27,9 @@
 //!   copy already finished there: a second push would overwrite what the chat
 //!   changed since. Answers the chat's folder there, and how it got there:
 //!   `mode` (`seed` or `copy`), `fallback_code`, `fallback_why` and
-//!   `install_url` when a seed copied instead, and `skipped_files`. The push's
+//!   `install_url` when a seed copied instead, `skipped_files`, and `filling`
+//!   when a seed answered at the chat's head while the machine fills the rest
+//!   ([`push`]). The push's
 //!   progress lines go to stderr; `--acpmux-home H` adds `source_trusted` ([`trust`]).
 //! - `ensure --workspace W --key K [--repo OWNER/NAME] [--project-key KEY] [--ref REF] [--environment env_...]
 //!   [--platform URL]`, the cmux credential on stdin: the workspace's own
@@ -51,6 +53,7 @@ mod ledger;
 mod pick;
 mod project;
 mod reservations;
+mod spare_warm;
 #[cfg(test)]
 mod tests;
 mod trust;
@@ -72,7 +75,7 @@ cmux link start-chat create-refused --key KEY --account ACCOUNT --create-key CRE
 cmux link start-chat target-pane --key KEY --account ACCOUNT --machine ID --pane PANE\n       \
 cmux link start-chat ensure --workspace ID --key KEY [--repo OWNER/NAME] [--project-key KEY] [--ref REF] [--environment env_ID] [--platform URL] (the cmux credential on stdin)\n       \
 cmux link start-chat import --entries JSON\n       \
-cmux link start-chat reserve|release --request JSON (the session credential on stdin)\n       \
+cmux link start-chat reserve|release|warm-spare --request JSON (the session credential, then the install token, on stdin), wait-copy --machine ID --provider P\n       \
 cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--store PLATFORM|default] (with --store, the cmux credential on stdin)";
 
 /// The error code a work root the machine's user cannot write answers with:
@@ -150,7 +153,9 @@ pub(super) fn run(args: &[String]) -> i32 {
             {
                 eprintln!("{}", json!({"store": {"used": false, "error": error}}));
             }
-            copy.run(&ledger, &push)
+            copy.run(&ledger, &|socket: &Path, local: &Path, remote: &str| {
+                push(socket, local, remote, &copy.subpath)
+            })
         }),
         "import" => flags.one("--entries").map(|entries| import(&ledger, entries)),
         "ensure" => Ensure::of(&flags).map(|ensure| ensure.run(&mut std::io::stdin().lock())),
@@ -160,6 +165,7 @@ pub(super) fn run(args: &[String]) -> i32 {
         "release" => {
             reservations::run(&flags, reservations::Action::Release, &mut std::io::stdin().lock())
         }
+        "warm-spare" | "wait-copy" => spare_warm::cli(action, &flags, &ledger),
         _ => None,
     };
     let Some(answer) = answer else {
@@ -290,8 +296,6 @@ struct PlanRequest {
     reservation_key: Option<String>,
     #[serde(default)]
     platform: Option<String>,
-    #[serde(default)]
-    team: Option<String>,
 }
 
 /// How `plan` asks the cmux platform for a workspace's machine: `ensure` with a credential.
@@ -393,13 +397,13 @@ fn plan_with_calls(
         None
     };
     // Read the credential once: project ensure and reservation bind use the same human session.
-    let mut credential = String::new();
+    let (mut credential, mut install) = (String::new(), String::new());
     if request.credential_on_stdin
         && (request.reservation_key.is_some() || ensures(&request, project_key.as_deref()))
     {
-        let _ = stdin.read_line(&mut credential);
+        let _ = stdin.read_line(&mut credential).and_then(|_| stdin.read_line(&mut install));
     }
-    let credential = credential.trim();
+    let credential = (credential.trim(), install.as_str()); // the bind's team: the install token's
     let mut line = keys.json();
     let fields = match planned {
         Ok(Destination::Machine(id)) => {
@@ -425,10 +429,10 @@ fn plan_with_calls(
                     .as_ref()
                     .map(|_| request.key.to_lowercase()),
             };
-            let answer = if credential.is_empty() {
+            let answer = if credential.0.is_empty() {
                 Err(crate::cli::PlatformCallError::Status { status: 401, code: "" })
             } else {
-                ensure(&ask, credential.trim())
+                ensure(&ask, credential.0)
             };
             match answer {
                 Ok(body) => {
@@ -483,7 +487,7 @@ fn reservation_destination(
     request: &PlanRequest,
     send: &Send,
     workspace: Option<&str>,
-    credential: &str,
+    (credential, install): (&str, &str),
     transport: reservations::Transport<'_>,
 ) -> Value {
     let cold = || {
@@ -501,7 +505,7 @@ fn reservation_destination(
             send_key: Some(request.key.to_lowercase()),
             environment: request.environment.clone(),
             platform: request.platform.clone(),
-            team: request.team.clone(),
+            team: spare_warm::install_team(install),
         },
         credential,
     );
@@ -972,9 +976,20 @@ pub(super) type Push<'a> = dyn Fn(&Path, &Path, &str) -> Result<Value, (String, 
 /// `cmux link seed push` (design/cloud.md, "Getting the project onto the
 /// machine"): a git folder with a GitHub remote is seeded from it, anything
 /// else copied (`cmux link sync push`), which refuses a machine without
-/// `fs-v1` (`machine_outdated`) itself.
-fn push(socket: &Path, local: &Path, remote: &str) -> Result<Value, (String, String)> {
-    super::seed_cli::push(socket, local, remote)
+/// `fs-v1` (`machine_outdated`) itself. A seed answers once the machine has the
+/// head the chat opens on (the root's files, the harness folders and `subpath`),
+/// `filling` while it fills the rest under its sync barrier, so every tool in the
+/// chat still sees the whole checkout. The send's copy counts as finished then
+/// ([`StartCopy::run`]): the chat may open in that folder, so a retry of the send
+/// never pushes over it. What a later delta builds on waits for the fill to be
+/// done (`seed_cli`'s record).
+fn push(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    subpath: &str,
+) -> Result<Value, (String, String)> {
+    super::seed_cli::push(socket, local, remote, Some(subpath))
         .map(|pushed| pushed_fields(&pushed.json()))
         .map_err(|error| super::seed_cli::failure(&error))
 }
@@ -982,10 +997,12 @@ fn push(socket: &Path, local: &Path, remote: &str) -> Result<Value, (String, Str
 /// What the copy's answer carries of the push's own line: how it went
 /// (`mode`: seed or copy), why a seed copied instead (`fallback_code`,
 /// `fallback_why`, and `install_url` when the machine needs the GitHub App),
-/// and the files it left on this Mac, by name.
+/// the files it left on this Mac, by name, and `filling` when the machine
+/// answered at the seed's head.
 fn pushed_fields(line: &Value) -> Value {
     let mut fields = serde_json::Map::new();
-    for key in ["mode", "fallback_code", "fallback_why", "install_url", "skipped_files"] {
+    for key in ["mode", "fallback_code", "fallback_why", "install_url", "skipped_files", "filling"]
+    {
         if let Some(value) = line.get(key).filter(|value| !value.is_null()) {
             fields.insert(key.to_string(), value.clone());
         }

@@ -12,6 +12,10 @@ use crate::no_panic::JsonExt;
 use std::collections::HashMap;
 use std::time::Duration;
 
+/// On a wait's row: a turn still comes for the session with nothing more sent
+/// (`Hub::work_coming`), so it is not ready yet.
+pub const WORK_COMING: &str = "workComing";
+
 /// What a caller can wait for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Until {
@@ -47,11 +51,16 @@ impl Until {
         // A sub-session whose prompt waits for a run slot (`hub/subsession_runs.rs`) has work
         // to do: it is not ready, nor done.
         let slot = s.get("waitsForSlot").and_then(Value::as_bool).unwrap_or(false);
+        // A turn still comes for it with nothing more sent (`Hub::work_coming`: a message the
+        // outbox has not delivered, an inbox message that wakes it): not ready, nor done.
+        let coming = s.get(WORK_COMING).and_then(Value::as_bool).unwrap_or(false);
         match self {
-            Self::Ready => status != "running" && status != "waiting" && !pending && !turn && !slot,
+            Self::Ready => {
+                status != "running" && status != "waiting" && !pending && !turn && !slot && !coming
+            }
             Self::Permission => pending || status == "waiting",
             Self::Closed => status == "closed",
-            Self::Done => unread && status != "running" && status != "waiting" && !slot,
+            Self::Done => unread && status != "running" && status != "waiting" && !slot && !coming,
             Self::Running => status == "running" || status == "waiting" || turn,
         }
     }
@@ -154,8 +163,12 @@ pub(super) async fn wait(
             match hub.resolve(k) {
                 Ok(s) => ids.push(s.id.clone()),
                 Err(_) => {
-                    let (_, id, _) = hub
+                    // A peer's, else a chat the hub lists for another machine of this person
+                    // (`hub/mesh_book.rs`), whose state each heartbeat's book read updates.
+                    let id = hub
                         .resolve_remote(k)
+                        .map(|(_, id, _)| id)
+                        .or_else(|| hub.mesh_book_resolve(k))
                         .ok_or_else(|| RpcError::not_found(format!("no session matches {k:?}")))?;
                     ids.push(id);
                 }
@@ -200,10 +213,13 @@ pub(super) async fn wait(
         let mut resolved = Vec::new();
         for id in &ids {
             // `get`, not `remove`: two keys can name one chat (its name and its id).
-            let s = summaries
+            let mut s = summaries
                 .get(id)
                 .cloned()
                 .unwrap_or_else(|| json!({"sessionId": id, "status": "closed", "missing": true}));
+            if hub.work_coming(id) {
+                s.set(WORK_COMING, json!(true));
+            }
             let seq_ok = after
                 .get(id)
                 .map(|a| s.get("stateSeq").and_then(Value::as_u64).unwrap_or(0) > *a)
@@ -383,6 +399,31 @@ mod retry_deciding_tests {
             let mut since = HashMap::new();
             assert!(!holds_for_retry(&s, since.entry("s".to_owned()), t0), "{s}");
         }
+    }
+}
+
+#[cfg(test)]
+mod agent_messaging_tests {
+    use super::*;
+
+    /// A `wait` right after `send --no-wait` read the receiver's idle state from before the
+    /// message reached it (round-2 eval, A4: exit 0 `idle` in 0.5 s). With a turn still coming
+    /// (`Hub::work_coming`) the idle row is neither ready nor done; a permission still answers.
+    #[test]
+    fn an_idle_session_with_a_turn_coming_is_not_ready_yet() {
+        let idle = json!({"status": "ready", "turn": null, "unread": true});
+        assert!(Until::Ready.matches(&idle));
+        assert!(Until::Done.matches(&idle));
+        let mut coming = idle.clone();
+        coming.set(WORK_COMING, json!(true));
+        assert!(!Until::Ready.matches(&coming), "the message has not started its turn yet");
+        assert!(!Until::Done.matches(&coming));
+        assert!(!Until::Running.matches(&coming));
+        let mut asks = coming.clone();
+        asks.set("pendingPermissions", json!(1));
+        assert!(Until::Permission.matches(&asks));
+        let closed = json!({"status": "closed", WORK_COMING: true});
+        assert!(Until::Closed.matches(&closed));
     }
 }
 

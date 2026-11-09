@@ -78,9 +78,16 @@ public struct TabsKitTheme: Sendable {
         public var editInset: CGFloat = 8
         /// Display corner radius for full-screen pages in zooms and swipes.
         public var screenRadius: CGFloat = 55
-        /// Card close button (22 pt circle) and the grid's top controls (36 pt).
+        /// Card close button (22 pt circle).
         public var cardClose: CGFloat = 22
-        public var overviewTopControl: CGFloat = 36
+        /// The grid's top controls (More, Select's Close | More and Done, and an
+        /// app's Back beside them): the bottom bar's 48 pt glass circle, so the
+        /// top and bottom toolbars read as one size.
+        public var overviewTopControl: CGFloat = 48
+        /// Glyph of a toolbar circle's chevron or ellipsis (19 pt medium, the
+        /// bottom bar's back and forward); a Done checkmark is 20 pt semibold.
+        public var toolbarGlyph: CGFloat = 19
+        public var doneGlyph: CGFloat = 20
         public var titleRow: CGFloat = 23
         /// Page menu.
         public var menuWidth: CGFloat = 250

@@ -16,17 +16,19 @@
 import { useState, type ComponentProps, type CSSProperties } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
-import { WAVE_CLASS, WAVE_KEYFRAMES } from "../../../ui/wave";
+import { WAVE_CLASS } from "../../../ui/wave";
 import { activity, assistant, chat, CONTEXT_BREAKDOWN, CWD, tool } from "../../../gallery/fixtures/acpmux";
 import type { StartedSession } from "../started/startedSessions";
 import type { Subagent } from "../subagents/subagentFold";
 import { createWorkflowAdapter } from "../summary/foldWorkflows";
-import { sessionSummary, type SummaryWakeup } from "../summary/sessionSummary";
-import { workflowFixture, type WorkflowFixtureStage } from "../summary/workflowFixture";
-import { SessionInfo, SessionInfoPanel, type SessionInfoPlacement } from "./SessionInfo";
-import { SubagentBanner, SubagentTitle, type SubagentHeaderVariant } from "./SubagentScopeHeader";
+import { sessionSummary, type SummarySource, type SummaryWakeup } from "../summary/sessionSummary";
+import { parallelWorkflowProcesses, workflowFixture, type WorkflowFixtureStage } from "../summary/workflowFixture";
+import { SessionInfo, SessionInfoPanel } from "./SessionInfo";
+import type { SessionInfoPlacement } from "./sessionInfoModel";
+import { SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
+import type { SubagentHeaderVariant } from "./subagentScopeHeaderModel";
 import { subagentSummary, type SubagentScope } from "./subagentScope";
-import { outputArtifacts } from "./OutputsSection";
+import { outputArtifacts } from "./outputsSectionModel";
 import { DEFAULT_SECTIONS } from "./sessionInfoState";
 import { sessionEntry, type AcpmuxSessionEntry } from "../sessionList";
 import type { SessionUsageStats } from "../usageStats";
@@ -47,11 +49,38 @@ type Props = ComponentProps<typeof SessionInfo> & {
   ceiling?: string;
   /// Gallery-only: a different edge look, for comparison with the shipped hairline (sessionInfo.css).
   edge?: string;
+  /// Gallery-only: a compared section grip (GRIP_LOOKS), for comparison with the shipped right-gutter one.
+  grip?: keyof typeof GRIP_LOOKS;
   /// Gallery-only: panel width used by narrow workflow layout states.
   panelWidth?: number;
   /// Gallery-only: the old always-drawn thin thumb, for comparison with the shipped no-scrollbar body.
   scroller?: "thumb";
+  /// Gallery-only: a compared head or fold look (FOLD_LOOKS), for comparison with the shipped one.
+  look?: keyof typeof FOLD_LOOKS;
 };
+
+/// Compared section heads and fold curves (sessionInfo.css), as style overrides on the shipped ones.
+const FOLD_LOOKS = {
+  /// The head lights a faint fill under the pointer (not at rest), as every row does.
+  "head-hover-fill":
+    ".acpmux-session-info-section .ui-disclosure-trigger:hover{background:var(--acpmux-session-info-row-hover)}",
+  /// The folds on the flat ease-out of the motion scale (--cmux-ease-out over its standard step).
+  "flat-ease":
+    ".acpmux-session-info{--cmux-ease-settle:var(--cmux-ease-out);--cmux-motion-settle:var(--cmux-motion-standard)}",
+} as const;
+
+/// Compared section grips (sessionInfo.css `__handle`), as style overrides on the shipped one.
+const GRIP_LOOKS = {
+  /// Faint at rest, as the reference panel draws it, and full on the grip.
+  rest: ".acpmux-session-info-section__handle{opacity:0.45}",
+  /// In the left gutter, beside the title, at the reference's size; only on head hover.
+  left:
+    ".acpmux-session-info__body[data-layout]{padding-right:var(--grid-sidebar-highlight-inset)}" +
+    ".acpmux-session-info-section__handle{right:auto;left:calc(-1 * (var(--grid-sidebar-highlight-inset) + var(--acpmux-session-info-grip-gutter)));" +
+    "width:calc(var(--grid-sidebar-highlight-inset) + var(--acpmux-session-info-grip-gutter) - var(--grid-base) / 2)}",
+  /// No grip until the head is hovered, and the whole head takes the grab cursor.
+  head: ".acpmux-session-info-section:has(> .acpmux-session-info-section__handle) > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger{cursor:grab}",
+} as const;
 
 const edit = (path: string, oldText: string | undefined, newText: string) =>
   tool(`Edit ${path}`, "edit", "completed", { diffs: [{ path: `${CWD}/${path}`, oldText, newText }] });
@@ -107,8 +136,10 @@ function GallerySessionInfo({
   tones,
   ceiling,
   edge,
+  grip,
   panelWidth = 320,
   scroller,
+  look,
   more: moreAtFirst,
   ...props
 }: Props) {
@@ -118,7 +149,9 @@ function GallerySessionInfo({
     <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%", ...tones }}>
       {ceiling ? <style>{`.acpmux-session-info[data-placement]{max-height:${ceiling}}`}</style> : null}
       {edge ? <style>{`.acpmux-session-info[data-placement]{${edge}}`}</style> : null}
+      {grip ? <style>{GRIP_LOOKS[grip]}</style> : null}
       {scroller === "thumb" ? <style>{".acpmux-session-info__body{scrollbar-width:thin}"}</style> : null}
+      {look ? <style>{FOLD_LOOKS[look]}</style> : null}
       {transcript ? <Transcript /> : null}
       <SessionInfoPanel
         width={panelWidth}
@@ -290,45 +323,6 @@ const idleAgents: Subagent[] = [
   },
 ];
 
-/// Where the play holds every wave loop: one point on each loop's own timeline, past its delay (the
-/// delay is never positive, wave.css), so each icon's phase differs only by its index. At 840 ms
-/// the crest (20% of Session Info's 2.4 s period, SubagentsSection.css) is on the third line: the
-/// two before it fall from it, the two after it rise toward it, so a still reads dim, brighter,
-/// crest, brighter, dim.
-const WAVE_HOLD_MS = 840;
-
-/// The page's wave loops (CSS animations of `cmux-wave`).
-const waveLoops = (ctx: PlayContext) =>
-  ctx.document
-    .getAnimations()
-    .filter((animation) => (animation as CSSAnimation).animationName === WAVE_KEYFRAMES) as CSSAnimation[];
-
-/// Holds the wave mid-sweep for a still. A loop is held only once installWave has moved it onto the
-/// shared epoch (its start is a whole number of periods of Unix time): a loop paused before that is
-/// restarted by the realignment, which scrambled the wave. Then all of them pause at one point.
-const holdWave: Play = async (ctx) => {
-  const items = () => ctx.document.querySelectorAll(`.acpmux-session-info-subagents .${WAVE_CLASS}`);
-  await ctx.waitFor(() => items().length === RUNNING);
-  // Reduce Motion, the motion gate or static indicators run no wave: there is nothing to hold.
-  const view = ctx.document.defaultView!;
-  if (view.getComputedStyle(items()[0]!).animationName !== WAVE_KEYFRAMES) return;
-  const origin = view.performance.timeOrigin;
-  const aligned = (animation: CSSAnimation) => {
-    const period = Number(animation.effect?.getTiming().duration);
-    if (!(period > 0) || animation.startTime === null) return false;
-    const phase = (((Number(animation.startTime) + origin) % period) + period) % period;
-    return Math.min(phase, period - phase) < 1;
-  };
-  await ctx.waitFor(() => {
-    const loops = waveLoops(ctx);
-    return loops.length === RUNNING && loops.every((loop) => loop.playState === "running" && aligned(loop));
-  });
-  for (const loop of waveLoops(ctx)) {
-    loop.pause();
-    loop.currentTime = WAVE_HOLD_MS;
-  }
-};
-
 /// Chats the agent started: one waits on the person, one runs on a Cloud VM, one is done.
 const sessions: StartedSession[] = [
   { sessionId: "child-1", title: "Rename the settings keys", state: "waiting", createdAt: started - 600_000 },
@@ -421,9 +415,9 @@ const chevronOnHoverAfterTitle: Play = async (ctx) => {
 };
 
 /// As native #32674: the six-dot grip draws nothing at rest, nor for a pointer over a section's other
-/// rows; it shows while its section's head is hovered, left of the title (Leo, 2026-11-03: "why dont
-/// we have the drag grabber to the left of the title"), overlapping neither the title nor the head's
-/// icon, and the title does not move when it shows.
+/// rows; it shows, faint, while its section's head is hovered, at the head's right end past its count
+/// (Leo, 2026-11-06: "if you look at the spacing of claude code, they have theirs at the
+/// right"), at the reference's size, and neither the title nor the count moves when it shows.
 const gripOnHeadHoverOnly: Play = async (ctx) => {
   const handles = () => [...ctx.document.querySelectorAll(".acpmux-session-info-section__handle")];
   await ctx.waitFor(() => handles().length > 0);
@@ -440,27 +434,40 @@ const gripOnHeadHoverOnly: Play = async (ctx) => {
     if (style(ctx, handle).opacity !== "0") throw new Error("A body row's hover showed its section's grip");
   }
   const title = head.querySelector(".acpmux-session-info-section__title")!;
+  const meta = head.querySelector(".acpmux-session-info-section__meta");
   const before = title.getBoundingClientRect();
+  const metaBefore = meta?.getBoundingClientRect();
   await ctx.hover({
     selector: `[data-section="${section.dataset.section}"] > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger`,
   });
-  await ctx.waitFor(() => style(ctx, handle).opacity === "1");
+  // The grip fades in (and the count out) over the quick step: read both once they have.
+  await ctx.waitFor(
+    () => Number.parseFloat(style(ctx, handle).opacity) >= 0.7 && (!meta || style(ctx, meta).opacity === "0"),
+  );
+  const opacity = Number.parseFloat(style(ctx, handle).opacity);
+  if (!(opacity < 1)) throw new Error(`The grip shows at ${opacity}, not faint`);
   const after = title.getBoundingClientRect();
   if (after.left !== before.left || after.width !== before.width)
     throw new Error("The title moved when the grip showed");
-  // Leo, 2026-11-03: "just align the draggable. in fact, make it a more horizontally wide symbol". The
-  // dots are wider than tall and on the head's middle line. Leo, 2026-11-04: "this is off", of the dots
-  // centred on the pill's left edge: they sit wholly inside the pill, left of its icon or title.
+  const metaAfter = meta?.getBoundingClientRect();
+  if (metaBefore && metaAfter && metaAfter.right !== metaBefore.right)
+    throw new Error("The count moved when the grip showed");
+  // Two dots across and three down, about 6x10, at the head's right end, on its middle line: its dots end
+  // on the rows' text edge (one grid gap in from the section's), in the count's place (Leo, 2026-11-07: "the
+  // grip and the lef tside aren't flush").
   const dots = handle.querySelector("svg")!.getBoundingClientRect();
   const pill = head.getBoundingClientRect();
-  if (dots.right > after.left + 0.5) throw new Error("The grip is not left of the title");
-  const icon = head.querySelector(".acpmux-session-info-section__icon");
-  if (icon && dots.right > icon.getBoundingClientRect().left + 0.5)
-    throw new Error("The grip overlaps the head's icon");
-  if (!(dots.width > dots.height)) throw new Error(`The grip is ${dots.width}x${dots.height}, not wider than tall`);
-  if (dots.left < pill.left + 0.5) throw new Error("The grip is not wholly inside its head's pill");
+  if (!(dots.height > dots.width)) throw new Error(`The grip is ${dots.width}x${dots.height}, not taller than wide`);
+  if (dots.width > 6 || dots.height > 10)
+    throw new Error(`The grip is ${dots.width}x${dots.height}, past the reference's size`);
+  const gap = Number.parseFloat(style(ctx, head).paddingLeft);
+  if (Math.abs(dots.right - (section.getBoundingClientRect().right - gap)) > 1)
+    throw new Error("The grip does not end on the rows' right text edge");
+  if (meta && style(ctx, meta).opacity !== "0") throw new Error("The count still draws under the grip");
   if (Math.abs(dots.top + dots.height / 2 - (pill.top + pill.height / 2)) > 0.5)
     throw new Error("The grip is not on its head's middle line");
+  // The head under the pointer draws no fill: only the grip, a control of its own, lights.
+  if (style(ctx, head).backgroundColor !== "rgba(0, 0, 0, 0)") throw new Error("The hovered head draws a fill");
 };
 
 /// Shows a compared grip placement: the pointer rests on the first foldable section head.
@@ -469,31 +476,21 @@ const hoverFirstHead: Play = async (ctx) => {
   await ctx.hover({ selector: FOLDABLE_HEAD });
 };
 
-/// Leo, 2026-11-03: "why dont we have the drag grabber to the left of the title". Every section's grip,
-/// icon heads (Context, Usage, Connectors) and the bare Environment rows included, ends at or before its
-/// head's first glyph (its icon, else its title) and sits far from the panel's right edge, where the
-/// scrollbar's thumb runs.
-const gripLeftOfEveryTitle: Play = async (ctx) => {
+/// Leo, 2026-11-06: "they have theirs at the right". Every section's grip, icon heads (Context, Usage,
+/// Connectors) included, ends on its section's right text edge (Leo, 2026-11-07: "the grip and the lef
+/// tside aren't flush"), inside the panel.
+const gripRightOfEveryHead: Play = async (ctx) => {
   const sections = () => [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-session-info-section")];
   await ctx.waitFor(() => sections().some((s) => s.querySelector(":scope > .acpmux-session-info-section__handle")));
   const body = ctx.find({ selector: ".acpmux-session-info__body" }).getBoundingClientRect();
   for (const section of sections()) {
     const handle = section.querySelector(":scope > .acpmux-session-info-section__handle");
     if (!handle || handle.getClientRects().length === 0) continue;
-    // The dots: the handle's hit box reaches over the icon box's empty margin.
     const grip = handle.querySelector("svg")!.getBoundingClientRect();
-    const first = section.querySelector(
-      ":scope > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger, :scope > .acpmux-session-info-section__head",
-    );
-    // A bare section (the Environment rows) has no head: its first row's leading icon stands in.
-    const glyph = first
-      ? first.querySelector(":scope > .acpmux-session-info-section__icon, :scope > .acpmux-session-info-section__title")
-      : section.querySelector(":scope > :not(.acpmux-session-info-section__handle) svg");
-    if (glyph && grip.right > glyph.getBoundingClientRect().left + 0.5)
-      throw new Error(`${section.dataset.section}'s grip is not left of its title`);
-    if (grip.left < body.left - 0.5) throw new Error(`${section.dataset.section}'s grip spills out of the panel`);
-    if (grip.right > body.left + body.width / 2)
-      throw new Error(`${section.dataset.section}'s grip is on the right, by the scrollbar's thumb`);
+    const edge = section.getBoundingClientRect().right;
+    if (grip.right > edge - 4 || grip.right < edge - 12)
+      throw new Error(`${section.dataset.section}'s grip does not end on its rows' right text edge`);
+    if (grip.right > body.right - 0.5) throw new Error(`${section.dataset.section}'s grip spills out of the panel`);
   }
 };
 
@@ -530,8 +527,9 @@ const scrollsWithNoScrollbar: Play = async (ctx) => {
   await ctx.waitFor(() => body.scrollTop > 0);
 };
 
-// The panel's edge: a hairline (at most 1px) in the pane's border color all round, on its rounded corners,
-// and no fill of its own where nothing runs under it (Leo, 2026-11-03: "having a border for it might be better").
+// The panel's edge: a hairline (at most 1px) at 22% of the pane's text all round (never the App's 7-9% border
+// tokens), on its rounded corners, and no fill of its own where nothing runs under it (Leo, 2026-11-03:
+// "having a border for it might be better"; 2026-11-07: "but the border on session info is way too faint").
 const hairlineEdge: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-session-info"));
   const panel = ctx.find({ selector: ".acpmux-session-info" });
@@ -543,43 +541,45 @@ const hairlineEdge: Play = async (ctx) => {
       throw new Error(`The panel's ${side} edge does not draw`);
   }
   const probe = ctx.document.createElement("div");
-  probe.style.color = "var(--agent-border)";
+  probe.style.color = "color-mix(in srgb, var(--agent-text) 22%, transparent)";
   panel.parentElement!.append(probe);
   const border = style(ctx, probe).color;
   probe.remove();
   if (look.borderTopColor !== border)
-    throw new Error(`The edge is ${look.borderTopColor}, not the pane's border ${border}`);
+    throw new Error(`The edge is ${look.borderTopColor}, not 22% of the pane's text (${border})`);
   if (Number.parseFloat(look.borderTopLeftRadius) <= 0) throw new Error("The edge has square corners");
   if (!panel.hasAttribute("data-over-chat")) await noCardBehind(ctx);
 };
 
-// Every section title shares the Environment rows' text column, with or without an icon.
+// Every section title sits on the Environment rows' icon column: heads have no icon of their own
+// (Lucas, 2026-11-05, Session Info lab).
 const checkTopBlockAlignment: Play = async (ctx) => {
   const rect = (selector: string) => ctx.find({ selector }).getBoundingClientRect();
-  const environment = '[data-section="environment"] .acpmux-session-info-row__name';
+  const environment = '[data-section="environment"] .acpmux-session-info-row > svg';
   await ctx.waitFor(() => ctx.document.querySelector(environment));
-  const labelLeft = rect(environment).left;
-  for (const section of ["context", "usage", "connectors"]) {
+  const iconLeft = rect(environment).left;
+  for (const section of ["context", "subagents", "sources", "changes", "usage", "connectors"]) {
+    if (!ctx.document.querySelector(`[data-section="${section}"] .acpmux-session-info-section__title`)) continue;
     const title = rect(`[data-section="${section}"] .acpmux-session-info-section__title`);
-    if (Math.abs(title.left - labelLeft) > 0.5)
-      throw new Error(`${section} label starts ${title.left - labelLeft}px from the Environment text column`);
+    if (Math.abs(title.left - iconLeft) > 0.5)
+      throw new Error(`${section} title starts ${title.left - iconLeft}px from the Environment icon column`);
   }
-  const heading = rect('[data-section="changes"] .acpmux-session-info-section__title');
-  if (Math.abs(heading.left - labelLeft) > 0.5)
-    throw new Error("The Changes heading moved from the shared text column");
 };
 
-/// The default order, top to bottom (sectionOrder.ts DEFAULT_ORDER; Leo, 2026-11-03: "1. Machines showing
-/// up so I know if it's cloud or not 2. context 3. Subagents/background tasks running 4. Sources").
+/// The default order, top to bottom (sectionOrder.ts DEFAULT_ORDER): what it runs on, Context, what it
+/// runs, what it read and made, then the Show more line ("more") and the less-used sections under it.
 const DEFAULT_SECTION_ORDER = [
   "environment",
   "context",
-  "usage",
+  "progress",
   "subagents",
   "tasks",
+  "alsoHere",
   "sources",
-  "changes",
   "outputs",
+  "more",
+  "changes",
+  "usage",
   "connectors",
 ];
 const assertDefaultOrder: Play = async (ctx) => {
@@ -590,7 +590,7 @@ const assertDefaultOrder: Play = async (ctx) => {
   const expected = DEFAULT_SECTION_ORDER.filter((id) => drawn.includes(id));
   if (drawn.join(" ") !== expected.join(" "))
     throw new Error(`Session Info's default order is ${drawn.join(", ")}, not ${expected.join(", ")}`);
-  for (const id of ["environment", "context", "subagents", "sources"])
+  for (const id of ["environment", "context", "subagents", "sources", "outputs"])
     if (!drawn.includes(id)) throw new Error(`The full chat does not draw ${id}`);
 };
 
@@ -599,30 +599,35 @@ const drawnSlots = (ctx: PlayContext) =>
   [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-session-info-sections > [data-slot]")].map(
     (slot) => slot.dataset.slot!,
   );
-const LEO_FOUR = ["environment", "context", "subagents", "tasks", "sources"];
-const LESS_USED = ["usage", "changes", "outputs", "connectors"];
+/// The sections above the Show more line in the full chat, and the ones under it.
+const LEO_FOUR = ["environment", "context", "subagents", "tasks", "sources", "outputs"];
+const LESS_USED = ["changes", "usage", "connectors"];
+/// What the full chat draws in the default order: no plan (Progress) and no other chat here (Also
+/// working here).
+const FULL_ORDER = DEFAULT_SECTION_ORDER.filter((id) => id !== "progress" && id !== "alsoHere");
+/// The same without the Show more line: the looks that have none (all, capped).
+const ORDER_WITHOUT_LINE = FULL_ORDER.filter((id) => id !== "more");
 const expectDrawn = (ctx: PlayContext, expected: readonly string[]) => {
   const drawn = drawnSlots(ctx);
   if (drawn.join(" ") !== expected.join(" "))
     throw new Error(`Session Info draws ${drawn.join(", ")}, not ${expected.join(", ")}`);
 };
-/// The shipped default view: Leo's four in view, the less-used sections behind one Show more that
-/// names them; Show more draws every one in the default order, and Show less puts them back.
+/// The shipped default view: the sections above the Show more line in view, then the plain Show more
+/// line; opened, it reads Show less over every section in the default order, and closed again it puts
+/// them back.
 const compactByDefault: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector("[data-slot]"));
-  expectDrawn(ctx, LEO_FOUR);
+  expectDrawn(ctx, [...LEO_FOUR, "more"]);
   const more = ctx.find({ selector: ".acpmux-session-info-more" });
   if (more.getAttribute("aria-expanded") !== "false") throw new Error("Show more starts open");
-  const names = more.querySelector(".acpmux-session-info-more__names")?.textContent ?? "";
-  for (const title of ["Usage", "Changes", "Outputs", "Connectors"])
-    if (!names.includes(title)) throw new Error(`Show more does not name ${title}: "${names}"`);
+  if (!/Show more/.test(more.textContent ?? "")) throw new Error(`The line reads "${more.textContent}"`);
   await ctx.click({ selector: ".acpmux-session-info-more" });
-  await ctx.waitFor(() => drawnSlots(ctx).length === LEO_FOUR.length + LESS_USED.length);
-  expectDrawn(ctx, DEFAULT_SECTION_ORDER);
+  await ctx.waitFor(() => drawnSlots(ctx).length === LEO_FOUR.length + 1 + LESS_USED.length);
+  expectDrawn(ctx, FULL_ORDER);
   if (!/Show less/.test(ctx.find({ selector: ".acpmux-session-info-more" }).textContent ?? ""))
     throw new Error("Show more open does not offer Show less");
   await ctx.click({ selector: ".acpmux-session-info-more" });
-  await ctx.waitFor(() => drawnSlots(ctx).length === LEO_FOUR.length);
+  await ctx.waitFor(() => drawnSlots(ctx).length === LEO_FOUR.length + 1);
 };
 
 /// Every session acpmux lists, this Mac's and a peer's: the usage audit's deputies on a build box (no
@@ -684,6 +689,77 @@ const unpricedFleet: AcpmuxSessionEntry[] = [
   }),
 ];
 
+/// Every Web Animation and transition in the page has ended: the fold is at its final layout.
+const settled = (ctx: PlayContext) => ctx.document.getAnimations().length === 0;
+
+/// The Changes head, as one of the heads with a count.
+const CHANGES_HEAD = '[data-section="changes"] > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger';
+
+/// Leo, 2026-11-07: "simply don't highlight and have a thing you can click". A head with a count: at rest its
+/// count ends on the rows' right text edge; under the pointer it draws no fill, and the grip takes the
+/// count's place there, its dots on that same edge; the title is on the rows' icon column.
+const plainHead: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(CHANGES_HEAD));
+  const head = ctx.find({ selector: CHANGES_HEAD });
+  const section = head.closest<HTMLElement>(".acpmux-session-info-section")!;
+  const handle = section.querySelector(":scope > .acpmux-session-info-section__handle")!;
+  const gap = Number.parseFloat(style(ctx, head).paddingLeft);
+  const edge = section.getBoundingClientRect().right - gap;
+  const meta = head.querySelector(".acpmux-session-info-section__meta")!;
+  if (Math.abs(meta.getBoundingClientRect().right - edge) > 1)
+    throw new Error("The head's count does not end on the rows' right text edge");
+  // The hidden grip lies over the count's right end and takes no press there: what the browser hits at
+  // the count is the head, so a click on it folds the section (and a second opens it again).
+  const box = meta.getBoundingClientRect();
+  const hit = ctx.document.elementFromPoint(box.right - 2, box.top + box.height / 2);
+  if (!hit || !head.contains(hit)) throw new Error(`A click on the count lands on ${hit?.className ?? "nothing"}`);
+  (hit as HTMLElement).click();
+  await ctx.waitFor(() => head.getAttribute("aria-expanded") === "false" && settled(ctx), { capMs: 3000 });
+  (hit as HTMLElement).click();
+  await ctx.waitFor(() => head.getAttribute("aria-expanded") === "true" && settled(ctx), { capMs: 3000 });
+  await ctx.hover({ selector: CHANGES_HEAD });
+  await ctx.waitFor(() => Number.parseFloat(style(ctx, handle).opacity) > 0 && style(ctx, meta).opacity === "0");
+  if (style(ctx, head).backgroundColor !== "rgba(0, 0, 0, 0)") throw new Error("The hovered head draws a fill");
+  const dots = handle.querySelector("svg")!.getBoundingClientRect();
+  if (Math.abs(dots.right - edge) > 1) throw new Error("The grip does not end on the rows' right text edge");
+  const title = head.querySelector(".acpmux-session-info-section__title")!.getBoundingClientRect();
+  if (Math.abs(title.left - (head.getBoundingClientRect().left + gap)) > 0.5)
+    throw new Error("The title is off the rows' icon column");
+};
+
+/// Leo, 2026-11-07: "we also need more animations for the session info collapsing/expanding". Changes
+/// folds into its head, and the sections under it and the panel's edge rise with it; then it opens again.
+/// Each ends exactly on its final layout, with nothing left running.
+const foldAndOpen: Play = async (ctx) => {
+  const panel = () => ctx.document.querySelector('[data-section="changes"] .ui-disclosure-panel');
+  await ctx.waitFor(() => panel());
+  await ctx.click({ selector: CHANGES_HEAD });
+  await ctx.waitFor(() => !panel() && settled(ctx), { capMs: 3000 });
+  await ctx.click({ selector: CHANGES_HEAD });
+  await ctx.waitFor(() => panel() && settled(ctx), { capMs: 3000 });
+  if (style(ctx, panel()!).height === "0px") throw new Error("The opened section ends folded");
+};
+
+/// Changes' own Show more grows its list in place and Show less closes it over the rows that go.
+const showMoreAndLess: Play = async (ctx) => {
+  const fold = () => ctx.document.querySelector("button.acpmux-session-info-pr-fold");
+  await ctx.waitFor(() => /already on base/.test(text(ctx)) && fold());
+  await ctx.click({ selector: "button.acpmux-session-info-pr-fold" });
+  await ctx.waitFor(() => fold()?.getAttribute("aria-expanded") === "true" && settled(ctx), { capMs: 3000 });
+  await ctx.click({ selector: "button.acpmux-session-info-pr-fold" });
+  await ctx.waitFor(() => fold()?.getAttribute("aria-expanded") === "false" && settled(ctx), { capMs: 3000 });
+  if (ctx.document.querySelector("[data-folding]")) throw new Error("A Show less left its box clipped");
+};
+
+/// The panel's Show more line opens the sections under it, and Show less folds them away again.
+const panelMoreAndLess: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector("button.acpmux-session-info-more"));
+  await ctx.click({ selector: "button.acpmux-session-info-more" });
+  await ctx.waitFor(() => ctx.document.querySelector('[data-slot="changes"]') && settled(ctx), { capMs: 3000 });
+  await ctx.click({ selector: "button.acpmux-session-info-more" });
+  await ctx.waitFor(() => !ctx.document.querySelector('[data-slot="changes"]') && settled(ctx), { capMs: 3000 });
+};
+
 const full: Props = {
   summary,
   allSessions: fleet,
@@ -702,11 +778,10 @@ const full: Props = {
       { label: "teamleaderleo/leo-workspace #1056", kind: "issue" },
     ],
   },
-  links: [
-    { url: "https://cmux.com/docs/session-info", label: "cmux.com/docs/session-info" },
-    { url: "https://claude.ai/artifact/session-info-plan", label: "claude.ai/artifact/session-info-plan" },
-  ],
   artifacts: 4,
+  // Environment's Changes row, under the branch: the chat's last edits.
+  edits: { additions: 311, deletions: 193 },
+  onOpenChanges: () => undefined,
   agents,
   statuses,
   processes,
@@ -715,7 +790,6 @@ const full: Props = {
   onOpenSession: () => undefined,
   onStopProcess: async () => undefined,
   onOpenUrl: () => undefined,
-  onOpenOutput: () => undefined,
   onOpenSourceFile: () => undefined,
   onOpenSubagent: () => undefined,
   onSaveEnvironment: () => undefined,
@@ -848,7 +922,9 @@ const workflowProps = (
       ? {
           ...workflow,
           agents: workflow.agents.map((agent) =>
-            agent.index === 4 ? { ...agent, model: modelOverride, startedAt: Date.now() - 204_000 } : agent,
+            // A finished agent: listed under "N finished" without a click, so the check measures the
+            // row as it first renders.
+            agent.index === 1 ? { ...agent, model: modelOverride } : agent,
           ),
         }
       : workflow,
@@ -891,25 +967,38 @@ const workflowFailureProps = (): Props => {
   return { ...workflowProps("finished", "detail", 260), workflows: createWorkflowAdapter()(nodes, "gallery-chat") };
 };
 
-const assertNarrowWorkflowLayout: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-agent__button") !== null);
-  const panel = ctx.find({ selector: ".acpmux-session-info" }).getBoundingClientRect();
-  if (Math.abs(panel.width - 260) > 1) throw new Error(`expected a 260px panel, got ${panel.width}px`);
-  const name = ctx.find({ selector: ".acpmux-workflow-agent__name" }).getBoundingClientRect();
-  const model = ctx.find({ selector: ".acpmux-workflow-agent__model" }).getBoundingClientRect();
-  const state = ctx.find({ selector: ".acpmux-workflow-agent__state" }).getBoundingClientRect();
-  const time = ctx.find({ selector: ".acpmux-workflow-agent .acpmux-session-info-task__time" }).getBoundingClientRect();
-  if (name.width < 24) throw new Error(`workflow agent name collapsed at ${name.width}px`);
-  if (model.right > state.left + 0.5) throw new Error("workflow model overlaps the state column");
-  if (state.right > time.left + 0.5) throw new Error("workflow state overlaps the elapsed-time column");
-};
-/// Opens the workflow's `n`th phase (from 1).
-const openPhase =
-  (n: number): Play =>
+/// At 260px the row's name keeps its width and its model, state and elapsed time keep their columns.
+/// Measured on the row that names a model (an agent whose model differs from the workflow's), when
+/// `withModel`; otherwise on the first agent row.
+const narrowWorkflowLayout =
+  (withModel: boolean): Play =>
   async (ctx) => {
-    await ctx.click({ selector: `.acpmux-workflow-phase:nth-child(${n}) .acpmux-workflow-phase__head` });
-    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-phase__agents") !== null);
+    const rowSelector = withModel
+      ? ".acpmux-workflow-agent:has(.acpmux-workflow-agent__model)"
+      : ".acpmux-workflow-agent";
+    await ctx.waitFor(() => ctx.document.querySelector(`${rowSelector} .acpmux-workflow-agent__button`) !== null);
+    const panel = ctx.find({ selector: ".acpmux-session-info" }).getBoundingClientRect();
+    if (Math.abs(panel.width - 260) > 1) throw new Error(`expected a 260px panel, got ${panel.width}px`);
+    const row = ctx.find({ selector: rowSelector });
+    const box = (selector: string) => {
+      const element = row.querySelector(selector);
+      if (!element) throw new Error(`no element for ${selector}`);
+      return element.getBoundingClientRect();
+    };
+    const name = box(".acpmux-workflow-agent__name");
+    const state = box(".acpmux-workflow-agent__state");
+    const time = box(".acpmux-session-info-task__time");
+    if (name.width < 24) throw new Error(`workflow agent name collapsed at ${name.width}px`);
+    if (withModel && box(".acpmux-workflow-agent__model").right > state.left + 0.5)
+      throw new Error("workflow model overlaps the state column");
+    if (state.right > time.left + 0.5) throw new Error("workflow state overlaps the elapsed-time column");
   };
+/// A finished workflow's agents: every one under its open "N finished", its phases one row each.
+const finishedAgents: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-workflow-finished__agents > li").length >= 7);
+  if (ctx.document.querySelector(".acpmux-workflow-phase__head:not(:disabled)"))
+    throw new Error("a finished workflow's phase opens though no agent of it is left running");
+};
 
 /// A chat in a lane checkout of cmux that worked across several folders: Environment lists only its
 /// project (chatFolders.ts).
@@ -1002,7 +1091,6 @@ const subagentPanel: Props = {
   rows: subagentRows,
   agent: worktreeAgent,
   onOpenUrl: () => undefined,
-  onOpenOutput: () => undefined,
   onOpenSourceFile: () => undefined,
   onStopProcess: async () => undefined,
   scope: scopeOf(worktreeAgent),
@@ -1052,6 +1140,13 @@ const openMcpTools: Play = async (ctx) => {
   await ctx.click({ selector: '[data-list="mcpTools"] button' });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-breakdown__items") !== null);
 };
+
+/// A pasted image as acpmux keeps it: WebKit named it "image.png"; `source` is the app it came from.
+const pasted = (id: string, source?: string): SummarySource => ({
+  label: "image.png",
+  kind: "image",
+  image: { id: id.repeat(64), ...(source ? { source } : {}) },
+});
 
 const text = (ctx: Parameters<Play>[0]) => ctx.document.querySelector(".acpmux-session-info")?.textContent ?? "";
 
@@ -1107,7 +1202,7 @@ export default componentEntry<Props>({
       props: { ...full, more: false },
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-session-info-more" });
-        await ctx.waitFor(() => drawnSlots(ctx).length === LEO_FOUR.length + LESS_USED.length);
+        await ctx.waitFor(() => drawnSlots(ctx).length === LEO_FOUR.length + 1 + LESS_USED.length);
       },
     },
     "compact-folded": {
@@ -1120,7 +1215,7 @@ export default componentEntry<Props>({
       },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector("[data-slot]"));
-        expectDrawn(ctx, DEFAULT_SECTION_ORDER);
+        expectDrawn(ctx, ORDER_WITHOUT_LINE);
         for (const id of LESS_USED) {
           const trigger = ctx.document.querySelector(`[data-slot="${id}"] .ui-disclosure-trigger`);
           if (trigger?.getAttribute("aria-expanded") !== "false") throw new Error(`${id} is not folded`);
@@ -1132,7 +1227,7 @@ export default componentEntry<Props>({
       props: { ...full, more: undefined, compactLook: "capped" },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector("[data-slot]"));
-        expectDrawn(ctx, DEFAULT_SECTION_ORDER);
+        expectDrawn(ctx, ORDER_WITHOUT_LINE);
         if (ctx.document.querySelectorAll("[data-capped]").length < LEO_FOUR.length)
           throw new Error("the sections are not capped");
       },
@@ -1144,22 +1239,52 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
       },
     },
+    "workflow-parallel": {
+      note: "Two phases run at once, 25 minutes in (Leo's 2026-11-05 screenshot): each phase is one row with its count and dots, closed until opened, except Latency, open on its own while the shell tasks its agents started run; Latency plan and Swarm synthesis, which no agent reached, are plain pending rows with no label; the workflow names its model once; the two agents that ended are under 2 finished, out of the running lists, the latest first.",
+      props: { ...workflowProps("parallel"), processes: parallelWorkflowProcesses() },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
+      },
+    },
+    "workflow-parallel-open": {
+      note: "The same run with Swarm research opened too: each running agent says in words what it does (never its last shell command), swarm:ours names Sonnet 5.5 since it differs from the workflow's model, the shell tasks its agents started sit under them, and both finished agents are opened to their output at the row's size, cut to three lines with Show more, rendered from their JSON results (swarm:history's cut short at Claude's 240-character preview).",
+      props: { ...workflowProps("parallel"), processes: parallelWorkflowProcesses() },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
+        // The rows sit below a short frame: each target is brought into view before its trusted click.
+        const open = async (selector: string, opened: string, count: number) => {
+          await ctx.waitFor(() => ctx.document.querySelector(selector));
+          ctx.document.querySelector(selector)?.scrollIntoView({ block: "center" });
+          await ctx.click({ selector });
+          await ctx.waitFor(() => ctx.document.querySelectorAll(opened).length >= count);
+        };
+        const finished = ".acpmux-workflow-finished li";
+        await open(
+          ".acpmux-workflow-phase:nth-child(3) .acpmux-workflow-phase__head",
+          ".acpmux-workflow-phase__agents",
+          2,
+        );
+        await open(`${finished}:nth-child(1) .acpmux-workflow-agent__disclosure`, ".acpmux-workflow-agent__output", 1);
+        await open(`${finished}:nth-child(2) .acpmux-workflow-agent__disclosure`, ".acpmux-workflow-agent__output", 2);
+        ctx.document.querySelector(".acpmux-workflow-task")?.scrollIntoView({ block: "start" });
+      },
+    },
     "workflow-finished": {
-      note: "Labs: the same workflow finished. 1 finished; Finished · 7 agents · 432k tokens; each phase N/N with its dots, no Stop. Critique opened: its agents with a check and how long each took.",
+      note: "Labs: the same workflow finished. 1 finished; Finished · 7 agents · 432k tokens; each phase one row, N/N with its dots, nothing to open, no Stop; its seven agents under 7 finished, the latest first, each with a check and how long it took.",
       props: workflowProps("finished"),
-      play: openPhase(2),
+      play: finishedAgents,
     },
     "workflow-agent-failed": {
       note: "A failed workflow agent shows the provider's failure reason in the existing message line instead of stale progress. At 260px the reason truncates and its full text remains in the tooltip and accessible name.",
       props: workflowFailureProps(),
       play: async (ctx) => {
-        await openPhase(2)(ctx);
+        await finishedAgents(ctx);
         const message = ctx.find({
           selector: '.acpmux-workflow-agent[data-state="failed"] .acpmux-workflow-agent__doing',
         });
         if (message.textContent !== "503: No provider capacity available")
           throw new Error("missing workflow failure reason");
-        await assertNarrowWorkflowLayout(ctx);
+        await narrowWorkflowLayout(false)(ctx);
       },
     },
     "workflow-agent-row-compact": {
@@ -1184,9 +1309,9 @@ export default componentEntry<Props>({
       },
     },
     "workflow-agent-row-narrow": {
-      note: "Narrow-width check: at 260px the longest supported model label truncates while the running agent name stays visible and state plus elapsed time keep separate columns.",
+      note: "Narrow-width check: at 260px the longest supported model label (a finished agent's, which differs from the workflow's) truncates while the agent name stays visible and state plus elapsed time keep separate columns.",
       props: workflowProps("running", "detail", 260, "anthropic/claude-sonnet-5-5"),
-      play: assertNarrowWorkflowLayout,
+      play: narrowWorkflowLayout(true),
     },
     usage: {
       note: "Chosen: Usage's own metric rows reserve the shared leading slot, so their labels start on the same text column as Context and peer-session rows without repeating a generic icon. The section keeps this chat's last 24 hours (cost, tokens, the context each call carries with Compact beside it, its autocompact cap, compactions, subagents with Show, the launcher), then every session acpmux lists on this Mac and its peers, highest 24h cost first; five show, then View all. Folded, it is one row after Context: this chat's 24h cost.",
@@ -1411,7 +1536,8 @@ export default componentEntry<Props>({
     },
     "grid-expanded": {
       note: "All Session Info sections expanded for shared lead, text, trail and spacing measurements.",
-      props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
+      // Sources starts folded (Lucas, 2026-11-05): open here so its rows are measured too.
+      props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true, sources: true } },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /4 finished/ });
       },
@@ -1500,6 +1626,23 @@ export default componentEntry<Props>({
         repository: undefined,
       },
     },
+    "connectors-loaded": {
+      note: 'Connector inventory variant: two MCP servers loaded by the attached harness read as "2 loaded". This deliberately does not claim provider authentication or resource authorization.',
+      props: {
+        ...full,
+        summary: {
+          ...summary,
+          mcpServers: [
+            { name: "github", status: "connected" as const },
+            { name: "linear", status: "connected" as const },
+          ],
+        },
+      },
+    },
+    "connectors-connecting": {
+      note: 'Connector inventory variant: one MCP server is still loading, so the head says "1 connecting" rather than a green connected count.',
+      props: { ...full, summary: { ...summary, mcpServers: [{ name: "github", status: "pending" as const }] } },
+    },
     "context-connectors-open": {
       note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status.",
       props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
@@ -1573,8 +1716,8 @@ export default componentEntry<Props>({
       },
     },
     "sources-hover": {
-      note: "The pointer on a Sources link's row: one faint tint over the row, the link inside it never tinting a second time. An MCP tool's row takes no click, so it never lights.",
-      props: full,
+      note: "The pointer on a Sources link's row (Sources unfolded): one faint tint over the row, the link inside it never tinting a second time. An MCP tool's row takes no click, so it never lights.",
+      props: { ...full, sections: { ...DEFAULT_SECTIONS, sources: true } },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector("a.acpmux-session-info-source__link") !== null);
         await ctx.hover({ selector: "a.acpmux-session-info-source__link" });
@@ -1585,9 +1728,35 @@ export default componentEntry<Props>({
       props: {
         ...full,
         summary: { ...summary, additionalDirectories: ["/Users/you/notes", "/Users/you/design/specs"] },
+        sections: { ...DEFAULT_SECTIONS, sources: true },
       },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector('[data-kind="folder"]') !== null);
+        ctx.document.querySelector('[data-section="sources"]')?.scrollIntoView({ block: "center" });
+      },
+    },
+    "sources-screenshots": {
+      note: 'Images pasted from the clipboard, each named "image.png" by WebKit, beside one real capture file (Leo, 2026-11-05: "instead of, like screenshot number one, two, three, four, or whatever"): Sources (unfolded) reads them Screenshot 1, 2, ... in chat order, "Safari screenshot 3" for the one copied from Safari, and the file by its own name. Four rows show; the numbers count the whole list, so Show 3 more shows Screenshot 4 and 5 next.',
+      props: {
+        ...full,
+        made: {
+          ...made,
+          pullRequests,
+          sources: [
+            pasted("1"),
+            pasted("2"),
+            { label: "cmux.com/docs/session-info", url: "https://cmux.com/docs/session-info", kind: "url" },
+            { label: "Screenshot 2026-11-05 at 10.12.04.png", kind: "image", image: { id: "6".repeat(64) } },
+            pasted("3", "Safari"),
+            pasted("4"),
+            pasted("5"),
+          ],
+        },
+        sections: { ...DEFAULT_SECTIONS, sources: true },
+      },
+      play: async (ctx) => {
+        // Four rows (SOURCES_SHOWN), then Show 3 more.
+        await ctx.waitFor(() => ctx.document.querySelectorAll('[data-section="sources"] li').length === 4);
         ctx.document.querySelector('[data-section="sources"]')?.scrollIntoView({ block: "center" });
       },
     },
@@ -1642,7 +1811,7 @@ export default componentEntry<Props>({
       },
     },
     "subagents-idle": {
-      note: 'Subagents that stopped and wait on background work of their own read Idle, not Running for two hours, and the head counts them as idle ("3 running · 2 idle · 1 done"). Every line is named by its task, never its id. The limit line says it caps the chats this one started: "Started chats: 0 of 1000 at once".',
+      note: 'Subagents that stopped and wait on background work of their own read Idle, not Running for two hours, and the head counts them as idle ("3 running · 2 idle · 1 done"). Every line is named by its task, never its id. With no started chat running or waiting, no limit line shows.',
       props: {
         ...full,
         agents: idleAgents,
@@ -1654,13 +1823,20 @@ export default componentEntry<Props>({
         },
       },
       play: async (ctx) => {
-        await ctx.waitFor(() => /2 idle/.test(text(ctx)) && /Started chats: 0 of 1000 at once/.test(text(ctx)));
+        await ctx.waitFor(() => /2 idle/.test(text(ctx)));
+        if (/Started chats:/.test(text(ctx))) throw new Error("A limit line shows with no started chat running");
       },
     },
     "subagents-wave": {
-      note: "Five running subagents, one per line, share one shimmer that sweeps down their icons, held mid-sweep for the still: dim, brighter, the crest, brighter, dim. The row of the done and the failed one under them stays at full strength.",
+      note: 'Five running subagents, one per line: each line is its mark, name and time, with no shimmer over the marks (Lucas, 2026-11-05, Session Info lab: "remove the green spinning circle"). The done and the failed one fold into one plain row under them.',
       props: { ...full, agents: waveAgents, sessions: [] },
-      play: holdWave,
+      play: async (ctx) => {
+        const lines = () =>
+          ctx.document.querySelectorAll('[data-section="subagents"] button.acpmux-agent-line__button');
+        await ctx.waitFor(() => lines().length >= RUNNING);
+        if (ctx.document.querySelector(`[data-section="subagents"] .${WAVE_CLASS}`))
+          throw new Error("A Subagents line still runs the wave");
+      },
     },
     "tasks-finished": {
       note: "Background tasks: the running watcher with how long it has run and Stop, the transcript's pytest without Stop, then the four finished commands, open.",
@@ -1693,7 +1869,7 @@ export default componentEntry<Props>({
       },
     },
     "outputs-artifacts": {
-      note: "Outputs as Claude Code desktop lists them: each artifact by its title with an Artifact tag (each opens in the side panel), the gallery, the files with their line counts, the links with a Link tag.",
+      note: "Outputs as Claude Code desktop lists them: each artifact by its title with an Artifact tag (each opens in the side panel), the gallery, the files with their line counts. No links: what the replies cited is not something the chat made.",
       props: {
         ...full,
         documents: outputArtifacts(producedRows),
@@ -1748,32 +1924,66 @@ export default componentEntry<Props>({
       play: chevronOnHoverAfterTitle,
     },
     "header-grip-hover": {
-      note: 'A section head under the pointer: the six-dot grip shows left of the title, wholly inside the head\'s pill in its leading padding and on its middle line (Leo, 2026-11-03: "why dont we have the drag grabber to the left of the title"; 2026-11-04, of the grip centred on the pill\'s edge: "this is off"). The title does not move. At rest no grip draws, and a pointer over the section\'s other rows shows none.',
+      note: "Chosen. A section head under the pointer: a small, faint six-dot grip (two across and three down, 1.5px dots 4px apart, the reference's size) shows at the head's right end in the count's place, its dots on the rows' right text edge, on its middle line (Leo, 2026-11-06: \"if you look at the spacing of claude code, they have theirs at the right\"; 2026-11-07: \"the grip and the lef tside aren't flush\"). Nothing in the head moves; its room is always kept. At rest no grip draws, and a pointer over the section's other rows shows none.",
       props: { ...full, placement: "push" },
       play: gripOnHeadHoverOnly,
     },
-    "header-grip-edge": {
-      note: 'Before, for comparison: the grip centred on the head\'s left edge, half on and half off its pill, as cmux#34269 drew it (Leo, 2026-11-04: "this is off").',
-      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-center:0px" },
+    "header-grip-rest": {
+      note: 'Compared, not chosen: the grip faint at rest as the reference panel draws it, right of the count. Six faint dots on every section head at rest read as clutter in a panel with eight heads (Leo, 2026-11-02, on an always-on grip: "THESE ARE JUST SO INSANELY STUPID LOOKING").',
+      props: { ...full, placement: "push", grip: "rest" },
+    },
+    "header-grip-left-small": {
+      note: 'Compared, not chosen: the grip on head hover in the left gutter beside the title, at the reference\'s size. It still crowds the title (Leo, 2026-11-06: "I do not like the layout and proportion of the dragger").',
+      props: { ...full, placement: "push", grip: "left" },
       play: hoverFirstHead,
     },
-    "header-grip-gutter": {
-      note: "Compared, not chosen: the wide grip wholly in the gutter left of the pill. It reads as detached from its row and runs into the panel's resize edge.",
-      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-center:calc(-1 * var(--grid-base))" },
+    "header-grip-whole-head": {
+      note: "Compared, not chosen: no grip at rest, the whole head takes the grab cursor, and the grip shows on hover. A press on a head already folds the section, so a whole-head drag would need a move threshold before every fold click; the grip alone keeps the fold click instant.",
+      props: { ...full, placement: "push", grip: "head" },
       play: hoverFirstHead,
     },
-    "header-grip-tall": {
-      note: "Before, for comparison: the grip turned upright (two across, three down), as cmux#32930 drew it.",
-      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-turn:rotate(90deg)" },
-      play: hoverFirstHead,
-    },
-    "header-grip-left": {
-      note: "Every section's grip, icon heads and the bare Environment rows included, sits left of its head's icon or title, away from the scrollbar's thumb on the right.",
+    "header-grip-right": {
+      note: "Every section's grip, icon heads included, ends on its own rows' right text edge, inside the panel.",
       props: { ...full, placement: "push" },
-      play: gripLeftOfEveryTitle,
+      play: gripRightOfEveryHead,
+    },
+    "heads-plain": {
+      note: "Chosen. A section head under the pointer, Changes with its count: no fill and no pill, the chevron and count lit in the text's color, and the grip a small control of its own at the head's right end, its dots on the rows' right text edge and the count just left of it; the title on the rows' icon column (Leo, 2026-11-07: \"simply don't highlight and have a thing you can click\").",
+      props: { ...full, placement: "push" },
+      play: plainHead,
+    },
+    "heads-hover-fill": {
+      note: "Compared, not chosen: the same head with a faint fill under the pointer, as a row's. It reads as one more row to press, and its pill was what kept the grip and the title off the rows' edges.",
+      props: { ...full, placement: "push", look: "head-hover-fill" },
+      play: hoverFirstHead,
+    },
+    "fold-settle": {
+      note: 'Chosen. Changes folds into its head and opens again: its rows, the sections under it and the panel\'s edge move together on the settle (--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1) over 180 ms), fast at first and decelerating into the end, never past it, and the chevron turns with it (Leo, 2026-11-07: "they dont overshoot but they decelerate at the end. i think that might be the key").',
+      props: { ...full, placement: "push" },
+      play: foldAndOpen,
+    },
+    "fold-flat-ease": {
+      note: "Compared, not chosen: the same fold on the flat ease-out (--cmux-ease-out over 180 ms). It starts slowly and stops with no tail, where the reference's starts at full speed and settles.",
+      props: { ...full, placement: "push", look: "flat-ease" },
+      play: foldAndOpen,
+    },
+    "show-more-settle": {
+      note: "Chosen. Changes' Show more grows its list in place and Show less closes it over the rows that go, on the settle; the sections under it and the panel's edge move with it, and nothing pops in or out at the end.",
+      props: { ...full, placement: "push" },
+      play: showMoreAndLess,
+    },
+    "show-more-flat-ease": {
+      note: "Compared, not chosen: the same Show more and Show less on the flat ease-out.",
+      props: { ...full, placement: "push", look: "flat-ease" },
+      play: showMoreAndLess,
+    },
+    "panel-more-settle": {
+      note: "Chosen. The panel's Show more line opens the sections under it in place and Show less folds them away, the panel's edge moving with them on the settle.",
+      props: { ...full, placement: "push", more: false },
+      play: panelMoreAndLess,
     },
     "edge-hairline": {
-      note: "Chosen. The panel in the gutter with no fill of its own and a hairline edge in the pane's border color (--agent-border, 0.5px) on its rounded corners (Leo, 2026-11-03: \"maybe it's ok...? to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a border for it might be better\").",
+      note: 'Chosen. The panel in the gutter with no fill of its own and a hairline edge at 22% of the pane\'s text (0.5px; the App\'s border tokens are 7-9% of it) on its rounded corners (Leo, 2026-11-03: "maybe it\'s ok...? to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a border for it might be better"; 2026-11-07: "but the border on session info is way too faint").',
       props: { ...full },
       play: hairlineEdge,
     },
@@ -1786,8 +1996,8 @@ export default componentEntry<Props>({
       note: "Before, for comparison: no fill and no edge, so the panel's sections float on the pane with nothing marking where it ends.",
       props: { ...full, edge: "border-color:transparent" },
     },
-    "edge-strong": {
-      note: "Alternative: a stronger edge (--agent-border-strong). It reads as a box drawn around the panel.",
+    "edge-faint": {
+      note: 'Before, for comparison: the pane\'s border tokens as the App sends them (--agent-border-strong is the pane border, 7% of the text dark and 9% light; --agent-border the separator, 8% and 7%; AgentPaneTheme.swift), which read as no edge at all (Leo, 2026-11-07: "but the border on session info is way too faint").',
       props: { ...full, edge: "border-color:var(--agent-border-strong)" },
     },
     "over-chat-blur-only": {

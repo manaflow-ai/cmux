@@ -15,6 +15,8 @@
 //! - [`ApiError`] reads every refusal the same way (the HTTP status and the
 //!   `{_tag, code, message}` body cmux-platform's errors carry).
 //! - [`backend`] names each environment's platform origin and owner API.
+//! - [`machine`] makes a machine a handle that carries its backend origin and
+//!   team ([`machine::Scope`]), so no caller re-resolves which backend owns it.
 //! - [`client_key`] makes the idempotency key a create or a retried mutation
 //!   carries, so a retry after a lost answer never makes a second machine.
 
@@ -39,6 +41,7 @@ mod generated {
 
 pub mod backend;
 mod error;
+pub mod machine;
 pub mod ops;
 
 pub use error::ApiError;

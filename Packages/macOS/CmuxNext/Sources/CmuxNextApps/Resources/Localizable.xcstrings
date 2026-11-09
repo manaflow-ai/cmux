@@ -1,6 +1,138 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "apps.mount.reloadFailed" : {
+      "comment" : "Marker under a custom sidebar view or chat widget whose last saved script did not load; the view keeps the last script that did. The file and line follow it.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لم تتم إعادة التحميل"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nije ponovo učitano"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ikke genindlæst"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nicht neu geladen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not reloaded"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "No se recargó"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Non rechargé"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Non ricaricato"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "再読み込みされていません"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មិនបានផ្ទុកឡើងវិញ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "다시 불러오지 않음"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ikke lastet inn på nytt"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nie przeładowano"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Não recarregado"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не перезагружено"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไม่ได้โหลดใหม่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yeniden yüklenmedi"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не перезавантажено"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chưa tải lại"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "未重新加载"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "未重新載入"
+          }
+        }
+      }
+    },
     "apps.toast.source" : {
       "comment" : "The second line of an app's toast detail: the id of the app that showed it.",
       "extractionState" : "manual",
@@ -1845,127 +1977,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "كثافة مريحة"
+            "value": "الكثافة الافتراضية"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Udobna gustina"
+            "value": "Zadana gustoća"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hyggelig tæthed"
+            "value": "Standardtæthed"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gemütliche Dichte"
+            "value": "Standarddichte"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cozy Density"
+            "value": "Default Density"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Densidad acogedora"
+            "value": "Densidad predeterminada"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Densité douillette"
+            "value": "Densité par défaut"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Densità accogliente"
+            "value": "Densità predefinita"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ゆったり密度"
+            "value": "デフォルトの密度"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ដង់ស៊ីតេកក់ក្ដៅ"
+            "value": "ដង់ស៊ីតេលំនាំដើម"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "아늑한 밀도"
+            "value": "기본 밀도"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lun tetthet"
+            "value": "Standardtetthet"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Przytulna gęstość"
+            "value": "Domyślna gęstość"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Densidade aconchegante"
+            "value": "Densidade padrão"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Уютная плотность"
+            "value": "Плотность по умолчанию"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ความหนาแน่นแบบอบอุ่น"
+            "value": "ความหนาแน่นเริ่มต้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rahat yoğunluk"
+            "value": "Varsayılan Yoğunluk"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Затишна щільність"
+            "value": "Типова щільність"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mật độ ấm cúng"
+            "value": "Mật độ mặc định"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "舒适密度"
+            "value": "默认密度"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "舒適密度"
+            "value": "預設密度"
           }
         }
       }
@@ -1977,127 +2109,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مساحة أكبر قليلًا حول الصفوف وعناصر التحكم من دون أن تملأ النافذة."
+            "value": "الحجم القياسي للنص والصفوف وعناصر التحكم."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Malo više prostora oko redova i kontrola bez zauzimanja cijelog prozora."
+            "value": "Standardna veličina teksta, redova i kontrola."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lidt mere plads omkring rækker og kontroller uden at fylde vinduet."
+            "value": "Standardstørrelsen for tekst, rækker og kontroller."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Etwas mehr Platz um Zeilen und Steuerelemente, ohne das Fenster zu füllen."
+            "value": "Die Standardgröße für Text, Zeilen und Bedienelemente."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A little more room around rows and controls without taking over the window."
+            "value": "The standard size for text, rows and controls."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un poco más de espacio alrededor de filas y controles sin ocupar la ventana."
+            "value": "El tamaño estándar para el texto, las filas y los controles."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un peu plus d’espace autour des lignes et contrôles sans remplir la fenêtre."
+            "value": "La taille standard du texte, des lignes et des commandes."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un po’ più di spazio intorno a righe e controlli senza occupare la finestra."
+            "value": "La dimensione standard di testo, righe e controlli."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ウィンドウを圧迫せず、行とコントロールの周りに少し余白を加えます。"
+            "value": "文字、行、コントロールの標準サイズです。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មានចន្លោះបន្ថែមបន្តិចជុំវិញជួរ និងវត្ថុបញ្ជា ដោយមិនកាន់កាប់បង្អួច។"
+            "value": "ទំហំស្តង់ដារសម្រាប់អក្សរ ជួរ និងការគ្រប់គ្រង។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "창을 가득 채우지 않으면서 행과 컨트롤 주위에 여유를 조금 더 둡니다."
+            "value": "텍스트, 행, 컨트롤의 표준 크기입니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Litt mer plass rundt rader og kontroller uten å fylle vinduet."
+            "value": "Standardstørrelsen for tekst, rader og kontroller."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trochę więcej miejsca wokół wierszy i kontrolek bez zajmowania całego okna."
+            "value": "Standardowy rozmiar tekstu, wierszy i elementów sterujących."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Um pouco mais de espaço ao redor das linhas e controles sem ocupar a janela."
+            "value": "O tamanho padrão para texto, linhas e controles."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Немного больше места вокруг строк и элементов управления, не занимая всё окно."
+            "value": "Стандартный размер текста, строк и элементов управления."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เพิ่มพื้นที่รอบแถวและตัวควบคุมเล็กน้อยโดยไม่กินพื้นที่หน้าต่าง"
+            "value": "ขนาดมาตรฐานของข้อความ แถว และตัวควบคุม"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pencereyi doldurmadan satır ve denetimlerin çevresine biraz daha alan ekler."
+            "value": "Metin, satırlar ve denetimler için standart boyut."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Трохи більше місця навколо рядків і елементів керування без заповнення вікна."
+            "value": "Стандартний розмір тексту, рядків і елементів керування."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thêm một chút khoảng trống quanh hàng và điều khiển mà không chiếm cả cửa sổ."
+            "value": "Kích thước tiêu chuẩn cho chữ, hàng và điều khiển."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "行和控件周围多一点空间，同时不会占满窗口。"
+            "value": "文字、行和控件的标准大小。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "列與控制項周圍多一點空間，同時不會佔滿視窗。"
+            "value": "文字、列和控制項的標準大小。"
           }
         }
       }
@@ -15351,127 +15483,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Needs a newer cmux-tui"
+            "value" : "Needs a newer cmux"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "يتطلب إصدارًا أحدث من cmux-tui"
+            "value" : "يحتاج إلى إصدار أحدث من cmux"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Potreban je noviji cmux-tui"
+            "value" : "Potreban je noviji cmux"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Kræver en nyere cmux-tui"
+            "value" : "Kræver en nyere cmux"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Benötigt ein neueres cmux-tui"
+            "value" : "Benötigt ein neueres cmux"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Requiere un cmux-tui más reciente"
+            "value" : "Necesita un cmux más reciente"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nécessite un cmux-tui plus récent"
+            "value" : "Nécessite une version plus récente de cmux"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Richiede un cmux-tui più recente"
+            "value" : "Serve un cmux più recente"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "新しい cmux-tui が必要です"
+            "value" : "新しい cmux が必要です"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ត្រូវការ cmux-tui ថ្មីជាងនេះ"
+            "value" : "ត្រូវការ cmux ថ្មីជាងនេះ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "최신 cmux-tui가 필요합니다"
+            "value" : "최신 cmux가 필요합니다"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Krever en nyere cmux-tui"
+            "value" : "Krever en nyere cmux"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Wymaga nowszego cmux-tui"
+            "value" : "Wymaga nowszego cmux"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Requer um cmux-tui mais recente"
+            "value" : "Precisa de um cmux mais recente"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Нужна более новая версия cmux-tui"
+            "value" : "Нужен более новый cmux"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ต้องใช้ cmux-tui เวอร์ชันใหม่กว่า"
+            "value" : "ต้องใช้ cmux เวอร์ชันใหม่กว่า"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Daha yeni bir cmux-tui gerekiyor"
+            "value" : "Daha yeni bir cmux gerekiyor"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Потрібна новіша версія cmux-tui"
+            "value" : "Потрібен новіший cmux"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Cần cmux-tui mới hơn"
+            "value" : "Cần cmux mới hơn"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "需要更新版本的 cmux-tui"
+            "value" : "需要更新版本的 cmux"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "需要更新版本的 cmux-tui"
+            "value" : "需要更新版本的 cmux"
           }
         }
       }
@@ -15482,127 +15614,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux-tui is not connected"
+            "value" : "This machine isn't connected"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui غير متصل"
+            "value" : "هذا الجهاز غير متصل"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui nije povezan"
+            "value" : "Ovaj računar nije povezan"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui er ikke forbundet"
+            "value" : "Denne maskine er ikke forbundet"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui ist nicht verbunden"
+            "value" : "Dieser Rechner ist nicht verbunden"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui no está conectado"
+            "value" : "Esta máquina no está conectada"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui n’est pas connecté"
+            "value" : "Cette machine n’est pas connectée"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui non è connesso"
+            "value" : "Questa macchina non è connessa"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui に接続されていません"
+            "value" : "このマシンは接続されていません"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui មិនបានភ្ជាប់"
+            "value" : "ម៉ាស៊ីននេះមិនបានភ្ជាប់ទេ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui가 연결되지 않음"
+            "value" : "이 머신이 연결되어 있지 않습니다"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui er ikke tilkoblet"
+            "value" : "Denne maskinen er ikke tilkoblet"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui nie jest połączony"
+            "value" : "Ta maszyna nie jest połączona"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui não está conectado"
+            "value" : "Esta máquina não está conectada"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui не подключен"
+            "value" : "Эта машина не подключена"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui ไม่ได้เชื่อมต่อ"
+            "value" : "เครื่องนี้ไม่ได้เชื่อมต่อ"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui bağlı değil"
+            "value" : "Bu makine bağlı değil"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui не підключено"
+            "value" : "Ця машина не підключена"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui chưa kết nối"
+            "value" : "Máy này chưa kết nối"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui 未连接"
+            "value" : "此机器未连接"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui 未連線"
+            "value" : "此機器未連線"
           }
         }
       }
@@ -31035,7 +31167,282 @@
           }
         }
       }
-    }
+    },
+    "apps.mount.reload" : {
+      "comment" : "A failed app view's error card: the button that runs the app's script again from its saved files.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "إعادة التحميل"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ponovo učitaj"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Genindlæs"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Neu laden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reload"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Recargar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Recharger"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ricarica"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "再読み込み"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្ទុកឡើងវិញ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "다시 불러오기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Last inn på nytt"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wczytaj ponownie"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Recarregar"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Перезагрузить"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "โหลดใหม่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yeniden yükle"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Перезавантажити"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tải lại"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "重新加载"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "重新載入"
+          }
+        }
+      }
+    },
+    "apps.mount.reload.help" : {
+      "comment" : "Tooltip and accessibility label of the Reload button on a failed app view's error card.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تشغيل البرنامج النصي مرة أخرى من ملفاته المحفوظة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ponovo pokreni skriptu iz sačuvanih datoteka"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kør scriptet igen fra de gemte filer"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skript aus den gespeicherten Dateien erneut ausführen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Run the script again from its saved files"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Volver a ejecutar el script desde sus archivos guardados"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Réexécuter le script à partir de ses fichiers enregistrés"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Esegui di nuovo lo script dai file salvati"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "保存されたファイルからスクリプトを再実行"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ដំណើរការស្គ្រីបម្ដងទៀតពីឯកសារដែលបានរក្សាទុក"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "저장된 파일에서 스크립트를 다시 실행"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kjør skriptet på nytt fra de lagrede filene"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uruchom skrypt ponownie z zapisanych plików"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Executar o script novamente a partir dos arquivos salvos"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Снова запустить скрипт из сохранённых файлов"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เรียกใช้สคริปต์อีกครั้งจากไฟล์ที่บันทึกไว้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Betiği kayıtlı dosyalarından yeniden çalıştır"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Знову запустити скрипт зі збережених файлів"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chạy lại tập lệnh từ các tệp đã lưu"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "从已保存的文件重新运行脚本"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "從已儲存的檔案重新執行指令碼"
+          }
+        }
+      }
+    },
+    "apps.failure.scriptInAt": {"comment":"A custom section's script error in a named file: %1$@ the file (main.js), %2$@ the line, %3$@ the column, %4$@ the engine's message.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"%1$@ · السطر %2$@، العمود %3$@: %4$@"}},"bs":{"stringUnit":{"state":"needs_review","value":"%1$@ · Red %2$@, kolona %3$@: %4$@"}},"da":{"stringUnit":{"state":"needs_review","value":"%1$@ · Linje %2$@, kolonne %3$@: %4$@"}},"de":{"stringUnit":{"state":"needs_review","value":"%1$@ · Zeile %2$@, Spalte %3$@: %4$@"}},"en":{"stringUnit":{"state":"translated","value":"%1$@ · Line %2$@, column %3$@: %4$@"}},"es":{"stringUnit":{"state":"needs_review","value":"%1$@ · Línea %2$@, columna %3$@: %4$@"}},"fr":{"stringUnit":{"state":"needs_review","value":"%1$@ · Ligne %2$@, colonne %3$@ : %4$@"}},"it":{"stringUnit":{"state":"needs_review","value":"%1$@ · Riga %2$@, colonna %3$@: %4$@"}},"ja":{"stringUnit":{"state":"translated","value":"%1$@ · %2$@ 行 %3$@ 列: %4$@"}},"km":{"stringUnit":{"state":"needs_review","value":"%1$@ · បន្ទាត់ %2$@ ជួរឈរ %3$@៖ %4$@"}},"ko":{"stringUnit":{"state":"needs_review","value":"%1$@ · %2$@행 %3$@열: %4$@"}},"nb":{"stringUnit":{"state":"needs_review","value":"%1$@ · Linje %2$@, kolonne %3$@: %4$@"}},"pl":{"stringUnit":{"state":"needs_review","value":"%1$@ · Wiersz %2$@, kolumna %3$@: %4$@"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"%1$@ · Linha %2$@, coluna %3$@: %4$@"}},"ru":{"stringUnit":{"state":"needs_review","value":"%1$@ · Строка %2$@, столбец %3$@: %4$@"}},"th":{"stringUnit":{"state":"needs_review","value":"%1$@ · บรรทัด %2$@ คอลัมน์ %3$@: %4$@"}},"tr":{"stringUnit":{"state":"needs_review","value":"%1$@ · Satır %2$@, sütun %3$@: %4$@"}},"uk":{"stringUnit":{"state":"needs_review","value":"%1$@ · Рядок %2$@, стовпець %3$@: %4$@"}},"vi":{"stringUnit":{"state":"needs_review","value":"%1$@ · Dòng %2$@, cột %3$@: %4$@"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"%1$@ · 第 %2$@ 行，第 %3$@ 列：%4$@"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"%1$@ · 第 %2$@ 行，第 %3$@ 欄：%4$@"}}}},
+    "apps.failure.scriptInAtOnly": {"comment":"A custom section's script error in a named file, with no message: %1$@ the file (main.js), %2$@ the line, %3$@ the column.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"%1$@ · السطر %2$@، العمود %3$@"}},"bs":{"stringUnit":{"state":"needs_review","value":"%1$@ · Red %2$@, kolona %3$@"}},"da":{"stringUnit":{"state":"needs_review","value":"%1$@ · Linje %2$@, kolonne %3$@"}},"de":{"stringUnit":{"state":"needs_review","value":"%1$@ · Zeile %2$@, Spalte %3$@"}},"en":{"stringUnit":{"state":"translated","value":"%1$@ · Line %2$@, column %3$@"}},"es":{"stringUnit":{"state":"needs_review","value":"%1$@ · Línea %2$@, columna %3$@"}},"fr":{"stringUnit":{"state":"needs_review","value":"%1$@ · Ligne %2$@, colonne %3$@"}},"it":{"stringUnit":{"state":"needs_review","value":"%1$@ · Riga %2$@, colonna %3$@"}},"ja":{"stringUnit":{"state":"translated","value":"%1$@ · %2$@ 行 %3$@ 列"}},"km":{"stringUnit":{"state":"needs_review","value":"%1$@ · បន្ទាត់ %2$@ ជួរឈរ %3$@"}},"ko":{"stringUnit":{"state":"needs_review","value":"%1$@ · %2$@행 %3$@열"}},"nb":{"stringUnit":{"state":"needs_review","value":"%1$@ · Linje %2$@, kolonne %3$@"}},"pl":{"stringUnit":{"state":"needs_review","value":"%1$@ · Wiersz %2$@, kolumna %3$@"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"%1$@ · Linha %2$@, coluna %3$@"}},"ru":{"stringUnit":{"state":"needs_review","value":"%1$@ · Строка %2$@, столбец %3$@"}},"th":{"stringUnit":{"state":"needs_review","value":"%1$@ · บรรทัด %2$@ คอลัมน์ %3$@"}},"tr":{"stringUnit":{"state":"needs_review","value":"%1$@ · Satır %2$@, sütun %3$@"}},"uk":{"stringUnit":{"state":"needs_review","value":"%1$@ · Рядок %2$@, стовпець %3$@"}},"vi":{"stringUnit":{"state":"needs_review","value":"%1$@ · Dòng %2$@, cột %3$@"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"%1$@ · 第 %2$@ 行，第 %3$@ 列"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"%1$@ · 第 %2$@ 行，第 %3$@ 欄"}}}},
+    "apps.failure.scriptAtOnly": {"comment":"A custom section's script error with no message, where it is: %1$@ the line, %2$@ the column.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"السطر %1$@، العمود %2$@"}},"bs":{"stringUnit":{"state":"needs_review","value":"Red %1$@, kolona %2$@"}},"da":{"stringUnit":{"state":"needs_review","value":"Linje %1$@, kolonne %2$@"}},"de":{"stringUnit":{"state":"needs_review","value":"Zeile %1$@, Spalte %2$@"}},"en":{"stringUnit":{"state":"translated","value":"Line %1$@, column %2$@"}},"es":{"stringUnit":{"state":"needs_review","value":"Línea %1$@, columna %2$@"}},"fr":{"stringUnit":{"state":"needs_review","value":"Ligne %1$@, colonne %2$@"}},"it":{"stringUnit":{"state":"needs_review","value":"Riga %1$@, colonna %2$@"}},"ja":{"stringUnit":{"state":"translated","value":"%1$@ 行 %2$@ 列"}},"km":{"stringUnit":{"state":"needs_review","value":"បន្ទាត់ %1$@ ជួរឈរ %2$@"}},"ko":{"stringUnit":{"state":"needs_review","value":"%1$@행 %2$@열"}},"nb":{"stringUnit":{"state":"needs_review","value":"Linje %1$@, kolonne %2$@"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wiersz %1$@, kolumna %2$@"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Linha %1$@, coluna %2$@"}},"ru":{"stringUnit":{"state":"needs_review","value":"Строка %1$@, столбец %2$@"}},"th":{"stringUnit":{"state":"needs_review","value":"บรรทัด %1$@ คอลัมน์ %2$@"}},"tr":{"stringUnit":{"state":"needs_review","value":"Satır %1$@, sütun %2$@"}},"uk":{"stringUnit":{"state":"needs_review","value":"Рядок %1$@, стовпець %2$@"}},"vi":{"stringUnit":{"state":"needs_review","value":"Dòng %1$@, cột %2$@"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"第 %1$@ 行，第 %2$@ 列"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"第 %1$@ 行，第 %2$@ 欄"}}}},
+    "apps.failure.script": {"comment":"A custom section's script did not run (a syntax or runtime error); the row's first line.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"في البرنامج النصي لهذا القسم خطأ"}},"bs":{"stringUnit":{"state":"needs_review","value":"Skripta ove sekcije ima grešku"}},"da":{"stringUnit":{"state":"needs_review","value":"Denne sektions script har en fejl"}},"de":{"stringUnit":{"state":"needs_review","value":"Das Skript dieses Abschnitts enthält einen Fehler"}},"en":{"stringUnit":{"state":"translated","value":"This section's script has an error"}},"es":{"stringUnit":{"state":"needs_review","value":"El script de esta sección tiene un error"}},"fr":{"stringUnit":{"state":"needs_review","value":"Le script de cette section contient une erreur"}},"it":{"stringUnit":{"state":"needs_review","value":"Lo script di questa sezione contiene un errore"}},"ja":{"stringUnit":{"state":"translated","value":"このセクションのスクリプトにエラーがあります"}},"km":{"stringUnit":{"state":"needs_review","value":"ស្គ្រីបរបស់ផ្នែកនេះមានកំហុស"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 섹션의 스크립트에 오류가 있습니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Skriptet i denne delen har en feil"}},"pl":{"stringUnit":{"state":"needs_review","value":"Skrypt tej sekcji zawiera błąd"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O script desta seção tem um erro"}},"ru":{"stringUnit":{"state":"needs_review","value":"В скрипте этого раздела ошибка"}},"th":{"stringUnit":{"state":"needs_review","value":"สคริปต์ของส่วนนี้มีข้อผิดพลาด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu bölümün betiğinde bir hata var"}},"uk":{"stringUnit":{"state":"needs_review","value":"У скрипті цього розділу помилка"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tập lệnh của mục này có lỗi"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"此部分的脚本有错误"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"此區段的指令碼有錯誤"}}}},
+    "apps.failure.scriptAt": {"comment":"A custom section's script error, where it is: %1$@ the line, %2$@ the column, %3$@ the engine's message (expecting ';').","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"السطر %1$@، العمود %2$@: %3$@"}},"bs":{"stringUnit":{"state":"needs_review","value":"Red %1$@, kolona %2$@: %3$@"}},"da":{"stringUnit":{"state":"needs_review","value":"Linje %1$@, kolonne %2$@: %3$@"}},"de":{"stringUnit":{"state":"needs_review","value":"Zeile %1$@, Spalte %2$@: %3$@"}},"en":{"stringUnit":{"state":"translated","value":"Line %1$@, column %2$@: %3$@"}},"es":{"stringUnit":{"state":"needs_review","value":"Línea %1$@, columna %2$@: %3$@"}},"fr":{"stringUnit":{"state":"needs_review","value":"Ligne %1$@, colonne %2$@ : %3$@"}},"it":{"stringUnit":{"state":"needs_review","value":"Riga %1$@, colonna %2$@: %3$@"}},"ja":{"stringUnit":{"state":"translated","value":"%1$@ 行 %2$@ 列: %3$@"}},"km":{"stringUnit":{"state":"needs_review","value":"បន្ទាត់ %1$@ ជួរឈរ %2$@៖ %3$@"}},"ko":{"stringUnit":{"state":"needs_review","value":"%1$@행 %2$@열: %3$@"}},"nb":{"stringUnit":{"state":"needs_review","value":"Linje %1$@, kolonne %2$@: %3$@"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wiersz %1$@, kolumna %2$@: %3$@"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Linha %1$@, coluna %2$@: %3$@"}},"ru":{"stringUnit":{"state":"needs_review","value":"Строка %1$@, столбец %2$@: %3$@"}},"th":{"stringUnit":{"state":"needs_review","value":"บรรทัด %1$@ คอลัมน์ %2$@: %3$@"}},"tr":{"stringUnit":{"state":"needs_review","value":"Satır %1$@, sütun %2$@: %3$@"}},"uk":{"stringUnit":{"state":"needs_review","value":"Рядок %1$@, стовпець %2$@: %3$@"}},"vi":{"stringUnit":{"state":"needs_review","value":"Dòng %1$@, cột %2$@: %3$@"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"第 %1$@ 行，第 %2$@ 列：%3$@"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"第 %1$@ 行，第 %2$@ 欄：%3$@"}}}},
+    "apps.failure.tooLarge": {"comment":"A custom section drew more rows or deeper nesting than cmux shows.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"هذا القسم أكبر من أن يُعرض"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ova sekcija je prevelika za prikaz"}},"da":{"stringUnit":{"state":"needs_review","value":"Denne sektion er for stor til at blive vist"}},"de":{"stringUnit":{"state":"needs_review","value":"Dieser Abschnitt ist zu groß für die Anzeige"}},"en":{"stringUnit":{"state":"translated","value":"This section is too large to show"}},"es":{"stringUnit":{"state":"needs_review","value":"Esta sección es demasiado grande para mostrarse"}},"fr":{"stringUnit":{"state":"needs_review","value":"Cette section est trop grande pour être affichée"}},"it":{"stringUnit":{"state":"needs_review","value":"Questa sezione è troppo grande per essere mostrata"}},"ja":{"stringUnit":{"state":"translated","value":"このセクションは大きすぎて表示できません"}},"km":{"stringUnit":{"state":"needs_review","value":"ផ្នែកនេះធំពេកមិនអាចបង្ហាញបាន"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 섹션은 너무 커서 표시할 수 없습니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Denne delen er for stor til å vises"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ta sekcja jest zbyt duża, aby ją wyświetlić"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Esta seção é grande demais para ser exibida"}},"ru":{"stringUnit":{"state":"needs_review","value":"Этот раздел слишком большой для показа"}},"th":{"stringUnit":{"state":"needs_review","value":"ส่วนนี้ใหญ่เกินกว่าจะแสดงได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu bölüm gösterilemeyecek kadar büyük"}},"uk":{"stringUnit":{"state":"needs_review","value":"Цей розділ завеликий для показу"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mục này quá lớn để hiển thị"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"此部分太大，无法显示"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"此區段太大，無法顯示"}}}},
+    "apps.failure.generic": {"comment":"A custom section did not load for a reason cmux has no words for; the raw reason is under Details.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تعذّر تحميل هذا القسم"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ova sekcija se nije mogla učitati"}},"da":{"stringUnit":{"state":"needs_review","value":"Denne sektion kunne ikke indlæses"}},"de":{"stringUnit":{"state":"needs_review","value":"Dieser Abschnitt konnte nicht geladen werden"}},"en":{"stringUnit":{"state":"translated","value":"This section couldn't load"}},"es":{"stringUnit":{"state":"needs_review","value":"No se pudo cargar esta sección"}},"fr":{"stringUnit":{"state":"needs_review","value":"Impossible de charger cette section"}},"it":{"stringUnit":{"state":"needs_review","value":"Impossibile caricare questa sezione"}},"ja":{"stringUnit":{"state":"translated","value":"このセクションを読み込めませんでした"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចផ្ទុកផ្នែកនេះបានទេ"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 섹션을 불러올 수 없습니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Denne delen kunne ikke lastes inn"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nie udało się wczytać tej sekcji"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não foi possível carregar esta seção"}},"ru":{"stringUnit":{"state":"needs_review","value":"Не удалось загрузить этот раздел"}},"th":{"stringUnit":{"state":"needs_review","value":"ไม่สามารถโหลดส่วนนี้ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu bölüm yüklenemedi"}},"uk":{"stringUnit":{"state":"needs_review","value":"Не вдалося завантажити цей розділ"}},"vi":{"stringUnit":{"state":"needs_review","value":"Không thể tải mục này"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"无法加载此部分"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"無法載入此區段"}}}},
+    "apps.failure.copy": {"comment":"A custom section's error row: copies the raw error text.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"نسخ الخطأ"}},"bs":{"stringUnit":{"state":"needs_review","value":"Kopiraj grešku"}},"da":{"stringUnit":{"state":"needs_review","value":"Kopiér fejl"}},"de":{"stringUnit":{"state":"needs_review","value":"Fehler kopieren"}},"en":{"stringUnit":{"state":"translated","value":"Copy Error"}},"es":{"stringUnit":{"state":"needs_review","value":"Copiar error"}},"fr":{"stringUnit":{"state":"needs_review","value":"Copier l'erreur"}},"it":{"stringUnit":{"state":"needs_review","value":"Copia errore"}},"ja":{"stringUnit":{"state":"translated","value":"エラーをコピー"}},"km":{"stringUnit":{"state":"needs_review","value":"ចម្លងកំហុស"}},"ko":{"stringUnit":{"state":"needs_review","value":"오류 복사"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kopier feil"}},"pl":{"stringUnit":{"state":"needs_review","value":"Kopiuj błąd"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Copiar erro"}},"ru":{"stringUnit":{"state":"needs_review","value":"Скопировать ошибку"}},"th":{"stringUnit":{"state":"needs_review","value":"คัดลอกข้อผิดพลาด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Hatayı kopyala"}},"uk":{"stringUnit":{"state":"needs_review","value":"Скопіювати помилку"}},"vi":{"stringUnit":{"state":"needs_review","value":"Sao chép lỗi"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"复制错误"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"拷貝錯誤"}}}},
+    "apps.failure.copied": {"comment":"A custom section's error row: Copy Error's title after a copy.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تم النسخ"}},"bs":{"stringUnit":{"state":"needs_review","value":"Kopirano"}},"da":{"stringUnit":{"state":"needs_review","value":"Kopieret"}},"de":{"stringUnit":{"state":"needs_review","value":"Kopiert"}},"en":{"stringUnit":{"state":"translated","value":"Copied"}},"es":{"stringUnit":{"state":"needs_review","value":"Copiado"}},"fr":{"stringUnit":{"state":"needs_review","value":"Copié"}},"it":{"stringUnit":{"state":"needs_review","value":"Copiato"}},"ja":{"stringUnit":{"state":"translated","value":"コピーしました"}},"km":{"stringUnit":{"state":"needs_review","value":"បានចម្លង"}},"ko":{"stringUnit":{"state":"needs_review","value":"복사됨"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kopiert"}},"pl":{"stringUnit":{"state":"needs_review","value":"Skopiowano"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Copiado"}},"ru":{"stringUnit":{"state":"needs_review","value":"Скопировано"}},"th":{"stringUnit":{"state":"needs_review","value":"คัดลอกแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kopyalandı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Скопійовано"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã sao chép"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已复制"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已拷貝"}}}},
+    "apps.failure.details": {"comment":"A custom section's error row: shows the raw error text.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"التفاصيل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Detalji"}},"da":{"stringUnit":{"state":"needs_review","value":"Detaljer"}},"de":{"stringUnit":{"state":"needs_review","value":"Details"}},"en":{"stringUnit":{"state":"translated","value":"Details"}},"es":{"stringUnit":{"state":"needs_review","value":"Detalles"}},"fr":{"stringUnit":{"state":"needs_review","value":"Détails"}},"it":{"stringUnit":{"state":"needs_review","value":"Dettagli"}},"ja":{"stringUnit":{"state":"translated","value":"詳細"}},"km":{"stringUnit":{"state":"needs_review","value":"ព័ត៌មានលម្អិត"}},"ko":{"stringUnit":{"state":"needs_review","value":"세부 정보"}},"nb":{"stringUnit":{"state":"needs_review","value":"Detaljer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Szczegóły"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Detalhes"}},"ru":{"stringUnit":{"state":"needs_review","value":"Подробности"}},"th":{"stringUnit":{"state":"needs_review","value":"รายละเอียด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ayrıntılar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Подробиці"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chi tiết"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"详细信息"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"詳細資訊"}}}},
+    "apps.failure.hideDetails": {"comment":"A custom section's error row: hides the raw error text again.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إخفاء التفاصيل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Sakrij detalje"}},"da":{"stringUnit":{"state":"needs_review","value":"Skjul detaljer"}},"de":{"stringUnit":{"state":"needs_review","value":"Details ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Hide Details"}},"es":{"stringUnit":{"state":"needs_review","value":"Ocultar detalles"}},"fr":{"stringUnit":{"state":"needs_review","value":"Masquer les détails"}},"it":{"stringUnit":{"state":"needs_review","value":"Nascondi dettagli"}},"ja":{"stringUnit":{"state":"translated","value":"詳細を隠す"}},"km":{"stringUnit":{"state":"needs_review","value":"លាក់ព័ត៌មានលម្អិត"}},"ko":{"stringUnit":{"state":"needs_review","value":"세부 정보 숨기기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Skjul detaljer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ukryj szczegóły"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ocultar detalhes"}},"ru":{"stringUnit":{"state":"needs_review","value":"Скрыть подробности"}},"th":{"stringUnit":{"state":"needs_review","value":"ซ่อนรายละเอียด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ayrıntıları gizle"}},"uk":{"stringUnit":{"state":"needs_review","value":"Сховати подробиці"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ẩn chi tiết"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"隐藏详细信息"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"隱藏詳細資訊"}}}}
   },
   "version" : "1.0"
 }

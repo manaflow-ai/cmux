@@ -48,7 +48,7 @@ which `docs/cloud-guest-upgrades.md` requires of every long-lived child:
 
 | Event | What happens |
 | --- | --- |
-| Daemon start | Reads `remote-host/host.json`. A live host of this user that answers on its supervisor socket is **adopted** (hello with `min`/`max` protocol; the host answers with the version both speak, its build and whether it is busy). Otherwise the daemon starts one when Computer Use or Mac Screen sharing is on, or on the first `remote-host-*` command. |
+| Daemon start | Reads `remote-host/host.json`. A live host of this user that answers on its supervisor socket is **adopted** (hello with `min`/`max` protocol; the host answers with the version both speak, its build and whether it is busy). Otherwise the daemon starts one when Computer Use (Upstream driver) is on or the person is signed in for Mac Screen sharing. Every build that embeds cmux Remote uses it; there is no switch. |
 | Host crash | The daemon restarts it with `Backoff` (200 ms to 30 s; reset after 30 s healthy). The host restarts a crashed worker the same way. |
 | Daemon handoff (`shutdown-daemon`, upgrade) | The host keeps running and keeps serving. The new daemon adopts it within the host's adoption grace (60 s), else the host exits, so no host outlives every daemon. |
 | New cmux build (another host build) | An idle host is replaced at once (`drain`, exit, start the new copy). A busy host (a Screen Sharing session) stays, with `upgrade: "pending"`; it reports `idle` when the session ends, and the daemon replaces it then. A session is never cut to upgrade. |
@@ -126,4 +126,5 @@ Every control exists in the command palette, the CLI and MCP:
 | Share This Mac | Mac Screen: Share This Mac / Stop Sharing This Mac | `cmux remote share on\|off` | `remote_share` |
 | A viewer's access | Mac Screen: Set Device Access… | `cmux remote access <device> none\|ask\|view\|full` | `remote_set_access` |
 | End sharing when cmux quits (`remote.endSharingOnQuit`, default off) | Settings | `cmux settings set remote.endSharingOnQuit` | `settings_set` (refused: user-only) |
-| Use cmux Remote (`remote.enabled`, default off; applies at the next launch). Computer Use runs in it with `computerUse.driver` = `upstream` | Settings | `cmux settings set remote.enabled` | `settings_set` (refused: user-only) |
+| Ultra Connection Mode (`remote.ultraMode`, default off: cmux-wg tunnels this Mac starts send Reed-Solomon repair data, about 2-3x the bytes, and the peer agrees inside the tunnel to send it too, so both directions are protected; `CMUX_WG_ULTRA` overrides it) | Settings | `cmux settings set remote.ultraMode true` | `settings_set` (refused: user-only) |
+| Computer Use driver (`computerUse.driver`, default `upstream`: Computer Use runs in cmux Remote; `legacy` keeps the cmux-cua 0.8.12 helper) | Settings | `cmux settings set computerUse.driver` | `settings_set` (refused: user-only) |
