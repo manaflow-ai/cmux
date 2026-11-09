@@ -55,7 +55,7 @@ fn text_of(home: &Path, index: &ChatIndex, chats: usize) -> ChatText {
     let text = ChatText::new(home.join("text.json"));
     let held: Vec<IndexedChat> = index.chats().into_iter().cloned().collect();
     text.update(&held, &|entry| {
-        let i = usize::from_str_radix(entry.session_id.rsplit('-').next()?, 10).ok()?;
+        let i: usize = entry.session_id.rsplit('-').next()?.parse().ok()?;
         let answer = if holds_word(i, chats) {
             "the zephyrine migration failed on two columns".to_owned()
         } else {
@@ -84,7 +84,10 @@ fn keystrokes(chats: usize, typed: &str) -> (Costs, Vec<String>) {
         .into_iter()
         .map(|chat| key_text(&chat.entry.key()))
         .filter(|key| {
-            key.rsplit('-').next().and_then(|n| n.parse().ok()).is_some_and(|i| holds_word(i, chats))
+            key.rsplit('-')
+                .next()
+                .and_then(|n| n.parse().ok())
+                .is_some_and(|i| holds_word(i, chats))
         })
         .collect();
     let activity = ChatActivity::default();
