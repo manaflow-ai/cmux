@@ -54,6 +54,8 @@ final class CEFRuntime {
     private(set) lazy var orphans = CEFOrphanTabs(runtime: self)
     /// The spare window and the page made ahead in it (`CEFSpareWindow`): this runtime's own.
     private(set) lazy var spareWindow = CEFSpareWindow()
+    /// Shown pages on their way to their first document: the next spare waits for them (`CEFArrivingPages`).
+    let arriving = CEFArrivingPages()
     /// How the next tabs inserted into a window open, by window id, from the
     /// window requests that sent them there (oldest first).
     var placements = CEFPlacementQueue()
