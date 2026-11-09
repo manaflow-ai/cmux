@@ -22,7 +22,7 @@ extension CloudHandlers {
         }
         bind("cloudNetworkList", registry, reason: reason) { invocation in
             answer("list Cloud networks", invocation, context) {
-                let networks = try await cloud.api.listNetworks()
+                let networks = try await cloud.machineAPI.listNetworks()
                 let lines = networks.map { network in [network.id, "(\(network.scope))", network.cidr ?? ""].joined(separator: " ") }
                 return CloudAnswer(title: CloudStrings.networkTitle, text: lines.joined(separator: "\n"), fields: ["count": .int(networks.count)])
             }

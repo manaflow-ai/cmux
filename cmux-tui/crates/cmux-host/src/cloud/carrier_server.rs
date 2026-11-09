@@ -72,7 +72,7 @@ use super::github_minter::{Stop, connected};
 #[path = "carrier_state.rs"]
 mod state;
 
-use state::{Asked, Core, Done, Job, Task, View, Warm};
+use state::{Asked, Back, Core, Done, Hands, Job, Task, Warm};
 
 /// The socket the ticket command asks first (root and group cmux, 0660,
 /// beside the agent socket). An older cmux-host has none, and the command
@@ -264,12 +264,8 @@ impl<H: Http + Send + 'static> CarrierServer<H> {
                     shared: theirs,
                     stop: fetch_stop,
                     hooks,
-                    client: None,
-                    spare: None,
-                    resume_waits: false,
+                    hands: Hands::default(),
                     requests: Vec::new(),
-                    prefetch: false,
-                    refreshes: 0,
                 }
                 .run();
             })?;
@@ -298,21 +294,11 @@ struct Fetcher<H: Http> {
     shared: Arc<Shared<H>>,
     stop: Arc<Stop>,
     hooks: Hooks,
-    /// The client, while no request is on it.
-    client: Option<CloudClient<H>>,
-    /// A client like the one in flight on a transport of its own, taken when
-    /// a resume abandons that request.
-    spare: Option<CloudClient<H>>,
-    /// A resume came while the only client was in flight and none could be
-    /// made: it acts once the client is back.
-    resume_waits: bool,
+    /// The bound client and its spare.
+    hands: Hands<CloudClient<H>>,
     /// The request threads, joined at the stop (each is bounded by the API
     /// client's timeouts).
     requests: Vec<JoinHandle<()>>,
-    /// The latest bind has a relay carrier: tickets are asked for ahead.
-    prefetch: bool,
-    /// Refreshes of an unused ticket since the last bind or resume.
-    refreshes: u32,
 }
 
 impl<H: Http + Send + 'static> Fetcher<H> {
@@ -322,16 +308,12 @@ impl<H: Http + Send + 'static> Fetcher<H> {
                 Job::Stop | Job::Wait(_) => {}
                 Job::Bind(next, generation) => {
                     let Next { client, prefetch } = *next;
-                    self.client = Some(client);
-                    self.spare = None;
-                    self.resume_waits = false;
-                    self.prefetch = prefetch;
-                    self.refreshes = 0;
+                    self.hands.bound(client, prefetch);
                     let ticket = prefetch.then_some(("prefetched", false));
                     self.start(Task { mint: true, ticket }, generation);
                 }
                 Job::Resume(generation) => {
-                    self.refreshes = 0;
+                    self.hands.refreshes = 0;
                     self.resume(generation);
                 }
                 Job::Wanted(generation) => {
@@ -340,14 +322,14 @@ impl<H: Http + Send + 'static> Fetcher<H> {
                     self.start(Task::ticket("fetched for an ask", true), generation);
                 }
                 Job::Refresh(generation) => {
-                    if self.refreshes >= MAX_REFRESHES {
+                    if self.hands.refreshes >= MAX_REFRESHES {
                         (self.hooks.log)("carrier ticket: the unused ticket lapses");
                         continue;
                     }
-                    self.refreshes += 1;
+                    self.hands.refreshes += 1;
                     self.start(Task::ticket("refreshed", false), generation);
                 }
-                Job::Done(done, current, generation) => self.done(*done, current, generation),
+                Job::Done(done, back, generation) => self.done(*done, back, generation),
             }
         }
         for request in self.requests.drain(..) {
@@ -373,13 +355,7 @@ impl<H: Http + Send + 'static> Fetcher<H> {
                 shared.test_points.hold();
                 state = shared.lock();
             }
-            let view = View {
-                has_client: self.client.is_some(),
-                can_resume: self.client.is_some() || self.spare.is_some(),
-                prefetch: self.prefetch,
-                may_refresh: self.refreshes < MAX_REFRESHES,
-            };
-            match state.next_job(view, (self.hooks.now)()) {
+            match state.next_job(self.hands.view(), (self.hooks.now)()) {
                 Job::Stop => return None,
                 Job::Wait(left) => state = shared.wait(state, left),
                 job => {
@@ -395,47 +371,37 @@ impl<H: Http + Send + 'static> Fetcher<H> {
     /// spare client on its own transport asks now), the pooled connection
     /// dropped, and on a carrier machine a fresh ticket asked for.
     fn resume(&mut self, generation: u64) {
-        if self.client.is_none() {
-            self.client = self.spare.take();
-        }
-        let Some(client) = self.client.as_ref() else {
-            // No spare: the resume acts once the client from before it is back.
-            self.resume_waits = true;
-            return;
+        let Some(client) = self.hands.for_resume() else {
+            // No spare: the resume acts once a client comes back, if no bind
+            // or other resume came first.
+            return self.shared.change(|state| state.defer_resume(generation));
         };
-        self.resume_waits = false;
         client.reset_transport();
-        if self.prefetch {
+        if self.hands.prefetch {
             self.start(Task::ticket("prefetched after resume", false), generation);
         }
     }
 
     /// A request came back. One from an earlier generation is dropped; its
-    /// client is used again only when there is no other.
-    fn done(&mut self, done: Done<CloudClient<H>>, current: bool, generation: u64) {
+    /// client is used again only when there is no other or a resume of this
+    /// generation waits for it (`resume`).
+    fn done(&mut self, done: Done<CloudClient<H>>, back: Back, generation: u64) {
         let Done { client, task, reply, took, .. } = done;
-        if self.client.is_none() && (current || self.spare.is_none() || self.resume_waits) {
-            self.client = Some(client);
-            if current {
-                self.spare = None;
-            }
-        }
+        self.hands.returned(client, back);
+        let Back { current, resume, .. } = back;
         let took = took.as_millis();
-        if !current {
-            if task.ticket.is_some() && reply.is_some() {
-                (self.hooks.log)(&format!(
-                    "carrier ticket: a ticket asked for before a resume or bind is dropped ({took} ms)"
-                ));
-            }
-            if self.resume_waits {
-                self.resume(generation);
-            }
-            return;
+        if !current && task.ticket.is_some() && reply.is_some() {
+            (self.hooks.log)(&format!(
+                "carrier ticket: a ticket asked for before a resume or bind is dropped ({took} ms)"
+            ));
         }
-        if let (Some(reply), Some((what, _))) = (&reply, task.ticket) {
+        if current && let (Some(reply), Some((what, _))) = (&reply, task.ticket) {
             let said =
                 if reply.get("ok") == Some(&Value::Bool(true)) { what } else { outcome(reply) };
             (self.hooks.log)(&format!("carrier ticket: {said} in {took} ms"));
+        }
+        if resume {
+            self.resume(generation);
         }
     }
 
@@ -444,10 +410,9 @@ impl<H: Http + Send + 'static> Fetcher<H> {
     /// `generation`, the one its job was picked in: when a bind or resume
     /// came since, its reply is dropped. Nothing is asked once the role stops.
     fn start(&mut self, task: Task, generation: u64) {
-        let Some(mut client) = self.client.take() else {
+        let Some(mut client) = self.hands.take(CloudClient::fresh) else {
             return;
         };
-        self.spare = client.fresh();
         self.shared.change(|state| state.starting(generation));
         self.requests.retain(|request| !request.is_finished());
         let (shared, stop, hooks) = (Arc::clone(&self.shared), Arc::clone(&self.stop), self.hooks);
@@ -472,7 +437,7 @@ impl<H: Http + Send + 'static> Fetcher<H> {
             Ok(request) => self.requests.push(request),
             Err(e) => {
                 (self.hooks.log)(&format!("carrier ticket: request thread: {e}"));
-                self.client = self.spare.take();
+                self.hands.not_started();
                 self.shared.change(|state| state.not_started(generation));
             }
         }

@@ -302,9 +302,9 @@ fn a_refusal_names_its_kind_and_never_carries_a_credential_back() {
     });
     let daemon = Daemon::start("refusal");
     let (code, message, details) =
-        daemon.send("cloud.vm.networks", params(&origin, "stack", json!({})), None).unwrap_err();
+        daemon.send("cloud.vm.domains", params(&origin, "stack", json!({})), None).unwrap_err();
     assert_eq!(code, "operation.failed");
-    assert_eq!(details["operation"], "cloud.vm.networks");
+    assert_eq!(details["operation"], "cloud.vm.domains");
     assert_eq!(details["reason"], "http");
     let failure = &details["extra"]["failure"];
     assert_eq!(failure["kind"], "http");

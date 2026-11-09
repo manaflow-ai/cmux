@@ -117,6 +117,18 @@ def send_all(objs):
         sys.stdout.flush()
 
 
+def request_start(method, params):
+    """Send a request to the client without waiting: its id and the event its answer sets."""
+    global next_id
+    with lock:
+        rid = next_id
+        next_id += 1
+    ev = threading.Event()
+    pending[rid] = [ev, None]
+    send({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
+    return rid, ev
+
+
 def request(method, params):
     global next_id
     with lock:
@@ -446,6 +458,37 @@ def handle_prompt(rid, params):
             "type": "text",
             "text": json.dumps({name: os.environ.get(name, "") for name in names}, sort_keys=True),
         }})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "carrier-fault: TOTAL KILL GATE" (tests/carrier_faults.rs): streams chunks "ev-1 " to
+    # "ev-KILL ", asks permission without waiting, waits until the file GATE exists (the test cuts
+    # the carrier, then makes it), streams on to "ev-(TOTAL-50) " while the carrier is down, waits
+    # for the answer, streams the rest to "ev-TOTAL ", then "chose X" and end_turn.
+    if text.startswith("carrier-fault:"):
+        total, kill, gate = text[len("carrier-fault:"):].split("<", 1)[0].split()
+        total, kill = int(total), int(kill)
+        chunk = lambda n: update(sid, {"sessionUpdate": "agent_message_chunk",
+                                       "content": {"type": "text", "text": f"ev-{n} "}})
+        for n in range(1, kill + 1):
+            chunk(n)
+        aid, ev = request_start("session/request_permission", {
+            "sessionId": sid,
+            "toolCall": {"toolCallId": "cf1", "title": "carrier fault", "kind": "execute", "status": "pending"},
+            "options": [
+                {"optionId": "yes", "name": "Allow", "kind": "allow_once"},
+                {"optionId": "no", "name": "Reject", "kind": "reject_once"},
+            ],
+        })
+        while not os.path.exists(gate):
+            time.sleep(0.005)
+        for n in range(kill + 1, total - 49):
+            chunk(n)
+        ev.wait()
+        res = pending.pop(aid)[1] or {}
+        for n in range(max(kill + 1, total - 49), total + 1):
+            chunk(n)
+        chosen = res.get("outcome", {}).get("optionId", res.get("outcome", {}).get("outcome"))
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "/compact": a compaction, as Claude Code reports one (acpmux compacts a chat that outgrew
