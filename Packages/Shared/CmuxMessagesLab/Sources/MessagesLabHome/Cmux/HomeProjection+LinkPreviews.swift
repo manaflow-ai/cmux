@@ -47,7 +47,7 @@ extension HomeProjection {
     /// Whether `url`'s page is GitHub's: most of the Chief's GitHub links are private repositories,
     /// whose page a signed-out fetch answers with "Page not found", so the card keeps its local title
     /// (`HomeMapping.gitHubReference`) or the domain and is fetched only on a tap.
-    static func needsSignIn(_ url: String) -> Bool {
+    nonisolated static func needsSignIn(_ url: String) -> Bool {
         guard let host = URL(string: url)?.host?.lowercased() else { return false }
         return host == "github.com" || host.hasSuffix(".github.com")
     }
