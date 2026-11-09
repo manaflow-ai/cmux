@@ -56,7 +56,9 @@ import Testing
         #expect(await cache.storedCount("cloud:c1") == 450)
     }
 
-    @Test func aReconnectDuringASyncRunsAgainAfterIt() async throws {
+    /// A reconnect while a sync runs (its backend now closed): the new one starts at once and
+    /// stores what came meanwhile.
+    @Test func aReconnectDuringASyncTakesOverAtOnce() async throws {
         let cache = Self.cache()
         defer { cache.removeAll() }
         cache.activate(account: "user_a")
@@ -68,7 +70,7 @@ import Testing
         // New messages, and the phone reconnects while the first sync still runs.
         history.total = 905
         sync.sync("mac:m1", cache: cache, pageSize: 100) { try history.page($0, $1) }
-        try await waitUntil("both syncs") { finished == 2 }
+        try await waitUntil("the newer sync") { finished == 1 && !sync.isSyncing("mac:m1") }
         #expect(await cache.storedCount("mac:m1") == 905)
         #expect(sync.reports["mac:m1"]?.range?.newestSeq == 905)
     }
@@ -84,6 +86,31 @@ import Testing
         sync.cancelAll()
         #expect(!sync.isSyncing("cloud:c1"))
         #expect(sync.reports.isEmpty)
+    }
+
+    /// The Mac and Cloud sessions share one cache: switching accounts drops the kept rows of
+    /// both, not only of the session that switched the cache first.
+    @Test func bothSessionsSharingACacheDropTheOtherAccountsRows() async throws {
+        let cache = Self.cache()
+        defer { cache.removeAll() }
+        func session() -> ChiefSession {
+            ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: FileManager.default.temporaryDirectory
+                .appendingPathComponent("outbox-\(UUID().uuidString).json")), transcripts: cache)
+        }
+        let mac = session(), cloud = session()
+        mac.useTranscriptAccount("user_a")
+        cloud.useTranscriptAccount("user_a")
+        for (chief, id) in [(mac, "mac-A"), (cloud, "mac-C")] {
+            chief.macID = id
+            chief.use(ChiefMockBackend(sleep: { _ in }))
+            try await waitUntil("\(id) to load") { chief.store.hasLoadedNewest && !chief.store.messages.isEmpty }
+            chief.use(ChiefOfflineBackend())
+            #expect(chief.store.isShowingKeptTranscript)
+        }
+        mac.useTranscriptAccount("user_b")
+        cloud.useTranscriptAccount("user_b")
+        #expect(mac.store.messages.isEmpty)
+        #expect(cloud.store.messages.isEmpty)
     }
 
     /// The session's kept rows belong to the account: switching accounts drops them at once and

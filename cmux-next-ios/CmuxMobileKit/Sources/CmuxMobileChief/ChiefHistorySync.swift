@@ -6,9 +6,10 @@ import Foundation
 /// (``ConversationTranscriptCache/sync(_:pageSize:fetch:)``), so Chief reads with no network
 /// and a reconnect only fetches what is new.
 ///
-/// One sync per conversation runs at a time; a request while one runs (a reconnect) runs again
-/// once it ends. A failed sync retries with backoff, then waits for the next request (the next
-/// foreground, network change or backend swap). ``cancelAll()`` (sign-out) stops every sync, and
+/// One sync per conversation runs at a time; a newer request (a reconnect, a new backend) stops
+/// the running one and starts at once, since every write is idempotent and resumable. A failed
+/// sync retries with backoff, then waits for the next request (the next foreground, network
+/// change or backend swap). ``cancelAll()`` (sign-out) stops every sync, and
 /// the cache itself refuses a write for an account that is no longer active.
 @MainActor
 public final class ChiefHistorySync {
@@ -17,7 +18,6 @@ public final class ChiefHistorySync {
 
     let clock: any Clock<Duration>
     private var running: [String: Task<Void, Never>] = [:]
-    private var again: [String: Request] = [:]
     /// The last sync's result per conversation (tests, diagnostics).
     public private(set) var reports: [String: ConversationHistorySyncReport] = [:]
     /// Every sync finished or given up, in order (tests).
@@ -43,12 +43,9 @@ public final class ChiefHistorySync {
                      fetch: @escaping @Sendable (Int?, Int) async throws -> ConversationHistoryPage,
                      finished: (@Sendable () -> Void)? = nil) {
         let request = Request(cache: cache, pageSize: pageSize, fetch: fetch, finished: finished)
-        guard running[key] == nil else {
-            // The newer request wins: its backend is the live one.
-            again[key]?.finished?()
-            again[key] = request
-            return
-        }
+        // The newer request wins at once: its backend is the live one, and the old one may be
+        // closed and sitting in a retry's backoff.
+        running.removeValue(forKey: key)?.cancel()
         start(key, request)
     }
 
@@ -73,7 +70,6 @@ public final class ChiefHistorySync {
             self.running[key] = nil
             if let report { self.reports[key] = report }
             self.onFinish?(key, report)
-            if let next = self.again.removeValue(forKey: key) { self.start(key, next) }
         }
     }
 
@@ -81,8 +77,6 @@ public final class ChiefHistorySync {
     public func cancelAll() {
         for task in running.values { task.cancel() }
         running = [:]
-        for request in again.values { request.finished?() }
-        again = [:]
         reports = [:]
     }
 

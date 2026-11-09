@@ -51,6 +51,7 @@ public final class ConversationTranscriptCache: @unchecked Sendable {
     /// What a store saved and the queue has not written yet, by account and key.
     struct PendingWrite {
         var account: String?
+        var generation: Int
         var key: String
         var info: ConversationInfo?
         var meID: String?
@@ -60,6 +61,8 @@ public final class ConversationTranscriptCache: @unchecked Sendable {
         var reachedStart = false
     }
     private let pending = OSAllocatedUnfairLock(initialState: [String: PendingWrite]())
+    /// The generation of the last ``removeAll()``: a write made before it never lands.
+    private let removedGeneration = OSAllocatedUnfairLock(initialState: 0)
 
     /// This run's snapshots by key. Main actor only.
     @MainActor private var memory: [String: ConversationTranscriptSnapshot] = [:]
@@ -134,21 +137,13 @@ public final class ConversationTranscriptCache: @unchecked Sendable {
         return read
     }
 
-    /// Up to `limit` stored messages older than `beforeSeq`, oldest first, as a history page.
-    /// `requireSynced`: only when the stored history below `beforeSeq` has no gap (a sync or a
-    /// store walked it), else nil and the caller asks the server. Without it (no network) the
-    /// page is whatever is stored. Nil after an account switch or a failed read.
-    @MainActor public func older(_ key: String, beforeSeq: Int, limit: Int, requireSynced: Bool) async -> ConversationHistoryPage? {
+    /// Up to `limit` stored messages older than `beforeSeq`, oldest first, as a history page:
+    /// what a store shows with no server page (offline, or still connecting). Online, older
+    /// pages come from the server, which has edits and unsends made while the phone was away.
+    /// Nil after an account switch or a failed read.
+    @MainActor public func older(_ key: String, beforeSeq: Int, limit: Int) async -> ConversationHistoryPage? {
         let started = scope
         let page: ConversationHistoryPage? = try? await run(started) { db in
-            let range = try db.syncedRange(key)
-            if requireSynced {
-                guard let range, range.oldestSeq <= beforeSeq, beforeSeq <= range.newestSeq + 1 else { return nil }
-                let rows = try db.older(key, beforeSeq: beforeSeq, limit: limit)
-                let reachedOldest = rows.first.flatMap(\.seq).map { $0 <= range.oldestSeq } ?? true
-                if reachedOldest && !range.complete && rows.isEmpty { return nil }
-                return ConversationHistoryPage(messages: rows, hasMore: !(reachedOldest && range.complete))
-            }
             let rows = try db.older(key, beforeSeq: beforeSeq, limit: limit)
             return ConversationHistoryPage(messages: rows, hasMore: rows.count == limit)
         }
@@ -194,15 +189,16 @@ public final class ConversationTranscriptCache: @unchecked Sendable {
         written[key] = before
         memory[key] = snapshot
         guard !changed.isEmpty || !newlyDeleted.isEmpty || infoChanged || reachedStart else { return }
-        let account = scope.account
+        let current = scope, account = current.account
         let slot = "\(account ?? "")\u{1F}\(key)"
         let window = low <= high ? low...high : nil
+        let changedRows = changed
         let waiting = pending.withLock { pending in
             let waiting = pending[slot] != nil
-            var write = pending[slot] ?? PendingWrite(account: account, key: key)
+            var write = pending[slot] ?? PendingWrite(account: account, generation: current.generation, key: key)
             write.info = info
             write.meID = meID
-            write.changed.merge(changed) { $1 }
+            write.changed.merge(changedRows) { $1 }
             for id in newlyDeleted { write.changed[id] = nil }
             write.deleted.formUnion(newlyDeleted)
             write.window = window
@@ -217,6 +213,7 @@ public final class ConversationTranscriptCache: @unchecked Sendable {
     /// Writes what waits under `slot`, if anything (on the queue).
     private func write(_ slot: String) {
         guard let write = pending.withLock({ $0.removeValue(forKey: slot) }),
+              write.generation >= removedGeneration.withLock({ $0 }),
               let db = try? database(for: write.account) else { return }
         // The store's window has no gap: it widens the synced range it overlaps (or starts one).
         var range: ConversationHistoryDatabase.SyncedRange?? = nil
@@ -240,7 +237,12 @@ public final class ConversationTranscriptCache: @unchecked Sendable {
         memory = [:]
         written = [:]
         deletedWritten = [:]
-        scopeLock.withLock { $0.generation += 1 }
+        // Signed out: nothing is read or written for the account that was active.
+        let generation = scopeLock.withLock { scope -> Int in
+            scope = Scope(account: nil, generation: scope.generation + 1)
+            return scope.generation
+        }
+        removedGeneration.withLock { $0 = generation }
         pending.withLock { $0 = [:] }
         queue.async { [self] in
             database = nil

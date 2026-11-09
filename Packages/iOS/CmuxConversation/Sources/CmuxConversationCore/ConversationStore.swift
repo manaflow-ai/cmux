@@ -898,15 +898,7 @@ public final class ConversationStore {
         older = .loading
         notify(.older)
         let generation = olderGeneration
-        let cache = transcriptCache, cacheKey = transcriptCacheKey
         olderTask = Task { [weak self] in
-            // The device's history first, where it is stored without a gap below this row.
-            if let cache, let cacheKey,
-               let page = await cache.older(cacheKey, beforeSeq: oldestSeq, limit: self?.pageSize ?? Self.defaultPageSize, requireSynced: true) {
-                guard let self, self.olderGeneration == generation else { return }
-                self.applyOlder(page, expectedOldest: oldestSeq)
-                return
-            }
             var attempt = 0
             while !Task.isCancelled {
                 guard let self else { return }
@@ -946,10 +938,16 @@ public final class ConversationStore {
         notify(.older)
         let generation = olderGeneration
         olderTask = Task { [weak self] in
-            let page = await cache.older(key, beforeSeq: oldestSeq, limit: self?.pageSize ?? Self.defaultPageSize, requireSynced: false)
+            let page = await cache.older(key, beforeSeq: oldestSeq, limit: self?.pageSize ?? Self.defaultPageSize)
             guard let self, self.olderGeneration == generation, !self.hasLoadedNewest, self.isShowingKeptTranscript,
                   self.transcriptCache === cache, self.transcriptCacheKey == key else { return }
-            self.applyOlder(page ?? ConversationHistoryPage(messages: [], hasMore: false), expectedOldest: oldestSeq)
+            guard let page else {
+                // A failed read: the next scroll asks again.
+                self.older = .idle
+                self.notify(.older)
+                return
+            }
+            self.applyOlder(page, expectedOldest: oldestSeq)
         }
     }
 
@@ -974,6 +972,8 @@ public final class ConversationStore {
         older = page.hasMore ? .idle : .exhausted
         notify(.prepended)
         refreshReadState()
+        // A server page joins the device's history (a device page is already there).
+        scheduleTranscriptSave()
     }
 
     /// Puts an older page's messages in place. When every one of them goes
