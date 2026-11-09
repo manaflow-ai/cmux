@@ -540,7 +540,7 @@ async fn serve(
     let result = tokio::select! {
         served = serve_local(local, overlay.clone(), peers.clone(), status) => served.map_err(anyhow::Error::from),
         () = serve_overlay(listener, peers.clone(), session_socket, owner, acpmux) => Ok(()),
-        () = reload_on_rekey(&peers, &*overlay) => Ok(()),
+        () = reload_on_rekey(&peers, &overlay) => Ok(()),
         signal = shutdown_signal() => signal,
         outcome = launchd_agent_outcome(watch) => outcome,
     };
