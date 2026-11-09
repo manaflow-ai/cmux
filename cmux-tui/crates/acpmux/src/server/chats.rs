@@ -350,7 +350,7 @@ pub(super) async fn route(
                 .map(PathBuf::from)
                 .or_else(dirs::home_dir)
                 .unwrap_or_else(|| PathBuf::from("/"));
-            let (family, profile) = {
+            let (profile_name, profile) = {
                 let cfg = hub.config.read().await;
                 let (name, profile) =
                     crate::chat_fork::profile_for(&cfg, harness).ok_or_else(|| {
@@ -358,9 +358,9 @@ pub(super) async fn route(
                             "no ACP harness runs {harness} here, so its chat cannot fork"
                         ))
                     })?;
-                (crate::config::derive_family(name, profile), profile.clone())
+                (name.to_owned(), profile.clone())
             };
-            let forked = crate::chat_fork::fork(harness, &family, &profile, id, &cwd).await?;
+            let forked = crate::chat_fork::fork(harness, &profile_name, &profile, id, &cwd).await?;
             Ok(json!({"harness": harness, "agentSessionId": forked}))
         }
         "_acpmux/chat_roots_record" => {

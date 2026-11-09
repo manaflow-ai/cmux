@@ -1264,7 +1264,8 @@ own environment lacks. Every child: PATH (login PATH first), MISE_*, ASDF_*, NVM
 BUN_INSTALL, HTTPS_PROXY, HTTP_PROXY, ALL_PROXY, NO_PROXY (both cases),
 NODE_EXTRA_CA_CERTS, SSL_CERT_FILE, SSL_CERT_DIR. Claude harnesses also: ANTHROPIC_*, CLAUDE_*,
 DISABLE_*, *_TELEMETRY; AWS_* only with the person's own CLAUDE_CODE_USE_BEDROCK (a profile's switch unlocks only AWS_PROFILE, AWS_REGION, AWS_DEFAULT_REGION, AWS_CONFIG_FILE, AWS_SHARED_CREDENTIALS_FILE); GOOGLE_*, CLOUDSDK_*, GCLOUD_*, CLOUD_ML_REGION, VERTEX_REGION_* (non-secret ones only from a profile's switch) only
-with CLAUDE_CODE_USE_VERTEX. Codex harnesses also: OPENAI_*, CODEX_*. Gemini: GEMINI_*, GOOGLE_*.
+with CLAUDE_CODE_USE_VERTEX. Codex harnesses also: OPENAI_*, CODEX_*, AZURE_OPENAI_API_KEY. Gemini: GEMINI_*, GOOGLE_*.
+Grok: XAI_API_KEY. DeepSeek Harness: DEEPSEEK_API_KEY.
 Muse: MUSE_*, META_*. OpenCode, OpenCode v2, pi, omp, Prime, cmux Harness and Hermes also: a fixed
 list of provider keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, GROQ_API_KEY,
 DEEPSEEK_API_KEY, HF_TOKEN and the rest of `PROVIDER_KEYS` in `src/login_env.rs`, plus
@@ -1276,7 +1277,8 @@ profile's `${env:X}` reference to a name the cache lacks. If the shell is slower
 missing base URL or reference refuses the start, naming the variable, rather than running on the
 default endpoint. Only a name the child's final env plan takes counts: never one its route unsets
 (`codex-login`) or a remote-origin launch, whose env is cleared. Every spawn path builds its command
-through the same check (`agent::harness_command_ready`; chat forks call `login_env::await_child_env`). The same list keeps these keys in the
+through the same check (`agent::harness_command_ready`, chat forks included; the sign-in check and
+the live-model probe call `login_env::await_child_env` on their own command). The same list keeps these keys in the
 daemon's own environment from Claude, Codex and every other agent (`agent/foreign_login.rs`). Nothing else (GITHUB_TOKEN,
 GH_TOKEN, NPM_TOKEN, ...) unless `loginEnvAllow` in config.json names it (exact names or `PREFIX_*`;
 default empty), or (for local launches only, never a remote-origin one) it is a machine declaration below or a name delivered to this machine in `~/.config/cmux/machine-secrets.env`

@@ -103,18 +103,25 @@ pub(crate) fn foreign_login_keys(family: &str) -> impl Iterator<Item = &'static 
 /// the multi-provider harnesses (`login_env::PROVIDER_FAMILIES`), the one family that signs in with
 /// the key, and an unknown command (`""`), as it keeps the shared keys above.
 fn provider_key_foreign(key: &str, family: &str) -> bool {
-    let own = match key {
+    !LOGIN_ENV_OWNERS.iter().any(|login| login.key == key)
+        && !family.is_empty()
+        && provider_key_owner(key) != Some(family)
+        && !crate::login_env::PROVIDER_FAMILIES.contains(&family)
+}
+
+/// The one family that signs in with a `login_env::PROVIDER_KEYS` key besides the multi-provider
+/// harnesses. The same table admits the key from the login shell for that family
+/// (`login_env::allowed_with`), so a family keeps from the daemon's env what it also gets from
+/// the login shell, and no more.
+pub(crate) fn provider_key_owner(key: &str) -> Option<&'static str> {
+    Some(match key {
         "ANTHROPIC_BASE_URL" => "claude",
         "OPENAI_BASE_URL" | "AZURE_OPENAI_API_KEY" => "codex",
         "GOOGLE_API_KEY" | "GOOGLE_GENERATIVE_AI_API_KEY" => "gemini",
         "XAI_API_KEY" => "grok",
         "DEEPSEEK_API_KEY" => "deepseek",
-        _ => "",
-    };
-    !LOGIN_ENV_OWNERS.iter().any(|login| login.key == key)
-        && !family.is_empty()
-        && family != own
-        && !crate::login_env::PROVIDER_FAMILIES.contains(&family)
+        _ => return None,
+    })
 }
 
 /// What a harness's command line runs, for the scrub.

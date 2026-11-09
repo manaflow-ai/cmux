@@ -82,7 +82,7 @@ pub async fn probe(
     cwd: &Path,
     timeout: Duration,
 ) -> Result<Vec<LiveModel>> {
-    let mut child = Probe::spawn(cli, argv, env, cwd)?;
+    let mut child = Probe::spawn(cli, argv, env, cwd).await?;
     let listed = tokio::time::timeout(timeout, async {
         match cli {
             Cli::Claude => claude::list(&mut child).await,
@@ -103,7 +103,7 @@ pub async fn codex_rate_limits(
     cwd: &Path,
     timeout: Duration,
 ) -> Result<Value> {
-    let mut child = Probe::spawn(Cli::Codex, argv, env, cwd)?;
+    let mut child = Probe::spawn(Cli::Codex, argv, env, cwd).await?;
     let read = tokio::time::timeout(timeout, codex::rate_limits(&mut child)).await;
     child.kill().await;
     read.map_err(|_| anyhow!("the usage limits did not arrive within {} s", timeout.as_secs()))?
@@ -117,40 +117,55 @@ pub(crate) struct Probe {
 }
 
 impl Probe {
-    fn spawn(
+    async fn spawn(
         cli: Cli,
         argv: &[String],
         env: &BTreeMap<String, String>,
         cwd: &Path,
     ) -> Result<Self> {
         let (program, rest) = argv.split_first().ok_or_else(|| anyhow!("no program to run"))?;
-        let mut cmd = Command::new(program);
         let family = match cli {
             Cli::Claude => "claude",
             Cli::Codex => "codex",
         };
-        // The daemon starter's turn values are not this command's (config::TURN_SCOPED_ENV).
-        for k in crate::config::inherited_caller_scoped_keys() {
-            cmd.env_remove(k);
+        let build = || {
+            let mut cmd = Command::new(program);
+            // The daemon starter's turn values are not this command's (config::TURN_SCOPED_ENV).
+            for k in crate::config::inherited_caller_scoped_keys() {
+                cmd.env_remove(k);
+            }
+            crate::login_env::apply_tokio_for(&mut cmd, Some(family), Some(env));
+            crate::config::scrub_nested_claude_env_tokio_for(&mut cmd, Some(family));
+            // Never another harness's login (`agent/foreign_login.rs`).
+            let runs = crate::agent::foreign_login::Runs::Agent(family.to_owned());
+            crate::agent::foreign_login::remove_foreign(&runs, |key| {
+                cmd.env_remove(key);
+            });
+            cmd.args(rest)
+                .args(match cli {
+                    Cli::Claude => claude::args(),
+                    Cli::Codex => codex::args(),
+                })
+                .envs(env)
+                .current_dir(cwd)
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .kill_on_drop(true);
+            cmd
+        };
+        let mut cmd = build();
+        // As an agent spawn: the login values this probe's env plan takes (`login_env::ChildEnv`).
+        let plan = crate::login_env::ChildEnv {
+            family,
+            profile: Some(env),
+            remote: false,
+            explicit: Some(crate::agent::explicit_env(cmd.as_std())),
+        };
+        let deadline = tokio::time::Instant::now() + crate::login_env::TIMEOUT;
+        if crate::login_env::await_child_env(&plan, deadline).await.map_err(|e| anyhow!(e))? {
+            cmd = build();
         }
-        crate::login_env::apply_tokio_for(&mut cmd, Some(family), Some(env));
-        crate::config::scrub_nested_claude_env_tokio_for(&mut cmd, Some(family));
-        // Never another harness's login (`agent/foreign_login.rs`).
-        let runs = crate::agent::foreign_login::Runs::Agent(family.to_owned());
-        crate::agent::foreign_login::remove_foreign(&runs, |key| {
-            cmd.env_remove(key);
-        });
-        cmd.args(rest)
-            .args(match cli {
-                Cli::Claude => claude::args(),
-                Cli::Codex => codex::args(),
-            })
-            .envs(env)
-            .current_dir(cwd)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .kill_on_drop(true);
         let mut child = cmd.spawn().with_context(|| format!("cannot start {program}"))?;
         let stdin = child.stdin.take().ok_or_else(|| anyhow!("{program} has no stdin"))?;
         let stdout = child.stdout.take().ok_or_else(|| anyhow!("{program} has no stdout"))?;
