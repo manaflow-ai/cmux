@@ -1612,3 +1612,37 @@ fn a_screen_switch_past_the_tracked_modes_still_counts() {
     session.remote(&list);
     assert_eq!(session.status(), Status::AlternateScreen);
 }
+
+#[test]
+fn a_resize_keeps_an_ordinary_cursor_restore_visible() {
+    // A resize loses no output, so a repaint's save and restore after it
+    // carries the visible pen it saved.
+    let mut session = armed_session();
+    session.engine.layout_changed(session.clock);
+    let result = conceals_after_more(&mut session, "\x1b7\x1b8");
+    assert!(result.starts_with("drawn \"e\""), "{result}");
+}
+
+#[test]
+fn a_resize_keeps_a_concealing_save() {
+    let mut session = armed_session();
+    session.remote("\x1b[8m\x1b7\x1b[0m");
+    session.engine.layout_changed(session.clock);
+    let result = conceals_after_more(&mut session, "\x1b8");
+    assert!(result.starts_with("drawn \"\""), "{result}");
+}
+
+#[test]
+fn a_resize_withdraws_what_is_drawn() {
+    let mut session = armed_session();
+    session.advance(ms(2_000));
+    for key in ["h", "u", "n", "t"] {
+        session.type_key(key);
+        session.remote(key);
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key("e");
+    assert_eq!(session.drawn(), "e");
+    session.engine.layout_changed(session.clock);
+    assert_eq!(session.drawn(), "");
+}

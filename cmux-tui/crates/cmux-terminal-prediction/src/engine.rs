@@ -632,6 +632,20 @@ impl TerminalPredictionEngine {
         changed
     }
 
+    /// The grid or the font changed under the glyphs (a resize, a new grid)
+    /// with no output lost: nothing drawn can be placed any more, but every
+    /// byte still reaches the engine, so what the scanner knows of the pen,
+    /// its saved copies and the screen stays true.
+    pub fn layout_changed(&mut self, now: Duration) -> bool {
+        if !self.is_active() {
+            return false;
+        }
+        let changed = self.withdraw_all(false, now, false);
+        self.mark_opaque_echo(now);
+        self.extend_untracked_deadline(now);
+        changed
+    }
+
     /// A rendered frame reached the screen. Confirmed glyphs retire here: the
     /// engine sees output before the parser, so retiring at confirmation would
     /// blank the cell for the frames between the echo and its paint.
