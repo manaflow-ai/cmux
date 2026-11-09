@@ -150,9 +150,16 @@ mod tests {
         );
         assert_eq!(field(&wide, "名前."), None);
         let fields = parse_fields("name, turn.activity,nope").unwrap();
+        // W5-S, bench round 4 friction 10 (2026-11-08): a selected field the record lacks is
+        // null, so every row has every selected key (it was dropped).
         assert_eq!(
             project_fields(&info, &fields),
-            json!({"name": "lane", "turn.activity": "Bash"})
+            json!({"name": "lane", "turn.activity": "Bash", "nope": null})
+        );
+        let idle = json!({"name": "idle", "turn": {}});
+        assert_eq!(
+            project_fields(&idle, &fields),
+            json!({"name": "idle", "turn.activity": null, "nope": null})
         );
         assert!(parse_fields(" , ").is_err());
     }
