@@ -105,8 +105,13 @@ describe("a page whose modules stop loading", () => {
   test("knows the Vite client holds the server even when liveNote loads after it connected", () => {
     // The Vite client's socket opens before src/devkit/liveNote.dev.ts registers its listener, so
     // vite:ws:connect never reaches it; the inline guard watches the HMR socket itself.
-    const p = page(undefined, (win) => Object.defineProperty(win, "WebSocket", { value: FakeSocket, configurable: true }));
-    const socket = new (p.win as unknown as { WebSocket: typeof FakeSocket }).WebSocket("ws://127.0.0.1:4200/", "vite-hmr");
+    const p = page(undefined, (win) =>
+      Object.defineProperty(win, "WebSocket", { value: FakeSocket, configurable: true }),
+    );
+    const socket = new (p.win as unknown as { WebSocket: typeof FakeSocket }).WebSocket(
+      "ws://127.0.0.1:4200/",
+      "vite-hmr",
+    );
     socket.dispatchEvent(new Event("open"));
     p.failModule();
     flush(p);
@@ -118,7 +123,9 @@ describe("a page whose modules stop loading", () => {
   });
 
   test("another page socket does not count as the Vite client", () => {
-    const p = page(undefined, (win) => Object.defineProperty(win, "WebSocket", { value: FakeSocket, configurable: true }));
+    const p = page(undefined, (win) =>
+      Object.defineProperty(win, "WebSocket", { value: FakeSocket, configurable: true }),
+    );
     const socket = new (p.win as unknown as { WebSocket: typeof FakeSocket }).WebSocket("wss://example.test/", "chat");
     socket.dispatchEvent(new Event("open"));
     p.failModule();
