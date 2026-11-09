@@ -1073,7 +1073,13 @@ fn mistyped_id_reason(value: &str) -> Option<String> {
     let short_prefix = EXPANDED_ID_PREFIXES.contains(&prefix)
         && is_lower_hex(payload)
         && (1..MIN_ID_PREFIX_DIGITS).contains(&payload.len());
-    let shape = if short_prefix {
+    let uppercase = hex && payload.bytes().any(|byte| byte.is_ascii_uppercase());
+    let shape = if uppercase {
+        format!(
+            "ids are lowercase: {prefix}_ and hex digits in lowercase, as in {}",
+            value.to_ascii_lowercase()
+        )
+    } else if short_prefix {
         format!(
             "an id prefix needs at least {MIN_ID_PREFIX_DIGITS} hex digits of the id, and this \
              one has {}",
@@ -1081,8 +1087,6 @@ fn mistyped_id_reason(value: &str) -> Option<String> {
         )
     } else if !hex || payload.is_empty() {
         format!("an id is {prefix}_ and 32 hex digits (0-9 and a-f, lowercase)")
-    } else if payload.len() == 32 {
-        format!("ids are lowercase: {prefix}_ and 32 hex digits in lowercase")
     } else {
         format!("an id is {prefix}_ and 32 hex digits, and this one has {}", payload.len())
     };
