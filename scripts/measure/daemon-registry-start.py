@@ -9,6 +9,7 @@ so the owner re-folds the whole journal. One DRS {json} line per start on stdout
 """
 
 import argparse
+import fcntl
 import json
 import os
 import socket
@@ -86,6 +87,7 @@ def start(args, label, bumped):
         os.unlink(args.socket)
     log = open(os.path.join(args.home, f"owner-{label}.log"), "wb")
     before = {"registry_bytes": file_size(registry), "wal_bytes": file_size(str(registry) + "-wal")}
+    spawned_at_ms = time.time() * 1000
     started = time.monotonic()
     child = subprocess.Popen(
         [args.bin, "--headless", "--session", args.session, "--socket", args.socket],
@@ -94,6 +96,14 @@ def start(args, label, bumped):
         stdout=subprocess.DEVNULL,
         stderr=log,
     )
+    # The first start's stacks (macOS `sample`, 3 s from spawn): where a slow first start
+    # waits. Printed as DRS-SAMPLE lines, the heaviest frames of each thread.
+    sampler = None
+    if label.endswith("-0") and sys.platform == "darwin" and os.path.exists("/usr/bin/sample"):
+        sample_file = os.path.join(args.home, f"sample-{label}.txt")
+        sampler = subprocess.Popen(["/usr/bin/sample", str(child.pid), "3", "1", "-file", sample_file],
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL)
     listen = first_answer = ready = None
     deadline = started + args.ready_timeout
     while time.monotonic() < deadline and child.poll() is None:
@@ -111,6 +121,19 @@ def start(args, label, bumped):
             ready = time.monotonic() - started
             break
         time.sleep(0.01)
+    if sampler is not None:
+        try:
+            sampler.wait(timeout=60)
+            lines = Path(sample_file).read_text(errors="replace").splitlines()
+            start = next((i for i, line in enumerate(lines) if line.startswith("Call graph:")), None)
+            end = next((i for i, line in enumerate(lines) if line.startswith("Total number in stack")), len(lines))
+            for line in lines[start:end] if start is not None else []:
+                # Frames only: symbol names and sample counts, no paths or arguments.
+                text = line.split(" (in ")[0].rstrip()
+                if text.strip():
+                    print("DRS-SAMPLE " + text[:200], flush=True)
+        except (subprocess.TimeoutExpired, OSError) as error:
+            print(f"DRS-SAMPLE failed: {error}", flush=True)
     laps = None
     timings = sdir / "startup-timings.jsonl"
     if timings.is_file():
@@ -145,6 +168,11 @@ def start(args, label, bumped):
         "ready_ms": ms(ready),
         "exited_early": exited,
         "startup": laps,
+        # From spawn to the owner's startup clock (exec and main before its first lap). The
+        # owner writes at_ms (wall clock) when its clock reads total_ms.
+        "before_clock_ms": None
+        if not laps or "at_ms" not in laps or "total_ms" not in laps
+        else round(laps["at_ms"] - laps["total_ms"] - spawned_at_ms, 1),
         **before,
     }
     print("DRS " + json.dumps(result), flush=True)
@@ -160,8 +188,57 @@ def main():
     parser.add_argument("--ready-timeout", type=float, default=3600)
     args = parser.parse_args()
     generated = json.loads(Path(args.generate).read_text())
-    starts = []
     registry = session_dir(args.state) / REGISTRY
+    # The first exec of a binary just linked pays for macOS's check of it, before main and
+    # without opening a registry. Two `--version` execs before the timed starts pay it and
+    # show it (the first against the second), so the starts time only the owner.
+    # A freshly built binary's first start pays a one-time wait on its first full fsync and the
+    # file creations beside it (2026-11-09: 0.8-2.3 s on fleet Macs, anywhere in the start),
+    # which later starts of the same binary never pay. warm_start: one headless start of the
+    # binary, timed, on an empty state under its own HOME and data home (so the timed starts
+    # still write their own build helpers), before the timed starts.
+    warm_root = Path(args.home).parent / "warm"
+    warm_env = dict(os.environ)
+    warm_env.update({
+        "HOME": str(warm_root / "home"),
+        "XDG_DATA_HOME": str(warm_root / "home" / ".local" / "share"),
+        "CMUX_TUI_STATE_DIR": str(warm_root / "state"),
+        "CMUX_TUI_CONFIG": str(warm_root / "home" / "config.json"),
+        "CMUX_TUI_LOG_FILE": str(warm_root / "home" / "client.log"),
+    })
+    warm_env.pop("CMUX_TUI_SOCKET", None)
+    for folder in ("home", "state"):
+        (warm_root / folder).mkdir(parents=True, exist_ok=True, mode=0o700)
+    warm_socket = str(Path(args.socket).with_name("warm.sock"))
+    warm_started = time.monotonic()
+    warm = subprocess.Popen([args.bin, "--headless", "--session", "drs-warm", "--socket", warm_socket],
+                            env=warm_env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+    warm_ready = None
+    while time.monotonic() - warm_started < 120 and warm.poll() is None:
+        reply = identify(warm_socket, 2.0) if os.path.exists(warm_socket) else None
+        if reply is not None and (reply.get("data") or {}).get("lifecycle_ready") is True:
+            warm_ready = round((time.monotonic() - warm_started) * 1000, 1)
+            break
+        time.sleep(0.01)
+    subprocess.run([args.bin, "server", "stop", "--session", "drs-warm", "--end-terminals", "--socket", warm_socket],
+                   env=warm_env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                   stderr=subprocess.DEVNULL, timeout=600, check=False)
+    try:
+        warm.wait(timeout=600)
+    except subprocess.TimeoutExpired:
+        warm.kill()
+        warm.wait()
+    print("DRS-WARM " + json.dumps({"warm_ready_ms": warm_ready,
+                                    "xdg_data_home_set": bool(os.environ.get("XDG_DATA_HOME"))}), flush=True)
+    execs = []
+    for _ in range(2):
+        exec_started = time.monotonic()
+        subprocess.run([args.bin, "--version"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=600, check=False)
+        execs.append(round((time.monotonic() - exec_started) * 1000, 1))
+    print("DRS-EXEC " + json.dumps({"first_exec_ms": execs[0], "second_exec_ms": execs[1]}), flush=True)
+    starts = []
     for index in range(max(args.rounds, 1)):
         # The generator wrote the first bump; later rounds set it again.
         bumped = bool(args.bump)
@@ -169,7 +246,7 @@ def main():
             bump_roster(registry)
         starts.append(start(args, f"bumped-{index}" if bumped else f"plain-{index}", bumped))
     starts.append(start(args, "after", False))
-    report = {"generate": generated, "starts": starts}
+    report = {"generate": generated, "first_exec_ms": execs[0], "second_exec_ms": execs[1], "warm_ready_ms": warm_ready, "starts": starts}
     Path(args.report).write_text(json.dumps(report, indent=2))
     return 0 if all(item["ready_ms"] is not None for item in starts) else 1
 

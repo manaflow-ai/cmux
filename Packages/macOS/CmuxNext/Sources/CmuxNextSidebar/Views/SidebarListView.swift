@@ -133,10 +133,16 @@ final class SidebarListView: NSView {
     var rowHold = SidebarRowHold()
     /// Workspaces a pin drop took to the band: out of the list until its card lands (cx-odqn).
     var leaving: Set<WorkspaceID> = []
-    /// The "Done (N)" rows the person opened (`SidebarLayout+DoneFold`): view state, kept for this list only.
-    var openDoneFolds: Set<SidebarDoneFoldID> = []
-    /// The lists whose "Show N more" row the person opened: view state, kept for this list only.
-    var openShowMore: Set<SidebarDoneFoldID> = []
+    /// The "Done (N)" rows the person opened (`SidebarLayout+DoneFold`): kept on the model, which numbers what they show.
+    var openDoneFolds: Set<SidebarDoneFoldID> {
+        get { model.openDoneFolds }
+        set { model.openDoneFolds = newValue }
+    }
+    /// The lists whose "Show N more" row the person opened: kept on the model, as `openDoneFolds`.
+    var openShowMore: Set<SidebarDoneFoldID> {
+        get { model.openShowMore }
+        set { model.openShowMore = newValue }
+    }
     /// The brief highlight Reveal Workspace in Sidebar draws over the row it revealed (`SidebarListView+RevealInSidebar`).
     var revealFlash: SidebarRevealFlash?
     /// Inline rename of a workspace row (a group's name is edited in `groupEditor`).
