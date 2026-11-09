@@ -201,3 +201,21 @@ test("a card the setting collapses shows its pictures only once opened", async (
     act(() => setEditedFilesSettings({ show: "always" }));
   }
 });
+
+test("a pair read while the card shows arrives and is marked to grow in", async () => {
+  let settled: { pair?: TurnShotPair } | undefined;
+  const pair = { before: PAGE_BEFORE, after: PAGE_AFTER };
+  const arriving: TurnShotsReader = {
+    peek: () => settled,
+    read: () =>
+      Promise.resolve().then(() => {
+        settled = { pair };
+        return pair;
+      }),
+  };
+  await renderCard(edit(true), arriving);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(host.querySelector(".acpmux-turn-shots[data-arrived]")).not.toBeNull();
+});
