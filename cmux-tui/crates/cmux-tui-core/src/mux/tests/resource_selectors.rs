@@ -669,4 +669,6 @@ fn w5p_shared_names_and_shared_prefixes_keep_their_old_answers() {
         .expect("a three-digit prefix no tab has");
     let error = w5p_resolve(&mux, "tab", &missing).unwrap_err();
     assert_eq!(error.code, "selector.not_found", "{missing}: {error:?}");
+    assert!(error.message.contains("32 hex digits"), "{}", error.message);
+    assert!(error.message.contains("cmux tab list"), "{}", error.message);
 }

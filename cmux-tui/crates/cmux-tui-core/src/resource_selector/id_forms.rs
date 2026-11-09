@@ -242,7 +242,11 @@ fn expand_prefix(
         ids(state, kind).into_iter().filter(|id| id.starts_with(raw)).collect::<Vec<_>>();
     matches.sort();
     match matches.len() {
-        0 => Err(ResourceError::not_found(kind.kind(), raw)),
+        0 => {
+            let mut error = ResourceError::not_found(kind.kind(), raw);
+            error.message = crate::resource::unmatched_id_prefix_message(kind.kind(), raw);
+            Err(error)
+        }
         1 => Ok(matches.pop()),
         _ => Err(ResourceError::new(
             "selector.ambiguous",
