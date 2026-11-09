@@ -24,6 +24,10 @@ Bead: cx-y79zh (P1). Base read: origin/feat-cmux-next at bc24e6885fff.
   stop read every money meter (`BILLABLE_METERS`) only under price set v2 (`poolsMachineTime`); v1, the
   production set, bills model spend only. The member limit and billable retention count the facts under
   either set. Production billing still waits for Leo's go.
+- 2026-11-09 22:35Z, Leo (cmuxterm-hq plans/team-plan/margins.md "Decided"): "[taste] Model overage at the
+  provider's list price plus 10%, instead of at cost." -> "sure"; "[taste] What happens at the team's spending
+  cap. The lane suggests refusing new starts for members, and pausing machines after a 15-minute warning, with
+  nothing lost." -> "ok". Built in test mode and the cap logic only (section 18); production waits for his go.
 
 S1 landed on feat-cmux-next: `UsageMeterDO.settleCall` (`backend/apps/api/src/usage-user.ts`) writes
 the call's fact and every counter in one transaction, on the charged path too; the proof is
@@ -529,3 +533,31 @@ Development Worker at 55c505de22e6 (backend.yml 38524457745 green). One test clo
   back to per team (actor e2e-hq-84), VM secrets shredded, Freestyle VM
   vm-0ac15ef11f3c4a91be39d4b92bbfd50e deleted by exact id. The shared e2e team stays as the standing
   e2e team on the development sign-in project. Real provider spend about 2 USD.
+
+## 18. Model overage at list + 10%, and the team spending cap (built, v2 only)
+
+Overage markup (`billing-catalog.ts` `overageModelMarkup`: 1.10 under v2; 1.0 under v1, production, and e2e,
+whose end-to-end check compares the meter summary with the level at cost). The billed level of a period, in
+integer micros (`billedLevelMicros`), from its facts split by `UsageMeterDO.level` into models and machine time:
+
+- overage = max(0, models + machines - included), included = the pool (included x seats per seat, the included
+  amount per team);
+- the overage splits pro rata to the period's shares: overage_models = floor(overage x models / total),
+  overage_machines = the rest;
+- billed = min(total, included) + round(overage_models x markup) + overage_machines.
+
+The sync sends the billed level: per seat it subtracts included x seats as before, per team the graduated
+price's free first tier does, so Stripe bills exactly the billed overage. The Stripe catalog needs no new
+object (still 1.00 USD per unit); a v2 price the script makes names the markup in its nickname and
+`price_version` metadata (`ai-overage-models110-v2`). `teamUsage` (the console line) shows the billed level for
+a billable team. `POST /v1/internal/billing/levels` still answers the level at cost.
+
+Team spending cap (`UsageMeterDO.teamCap(team, machineTime, set?)`, for the model router and cmux-platform):
+`{ state: "under" | "near" | "at_cap", spent_usd, cap_usd, period_end }`. Spent: the billing period's model
+spend (settled and open calls) at billed prices, plus machine time when `machineTime`; without a billable mark,
+the UTC month at cost. Cap: the admin's `usage.cap.set`, else under v2 twice the pool (50 USD x seats) for a
+per-seat team the sync marked, else none (`under`). `near` at 80%. Under v2 the model router refuses
+new calls for every member at `at_cap` (402 `team.cap_reached`, with spent, cap and period end), besides the
+existing hard cap (A18, `summarize`: the UTC month at cost over every meter, machine time included, against
+min(admin cap, AUTOMATION_CAP_CEILING_USD)). cmux-platform refuses new machine starts at `at_cap` and pauses
+running machines after a 15-minute warning. The member budget refuses new calls only (unchanged).

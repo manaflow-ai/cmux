@@ -14,7 +14,7 @@ import { providerTarget } from "./providers.ts"
 import { callUpstream } from "./upstream.ts"
 import { freeCaller, freeSettle, freeAdmit } from "./free.ts"
 import { includedMicrosFor, includedModeFor, includedReached } from "./included-stop.ts"
-import { poolsMachineTime } from "../billing-catalog.ts"
+import { poolsMachineTime, teamCapApplies } from "../billing-catalog.ts"
 import { usagePriceSet } from "../billing-usage-sync.ts"
 import { creditsMargin, creditsMinReserveUsd } from "../credits.ts"
 import { Effect, Result } from "effect"
@@ -220,12 +220,14 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
     }
   } else {
     const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team))
-    const check = await meter.check(caller.team)
-    if (!check.allowed) return err(402, "team.cap_reached", "the team reached its monthly usage cap")
+    // Under price set v2 the team spending cap (UsageMeterDO.teamCap: billed prices, machine time pooled) refuses too.
+    const set = usagePriceSet(env)
+    const check = await meter.check(caller.team, teamCapApplies(set) ? { machineTime: poolsMachineTime(set), set } : undefined)
+    if (!check.allowed) return err(402, "team.cap_reached", "the team reached its monthly usage cap", check.cap ? { details: { spent_usd: check.cap.spent_usd, cap_usd: check.cap.cap_usd, resets_at: check.cap.period_end } } : {})
     // The member's own monthly limit (usage-user.ts): reserved before the global lines, released at once if they refuse.
     // A team whose usage above the plan's included amount cannot be billed stops at that amount, checked in the
     // reservation's own transaction (cx-y79zh S5).
-    const held = await meter.reserveUser(caller.team, caller.user, id, maxMicros, caller.limitMicros, includedMicrosFor(env, caller), includedModeFor(env, caller), poolsMachineTime(usagePriceSet(env)))
+    const held = await meter.reserveUser(caller.team, caller.user, id, maxMicros, caller.limitMicros, includedMicrosFor(env, caller), includedModeFor(env, caller), poolsMachineTime(set))
     if (!held.ok && held.included) return includedReached(held.spent_usd, held.limit_usd)
     if (!held.ok) {
       return err(402, "usage.user_limit_reached", "You reached your monthly AI spending limit for this team. A team admin can raise it.", { details: { limit_usd: held.limit_usd, spent_usd: held.spent_usd, resets_at: nextMonthStart(Date.now()) } })

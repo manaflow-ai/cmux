@@ -409,8 +409,8 @@ describe("price set v2: Team 25 USD per seat, per seat by default", () => {
     await spendOn(teamV2, 80)
     expect((await sync(v2Env)).body).toMatchObject({ checked: 1, items_added: 1, pushed: 1, failed: 0 })
     expect(stripe.calls.filter((c) => c.path === "/v1/subscription_items").map((c) => c.form.price)).toEqual(["price_v2_team_seat"])
-    // 80 - 3 x 25 = 5 on the per-seat meter.
-    expect(stripe.events).toEqual([expect.objectContaining({ event_name: "cmux_ai_usage_above_included", "payload[value]": "5.000000" })])
+    // 80 - 3 x 25 = 5 of model overage, at list + 10% under v2 (Leo 2026-11-09): 5.5 on the per-seat meter.
+    expect(stripe.events).toEqual([expect.objectContaining({ event_name: "cmux_ai_usage_above_included", "payload[value]": "5.500000" })])
     const usage = await (testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(teamV2)) as any).teamUsage(teamV2)
     expect(usage.billable).toMatchObject({ mode: "per_seat", seats: 3, included_usd: 75 })
     // The operator read under v2 says per seat for a team with no setting.
@@ -435,10 +435,11 @@ describe("price set v2: Team 25 USD per seat, per seat by default", () => {
     fakeBoundaries(stripe, 0)
     await spendOn(teamId, 80)
     expect((await sync(v2Env, JSON.stringify({ subscription: "sub_v2pin" }))).body).toMatchObject({ pushed: 1, failed: 0 })
-    // The set goes back to v1 mid-period: the period stays per seat (pinned) and keeps 3 x 25, not 3 x 20.
+    // The set goes back to v1 mid-period: the period stays per seat (pinned) and keeps 3 x 25, not 3 x 20. The markup is
+    // the set in force's (v2's 1.1 on the first send, v1's pass-through after).
     await spendOn(teamId, 10)
     expect((await sync({ ...(env as object), ENVIRONMENT: "staging" }, JSON.stringify({ subscription: "sub_v2pin" }))).body).toMatchObject({ pushed: 1, failed: 0 })
-    expect(stripe.events.filter((e) => e["payload[stripe_customer_id]"] === "cus_v2_pin").map((e) => e["payload[value]"])).toEqual(["5.000000", "15.000000"])
+    expect(stripe.events.filter((e) => e["payload[stripe_customer_id]"] === "cus_v2_pin").map((e) => e["payload[value]"])).toEqual(["5.500000", "15.000000"])
     const usage = await (testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(teamId)) as any).teamUsage(teamId)
     expect(usage.billable).toMatchObject({ mode: "per_seat", seats: 3, included_usd: 75 })
   })

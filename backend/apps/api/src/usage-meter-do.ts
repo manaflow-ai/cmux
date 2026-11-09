@@ -4,8 +4,9 @@ import { Schema } from "effect"
 import { BILLABLE_METERS, BILLABLE_METERS_SQL, billedMetersSql, ceilingUsd, MONEY_METERS, recordMicros, METERS, summarize, usageDomain, utcMonth, type MeterCounter, type UsageState } from "./domains/usage.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
-import { addUserSpend, BILLABLE_GRACE_MS, ensureUserTables, expireUserReservations, nextUserWake, recordCostMicros, reserveUser, settleCall, userSpentMicros, type UserReserve } from "./usage-user.ts"
-import type { IncludedMode } from "./billing-catalog.ts"
+import { addUserSpend, BILLABLE_GRACE_MS, ensureUserTables, expireUserReservations, nextMonthStart, nextUserWake, recordCostMicros, reserveUser, settleCall, userSpentMicros, type UserReserve } from "./usage-user.ts"
+import { billedLevelMicros, defaultTeamCapPools, overageModelMarkup, TEAM_CAP_NEAR_PERCENT, type IncludedMode, type UsagePriceSet } from "./billing-catalog.ts"
+import { usagePriceSet } from "./billing-usage-sync.ts"
 import { creditAdd, creditBalance, creditCustomer, creditNoticeOnce, creditRelease, creditReserve, creditSettle, ensureCreditTables, expireCreditHolds, nextCreditWake, setCreditCustomer, type ChiefCallCap, type CreditBalance, type CreditReserve } from "./usage-credits.ts"
 import { autoReloadDecision, chargeSavedCard, endRun, failAutoReload, monthReloaded, readAutoReload, startRun, writeAutoReload, type AutoReloadSettings } from "./credits-autoreload.ts"
 import { MIRROR_DEADLINE_MS, mirrorCredits, mirrorDue, mirrorFailed } from "./credits-mirror.ts"
@@ -23,6 +24,16 @@ export const BILLABLE_FACT_RETENTION_MS = 400 * 24 * 3600_000
 export const MAX_RECORDS_PER_CALL = 500
 /** Egress requests per team per minute (abuse limit A18, automations-billing.md 5.5). */
 export const EGRESS_PER_MINUTE = 600
+
+/** UsageMeterDO.teamCap: the team spending cap state (cmux-platform refuses machine starts and pauses machines at `at_cap`). */
+export interface TeamCap {
+  readonly state: "under" | "near" | "at_cap"
+  readonly spent_usd: number
+  /** null: no cap set (state `under`). */
+  readonly cap_usd: number | null
+  /** The end of the period `spent_usd` counts (ms): the billing period's, else the next UTC month start. */
+  readonly period_end: number
+}
 
 /** The egress gateway's admission: `limited` = over the minute's limit (nothing recorded), `allowed` = under the hard cap. */
 export interface EgressAdmission {
@@ -140,9 +151,11 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
    * team.ai_limit.get, the team line (S5 console): with a billable mark in force, the billing period's
    * settled level against the included amount the sync saw (x seats per seat); otherwise this UTC
    * month's billable spend (models and Cloud machine time, settled plus open model calls; what the included-amount stop counts). `fallback`: the unbilled
-   * mode with no operator setting (billing-catalog.ts defaultIncludedMode). Never binds.
+   * mode with no operator setting (billing-catalog.ts defaultIncludedMode). `markup`: the price set's model overage
+   * markup (billing-catalog.ts overageModelMarkup), so the billed line is the level the sync sends (billedLevelMicros)
+   * and its part above the included amount is the billed overage. Never binds.
    */
-  async teamUsage(entity: string, fallback: IncludedMode = "per_team", machineTime = false): Promise<{ billable: ({ period_start: number | null; period_end: number; mode: IncludedMode; seats: number; included_usd: number | null; spent_usd: number }) | null; month_spent_usd: number; unbilled: { mode: IncludedMode; seats: number } }> {
+  async teamUsage(entity: string, fallback: IncludedMode = "per_team", machineTime = false, markup = 1): Promise<{ billable: ({ period_start: number | null; period_end: number; mode: IncludedMode; seats: number; included_usd: number | null; spent_usd: number }) | null; month_spent_usd: number; unbilled: { mode: IncludedMode; seats: number } }> {
     if (!this.isBound(entity)) return { billable: null, month_spent_usd: 0, unbilled: { mode: fallback, seats: 1 } }
     const sql = this.ctx.storage.sql
     const now = Date.now()
@@ -157,8 +170,10 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     const mode = mark.mode ?? "per_team"
     const seats = mark.seats ?? 1
     const level = mark.period_start !== undefined ? await this.level(entity, mark.period_start * 1000, mark.period_end * 1000, machineTime) : null
+    const included_usd = mark.included_usd === undefined ? null : mode === "per_seat" ? mark.included_usd * seats : mark.included_usd
+    const billed = level && included_usd !== null ? billedLevelMicros(level.models_micros, level.machine_micros, Math.round(included_usd * 1_000_000), markup) : level?.micros
     return {
-      billable: { period_start: mark.period_start ?? null, period_end: mark.period_end, mode, seats, included_usd: mark.included_usd === undefined ? null : mode === "per_seat" ? mark.included_usd * seats : mark.included_usd, spent_usd: level ? level.micros / 1_000_000 : month_spent_usd },
+      billable: { period_start: mark.period_start ?? null, period_end: mark.period_end, mode, seats, included_usd, spent_usd: billed !== undefined ? billed / 1_000_000 : month_spent_usd },
       month_spent_usd,
       unbilled
     }
@@ -480,10 +495,53 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     )
   }
 
-  /** The cap check alone (a step boundary with nothing to record). */
-  async check(entity: string): Promise<{ allowed: boolean; summary: UsageSummary }> {
+  /**
+   * The cap check alone (a step boundary with nothing to record). With `cap` (the model router under price set v2,
+   * teamCapApplies) the team spending cap counts too: at `at_cap` (teamCap) new model calls are refused for every
+   * member, as at the hard cap.
+   */
+  async check(entity: string, cap?: { readonly machineTime: boolean; readonly set: UsagePriceSet }): Promise<{ allowed: boolean; summary: UsageSummary; cap?: TeamCap }> {
     const summary = this.summaryFor(entity, Date.now())
-    return { allowed: summary.stopped === null, summary }
+    if (!cap) return { allowed: summary.stopped === null, summary }
+    const team = await this.teamCap(entity, cap.machineTime, cap.set)
+    return { allowed: summary.stopped === null && team.state !== "at_cap", summary, cap: team }
+  }
+
+  /**
+   * The team spending cap (Leo 2026-11-09, plans/team-plan/margins.md "Decided" and section 4), for the model
+   * router and for cmux-platform: at `at_cap` new model calls and new machine starts are refused for every member,
+   * and running machines are paused after a 15-minute warning (the platform's half); `near` at 80% of the cap.
+   *
+   * `spent_usd`: the billing period's (the billable mark's period, else the UTC month) model spend, settled plus
+   * open calls, at billed prices (billing-catalog.ts billedLevelMicros: model overage above the pool x the set's
+   * markup; at cost without a billable mark, which has no overage billed), plus Cloud machine time at list when
+   * `machineTime` (the caller passes poolsMachineTime(set), as for level()).
+   * `cap_usd`: the admin's cap (usage.cap.set), else under v2 for a per-seat (Team) team whose seats the usage
+   * sync marked, twice the pool (2 x 25 USD x seats); else null (no cap: `under`). The deployment ceiling
+   * (AUTOMATION_CAP_CEILING_USD) is an operator brake that `check` applies on its own and is not this cap.
+   * `set`: the price set in force; the Worker's own (usagePriceSet) when the caller passes none. Never binds.
+   */
+  async teamCap(entity: string, machineTime = false, set: UsagePriceSet = usagePriceSet(this.env)): Promise<TeamCap> {
+    const now = Date.now()
+    if (!this.isBound(entity)) return { state: "under", spent_usd: 0, cap_usd: null, period_end: nextMonthStart(now) }
+    const sql = this.ctx.storage.sql
+    const mark = currentBillable(sql, now, BILLABLE_GRACE_MS)
+    const inPeriod = mark?.period_start !== undefined
+    const from = inPeriod ? mark!.period_start! * 1000 : Date.parse(`${utcMonth(now)}-01T00:00:00Z`)
+    const to = inPeriod ? mark!.period_end * 1000 : nextMonthStart(now)
+    const level = await this.level(entity, from, to, machineTime)
+    const open = Number(sql.exec<{ m: number | null }>(`SELECT SUM(micros) AS m FROM user_reservation`).toArray()[0]?.m ?? 0)
+    const models = level.models_micros + Math.round(open)
+    const seats = mark?.mode === "per_seat" ? Math.max(1, mark.seats ?? 1) : 1
+    const pool = mark?.included_usd !== undefined ? Math.round(mark.included_usd * 1_000_000) * seats : null
+    const spent = pool === null ? models + level.machine_micros : billedLevelMicros(models, level.machine_micros, pool, overageModelMarkup(set))
+    const pools = defaultTeamCapPools(set)
+    const adminCap = this.bind(entity).currentState.team_cap_usd
+    const cap_usd = adminCap !== null ? adminCap : pools !== null && mark?.mode === "per_seat" && pool !== null ? (pools * pool) / 1_000_000 : null
+    if (cap_usd === null) return { state: "under", spent_usd: spent / 1_000_000, cap_usd: null, period_end: to }
+    const capMicros = Math.round(cap_usd * 1_000_000)
+    const state = spent >= capMicros ? "at_cap" : spent * 100 >= capMicros * TEAM_CAP_NEAR_PERCENT ? "near" : "under"
+    return { state, spent_usd: spent / 1_000_000, cap_usd, period_end: to }
   }
 
   protected override nextWakeAt(): number | null {
@@ -518,15 +576,19 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
   /**
    * The billing level (cx-y79zh S2): the sum of the team's settled billable facts (BILLABLE_METERS:
    * model spend and Cloud machine time) recorded in [from, to), corrections included, in integer
-   * micro-dollars. Models pass through at cost (AI_PRICE_VERSION); machine time arrives at list price. The reconcile worker sends this level, never deltas.
+   * micro-dollars, with its split into model spend and machine time. Models are recorded at cost (AI_PRICE_VERSION);
+   * machine time arrives at list price. The reconcile worker sends the billed level made from it (billing-catalog.ts
+   * billedLevelMicros: the model markup above the pool under price set v2), never deltas.
    */
-  async level(entity: string, from: number, to: number, machineTime = false): Promise<{ micros: number; facts: number; last_at: number | null }> {
+  async level(entity: string, from: number, to: number, machineTime = false): Promise<{ micros: number; facts: number; last_at: number | null; models_micros: number; machine_micros: number }> {
     // A team that never used the meter has no facts; a read does not bind (create) its object (S2 review P3).
-    if (!this.isBound(entity)) return { micros: 0, facts: 0, last_at: null }
-    const row = this.ctx.storage.sql.exec<{ micros: number | null; facts: number; last_at: number | null }>(
-      `SELECT SUM(CAST(ROUND(quantity * 1000000) AS INTEGER)) AS micros, COUNT(*) AS facts, MAX(recorded_at) AS last_at FROM usage_ledger WHERE meter IN ${billedMetersSql(machineTime)} AND recorded_at >= ? AND recorded_at < ?`,
+    if (!this.isBound(entity)) return { micros: 0, facts: 0, last_at: null, models_micros: 0, machine_micros: 0 }
+    const row = this.ctx.storage.sql.exec<{ models: number | null; machines: number | null; facts: number; last_at: number | null }>(
+      `SELECT SUM(CASE WHEN meter = 'model.spend_usd' THEN CAST(ROUND(quantity * 1000000) AS INTEGER) ELSE 0 END) AS models, SUM(CASE WHEN meter = 'model.spend_usd' THEN 0 ELSE CAST(ROUND(quantity * 1000000) AS INTEGER) END) AS machines, COUNT(*) AS facts, MAX(recorded_at) AS last_at FROM usage_ledger WHERE meter IN ${billedMetersSql(machineTime)} AND recorded_at >= ? AND recorded_at < ?`,
       from, to
     ).toArray()[0]
-    return { micros: Number(row?.micros ?? 0), facts: Number(row?.facts ?? 0), last_at: row?.last_at === null || row?.last_at === undefined ? null : Number(row.last_at) }
+    const models = Number(row?.models ?? 0)
+    const machines = Number(row?.machines ?? 0)
+    return { micros: models + machines, facts: Number(row?.facts ?? 0), last_at: row?.last_at === null || row?.last_at === undefined ? null : Number(row.last_at), models_micros: models, machine_micros: machines }
   }
 }

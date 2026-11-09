@@ -1,6 +1,6 @@
 import type { Env } from "./env.ts"
 import { personalTeamIdFor, stackTeamIdFor, userIdFor } from "./domains/user.ts"
-import { defaultTeamMode, INCLUDED_MODES, poolsMachineTime, isIncludedMode, isUsagePlan, USAGE_PLANS, USAGE_PRICE_SET_NAMES, USAGE_PRODUCT_ID, USAGE_TEAM_MODE_PLANS, usageIncludedUsd, usageModesOf, usageMeterEvent, usageMeterValueMicros, usagePriceLookupKey, type IncludedMode, type UsagePlan, type UsagePriceSet } from "./billing-catalog.ts"
+import { billedLevelMicros, defaultTeamMode, INCLUDED_MODES, overageModelMarkup, poolsMachineTime, isIncludedMode, isUsagePlan, USAGE_PLANS, USAGE_PRICE_SET_NAMES, USAGE_PRODUCT_ID, USAGE_TEAM_MODE_PLANS, usageIncludedUsd, usageModesOf, usageMeterEvent, usageMeterValueMicros, usagePriceLookupKey, type IncludedMode, type UsagePlan, type UsagePriceSet } from "./billing-catalog.ts"
 
 /**
  * The usage sync (cx-y79zh S4, plans/cmux-next/usage-billing.md section 3, placement option a): the
@@ -18,6 +18,8 @@ import { defaultTeamMode, INCLUDED_MODES, poolsMachineTime, isIncludedMode, isUs
  *    meter aggregates `last`, so a repeat cannot double bill). The identifier names the level's state
  *    (period, micros, fact count, last fact time, and per seat the seats): the same state is the same
  *    event; any new fact, correction or seat change is a new event. Unchanged levels are not sent again.
+ *    The level sent is the billed level (billing-catalog.ts billedLevelMicros): under price set v2 the model share
+ *    above the pool is billed at list + 10% (Leo 2026-11-09); v1 and e2e send the level at cost as before.
  * 4. The included mode (billing-catalog.ts): per team, the whole level goes to the graduated price's
  *    meter; per seat, the level above included x seats goes to the flat price's meter. A Team
  *    customer's mode is the operator's setting in force at the period start; the usage item moves to
@@ -164,9 +166,14 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
    */
   const pushLevel = async (team: string, sub: StripeSubscription, start: number, end: number, mode: IncludedMode, includedUsd: number, seatsNow: number) => {
     const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team))
-    const level = await meter.level(team, start * 1000, end * 1000, poolsMachineTime(set))
+    const facts = await meter.level(team, start * 1000, end * 1000, poolsMachineTime(set))
     const sent = await meter.pushState(team, sub.id, start)
     const seats = mode === "per_seat" ? Math.max(seatsNow, sent?.mode === "per_seat" ? sent.seats : 1) : 1
+    // The billed level (billing-catalog.ts billedLevelMicros): the pool at cost, model overage x the set's markup. Stripe
+    // subtracts the pool (per seat below, per team by the graduated price's free tier), leaving the billed overage.
+    // Under v1 and e2e (markup 1) it is the level itself, so their identifiers do not change.
+    const pool = Math.round(includedUsd * 1_000_000) * (mode === "per_seat" ? seats : 1)
+    const level = { ...facts, micros: billedLevelMicros(facts.models_micros, facts.machine_micros, pool, overageModelMarkup(set)) }
     // per_team keeps the S4 identifier form, so a deploy does not resend every unchanged level.
     const identifier = mode === "per_seat" ? `ais:${sub.id}:${start}:${level.micros}:${level.facts}:${level.last_at ?? 0}:${seats}` : `ai:${sub.id}:${start}:${level.micros}:${level.facts}:${level.last_at ?? 0}`
     if (sent?.identifier === identifier || (sent === null && level.facts === 0)) return false

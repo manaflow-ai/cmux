@@ -63,5 +63,50 @@ export const usagePriceLookupKey = (plan: UsagePlan, set: UsagePriceSet = "v1", 
  */
 export const usageMeterValueMicros = (mode: IncludedMode, levelMicros: number, includedUsd: number, seats: number) =>
   mode === "per_seat" ? Math.max(0, levelMicros - Math.round(includedUsd * 1_000_000) * Math.max(1, Math.floor(seats))) : levelMicros
+/**
+ * The multiplier on model overage (Leo 2026-11-09, plans/team-plan/margins.md "Decided": "Model overage at the
+ * provider's list price plus 10%" -> "sure"): 1.10 under price set v2, 1.0 (pass-through) under v1 (production)
+ * and e2e (its end-to-end check compares the meter summary with the level at cost). Included usage stays at cost
+ * and machine time stays at list in every set.
+ */
+export const overageModelMarkup = (set: UsagePriceSet): number => (set === "v2" ? 1.1 : 1)
+/** The team spending cap an admin did not set (margins.md section 4): this many times the pool, v2 Team (per seat) only; null elsewhere. */
+export const defaultTeamCapPools = (set: UsagePriceSet): number | null => (set === "v2" ? 2 : null)
+/**
+ * Whether the model router refuses at the team spending cap (UsageMeterDO.teamCap, billed prices over the billing
+ * period) besides the hard cap (A18, summarize): v2 only, so production's v1 keeps today's check until Leo's go.
+ */
+export const teamCapApplies = (set: UsagePriceSet): boolean => set === "v2"
+/** The team cap state turns `near` at this percent of the cap (margins.md section 4: admins get a notice at 80%). */
+export const TEAM_CAP_NEAR_PERCENT = 80
+
+/**
+ * The billed level of a period (integer micro-dollars) from its settled facts split by kind, with
+ * `includedMicros` the pool (included x seats per seat, the included amount per team):
+ *
+ *   overage          = max(0, models + machines - included)
+ *   overage_models   = overage x models / (models + machines), floored; overage_machines = the rest
+ *   billed           = min(total, included) + round(overage_models x markup) + overage_machines
+ *
+ * So the pool is spent at cost (models) and list (machines) whatever the mix, and only the part above it
+ * carries the model markup, split pro rata to the period's shares. Stripe subtracts the pool itself (the
+ * per-seat sync subtracts included x seats, the graduated per-team price's first tier is free), so
+ * billed - included is exactly the billed overage. With markup 1 (v1, e2e) billed is the level unchanged.
+ * A negative share (only corrections) counts as 0 for the split.
+ */
+export const billedLevelMicros = (modelsMicros: number, machineMicros: number, includedMicros: number, markup: number): number => {
+  const total = modelsMicros + machineMicros
+  const overage = Math.max(0, total - Math.max(0, Math.round(includedMicros)))
+  const bp = Math.round(markup * 10_000)
+  if (overage === 0 || bp === 10_000) return total
+  const m = BigInt(Math.max(0, Math.round(modelsMicros)))
+  const c = BigInt(Math.max(0, Math.round(machineMicros)))
+  const shares = m + c
+  const overageModels = shares === 0n ? 0n : (BigInt(overage) * m) / shares
+  const overageMachines = BigInt(overage) - overageModels
+  // Half up, in basis points, on integers (no float money).
+  const markedModels = (overageModels * BigInt(bp) + 5_000n) / 10_000n
+  return total - overage + Number(markedModels + overageMachines)
+}
 export const isUsagePlan = (v: unknown): v is UsagePlan => typeof v === "string" && (USAGE_PLANS as ReadonlyArray<string>).includes(v)
 export const isIncludedMode = (v: unknown): v is IncludedMode => v === "per_team" || v === "per_seat"
