@@ -127,6 +127,75 @@ pub fn zig_program(zig: Option<String>, cmux_zig: Option<String>) -> String {
         .unwrap_or_else(|| "zig".to_string())
 }
 
+/// `.minimum_zig_version` from a build.zig.zon (`X.Y.Z`), the Zig the tree
+/// pins (scripts/ghostty-zig-version.sh reads the same field).
+pub fn zon_minimum_zig(path: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    text.lines().find_map(|line| {
+        let rest = line.trim().strip_prefix(".minimum_zig_version")?.trim_start().strip_prefix('=')?;
+        let version = rest.trim().trim_end_matches(',').trim().trim_matches('"');
+        let parts: Vec<&str> = version.split('.').collect();
+        (parts.len() == 3 && parts.iter().all(|part| part.parse::<u32>().is_ok()))
+            .then(|| version.to_string())
+    })
+}
+
+/// Whether zig `actual` builds a tree that needs `required`: the same major and
+/// minor and at least its patch (scripts/ghostty-zig-version.sh's rule).
+pub fn zig_compatible(actual: &str, required: &str) -> bool {
+    let parse = |v: &str| -> Option<(u32, u32, u32)> {
+        let mut parts = v.trim().split('.').map(|part| part.parse::<u32>().ok());
+        let version = (parts.next()??, parts.next()??, parts.next()??);
+        parts.next().is_none().then_some(version)
+    };
+    match (parse(actual), parse(required)) {
+        (Some(a), Some(r)) => a.0 == r.0 && a.1 == r.1 && a.2 >= r.2,
+        _ => false,
+    }
+}
+
+/// Where a host keeps zig `version` beside PATH: the fleet's Linux pool image
+/// installs every Zig it carries as `/opt/zig-<version>`.
+pub fn installed_zig_paths(version: &str) -> Vec<String> {
+    vec![format!("/opt/zig-{version}/zig")]
+}
+
+/// The zig the build runs: the first of `candidates` (``zig_program``'s pick,
+/// then PATH, then ``installed_zig_paths``) whose `zig version` serves
+/// `required`. With no pin, or when none serves it, the first candidate, which
+/// then fails with Ghostty's own version message. The second value says why a
+/// later candidate replaced the first (a cargo warning).
+///
+/// A builder whose recipe still hands over an older zig (the Linux pool ran a
+/// baked recipe with Zig 0.16 for days after ghostty-next moved to 0.17, while
+/// its image already held /opt/zig-0.17.0) builds with the tree's pin instead.
+pub fn select_zig(
+    candidates: &[String],
+    required: Option<&str>,
+    version_of: impl Fn(&str) -> Option<String>,
+) -> (String, Option<String>) {
+    let first = candidates.first().cloned().unwrap_or_else(|| "zig".to_string());
+    let Some(required) = required else { return (first, None) };
+    let mut seen = Vec::new();
+    for candidate in candidates.iter().filter(|c| !c.is_empty()) {
+        if seen.contains(candidate) {
+            continue;
+        }
+        seen.push(candidate.clone());
+        if let Some(actual) = version_of(candidate) {
+            if zig_compatible(&actual, required) {
+                let why = (candidate != &first).then(|| {
+                    format!(
+                        "{first} does not serve the pinned Zig {required}; building libghostty-vt with {candidate} ({actual})"
+                    )
+                });
+                return (candidate.clone(), why);
+            }
+        }
+    }
+    (first, None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -302,5 +371,47 @@ pub fn osVersionMin(tag: std.Target.Os.Tag) ?std.Target.Query.OsVersion {
         assert_eq!(zig_program(Some(String::new()), Some(pinned.clone())), pinned);
         assert_eq!(zig_program(None, Some(String::new())), "zig");
         assert_eq!(zig_program(None, None), "zig");
+    }
+
+    #[test]
+    fn the_minimum_zig_comes_from_the_manifest() {
+        let root = scratch_tree("zon-minimum", &[]);
+        let zon = root.join("build.zig.zon");
+        std::fs::write(&zon, ".{\n    .version = \"1.3.0-dev\",\n    .minimum_zig_version = \"0.17.0\",\n}\n").unwrap();
+        assert_eq!(zon_minimum_zig(&zon).as_deref(), Some("0.17.0"));
+        std::fs::write(&zon, ".{ .version = \"1.3.0\" }\n").unwrap();
+        assert_eq!(zon_minimum_zig(&zon), None);
+    }
+
+    #[test]
+    fn a_zig_serves_its_own_series_only() {
+        assert!(zig_compatible("0.17.0", "0.17.0"));
+        assert!(zig_compatible("0.17.2", "0.17.0"));
+        assert!(!zig_compatible("0.16.0", "0.17.0"));
+        assert!(!zig_compatible("0.18.0", "0.17.0"));
+        assert!(!zig_compatible("0.17.0-dev.1+abc", "0.17.0"));
+    }
+
+    /// The Linux pool's baked recipe put /opt/zig-0.16.0 first on PATH after
+    /// ghostty-next moved to Zig 0.17 (hq#8178); its image held /opt/zig-0.17.0.
+    #[test]
+    fn the_trees_pin_wins_over_a_recipe_that_hands_over_an_older_zig() {
+        let versions = |path: &str| match path {
+            "zig" | "/opt/zig-0.16.0/zig" => Some("0.16.0".to_string()),
+            "/opt/zig-0.17.0/zig" => Some("0.17.0".to_string()),
+            _ => None,
+        };
+        let mut candidates = vec!["zig".to_string()];
+        candidates.extend(installed_zig_paths("0.17.0"));
+        let (zig, why) = select_zig(&candidates, Some("0.17.0"), versions);
+        assert_eq!(zig, "/opt/zig-0.17.0/zig");
+        assert!(why.unwrap().contains("0.17.0"));
+        // an explicit ZIG of the wrong series loses too; one of the right series wins with no warning
+        let explicit = vec!["/opt/zig-0.16.0/zig".to_string(), "/opt/zig-0.17.0/zig".to_string()];
+        assert_eq!(select_zig(&explicit, Some("0.17.0"), versions).0, "/opt/zig-0.17.0/zig");
+        assert_eq!(select_zig(&explicit[1..], Some("0.17.0"), versions), ("/opt/zig-0.17.0/zig".to_string(), None));
+        // nothing serves the pin, or there is no pin: the first, as before
+        assert_eq!(select_zig(&candidates[..1], Some("0.17.0"), versions), ("zig".to_string(), None));
+        assert_eq!(select_zig(&candidates, None, versions), ("zig".to_string(), None));
     }
 }
