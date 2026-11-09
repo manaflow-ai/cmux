@@ -1,4 +1,4 @@
-import { useT } from "./i18n";
+import { translate, useT } from "./i18n";
 import { Notice as UiNotice } from "../../ui/Notice";
 import { useNoticeTurn } from "./noticeSlotModel";
 import {
@@ -44,7 +44,7 @@ function resolveDrift(action: DriftAction, drift: PlanScopeDrift, onStop?: () =>
   }
   dismissPlanScopeDrift(drift.sessionId);
   void window.cmuxAcpmuxActions?.["chat.send"]?.({
-    text: `Replan before editing ${drift.path}: update the approved plan to include this area, then continue.`,
+    text: translate("planScopeDrift.replanPrompt", { path: drift.path }),
     steer: true,
   });
 }

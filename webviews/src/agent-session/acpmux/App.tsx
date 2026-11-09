@@ -7679,9 +7679,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             }
             dismissPlanScopeDrift(id);
             if (action === "stop") return client.cancel().then(() => true);
-            const editedPath = typeof path === "string" ? path : "the new area";
             return send(
-              `Replan before editing ${editedPath}: update the approved plan to include this area, then continue.`,
+              typeof path === "string"
+                ? translate("planScopeDrift.replanPrompt", { path })
+                : translate("planScopeDrift.replanPromptNoPath"),
               [],
               undefined,
               true,
