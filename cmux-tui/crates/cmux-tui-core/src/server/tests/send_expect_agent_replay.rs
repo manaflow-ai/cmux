@@ -78,3 +78,66 @@ fn an_expect_agent_send_is_refused_while_the_roster_replays() {
     assert!(!format!("{after:#}").contains("replay in progress"), "{after:#}");
     mux.shutdown();
 }
+
+/// #39830 review (next-review F2): a direct report during the replay commits its row (here
+/// `working`), and its journal echo, the record the roster folds, comes after. The replay's
+/// reconcile kept the row but cleared the guard before the echo was folded, so the roster still
+/// said `idle` next to the report's session, and a send expecting that session was typed into
+/// the working agent. The guard holds until the echo is folded.
+#[cfg(unix)]
+#[test]
+fn an_expect_agent_send_waits_for_a_direct_reports_echo_after_the_replay() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().unwrap().to_string();
+    hook(&mux, &terminal_id, "SessionStart");
+    assert!(mux.settle_agent_roster_for_test());
+    assert_eq!(mux.agent_roster_state_now_for_test(&terminal_id).as_deref(), Some("idle"));
+    let writer = test_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+
+    let (entered_tx, entered) = std::sync::mpsc::sync_channel(0);
+    let (release, release_rx) = std::sync::mpsc::sync_channel(0);
+    mux.restart_agent_roster_replay_for_test(1, (entered_tx, release_rx));
+    entered.recv_timeout(Duration::from_secs(30)).expect("the replay waits at its gate");
+    let (committed_tx, committed) = std::sync::mpsc::channel();
+    let (echo_tx, echo) = std::sync::mpsc::channel::<()>();
+    mux.hold_agent_report_echo_for_test(Box::new(move || {
+        let _ = committed_tx.send(());
+        let _ = echo.recv_timeout(Duration::from_secs(30));
+    }));
+    let reporter = {
+        let mux = Arc::clone(&mux);
+        let surface = surface.id;
+        std::thread::spawn(move || {
+            mux.report_agent(surface, crate::AgentState::Working, crate::AgentSource::Hook, None)
+                .unwrap();
+        })
+    };
+    committed.recv_timeout(Duration::from_secs(30)).expect("the report committed");
+    drop(release);
+    drop(entered);
+    for _ in 0..5 {
+        assert!(mux.settle_agent_roster_for_test());
+    }
+    let refused = handle_command(&mux, client, reply(surface.id), &writer);
+    drop(echo_tx);
+    reporter.join().unwrap();
+    assert!(
+        refused.is_err(),
+        "a send expecting the session went into the agent its report made busy"
+    );
+
+    for _ in 0..100 {
+        assert!(mux.settle_agent_roster_for_test());
+        if !mux.agent_roster_settling() {
+            break;
+        }
+    }
+    assert!(!mux.agent_roster_settling(), "the replay reconciled after the echo");
+    assert_eq!(mux.agent_roster_state_now_for_test(&terminal_id).as_deref(), Some("working"));
+    let after = handle_command(&mux, client, reply(surface.id), &writer)
+        .expect_err("still working after the echo");
+    assert!(!format!("{after:#}").contains("replay in progress"), "{after:#}");
+    mux.shutdown();
+}

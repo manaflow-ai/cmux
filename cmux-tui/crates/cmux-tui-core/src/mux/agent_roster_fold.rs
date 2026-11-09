@@ -1041,6 +1041,11 @@ impl Mux {
         };
         let idempotency_key =
             format!("agent-report-echo-{}", crate::workspace_registry::new_uuid_v4());
+        #[cfg(test)]
+        if rebuild_faults::take_failing_report_echo(&self.session) {
+            eprintln!("cmux-tui: journaling an agent report for {terminal_id} failed: injected");
+            return;
+        }
         if let Err(error) = self.append_journal_ingress(&ingress, "agent-report", &idempotency_key)
         {
             eprintln!("cmux-tui: journaling an agent report for {terminal_id} failed: {error}");

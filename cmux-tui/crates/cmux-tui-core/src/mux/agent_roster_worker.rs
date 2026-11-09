@@ -453,6 +453,16 @@ mod replay_for_test {
     use super::*;
 
     impl Mux {
+        /// Runs `seam` once in the next direct agent report, after its
+        /// projection commit and before its journal echo.
+        pub(crate) fn hold_agent_report_echo_for_test(&self, seam: Box<dyn FnOnce() + Send>) {
+            *self
+                .agent_roster_worker
+                .report_echo_seam
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = Some(seam);
+        }
+
         /// Starts a roster replay from zero in this running daemon, as a start
         /// whose snapshot does not restore does: the roster goes back to empty and
         /// the owner replays the journal in the background, `page` records per

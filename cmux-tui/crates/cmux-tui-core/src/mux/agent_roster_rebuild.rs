@@ -299,6 +299,7 @@ pub(in crate::mux) mod rebuild_faults {
         failing_reads: u32,
         failing_replay_reads: u32,
         failing_reconcile_reads: u32,
+        failing_report_echoes: u32,
     }
 
     static FAULTS: Mutex<BTreeMap<String, Faults>> = Mutex::new(BTreeMap::new());
@@ -342,6 +343,19 @@ pub(in crate::mux) mod rebuild_faults {
         with(session, |faults| {
             let failing = faults.failing_reconcile_reads > 0;
             faults.failing_reconcile_reads = faults.failing_reconcile_reads.saturating_sub(1);
+            failing
+        })
+    }
+
+    /// The next `echoes` direct agent reports' journal echoes are not written.
+    pub(in crate::mux) fn fail_report_echoes(session: &str, echoes: u32) {
+        with(session, |faults| faults.failing_report_echoes = echoes);
+    }
+
+    pub(in crate::mux) fn take_failing_report_echo(session: &str) -> bool {
+        with(session, |faults| {
+            let failing = faults.failing_report_echoes > 0;
+            faults.failing_report_echoes = faults.failing_report_echoes.saturating_sub(1);
             failing
         })
     }
