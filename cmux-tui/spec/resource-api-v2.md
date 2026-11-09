@@ -32,7 +32,8 @@ true` it does so only for a terminal with no view, no `keep` mark and no
 attach stream; any other fails with `operation.failed`
 (`extra.terminal_retained: true`) and changes nothing. `identify` advertises
 `terminal-close-if-unplaced-v1` when the daemon takes the field; an older
-daemon refuses it as an unknown parameter. A browser remains
+daemon refuses it as an unknown parameter (`validation.invalid`, before the
+request is keyed), so a client can send it and fall back on that refusal. A browser remains
 single-view tab content. Sidebar extensions are session-scoped auxiliary
 resources and cannot become tabs.
 

@@ -96,3 +96,36 @@ fn w5o_guarded_terminal_close_ends_only_an_unplaced_unkept_unattached_terminal()
     assert!(!running(&mux, &terminal), "the guarded close left the terminal running");
     disconnect_client(&mux, client, false);
 }
+
+/// The CLI picks the plain close only on this answer, which a daemon older
+/// than `if_unplaced` gives to it: an unknown parameter is refused before
+/// the request is keyed (`validation.invalid`, "unknown parameters").
+#[test]
+fn w5o_an_unknown_terminal_close_field_is_refused_before_it_is_keyed() {
+    let mux = test_mux();
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let send = |id: &str, operation: &str, params: Value| {
+        let message = resource_request(id, operation, params, Some(id));
+        assert!(handle_connection_message(&mux, client, &message, &writer, &scheduler));
+        pop_json(&outbound)
+    };
+    let created = send(
+        "w5o-unknown-create",
+        "workspace.create",
+        json!({"machine":"current","session":"current","initial_content":"terminal"}),
+    );
+    let terminal = created["result"]["value"]["terminal_id"].as_str().unwrap().to_owned();
+    let refused = send(
+        "w5o-unknown-close",
+        "terminal.close",
+        json!({"machine":"current","session":"current","terminal":terminal,"if_unplaced_v0":true}),
+    );
+    assert_eq!(refused["error"]["code"], "validation.invalid", "{refused}");
+    let message = refused["error"]["message"].as_str().unwrap_or_default();
+    assert!(message.contains("unknown parameters"), "{refused}");
+    assert!(running(&mux, &terminal));
+    disconnect_client(&mux, client, false);
+}

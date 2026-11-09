@@ -16,17 +16,11 @@ const WORKSPACE: &str = "ws_0123456789abcdef0123456789abcdef";
 struct FakeDaemon {
     answers: Vec<(&'static str, Result<Value, Value>)>,
     sent: RefCell<Vec<Value>>,
-    /// What its `identify` advertises: a current daemon's guarded close.
-    capabilities: Vec<&'static str>,
 }
 
 impl FakeDaemon {
     fn new(answers: Vec<(&'static str, Result<Value, Value>)>) -> Self {
-        Self {
-            answers,
-            sent: RefCell::new(Vec::new()),
-            capabilities: vec![cmux_tui_core::server::TERMINAL_CLOSE_IF_UNPLACED_CAPABILITY],
-        }
+        Self { answers, sent: RefCell::new(Vec::new()) }
     }
 
     fn operations(&self) -> Vec<String> {
@@ -46,6 +40,16 @@ impl FakeDaemon {
             .unwrap_or_default()
     }
 
+    /// The params of every `operation` request, in order.
+    fn all_params(&self, operation: &str) -> Vec<Value> {
+        self.sent
+            .borrow()
+            .iter()
+            .filter(|request| request["operation"] == operation)
+            .map(|request| request["params"].clone())
+            .collect()
+    }
+
     fn key(&self, operation: &str) -> Value {
         self.sent
             .borrow()
@@ -57,10 +61,6 @@ impl FakeDaemon {
 }
 
 impl Daemon for FakeDaemon {
-    fn advertises(&self, capability: &str) -> bool {
-        self.capabilities.contains(&capability)
-    }
-
     fn request(&self, _session: Option<&str>, plan: RequestPlan) -> Result<Value, CallFailure> {
         let request = request_value(&plan).expect("a valid request");
         let operation = request["operation"].as_str().unwrap_or_default().to_owned();
@@ -351,12 +351,13 @@ fn w5o_worktree_close_reports_only_the_terminals_the_session_ended() {
     let request = parse_close(WORKSPACE, &strings(&["--remove-worktree"])).expect("parsed");
     let result = close(&daemon, &request, "key-7").expect("the close stands");
     assert_eq!(daemon.params("terminal.close")["terminal"], HERE);
+    assert_eq!(daemon.all_params("terminal.close").len(), 1, "a refusal sends no plain end");
     assert_eq!(result["ended_terminals"], json!([]));
 }
 
 /// Build skew: a daemon older than `if_unplaced` refuses an unknown request
-/// parameter, so every guarded end would fail and leave the shells running.
-/// It gets the plain end; the caller's terminal is still spared.
+/// parameter. That refusal, from the daemon that receives the close, picks
+/// the plain end; the caller's terminal is still spared.
 #[test]
 fn w5o_worktree_close_on_an_older_daemon_ends_without_if_unplaced() {
     const HERE: &str = "term_11111111111111111111111111111111";
@@ -370,19 +371,26 @@ fn w5o_worktree_close_on_an_older_daemon_ends_without_if_unplaced() {
                           {"id": CALLER, "lifecycle": "running", "tab_ids": caller}],
         })
     };
-    let mut daemon = FakeDaemon::new(vec![
+    let unknown = json!({"code": "validation.invalid",
+                         "message": "request contains unknown parameters",
+                         "details": {"reason": "request contains unknown parameters"}});
+    let daemon = FakeDaemon::new(vec![
         ("workspace.get", Ok(json!({"id": WORKSPACE, "extra": {"agent_folder": "/w"}}))),
         ("git.worktree.remove", Ok(json!({"value": {"root": "/w"}}))),
         ("session.snapshot", Ok(session(json!(["tab_1"]), json!(["tab_2"])))),
         ("session.snapshot", Ok(session(json!([]), json!([])))),
+        ("terminal.close", Err(unknown)),
+        ("terminal.close", Ok(json!({"value": {}, "revision": "9"}))),
     ]);
-    daemon.capabilities.clear();
     let mut request = parse_close(WORKSPACE, &strings(&["--remove-worktree"])).expect("parsed");
     request.caller_terminal = Some(CALLER.to_owned());
     let result = close(&daemon, &request, "key-8").expect("closed");
-    let end = daemon.params("terminal.close");
-    assert_eq!(end["terminal"], HERE);
-    assert!(end.get("if_unplaced").is_none(), "an older daemon refuses the field: {end}");
+    let ends = daemon.all_params("terminal.close");
+    let [guarded, plain] = ends.as_slice() else { panic!("two ends: {ends:?}") };
+    assert_eq!(guarded["terminal"], HERE);
+    assert_eq!(guarded["if_unplaced"], true);
+    assert_eq!(plain["terminal"], HERE);
+    assert!(plain.get("if_unplaced").is_none(), "the plain end: {plain}");
     assert_eq!(result["ended_terminals"], json!([HERE]));
 }
 
@@ -400,13 +408,12 @@ fn w5o_worktree_close_guards_the_end_when_identify_cannot_tell() {
             "terminals": [{"id": HERE, "lifecycle": "running", "tab_ids": tab_ids}],
         })
     };
-    let mut daemon = FakeDaemon::new(vec![
+    let daemon = FakeDaemon::new(vec![
         ("workspace.get", Ok(json!({"id": WORKSPACE, "extra": {"agent_folder": "/w"}}))),
         ("git.worktree.remove", Ok(json!({"value": {"root": "/w"}}))),
         ("session.snapshot", Ok(session(json!(["tab_1"])))),
         ("session.snapshot", Ok(session(json!([])))),
     ]);
-    daemon.capabilities.clear();
     let request = parse_close(WORKSPACE, &strings(&["--remove-worktree"])).expect("parsed");
     let result = close(&daemon, &request, "key-9").expect("closed");
     let end = daemon.params("terminal.close");

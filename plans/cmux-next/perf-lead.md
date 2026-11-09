@@ -317,5 +317,7 @@ refusal is a stored known failure (`operation.failed`, `extra.terminal_retained:
 - No work on the request hot path: a `terminal.close` without the field, and every other
   operation, run the same code as before. Only `workspace <ws> close --remove-worktree` sends the
   field, once for each terminal it ends.
-- A CLI sends the field only to a daemon whose `identify` advertises the capability (an older
-  daemon refuses an unknown parameter); else it sends the plain close.
+- The CLI sends the field to the daemon that receives the close (the same route, also with
+  `--machine`). Only an older daemon's refusal of the unknown parameter (`validation.invalid`,
+  before the request is keyed) makes it send the plain close; any other failure leaves the
+  terminal to the reaper. The CLI does not call `identify` for this.

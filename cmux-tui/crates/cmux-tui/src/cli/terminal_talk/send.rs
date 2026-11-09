@@ -127,24 +127,11 @@ impl SendRequest {
 /// [`Backend`] is one; tests fake it.
 pub(in crate::cli) trait Daemon {
     fn request(&self, session: Option<&str>, plan: RequestPlan) -> Result<Value, CallFailure>;
-
-    /// Whether the session daemon's `identify` advertises `capability`. A
-    /// daemon that cannot be asked counts as one that does not.
-    fn advertises(&self, _capability: &str) -> bool {
-        false
-    }
 }
 
 impl<B: Backend> Daemon for B {
     fn request(&self, session: Option<&str>, plan: RequestPlan) -> Result<Value, CallFailure> {
         self.resource(session, plan, &[])
-    }
-
-    fn advertises(&self, capability: &str) -> bool {
-        self.daemon(json!({"cmd": "identify"})).ok().is_some_and(|identity| {
-            crate::session::parse_identity_capabilities(&identity)
-                .is_ok_and(|capabilities| capabilities.contains(capability))
-        })
     }
 }
 

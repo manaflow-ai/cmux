@@ -374,29 +374,15 @@ pub(in crate::cli) fn close<B: Daemon + ?Sized>(
             .map(|after| running_without_a_tab(&after, &had_tab_here))
             .unwrap_or_default()
     };
-    // Each ends with `if_unplaced`: the session refuses a terminal that is
-    // marked keep, is attached or got a tab since the read, and leaves it
-    // running. An older daemon refuses the field itself (an unknown
-    // parameter), so it gets the plain end, which cannot spare a kept or
-    // attached terminal. The caller's own terminal is not ended here. A
-    // refused or failed end leaves that terminal to the session's reaper;
-    // the close stands. Each end has its own key, so a retry replays it.
-    let guarded = !tabless.is_empty()
-        && backend.advertises(cmux_tui_core::server::TERMINAL_CLOSE_IF_UNPLACED_CAPABILITY);
+    // The caller's own terminal is not ended here; the reaper ends it
+    // after its grace. A terminal that is not ended is left to the reaper;
+    // the close stands.
     let mut ended = Vec::new();
     for terminal in tabless {
         if request.caller_terminal.as_deref() == Some(terminal.as_str()) {
             continue;
         }
-        let key = step_key(command_key, &format!("end-{terminal}"));
-        let Ok(mut end) = plan(&words(&["terminal", &terminal, "close"]), Some(key)) else {
-            continue;
-        };
-        if guarded {
-            let Some(params) = end.params.as_object_mut() else { continue };
-            params.insert("if_unplaced".into(), Value::Bool(true));
-        }
-        if backend.request(None, end).is_ok() {
+        if end_unplaced(backend, command_key, &terminal) {
             ended.push(terminal);
         }
     }
@@ -405,6 +391,47 @@ pub(in crate::cli) fn close<B: Daemon + ?Sized>(
         object.insert("ended_terminals".into(), json!(ended));
     }
     Ok(result)
+}
+
+/// Ends `terminal` with `terminal.close` `if_unplaced`, so the daemon that
+/// receives the close (the same route, also with `--machine`) leaves it
+/// running when it is kept, attached or got a tab since the read. Whether
+/// it ended:
+/// - the daemon took the guard: its answer;
+/// - the daemon refused the field as an unknown parameter (a build older
+///   than `terminal-close-if-unplaced-v1`; it refuses before it stores the
+///   key): the plain close, which cannot spare a kept or attached terminal;
+/// - any other failure: `false`, and the terminal is left to the reaper.
+///
+/// Each close has its own step key, so a retry replays its answer.
+fn end_unplaced<B: Daemon + ?Sized>(backend: &B, command_key: &str, terminal: &str) -> bool {
+    let close = |step: &str, guarded: bool| {
+        let mut end =
+            plan(&words(&["terminal", terminal, "close"]), Some(step_key(command_key, step)))
+                .ok()?;
+        if guarded {
+            end.params.as_object_mut()?.insert("if_unplaced".into(), Value::Bool(true));
+        }
+        Some(backend.request(None, end))
+    };
+    match close(&format!("end-{terminal}"), true) {
+        Some(Ok(_)) => true,
+        Some(Err(failure)) if refuses_if_unplaced(&failure.error) => {
+            matches!(close(&format!("end-plain-{terminal}"), false), Some(Ok(_)))
+        }
+        _ => false,
+    }
+}
+
+/// Whether `error` is a daemon's refusal of an unknown request parameter:
+/// what a daemon older than `if_unplaced` answers to it (its catalog has
+/// `extra: false`).
+fn refuses_if_unplaced(error: &Value) -> bool {
+    error.get("code").and_then(Value::as_str) == Some("validation.invalid")
+        && error
+            .get("message")
+            .and_then(Value::as_str)
+            .is_some_and(|message| message.contains("unknown parameters"))
 }
 
 /// The records of list `key` in `snapshot` (`session current snapshot`).
