@@ -1420,3 +1420,43 @@ fn byo_endpoint_a_user_file_another_source_overrides_is_refused_even_with_replac
     assert!(admin::taken_elsewhere(&builtin, &src)("opencode"));
     assert!(!admin::taken_elsewhere(&builtin, &src)("free"));
 }
+
+#[test]
+fn byo_endpoint_no_reader_sees_a_profile_before_its_key_is_stored() {
+    let root = scratch("keyfirst");
+    let src = sources(&root);
+    let path = root.join("harnesses").join("team.toml");
+    // A fresh add: while the (slow) store runs, there is no profile to load.
+    let seen = std::sync::Mutex::new(Vec::<bool>::new());
+    let store = |_: &StoreCommand| -> anyhow::Result<()> {
+        seen.lock().unwrap().push(path.exists());
+        Ok(())
+    };
+    let p = params("openai-endpoint", "team", "https://one.example.com/v1", "m", None);
+    let key =
+        admin::EndpointKey { value: Some(GOOD_KEY), store: &store, ..admin::EndpointKey::NONE };
+    admin::add_endpoint_keyed(&p, &src, &key).unwrap();
+    assert_eq!(*seen.lock().unwrap(), [false]);
+    assert!(path.exists());
+    // A replace at another URL: while its key is stored, readers still see the old profile (old URL).
+    let mut again = params("openai-endpoint", "team", "https://two.example.com/v1", "m", None);
+    again.replace = true;
+    let during = std::sync::Mutex::new(String::new());
+    let store = |_: &StoreCommand| -> anyhow::Result<()> {
+        *during.lock().unwrap() = std::fs::read_to_string(&path).unwrap();
+        Ok(())
+    };
+    let key =
+        admin::EndpointKey { value: Some(BAD_KEY), store: &store, ..admin::EndpointKey::NONE };
+    admin::add_endpoint_keyed(&again, &src, &key).unwrap();
+    let during = during.into_inner().unwrap();
+    assert!(during.contains("one.example.com") && !during.contains("two.example.com"), "{during}");
+    assert!(std::fs::read_to_string(&path).unwrap().contains("two.example.com"));
+    // A store that fails publishes nothing.
+    let fresh = params("openai-endpoint", "other", "https://one.example.com/v1", "m", None);
+    let (_, refuse) = recording(true);
+    let key =
+        admin::EndpointKey { value: Some(GOOD_KEY), store: &refuse, ..admin::EndpointKey::NONE };
+    assert!(admin::add_endpoint_keyed(&fresh, &src, &key).is_err());
+    assert!(!root.join("harnesses").join("other.toml").exists());
+}

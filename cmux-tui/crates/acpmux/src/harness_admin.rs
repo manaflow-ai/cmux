@@ -586,9 +586,10 @@ fn existing_item(path: &Path, kind: byo_endpoint::Kind) -> Option<String> {
 
 /// `add` for an endpoint example: a checked profile that names the key's
 /// Keychain item, never the key. With `key.value` the key is stored under
-/// `cmux-harness/<id>/<KEY>` (this profile's own item) right after the
-/// profile is written, under [`ENDPOINT_ADDS`]; a failed store puts the old
-/// profile back (or removes the new one). Without a key the profile names the
+/// `cmux-harness/<id>/<KEY>` (this profile's own item) before the profile is
+/// published (one atomic rename), under [`ENDPOINT_ADDS`]; a failed store
+/// leaves the profile as it was, and a failed publish deletes a new endpoint's
+/// key. Without a key the profile names the
 /// item `keychainItem` gives, else (with `replace`) the one the profile it
 /// replaces names, else none: a fresh add never picks up a key some earlier
 /// profile of this id left (it would go to a new URL), and a keyless endpoint
@@ -659,28 +660,31 @@ fn add_endpoint(
         keychain_item: item.as_deref(),
     });
     ensure_dir(dir)?;
-    let before = std::fs::read(&path).ok();
-    crate::config::write_atomic(&path, text.as_bytes()).map_err(failed)?;
+    let before = path.exists();
+    // The key first, the profile last (one atomic rename): no reader (the profile watcher reloads
+    // without this lock) ever sees this profile before its own key is in its item, so a reused id
+    // never launches the new URL with a key an earlier endpoint of this id left there.
     if let Some(value) = key.value {
-        let stored = crate::cli::harness_secret::store_command(
+        crate::cli::harness_secret::store_command(
             std::env::consts::OS,
             &id,
             kind.secret_key(),
             value,
         )
-        .and_then(|cmd| (key.store)(&cmd));
-        if let Err(e) = stored {
-            // Never a profile that names a key that is not there: back as it was.
-            match &before {
-                Some(old) => {
-                    let _ = crate::config::write_atomic(&path, old);
-                }
-                None => {
-                    let _ = std::fs::remove_file(&path);
-                }
-            }
-            return Err(AdminError::Failed(format!("the key was not stored: {e:#}")));
+        .and_then(|cmd| (key.store)(&cmd))
+        .map_err(|e| AdminError::Failed(format!("the key was not stored: {e:#}")))?;
+    }
+    if let Err(e) = crate::config::write_atomic(&path, text.as_bytes()) {
+        // Not published: a new endpoint's key goes again. (A `replace` keeps it: the profile it
+        // replaces is this id's, and names that item.)
+        if key.value.is_some() && !before {
+            let _ = (key.store)(&crate::cli::harness_secret::delete_command(
+                std::env::consts::OS,
+                &id,
+                kind.secret_key(),
+            ));
         }
+        return Err(failed(e));
     }
     Ok(Added {
         diagnostics: diagnostics_text(&text, &path, &id),

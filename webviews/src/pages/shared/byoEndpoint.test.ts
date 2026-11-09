@@ -183,7 +183,8 @@ test("a new target goes past every harness id, terminal ones too", async () => {
 
 test("the model a Chief saves is the id the harness declares", () => {
   expect(declaredModelId("openai-endpoint", "model-large")).toBe("byo/model-large");
-  expect(declaredModelId("openai-endpoint", "byo/model-large")).toBe("byo/model-large");
+  // A raw id that already starts with the prefix is still prefixed, as acpmux declares it.
+  expect(declaredModelId("openai-endpoint", "byo/coder")).toBe("byo/byo/coder");
   expect(declaredModelId("anthropic-endpoint", "claude-like")).toBe("claude-like");
   expect(declaredModelId("openai-endpoint", "*")).toBe("");
   expect(declaredModelId("openai-endpoint", "")).toBe("");
