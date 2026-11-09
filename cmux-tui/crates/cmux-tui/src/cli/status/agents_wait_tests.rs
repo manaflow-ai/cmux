@@ -189,6 +189,7 @@ fn w5t_a_timeout_names_where_each_agent_stood_when_the_last_read_fails() {
     };
     assert_eq!(exit, 124);
     assert_eq!(error["code"], "wait.timeout");
+    assert_eq!(error["details"]["timed_out"], true, "{error}");
     let agents = error["details"]["agents"].as_array().expect("agents");
     assert_eq!(agents.len(), 2, "{error}");
     assert_eq!(agents[0]["terminal"], terminal(1));

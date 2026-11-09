@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 @testable import CmuxNextCloud
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -36,7 +37,7 @@ struct SandboxRunNoticeTests {
     static let cancelled = #"{"run":{"id":"r1","status":"cancelled"},"receipt":{"status":"cancelled"}}"#
 
     private func defaults() throws -> UserDefaults {
-        try #require(UserDefaults(suiteName: "SandboxRunNoticeTests.\(UUID().uuidString)"))
+        try #require(UserDefaults(testSuiteName: "SandboxRunNoticeTests.\(UUID().uuidString)"))
     }
 
     private func follower(_ server: Server, defaults: UserDefaults, now: @escaping @MainActor () -> Date = { Date() }) -> (SandboxRunFollower, Ends) {

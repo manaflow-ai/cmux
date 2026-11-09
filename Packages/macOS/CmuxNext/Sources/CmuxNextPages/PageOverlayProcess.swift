@@ -24,10 +24,8 @@ import WebKit
 public final class PageOverlayProcess {
     /// The most overlay pages one process serves: what one crash of that process takes down.
     let pagesPerProcess: Int
-    /// The store every overlay page uses (a process is shared only within one store). Made when the first overlay
-    /// page is: `.nonPersistent()` costs 30-40 ms of the main thread, and the app makes this object while it builds
-    /// its first window (AppServices), long before the first idle moment builds any overlay page.
-    private(set) lazy var dataStore: WKWebsiteDataStore = .nonPersistent()
+    /// The store every overlay page uses (a process is shared only within one store).
+    let dataStore: WKWebsiteDataStore = .nonPersistent()
     /// The first page of the current group; its process serves the next pages.
     private weak var anchor: WKWebView?
     private var members = 0

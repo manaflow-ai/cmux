@@ -1,4 +1,4 @@
-import { QUEUED_MESSAGE, PENDING_MESSAGES, LANE_NOTICE_BATCH, MESSAGE_RUN } from "../model";
+import { QUEUED_MESSAGE, PENDING_MESSAGES, LANE_NOTICE_BATCH, MESSAGE_RUN, SINCE_DIVIDER } from "../model";
 import { QUESTION_RECORD } from "../question/record";
 import { PERMISSION_RECORD } from "../permissions/record";
 import { TASK_LINE } from "../conversation/taskLineKind";
@@ -13,6 +13,7 @@ import { type BtwRow as InlineBtwRow } from "../aside/btwNotes";
 import { BtwAside } from "../aside/BtwAside";
 import { OFFER_RESULT } from "../offer/offersShown";
 import { STARTED_SESSIONS } from "../started/startedSessions";
+import { PLAN_BUILD_KIND } from "../planBuild/planBuild";
 import { type NativeRegistry } from "./rowProps";
 import { MessageRow } from "./MessageRow";
 import { QueuedMessageRow } from "./QueuedMessageRow";
@@ -32,9 +33,11 @@ import { PlanRow } from "./PlanRow";
 import { BackgroundTaskRow } from "./BackgroundTaskRow";
 import { CompactionRow } from "./CompactionRow";
 import { FailoverRow } from "./FailoverRow";
-import { ReadOnlyRecapRow, RecapRow } from "./RecapRow";
+import { ReadOnlyRecapRow, ReadOnlySinceRow, RecapRow, SinceRow } from "./RecapRow";
 import { MemoryOfferRow } from "./MemoryOfferRow";
 import { MEMORY_OFFER } from "../conversation/memoryInbox";
+import { PresetApprovalRow } from "./PresetApprovalRow";
+import { PRESET_APPROVAL } from "../conversation/presetApproval";
 import { PolicyUnenforcedRow } from "./PolicyUnenforcedRow";
 import { AgentPairRow } from "./AgentPairRow";
 import { SessionStartRow } from "./SessionStartRow";
@@ -54,6 +57,7 @@ import { SessionOfferRow } from "./SessionOfferRow";
 import { OfferResultRow } from "./OfferResultRow";
 import { TaskLineRow } from "./TaskLineRow";
 import { StartedSessionsRow } from "./StartedSessionsRow";
+import { PlanBuildRow } from "./PlanBuildRow";
 import { ReadOnlyPermissionRow } from "./ReadOnlyPermissionRow";
 import { ReadOnlyQueuedMessageRow } from "./ReadOnlyQueuedMessageRow";
 import { ReadOnlyAgentPairRow } from "./ReadOnlyAgentPairRow";
@@ -83,7 +87,9 @@ export const defaultRegistry: NativeRegistry = {
   compaction: CompactionRow,
   failover: FailoverRow,
   recap: RecapRow,
+  [SINCE_DIVIDER]: SinceRow,
   [MEMORY_OFFER]: MemoryOfferRow,
+  [PRESET_APPROVAL]: PresetApprovalRow,
   policyUnenforced: PolicyUnenforcedRow,
   agentPair: AgentPairRow,
   sessionStart: SessionStartRow,
@@ -93,6 +99,7 @@ export const defaultRegistry: NativeRegistry = {
   [PENDING_MESSAGES]: PendingMessagesRow,
   [LANE_NOTICE_BATCH]: LaneNoticeBatchRow,
   [STARTED_SESSIONS]: StartedSessionsRow,
+  [PLAN_BUILD_KIND]: PlanBuildRow,
   [TASK_LINE]: TaskLineRow,
   typing: NoticeRow,
   permission: PermissionRow,
@@ -120,11 +127,15 @@ export const readOnlyRegistry: NativeRegistry = {
   [QUEUED_MESSAGE]: ReadOnlyQueuedMessageRow,
   agentPair: ReadOnlyAgentPairRow,
   recap: ReadOnlyRecapRow,
+  [SINCE_DIVIDER]: ReadOnlySinceRow,
   // An offer to write the owner's instructions file is the owner's own.
   [MEMORY_OFFER]: NoRow,
+  // So is approving one of the owner's presets.
+  [PRESET_APPROVAL]: NoRow,
   sessionOffer: NoRow,
   [OFFER_RESULT]: NoRow,
   [STARTED_SESSIONS]: NoRow,
+  [PLAN_BUILD_KIND]: NoRow,
   [TASK_LINE]: NoRow,
   [NEXT_STEP]: ReadOnlyNextStepRow,
   [RENDER]: NoRow,

@@ -102,6 +102,11 @@ uint8_t cmux_pane_edge_split_axis(uint8_t edge);
  *   daemon_move_index  {visible, moving, index, held} -> {final, current}
  * Layout nodes and columns use the daemon's wire shapes. Called per intent
  * apply and overlay restore, never per frame. */
+/* The sidebar's launch order hold, operation "sidebar_launch_order" of
+ * cmux_layout_reducer_json (cmux-layout-reducer sidebar_launch_order.rs): until
+ * the home owner serves, rows keep the order drawn at launch.
+ *   {hold, lists:[{key, reference?, next}]} -> {lists:[{key, order, reference, moved}]}
+ * Called once per structural sidebar pass while the hold is on, once at its end. */
 /* New > Kind > Placement, operation "new_placement" of cmux_layout_reducer_json
  * (cmux-layout-reducer new_placement.rs): open a terminal, browser, agent chat
  * or New Tab Page at one of the fork's ten places.
@@ -378,6 +383,7 @@ typedef struct CmuxFocusTopology {
     uint32_t column_pane_count;
     uint32_t screen_count;
     uint32_t reserved;
+    const CmuxFocusStr *column_siblings; /* NULL, or column_pane_count ids parallel to column_panes: each pane's close sibling (issue 38194); empty is none */
 } CmuxFocusTopology;
 
 typedef struct CmuxFocusResolved {

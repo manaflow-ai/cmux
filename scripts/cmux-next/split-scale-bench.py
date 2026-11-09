@@ -344,7 +344,8 @@ def background(run, count, measured):
     busy = getattr(run, "busy_workspaces", set())
     home = getattr(run, "home_workspaces", set())
     run.home_workspaces = home
-    for _ in range(count + 8):
+    # One pass closes, makes or finds Home once: a window restored with many workspaces needs one pass for each.
+    for _ in range(len(stress.workspaces()) + count + 8):
         others = [w["id"] for w in stress.workspaces() if w["id"] != measured and w["id"] not in home]
         if len(others) > count - 1:
             extra = next((w for w in others if w not in busy), others[-1])

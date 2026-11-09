@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextSettings
+import CmuxNextTestSupport
 @testable import CmuxNextUpdater
 import Foundation
 import Testing
@@ -21,7 +22,7 @@ import Testing
 
     private func defaults() throws -> UserDefaults {
         let suite = "TipChooserCadenceTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defaults.removePersistentDomain(forName: suite)
         return defaults
     }

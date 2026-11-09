@@ -521,6 +521,35 @@ Object.assign(variants, {
     ],
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
   }),
+  // Leo, 11-07: the profile menu's Personalization…, every visual choice on one page under a jump bar.
+  "personalization-background": variant("personalization", {
+    focus: "personalization.background",
+    workspace: "ws-1",
+    options: {
+      values: { "appearance.background": "starryNight", "appearance.backgroundOpacity": 0.6 },
+      workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: null }],
+    },
+    host: {
+      ...host,
+      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
+    },
+    steps: [wait('[data-part="background"] [data-card="backdrop"]')],
+    note: "Change Background… opens Personalization on its Background part: the same art picker, Material and Opacity as Appearance.",
+  }),
+  "personalization-chief": variant("personalization", {
+    focus: "personalization.chief",
+    options: { values: { "home.chiefPetEnabled": true, "home.chiefPetMascot": "fox" } },
+    note: "Personalization on the Chief's look: the Chief Pet card, shown, with the Fox picked.",
+  }),
+  "personalization-text": variant("personalization", {
+    focus: "personalization.text",
+    options: { values: { "appearance.density": "cozy", "agentPane.display.transcriptView": "thinking" } },
+    note: "Personalization on Text and Density: the density tiles, the chat fonts and the transcript view.",
+  }),
+  "personalization-sounds": variant("personalization", {
+    focus: "personalization.sounds",
+    note: "Personalization on Sounds: the notification sound, its volume and when it plays.",
+  }),
   // Leo, 10-19: Appearance's floating Undo, Redo and Reset, after a background pick (Undo names it).
   "appearance-undo-bar": variant("appearance", {
     host: {
@@ -842,6 +871,28 @@ Object.assign(variants, {
     note: "One failed Cloud Environment row with status, repository, error log and actions.",
     play: async (ctx) => {
       const card = ctx.find({ selector: '[data-card="cloudEnvironments"]' });
+      card.setAttribute("data-gallery-capture", "");
+      card.scrollIntoView({ block: "center" });
+    },
+  }),
+  "worktree-setup": variant("agents", {
+    note: "Settings > Agents > Worktree Setup: the project's scripts and files to copy, what the repository says under each.",
+    play: async (ctx) => {
+      const card = ctx.find({ selector: '[data-card="worktreeSetup"]' });
+      card.setAttribute("data-gallery-capture", "");
+      card.scrollIntoView({ block: "center" });
+    },
+  }),
+  "worktree-setup-edited": variant("agents", {
+    note: "Edited: a replaced setup script, the run script turned off (empty), with Use Repository's under each, Save lit.",
+    steps: [
+      wait('[data-worktree-field="setup"] textarea:not([disabled])'),
+      input('[data-worktree-field="setup"] textarea', "bun install --frozen-lockfile"),
+      input('[data-worktree-field="run"] textarea', "x"),
+      input('[data-worktree-field="run"] textarea', ""),
+    ],
+    play: async (ctx) => {
+      const card = ctx.find({ selector: '[data-card="worktreeSetup"]' });
       card.setAttribute("data-gallery-capture", "");
       card.scrollIntoView({ block: "center" });
     },
@@ -1702,6 +1753,7 @@ export default settingsPageEntry({
     "pages/settings/components/ThemePreview.tsx",
     "pages/settings/components/AppIllustration.tsx",
     "pages/settings/components/ThemeStudio.tsx",
+    "pages/settings/components/WorktreeSetupCard.tsx",
     "pages/settings/editors/AccentRowEditor.tsx",
     "pages/settings/editors/ChoiceOrNumberEditor.tsx",
     "pages/settings/editors/ColorEditor.tsx",

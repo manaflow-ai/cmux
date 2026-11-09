@@ -173,7 +173,7 @@ nonisolated extension ActionSurfaceCatalog {
         .ownerVerb: ownerVerbActions,
         .guiOnly: [
             "agentHistory.show", "music.open", "music.stop", "palette.forkAgentConversationTo",
-            "notifications.dismissHighlight", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize",
+            "notifications.dismissHighlight", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize", "appearance.personalize",
             "zoomWindow", "selectNextWindow", "selectPreviousWindow",
             "palette.openTaskManager", "palette.sleepyMode", "about",
             "revealWorkspaceInFinder", "workspaceGroup.editConfig", "manageLayouts",

@@ -13,6 +13,7 @@ import { setAgentDiffColors } from "./diffColors";
 import { setChatDisplay } from "./chatDisplay";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setToolCards } from "./toolCards/toolCardStore";
+import { setPlanScopeDrift } from "./planScopeDriftStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
 import { setReadAloudState } from "./conversation/readAloud";
@@ -31,6 +32,7 @@ import { setRemoteControl } from "./remoteControl";
 import { setPaneNotices } from "./paneNoticeStore";
 import { runNativeSessionInfoAction, setNativeSessionInfoHost } from "./session-info/native/host";
 import { addCloudPreviewPort, seedCloudPreviewPorts } from "./cloudPreviewPorts";
+import { noteChatTheme, SNAPSHOT_WRITE_EVENT } from "./chatSnapshot/live";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -107,7 +109,8 @@ export function applyHostEvent(event: HostEvent): void {
     case "uploads.state":
       return receivePromptUploadState(event.value);
     case "theme": {
-      const theme = event.value as { web?: unknown; agent?: Record<string, unknown> };
+      const theme = event.value as { web?: unknown; agent?: Record<string, unknown>; key?: unknown };
+      noteChatTheme(theme.key);
       (window as { cmuxTheme?: { apply(payload: unknown): void } }).cmuxTheme?.apply(theme.web);
       if (theme.agent) bridge?.applyTheme(theme.agent);
       return;
@@ -165,6 +168,9 @@ export function applyHostEvent(event: HostEvent): void {
     case "toolCards":
       // Direct, like deviceChats: a push before the chat mounts is kept.
       return setToolCards(event.value);
+    case "planScopeDrift":
+      // Direct, like toolCards: a push before the composer mounts is kept.
+      return setPlanScopeDrift(event.value);
     case "computerUsePreview":
       // Direct, like toolCards: a push before the chat mounts is kept.
       return setComputerUsePreview(event.value);
@@ -203,6 +209,10 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.command?.("sideQuestion", String(event.value));
     case "focusLocation":
       window.dispatchEvent(new Event(FOCUS_LOCATION));
+      return;
+    case "chatSnapshot.write":
+      // The tab hides: the chat's drawn copy is written now, before a hidden page freezes.
+      window.dispatchEvent(new Event(SNAPSHOT_WRITE_EVENT));
       return;
     case "transport":
       return receiveTransportEvent(event.value as TransportEvent);

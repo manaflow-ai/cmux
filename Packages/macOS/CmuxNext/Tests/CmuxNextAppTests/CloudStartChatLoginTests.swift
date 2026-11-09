@@ -1,6 +1,7 @@
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCloudCredentials
+import CmuxNextTestSupport
 import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
@@ -16,7 +17,7 @@ struct CloudStartChatLoginTests {
     func dogfoodBundlesPassALoginByDefault(bundleID: String, isDebugBuild: Bool, passes: Bool) throws {
         let dogfood = DevTools.isAvailable(bundleID: bundleID, isDebugBuild: isDebugBuild)
         let suite = "CloudStartChatLoginTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         #expect(CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: dogfood, defaults: defaults) == passes)
     }
@@ -24,7 +25,7 @@ struct CloudStartChatLoginTests {
     /// The switch reads `cmux.cloud.passHarnessLogin` from the defaults it is given.
     @Test func theDefaultsKeyIsTheSwitch() throws {
         let suite = "CloudStartChatLoginTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         #expect(CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: true, defaults: defaults))
         #expect(!CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: false, defaults: defaults))
@@ -190,7 +191,7 @@ struct CloudStartChatLoginTests {
     /// `pass` never overrides a kept `none` or `machine`.
     @Test func onlyThePersonsChoiceIsKept() throws {
         let suite = "CloudStartChatLoginTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let choices = CloudHarnessLoginChoices(defaults: defaults)
         var decision = Decision(dogfood: true, setting: nil, harness: nil, signedIn: true)

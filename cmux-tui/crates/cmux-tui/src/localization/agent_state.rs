@@ -10,9 +10,9 @@ pub(crate) struct AgentStateMessages {
     pub explain_help: &'static str,
     /// `cmux terminal wait --help`.
     pub wait_help: &'static str,
-    /// `agent start` / `terminal wait --until ready` timed out waiting for the
-    /// agent's own session-start report. `{waited}`: a duration; `{who}`: the
-    /// agent or terminal.
+    /// `agent start`, `terminal resume` and `terminal wait --until ready` timed
+    /// out waiting for the agent's own session-start report. `{waited}`: a
+    /// duration; `{who}`: the agent or terminal.
     pub session_not_reported: &'static str,
     /// Row label: the agent's state now.
     pub state: &'static str,

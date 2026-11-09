@@ -17,6 +17,7 @@ import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { pullLabel, type WhoElseCall, type WhoElseSession } from "./whoElseCalls";
 import "./WhoElseCard.css";
 import { whatText } from "./whoElseCardModel";
+import { signed } from "../../../ui/Typography";
 
 /// Rows shown before "N more" opens the rest.
 const ROWS_SHOWN = 5;
@@ -64,7 +65,8 @@ export function WhoElseCard({ item, call }: { item: AcpmuxActivity; call: WhoEls
           aria-controls={listId}
           onClick={() => setOpen(true)}
         >
-          {t("whoElse.more", { count: String(hidden) })}
+          {/* One flex item, so the button's gap never parts the sign from its number. */}
+          <span>{signed(t("whoElse.more", { count: String(hidden) }))}</span>
           <ChevronRight size={12} className="cv-tool__chevron cv-rotor" />
         </button>
       )}
@@ -120,7 +122,7 @@ function WhoElseRow({ session: s }: { session: WhoElseSession }) {
         ))}
         <span className="cv-who-else__ago">{agoText(t, s.agoMs)}</span>
       </div>
-      <div className="cv-who-else__what">{whatText(t, s)}</div>
+      <div className="cv-who-else__what">{signed(whatText(t, s))}</div>
     </li>
   );
 }

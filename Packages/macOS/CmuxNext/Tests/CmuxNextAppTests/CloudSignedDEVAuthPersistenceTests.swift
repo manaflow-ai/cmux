@@ -1,5 +1,6 @@
 import CMUXAuthCore
 import CmuxAuthRuntime
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextCloud
@@ -68,7 +69,7 @@ struct CloudSignedDEVAuthPersistenceTests {
 
     @MainActor @Test func productionIdentityDoesNotPrimeDevelopmentAndDevelopmentIdentitySurvivesRelaunch() throws {
         let name = "CloudSignedDEVAuth-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: name))
+        let defaults = try #require(UserDefaults(testSuiteName: name))
         defer { defaults.removePersistentDomain(forName: name) }
         try saveIdentity(project: previousProduction, defaults: defaults, user: "production-user", team: "production-team")
 

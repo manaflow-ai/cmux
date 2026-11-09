@@ -1019,6 +1019,12 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   }
                   if (!returnInput || (input.inputType !== "insertParagraph" && input.inputType !== "insertLineBreak"))
                     return false;
+                  // The input method can emit paragraph input without a keydown. Its candidate
+                  // confirmation is still composition, even when this event omits isComposing.
+                  if (input.isComposing || composing.current) {
+                    event.preventDefault();
+                    return true;
+                  }
                   event.preventDefault();
                   if (returnTaken) returnTaken = false;
                   else returnInput();

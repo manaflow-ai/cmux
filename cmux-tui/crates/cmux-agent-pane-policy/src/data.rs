@@ -22,6 +22,9 @@ pub enum GestureRule {
     WhenOptionAllows,
     /// `_acpmux/permission_group_respond` whose `decision` is not `deny`.
     WhenDecisionAllows,
+    /// `_acpmux/side_chat` that sends the side chat a first prompt (`prompt`), as
+    /// `session/prompt` does.
+    WhenPrompting,
 }
 
 #[derive(Clone, Debug, Deserialize)]

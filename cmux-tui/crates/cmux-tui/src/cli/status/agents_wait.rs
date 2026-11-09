@@ -609,6 +609,9 @@ fn timed_out(request: &Request, seen: &[Seen]) -> Failure {
                 "mode": request.mode.as_str(),
                 "until": until_words(request),
                 "timeout_ms": millis.to_string(),
+                // Every wait whose time ran out says so (#38640).
+                "timed_out": true,
+                "waited_ms": millis.to_string(),
                 "agents": seen.iter().map(Seen::to_json).collect::<Vec<_>>(),
             },
             "retryable": true,

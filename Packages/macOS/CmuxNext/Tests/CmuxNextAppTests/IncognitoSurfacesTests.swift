@@ -146,7 +146,7 @@ struct IncognitoSurfacesTests {
                                  environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9/"], showcase: true)
         tabs.wakeStates["tab_secret"] = AgentPaneWakeState(shell: true, shellText: "cat ~/.ssh/id_ed25519")
         tabs.wakeStates["tab_normal"] = AgentPaneWakeState(shell: true, shellText: "make test")
-        #expect(AgentQuitFiles.incognitoTabs(tabs, isIncognito: { $0 == "tab_secret" }) == ["tab_secret"])
+        #expect(AgentQuitFiles.incognitoTabs(tabs, isIncognito: { $0.key == "tab_secret" }).map(\.key) == ["tab_secret"])
     }
 
     // MARK: Leak 6: the quit's agent tab files
@@ -163,10 +163,10 @@ struct IncognitoSurfacesTests {
                                  environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9/"], showcase: true)
         tabs.localHost = Self.thisMac
         let tree = DaemonStore()
-        tabs.lookup = { key in records[key].map { ($0, tree) } }
+        tabs.lookupScoped = { key in records[key.key].map { ($0, tree) } }
         tabs.wakeStates["tab_normal"] = AgentPaneWakeState(shell: true, shellText: "make test")
         tabs.wakeStates["tab_secret"] = AgentPaneWakeState(shell: true, shellText: "cat ~/.ssh/id_ed25519")
-        let saved = await AgentQuitFiles.composers(tabs, isIncognito: { $0 == "tab_secret" })
+        let saved = await AgentQuitFiles.composers(tabs, isIncognito: { $0.key == "tab_secret" })
         #expect(saved["tab_normal"]?.shellText == "make test")
         #expect(saved["tab_secret"] == nil, "the quit saved an incognito chat's composer for the next launch")
     }

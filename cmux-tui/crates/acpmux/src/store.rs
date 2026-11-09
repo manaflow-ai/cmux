@@ -134,6 +134,14 @@ pub struct ForkRequest {
     pub child_id: String,
 }
 
+/// A person's return to a chat that kept working (`hub/seen.rs`): the log seq they had seen when
+/// they left, and how many turns ended while nobody showed it.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+pub struct LastReturn {
+    pub since: u64,
+    pub turns: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
@@ -299,6 +307,15 @@ pub struct SessionMeta {
     /// True only after a harness writer accepts the captured first-turn context.
     #[serde(default)]
     pub cmux_context_delivered: bool,
+    /// True once cmux's rules on a system-level channel went into the transcript instead,
+    /// because a start did not carry them (`context_inventory::append_owed_rules`): once.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cmux_rules_in_transcript: bool,
+    /// The seq of the turn whose message carried them (`turn_started`): a fork cut before it
+    /// keeps a transcript without them (`context_inventory::fork_keeps_rules`). None for rules
+    /// recorded before this was kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cmux_rules_seq: Option<u64>,
     /// The account's plan usage limits (`claude_stdio::usage_limits`), newest per window, from
     /// Claude Code's `rate_limit_event`; none from any other harness.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -324,6 +341,19 @@ pub struct SessionMeta {
     /// A turn ended while no client was attached.
     #[serde(default)]
     pub unread: bool,
+    /// The log seq the person had seen when they last stopped showing the chat (`hub/seen.rs`):
+    /// where "New since you looked" goes when they come back. Set once per hide, never per
+    /// record; None until a person has shown and left it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seen_seq: Option<u64>,
+    /// Turns that ended unseen since the person last showed the chat (the sidebar's count).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub unread_turns: u64,
+    /// The person's return to the chat after turns ended unseen, kept while they stay on it: a
+    /// client that opens it then draws "New since you looked" at `since`, however its attach and
+    /// its list read race. Cleared when the last client showing it stops.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_return: Option<LastReturn>,
     /// The Claude conversation acpmux started with a fresh id has not
     /// finished a turn, so Claude may never have stored it (a launcher that
     /// died before the prompt reached Claude stores nothing). A respawn (a
@@ -369,6 +399,10 @@ pub struct SessionMeta {
     /// Classified harness attempts, projected from turn results; old stores default empty.
     #[serde(default)]
     pub harness_failures: crate::session_liveness::HarnessFailures,
+    /// Its harness's own command sandbox: first refusal and whether it refuses now
+    /// (`hub/harness_sandbox.rs`); old stores default to none.
+    #[serde(default, skip_serializing_if = "crate::session_liveness::HarnessSandbox::is_none")]
+    pub harness_sandbox: crate::session_liveness::HarnessSandbox,
     /// Created over a remote-origin connection (the WebSocket listener):
     /// its harness never spawns with a preset's args or system prompt.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -467,6 +501,10 @@ pub struct SessionMeta {
     /// Model races owned by this parent. Shared so per-token metadata copies stay constant-time.
     #[serde(default)]
     pub races: std::sync::Arc<Vec<crate::hub::races::Race>>,
+    /// The plan builds started from this chat's plan approvals (`hub/plan_build.rs`): set by
+    /// acpmux alone, never from a request. Shared as `races` is.
+    #[serde(default, skip_serializing_if = "crate::hub::plan_build::no_records")]
+    pub plan_builds: std::sync::Arc<Vec<crate::hub::plan_build::PlanBuildRecord>>,
     /// The session whose agent started this one, recorded once at creation from
     /// the proven caller (`hub/lineage.rs`): `acpmux new` run in an agent's
     /// shell, or its `start_session` tool. `None` for a session a person or
@@ -605,6 +643,12 @@ pub struct TurnUsage {
     pub cache_read_tokens: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_write_tokens: Option<u64>,
+    /// Of `cache_write_tokens`, the hour-long writes (Claude Code's
+    /// `cache_creation.ephemeral_1h_input_tokens`), which bill at twice the input price where a
+    /// 5-minute write bills at 1.25 times. Absent in older records and for harnesses that do not
+    /// say: their writes price at the 5-minute rate.
+    #[serde(default, rename = "cacheWrite1hTokens", skip_serializing_if = "Option::is_none")]
+    pub cache_write_1h_tokens: Option<u64>,
 }
 
 impl TurnUsage {
@@ -627,6 +671,7 @@ impl TurnUsage {
         self.output_tokens = sum(self.output_tokens, turn.output_tokens);
         self.cache_read_tokens = sum(self.cache_read_tokens, turn.cache_read_tokens);
         self.cache_write_tokens = sum(self.cache_write_tokens, turn.cache_write_tokens);
+        self.cache_write_1h_tokens = sum(self.cache_write_1h_tokens, turn.cache_write_1h_tokens);
     }
 }
 
@@ -875,6 +920,19 @@ pub trait Store: Send + Sync {
             }
         }
         Ok(())
+    }
+    /// `scan` for a reader that wants only some records: a line `may_match` is false for holds
+    /// none of them, and a file store passes it without parsing it (a store that holds parsed
+    /// records may ignore it; `visit` still decides on the rest). A subagent pane's read of an
+    /// old subagent passed a long chat's every later line through a parse, on each of its pages.
+    fn scan_matching(
+        &self,
+        id: &str,
+        after: u64,
+        _may_match: &dyn Fn(&[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan(id, after, visit)
     }
     /// `scan`, but a record that cannot be read (a torn or malformed line) is an error instead of
     /// being skipped: a reader that must see every record (the full-access bound's readback of a
@@ -1341,6 +1399,32 @@ struct StatusOnly {
     status: SessionStatus,
 }
 
+/// The event logs' write budget per kind (`cmux_tui_platform::write_budget`): a kind past 8 MiB
+/// or 20,000 records an hour, or one whose records mostly repeat, is a writer to fix.
+static EVENT_LOG_BUDGET: std::sync::LazyLock<cmux_tui_platform::write_budget::WriteBudget> =
+    std::sync::LazyLock::new(|| {
+        cmux_tui_platform::write_budget::WriteBudget::new(
+            "acpmux event log",
+            cmux_tui_platform::write_budget::WriteLimits {
+                bytes: 8 << 20,
+                records: 20_000,
+                repeat_percent: 50,
+                repeat_floor: 200,
+            },
+        )
+    });
+
+/// Counts `record`, `bytes` on disk, against [`EVENT_LOG_BUDGET`] where budgets count (debug
+/// builds, tests, `CMUX_WRITE_BUDGET=1`), and warns once a kind is over.
+fn note_write_budget(record: &EventRecord, bytes: usize) {
+    if !cmux_tui_platform::write_budget::WriteBudget::enabled() {
+        return;
+    }
+    if let Some(warning) = EVENT_LOG_BUDGET.note(&record.kind, bytes, &record.msg, now_ms()) {
+        tracing::warn!("{warning}");
+    }
+}
+
 impl LocalStore {
     /// One whole serialized record (`line` ends with its newline) at the end of `id`'s log: the
     /// body of [`Store::append`], and the journal store's write of a journaled line
@@ -1514,6 +1598,7 @@ impl Store for LocalStore {
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         let mut line = serde_json::to_string(record)?;
         line.push('\n');
+        note_write_budget(record, line.len());
         self.append_line(id, line.as_bytes())
     }
 
@@ -1540,7 +1625,17 @@ impl Store for LocalStore {
     /// not the log's prefix (perf100: a 70 MB log read in 10,000-record pages parsed
     /// every earlier record again on each page).
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
-        self.scan_lines(id, after, false, visit)
+        self.scan_lines(id, after, false, None, visit)
+    }
+
+    fn scan_matching(
+        &self,
+        id: &str,
+        after: u64,
+        may_match: &dyn Fn(&[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_lines(id, after, false, Some(may_match), visit)
     }
 
     fn scan_strict(
@@ -1549,7 +1644,7 @@ impl Store for LocalStore {
         after: u64,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_lines(id, after, true, visit)
+        self.scan_lines(id, after, true, None, visit)
     }
 
     /// Reads each line's head (`RecordHead::read`) and parses only the lines the reader asks
@@ -1859,6 +1954,7 @@ impl LocalStore {
         id: &str,
         after: u64,
         strict: bool,
+        may_match: Option<&dyn Fn(&[u8]) -> bool>,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         // A strict read learns that the log's segments could not be listed (`segments` lists
@@ -1886,6 +1982,9 @@ impl LocalStore {
                     continue;
                 }
                 if record_seq(&line).is_some_and(|seq| seq <= after) {
+                    continue;
+                }
+                if may_match.is_some_and(|may_match| !may_match(&line)) {
                     continue;
                 }
                 let rec = match parse_record(&line) {

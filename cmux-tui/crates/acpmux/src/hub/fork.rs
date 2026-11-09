@@ -129,6 +129,15 @@ impl Hub {
             None => (None, None, None),
         };
         let parent_meta = session.meta();
+        // Tests only: the parent's turn records its rules while the fork is being made.
+        #[cfg(test)]
+        {
+            let seam = self.fork_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some((arrived, release)) = seam {
+                let _ = arrived.send(());
+                let _ = release.await;
+            }
+        }
         // Its agent started it (`created_by.rs`); a fork the person made records none.
         let created_by =
             lineage.as_ref().map(|l| super::created_by::agent(&l.parent, &parent_meta));
@@ -381,7 +390,8 @@ impl Hub {
         {
             let cfg = self.config.read().await;
             let family = crate::context_inventory::family_for_folder(&cfg, &parent_meta.harness);
-            let parts = crate::context_inventory::snapshot_for(&cfg, &cwd, &parent_meta.harness);
+            let parts =
+                crate::context_inventory::snapshot_for(&cfg, &cwd, &parent_meta.harness, false);
             // A native fork's agent keeps the parent's transcript, the old folder's
             // instructions in it: the new ones say those no longer apply.
             if moved && matches!(made, Made::Agent(..) | Made::ClaudeResume) {
@@ -392,6 +402,11 @@ impl Hub {
         } else {
             parent_meta.cmux_context.clone()
         };
+        // Read again after the cut: the parent's turn may have recorded its rules since
+        // `parent_meta` was read, and the fork's copy holds them when that turn is in it.
+        let rules_kept = !matches!(made, Made::Fresh | Made::Empty)
+            && !moved
+            && session.read_meta(|m| crate::context_inventory::fork_keeps_rules(m, fork_seq));
         let mut meta = SessionMeta {
             schema: META_SCHEMA.into(),
             id: id.clone(),
@@ -474,6 +489,11 @@ impl Hub {
             cmux_context_delivered: !matches!(made, Made::Fresh | Made::Empty)
                 && !moved
                 && parent_meta.cmux_context_delivered,
+            // Rules the parent's transcript carries, which a native fork keeps when its cut is
+            // after the turn that carried them; from its own start on, so its own forks keep
+            // them at any cut.
+            cmux_rules_in_transcript: rules_kept,
+            cmux_rules_seq: rules_kept.then_some(0),
             // The account's limits, which the fork shares.
             usage_limits: parent_meta.usage_limits.clone(),
             available_commands: parent_meta.available_commands.clone(),
@@ -481,6 +501,9 @@ impl Hub {
             permission_rules: None,
             tags: Default::default(),
             unread: false,
+            seen_seq: None,
+            unread_turns: 0,
+            last_return: None,
             claude_unstored: false,
             // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
             wait_start: false,
@@ -491,6 +514,7 @@ impl Hub {
             last_turn: None,
             auth_change: None,
             harness_failures: Default::default(),
+            harness_sandbox: Default::default(),
             // A fork of a remote-origin session stays remote-origin.
             remote_origin: parent_meta.remote_origin,
             vm_boundary: parent_meta.vm_boundary,
@@ -537,6 +561,7 @@ impl Hub {
             subsession,
             subsession_limits: Default::default(),
             races: Default::default(),
+            plan_builds: Default::default(),
             // A fork is the person's branch of the chat, never a spawn (`lineage.rs`), unless
             // its agent started it (`sub`).
             created_by,
@@ -579,6 +604,8 @@ impl Hub {
             super::admission::claim(&id);
         }
         self.update_live_session_index(&new);
+        // A session that came may be another row's parent: every closed row is built again.
+        self.events.changed();
         // Indexed again once published (`transfer.rs` `import_into`).
         self.child_tags.note(&new);
         let creation_guard = super::lifecycle::CreationGuard::new(self.clone(), new.clone(), 0);
@@ -701,6 +728,8 @@ impl Hub {
         {
             let mut m = new.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.harness_failures = crate::session_liveness::HarnessFailures::after(m.last_seq);
+            // Its own harness: a refusal the parent's records carry is not the fork's.
+            m.harness_sandbox = Default::default();
         }
         let mut forked = json!({"parentId": session.id, "forkSeq": new.meta().fork_seq});
         if let Some((_, b)) = &before {

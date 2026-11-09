@@ -102,6 +102,14 @@ struct ChatRowView: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
         case .incoming(let incoming, let attachments, let at):
             AgentIncomingCard(incoming: incoming, attachments: attachments, at: at)
+        case .steer(let message):
+            if let incoming = message.incoming {
+                AgentIncomingCard(incoming: incoming, attachments: message.attachments, at: message.at)
+            } else {
+                UserBubble(prompt: message.text, attachments: message.attachments, promptAt: message.at, isLast: false,
+                           editAndResend: {})
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
         case .block(let messageID, let block):
             MarkdownBlockRow(block: block) { context.messageText(messageID) }
         case .thought(let text, let isLive):
@@ -156,8 +164,9 @@ struct ChatRowView: View {
             }
         case .nextStep(let ask, let answer, let canAnswer):
             NextStepCard(ask: ask, answer: answer, canAnswer: canAnswer) { option in
-                // The answer goes as the next prompt (`session/prompt`), in the agent's own words.
-                store.send(prompt: option.label)
+                // The answer goes as the next prompt (`session/prompt`), in the agent's own words,
+                // quoting the ask it answers as the Mac's card does.
+                store.send(prompt: ask.answerPrompt(option.label, asker: store.summary.agentName))
             }
         case .whoElse(let id, let call):
             WhoElseCard(id: id, call: call, open: openWhoElse)

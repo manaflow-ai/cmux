@@ -93,6 +93,32 @@ pub(super) fn origin_of(device: &DeviceAuth) -> (Origin, ConnAuth) {
     }
 }
 
+/// A paired machine's connection, served as its role says
+/// (`pairing::origin_of`): the WebSocket listener's, once the handshake
+/// proved `device`'s credential, or an in-process caller that vouches for it.
+pub async fn serve_connection_device(
+    hub: Arc<Hub>,
+    inbound: tokio::sync::mpsc::Receiver<String>,
+    out: tokio::sync::mpsc::Sender<String>,
+    device: crate::pairing::DeviceAuth,
+) {
+    let (origin, auth) = origin_of(&device);
+    super::serve_connection_from(
+        hub,
+        inbound,
+        out,
+        origin,
+        auth,
+        None,
+        false,
+        crate::sender_harness::SocketPeer::Unknown,
+        Some(device.id),
+        None,
+        None,
+    )
+    .await
+}
+
 /// The read-only gate, before any dispatcher: a refusal, or the params the
 /// request runs with.
 pub(super) fn gate(conn: &Conn, m: &str, params: Value) -> Result<Value, RpcError> {

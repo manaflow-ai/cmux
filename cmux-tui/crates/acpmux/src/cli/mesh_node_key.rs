@@ -84,6 +84,14 @@ fn load_or_create_with(
     }
 }
 
+/// The public half of the node key now in `state_dir`, or None when there is none or it cannot
+/// be read. Never creates one: the hub carrier's key check (`hub_carrier.rs`) uses it to see a
+/// key [`replace_at`] replaced.
+pub fn public_key_at(state_dir: &Path) -> Option<[u8; 32]> {
+    let private = key_holder::open_for_public_key(KeyFile::Node, state_dir, read_key).ok()?;
+    Some(NodeKeypair::of(&private).public_key)
+}
+
 /// A fresh node key in `state_dir`, in place of the one there: what a box whose home was copied
 /// from another gets, so the two never answer with one WireGuard identity. Only the public half
 /// of the new key is returned; the old key's bytes are not read.
@@ -99,6 +107,59 @@ pub fn replace_at(state_dir: &Path) -> Result<NodeKeypair> {
         Err(error) => return Err(error.into()),
     }
     load_or_create_at(state_dir)
+}
+
+/// `private` as the pending node key ([`KeyFile::NodePending`]): owner-only, fully synced and
+/// renamed into place, so a crash leaves the old pending key or this one, never part of one.
+pub(crate) fn write_pending_held(
+    state_dir: &Path,
+    holder: &KeyHolder,
+    private: &[u8; 32],
+) -> Result<()> {
+    crate::config::private_state_dir(state_dir)?;
+    holder.open(KeyFile::NodePending, state_dir, |path| -> Result<()> {
+        let temporary = write_temporary(path, private)?;
+        let renamed = std::fs::rename(&temporary, path);
+        if renamed.is_err() {
+            let _ = std::fs::remove_file(&temporary);
+        }
+        renamed.context("write the pending node key")?;
+        sync_parent(path)
+    })
+}
+
+/// The pending node key, or `None` when no rekey left one.
+pub(crate) fn read_pending_held(
+    state_dir: &Path,
+    holder: &KeyHolder,
+) -> Result<Option<Zeroizing<[u8; 32]>>> {
+    holder.open(KeyFile::NodePending, state_dir, |path| {
+        if std::fs::symlink_metadata(path).is_err() {
+            return Ok(None);
+        }
+        read_key(path).map(Some)
+    })
+}
+
+/// The pending node key becomes the node key in one rename.
+pub(crate) fn promote_pending_held(state_dir: &Path, holder: &KeyHolder) -> Result<()> {
+    let pending = KeyFile::NodePending.path_in(state_dir);
+    holder.open(KeyFile::Node, state_dir, |path| -> Result<()> {
+        std::fs::rename(&pending, path).context("put the pending node key in place")?;
+        sync_parent(path)
+    })
+}
+
+/// No pending node key any more (none is fine).
+pub(crate) fn drop_pending_held(state_dir: &Path, holder: &KeyHolder) -> Result<()> {
+    holder.open(KeyFile::NodePending, state_dir, |path| -> Result<()> {
+        match std::fs::remove_file(path) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                Err(error).context("remove the pending node key")
+            }
+            _ => sync_parent(path),
+        }
+    })
 }
 
 fn read_key(path: &Path) -> Result<Zeroizing<[u8; 32]>> {
@@ -118,6 +179,22 @@ fn read_key(path: &Path) -> Result<Zeroizing<[u8; 32]>> {
 }
 
 fn create_key_if_absent(path: &Path, bytes: &[u8; 32]) -> Result<()> {
+    let temporary = write_temporary(path, bytes)?;
+    // Only remove a temporary file after this invocation created it.
+    let result: Result<()> = (|| {
+        match std::fs::hard_link(&temporary, path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.into()),
+        }
+        sync_parent(path)
+    })();
+    let _ = std::fs::remove_file(&temporary);
+    result
+}
+
+/// `bytes` in a new owner-only file next to `path`, fully synced.
+fn write_temporary(path: &Path, bytes: &[u8; 32]) -> Result<std::path::PathBuf> {
     let temporary = path.with_extension(format!("wg-key-{}", uuid::Uuid::new_v4()));
     #[cfg(unix)]
     let mut file = {
@@ -131,25 +208,28 @@ fn create_key_if_absent(path: &Path, bytes: &[u8; 32]) -> Result<()> {
     };
     #[cfg(windows)]
     let mut file = crate::owner_only::create_new(&temporary)?;
-    // Only remove a temporary file after this invocation created it.
-    let result: Result<()> = (|| {
+    let written: Result<()> = (|| {
         file.write_all(bytes)?;
         file.sync_all()?;
-        drop(file);
-        match std::fs::hard_link(&temporary, path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error.into()),
-        }
-        #[cfg(unix)]
-        {
-            let parent = path.parent().ok_or_else(|| anyhow!("node key has no state directory"))?;
-            std::fs::File::open(parent)?.sync_all()?;
-        }
         Ok(())
     })();
-    let _ = std::fs::remove_file(&temporary);
-    result
+    drop(file);
+    if let Err(error) = written {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error);
+    }
+    Ok(temporary)
+}
+
+fn sync_parent(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        let parent = path.parent().ok_or_else(|| anyhow!("node key has no state directory"))?;
+        std::fs::File::open(parent)?.sync_all()?;
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -188,6 +268,8 @@ mod tests {
         let fresh = replace_at(dir.path()).unwrap();
         assert_ne!(copied.public_key, fresh.public_key);
         assert_eq!(load_or_create_at(dir.path()).unwrap().public_key, fresh.public_key);
+        // What the hub carrier's key check reads: the replacement, never the copied key.
+        assert_eq!(public_key_at(dir.path()), Some(fresh.public_key));
         // With no key yet, a replacement is a first key.
         let empty = tempfile::tempdir().unwrap();
         let first = replace_at(empty.path()).unwrap();

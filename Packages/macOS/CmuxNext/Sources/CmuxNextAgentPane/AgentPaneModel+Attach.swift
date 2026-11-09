@@ -12,7 +12,7 @@ extension AgentPaneModel {
         let picks = await onChooseAttachments()
         guard !picks.isEmpty else { return AgentPaneReply.success() }
         let items = await Self.attachItems(picks)
-        droppedPaths.linked(Self.files(of: items))
+        droppedPaths.linked(Self.paths(of: items))
         return AgentPaneReply.success(["items": items])
     }
 
@@ -28,7 +28,7 @@ extension AgentPaneModel {
               let urls = await retainedDropURLs(items, generation: generation) else { return AgentPaneReply.success(["items": [Any]()]) }
         let links = await Self.attachItems(urls)
         guard generation == droppedPaths.generation else { return AgentPaneReply.success(["items": [Any]()]) }
-        droppedPaths.linked(Self.files(of: links))
+        droppedPaths.linked(Self.paths(of: links))
         return AgentPaneReply.success(["items": links])
     }
 
@@ -57,16 +57,16 @@ extension AgentPaneModel {
         return urls
     }
 
-    /// The files, not folders, of link items made by ``attachItems(_:)``.
-    nonisolated static func files(of items: [[String: Any]]) -> [String] {
-        items.compactMap { $0["folder"] as? Bool == false ? $0["path"] as? String : nil }
+    /// The paths, files and folders, of link items made by ``attachItems(_:)``.
+    nonisolated static func paths(of items: [[String: Any]]) -> [String] {
+        items.compactMap { $0["path"] as? String }
     }
 
-    /// The Mac files of a new chat's first-send chips that may go to Cloud (``AgentPaneCloudStart/carriedFiles``):
-    /// a `link` chip's path when it is a file this pane handed the page from the person's own drop,
+    /// The Mac files and folders of a new chat's first-send chips that may go to Cloud (``AgentPaneCloudStart/carriedFiles``):
+    /// a `link` chip's path when it is a file or folder this pane handed the page from the person's own drop,
     /// paste or pick (``AgentPaneDroppedPaths/linkedFiles``), or a `saved` chip's file this app wrote
     /// under Chat Uploads (``ChatUploadFolders``), which are also answered as `saved`. A path page
-    /// script made up is never one; folders aren't.
+    /// script made up is never one, and a folder is never `saved`.
     func cloudCarriedFiles(_ attachments: [JSONValue]) async -> (files: Set<String>, saved: Set<String>) {
         let linked = Set(droppedPaths.linkedFiles), root = chatUploadFolders?.root
         let asked = attachments.compactMap { chip -> (path: String, saved: Bool)? in
@@ -80,7 +80,12 @@ extension AgentPaneModel {
             var files: Set<String> = [], saved: Set<String> = []
             for (path, _) in asked {
                 var folder: ObjCBool = false
-                guard FileManager.default.fileExists(atPath: path, isDirectory: &folder), !folder.boolValue else { continue }
+                guard FileManager.default.fileExists(atPath: path, isDirectory: &folder) else { continue }
+                // A folder goes only as the person's own drop or pick named it.
+                if folder.boolValue {
+                    if linked.contains(path) { files.insert(path) }
+                    continue
+                }
                 // A drop's own recording snapshot lives under Chat Uploads too: staged like a saved chip.
                 let under = root.map { Self.isSavedUpload(path, root: $0) } ?? false
                 guard linked.contains(path) || under else { continue }

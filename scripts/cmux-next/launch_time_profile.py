@@ -21,6 +21,9 @@ The summary (one dict per launch, `summarize`):
   binaries        self time by binary (Swift runtime, AppKit, SwiftUI, dyld, ours ...)
   tree            our frames top down (root first, other binaries' frames between them dropped), nodes over
                   TREE_MIN_MS, depth TREE_DEPTH
+  below           for the BELOW_TOP heaviest leaf-most frames of ours, the frames of other binaries they called into
+                  (the BELOW_DEPTH frames just under ours, outermost first) by time: what a frame of ours that does
+                  little itself waits on, such as a framework's one-time setup
   gaps            each gap between consecutive marks in the window of GAP_MIN_MS or more: its busy time and its top
                   leaf-most frames of ours
 
@@ -50,6 +53,9 @@ TREE_MIN_MS = 4.0
 TREE_DEPTH = 14
 GAP_MIN_MS = 8.0
 TOP = 25
+BELOW_TOP = 8
+BELOW_DEPTH = 4
+BELOW_ROWS = 5
 DFL_FRAME = "applicationDidFinishLaunching"
 DFL_MARK = "did_finish_launching_start"
 # Leaf frames of a thread that waits: the sample is not CPU work.
@@ -242,6 +248,7 @@ def summarize(samples, marks, from_mark="main_start", to_mark="first_window_fram
     edges = sorted((v, k) for k, v in numeric.items() if start <= v <= end)
     gap_busy = collections.Counter()
     gap_leaf = collections.defaultdict(collections.Counter)
+    below = collections.defaultdict(collections.Counter)
     for t, weight, stack in samples:
         ms = (t - origin) / 1e6
         if ms < start or ms > end:
@@ -259,6 +266,11 @@ def summarize(samples, marks, from_mark="main_start", to_mark="first_window_fram
             inclusive[name] += w
         top = ours[0] if ours else f"(not ours) {short(symbol)}  [{binary or '?'}]"
         leaf[top] += w
+        if ours:
+            # The frames between the leaf-most frame of ours and the leaf, outermost first.
+            at = next(i for i, frame in enumerate(stack) if is_ours(frame))
+            under = stack[max(0, at - BELOW_DEPTH):at][::-1]
+            below[top][" > ".join(f"{short(s, 60)} [{b or '?'}]" for s, b in under) or "(itself)"] += w
         node = tree
         for name in reversed(ours[-TREE_DEPTH:] if len(ours) > TREE_DEPTH else ours):
             entry = node.setdefault(name, [0.0, {}])
@@ -296,7 +308,9 @@ def summarize(samples, marks, from_mark="main_start", to_mark="first_window_fram
                          "top": rows(gap_leaf[name], 6)})
     summary.update({"window_ms": round(end - start, 1), "busy_ms": round(busy, 1), "idle_ms": round(idle, 1),
                     "ours_inclusive": rows(inclusive, 40), "ours_leaf": rows(leaf), "self": rows(self_time),
-                    "binaries": rows(binaries, 15), "tree": flatten(tree), "gaps": gaps})
+                    "binaries": rows(binaries, 15), "tree": flatten(tree), "gaps": gaps,
+                    "below": {name: rows(below[name], BELOW_ROWS) for name, _ in leaf.most_common(BELOW_TOP)
+                              if not name.startswith("(not ours)")}})
     return summary
 
 
@@ -314,7 +328,9 @@ def merge(summaries):
     return {"runs": len(good), "busy_ms": round(statistics.median(s["busy_ms"] for s in good), 1),
             "window_ms": round(statistics.median(s["window_ms"] for s in good), 1),
             "ours_leaf": median_of("ours_leaf"), "ours_inclusive": median_of("ours_inclusive", 40),
-            "self": median_of("self"), "binaries": median_of("binaries", 15)}
+            "self": median_of("self"), "binaries": median_of("binaries", 15),
+            "below": {name: max((s.get("below", {}).get(name, []) for s in good), key=lambda r: sum(ms for _, ms in r))
+                      for name in {n for s in good for n in s.get("below", {})}}}
 
 
 def print_summary(label, summary, out=sys.stdout):
@@ -331,6 +347,9 @@ def print_summary(label, summary, out=sys.stdout):
                        ("binaries", "self time by binary"), ("ours_inclusive", "inclusive, ours")):
         for name, ms in summary.get(key, [])[:TOP]:
             p(f"{title:24} {ms:7.1f} ms  {name}")
+    for name, chains in summary.get("below", {}).items():
+        for chain, ms in chains:
+            p(f"below {ms:7.1f} ms  {name}  <-  {chain}")
     for depth, name, ms in summary.get("tree", []):
         p(f"tree {ms:7.1f} ms {'  ' * depth}{name}")
     for gap in summary.get("gaps", []):
@@ -367,10 +386,14 @@ def self_test():
         assert dict(s["ours_inclusive"])["AppDelegate.applicationDidFinishLaunching(_:)"] == 3.0, s
         assert dict(s["binaries"])["libswiftCore.dylib"] == 2.0, s
         assert all(ms >= TREE_MIN_MS for _, _, ms in s["tree"]), s["tree"]
+        # CloudServices.init() called into the Swift runtime; HomePage.makeTab() did its own work.
+        assert s["below"]["CloudServices.init()"] == [["swift_conformsToProtocol [libswiftCore.dylib]", 2.0]], s["below"]
+        assert s["below"]["HomePage.makeTab()"] == [["(itself)", 1.0]], s["below"]
         gap = next(g for g in s["gaps"] if g["from"] == "dfl.services")
         assert gap["busy_ms"] == 1.0 and gap["to"] == "first_window_frame_committed", gap  # HomePage at 15 ms
         m = merge([s, s, {"error": "x"}])
         assert m["runs"] == 2 and m["ours_leaf"][0] == ["CloudServices.init()", 2.0], m
+        assert m["below"]["CloudServices.init()"] == s["below"]["CloudServices.init()"], m
         # No dfl frame: the first sample is the process start.
         s2 = summarize(samples[:1] + samples[5:], {"main_start": 0.0, "first_window_frame_committed": 20.0})
         assert s2["clock"].startswith("the app's first"), s2

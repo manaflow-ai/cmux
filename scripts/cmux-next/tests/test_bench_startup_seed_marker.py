@@ -3,7 +3,7 @@
 
 A fleet step points $HOME at its own folder, but the app resolves Application Support from
 FileManager.homeDirectoryForCurrentUser (the password database's home), and its daemon makes
-<that>/Library/Application Support/cmux/tags/<tag>/tui at start. bench-startup used os.path.expanduser("~"), so on the
+<that>/Library/Application Support/cmux-next/tags/<tag>/tui at start (cmux/tags/<tag>/tui before NEXT's own folder). bench-startup used os.path.expanduser("~"), so on the
 fleet its reset, seed and marker all went to a folder the app never uses: the marker write raised FileNotFoundError
 and ended --profile realistic on both measured commits (fleet jobs 67312a24fdc5aa26e7b379cd and
 fa5bb1cf1306deb041f97372, 2026-10-31), and --profile empty did not empty anything. No app: the app and its daemon
@@ -53,7 +53,7 @@ class SeedLaunch:
     tag = None
 
     def __init__(self, *args, **kwargs):
-        os.makedirs(os.path.join(self.account_home, "Library/Application Support/cmux/tags", self.tag, "tui"),
+        os.makedirs(os.path.join(self.account_home, "Library/Application Support/cmux-next/tags", self.tag, "tui"),
                     exist_ok=True)
 
     def wait_for(self, *args, **kwargs):
@@ -93,13 +93,15 @@ class SeedMarker(unittest.TestCase):
             self.assertTrue(marker.startswith(self.account), marker)  # the app's folder, not the step's $HOME
             self.assertTrue(os.path.exists(marker))
             self.assertFalse(bench_startup.seeded_agent(self.tag))  # the next runs wait for a terminal, not a chat
-            self.assertFalse(os.path.exists(os.path.join(self.home, "Library/Application Support/cmux/tags", self.tag)))
+            self.assertFalse(os.path.exists(os.path.join(self.home, "Library/Application Support/cmux-next/tags", self.tag)))
 
     def test_reset_state_empties_the_folder_the_app_uses(self):
-        tag_dir = os.path.join(self.account, "Library/Application Support/cmux/tags", self.tag, "tui")
+        tag_dir = os.path.join(self.account, "Library/Application Support/cmux-next/tags", self.tag, "tui")
+        # An older build's folder, from before NEXT's own: a new build would adopt it at launch.
+        old_tag_dir = os.path.join(self.account, "Library/Application Support/cmux/tags", self.tag, "tui")
         agents = os.path.join(self.account, ".acpmux/builds", "com.cmuxterm.app.debug." + self.tag)
         mux = os.path.join(self.account, ".cmux/mux/tags", self.tag)
-        for d in (tag_dir, agents, mux):
+        for d in (tag_dir, old_tag_dir, agents, mux):
             os.makedirs(d)
         env = {k: v for k, v in os.environ.items() if k != "BENCH_LAUNCH_STATE_BASE"}
         env["HOME"] = self.home
@@ -109,6 +111,7 @@ class SeedMarker(unittest.TestCase):
                 mock.patch.object(bench_startup, "tag_pids", lambda tag: []):
             bench_startup.reset_state(self.tag)
         self.assertFalse(os.path.exists(tag_dir), "--profile empty must empty the app's own state")
+        self.assertFalse(os.path.exists(old_tag_dir), "--profile empty must empty an older build's state too")
         self.assertFalse(os.path.exists(agents), "--profile empty must end the tag's agent sessions (acpmux)")
         self.assertFalse(os.path.exists(mux), "--profile empty must clear the tag's mux state")
 

@@ -39,7 +39,7 @@ enum OnboardingHandlers {
                 let tabs = services.daemon.store.workspaces.flatMap { workspace in
                     workspace.screens.flatMap(\.panes).flatMap(\.tabs).map { tab in
                         CookieImportCandidate(tabID: tab.id, title: tab.displayTitle, workspace: workspace.displayName,
-                                              agentSession: agentTabs.sessions[agentTabs.resolve(tab.id)] ?? tab.agentSession?.session,
+                                              agentSession: agentTabs.sessions[agentTabs.tabKey(tab.id, machine: services.daemon.machineID)] ?? tab.agentSession?.session,
                                               terminalIDs: [tab.terminalID?.rawValue, tab.terminalResourceID?.rawValue].compactMap(\.self),
                                               isHomeChat: tab.isHomeDockPage && workspace.kind == "home")
                     }

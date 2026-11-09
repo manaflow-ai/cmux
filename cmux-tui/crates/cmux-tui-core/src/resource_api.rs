@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::sync::Weak;
 
 mod machines;
+mod terminal_extra;
 
 pub(crate) const MACHINE_CATALOG_READ_CAPABILITY: &str = "machine-catalog-read-v1";
 
@@ -238,6 +239,7 @@ fn resolve_local_open_preparation(
             ResourceEffectOutcome::Failure(error) => Err(error),
         },
         ResourceEffectPreparation::Indeterminate => {
+            mux.report_resource_effect_indeterminate(key, "session.open", EARLIER_ATTEMPT_CAUSE);
             Err(local_indeterminate_error(key, "session.open"))
         }
         ResourceEffectPreparation::Execute { .. } => {
@@ -255,7 +257,12 @@ fn resolve_local_open_preparation(
                     &outcome,
                     Some(&json!([])),
                 )
-                .map_err(|_| {
+                .map_err(|error| {
+                    mux.report_resource_effect_indeterminate(
+                        key,
+                        "session.open",
+                        &format!("the outcome commit failed: {error:#}"),
+                    );
                     let _ = mux.mark_resource_effect_indeterminate(key);
                     local_indeterminate_error(key, "session.open")
                 })?;
@@ -278,6 +285,11 @@ fn local_mutation_result(
         "replayed":replayed,
     }))
 }
+
+/// Cause logged when a request replays a key whose earlier attempt left an
+/// indeterminate outcome.
+pub(crate) const EARLIER_ATTEMPT_CAUSE: &str =
+    "an earlier attempt with this key has an indeterminate outcome";
 
 fn local_indeterminate_error(key: &str, operation: &str) -> ResourceError {
     ResourceError::new(
@@ -484,37 +496,7 @@ pub(crate) fn public_terminal_snapshot(
     if let Some(cwd) = surface.and_then(crate::Surface::presented_directory) {
         terminal.set("cwd", json!(cwd));
     }
-    let running = durable.lifecycle == TerminalLifecycle::Running;
-    let mut extra = Map::new();
-    if let Some(progress) = surface.and_then(crate::Surface::terminal_progress) {
-        extra.insert("progress".into(), progress.to_json());
-    }
-    if let Some(status) = surface.and_then(|surface| surface.terminal_program_status(running)) {
-        extra.insert("program_status".into(), status);
-    }
-    // `terminal-activity-v1`: a shell command runs (OSC 133 C..D), quiet
-    // `running` or interactive `in_use`; the older `busy` names a `running`
-    // one only. An exited terminal publishes none.
-    if running
-        && let Some((state, since)) = surface.and_then(crate::Surface::terminal_command_activity)
-    {
-        extra.insert("activity".into(), crate::terminal_activity::activity_json(state, since));
-        if state == crate::terminal_activity::CommandActivity::Running {
-            extra.insert("busy".into(), crate::terminal_activity::busy_json(since));
-        }
-    }
-    if running && let Some(since) = surface.and_then(crate::Surface::terminal_prompt_since) {
-        extra.insert("prompt".into(), crate::terminal_activity::prompt_json(since));
-    }
-    // `terminal-exit-status-v1`: the last command the shell finished (OSC
-    // 133 D), with its exit code when the shell sent one. Absent without
-    // shell integration, so a missing field never reads as success.
-    if running && let Some(last) = surface.and_then(crate::Surface::terminal_last_command) {
-        extra.insert("last_command".into(), crate::terminal_activity::last_command_json(last));
-    }
-    if running && let Some(at) = surface.and_then(crate::Surface::terminal_last_output) {
-        extra.insert("last_output".into(), crate::terminal_activity::last_output_json(at));
-    }
+    let extra = terminal_extra::extra(surface, durable.lifecycle == TerminalLifecycle::Running);
     if !extra.is_empty() {
         terminal.set("extra", Value::Object(extra));
     }
@@ -783,6 +765,7 @@ fn session_snapshot_with_journal_head(
             })
             .map(|agent| agent.into_public_snapshot(&topology.session_id))
             .map(|agent| crate::mux::with_last_reply(agent, &last_replies))
+            .map(|agent| crate::mux::with_kept_session(agent, &last_sessions))
             .collect::<Vec<_>>();
         agents.sort_by(|left, right| {
             left["id"].as_str().unwrap_or_default().cmp(right["id"].as_str().unwrap_or_default())
@@ -1096,6 +1079,57 @@ mod tests {
         assert_eq!(
             machine_capabilities(),
             serde_json::json!(["terminal", "workspace", "agent_session"])
+        );
+    }
+
+    #[test]
+    fn an_indeterminate_session_open_reports_its_cause_to_the_daemon_log() {
+        use super::ResourceMachineService as _;
+
+        let mux = crate::Mux::new_for_test("dev", crate::SurfaceOptions::default());
+        let diagnostics = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let sink = diagnostics.clone();
+        assert!(mux.set_diagnostic_reporter(std::sync::Arc::new(move |message| {
+            sink.lock().unwrap().push(message.to_string());
+        })));
+        let context = mux.local_resource_context().unwrap();
+        let service = super::LocalResourceMachineService::new(std::sync::Arc::downgrade(&mux));
+        let request = super::ResourceMachineRequest {
+            operation: crate::resource::ResourceOperation::SessionOpen,
+            selectors: crate::ResourceSelectors {
+                machine: Some(context.machine_id.to_string()),
+                session: Some(context.session_id.to_string()),
+                ..Default::default()
+            },
+            fields: serde_json::Map::new(),
+            idempotency_key: Some("session-open-cause".to_string()),
+            actor: crate::Actor::local_user(),
+        };
+        mux.reject_resource_effect_commits_for_test();
+
+        assert_eq!(service.dispatch(&request).unwrap_err().code, "mutation.indeterminate");
+        assert_eq!(service.dispatch(&request).unwrap_err().code, "mutation.indeterminate");
+
+        let diagnostics = diagnostics.lock().unwrap().clone();
+        let reports = |cause: &str| {
+            diagnostics
+                .iter()
+                .filter(|message| {
+                    message.contains("session.open")
+                        && message.contains("session-open-cause")
+                        && message.contains(cause)
+                })
+                .count()
+        };
+        assert_eq!(
+            reports("injected outcome commit failure"),
+            1,
+            "the daemon log has no cause for the indeterminate open: {diagnostics:?}"
+        );
+        assert_eq!(
+            reports("an earlier attempt"),
+            1,
+            "the daemon log has no cause for the indeterminate replay: {diagnostics:?}"
         );
     }
 }

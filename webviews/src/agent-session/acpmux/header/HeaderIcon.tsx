@@ -4,11 +4,12 @@ import { Icon } from "../icons/Icon";
 
 // Use the host's SF Symbol templates, as the native toolbar does. The bundled glyph keeps its
 // footprint while the template loads and in a browser gallery without a macOS symbol host.
-import { HEADER_SYMBOLS } from "./headerSymbols";
+import { HEADER_SYMBOLS, PACK_DRAWN_SYMBOLS } from "./headerSymbols";
 
 export function HeaderIcon({ name, size = 16, selected = false }: { name: string; size?: number; selected?: boolean }) {
   const symbols = useSyncExternalStore(subscribeHarnessIcons, harnessSymbolsSnapshot, harnessSymbolsSnapshot);
-  const symbol = HEADER_SYMBOLS[name];
+  const mapped = HEADER_SYMBOLS[name];
+  const symbol = mapped && !PACK_DRAWN_SYMBOLS.has(mapped) ? mapped : undefined;
   useEffect(() => {
     if (symbol) loadHarnessSymbol(symbol);
   }, [symbol]);

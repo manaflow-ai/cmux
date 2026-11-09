@@ -7,6 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { type ComposerAttachment, inlineToken, promptBlocks, withoutInlineTokens } from "../attachments";
 import { agentText, readsAsAgent } from "../agentText";
+import sharedCases from "../../../../../cmux-tui/crates/acpmux/src/agent_text_cases.json";
 import { PASTE_CHIP_CHARS, PASTE_CHIP_WORDS, pastedTextAttachment } from "../pastedText";
 import { PastedText, PromptText } from "../conversation/PromptText";
 import { markPastes, marksPaste, remember, unmarkPastes } from "./pasteMarks";
@@ -16,13 +17,29 @@ const MINE = "Merge and deploy whenever you want.";
 
 test("a handoff reads as an agent's and names it; the person's words do not", () => {
   expect(agentText(HANDOFF)).toEqual({ from: "Codex", signals: ["header", "trace"] });
-  for (const text of [MINE, "From now on: always rebase first.", "From the logs: it crashed", "Check the trace id"])
+  for (const text of [
+    MINE,
+    "From now on: always rebase first.",
+    "From the logs: it crashed",
+    "Check the trace id",
+    // Review of #38707 (F1): prose that says "generated with" is not a footer.
+    "The docs were generated with Sphinx",
+  ])
     expect(readsAsAgent(text)).toBe(false);
   expect(agentText("Done.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)").from).toBe(
     "Claude Code",
   );
   const huge = `From Hermes:\n${"y".repeat(5_000_000)}\nTrace-ID: x`;
   expect(agentText(huge)).toEqual({ from: "Hermes", signals: ["header", "trace"] });
+});
+
+// The cases acpmux's agent_text.rs reads too (agent_text_cases.json): one list, so the composer and
+// the daemon cannot drift on what reads as an agent's.
+test("the shared cases read as acpmux reads them", () => {
+  for (const { text, from } of sharedCases as { text: string; from: string | null }[]) {
+    expect(agentText(text).from ?? null, text).toBe(from);
+    expect(readsAsAgent(text), text).toBe(from !== null);
+  }
 });
 
 // (a) The person pastes a Codex handoff and types their own line: the paste goes as its own pasted

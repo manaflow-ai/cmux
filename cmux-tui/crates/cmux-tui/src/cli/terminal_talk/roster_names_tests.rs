@@ -72,3 +72,23 @@ fn w3h_agent_rows_carry_name_tab_pane_last_reply_and_one_vocabulary() {
     assert!(lines.iter().any(|line| line.starts_with("alpha  term_a1")), "{shown}");
     assert!(lines.iter().any(|line| line.starts_with("-      term_c3")), "{shown}");
 }
+
+/// W5-Q (bench round 4 orchestration #9): the text roster ends with a REPLY
+/// column, the first line of the agent's last reply, aligned under its
+/// header; `-` when there is none.
+#[test]
+fn w5q_terminal_list_agents_table_shows_the_last_reply() {
+    let mut snapshot = snapshot();
+    snapshot["agents"][0]["extra"]["last_reply"] = json!("Canberra is the capital.\nMore text");
+    let rows = rows(&snapshot);
+    let facts = facts(&snapshot);
+    let shown = table(&rows, &facts, 100);
+    let lines: Vec<&str> = shown.lines().collect();
+    let header = lines.first().copied().unwrap_or_default();
+    assert!(header.ends_with("REPLY"), "{shown}");
+    let column = header.find("REPLY").unwrap_or_default();
+    let alpha = lines.iter().find(|line| line.starts_with("alpha ")).copied().unwrap_or_default();
+    assert_eq!(alpha.get(column..), Some("Canberra is the capital."), "{shown}");
+    let plugin = lines.iter().find(|line| line.starts_with("-      term_c3")).copied();
+    assert_eq!(plugin.and_then(|line| line.get(column..)), Some("-"), "{shown}");
+}
