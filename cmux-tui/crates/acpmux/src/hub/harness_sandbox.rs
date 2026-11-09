@@ -185,6 +185,8 @@ mod tests {
         }
         let hub = Hub::new(crate::config::Config::default(), Box::new(store));
         let session = hub.make_session(meta);
+        // As a daemon start restores it: its log is caught up when it loads.
+        session.caught_up.store(false, Ordering::SeqCst);
         (hub, session)
     }
 
