@@ -10,6 +10,9 @@ public struct TabAgentMarks {
     public var extensionOverrides: Set<String> = []
     /// Marked panes, each with the surfaces it has claimed so far.
     private var panes: [String: Set<SurfaceID>] = [:]
+    /// Agents' split tabs a reply named before they mounted, by machine and surface: a surface number is
+    /// only unique on its own daemon, so another machine's tab with the same number never takes the mark.
+    private var settled: Set<String> = []
 
     public init() {}
 
@@ -27,12 +30,12 @@ public struct TabAgentMarks {
     public mutating func mark(pane: String, machine: String) { panes[Self.paneKey(machine, pane)] = [] }
 
     /// The daemon answered the split marked for `pane`: `surface` is the agent's tab (nil ends the mark with
-    /// no tab). The pane mark ends; a tab of `surface` that has not claimed it yet is marked by its surface.
+    /// no tab). The pane mark ends; a tab of `surface` on `machine` that has not claimed it yet is marked when it mounts.
     /// A split that failed with no answer keeps its pane mark: the daemon may have made the pane anyway, and
     /// a pane id is minted once, so the mark costs one set entry and only ever marks that pane's tabs.
     public mutating func settle(pane: String, machine: String, surface: SurfaceID?) {
         guard let claimed = panes.removeValue(forKey: Self.paneKey(machine, pane)) else { return }
-        if let surface, !claimed.contains(surface) { surfaces.insert(surface) }
+        if let surface, !claimed.contains(surface) { settled.insert(Self.surfaceKey(machine, surface)) }
     }
 
     /// Tab `key` (surface `surface`, in pane `pane` of `machine`) is about to get a page: it is an agent's
@@ -40,10 +43,12 @@ public struct TabAgentMarks {
     public mutating func claim(surface: SurfaceID, key: String, pane: String?, machine: String, hasPage: Bool) {
         let paneKey = pane.map { Self.paneKey(machine, $0) }
         let byPane = paneKey.map { panes[$0] != nil } ?? false
-        guard surfaces.remove(surface) != nil || byPane, !hasPage else { return }
+        let bySettledSplit = settled.remove(Self.surfaceKey(machine, surface)) != nil
+        guard surfaces.remove(surface) != nil || bySettledSplit || byPane, !hasPage else { return }
         if byPane, let paneKey { panes[paneKey]?.insert(surface) }
         tabs.insert(key)
     }
 
     private static func paneKey(_ machine: String, _ pane: String) -> String { machine + "\u{1F}" + pane }
+    private static func surfaceKey(_ machine: String, _ surface: SurfaceID) -> String { machine + "\u{1F}" + String(surface.rawValue) }
 }

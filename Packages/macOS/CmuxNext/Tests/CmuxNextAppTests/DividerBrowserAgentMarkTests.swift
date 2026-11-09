@@ -44,6 +44,19 @@ import Testing
         #expect(!cache.agentDrivenTabs.contains("persons-tab"))
     }
 
+    @Test func anotherMachinesTabWithTheSameSurfaceNeverTakesASettledMark() {
+        // Surface numbers are only unique on their own daemon: a remote tab numbered like the agent's, mounting
+        // between the reply and the agent's tab, must not take its mark (review of #37733 at ce9b6440).
+        let cache = cache(), pane = "pane_" + String(repeating: "f", count: 32)
+        cache.markAgentDriven(pane: pane, machine: "local")
+        cache.settleAgentDriven(pane: pane, machine: "local", surface: SurfaceID(rawValue: 81))
+
+        cache.claimAgentDriven(surface: SurfaceID(rawValue: 81), key: "remote-tab", pane: nil, machine: "remote")
+        cache.claimAgentDriven(surface: SurfaceID(rawValue: 81), key: "agent-tab", pane: pane, machine: "local")
+        #expect(!cache.agentDrivenTabs.contains("remote-tab"))
+        #expect(cache.agentDrivenTabs.contains("agent-tab"))
+    }
+
     @Test func aSplitThatFailedWithNoAnswerKeepsItsPaneMarked() {
         // A timeout or a lost connection can follow the daemon's commit: the pane may still arrive, and is the agent's.
         let cache = cache(), pane = "pane_" + String(repeating: "e", count: 32)
