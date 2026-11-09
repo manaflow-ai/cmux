@@ -1796,6 +1796,9 @@ impl Hub {
     /// may hold an agent or run a turn (a close ends both before its status). A timer that takes
     /// the first deadline of these reads them, not every closed record too.
     pub(super) fn live_session_handles(&self) -> Vec<Arc<Session>> {
+        // The ids are copied and that lock let go at the end of this statement, before `sessions`
+        // is taken: never both at once, so no order against a purge (which holds `sessions`
+        // while it updates the index) can deadlock.
         let ids: Vec<String> = self
             .live_session_ids
             .lock()

@@ -147,6 +147,7 @@ impl App {
         let as_new = self.sessions.partition_point(|s| updated_at(s) >= key);
         let to = at.clamp(newer, as_new);
         self.sessions.insert(to, row);
+        // `self.selected` is not moved yet: it is the selected row's index before the move.
         let Some(selected) = self.session_index().filter(|i| *i < self.sessions.len()) else {
             return;
         };
@@ -446,7 +447,10 @@ mod update_cost_tests {
         app.sort_sessions();
         app.selected = 7;
         let selected = app.selected_id();
-        for (n, at) in [(3, 100), (39, 0), (20, 10), (0, 10), (12, 5), (30, 19)] {
+        // Rows that cross the selected one both ways, and the selected row itself moving.
+        for (n, at) in
+            [(3, 100), (39, 0), (20, 10), (0, 10), (12, 5), (30, 19), (7, 200), (7, 0), (33, 300)]
+        {
             let id = format!("s-{n:05}");
             changed(&mut app, &id, at);
             assert_eq!(app.sessions.len(), 40);
