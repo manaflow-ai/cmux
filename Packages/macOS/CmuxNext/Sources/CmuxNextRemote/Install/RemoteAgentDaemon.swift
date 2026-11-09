@@ -200,7 +200,7 @@ public actor RemoteApprovalPreparations {
     /// caller still live (#39069's review, #39208's F1).
     @MainActor public static func owned<T>(_ prep: @escaping @MainActor @Sendable () async -> Bool, _ body: @MainActor () async throws -> T) async throws -> T {
         let start = Owner()
-        let task = Self.$owner.withValue(start) { Task { await prep() } } // task-owner: awaited on every exit below
+        let task = Task { await Self.$owner.withValue(start) { await prep() } } // task-owner: awaited on every exit below; bound inside its own task
         do {
             let value = try await body()
             _ = await task.value
