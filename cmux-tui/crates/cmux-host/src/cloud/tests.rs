@@ -545,7 +545,7 @@ fn a_refusal_with_no_lost_answer_of_this_token_is_final() {
 /// the real path to `BindResult::Bound`, under a temporary root.
 #[test]
 fn a_bind_that_lands_holds_the_updaters_flip() {
-    use crate::updater::gate::{CONNECT_HOLD, Gate};
+    use crate::updater::gate::{CONNECT_HOLD, Gate, Honor};
 
     let root = tempfile::tempdir().unwrap();
     let paths = crate::config::Paths::new(root.path());
@@ -570,7 +570,7 @@ fn a_bind_that_lands_holds_the_updaters_flip() {
         "the bind did not hold the updater's flip"
     );
     let mut flipped = false;
-    assert!(Gate::new(&paths).run(T0 + 1_000, true, |_| flipped = true).is_err());
+    assert!(Gate::new(&paths).run(T0 + 1_000, Honor::AllButResume, |_| flipped = true).is_err());
     assert!(!flipped, "an update flipped during the bound machine's first connect");
 }
 
@@ -578,11 +578,11 @@ fn a_bind_that_lands_holds_the_updaters_flip() {
 /// does not go out: no request, and bind.json stays for the restarted service.
 #[test]
 fn a_bind_with_a_restart_pending_waits_for_the_restarted_service() {
-    use crate::updater::gate::Gate;
+    use crate::updater::gate::{Gate, Honor};
 
     let root = tempfile::tempdir().unwrap();
     let paths = crate::config::Paths::new(root.path());
-    assert!(Gate::new(&paths).run(T0, true, |queued| queued()).is_ok());
+    assert!(Gate::new(&paths).run(T0, Honor::All, |inside| inside.restart_queued(T0)).is_ok());
     let fake = Fake::new();
     let mut store = MemoryStore::default();
     store.write(BIND_FILE, &bind_text(), 0o600).unwrap();
