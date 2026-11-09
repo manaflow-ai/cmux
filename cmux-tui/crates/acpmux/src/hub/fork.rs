@@ -199,10 +199,13 @@ impl Hub {
                 "{harness} cannot fork a chat mid-turn, so this fork's agent starts from the chat's transcript"
             )
         };
-        // Held from the copy of the agent's transcript to the read of its recorded rules below:
-        // a prompt written before the copy has recorded what it carried (`steer_end.rs` runs
-        // its `on_sent` under the handoff), and one written after it is not in the copy.
-        let mut handoff = None;
+        // The parent's recorded rules as its agent's transcript was copied, read under
+        // `input_handoff`: a prompt written before the copy has recorded what it carried
+        // (`steer_end.rs` runs its `on_sent` under the handoff), and one written after it is
+        // not in the copy. The handoff is held for a file copy, and for `session/fork` only
+        // until its request is written: never while an agent answers.
+        let rules_of = |m: &SessionMeta| (m.cmux_rules_in_transcript, m.cmux_rules_seq);
+        let mut rules_at_copy = None;
         let made = if empty {
             turn_count = 0;
             Made::Empty
@@ -234,7 +237,7 @@ impl Hub {
                 ));
             }
             let homes = self.harness_homes().with_env(&[&fork_env]);
-            handoff = Some(session.input_handoff.clone().lock_owned().await);
+            let handoff = session.input_handoff.clone().lock_owned().await;
             let copy = match turn_cut {
                 Some(crate::config::TurnCut::Codex) => {
                     super::fork_at::codex_rollout_through_checked(
@@ -264,17 +267,21 @@ impl Hub {
                     RpcError::internal(format!("fork through turn: {e}"))
                 }
             })?;
+            rules_at_copy = Some(session.read_meta(rules_of));
+            drop(handoff);
             Made::Copy(copy)
         } else if running.is_some() && turn_cut.is_some() && cwd == parent_meta.cwd {
             // A working Claude or Codex chat: a copy of its transcript as it stands now.
             let homes = self.harness_homes().with_env(&[&fork_env]);
-            handoff = Some(session.input_handoff.clone().lock_owned().await);
+            let handoff = session.input_handoff.clone().lock_owned().await;
             let copy = match turn_cut {
                 Some(crate::config::TurnCut::Codex) => {
                     super::fork_at::codex_rollout_through(&homes.codex, &sid, u64::MAX)
                 }
                 _ => super::fork_at::claude_transcript_now(&homes.claude, &sid),
             };
+            rules_at_copy = Some(session.read_meta(rules_of));
+            drop(handoff);
             match copy {
                 Ok(copy) => Made::Copy(copy),
                 // Nothing stored yet (its first turn just began): acpmux's transcript.
@@ -311,8 +318,17 @@ impl Hub {
             if let Some(dirs) = super::additional_dirs::acp_value(&parent_meta) {
                 fork_params.set(super::additional_dirs::FIELD, dirs);
             }
-            handoff = Some(session.input_handoff.clone().lock_owned().await);
-            let asked = child.request(method::SESSION_FORK, fork_params).await;
+            // Let go once the request is written: an agent may take long to answer, or never.
+            let handoff = session.input_handoff.clone().lock_owned().await;
+            let seen = std::sync::Mutex::new(None);
+            let asked = child
+                .request_with_hook(method::SESSION_FORK, fork_params, None, || {
+                    *seen.lock().unwrap_or_else(|e| e.into_inner()) =
+                        Some(session.read_meta(rules_of));
+                    drop(handoff);
+                })
+                .await;
+            rules_at_copy = seen.into_inner().unwrap_or_else(|e| e.into_inner());
             let working_now =
                 matches!(session.meta().status, SessionStatus::Running | SessionStatus::Waiting);
             match asked {
@@ -409,12 +425,12 @@ impl Hub {
         } else {
             parent_meta.cmux_context.clone()
         };
-        // Read again after the cut: the parent's turn may have recorded its rules since
-        // `parent_meta` was read, and the fork's copy holds them when that turn is in it.
+        // A fork that copied nothing now (`--resume --fork-session` at its start) reads them
+        // after the cut: its parent's turn may have recorded its rules since `parent_meta`.
+        let (recorded, recorded_seq) = rules_at_copy.unwrap_or_else(|| session.read_meta(rules_of));
         let rules_kept = !matches!(made, Made::Fresh | Made::Empty)
             && !moved
-            && session.read_meta(|m| crate::context_inventory::fork_keeps_rules(m, fork_seq));
-        drop(handoff);
+            && crate::context_inventory::fork_keeps_rules(recorded, recorded_seq, fork_seq);
         let mut meta = SessionMeta {
             schema: META_SCHEMA.into(),
             id: id.clone(),
