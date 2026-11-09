@@ -66,6 +66,13 @@ import { machineLoadWarning, type MachineResources } from "./machineResources";
 import { useComposerSettings } from "./composerSettings";
 import { repickMachine, type RepickMachine } from "./cloudRepick";
 import { CONTEXT_LABELS, splitForMiddleTruncation } from "./composerContextModel";
+import {
+  FOLDER_CHIP_LABELS,
+  FOLDERLESS_CLOUD_LABELS,
+  folderChipState,
+  isCloudChatFolder,
+  type FolderChipState,
+} from "./folderlessCloud";
 import { chatComputerId, ownMachineName, type ChatPlace } from "./chatMachine";
 /// How a new chat's strip asks where it runs (gallery seam; `where-machine` ships). Leo, 2026-11-03,
 /// on Codex desktop's strip: "chatgpt codex has nicer ways to deal with stuff".
@@ -465,11 +472,12 @@ export function ComposerContext({
     return [...projects, ...known.filter((folder) => !seen.has(folder.id))];
   }, [summary, sessions, selectedComputer, projectChoices, machineFolders, ownMachine, savedFolders]);
   const summaryFolder = summary?.cwd && computerId(summary) === selectedComputer ? summary.cwd : undefined;
-  // A chat in its private agent-home folder has no project yet: the row offers a folder instead.
+  // A chat in its private agent-home folder has no project yet: the row offers a folder instead. So
+  // has a folderless Cloud chat in the fresh folder its machine made for it (folderlessCloud.ts).
   const currentFolder = savedFolderPick
     ? normalizeCwd(savedFolderPick.folder)
     : summaryFolder
-      ? isAgentHome(summaryFolder)
+      ? isAgentHome(summaryFolder) || isCloudChatFolder(summaryFolder)
         ? undefined
         : normalizeCwd(summaryFolder)
       : projectChoices
@@ -740,6 +748,21 @@ export function ComposerContext({
   // A folder-only saved environment picked starts on this Mac: no machine chip either.
   if (machineAsk !== undefined && (cloudSide || sandboxPicked || savedFolderPick !== undefined))
     setMachineAsk(undefined);
+  // What the folder chip says (folderlessCloud.ts): with Cloud and no folder, No folder, a valid start
+  // in a fresh folder on the machine, never an empty Choose folder.
+  const folderState = folderChipState({
+    folder: currentFolder,
+    newProject,
+    noProject,
+    cloud: !sandboxPicked && (cloudSide || summary?.hostKind === "cloud"),
+  });
+  const folderValue =
+    (folderState === "folder" && currentName
+      ? currentName
+      : folderState === "folder" && currentFolder
+        ? projectLabel(currentFolder)
+        : t(FOLDER_CHIP_LABELS[folderState])) + extraCount;
+  const folderDetail = folderState === "cloudFresh" ? t(FOLDERLESS_CLOUD_LABELS.detail) : undefined;
   // A saved environment on this Mac is This Mac's; one on an SSH machine is Remote's.
   const offMac = !cloudSide && !sandboxPicked && (pickedOff || (savedPick !== undefined && savedPick.kind !== "local"));
   const whereName = sandboxPicked
@@ -880,18 +903,12 @@ export function ComposerContext({
                       <FolderIcon />
                     )
                   }
-                  value={
-                    (newProject
-                      ? t(CONTEXT_LABELS.newProject)
-                      : currentName
-                        ? currentName
-                        : noProject
-                          ? t(CONTEXT_LABELS.noProject)
-                          : t(CONTEXT_LABELS.chooseFolder)) + extraCount
-                  }
+                  value={folderValue}
                   chevron
                   middle={currentFolder !== undefined && !newProject}
-                  dim={!currentName && !noProject && !newProject}
+                  dim={folderState === "choose"}
+                  state={folderState}
+                  {...(folderDetail ? { detail: folderDetail } : {})}
                 />
               }
               folders={folders}
@@ -906,17 +923,17 @@ export function ComposerContext({
                   onNoProject();
                 })
               }
-              noProject={noProject && !currentFolder}
+              noProject={(noProject || folderState === "cloudFresh") && !currentFolder}
               onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
               {...(onNewProject ? { onNewProject } : {})}
-              {...(folderNote && !currentFolder ? { note: folderNote } : {})}
+              {...((folderDetail ?? folderNote) && !currentFolder ? { note: folderDetail ?? folderNote } : {})}
               {...(extra ? { extra } : {})}
             />
           ) : (
             <LocationPicker
               label={t(CONTEXT_LABELS.folder)}
               menu="Location"
-              value={(currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)) + extraCount}
+              value={folderValue}
               options={folders}
               selected={currentFolder}
               disabled={readOnly && !newChats}
@@ -1247,6 +1264,8 @@ function LocationFace({
   live,
   sleep,
   dim = false,
+  state,
+  detail,
 }: {
   icon?: React.ReactNode;
   value: string;
@@ -1259,6 +1278,11 @@ function LocationFace({
   sleep?: "paused" | "resuming";
   /// An empty choice ("Choose project"): dimmed until something is picked.
   dim?: boolean;
+  /// The folder chip's state (folderlessCloud.ts), for its styles and tests.
+  state?: FolderChipState;
+  /// One line on what the state means (a folderless Cloud chat's fresh folder): the label's
+  /// accessible description and tooltip, never narration in the strip.
+  detail?: string;
 }) {
   const [head, tail] = middle ? splitForMiddleTruncation(value) : [value, ""];
   return (
@@ -1270,7 +1294,14 @@ function LocationFace({
           <span className="acpmux-location-tail">{tail}</span>
         </span>
       ) : (
-        <span className="acpmux-location-label" data-dim={dim ? "" : undefined}>
+        <span
+          className="acpmux-location-label"
+          data-dim={dim ? "" : undefined}
+          data-folder-state={state}
+          // tooltip-allow: the folderless Cloud chip's one line on where the chat starts.
+          title={detail}
+          aria-description={detail}
+        >
           {value}
         </span>
       )}
