@@ -318,7 +318,7 @@ mod tests {
         let top = std::fs::canonicalize(root.path()).unwrap();
         let git = |args: &[&str]| {
             assert!(
-                std::process::Command::new("git")
+                cmux_process::Command::new("git")
                     .arg("-C")
                     .arg(&top)
                     .args(args)
