@@ -133,6 +133,8 @@ struct ModeScan {
     modes: Vec<u16>,
     /// More of those than fit: their order is unknown.
     is_lost: bool,
+    /// A screen switch among those past the limit.
+    lost_switch: bool,
 }
 
 const MAXIMUM_TRACKED_MODES: usize = 16;
@@ -157,14 +159,15 @@ impl ModeScan {
                 self.modes.push(mode);
             } else {
                 self.is_lost = true;
+                self.lost_switch |= mode != 1048;
             }
         }
     }
 
     /// The modes the list named, or `None` when it is not a plain private list.
-    fn finish(mut self) -> Option<(Vec<u16>, bool)> {
+    fn finish(mut self) -> Option<(Vec<u16>, bool, bool)> {
         self.end_mode();
-        (self.is_private && !self.is_other).then_some((self.modes, self.is_lost))
+        (self.is_private && !self.is_other).then_some((self.modes, self.is_lost, self.lost_switch))
     }
 }
 
@@ -356,7 +359,7 @@ impl TerminalOutputScanner {
     /// disruptive, which withdraws what is drawn.
     fn track_attribute_saves(&mut self, final_byte: u8) -> Option<bool> {
         let modes = std::mem::take(&mut self.modes).finish();
-        if let Some((modes, is_lost)) = modes {
+        if let Some((modes, is_lost, lost_switch)) = modes {
             if final_byte != b'h' && final_byte != b'l' {
                 return None;
             }
@@ -390,6 +393,10 @@ impl TerminalOutputScanner {
                     }
                 } else {
                     self.is_concealed |= self.saved_concealed.iter().any(|&saved| saved);
+                }
+                if lost_switch {
+                    self.switch_screen(set);
+                    switched = Some(set);
                 }
             }
             return switched;
@@ -607,6 +614,23 @@ impl TerminalOutputScanner {
                         self.parameters_overflowed = true;
                     }
                     return None;
+                }
+                match byte {
+                    // ESC restarts the escape; CAN and SUB abort the sequence.
+                    0x1B => {
+                        self.state = State::Escape;
+                        return None;
+                    }
+                    0x18 | 0x1A => {
+                        self.state = State::Ground;
+                        return Some(OutputSignal::Disruptive);
+                    }
+                    // DEL is ignored inside a sequence.
+                    0x7F => return None,
+                    // Any other C0 control runs where it stands (BEL, CR, LF)
+                    // and the sequence goes on, as in Ghostty's parser.
+                    0x00..=0x1F => return Some(OutputSignal::Disruptive),
+                    _ => {}
                 }
                 self.state = State::Ground;
                 if !(0x40..=0x7E).contains(&byte) {

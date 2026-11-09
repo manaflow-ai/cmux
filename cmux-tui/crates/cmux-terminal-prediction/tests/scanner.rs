@@ -319,3 +319,11 @@ fn a_mode_list_past_the_parameter_cap_is_still_read() {
     assert!(scanner.is_concealed());
     assert_eq!(scanner.scan(b"\x1b[?25;25;25;25;25;1049h"), [AlternateScreen(true)]);
 }
+
+#[test]
+fn a_c0_control_inside_a_control_sequence_runs_and_the_sequence_goes_on() {
+    assert_eq!(scan("\x1b[8\x07m"), [Disruptive, Concealed(true)]);
+    assert_eq!(scan("\x1b[3\x7f2m"), [Ignorable]);
+    assert_eq!(scan("\x1b[8\x18m"), [Disruptive, Printable(b'm')]);
+    assert_eq!(scan("\x1b[8\x1b[0m"), [Ignorable]);
+}

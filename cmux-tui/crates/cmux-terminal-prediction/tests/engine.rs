@@ -1593,3 +1593,22 @@ fn conceals_after_more(session: &mut Session, output: &str) -> String {
     session.type_key("e");
     format!("drawn {:?}, status {:?}", session.drawn(), session.status())
 }
+
+#[test]
+fn a_control_inside_an_sgr_does_not_hide_the_conceal() {
+    // `ESC [ 8 BEL m`: the terminal rings, then completes SGR 8.
+    let result = conceals_after("\x1b[8\x07m");
+    assert!(result.starts_with("drawn \"\""), "{result}");
+}
+
+#[test]
+fn a_screen_switch_past_the_tracked_modes_still_counts() {
+    let mut list = String::from("\x1b[?");
+    for _ in 0..16 {
+        list.push_str("1048;");
+    }
+    list.push_str("47h");
+    let mut session = armed_session();
+    session.remote(&list);
+    assert_eq!(session.status(), Status::AlternateScreen);
+}
