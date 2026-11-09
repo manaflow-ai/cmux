@@ -123,3 +123,13 @@ fn a_worktree_is_still_made_only_with_its_folder_and_branch() {
     assert!(still_made(&same_inode).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_plan_only_in_the_acp_subject_is_read_too() {
+    let ask = json!({"sessionId": "s", "subject": {"type": "tool_call", "toolCall": {
+        "kind": "switch_mode", "rawInput": {"plan": "Step one"}}}});
+    assert_eq!(plan_of(&ask).as_deref(), Some("Step one"));
+    let command = json!({"sessionId": "s", "subject": {"type": "command", "toolCall": {
+        "kind": "switch_mode", "rawInput": {"plan": "Step one"}}}});
+    assert_eq!(plan_of(&command), None, "only a tool call subject");
+}

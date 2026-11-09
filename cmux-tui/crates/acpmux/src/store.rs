@@ -467,6 +467,10 @@ pub struct SessionMeta {
     /// Model races owned by this parent. Shared so per-token metadata copies stay constant-time.
     #[serde(default)]
     pub races: std::sync::Arc<Vec<crate::hub::races::Race>>,
+    /// The plan builds started from this chat's plan approvals (`hub/plan_build.rs`): set by
+    /// acpmux alone, never from a request. Shared as `races` is.
+    #[serde(default, skip_serializing_if = "crate::hub::plan_build::no_records")]
+    pub plan_builds: std::sync::Arc<Vec<crate::hub::plan_build::PlanBuildRecord>>,
     /// The session whose agent started this one, recorded once at creation from
     /// the proven caller (`hub/lineage.rs`): `acpmux new` run in an agent's
     /// shell, or its `start_session` tool. `None` for a session a person or
@@ -575,15 +579,6 @@ pub struct SubsessionLink {
         deserialize_with = "MadeWorktree::or_path"
     )]
     pub worktree: Option<MadeWorktree>,
-    /// The plan build it was started as (`hub/plan_build.rs`), set by the daemon at its start:
-    /// unlike the `planBuild` tag, which `_acpmux/tag` may write, an agent cannot make another
-    /// chat a build.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub plan_build: Option<String>,
-    /// The person kept this one of its plan build's runs (`_acpmux/plan/keep`), set by the daemon:
-    /// a build has one, and a later Keep of another run is refused.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub plan_build_kept: bool,
 }
 
 /// A sub-session's worktree as its start made it: its top folder, that folder's device and inode

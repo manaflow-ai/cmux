@@ -311,7 +311,7 @@ async fn handle(
                 archived.push(other.id.clone());
             }
             let removed = if params.get("removeOthers").and_then(Value::as_bool).unwrap_or(false) {
-                hub.plan_discard(build_id, &others).await
+                hub.plan_discard(&others).await
             } else {
                 Vec::new()
             };

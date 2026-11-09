@@ -341,8 +341,6 @@ impl Hub {
             depth,
             offered: true,
             worktree: None,
-            plan_build: None,
-            plan_build_kept: false,
         }
     }
 
@@ -696,8 +694,6 @@ impl Hub {
                 branch: kept.made.branch.clone(),
                 base: Some(kept.made.base.clone()),
             }),
-            plan_build: None,
-            plan_build_kept: false,
         };
         if req.fork {
             let sub = super::fork::SubsessionFork { link, lineage, checked: &cwd };

@@ -268,6 +268,16 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
 
     let first = builds[0]["sessionId"].as_str().unwrap().to_owned();
     let second = builds[1]["sessionId"].as_str().unwrap().to_owned();
+    // What a build's agent can set on chats: tags. They move nothing: the plan's own record names
+    // its builds, roots and bases, so git never runs in a folder a tag names.
+    let elsewhere = home.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    app.ok(
+        "_acpmux/tag",
+        json!({"sessionId": first, "set": {"planBuild": "other", "planBuildRoot": elsewhere, "planBuildBase": "HEAD~1"}}),
+    )
+    .await;
+    app.ok("_acpmux/tag", json!({"sessionId": chat, "set": {"planBuild": build_id}})).await;
     let compared =
         app.ok("_acpmux/plan/compare", json!({"sessionId": chat, "buildId": build_id})).await;
     let row = |id: &str| {
@@ -280,6 +290,8 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
             .unwrap()
     };
     let (a, b) = (row(&first), row(&second));
+    assert_eq!(compared["builds"].as_array().unwrap().len(), 2, "{compared}");
+    assert_eq!(a["root"], json!(roots[0]), "the recorded root, not the tag: {compared}");
     assert!(!marker.exists(), "comparing ran the repository's filter");
     // LICENSE (2), README.md (+1) and .gitattributes (1).
     assert_eq!((a["added"].as_u64(), a["removed"].as_u64()), (Some(4), Some(0)), "{compared}");
