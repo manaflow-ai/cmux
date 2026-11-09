@@ -325,7 +325,6 @@
   color: var(--agent-muted);
   font-size: inherit;
   letter-spacing: inherit;
-  font-variant-numeric: tabular-nums;
 }
 .acpmux-goal-chevron {
   display: inline-grid;

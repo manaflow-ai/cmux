@@ -936,6 +936,12 @@ impl WorkspaceRegistry {
         self.resource_patch_failures_remaining.set(failures);
     }
 
+    /// Makes the next `failures` topology snapshot reads fail (tests).
+    #[cfg(test)]
+    pub(crate) fn fail_next_topology_snapshots_for_test(&self, failures: u64) {
+        self.topology_snapshot_failures_remaining.set(failures);
+    }
+
     /// Makes every later effect outcome commit fail inside SQLite, as a full
     /// disk or an I/O error does, while intent and indeterminate marks still
     /// commit.
