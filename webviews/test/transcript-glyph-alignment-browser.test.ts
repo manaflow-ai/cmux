@@ -161,7 +161,7 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
           }
           // Retry and its model switch moved to the reply footer (TurnFooter); Save as Prompt sits by the time.
           expect(measurements.footer).toHaveLength(2);
-          expect(measurements.versionFooter).toHaveLength(3);
+          expect(measurements.versionFooter).toHaveLength(4);
           for (const glyph of [...measurements.footer, ...measurements.versionFooter]) {
             expect(glyph.delta, "sent footer").toBeLessThanOrEqual(0.5);
             expect(glyph.width, "footer glyph width").toBe(16);
