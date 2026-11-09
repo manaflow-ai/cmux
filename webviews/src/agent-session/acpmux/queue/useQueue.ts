@@ -37,6 +37,15 @@ export type QueueCache = {
   /// across tab switches, as its only copy.
   unsent(): string | undefined;
   keepUnsent(text: string | undefined): void;
+  /// The Request changes box: which row and what is typed, kept across tab switches, so a verdict
+  /// refused after the page left brings the words back on the return.
+  draft(): { id: string; text: string } | undefined;
+  keepDraft(draft: { id: string; text: string } | undefined): void;
+  /// Reads the shown page again after an answer lands; with no page shown, the next one reads on
+  /// arrival. An answer that lands after the page left and came back reaches the new page.
+  refresh(): void;
+  /// The shown page's read (`useQueue`); `undefined` when it leaves.
+  attach(read: (() => void) | undefined): void;
 };
 
 export function createQueueCache(): QueueCache {
@@ -44,6 +53,8 @@ export function createQueueCache(): QueueCache {
   let key: string | undefined;
   let seen: string | undefined;
   let unsent: string | undefined;
+  let draft: { id: string; text: string } | undefined;
+  let reader: (() => void) | undefined;
   return {
     state: () => state,
     key: () => key,
@@ -60,6 +71,17 @@ export function createQueueCache(): QueueCache {
     unsent: () => unsent,
     keepUnsent: (text) => {
       unsent = text;
+    },
+    draft: () => draft,
+    keepDraft: (next) => {
+      draft = next;
+    },
+    refresh: () => {
+      if (reader) reader();
+      else key = undefined;
+    },
+    attach: (read) => {
+      reader = read;
     },
   };
 }
@@ -105,10 +127,12 @@ export function useQueue(load: () => Promise<unknown>, refreshKey: string, cache
 
   useEffect(() => {
     alive.current = true;
+    cache?.attach(read);
     return () => {
       alive.current = false;
+      cache?.attach(undefined);
     };
-  }, []);
+  }, [cache, read]);
 
   // The first read at once, unless History kept an answer read at this key; a change of asks
   // after it settles first, so a burst reads once.

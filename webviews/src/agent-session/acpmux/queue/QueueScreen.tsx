@@ -73,7 +73,16 @@ export function QueueScreen({
   const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set());
   const [failures, setFailures] = useState<ReadonlyMap<string, string>>(() => new Map());
   const [selected, setSelected] = useState<string | undefined>();
-  const [comment, setComment] = useState<{ id: string; text: string } | undefined>();
+  // The open Request changes box, kept in History's cache too: a verdict refused after a tab
+  // switch brings the words back on the return (`QueueCache.draft`).
+  const [comment, setCommentState] = useState<{ id: string; text: string } | undefined>(() => cache?.draft());
+  const setComment = useCallback(
+    (next: { id: string; text: string } | undefined) => {
+      cache?.keepDraft(next);
+      setCommentState(next);
+    },
+    [cache],
+  );
   const [notice, setNotice] = useState<Notice | undefined>();
   /// A comment neither the chat nor the clipboard took: its only copy, kept (in History's cache
   /// too) until the person dismisses it, whatever notice comes after.
@@ -126,7 +135,9 @@ export function QueueScreen({
         (outcome) => {
           // The chat took it instead: the row comes back until acpmux says it was answered.
           if (outcome === "opened") setAnswered((previous) => withoutId(previous, item.id));
-          refresh();
+          // The page shown now, which may be a later one than the page that answered.
+          if (cache) cache.refresh();
+          else refresh();
         },
         () => {
           setAnswered((previous) => withoutId(previous, item.id));
@@ -135,7 +146,7 @@ export function QueueScreen({
         },
       );
     },
-    [refresh],
+    [refresh, cache],
   );
 
   const give = useCallback(
@@ -173,7 +184,7 @@ export function QueueScreen({
       );
       list.current?.focus({ preventScroll: true });
     },
-    [settle, verdict, t, cache, setUnsent],
+    [settle, verdict, t, cache, setUnsent, setComment],
   );
 
   const runExport = useCallback(() => {

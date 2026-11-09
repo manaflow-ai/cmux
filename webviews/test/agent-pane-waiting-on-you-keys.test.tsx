@@ -368,6 +368,83 @@ test("a comment that reached neither the chat nor the clipboard stays on the pag
   expect(cache.unsent()).toBeUndefined();
 });
 
+test("a verdict refused after the tab changed brings its comment back on the return", async () => {
+  const pr = items[2]!;
+  const cache = createQueueCache();
+  let refuse: (error: Error) => void = () => {};
+  const mount = () =>
+    act(async () => {
+      root = createRoot(host);
+      root.render(
+        <QueueScreen
+          load={async () => ({ items: [pr], now: 10 })}
+          answer={async () => "answered"}
+          verdict={() =>
+            new Promise((_, reject) => {
+              refuse = reject;
+            })
+          }
+          open={() => {}}
+          exportAudit={async () => 0}
+          cache={cache}
+          refreshKey="k"
+        />,
+      );
+    });
+  await mount();
+  await shortcut("Deny");
+  const field = host.querySelector<HTMLTextAreaElement>(".wq-comment-field")!;
+  await act(async () => {
+    const set = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!;
+    set.call(field, "Split the commit");
+    field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>('.wq-comment-actions button[data-tone="allow"]')!.click();
+  });
+  // Another tab while the verdict is under way; it is refused there.
+  act(() => root?.unmount());
+  await act(async () => refuse(new Error("refused")));
+  await mount();
+  expect(host.querySelector<HTMLTextAreaElement>(".wq-comment-field")?.value).toBe("Split the commit");
+});
+
+test("an answer that lands after the tab changed and came back reads the page shown now", async () => {
+  const cache = createQueueCache();
+  let reads = 0;
+  let land: () => void = () => {};
+  const mount = () =>
+    act(async () => {
+      root = createRoot(host);
+      root.render(
+        <QueueScreen
+          load={async () => {
+            reads++;
+            return { items, now: 10 };
+          }}
+          answer={() =>
+            new Promise((resolve) => {
+              land = () => resolve("answered");
+            })
+          }
+          verdict={async () => ({})}
+          open={() => {}}
+          exportAudit={async () => 0}
+          cache={cache}
+          refreshKey="k"
+        />,
+      );
+    });
+  await mount();
+  expect(reads).toBe(1);
+  await shortcut("AllowOnce");
+  act(() => root?.unmount());
+  await mount();
+  const before = reads;
+  await act(async () => land());
+  expect(reads).toBe(before + 1);
+});
+
 test("a key that moved while another tab showed reads on the return, even once it came back", async () => {
   const cache = createQueueCache();
   let reads = 0;
