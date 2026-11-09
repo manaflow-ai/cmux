@@ -395,7 +395,8 @@ impl Engine {
             }
             return Ok(created(run));
         }
-        let id = format!("run_{}", &uuid::Uuid::new_v4().simple().to_string()[..20]);
+        let hex = uuid::Uuid::new_v4().simple().to_string();
+        let id = format!("run_{}", hex.get(..20).unwrap_or(&hex));
         let now = now_ms();
         let run = Run {
             id: id.clone(),
@@ -613,7 +614,7 @@ impl Engine {
         let teardown = optional_int(args, "teardownMs").unwrap_or(DEFAULT_TEARDOWN_MS);
         let margin = optional_int(args, "callsMarginMs").unwrap_or(DEFAULT_CALLS_MARGIN_MS);
         let created = self.create(team, args)?;
-        let id = created["id"].as_str().unwrap_or_default().to_owned();
+        let id = created.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
         let bound = timeout_ms.max(0).saturating_add(teardown.max(0)).saturating_add(margin.max(0));
         let deadline = Instant::now() + Duration::from_millis(u64::try_from(bound).unwrap_or(0));
         loop {
@@ -622,7 +623,7 @@ impl Engine {
                 return Err(Failure::TimedOut(format!("{PATH}/{id}")));
             }
             let snapshot = self.wait(&id, left.min(Duration::from_millis(10_000)))?;
-            if snapshot["receipt"].is_object() {
+            if snapshot.get("receipt").is_some_and(Value::is_object) {
                 return Ok(snapshot);
             }
         }
