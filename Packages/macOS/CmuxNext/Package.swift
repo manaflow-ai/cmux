@@ -20,7 +20,7 @@ import PackageDescription
 //   CmuxNextWakeups -> Compat, Signposts, system frameworks (the only sanctioned wakeup primitives:
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger, and the one main-thread scheduler's
 //     per-frame budget MainFrameBudget; plans/cmux-next/idle-wakeups.md, main-thread-budget.md)
-//   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix), Icons (OverflowButton's glyph); CmuxNextActions -> Signposts; CmuxNextDaemon -> Wakeups
+//   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix), Icons (OverflowButton's glyph); CmuxNextActions -> Signposts, CCmuxAppFFI (the action catalog); CmuxNextDaemon -> Wakeups
 //   CmuxNextSignposts -> Compat, system frameworks (always-on os_signpost intervals, the one name catalog, CommitBoundary,
 //     the opt-in MetricKit mirror for hang reports)
 //   CmuxNextDesignTokens -> Compat, Wakeups, CmuxTheme, CCmuxAppFFI (Design's values without views: tunables,
@@ -172,8 +172,9 @@ let daemonSwiftSettings: [SwiftSetting] = [
 
 /// The app's ONE Rust static library, CCmuxAppFFI (cmux-tui/crates/cmux-app-ffi):
 /// the remote desktop core C ABI (module CCmuxRdFFI), the sidebar layout
-/// reducer C ABI (module CCmuxLayoutReducerFFI) and the palette ranker C ABI
-/// (module CCmuxPaletteRankerFFI) over one Rust runtime. Every
+/// reducer C ABI (module CCmuxLayoutReducerFFI), the palette ranker C ABI
+/// (module CCmuxPaletteRankerFFI) and the action catalog C ABI (module
+/// CCmuxActionCatalogFFI) over one Rust runtime. Every
 /// build links it from one pinned release
 /// (.github/workflows/app-ffi-release.yml). Apple's compact unwind
 /// holds at most three personality routines per image (C++, iroh, this one),
@@ -2057,8 +2058,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextActions",
             // Wakeups: the main-thread task board, where an action run is published as a span so the
-            // watchdog samples a run past its 10 ms budget (ActionBudgetMonitor).
+            // watchdog samples a run past its 10 ms budget (ActionBudgetMonitor). CCmuxAppFFI: the
+            // action catalog (cmux-action-catalog, module CCmuxActionCatalogFFI, RustActionCatalog).
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextSignposts",
                 "CmuxNextWakeups",
             ],
