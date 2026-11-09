@@ -75,7 +75,8 @@ impl Hub {
     }
 
     /// Workflow-only stable identity. The durable claim is written before spawning, so an
-    /// uncertain launch is never executed a second time after a daemon crash.
+    /// uncertain launch is never executed a second time after a daemon crash. `subagent` is the
+    /// subagent that started the workflow (`RunRecord::caller_subagent`): the task runs as it.
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn bg_start_with_id(
         self: &Arc<Self>,
@@ -83,11 +84,12 @@ impl Hub {
         command: &str,
         cwd: Option<PathBuf>,
         fixed_id: Option<&str>,
+        subagent: Option<Value>,
         description: Option<String>,
         notify: bool,
         result_line: bool,
     ) -> Result<Value, RpcError> {
-        let spawn = BgSpawn { fixed_id, subagent: None };
+        let spawn = BgSpawn { fixed_id, subagent };
         self.bg_start_as(session, command, cwd, spawn, description, notify, result_line).await
     }
 

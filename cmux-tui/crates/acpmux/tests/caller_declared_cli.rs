@@ -278,6 +278,7 @@ fn w5s_an_old_cli_or_an_agent_shell_gets_no_person_verb() {
         state: State::Paused,
         activities: Default::default(),
         outcome: None,
+        caller_subagent: None,
     };
     Store::new(daemon.root.join("amx").join("workflows")).start(run).expect("store the run");
     let runs = |raw: &mut Raw| {
