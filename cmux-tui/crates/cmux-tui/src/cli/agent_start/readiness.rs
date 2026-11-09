@@ -373,7 +373,7 @@ pub(in crate::cli) fn wake_on_event<B: Backend + ?Sized>(
     let from = cursor.clone();
     let mut latest = None;
     let mut changed = false;
-    let _ = backend.session_events(None, from.as_ref(), deadline, EVENT_GAP, &mut |item| {
+    let streamed = backend.session_events(None, from.as_ref(), deadline, EVENT_GAP, &mut |item| {
         if let Some(item) = item {
             if let Some(at) = item.get("cursor") {
                 latest = Some(at.clone());
@@ -384,6 +384,11 @@ pub(in crate::cli) fn wake_on_event<B: Backend + ?Sized>(
     });
     if latest.is_some() {
         *cursor = latest;
+    } else if let Err(failure) = &streamed
+        && failure.error["code"] == "cursor.invalid"
+    {
+        // A cursor ahead of the daemon (another daemon's journal): open from a snapshot next.
+        *cursor = None;
     }
     let until = if changed { (started + EVENT_GAP).min(deadline) } else { deadline };
     std::thread::sleep(until.saturating_duration_since(Instant::now()));
