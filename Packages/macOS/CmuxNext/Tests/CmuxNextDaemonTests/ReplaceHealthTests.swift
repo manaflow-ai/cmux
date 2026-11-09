@@ -42,15 +42,28 @@ import Testing
         let ensured = try await launcher.replaceUnresponsive()
         #expect(ensured.pid == 4242)
         let signals = seen.all
-        #expect(signals.first == .started && signals.contains(.restoring), "\(signals)")
-        // The new owner's ready ends the replace (a late write report may follow it: #39750).
-        #expect(signals.contains(.ready(pid: 4242)) && !signals.contains(.exited), "\(signals)")
+        // The new owner's restore starts it, then its ready ends the replace (a late write report may follow: #39750).
+        let started = try #require(signals.firstIndex(of: .started), "\(signals)")
+        let ready = try #require(signals.firstIndex(of: .ready(pid: 4242)), "\(signals)")
+        #expect(started < ready && signals.contains(.restoring) && !signals.contains(.exited), "\(signals)")
     }
 
-    @Test func aFailedReplaceReportsTheFailure() async throws {
+    @Test func aFailedStartReportsTheFailure() async throws {
         let (launcher, seen, root) = try Self.launcher(lines: [], status: 1)
         defer { try? FileManager.default.removeItem(at: root) }
         await #expect(throws: (any Error).self) { try await launcher.replaceUnresponsive() }
         #expect(seen.all.last == .exited)
+    }
+
+    /// A refused replace (`server.replace_*`, exit 3) stopped nothing: the old owner still runs, so its
+    /// restore hold stays.
+    @Test func aRefusedReplaceLeavesTheOldOwnersState() async throws {
+        let (launcher, seen, root) = try Self.launcher(lines: [], status: 3)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let refusal = root.appendingPathComponent("cmux-tui")
+        let script = "#!/bin/sh\nprintf '%s\\n' '{\"code\":\"server.replace_not_stuck\",\"message\":\"the owner answers\"}' >&2\nexit 3\n"
+        try Data(script.utf8).write(to: refusal)
+        await #expect(throws: DaemonLauncher.ReplaceRefusal.self) { try await launcher.replaceUnresponsive() }
+        #expect(seen.all.isEmpty, "\(seen.all)")
     }
 }
