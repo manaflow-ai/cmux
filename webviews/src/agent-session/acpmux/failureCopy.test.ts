@@ -141,6 +141,16 @@ test("an own key's account out of credit reads as no-credit, not a rate limit", 
     '{"error":{"code":"inference.daily_limit","message":"this team reached its daily request limit here","type":"insufficient_quota"}}',
   ])
     expect(failureKind(message, claude), message).toBe("rate-limited");
+  // The router's daily budget (backend inference/route.ts `budget.exhausted`) and its plan's included
+  // amount (included-stop.ts `usage.included_reached`, a 402) are the router's own refusals, typed
+  // `insufficient_quota` too: never "fund the account behind your API key".
+  for (const message of [
+    'unexpected status 429 Too Many Requests: {"error":{"code":"budget.exhausted","message":"the daily model budget is used up; try again later","type":"insufficient_quota","retryable":true}}',
+    'API Error: 402 Payment Required {"error":{"code":"usage.included_reached","message":"You used the AI amount included in your plan for this month. It resets at the start of next month.","type":"insufficient_quota","details":{"included_usd":20,"spent_usd":20.4,"resets_at":"2026-12-01T00:00:00.000Z"}}}',
+  ]) {
+    expect(failureKind(message, claude), message).not.toBe("no-credit");
+    expect(failureKind(message, claude), message).toBe("rate-limited");
+  }
   // A provider's bare `insufficient_quota`, with no rate words, is still out of credit.
   expect(failureKind('{"error":{"type":"insufficient_quota","code":"insufficient_quota"}}', claude)).toBe("no-credit");
   // A plain rate limit still reads as one, and the cmux model router's refusal as needs-credits.
@@ -163,12 +173,25 @@ test("an own key's account out of credit reads as no-credit, not a rate limit", 
 test("an expired cloud provider sign-in names the command that refreshes it", () => {
   const t = translatorFor("en");
   const claude = { name: "Claude Code", harness: "claude" };
-  // `aws sso login` only when the error says SSO: static keys fail with the same exceptions.
-  const sso = [
-    "Error loading SSO Token: The SSO session associated with this profile has expired or is otherwise invalid.",
-    "Token has expired and refresh failed",
-    "ExpiredTokenException: The security token included in the request is expired (sso profile dev)",
-  ];
+  // An expired SSO sign-in names the profile to refresh: the chat's AWS_PROFILE when cmux knows it,
+  // else the one the error names. A bare `aws sso login` would refresh the default profile.
+  const ssoExpired =
+    "Error loading SSO Token: The SSO session associated with this profile has expired or is otherwise invalid.";
+  expect(failureCopy(t, ssoExpired, { ...claude, awsProfile: "work" })).toBe(
+    t("turn.failure.cloudSignInExpired", { harness: "Claude Code", command: "aws sso login --profile work" }),
+  );
+  expect(
+    failureCopy(t, "Error when retrieving token from sso: Token has expired and refresh failed (profile: dev-admin)", claude),
+  ).toBe(t("turn.failure.cloudSignInExpired", { harness: "Claude Code", command: "aws sso login --profile dev-admin" }));
+  // A profile name that is not one is never pasted into a command.
+  expect(failureCopy(t, ssoExpired, { ...claude, awsProfile: "work; rm -rf ~" })).toBe(
+    t("turn.failure.cloudSsoExpired", { harness: "Claude Code" }),
+  );
+  for (const message of [ssoExpired, "Token has expired and refresh failed"]) {
+    expect(failureKind(message, claude), message).toBe("cloud-auth-expired");
+    expect(failureCopy(t, message, claude), message).toBe(t("turn.failure.cloudSsoExpired", { harness: "Claude Code" }));
+  }
+  expect(t("turn.failure.cloudSsoExpired", { harness: "Claude Code" })).toContain("aws sso login --profile");
   // Application default credentials or Vertex named: `gcloud auth application-default login`.
   const google = [
     "Reauthentication is needed. Please run `gcloud auth application-default login` to reauthenticate.",
@@ -176,10 +199,7 @@ test("an expired cloud provider sign-in names the command that refreshes it", ()
     "invalid_grant: Bad Request from https://us-east5-aiplatform.googleapis.com/v1/projects/p/locations/us-east5/publishers/anthropic/models/claude:streamRawPredict",
     "google.auth.exceptions.RefreshError: invalid_grant: reauth related error (invalid_rapt); application default credentials",
   ];
-  for (const [messages, command] of [
-    [sso, "aws sso login"],
-    [google, "gcloud auth application-default login"],
-  ] as const)
+  for (const [messages, command] of [[google, "gcloud auth application-default login"]] as const)
     for (const message of messages) {
       expect(failureKind(message, claude), message).toBe("cloud-auth-expired");
       expect(failureCopy(t, message, claude), message).toBe(
