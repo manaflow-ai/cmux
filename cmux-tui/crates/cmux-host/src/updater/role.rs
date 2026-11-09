@@ -104,6 +104,50 @@ pub(super) fn held_outcome(paths: &Paths) -> Option<Outcome> {
     held_for(paths).map(connect_hold_busy)
 }
 
+/// One look at `realtime - boottime`: whether it moved by a restore's jump
+/// since the look just before (never a remembered baseline, so clock syncs
+/// that each move it less never add up to one), and it becomes the last.
+pub(super) fn restore_look(last: &mut Option<i128>, now: i128) -> bool {
+    let restored = restored_between(*last, now);
+    *last = Some(now);
+    restored
+}
+
+/// `realtime - boottime` at the worker's last look ([`hold_after_restore`]).
+static CLOCK_OFFSET: Mutex<Option<i128>> = Mutex::new(None);
+
+/// Whether `realtime - boottime` moved from `before` to `now` by a whole stop:
+/// a snapshot restore, as the supervisor's clock-set wake counts one.
+pub(super) fn restored_between(before: Option<i128>, now: i128) -> bool {
+    before.is_some_and(|before| {
+        crate::agent::clock_set_wake(before, now) == crate::agent::Wake::ClockSet
+    })
+}
+
+/// Starts the connect hold for a snapshot restore the supervisor's
+/// `Resumed` has not reached yet. A new machine is a restore of the bake's
+/// snapshot, so the hold its role start set ran out long before. Its
+/// `Resumed` comes only after a metadata read, and this worker's next
+/// look could flip first (production probe, 2026-11-08: a new machine
+/// flipped 10 s after its create and the app's first link ended).
+///
+/// This covers a provider whose boot clock stops while the machine is
+/// stopped, and reads the clocks itself: the supervisor's record of the same
+/// clock set ([`crate::agent::PauseWatch::found`]) waits on its own dispatch.
+/// A boot clock that runs through the pause moves nothing here; the pause
+/// watch's record covers that ([`hold_if_paused`]).
+fn hold_after_restore(paths: &Paths) {
+    #[cfg(target_os = "linux")]
+    {
+        let now = crate::linux::realtime_minus_boottime_ns();
+        let mut last = CLOCK_OFFSET.lock().unwrap_or_else(|e| e.into_inner());
+        if restore_look(&mut last, now) {
+            hold_connects(paths);
+            log("a snapshot restore: no flip during the connect hold");
+        }
+    }
+}
+
 /// Now on the boot clock and the wall clock: `(boot ns, wall ms)`.
 pub(super) type Clock<'a> = &'a dyn Fn() -> (i128, u64);
 
@@ -111,22 +155,31 @@ fn clocks() -> (i128, u64) {
     (crate::linux::boottime_ns(), wall_ms())
 }
 
-/// Starts the connect hold at `now` when `watch` saw the machine stopped
-/// (paused, restored, forked) since boot time `since_ns`.
+/// The pause count ([`crate::agent::PauseWatch::pause_seq`]) this process's
+/// updater last handled, kept across its waits and checks. The role start
+/// takes the count then: a pause before it is covered by the start's hold.
+static HANDLED: AtomicU64 = AtomicU64::new(0);
+
+/// Starts the connect hold at `now` when `watch` counted a pause after the
+/// last one `handled` holds (which it then takes), or is still waking from
+/// one: the machine was stopped (paused, restored, forked).
 ///
-/// The pause watch is the supervisor's (`agent::PAUSES`, the one detector);
-/// the updater reads it at its own steps rather than wait for the `Resumed`
-/// it leads to. That event comes after the watch's next wake and a metadata
-/// read, while this worker's wait or check ends at the resume itself: a
-/// claimed spare (a paused machine resumed) flipped 1 to 184 s after its
-/// create (production chat probe, 17 of 45 runs, 2026-11-07 to 11-08).
+/// The updater reads the supervisor's pause watch at its own steps rather
+/// than wait for the `Resumed` it leads to. That event comes after the
+/// watch's next wake and a metadata read, while this worker's wait or check
+/// ends at the resume itself: a claimed spare (a paused machine resumed)
+/// flipped 1 to 184 s after its create (production chat probe, 17 of 45
+/// runs, 2026-11-07 to 11-08). A count, not a time against the step's start,
+/// so a pause found between two steps is never missed.
 pub(super) fn hold_if_paused(
     paths: &Paths,
     watch: &crate::agent::PauseWatch,
-    since_ns: i128,
+    handled: &AtomicU64,
     now: (i128, u64),
 ) -> bool {
-    if !watch.stopped_since(since_ns, now.0) {
+    let seq = watch.pause_seq();
+    let counted = seq > handled.fetch_max(seq, Ordering::SeqCst);
+    if !counted && !watch.waking(now.0) {
         return false;
     }
     super::gate::hold_connects(paths, now.1);
@@ -134,12 +187,31 @@ pub(super) fn hold_if_paused(
     true
 }
 
+/// The last look before a flip: a pause the watch counted or is waking from
+/// ([`hold_if_paused`]), or a restore `realtime - boottime` shows from `last`
+/// to `offset_now` ([`restore_look`]), starts the connect hold. True when it did.
+pub(super) fn flip_look(
+    paths: &Paths,
+    watch: &crate::agent::PauseWatch,
+    handled: &AtomicU64,
+    last: &mut Option<i128>,
+    offset_now: i128,
+    now: (i128, u64),
+) -> bool {
+    let paused = hold_if_paused(paths, watch, handled, now);
+    let restored = restore_look(last, offset_now);
+    if restored {
+        super::gate::hold_connects(paths, now.1);
+        log("a snapshot restore: no flip during the connect hold");
+    }
+    paused || restored
+}
+
 /// [`wait`], then the pause look over it ([`hold_if_paused`]).
 fn wait_watching(paths: &Paths, rx: &Receiver<Msg>, d: Duration) -> bool {
-    let (since, _) = clocks();
     let go_on = wait(rx, d);
     if go_on {
-        hold_if_paused(paths, &crate::agent::PAUSES, since, clocks());
+        hold_if_paused(paths, &crate::agent::PAUSES, &HANDLED, clocks());
     }
     go_on
 }
@@ -226,6 +298,8 @@ impl Role for UpdaterRole {
             return Ok(());
         }
         hold_connects(&self.paths);
+        hold_after_restore(&self.paths);
+        HANDLED.store(crate::agent::PAUSES.pause_seq(), Ordering::SeqCst);
         let (tx, rx) = mpsc::channel();
         let (done_tx, done) = mpsc::channel::<()>();
         let paths = self.paths.clone();
@@ -285,6 +359,7 @@ fn run(paths: &Paths, rx: &Receiver<Msg>) {
     loop {
         // A check during the hold waits it out (a Check message only wakes it
         // to look again).
+        hold_after_restore(paths);
         if let Some(left) = held_for(paths) {
             if !wait_watching(paths, rx, left) {
                 return;
@@ -369,7 +444,7 @@ pub fn check(paths: &Paths) -> Outcome {
         return Outcome::Failed("another update check runs".to_owned());
     };
     let outcome =
-        check_step(paths, &crate::agent::PAUSES, &clocks, |started| check_inner(paths, started));
+        check_step(paths, &crate::agent::PAUSES, &HANDLED, &clocks, || check_inner(paths));
     let mut state = load_state(paths);
     let line = outcome.line();
     if state.last.as_deref() != Some(line.as_str()) {
@@ -381,26 +456,25 @@ pub fn check(paths: &Paths) -> Outcome {
     outcome
 }
 
-/// Runs one check (`inner`, given its start on the boot clock), then the
-/// pause look over it on every way out but a flip (which looked right before
-/// it): a check that returned early after a pause (a busy look that timed
-/// out across it) starts the connect hold, or the next wait's look would
-/// start after the resume and a flip could follow a minute later.
+/// Runs one check (`inner`), then the pause look over it on every way out
+/// but a flip (which looked right before it): a check that returned early
+/// after a pause (a busy look that timed out across it) starts the connect
+/// hold, or a flip could follow a minute later.
 pub(super) fn check_step(
     paths: &Paths,
     watch: &crate::agent::PauseWatch,
+    handled: &AtomicU64,
     clock: Clock<'_>,
-    inner: impl FnOnce(i128) -> Outcome,
+    inner: impl FnOnce() -> Outcome,
 ) -> Outcome {
-    let (started, _) = clock();
-    let outcome = inner(started);
+    let outcome = inner();
     if !matches!(outcome, Outcome::Updating(_)) {
-        hold_if_paused(paths, watch, started, clock());
+        hold_if_paused(paths, watch, handled, clock());
     }
     outcome
 }
 
-fn check_inner(paths: &Paths, started: i128) -> Outcome {
+fn check_inner(paths: &Paths) -> Outcome {
     if let Some(why) = off_reason(paths) {
         return Outcome::Off(why);
     }
@@ -463,7 +537,17 @@ fn check_inner(paths: &Paths, started: i128) -> Outcome {
     };
     let commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
     // A stop during this check (its download, its busy look) holds its flip.
-    hold_if_paused(paths, &crate::agent::PAUSES, started, clocks());
+    {
+        let mut last = CLOCK_OFFSET.lock().unwrap_or_else(|e| e.into_inner());
+        flip_look(
+            paths,
+            &crate::agent::PAUSES,
+            &HANDLED,
+            &mut last,
+            crate::linux::realtime_minus_boottime_ns(),
+            clocks(),
+        );
+    }
     let last =
         last.or_else(|| stopped().then(|| Outcome::Failed("the updater stopped".to_owned())));
     if let Some(outcome) = last {
