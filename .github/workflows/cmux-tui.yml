@@ -718,7 +718,7 @@ jobs:
                 *) unjudged+=" $name ${result:-none}," ;;
               esac
             done
-            if [[ -n "$failed" ]]; then echo "::error::$what:${failed%;}"; return 1; fi
+            if [[ -n "$failed" ]]; then echo "::error::summary red: $what:${failed%;}"; return 1; fi
             if [[ -n "$unjudged" ]]; then
               echo "::error::no verdict: $what:${unjudged%,}; nothing it summarizes was judged: re-run the run"; return 3
             fi

@@ -1136,7 +1136,7 @@ jobs:
               for n, r in bad.items():
                   print(f"{n}: {r or 'none'}", file=sys.stderr)
               if failed:
-                  print(f"::error::{what}: " + "; ".join(f"{n}: {r}" for n, r in failed.items()))
+                  print(f"::error::summary red: {what}: " + "; ".join(f"{n}: {r}" for n, r in failed.items()))
                   sys.exit(1)
               named = ", ".join(f"{n} {r or 'none'}" for n, r in bad.items())
               print(f"::error::no verdict: {what}: {named}; nothing it summarizes was judged: re-run the run")

@@ -440,8 +440,6 @@ BASE_DISPATCH_EVERY = timedelta(minutes=60)
 ROUTE_IF = re.compile(r"\$\{\{ *inputs\.(\w+) *== *'true' *\}\}")
 # A route report the Guard status prints: always read, even for a job the contract does not name (refused as unknown).
 ROUTE_REPORT = r"workflow-guard-[\w-]+|linux_guard_\w+"
-# The `what` Guard status passes to needs_verdict.py's rule (ci-guards.yml, `exit_with_verdict(bad, "Guard status")`).
-GUARD_STATUS_WHAT = "Guard status"
 HOOK_REFUSAL = "glaeda-cmux-runner-hook: refused"
 VERDICTS = frozenset({"success", "failure"})
 # How far back the base lookup reads. A feat-cmux-next push skips swift-test, so its base verdict comes
@@ -621,6 +619,12 @@ GENERATED_NO_VERDICT = re.compile(
 # refused the merge as the pull request's own. Only the live annotation counts (test_reds.lines_of drops the echoed
 # script, which spells the same words).
 SUMMARY_NO_VERDICT = re.compile(r"^##\[error\]\s*no verdict: ")
+# The same rule's red: `summary red: <what>: <job>: failure; ...`. It names which needs failed, in words every summary
+# shares, so it is never a signature, an error to compare or evidence of any kind (signature drops it): two summaries
+# match on it whichever children failed (cmux#39857 review, 2026-11-09: rust workspaces failing crate-a on the head
+# was excused by a base failing crate-b). A summary red is refused with "compare its failed children" unless its
+# children are compared one by one, as Guard status's are (validate_guard_routes).
+SUMMARY_RED = re.compile(r"^##\[error\]\s*summary red: ")
 # A real compile pass at the head: the Mac Release compile (a check run), or the fleet's cmux-next/compile
 # commit status.
 COMPILE_PASS_CHECKS = ("cmux-next Release compile (Xcode 26)",)
@@ -882,7 +886,7 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
     errors: set[str] = set()
     skip = test_reds.echoed(test_reds.log_lines(log))
     for n, text in enumerate(lines_of(log)):
-        if n in skip or text.startswith(test_reds.TAP_MARKER):
+        if n in skip or text.startswith(test_reds.TAP_MARKER) or SUMMARY_RED.match(text):
             continue
         if ((ERROR.search(text)
              or ((marker := JOB_ERROR.get(job.get("name", ""))) is not None and marker.search(text))
@@ -898,6 +902,11 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
 def no_verdict(log: str) -> str | None:
     """The line where a compile check says it gave no verdict, if it does."""
     return next((text for text in lines_of(log) if NO_VERDICT.match(text)), None)
+
+
+def summary_red(log: str) -> str | None:
+    """The line where a summary gate names its failed needs (SUMMARY_RED), if it does."""
+    return next((text for text in test_reds.lines_of(log) if SUMMARY_RED.match(text)), None)
 
 
 def summary_no_verdict(log: str) -> str | None:
@@ -1106,14 +1115,17 @@ def validate_guard_routes(repo: str, sha: str, guard: dict, children: list[dict]
     steps, _, errors = signature(guard, text)
     if steps != {"Check routed guard jobs"}:
         raise Refused(f"'{name}': non-routing failed steps: {'; '.join(sorted(steps))}")
-    # The step judges its needs with scripts/ci/needs_verdict.py's rule: no verdict is re-run, never compared.
+    # The step judges its needs with scripts/ci/needs_verdict.py's rule: no verdict is re-run, never compared. Its
+    # red line (SUMMARY_RED) is no error here (signature drops it): the route reports below are the evidence.
     if (said := summary_no_verdict(text)) is not None:
         raise Refused(f"'{name}' gave no verdict ({said[:300]}): nothing it summarizes was judged, so it is "
                       "neither a pass nor this PR's own red; re-run it")
+    if errors:
+        raise Refused(f"'{name}': routing error: {'; '.join(sorted(errors))[:600]}")
     report = test_reds.read(text)
     if report.crashes or report.truncated:
         raise Refused(f"'{name}': routing process crashed or ended early")
-    routes, reported = [], []
+    routes = []
     lines = lines_of(text)
     inputs = {route["route"] for route in routed.values() if route["route"]}
     report = rf"({ROUTE_REPORT}|{'|'.join(re.escape(key) for key in sorted(set(routed) | inputs))}): (.+)"
@@ -1140,12 +1152,6 @@ def validate_guard_routes(repo: str, sha: str, guard: dict, children: list[dict]
                    for child in children):
             raise Refused(f"'{name}': no failed child for routed failure {route}")
         routes.append(route)
-        reported.append(f"{route}: {result}")
-    # The rule's own red line (`::error::Guard status: <job>: failure (...); ...`) restates exactly the failures read
-    # above, each checked against a failed child; any other error line is a routing error.
-    errors -= {normalise_error(f"{GUARD_STATUS_WHAT}: " + "; ".join(reported))}
-    if errors:
-        raise Refused(f"'{name}': routing error: {'; '.join(sorted(errors))[:600]}")
     if not routes:
         raise Refused(f"'{name}': no routed failure report to compare with its children")
 
@@ -3279,6 +3285,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if (said := summary_no_verdict(head_log)) is not None:
             raise Refused(f"'{name}' gave no verdict ({said[:300]}): nothing it summarizes was judged, so it is "
                           "neither a pass nor this PR's own red; re-run it")
+        if (said := summary_red(head_log)) is not None:
+            raise Refused(f"'{name}' is a summary red ({said[:300]}): its line names failed children in words every "
+                          "summary shares, never a red the base can share; compare its failed children, each as itself")
         if name in NO_VERDICT_JOBS and (said := no_verdict(head_log)) is not None:
             proof = compile_pass_at(repo, sha, github)
             if proof is None:

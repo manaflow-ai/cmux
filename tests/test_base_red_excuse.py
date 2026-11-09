@@ -1267,20 +1267,106 @@ class Excusing(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, r"gave no verdict.*re-run it"):
             self.judge()
 
-    def test_a_summary_echoing_the_rule_without_no_verdict_is_still_compared(self):
+    def test_a_summary_echoing_the_rule_is_judged_by_its_live_lines_only(self):
+        # The runner's echo of the step script spells both markers; only a live annotation is a summary's verdict.
         name, step = "rust workspaces", "Every planned workspace passed"
-        red = "rust workspaces: workspace: failure"
         echoed = [
             "##[group]Run needs_verdict() {",
+            'if [[ -n "$failed" ]]; then echo "::error::summary red: $what:${failed%;}"; return 1; fi',
             'echo "::error::no verdict: $what:${unjudged%,}; nothing it summarizes was judged: re-run the run"; return 3',
             "shell: /usr/bin/bash -e {0}",
             "##[endgroup]",
         ]
-        self.gh.jobs[1] = failed_job(1, 10, HEAD, name=name, step=step)
-        self.gh.jobs[2] = failed_job(2, 20, BASE_SHA, name=name, step=step)
-        self.gh.logs[1] = log(name, step, *echoed, "##[error]" + red, "##[error]Process completed with exit code 1.")
-        self.gh.logs[2] = log(name, step, *echoed, "##[error]" + red, "##[error]Process completed with exit code 1.")
-        self.assertTrue(self.judge())
+        self.assertIsNone(excuse.summary_red(log(name, step, *echoed)))
+        self.assertIsNone(excuse.summary_no_verdict(log(name, step, *echoed)))
+        self.assertIsNotNone(excuse.summary_red(log(name, step, *echoed, "##[error]summary red: rust workspaces: workspace: failure")))
+
+    def rule_step(self, workflow, job, step_name, env):
+        """Run a workflow step that carries needs_verdict.py's rule, for real: its printed lines, each `::error::` the
+        way the runner logs it, and the runner's exit line."""
+        import yaml
+        doc = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text(encoding="utf-8"))
+        body = next(s for s in doc["jobs"][job]["steps"] if s["name"] == step_name)["run"]
+        with tempfile.TemporaryDirectory() as tmp:
+            done = subprocess.run(["bash", "-e", "-c", body], capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                                  env={**os.environ, "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary"), **env})
+        return [line.replace("::error::", "##[error]", 1) if line.startswith("::error::") else line
+                for line in (done.stdout + done.stderr).splitlines()] + [
+            f"##[error]Process completed with exit code {done.returncode}."]
+
+    def test_rust_workspaces_failing_different_crates_on_head_and_base_is_refused(self):
+        # cmux#39857 review (gpt-6.1-sol, b7b3ad7f): the rule's red line is the same words whichever crate failed, so a
+        # head failing crate-a matched a base failing crate-b and was excused with no child compared.
+        name, step = "rust workspaces", "Every planned workspace passed"
+        printed = self.rule_step("rust-workspaces.yml", "summary", step, {"PLAN": "success", "WORKSPACES": "failure"})
+        self.assertIn("##[error]summary red: rust workspaces: workspace: failure", printed)
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name=name, step=step), 2: failed_job(2, 20, BASE_SHA, name=name, step=step),
+                        7: failed_job(7, 10, HEAD, name="workspace (crate-a)", step="cargo test"),
+                        8: failed_job(8, 20, BASE_SHA, name="workspace (crate-b)", step="cargo test")}
+        self.gh.logs = {1: log(name, step, *printed), 2: log(name, step, *printed),
+                        7: log("workspace (crate-a)", "cargo test", "test a::t ... FAILED"),
+                        8: log("workspace (crate-b)", "cargo test", "test b::t ... FAILED")}
+        self.with_checks([{"id": 1, "name": name, "status": "completed", "conclusion": "failure",
+                           "app": {"slug": "github-actions"},
+                           "details_url": f"https://github.com/{REPO}/actions/runs/10/job/1"}])
+        with self.assertRaisesRegex(excuse.Refused, "rust workspaces' is a summary red.*compare its failed children"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[name])
+
+    def test_every_rule_summary_red_is_refused_unless_its_children_are_compared(self):
+        """Every workflow job on needs_verdict.py's rule, head and base red with different children or the same child:
+        never excused on its own red line. Only a job registered for child-level comparison (a routed rollup, judged by
+        validate_guard_routes against its failed children; Guard status) gets past it, and the Guard status tests above
+        feed its real step output through that path."""
+        import yaml
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import needs_verdict as nv
+        whats = []
+        for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+            doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+            for job_id, job in (doc.get("jobs") or {}).items():
+                for st in job.get("steps") or []:
+                    body = st.get("run") or ""
+                    if nv.SHELL_RULE.splitlines()[0] in body:
+                        found = re.findall(r'needs_verdict\s+(?:"([^"$]+)"|([\w-]+))', body.replace(nv.SHELL_RULE, ""))
+                        kind = "shell"
+                    elif nv.PYTHON_RULE.splitlines()[0] in body:
+                        import ast
+                        script = re.search(r"<<'PY'\n(.*?)\nPY\b", body, re.S).group(1)
+                        found = [(call.args[1].value, "") for call in ast.walk(ast.parse(script))
+                                 if isinstance(call, ast.Call) and getattr(call.func, "id", "") == "exit_with_verdict"
+                                 and len(call.args) > 1 and isinstance(call.args[1], ast.Constant)]
+                        kind = "python"
+                    else:
+                        continue
+                    check = job.get("name", job_id)
+                    for what in {a or b for a, b in found}:
+                        whats.append((path.name, job_id, check, st["name"], what, kind))
+        self.assertGreaterEqual(len({w[:2] for w in whats}), 8, whats)
+        self.assertIn(("ci-web.yml", "web-status", "Web status"), {(w[0], w[1], w[4]) for w in whats})
+
+        def red_line(kind, what, child):
+            if kind == "shell":
+                code = ["bash", "-c", nv.SHELL_RULE + f'needs_verdict "{what}" "{child}=failure"']
+            else:
+                code = [sys.executable, "-c", "import sys\n" + nv.PYTHON_RULE + f"exit_with_verdict({{{child!r}: 'failure'}}, {what!r})"]
+            out = subprocess.run(code, capture_output=True, text=True, stdin=subprocess.DEVNULL).stdout
+            return [line.replace("::error::", "##[error]", 1) for line in out.splitlines() if line.startswith("::error::")]
+
+        registered = set()
+        for workflow, job_id, check, step, what, kind in whats:
+            if excuse.routed_rollup(check) is not None:
+                registered.add(check)
+                continue
+            for head_child, base_child in (("child-a", "child-b"), ("child-a", "child-a")):
+                with self.subTest(workflow=workflow, job=job_id, what=what, head=head_child, base=base_child):
+                    self.gh.jobs = {1: failed_job(1, 10, HEAD, name=check, step=step),
+                                    2: failed_job(2, 20, BASE_SHA, name=check, step=step)}
+                    self.gh.logs = {
+                        1: log(check, step, *red_line(kind, what, head_child), "##[error]Process completed with exit code 1."),
+                        2: log(check, step, *red_line(kind, what, base_child), "##[error]Process completed with exit code 1.")}
+                    with self.assertRaisesRegex(excuse.Refused, "summary red.*compare its failed children"):
+                        self.judge()
+        self.assertEqual(registered, {"Guard status"})
 
     def test_generated_shared_build_real_stale_error_is_still_compared(self):
         name = excuse.GENERATED_VERDICT_JOB
@@ -1476,7 +1562,7 @@ class Excusing(unittest.TestCase):
         # `##[error]Guard status: workflow-guard-tests: failure (route linux_guard_tests=true)` (cmux#39857 F1).
         printed, code = self.guard_from_its_step("failure")
         self.assertEqual(code, 1, printed)
-        self.assertIn("##[error]Guard status: workflow-guard-tests: failure (route linux_guard_tests=true)", printed)
+        self.assertIn("##[error]summary red: Guard status: workflow-guard-tests: failure (route linux_guard_tests=true)", printed)
         self.assertIn("release-notary", "\n".join(self.judge_guard()))
 
     def test_guard_status_rule_output_with_its_own_failure_is_refused(self):
@@ -1494,10 +1580,18 @@ class Excusing(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, r"gave no verdict.*re-run it"):
             self.judge_guard()
 
-    def test_guard_status_rule_line_naming_other_failures_is_a_routing_error(self):
-        printed, _ = self.guard_from_its_step("failure")
+    def test_guard_status_rule_line_is_never_evidence(self):
+        # Its red line names jobs in words any summary shares (SUMMARY_RED): the route reports, each checked against a
+        # failed child, are the evidence. A line naming another job neither excuses nor refuses by itself.
+        self.guard_from_its_step("failure")
         self.gh.logs[3] += "\n" + log("nightly-guards / Guard status", "Check routed guard jobs",
-                                      "##[error]Guard status: workflow-guard-source-lints: failure")
+                                      "##[error]summary red: Guard status: workflow-guard-source-lints: failure")
+        self.assertIn("release-notary", "\n".join(self.judge_guard()))
+
+    def test_guard_status_other_annotation_is_still_a_routing_error(self):
+        self.guard_from_its_step("failure")
+        self.gh.logs[3] += "\n" + log("nightly-guards / Guard status", "Check routed guard jobs",
+                                      "##[error]Guard status: could not read GUARD_INPUTS")
         with self.assertRaisesRegex(excuse.Refused, "routing error"):
             self.judge_guard()
 

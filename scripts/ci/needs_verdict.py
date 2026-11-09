@@ -8,9 +8,10 @@ rule does not know. A summary with such a result and no failure gives NO VERDICT
 nothing stood behind it, and never the pull request's own red, because nothing was judged. The job still ends red
 (exit 3), so no merger reads it as green, with one annotation that starts `no verdict: ` (NO_VERDICT_PREFIX).
 scripts/ci/base_red_excuse.py reads that annotation and refuses the merge with "re-run it" instead of comparing it
-with the base as a test red. A real failure among the results wins: it is a red (exit 1), compared as usual. Its
-line `::error::<what>: <job>: <result>; ...` restates the failures; base_red_excuse's Guard status check reads it as
-that restatement, not as a routing error (GUARD_STATUS_WHAT).
+with the base as a test red. A real failure among the results wins: it is a red (exit 1), with one annotation that
+starts `summary red: ` (SUMMARY_RED_PREFIX) and names the failed jobs. That line is the same words in every summary,
+so it is never evidence: base_red_excuse.py drops it from every signature and refuses a summary red with "compare
+its failed children" (Guard status, whose children it compares route by route, is the one registered exception).
 
 A summary may also hold reds that are not job results, such as an invalid route ("invalid route web=None"). An
 entry whose first word is `failure` or `invalid` (a trailing colon is no part of the word) is a red; any other
@@ -38,6 +39,7 @@ from collections.abc import Iterable, Mapping
 
 PASS, FAIL, NONE = "pass", "fail", "none"
 NO_VERDICT_PREFIX = "no verdict: "
+SUMMARY_RED_PREFIX = "summary red: "
 EXIT_FAIL, EXIT_NO_VERDICT = 1, 3
 RED_WORDS = ("failure", "invalid")
 
@@ -54,7 +56,7 @@ needs_verdict() {  # scripts/ci/needs_verdict.py SHELL_RULE, copied verbatim (te
       *) unjudged+=" $name ${result:-none}," ;;
     esac
   done
-  if [[ -n "$failed" ]]; then echo "::error::$what:${failed%;}"; return 1; fi
+  if [[ -n "$failed" ]]; then echo "::error::summary red: $what:${failed%;}"; return 1; fi
   if [[ -n "$unjudged" ]]; then
     echo "::error::no verdict: $what:${unjudged%,}; nothing it summarizes was judged: re-run the run"; return 3
   fi
@@ -77,7 +79,7 @@ def exit_with_verdict(results, what, may_skip=()):
     for n, r in bad.items():
         print(f"{n}: {r or 'none'}", file=sys.stderr)
     if failed:
-        print(f"::error::{what}: " + "; ".join(f"{n}: {r}" for n, r in failed.items()))
+        print(f"::error::summary red: {what}: " + "; ".join(f"{n}: {r}" for n, r in failed.items()))
         sys.exit(1)
     named = ", ".join(f"{n} {r or 'none'}" for n, r in bad.items())
     print(f"::error::no verdict: {what}: {named}; nothing it summarizes was judged: re-run the run")
@@ -128,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
         results[name] = result
     state, failed, unjudged = judge(results, [n for n in args.may_skip.split(",") if n])
     if failed:
-        print(f"::error::{args.what}: " + "; ".join(f"{n}: {r}" for n, r in failed.items()))
+        print(f"::error::{SUMMARY_RED_PREFIX}{args.what}: " + "; ".join(f"{n}: {r}" for n, r in failed.items()))
     elif unjudged:
         named = ", ".join(f"{n} {r or 'none'}" for n, r in unjudged.items())
         print(f"::error::{NO_VERDICT_PREFIX}{args.what}: {named}; nothing it summarizes was judged: re-run the run")
