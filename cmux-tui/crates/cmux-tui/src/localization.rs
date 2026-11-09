@@ -1359,8 +1359,10 @@ static ENGLISH: Catalog = Catalog {
         skill_arguments: "skill takes one action, show: {words}",
         root_agent_commands: "
 AGENT COMMANDS
-  identify      Print this terminal's session, workspace, screen, pane, tab and terminal
-  skill show    Print the agent guide for this cmux build
+  identify           Print this terminal's session, workspace, screen, pane, tab and terminal
+  skill show         Print the agent guide for this cmux build
+  agent start NAME   Start a coding agent in a tab named NAME and wait until it is ready
+  agent resume NAME  Start an agent that exited again, in the same conversation
 ",
         identify_help: "USAGE
   cmux identify
@@ -2150,8 +2152,10 @@ static JAPANESE: Catalog = Catalog {
         skill_arguments: "skill のアクションは show だけです: {words}",
         root_agent_commands: "
 AGENT COMMANDS
-  identify      このターミナルのセッション、ワークスペース、スクリーン、ペイン、タブ、ターミナルを表示
-  skill show    この cmux ビルドのエージェントガイドを表示
+  identify           このターミナルのセッション、ワークスペース、スクリーン、ペイン、タブ、ターミナルを表示
+  skill show         この cmux ビルドのエージェントガイドを表示
+  agent start NAME   NAME という名前のタブでコーディングエージェントを起動し、準備ができるまで待つ
+  agent resume NAME  終了したエージェントを同じ会話のまま再び起動
 ",
         identify_help: "使用方法
   cmux identify

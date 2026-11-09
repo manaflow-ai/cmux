@@ -502,6 +502,8 @@ pub(crate) fn public_session_snapshot_with_journal_head(
     let (sidebar_status, sidebar_last_size, sidebar_configured) =
         mux.sidebar_plugin_resource_status();
     let sidebar_surface = sidebar_status.surface.and_then(|surface| mux.surface(surface));
+    // Taken before the projection lock, like the sidebar status (memory only).
+    let last_sessions = mux.agent_last_sessions();
     #[cfg(test)]
     run_snapshot_before_projection_hook();
     mux.with_resource_projection(|registry, state| {
@@ -682,6 +684,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                 })?;
                 let tab_ids = tab_ids_by_terminal.remove(&terminal_id).unwrap_or_default();
                 public_terminal_snapshot(&terminal_id, durable, surface.map(Arc::as_ref), tab_ids)
+                    .map(|terminal| crate::mux::with_agent_session(terminal, &last_sessions))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
 

@@ -6,7 +6,9 @@
 //! ended; such a row has `status: null` and `--state ended` selects it.
 //!
 //! The daemon's fields are unchanged; only the CLI adds `status`, from one
-//! `notification.list` read after `agent.list`.
+//! `notification.list` read after `agent.list`, and the place of each
+//! agent's terminal (`name`, `tab_id`, `tab_name`, `pane_id`), from one
+//! `session.snapshot` read (W3-H).
 
 use std::collections::HashSet;
 
@@ -14,7 +16,8 @@ use cmux_tui_core::AgentStatus;
 use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Value, json};
 
-use super::command::{RequestPlan, WireOperation};
+use super::agent_names::valid_agent_name;
+use super::command::{RequestPlan, ResponseView, WireOperation};
 use super::{GlobalArgs, wire};
 
 /// A parsed `agent list` (`command.rs` `parse_agent`).
@@ -52,6 +55,7 @@ pub(super) fn daemon_state_for_status(status: &str) -> &str {
 
 pub(super) fn run(global: GlobalArgs, plan: AgentListPlan) -> i32 {
     let notifications = notifications_request(&plan.request);
+    let snapshot = snapshot_request(&plan.request);
     let rows = match wire::fetch(&global, plan.request) {
         Ok(rows) => rows,
         Err(error) => return wire::print_local_error(&error, global.output, exit_code(&error)),
@@ -62,7 +66,9 @@ pub(super) fn run(global: GlobalArgs, plan: AgentListPlan) -> i32 {
         .and_then(|notifications| notifications.as_array().cloned())
         .unwrap_or_default();
     let shaped = shape(rows, &unseen_terminals(&notifications), plan.status);
-    wire::print_local_success(&shaped, global.output)
+    // A refused read leaves the place fields null.
+    let snapshot = wire::fetch(&global, snapshot).unwrap_or(Value::Null);
+    wire::print_local_success(&with_places(shaped, &snapshot), global.output)
 }
 
 /// The CLI exit code for a failed request: 2 for a usage error, 3 when the
@@ -91,7 +97,64 @@ fn notifications_request(agents: &RequestPlan) -> RequestPlan {
         params,
         idempotency_key: None,
         stream: false,
+        view: ResponseView::Full,
     }
+}
+
+/// `session.snapshot` on the same machine and session as `agents`.
+fn snapshot_request(agents: &RequestPlan) -> RequestPlan {
+    let mut params = json!({"session": "current"});
+    for route in ["machine", "session"] {
+        if let Some(value) = agents.params.get(route) {
+            params[route] = value.clone();
+        }
+    }
+    RequestPlan {
+        operation: WireOperation::Typed(ResourceOperation::SessionSnapshot),
+        params,
+        idempotency_key: None,
+        stream: false,
+        view: ResponseView::Full,
+    }
+}
+
+fn list<'a>(snapshot: &'a Value, key: &str) -> &'a [Value] {
+    snapshot[key].as_array().map(Vec::as_slice).unwrap_or_default()
+}
+
+/// Each row with the place of its terminal in `snapshot`: `tab_id`,
+/// `tab_name` and `pane_id` of the tab that shows it, and `name`, the tab's
+/// name when it is an agent name (`cmux agent start NAME`), else null. A
+/// terminal the snapshot does not show (or no snapshot) gives nulls.
+fn with_places(rows: Value, snapshot: &Value) -> Value {
+    let mut agents = match rows {
+        Value::Array(rows) => rows,
+        other => return other,
+    };
+    let terminals = list(snapshot, "terminals");
+    let tabs = list(snapshot, "tabs");
+    for agent in &mut agents {
+        let terminal = agent.get("terminal_id").and_then(Value::as_str).unwrap_or_default();
+        let tab_id = terminals
+            .iter()
+            .find(|candidate| candidate["id"] == terminal)
+            .and_then(|candidate| candidate["tab_id"].as_str());
+        let tab = tabs.iter().find(|tab| match tab_id {
+            Some(id) => tab["id"] == id,
+            None => !terminal.is_empty() && tab["content_id"] == terminal,
+        });
+        let text = |key: &str| tab.and_then(|tab| tab[key].as_str()).map(str::to_owned);
+        let tab_name = text("name");
+        let name = tab_name.clone().filter(|name| valid_agent_name(name).is_ok());
+        let (tab_id, pane_id) = (text("id"), text("pane_id"));
+        if let Some(object) = agent.as_object_mut() {
+            object.insert("name".into(), json!(name));
+            object.insert("tab_id".into(), json!(tab_id));
+            object.insert("tab_name".into(), json!(tab_name));
+            object.insert("pane_id".into(), json!(pane_id));
+        }
+    }
+    Value::Array(agents)
 }
 
 /// The terminals with an unread notification: a turn finished there that
@@ -212,5 +275,43 @@ mod tests {
         // A refused notification read: every idle agent is idle.
         let shaped = shape(rows(), &HashSet::new(), Some("done"));
         assert_eq!(shaped, json!([]));
+    }
+
+    /// W3-H: each row names the tab, pane and agent name of its terminal
+    /// (feat's `terminal list --agents` fields; main lists agents here).
+    #[test]
+    fn w3h_agent_list_rows_carry_the_tab_pane_and_agent_name() {
+        let snapshot = json!({
+            "terminals": [
+                {"id": IDLE_SEEN, "tab_id": "tab_alpha"},
+                {"id": IDLE_UNSEEN, "tab_id": "tab_shell"},
+            ],
+            "tabs": [
+                {"id": "tab_alpha", "name": "alpha", "pane_id": "pane_1", "content_id": IDLE_SEEN},
+                {"id": "tab_shell", "name": "My Shell", "pane_id": "pane_2", "content_id": IDLE_UNSEEN},
+                {"id": "tab_ended", "name": "old", "pane_id": "pane_2", "content_id": ENDED_TERMINAL},
+            ],
+        });
+        let placed = with_places(rows(), &snapshot);
+        let fields = |index: usize| {
+            let row = &placed[index];
+            [&row["name"], &row["tab_id"], &row["tab_name"], &row["pane_id"]].map(Value::clone)
+        };
+        assert_eq!(
+            fields(0),
+            [json!("alpha"), json!("tab_alpha"), json!("alpha"), json!("pane_1")]
+        );
+        // A tab name that is not an agent name is no `name`.
+        assert_eq!(
+            fields(1),
+            [Value::Null, json!("tab_shell"), json!("My Shell"), json!("pane_2")]
+        );
+        // No terminal record: the tab that shows the terminal.
+        assert_eq!(fields(2), [json!("old"), json!("tab_ended"), json!("old"), json!("pane_2")]);
+        // A terminal the snapshot does not show, or no snapshot: nulls.
+        assert_eq!(fields(3), [Value::Null, Value::Null, Value::Null, Value::Null]);
+        assert_eq!(with_places(rows(), &Value::Null)[0]["tab_id"], Value::Null);
+        // The daemon's fields stay.
+        assert_eq!(placed[0]["state"], "idle");
     }
 }

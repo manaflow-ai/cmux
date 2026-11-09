@@ -94,3 +94,48 @@ fn w5o_placeholder_shells_end_with_the_command_that_opened_them() {
     let (placed, _) = running(&server);
     assert_eq!(placed.len(), 2, "a pane's own shell ended with a placeholder: {placed:?}");
 }
+
+/// `agent start` (port of feat W3-H, with W5-O's rule): the shell a new
+/// workspace or a split opens with ends with `terminal close`, so no running
+/// terminal is left without a tab, and the agents' own terminals still run.
+#[test]
+fn w3h_agent_start_ends_its_placeholder_shells() {
+    let server = HeadlessServer::start("agentstart");
+    assert_no_tabless(&server, "the new daemon");
+
+    // No pane given: a new workspace (empty session) or a split of the
+    // focused pane, each opened with a placeholder shell.
+    let alpha =
+        run(&server, &["agent", "start", "alpha", "--cmd", "sleep 300", "--no-wait", "--no-focus"]);
+    assert_no_tabless(&server, "agent start alpha");
+
+    // A split of a named pane.
+    let pane = text(&alpha, &["/pane_id", "/value/pane_id"]);
+    let beta = run(
+        &server,
+        &[
+            "agent",
+            "start",
+            "beta",
+            "--cmd",
+            "sleep 300",
+            "--no-wait",
+            "--no-focus",
+            "--pane",
+            &pane,
+            "--split",
+            "down",
+        ],
+    );
+    assert_no_tabless(&server, "agent start beta --pane --split down");
+
+    let (placed, _) = running(&server);
+    let ids: Vec<&str> = placed.iter().filter_map(|terminal| terminal["id"].as_str()).collect();
+    for agent in [&alpha, &beta] {
+        let terminal = text(agent, &["/terminal_id", "/value/terminal_id"]);
+        assert!(
+            ids.contains(&terminal.as_str()),
+            "the agent's terminal {terminal} ended: {placed:?}"
+        );
+    }
+}

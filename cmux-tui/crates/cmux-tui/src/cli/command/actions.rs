@@ -32,6 +32,20 @@ pub(in crate::cli) struct OptionSpec {
     pub about: &'static str,
 }
 
+/// The options of `agent start`, `agent resume` and `terminal <t> resume`
+/// (`cli/agent_start.rs`). Words after `--` are extra launcher arguments.
+const AGENT_START_OPTIONS: &[OptionSpec] = &[
+    opt("cmd", "<launcher>", "Launcher command line (default: $CMUX_AGENT_COMMAND, else claude)"),
+    opt("harness", "<name>", "Agent harness when the launcher does not name it"),
+    opt("pane", "<selector>", "Open the agent as a tab in this pane"),
+    opt("split", "<right|down|left|up>", "Split the pane in this direction (default: right)"),
+    opt("cwd", "<path>", "Working directory"),
+    switch("focus", "Focus the agent's tab (default)"),
+    switch("no-focus", "Do not focus the agent's tab"),
+    opt("timeout", "<duration>", "Give up the wait after this long (default: 90s)"),
+    switch("no-wait", "Return once the agent runs, without waiting until it is ready"),
+];
+
 const fn req(name: &'static str, value: &'static str, about: &'static str) -> OptionSpec {
     OptionSpec { spelling: name, value: Some(value), required: true, about }
 }
@@ -640,6 +654,7 @@ pub(in crate::cli) const ACTIONS: &[ActionSpec] = &[
         &[
             switch("unwrap", "Join soft-wrapped rows into the lines the program printed"),
             opt("lines", "<n>", "Print the last N lines of scrollback and screen (1-10000)"),
+            switch("details", "Print the screen record's fields, not its text alone"),
         ],
     ),
     action(
@@ -649,6 +664,7 @@ pub(in crate::cli) const ACTIONS: &[ActionSpec] = &[
         &[
             switch("unwrap", "Join soft-wrapped rows into the lines the program printed"),
             opt("lines", "<n>", "Print the last N lines of scrollback and screen (1-10000)"),
+            switch("details", "Print the screen record's fields, not its text alone"),
         ],
     ),
     action(
@@ -660,6 +676,22 @@ pub(in crate::cli) const ACTIONS: &[ActionSpec] = &[
             opt("timeout-ms", "<n>", "Give up after this many milliseconds"),
             switch("new", "Match only output printed below the cursor's line from now on"),
         ],
+    ),
+    action(
+        "terminal <selector> wait",
+        None,
+        "Wait until the terminal's agent can take a message; exits 0 ready, 4 blocked, 1 exited, \
+         124 timeout",
+        &[
+            req("until", "<ready>", "Condition to wait for"),
+            opt("timeout", "<duration>", "Give up after this long, like 90s or 5m"),
+        ],
+    ),
+    action(
+        "terminal <selector> resume",
+        None,
+        "Start the agent that exited in this terminal again with its harness session",
+        AGENT_START_OPTIONS,
     ),
     action(
         "terminal <selector> state read",
@@ -881,6 +913,18 @@ pub(in crate::cli) const ACTIONS: &[ActionSpec] = &[
                  ended: the session ended, which --state done selected before)",
             ),
         ],
+    ),
+    action(
+        "agent start <name>",
+        None,
+        "Start a coding agent in a tab named NAME and wait until it can take a message",
+        AGENT_START_OPTIONS,
+    ),
+    action(
+        "agent resume <name>",
+        None,
+        "Start the agent NAME that exited again with its harness session",
+        AGENT_START_OPTIONS,
     ),
     action(
         "agent report",
