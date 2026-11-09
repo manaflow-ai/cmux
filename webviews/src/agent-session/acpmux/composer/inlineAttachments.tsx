@@ -80,11 +80,18 @@ export function useInlineAttachments(options: Options) {
   /// file among them still uploading holds the send (useSendWhenAttached) and is never cancelled by
   /// it. Only the person's own edit cancels one (review of #26667).
   const clearing = useRef(false);
+  /// Placeholders a paste or drop brought while the text could not take them yet (shell mode, the
+  /// editor not made): each goes into the text the moment it can, still loading, so what its read
+  /// makes takes that place (`ready`).
+  const deferred = useRef(new Set<string>());
+  /// The placeholders the last commit drew, by id: one that is an attachment now finished loading.
+  const loading = useRef<ReadonlySet<string>>(new Set());
   useLayoutEffect(() => {
     removed.current.clear();
     placed.current.clear();
     cancelled.current.clear();
     sentIds.current.clear();
+    deferred.current.clear();
   }, [options.scope]);
   const [views, setViews] = useState<ReadonlyMap<string, HTMLElement>>(() => new Map());
 
@@ -151,19 +158,39 @@ export function useInlineAttachments(options: Options) {
         for (const id of ids) stripOnly.current.add(id);
         return;
       }
-      if (!ids.length || !placing()) return;
+      if (!ids.length) return;
+      if (!placing() || !field.current?.inlineIds()) {
+        for (const id of ids) deferred.current.add(id);
+        return;
+      }
       for (const id of ids) placed.current.add(id);
       // A paste takes the selection's place, as pasted text would; a drop or a pick replaces nothing.
       if (!field.current?.insertInline(ids, kind === "paste")) for (const id of ids) placed.current.delete(id);
     },
     ready() {
-      const { attachments, field, placing } = live.current;
+      const { attachments, pending, field, placing } = live.current;
       if (!placing()) return;
       const marks = new Set(placedIn(field.current?.value() ?? seen.current));
+      // A read that ended while its placeholder showed in the strip (a paste in a code block, a
+      // node a value from outside took away) lands where it showed: never put in at the caret then,
+      // between the words typed while it loaded (Leo, 2026-11-09: "when it actually loads, it gets
+      // smashed in between text that you were typing").
+      for (const chip of attachments)
+        if (loading.current.has(chip.id) && !marks.has(chip.id) && !deferred.current.has(chip.id))
+          stripOnly.current.add(chip.id);
       const fresh = attachments.filter(
         (chip) => !marks.has(chip.id) && !removed.current.has(chip.id) && !stripOnly.current.has(chip.id),
       );
-      if (fresh.length) field.current?.insertInline(fresh.map((chip) => chip.id));
+      // Placeholders that waited for the text to take them go in now, still loading.
+      const waiting = field.current?.inlineIds()
+        ? pending.filter((chip) => deferred.current.has(chip.id) && !marks.has(chip.id)).map((chip) => chip.id)
+        : [];
+      for (const id of deferred.current)
+        if (waiting.includes(id) || !pending.some((chip) => chip.id === id)) deferred.current.delete(id);
+      const ids = [...fresh.map((chip) => chip.id), ...waiting];
+      if (!ids.length) return;
+      for (const id of waiting) placed.current.add(id);
+      if (!field.current?.insertInline(ids)) for (const id of waiting) placed.current.delete(id);
     },
     /// The prompt changed by an edit (MarkdownField `onChange`), to `markdown`.
     edited(markdown: string) {
@@ -290,6 +317,10 @@ export function useInlineAttachments(options: Options) {
     for (const attachment of options.attachments) sentIds.current.delete(attachment.id);
     api.ready();
   }, [options.attachments, api]);
+  // After `ready`, which reads the placeholders the commit before drew.
+  useLayoutEffect(() => {
+    loading.current = new Set(options.pending.map((chip) => chip.id));
+  }, [options.pending]);
   // Also when placing starts (the strip view switched to inline, shell mode ended): what was added
   // meanwhile goes into the text. Read after each commit, never during render: a consumer's
   // `placing` may read state it declares after this hook.

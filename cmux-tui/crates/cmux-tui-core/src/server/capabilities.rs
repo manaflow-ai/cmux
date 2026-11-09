@@ -57,6 +57,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_CONTENT_CAPABILITY);
         capabilities.push(AGENT_SESSION_FORK_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_SIDE_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_SETTINGS_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY);
@@ -157,6 +158,8 @@ fn always_identified() -> Vec<&'static str> {
     #[cfg(unix)]
     capabilities.push(crate::apps::AGENT_INVENTORY_INVALIDATION_CAPABILITY);
     #[cfg(unix)]
+    capabilities.push(crate::apps::PROVIDER_CHANGED_CAPABILITY);
+    #[cfg(unix)]
     capabilities.push(client_registry::machine_catalog::CAPABILITY);
     #[cfg(unix)]
     capabilities.push(cloud_api::CAPABILITY);
@@ -213,6 +216,7 @@ pub fn build_capabilities() -> Vec<&'static str> {
             && *capability != crate::fs_ops::FS_SYMLINK_CAPABILITY
             && *capability != crate::fs_ops::FS_WRITE_DEFLATE_CAPABILITY
             && *capability != crate::fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY
+            && *capability != crate::fs_ops::FS_READ_NOFOLLOW_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_EXPORT_CAPABILITY
             && *capability != crate::blob_fetch::BLOB_FETCH_CAPABILITY

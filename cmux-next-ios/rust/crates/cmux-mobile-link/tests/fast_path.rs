@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use cmux_mobile_link::dial::{self, SessionEvents};
-use cmux_mobile_link::testing::{FakeOptions, FakeSignaling, TEST_RELAY_PORTS_START, TestTurn};
+use cmux_mobile_link::testing::{FakeOptions, FakeSignaling, TestTurn, is_test_relay};
 use cmux_mobile_link::{ChannelEvent, DialOptions, LinkConfig, LinkPath, SignalingClient, TransportKind};
 
 static CUT: AtomicBool = AtomicBool::new(false);
@@ -17,7 +17,7 @@ static CUT: AtomicBool = AtomicBool::new(false);
 /// Direct datagrams vanish while `CUT` is set; relayed ones (through a TURN
 /// server) always arrive, 10 ms late each way.
 fn impair(via_turn: bool, from: &SocketAddr) -> Option<Duration> {
-    let relayed = via_turn || (from.ip().is_loopback() && from.port() >= TEST_RELAY_PORTS_START);
+    let relayed = via_turn || is_test_relay(from);
     if relayed {
         Some(Duration::from_millis(10))
     } else if CUT.load(Ordering::Relaxed) {

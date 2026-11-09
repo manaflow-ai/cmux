@@ -234,8 +234,8 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   },
   "src/agent-session/acpmux/newtab/listMotion.ts": { count: 1, what: "New Tab rows move to their new place" },
   "src/agent-session/acpmux/subagents/trayMotion.tsx": {
-    count: 1,
-    what: "a status line's width easing as its words slide",
+    count: 2,
+    what: "a status line's width easing as its words slide; the hat's +N more and time gliding to their new place in the row",
   },
   "src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx": { count: 1, what: "the minimap glides" },
   "src/agent-session/acpmux/threadMinimap/scrollMotion.ts": { count: 1, what: "the minimap's scroll bubble" },

@@ -489,7 +489,8 @@ impl Hub {
                     hint: episode.hint,
                 }
             }),
-            harness_sandbox_failed: session.harness_sandbox_failed.get().copied(),
+            harness_sandbox_failed: m.harness_sandbox.first_at,
+            harness_sandbox_failing: m.harness_sandbox.failing,
             agent_session_id: m.agent_session_id.clone(),
             retired_agent_session_ids: m.retired_agent_session_ids.clone(),
             created_at: m.created_at,
@@ -632,6 +633,9 @@ impl Hub {
             tags: live_tags(&m),
             state_seq: session.state_seq.load(Ordering::SeqCst),
             unread: m.unread,
+            unread_turns: m.unread_turns,
+            seen_seq: m.seen_seq,
+            last_return: m.last_return,
             last_turn: m.last_turn.clone(),
             // A retry of its failed last turn waits, or is being decided (`auto_resume.rs`).
             retry,

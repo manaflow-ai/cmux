@@ -9,6 +9,7 @@
 // (the Cloud machine sheet), so a remote computer has a visible way in from Home.
 import { useMemo } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
+import { SplitEdge } from "../../ui/SplitEdge";
 import type { Strings } from "../shared/i18n";
 import { Avatar, ChannelMark } from "./Avatar";
 import { HomeIcon } from "./icons";
@@ -169,6 +170,15 @@ export function ConversationList({
         <ul className={`lg-list-group${pinned.length > 0 ? " after-pinned" : ""}`}>{rest.map(renderRow)}</ul>
       </div>
       {cloudRow("footer")}
+      {/* Its line is the split's divider and drags as one (ui/SplitEdge.tsx); the page's grid reads the width. */}
+      <SplitEdge
+        side="end"
+        property="--home-channels-list-width"
+        storageKey="cmux.homeChannels.list.width"
+        min={200}
+        max={480}
+        on="parent"
+      />
     </nav>
   );
 }

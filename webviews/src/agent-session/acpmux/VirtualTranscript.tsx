@@ -158,6 +158,7 @@ import { SUBAGENT_DONE, SUBAGENT_OF } from "./subagents/subagentRows";
 import { SubagentOfRow } from "./subagents/SubagentGroup";
 import { SUBAGENT_OF_HEIGHT } from "./rows/SubagentOfPillRow";
 import { noteSendFromLatest, playSendMorph } from "./conversation/sendMorph";
+import { SinceJump } from "./conversation/SinceDivider";
 import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
@@ -1094,6 +1095,8 @@ function TranscriptView({
   onColdOpenShown,
   loading = false,
   afterLatest,
+  sinceKey,
+  onJumpToSince,
   showMinimap = true,
   endReserve = 0,
   topInset = 0,
@@ -1192,6 +1195,10 @@ function TranscriptView({
   onColdOpenShown?: (open: number) => void;
   /// Optional content placed immediately after the latest message, outside the scroller.
   afterLatest?: React.ReactNode;
+  /// The key of "New since you looked" in these rows, if any: Jump to new shows over the top while
+  /// it is out of view (conversation/SinceDivider.tsx), and `onJumpToSince` brings it in.
+  sinceKey?: string;
+  onJumpToSince?: () => void;
   /// The focused chat's palette action can hide this pane's rail without changing the configured
   /// minimap experiment or any other pane's layout.
   showMinimap?: boolean;
@@ -4878,6 +4885,14 @@ function TranscriptView({
           // top". Outside the scroller, so its soft edge never fades the pill; the row's own slot stays.
           <div className="acpmux-pinned-top" style={{ top: pinAt.top + topInset }}>
             <SubagentOfRow row={pinnedPill} />
+          </div>
+        )}
+        {sinceKey !== undefined && onJumpToSince && (
+          <div
+            className="acpmux-over-top"
+            style={{ top: topInset + (pinnedPill ? pinAt.top + SUBAGENT_OF_HEIGHT : 0) }}
+          >
+            <SinceJump mark={sinceKey} onJump={onJumpToSince} />
           </div>
         )}
         {jumpButton && (

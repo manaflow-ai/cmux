@@ -245,6 +245,7 @@ mod tool_shell;
 mod tools;
 pub(crate) mod turn_cap;
 mod turn_retry;
+mod update_repeats;
 mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
@@ -953,6 +954,9 @@ pub struct Hub {
     pub(crate) briefs: dispatch::Briefs,
     /// Every Claude workflow of this daemon's chats (`workflow_index.rs`).
     pub(crate) workflow_index: workflow_index::WorkflowIndex,
+    /// Which predicted next prompts reach the person (`suggestion_gate.rs`): this daemon's own
+    /// chats and the peers' chats it relays to its person.
+    pub(crate) suggestion_gate: StdMutex<crate::suggestion_gate::Gate>,
 }
 
 /// Serialized forms of one closed session. Each form has its own generation and tag-expiry
@@ -1030,6 +1034,7 @@ impl Hub {
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
         let peer_paths = Arc::new(crate::peer_last_good::LastGood::open(home.as_deref()));
+        let suggestion_gate = StdMutex::new(crate::suggestion_gate::Gate::open(home.as_deref()));
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
@@ -1189,6 +1194,7 @@ impl Hub {
             person: Default::default(),
             presence: Default::default(),
             workflow_index: Default::default(),
+            suggestion_gate,
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             watched_moves: Default::default(),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
@@ -1451,6 +1457,7 @@ impl Hub {
             }
         }
         let last_seq = session.meta.lock().unwrap().last_seq;
+        self.catch_up_harness_sandbox(session, last_seq);
         if let Ok((extra, last)) = self.store.tail_after(&session.id, last_seq)
             && extra > 0
         {
@@ -1617,7 +1624,7 @@ impl Hub {
             stalled_recheck: AtomicU64::new(0),
             open_tools: StdMutex::new(Default::default()),
             loop_detector: StdMutex::new(Default::default()),
-            harness_sandbox_failed: std::sync::OnceLock::new(),
+            harness_sandbox_calls: StdMutex::new(Default::default()),
             stalled_counted: StdMutex::new(None),
             stalled_gen: AtomicU64::new(0),
             sign_in_refused_turn: StdMutex::new(None),
@@ -1633,6 +1640,8 @@ impl Hub {
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
             harness_turn: AtomicBool::new(false),
+            logged_init: StdMutex::new(Default::default()),
+            update_repeats: StdMutex::new(Default::default()),
             background_turns: StdMutex::new(Default::default()),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
@@ -2237,6 +2246,9 @@ impl Hub {
             if record.dir == "mux" && record.kind == "turn_result" {
                 m.harness_failures.observe(&record.msg, record.seq, record.at);
             }
+            if record.dir == "mux" {
+                m.harness_sandbox.observe(&record.kind, &record.msg, record.at);
+            }
         }
         // The cost ledger's index: O(1), no IO (its writer thread writes the file).
         self.ledger.observe(session, &record);
@@ -2257,6 +2269,7 @@ impl Hub {
                 | "loop_detected"
                 | "loop_cleared"
                 | harness_sandbox::RECORD_KIND
+                | "harness_sandbox_recovered"
                 | work_below::RECORD_KIND
                 | asks_below::RECORD_KIND
                 | "queued"

@@ -111,6 +111,10 @@ UNWIRED: set[str] = {
     # scripts/ci/cloud_probe_rescue.py, run by the main controller's workflow_run adapter, not a PR job
     # (#30796): python3 -m unittest tests.test_ci_cloud_probe_rescue from the repository root.
     "tests/test_ci_cloud_probe_rescue.py",
+    # lane = "manual" for the same rule. It checks the weekly rollback drill (nightly-next-rollback-drill.yml) and
+    # its call into nightly-next-rollback.yml; run it by hand after changing either or
+    # scripts/ci/nightly_next_rollback_drill.py.
+    "tests/test_nightly_next_rollback_drill.py",
 }
 
 

@@ -1287,6 +1287,8 @@ impl Hub {
         }
         // A new harness runs none of the background subagents of one it replaced.
         self.end_background_subagents(session);
+        // Nor has its sandbox refused anything yet (`harness_sandbox.rs`).
+        self.harness_sandbox_recovered(session, "respawn");
         self.wake_idle_reaper();
 
         // Start the inbound loop for this session once.

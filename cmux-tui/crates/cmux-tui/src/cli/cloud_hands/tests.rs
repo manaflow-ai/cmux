@@ -173,6 +173,7 @@ impl App {
                 self.backlog.push(event);
             }
         };
+        // timeout: test-only bound; a missing event fails the test instead of hanging it.
         tokio::time::timeout(std::time::Duration::from_secs(10), wait).await.expect(kind)
     }
 

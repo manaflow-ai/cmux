@@ -21,6 +21,8 @@ Behaviour per prompt text:
   "works-through-cancel-beside-background" -> the same after starting background subagent bg-1
   "answer-then-exit" -> answers, then the agent exits between turns
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
+  "goal: <objective>" -> a Codex goal as session_info_update _meta.goal (running 32 min), then a short reply
+  "/goal pause|resume|clear|<text>" -> that goal paused, running again, gone, or set to <text>
   "work-gate: <p>" -> a plan step in progress and a running tool call, then as "gate:"
   image blocks -> the echo ends with " image:<sha256 of its bytes>" for each
   anything     -> echoes the text as one agent_message_chunk
@@ -85,6 +87,8 @@ import time
 lock = threading.Lock()
 cancelled = set()
 failed_once = set()
+# "goal:" and "/goal": each session's goal as Codex reports it (session_info_update _meta.goal).
+goals = {}
 cap_failures = {}
 failed_digest = set()
 # Sessions whose "net-down" prompt cut the connection for good (auto-resume tests).
@@ -444,6 +448,39 @@ def run_stuck_loop(rid, sid):
     update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "stuck-progress", "status": "completed"})
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {
         "type": "text", "text": " STUCK LOOP CLEARED"}})
+    send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+
+
+def run_goal(rid, sid, text):
+    now = int(time.time() * 1000)
+    goal = goals.get(sid)
+    if text.startswith("goal:"):
+        goal = {"objective": text[5:].strip(), "status": "active", "provider": "codex",
+                "startedAt": now - 32 * 60 * 1000, "updatedAt": now}
+        reply = "Goal set."
+    else:
+        arg = text[6:].strip()
+        if goal is None and arg in ("pause", "resume", "clear"):
+            reply = "No goal is set."
+        elif arg == "pause":
+            goal = {**goal, "status": "paused", "updatedAt": now}
+            reply = "Goal paused."
+        elif arg == "resume":
+            goal = {**goal, "status": "active", "updatedAt": now}
+            reply = "Goal resumed."
+        elif arg == "clear":
+            goal = None
+            reply = "Goal cleared."
+        else:
+            goal = {**(goal or {"provider": "codex", "startedAt": now}), "objective": arg, "status": "active",
+                    "updatedAt": now}
+            reply = "Goal updated."
+    if goal is None:
+        goals.pop(sid, None)
+    else:
+        goals[sid] = goal
+    update(sid, {"sessionUpdate": "session_info_update", "_meta": {"goal": goal}})
+    update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}})
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
 
 
@@ -1202,10 +1239,19 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "partial "}})
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "simulated internal error after output"}})
         return
+    # "goal: X" sets a Codex goal, "/goal pause|resume|clear|<text>" drives it, as codex-acp
+    # reports one: session_info_update with _meta.goal (null once cleared).
+    if text.startswith("goal:") or text.startswith("/goal "):
+        return run_goal(rid, sid, text)
     # "meta: X" sends a chunk whose notification carries the agent's own _meta.
     # "harness-title: X" titles the session itself, as Codex does.
     if text.startswith("harness-title:"):
         update(sid, {"sessionUpdate": "session_info_update", "title": text[14:].strip()})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "suggest: TEXT" ends the turn with TEXT as the predicted next prompt.
+    if text.startswith("suggest:"):
+        update(sid, {"sessionUpdate": "prompt_suggestion", "suggestion": text[8:].strip()})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     if text.startswith("meta:"):
