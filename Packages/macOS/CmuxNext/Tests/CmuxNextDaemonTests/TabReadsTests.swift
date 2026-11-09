@@ -201,4 +201,26 @@ struct TabReadsTests {
         await again.value
         #expect(tries == 2)
     }
+
+    /// The daemon service was torn down while a read waited (a restart): the read rolls back, so the next daemon's
+    /// record, not a hidden dot, says whether the tab is unread. A Mark as Unread clear rolls back the same way.
+    @Test func aTeardownRollsAWaitingReadBack() async throws {
+        let (_, tab, reads) = try Self.unreadTab()
+        var alive = true, tries = 0
+        let sent = try #require(reads.readNotification(of: tab, alive: { alive }) { (_: SurfaceID) in
+            tries += 1
+            alive = false
+            throw DaemonError.connectionClosed(reason: "teardown")
+        })
+        await sent.value
+        #expect(tries == 1)
+        #expect(tab.showsUnread, "a read cut off by a teardown stayed hidden")
+        tab.applyState(SessionStateMirror.TabRecord(markedUnread: true), progress: nil)
+        alive = true
+        await reads.clearMarkedUnread(of: tab, alive: { alive }) {
+            alive = false
+            throw DaemonError.daemonShutdown
+        }.value
+        #expect(tab.markedUnread, "a mark clear cut off by a teardown stayed cleared")
+    }
 }
