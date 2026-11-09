@@ -72,23 +72,23 @@ const inventory = (overrides: { user?: string; project?: string } = {}, canEditO
             : "cmux-default-override",
       source:
         overrides.project !== undefined ? "cmux-project" : overrides.user !== undefined ? "cmux-user" : "cmux-default",
-      label: "cmux guidance (first-turn context)",
+      label: "cmux guidance (system prompt)",
       tokens: 40,
       included: true,
       editable: true,
       measurement: "estimated",
-      channel: "user-context",
+      channel: "append-system-prompt",
       ...(canEditOverrides ? { text: overrides.project ?? overrides.user ?? GUIDANCE } : {}),
     },
     {
       id: "cmux-guidance",
       source: "cmux-guidance",
-      label: "cmux chat guidance and your skills (first-turn context)",
+      label: "cmux chat guidance and your skills (system prompt)",
       tokens: 90,
       included: true,
       editable: false,
       measurement: "estimated",
-      channel: "user-context",
+      channel: "append-system-prompt",
       ...(canEditOverrides
         ? { text: "This chat runs in cmux NEXT, which draws your TodoWrite list as a checklist." }
         : {}),
