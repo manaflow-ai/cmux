@@ -28,7 +28,7 @@
 //! fills its checkout) is tried again on the same beat until that fill ends.
 //!
 //! A start-chat copy ([`push`] with the chat's subpath) asks for the head first
-//! (`head_first`, a whole seed without this Mac's sparse patterns): the machine
+//! (`head_first`, a whole seed without this Mac's sparse patterns or LFS): the machine
 //! checks out the root's files, the harness folders and the chat's folder, marks
 //! them on its sync barrier and says `head_ready: true`, then fills the rest
 //! under that barrier. The push answers at `head_ready` with `"filling":true`,
@@ -37,7 +37,8 @@
 //! `done` as before. The [`record`] of such a push keeps the job's id
 //! (`filling`): a later `--since-last` waits for that job to be done before it
 //! sends a delta, since the machine refuses a delta into a checkout that is not
-//! whole yet.
+//! whole yet; a job the machine forgot counts as done only without the fill's
+//! marker in the folder's git dir.
 //!
 //! `cmux link seed clone --socket PATH --repo OWNER/NAME [--ref REF] REMOTE`
 //! clones a GitHub repository on the machine with no folder of this Mac.
@@ -403,7 +404,20 @@ pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyh
     }
     // The full seed answered at its head: its fill must be done before a delta builds on it.
     if record.filling.is_some() {
-        settle_fill(&mut machine_calls(machine.socket), &mut pause, &mut record, deadline())?;
+        // Read before any shortcut: an unchanged delta never reaches the machine's own check.
+        let marker = format!("{remote}/.git/{FILL_MARKER}");
+        let mut fill_left = || {
+            sync_cli::remote_kind(machine.socket, &marker)
+                .map(|kind| kind.is_some())
+                .map_err(|error| SeedError::of(&error))
+        };
+        settle_fill(
+            &mut machine_calls(machine.socket),
+            &mut pause,
+            &mut fill_left,
+            &mut record,
+            deadline(),
+        )?;
         let _ = record::save(&local, remote, &record);
     }
     let (Some(head), Some(index), Some(work)) = (record.head, record.index, record.work) else {
@@ -619,9 +633,11 @@ fn run_seed(
 }
 
 /// Whether a seed of `params` may open at its head: the machine's own rule
-/// (a whole seed, not a delta, without this Mac's sparse patterns).
+/// (a whole seed, not a delta, without this Mac's sparse patterns), and no
+/// LFS: the machine pulls LFS files after it marks the head, so an LFS-managed
+/// `CLAUDE.md` or skill would still be a pointer when the chat starts.
 fn asks_head_first(params: &plan::SeedParams) -> bool {
-    params.since.is_none() && params.sparse.is_none()
+    params.since.is_none() && params.sparse.is_none() && !params.lfs
 }
 
 /// How a seed job ended for this push.
@@ -674,6 +690,10 @@ fn deadline() -> Instant {
 
 /// The machine refuses a start or a delta while a seed of the folder fills it.
 const FILLING: &str = "seed.filling";
+
+/// The file in the machine folder's git dir from a head-first seed's head until its
+/// fill is whole (cmux-tui-core `git_seed::run`).
+const FILL_MARKER: &str = "cmux-seed-filling";
 
 /// `git.seed.start` with `start`, then its job's status until it ends (or,
 /// with `head_ready`, until its head is in place).
@@ -761,12 +781,15 @@ fn wait_job(
 
 /// Waits for the fill of a seed that answered at its head ([`Record::filling`])
 /// and clears it from `record` once the job is done. A job the machine no longer
-/// knows (it restarted, or dropped the finished job) is cleared too: the
-/// machine itself refuses a delta into a checkout whose fill never finished
-/// (`seed.filling`), so a stale id never lets a delta run on a partial tree.
+/// knows (it restarted, or dropped the finished job) is cleared only when
+/// `fill_left` finds no fill marker in the folder's git dir: a daemon that
+/// restarted mid-fill leaves it, and then this is `seed.filling` and the record
+/// stays unsettled, even when nothing changed on this Mac (an unchanged delta
+/// never asks the machine).
 fn settle_fill(
     call: &mut Call<'_>,
     pause: &mut dyn FnMut(),
+    fill_left: &mut dyn FnMut() -> Result<bool, SeedError>,
     record: &mut Record,
     deadline: Instant,
 ) -> Result<(), SeedError> {
@@ -775,7 +798,15 @@ fn settle_fill(
     };
     match wait_job(call, pause, &job, false, deadline) {
         Ok(_) => {}
-        Err(error) if error.code == "seed.unknown_job" => {}
+        Err(error) if error.code == "seed.unknown_job" => {
+            if fill_left()? {
+                return Err(SeedError::new(
+                    FILLING,
+                    "the machine's last seed of this folder never finished filling it; start the \
+                     chat there again",
+                ));
+            }
+        }
         Err(error) => return Err(error),
     }
     record.filling = None;
@@ -961,7 +992,8 @@ mod tests {
         let whole = planned().params;
         assert!(asks_head_first(&whole));
         assert!(!asks_head_first(&SeedParams { since: Some("w".into()), ..whole.clone() }));
-        assert!(!asks_head_first(&SeedParams { sparse: Some("/a\n".into()), ..whole }));
+        assert!(!asks_head_first(&SeedParams { sparse: Some("/a\n".into()), ..whole.clone() }));
+        assert!(!asks_head_first(&SeedParams { lfs: true, ..whole }), "LFS lands after the head");
     }
 
     #[test]
@@ -989,26 +1021,54 @@ mod tests {
             Ok(json!({"state": "done"})),
         ]);
         let mut pauses = 0;
-        settle_fill(&mut call, &mut || pauses += 1, &mut record, later()).unwrap();
+        let mut no_marker = || -> Result<bool, SeedError> { panic!("a known job is not read") };
+        settle_fill(&mut call, &mut || pauses += 1, &mut no_marker, &mut record, later()).unwrap();
         assert_eq!(record.filling, None);
         // Only the fill's status was read: no delta started while it filled.
         assert_eq!(*asked.borrow(), ["git.seed.status"; 3]);
         assert_eq!(pauses, 2);
 
         // A fill that failed keeps the record unsettled, and the delta does not run.
+        let mut whole = || Ok::<_, SeedError>(false);
         let mut record = seed_record(Some("m".into()), &planned(), Some("j"));
         let (mut call, _) = machine(vec![Ok(json!({
             "state": "failed", "error_code": "seed.clone_failed", "error": "no"
         }))]);
-        let error = settle_fill(&mut call, &mut || {}, &mut record, later()).unwrap_err();
+        let error = settle_fill(&mut call, &mut || {}, &mut whole, &mut record, later());
+        let error = error.unwrap_err();
         assert_eq!(error.code, "seed.clone_failed");
         assert_eq!(record.filling.as_deref(), Some("j"));
 
-        // A job the machine forgot: its own seed.filling guard decides the delta.
+        // A job the machine forgot after a finished fill (pruned): no marker, settled.
         let mut record = seed_record(Some("m".into()), &planned(), Some("j"));
         let (mut call, _) = machine(vec![Err("seed.unknown_job")]);
-        settle_fill(&mut call, &mut || {}, &mut record, later()).unwrap();
+        settle_fill(&mut call, &mut || {}, &mut whole, &mut record, later()).unwrap();
         assert_eq!(record.filling, None);
+    }
+
+    /// The daemon restarted mid-fill and nothing changed on this Mac: the unchanged delta
+    /// would answer without asking the machine, so the fill marker decides first.
+    #[test]
+    fn a_fill_cut_off_by_a_restart_is_not_settled_even_with_no_new_edits() {
+        let mut record = seed_record(Some("m".into()), &planned(), Some("j"));
+        let (mut call, _) = machine(vec![Err("seed.unknown_job")]);
+        let mut read = 0;
+        let mut marker_left = || {
+            read += 1;
+            Ok::<_, SeedError>(true)
+        };
+        let error =
+            settle_fill(&mut call, &mut || {}, &mut marker_left, &mut record, later()).unwrap_err();
+        assert_eq!(error.code, "seed.filling");
+        assert_eq!(read, 1);
+        assert_eq!(record.filling.as_deref(), Some("j"), "the next delta checks again");
+        // A marker that cannot be read is no proof the tree is whole.
+        let (mut call, _) = machine(vec![Err("seed.unknown_job")]);
+        let mut unreadable = || Err::<bool, _>(SeedError::new("sync_failed", "no answer"));
+        let error =
+            settle_fill(&mut call, &mut || {}, &mut unreadable, &mut record, later()).unwrap_err();
+        assert_eq!(error.code, "sync_failed");
+        assert_eq!(record.filling.as_deref(), Some("j"));
     }
 
     #[test]
