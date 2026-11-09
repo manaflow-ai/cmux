@@ -284,6 +284,14 @@ fn seal(state_root: &Path, options: &SynthOptions) -> anyhow::Result<(u64, u64)>
             state_root,
         )
     };
+    // The generator seals the registry itself; the owner's maintenance
+    // worker would seal the same checkpoint in between and could finish it
+    // under a seal call, which then finds its range already sealed.
+    let open = || {
+        let mux = open()?;
+        mux.stop_journal_maintenance();
+        anyhow::Ok(mux)
+    };
     let mut mux = open()?;
     let mut opened = Instant::now();
     let target =
