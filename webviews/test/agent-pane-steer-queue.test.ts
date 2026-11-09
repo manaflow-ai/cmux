@@ -10,6 +10,7 @@
 // - Typing a line on the quiet turn and pressing Return opens that chat under the queue, the line
 //   lands in its transcript, the step is in the person's record (log.ts), and the focus moves on.
 // - ⌘. stops the quiet turn: acpmux ends it and it no longer runs in the queue.
+// - A line typed on a chat that asks goes on in its composer when Return opens it.
 // - Escape clears a typed line first, then closes the queue.
 //
 // It writes stills of each step to $FAST_CHECKS_OUT when CI gives one (the PR's capture).
@@ -195,6 +196,22 @@ await requireBrowserLane("agent-pane-steer-queue.test.ts", async () => {
     const log = await page.evaluate(() => JSON.parse(localStorage.getItem("cmux.steerQueue.log") ?? "[]"));
     expect(log[0]).toMatchObject({ act: "stop" });
     await still(page, "stopped");
+    await page.close();
+  });
+
+  test("a line typed on a chat that asks goes on in its composer when Return opens it", async () => {
+    const page = await open(true);
+    const ranked = await openQueue(page);
+    expect(ranked[0]?.reason).toBe("ask");
+    const line = "Keep the strip as it is";
+    await page.keyboard.type(line);
+    await page.keyboard.press("Enter");
+    await page.waitForSelector(".acpmux-steer-queue", { state: "detached" });
+    await page.waitForFunction(
+      (text) => document.querySelector(".acpmux-composer-prompt [contenteditable='true']")?.textContent?.includes(text),
+      line,
+      { timeout: 30_000 },
+    );
     await page.close();
   });
 

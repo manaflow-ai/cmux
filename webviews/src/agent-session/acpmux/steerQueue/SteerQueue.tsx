@@ -16,8 +16,8 @@ export type SteerActions = {
   stop(item: SteerItem): Promise<unknown>;
   /// Forks the chat as it is now, its own turn going on.
   fork(item: SteerItem): Promise<unknown>;
-  /// Opens the chat (and closes the queue).
-  open(item: SteerItem): void;
+  /// Opens the chat (and closes the queue); a typed line goes on in its composer.
+  open(item: SteerItem, draft?: string): void;
 };
 
 /// How a row draws: two lines with the live step under the title (`rows`, the default), one line
@@ -127,7 +127,7 @@ export function SteerQueue({
       if (focused.running && typed) run(focused, "redirect", () => actions.redirect(focused, typed), typed);
     } else if (event.key === "Enter" && !event.shiftKey) {
       // A chat that waits on the person is answered in it: its ask has its own card there.
-      if (!typed || focused.reason === "ask") actions.open(focused);
+      if (!typed || focused.reason === "ask") actions.open(focused, typed || undefined);
       else run(focused, focused.running ? "steer" : "reply", () => actions.steer(focused, typed), typed);
     } else used = false;
     if (used) event.preventDefault();
@@ -190,7 +190,12 @@ export function SteerQueue({
           placeholder={placeholder}
           aria-label={placeholder}
           spellCheck={false}
-          onChange={(event) => setText(event.target.value)}
+          onChange={(event) => {
+            // The first key typed pins the line to the chat it was typed for: a re-rank that moves
+            // another chat to the top does not take the line with it.
+            if (!text && focusId === undefined && items[index]) setFocusId(items[index].sessionId);
+            setText(event.target.value);
+          }}
         />
         <div className="acpmux-steer-hints" aria-hidden>
           {focused?.reason === "ask" ? (
