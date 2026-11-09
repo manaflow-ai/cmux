@@ -203,7 +203,7 @@ pub(super) fn routed(mux: &Arc<Mux>, client: u64, operation: &str, params: Value
                 .get("active")
                 .and_then(Value::as_bool)
                 .ok_or_else(|| invalid("active", "must be a boolean"))?;
-            feed.set_presence(active);
+            feed.set_presence(client, active);
             Ok(json!({"active": active}))
         })),
         _ => now(Err(ResourceError::operation_failed(
@@ -339,6 +339,14 @@ impl Mux {
     pub(crate) fn feed_lease_changed(&self) {
         if let Some(feed) = self.cloud_services().feed.get() {
             feed.lease_changed();
+        }
+    }
+
+    /// A control connection closed: the feed presence it held ends (a
+    /// crashed app no longer counts as active for the person's pushes).
+    pub(crate) fn feed_connection_closed(&self, client: u64) {
+        if let Some(feed) = self.cloud_services().feed.get() {
+            feed.connection_closed(client);
         }
     }
 

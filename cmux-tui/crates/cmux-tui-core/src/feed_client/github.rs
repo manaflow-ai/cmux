@@ -104,11 +104,15 @@ fn run(inner: &Inner) {
         if !enabled(inner) {
             break;
         }
+        // Read before the pass: a refresh, configure or account change while
+        // gh runs (which drops that pass) is then seen after it, and the
+        // next pass starts at once instead of after the whole interval.
+        let generation = inner.lock().github_generation;
         poll(inner);
         let mut state = inner.lock();
-        let generation = state.github_generation;
         let interval = Duration::from_secs(state.github_config.interval_s);
-        // Ends on the interval, a refresh, a configure or a shutdown.
+        // Ends on the interval, a refresh, a configure or a shutdown; at
+        // once when one came during the pass.
         while state.github_generation == generation
             && state.github_config.enabled
             && !inner.stopped()

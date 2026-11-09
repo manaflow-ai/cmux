@@ -23,7 +23,7 @@ mod driver;
 mod github;
 mod reports;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
@@ -126,7 +126,13 @@ pub(crate) struct State {
     /// Bumped whenever the basket is emptied for an account or lease change:
     /// the reader starts over from cursor 0 and drops a page read before.
     pub(crate) reports_epoch: u64,
+    /// The app's active state as the owner hears it: true while any
+    /// verified frontend connection that set it active is still open.
     pub(crate) presence: bool,
+    /// The frontend connections whose last `feed.presence.set` was active.
+    /// A connection that closes without saying inactive (the app crashed)
+    /// leaves this set; the owner hears inactive when the last one goes.
+    pub(crate) presence_holders: HashSet<u64>,
     waiters: HashMap<String, Vec<SyncSender<Result<(), Reject>>>>,
     recent: VecDeque<(String, Result<(), Reject>)>,
     started: bool,
@@ -275,6 +281,7 @@ impl FeedClient {
             reports_generation: 0,
             reports_epoch: 0,
             presence: false,
+            presence_holders: HashSet::new(),
             waiters: HashMap::new(),
             recent: VecDeque::new(),
             started: false,
@@ -659,21 +666,52 @@ impl FeedClient {
 
     // MARK: Presence and reports
 
-    /// `feed.presence.set`: the app's active state for the owner's push
-    /// rule. An activation also wakes a reports reader past its retries.
-    pub fn set_presence(&self, active: bool) {
+    /// `feed.presence.set` from the verified frontend connection `client`:
+    /// the app's active state for the owner's push rule. Active belongs to
+    /// the connection that said it (``connection_closed`` takes it back); the
+    /// owner hears active while any such connection holds it. An activation
+    /// also wakes a reports reader past its retries.
+    pub fn set_presence(&self, client: u64, active: bool) {
         self.ensure_started();
         let mut state = self.inner.lock();
-        state.presence = active;
-        if let Some(frame) = state.stream.set_presence(active) {
-            state.outbox.push(frame);
-            Inner::wake_wire(&state);
+        if active {
+            state.presence_holders.insert(client);
+        } else {
+            state.presence_holders.remove(&client);
         }
+        let effective = !state.presence_holders.is_empty();
+        Self::send_presence(&mut state, effective);
         if active {
             state.reports_generation = state.reports_generation.wrapping_add(1);
         }
         drop(state);
         self.inner.wake.notify_all();
+    }
+
+    /// A connection closed (cleanly or not): the presence it held ends, and
+    /// the owner hears inactive when no other frontend still holds it, so a
+    /// crashed app never keeps suppressing the person's phone pushes.
+    pub fn connection_closed(&self, client: u64) {
+        let mut state = self.inner.lock();
+        if !state.presence_holders.remove(&client) || !state.presence_holders.is_empty() {
+            return;
+        }
+        Self::send_presence(&mut state, false);
+        drop(state);
+        self.inner.wake.notify_all();
+    }
+
+    /// Whether the owner hears the app as active (tests and diagnostics).
+    pub fn presence(&self) -> bool {
+        self.inner.lock().presence
+    }
+
+    fn send_presence(state: &mut State, active: bool) {
+        state.presence = active;
+        if let Some(frame) = state.stream.set_presence(active) {
+            state.outbox.push(frame);
+            Inner::wake_wire(state);
+        }
     }
 
     /// `feed.reports.read`.

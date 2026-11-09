@@ -19,15 +19,23 @@ use crate::cloud_conversations::{CloudConversations, CloudEvent, ConnectError};
 
 const NOW: i64 = 1_800_000_000_000;
 
+type GhHook = Box<dyn FnOnce() + Send>;
+
 #[derive(Default)]
 struct FakeGh {
     answers: Mutex<VecDeque<Result<Vec<u8>, String>>>,
     calls: Mutex<Vec<Vec<String>>>,
+    /// Runs once, inside the next call (as if it happened while gh ran).
+    during_next: Mutex<Option<GhHook>>,
 }
 
 impl GhRunner for FakeGh {
     fn run(&self, args: &[String]) -> Result<Vec<u8>, String> {
         self.calls.lock().unwrap_or_else(PoisonError::into_inner).push(args.to_vec());
+        let hook = self.during_next.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(hook) = hook {
+            hook();
+        }
         self.answers
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -453,6 +461,67 @@ fn another_account_starts_the_github_poller_over() {
     h.feed.configure_github(GitHubConfig { enabled: false, interval_s: 3600 });
     assert_eq!(h.feed.inner.lock().github_epoch, epoch.wrapping_add(1), "a poll in flight is kept");
     wait_until("the poller to stop", || !h.feed.inner.lock().github_running);
+}
+
+/// An account change while gh runs drops that pass and polls again at once
+/// for the new account, instead of waiting out the whole interval (an hour
+/// here).
+#[test]
+fn an_account_change_during_a_poll_polls_again_at_once() {
+    let h = harness(None);
+    super::driver::change_account(&mut h.feed.inner.lock(), Some("u1".to_owned()), NOW);
+    let inner = Arc::clone(&h.feed.inner);
+    *h.gh.during_next.lock().unwrap() = Some(Box::new(move || {
+        super::driver::change_account(&mut inner.lock(), Some("u2".to_owned()), NOW);
+        inner.wake.notify_all();
+    }));
+    h.feed.configure_github(GitHubConfig { enabled: true, interval_s: 3600 });
+    // The first call is the old account's (its answer is dropped); a whole
+    // pass for the new account follows without the interval.
+    let passes = Query::POLLED.len();
+    wait_until("the new account's pass", || h.gh.calls.lock().unwrap().len() > passes);
+    assert_eq!(h.feed.inner.lock().account.as_deref(), Some("u2"));
+    h.feed.configure_github(GitHubConfig { enabled: false, interval_s: 3600 });
+    wait_until("the poller to stop", || !h.feed.inner.lock().github_running);
+}
+
+/// Presence belongs to the frontend connection that set it: a connection
+/// that closes without saying inactive (the app crashed) takes its active
+/// state with it, and the owner hears inactive once no other frontend still
+/// holds it.
+#[test]
+fn presence_ends_when_the_connection_that_set_it_closes() {
+    let backend = Arc::new(FakeBackend::default());
+    let wire = backend.wire();
+    connected(&wire, vec![]);
+    let (cloud, _) = signed_in(&backend);
+    let h = harness(Some(cloud));
+    wait_until("the snapshot", || view(&h.feed)["connection"]["state"] == "connected");
+    let presence = |wire: &ScriptedWire| -> Vec<bool> {
+        wire.sent()
+            .iter()
+            .filter_map(|text| serde_json::from_str::<Value>(text).ok())
+            .filter(|frame| frame["t"] == "presence.set")
+            .filter_map(|frame| frame["state"]["active"].as_bool())
+            .collect()
+    };
+    // A daemon starts inactive.
+    assert!(!h.feed.presence());
+    h.feed.set_presence(1, true);
+    wait_until("active", || presence(&wire).last() == Some(&true));
+    // A second frontend holds it too: the first one's crash keeps it active.
+    h.feed.set_presence(2, true);
+    h.feed.connection_closed(1);
+    assert!(h.feed.presence(), "another frontend still holds presence");
+    // The last holder's connection closes without a clean exit: inactive.
+    h.feed.connection_closed(2);
+    assert!(!h.feed.presence());
+    wait_until("inactive", || presence(&wire).last() == Some(&false));
+    // A connection that never held presence changes nothing.
+    let sent = presence(&wire).len();
+    h.feed.connection_closed(3);
+    std::thread::sleep(Duration::from_millis(30));
+    assert_eq!(presence(&wire).len(), sent);
 }
 
 #[test]

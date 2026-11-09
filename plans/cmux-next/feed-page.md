@@ -45,7 +45,7 @@ callers use the same ops. Times are Unix ms. Every mutation takes an idempotency
 | `feed.reports.read` | read | `{}` -> `{revision, available, reports: [{id, sender, body, created_at}]}` (newest first, at most 200) |
 | `feed.reports.changed` | stream | daemon event `feed-reports-changed {revision}` |
 | `feed.reports.reply` | mutation | `{to (the sending session), text (<= 64 KiB), prompt_id?}` (the prompt id defaults to the idempotency key, so a retry delivers once) -> `{sent: bool}` |
-| `feed.presence.set` | mutation, app connection only | `{active}` -> `{active}` (the owner's push rule; an activation also wakes a Reports reader that gave up) |
+| `feed.presence.set` | mutation, app connection only | `{active}` -> `{active}` (the owner's push rule; an activation also wakes a Reports reader that gave up). Active belongs to the connection that set it: when it closes, cleanly or not, the owner hears inactive unless another frontend still holds it; a new daemon starts inactive |
 
 Wire names: the ops are a routed namespace (`feed`, owner `feed`) and a page entry (`feed`) in
 `cmux-tui/spec/page-router.json`, not catalog operations. The page's reads are `read`; `feed.intent`,
