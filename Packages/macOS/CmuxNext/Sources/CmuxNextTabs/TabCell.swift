@@ -217,8 +217,9 @@ final class TabCell {
     private func applyItem(previous: TabItem?) {
         if previous?.title != item.title {
             measuredTitle = nil
-            crossfadeRename(from: previous?.title)
+            let old = titleLayer.string
             titleLayer.string = displayTitle
+            renameTitle(from: previous?.title, drawn: old)
         }
         if previous?.indicator != item.indicator || previous?.busyStyle != item.busyStyle {
             updateSpinner()
@@ -241,15 +242,21 @@ final class TabCell {
     /// change clears it.
     var directTitle: String?
 
-    /// A rename (on another device, by an agent) crossfades the title in
-    /// place on `crossfade` (plans/cmux-next/sync-ux/DESIGN.md 1.4 rule 6): the
-    /// tab's width comes from the strip's layout, not from the text, so nothing
-    /// else moves. A cell's first title and an untitled tab swap at once; the
-    /// fade is at most `crossfade` under Reduce Motion and none when fades are off.
-    private func crossfadeRename(from old: String?) {
+    /// A rename (on another device, by an agent) rolls the title in place as
+    /// the agent chat's live line rolls a new tool call (`MotionGate.rollTitle`;
+    /// Leo, 2026-11-08: "when workspaces get renamed (esp by agents) it should
+    /// have that same fade in animation that the tool call situation has"), and
+    /// crossfades on `crossfade` where movement does not animate
+    /// (plans/cmux-next/sync-ux/DESIGN.md 1.4 rule 6): the tab's width comes
+    /// from the strip's layout, not from the text, so nothing else moves. A
+    /// cell's first title and an untitled tab swap at once; there is no fade
+    /// when fades are off. Runs after the new string is set, before layout.
+    private func renameTitle(from old: String?, drawn: String) {
         let direct = directTitle
         directTitle = nil
         guard let old, !old.isEmpty, !item.title.isEmpty, item.title != direct else { return }
+        // The strip's tab layers live in a FlippedView.
+        if Motion.tabs.rollTitle(titleLayer, from: drawn, flipped: true, in: nil) { return }
         let seconds = Motion.tabs.duration(.crossfade)
         guard seconds > 0 else { return }
         let transition = Motion.crossfadeAction

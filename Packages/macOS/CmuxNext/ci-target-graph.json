@@ -394,16 +394,6 @@
       ],
       "packages": []
     },
-    "CmuxNextAppPermissions": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions",
-      "targets": [
-        "CmuxNextApps",
-        "CmuxNextDesign",
-        "CmuxNextIcons"
-      ],
-      "packages": []
-    },
     "CmuxNextAppTests": {
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests",
@@ -536,7 +526,10 @@
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
-      "packages": []
+      "packages": [
+        "CmuxHomeCore",
+        "CmuxHomeRender"
+      ]
     },
     "CmuxNextAppsTests": {
       "kind": "test",
@@ -548,7 +541,9 @@
         "CmuxNextDesign",
         "CmuxNextWakeups"
       ],
-      "packages": [],
+      "packages": [
+        "CmuxHomeRender"
+      ],
       "reads": []
     },
     "CmuxNextBookmarks": {

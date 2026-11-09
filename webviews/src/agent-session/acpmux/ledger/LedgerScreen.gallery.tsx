@@ -17,6 +17,7 @@ const zero = {
   outputTokens: 0,
   cacheReadTokens: 0,
   cacheWriteTokens: 0,
+  cacheSavedUsd: 0,
   turns: 0,
   toolCalls: 0,
   wallMs: 0,
@@ -36,6 +37,7 @@ const session = (
   inputTokens: Math.round(cost * 180_000),
   outputTokens: Math.round(cost * 21_000),
   cacheReadTokens: Math.round(cost * 900_000),
+  cacheSavedUsd: Math.round(cost * 900_000 * 3.8) / 1e6,
   turns: Math.max(1, Math.round(cost * 6)),
   toolCalls: Math.round(cost * 40),
   wallMs: Math.round(cost * 0.4 * HOUR),
@@ -113,6 +115,11 @@ const reply = {
     person: [rollup("you", rows, "You")],
     workspace: [rollup("w1", rows.slice(0, 2), "App"), rollup("w2", rows.slice(2), "Research")],
     pr: [rollup("https://example.com/acme/app/pull/412", [rows[1]!], "acme/app #412")],
+    account: [
+      rollup("work-api-key", [rows[0]!, rows[2]!, rows[3]!]),
+      rollup("personal", [rows[1]!]),
+      rollup("none", [rows[4]!]),
+    ],
     vendor: [
       rollup("vendor-a", [rows[0]!, rows[2]!, rows[3]!], "Vendor A"),
       rollup("vendor-b", [rows[1]!], "Vendor B"),
@@ -130,7 +137,7 @@ const many = {
   ),
 };
 
-const base: Props = { load: async () => reply, openSession: () => undefined };
+const base: Props = { load: async () => reply, openSession: () => undefined, copy: async () => true };
 
 export default componentEntry<Props>({
   id: "agent-pane.costs",
@@ -162,6 +169,14 @@ export default componentEntry<Props>({
     "by-day": {
       note: "Grouped by day, in the page's language.",
       props: { ...base, initialGroup: "day" },
+    },
+    "by-account": {
+      note: "Grouped by account: spend on an API key reads apart from a subscription's.",
+      props: { ...base, initialGroup: "account" },
+    },
+    "no-copy": {
+      note: "A host with no clipboard path: no Copy CSV button.",
+      props: { load: base.load, openSession: base.openSession },
     },
     many: {
       note: "2,000 sessions: the list is windowed, so a frame costs the visible rows.",

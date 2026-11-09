@@ -249,6 +249,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_LEDGER, Request),
         untyped(method::MUX_WORKSPACE_PURGE, Request),
         untyped(method::MUX_REVIEW_QUEUE, Request),
+        untyped(method::MUX_REVIEW_BRIEF, Request),
         untyped(method::MUX_REVIEW_VERDICT, Request),
         untyped(method::MUX_AUDIT, Request),
         untyped(method::MUX_GITHUB_ACTION, Request),

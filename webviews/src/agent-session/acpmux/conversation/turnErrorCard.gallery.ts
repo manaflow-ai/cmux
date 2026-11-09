@@ -142,6 +142,30 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "no-credit": {
+      note: "The account behind the chat's own API key is out of credit (a 400 that says so): the card says to add credit to that account; Switch model leads, Retry after it for once credit is added.",
+      snapshot: failed(
+        'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the API. Please go to Plans & Billing to upgrade or purchase credits."}}',
+      ),
+    },
+    "no-credit-quota": {
+      note: "The same out-of-credit answer as a 429 that names a quota (`insufficient_quota`): no-credit, not rate limited, since waiting does not help.",
+      snapshot: failed(
+        'unexpected status 429 Too Many Requests: {"error":{"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota"}}',
+        undefined,
+        { harness: "codex", model: "gpt-6-astra" },
+      ),
+    },
+    "cloud-sign-in-aws": {
+      note: "A chat on a cloud provider whose sign-in expired (ExpiredTokenException): the card names `aws sso login` to run in a terminal, then Retry.",
+      snapshot: failed("API Error: 403 ExpiredTokenException: The security token included in the request is expired"),
+    },
+    "cloud-sign-in-google": {
+      note: "The same when application default credentials need reauthentication: the card names `gcloud auth application-default login`.",
+      snapshot: failed(
+        "Reauthentication is needed. Please run `gcloud auth application-default login` to reauthenticate.",
+      ),
+    },
     "model-error": {
       note: "A failure about the model's route (its API key was refused): Switch model leads, filled, Retry after it.",
       snapshot: chat([
