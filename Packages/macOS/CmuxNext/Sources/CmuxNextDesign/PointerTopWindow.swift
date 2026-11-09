@@ -24,10 +24,27 @@ public enum PointerTopWindow {
     /// How many clear-band windows one answer looks through (one hover card today).
     static let maxPassThroughs = 4
 
-    /// Posted with the window under a clear band (object) when the pointer moves, enters or leaves the
-    /// band: that window hears no pointer event of its own there, so a hover that follows the pointer
-    /// itself (the layout's dividers) recomputes on it.
-    public static let pointerMovedInBand = Notification.Name("cmux.pointerTopWindow.pointerMovedInBand")
+    /// The views of each window whose hover follows the pointer on its own (the layout's dividers),
+    /// told directly when the pointer moves in a clear band over that window: the window hears no
+    /// pointer event of its own there. Weak: a follower that goes leaves by itself.
+    private static let followers = NSMapTable<NSWindow, NSHashTable<AnyObject>>.weakToStrongObjects()
+
+    /// `follower` hears the pointer move in a clear band over `window` until it goes or follows another.
+    public static func follow(_ window: NSWindow, with follower: any PointerBandFollower) {
+        for case let other? in followers.objectEnumerator()?.allObjects as? [NSHashTable<AnyObject>] ?? [] {
+            other.remove(follower)
+        }
+        let table = followers.object(forKey: window) ?? NSHashTable<AnyObject>.weakObjects()
+        table.add(follower)
+        followers.setObject(table, forKey: window)
+    }
+
+    /// The pointer moved, entered or left a clear band over `window`: its followers recompute.
+    static func pointerMovedInBand(over window: NSWindow) {
+        for case let follower as any PointerBandFollower in followers.object(forKey: window)?.allObjects ?? [] {
+            follower.pointerMovedInBand()
+        }
+    }
 
     /// The number of the window on top at `screenPoint` (0: none of any app).
     public static func number(at screenPoint: NSPoint) -> Int {
@@ -47,4 +64,10 @@ public enum PointerTopWindow {
         }
         return top
     }
+}
+
+/// A view whose hover follows the pointer on its own (``PointerTopWindow/follow(_:with:)``).
+@MainActor
+public protocol PointerBandFollower: AnyObject {
+    func pointerMovedInBand()
 }

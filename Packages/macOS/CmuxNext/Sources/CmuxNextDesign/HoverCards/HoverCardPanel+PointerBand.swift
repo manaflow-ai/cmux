@@ -9,7 +9,7 @@ import AppKit
 /// Two parts: the hover's topmost check looks through the band (``PointerClearBandWindow``), and
 /// since the parent window hears no pointer moves while this window is over the point, a move,
 /// enter or exit in the band recomputes the parent's hover (`PointerHover.refresh(in:)`) and tells
-/// the window's other hovers (`PointerTopWindow.pointerMovedInBand`: the layout's dividers).
+/// the window's other hovers (`PointerBandFollower`: the layout's dividers).
 extension HoverCardPanel: PointerClearBandWindow {
     /// Outside the drawn card (where a slide or morph has it now), as presses are forwarded there.
     func passesPointer(atScreen screenPoint: NSPoint) -> Bool {
@@ -59,9 +59,9 @@ final class HoverCardBandRelay: NSObject {
     }
 
     /// The parent's chrome hover (`PointerHover`) and every other hover of the window that follows the
-    /// pointer on its own (the layout's dividers, `PointerTopWindow.pointerMovedInBand`).
+    /// pointer on its own (the layout's dividers, `PointerBandFollower`).
     private static func refresh(_ parent: NSWindow) {
         PointerHover.refresh(in: parent)
-        NotificationCenter.default.post(name: PointerTopWindow.pointerMovedInBand, object: parent)
+        PointerTopWindow.pointerMovedInBand(over: parent)
     }
 }

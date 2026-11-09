@@ -31,7 +31,8 @@ extension LayoutRootView {
         keyWindowObservers = []
         guard isLive, let window else { return }
         // A move in a hover card's clear band over this window: the screens hear no move of their own there.
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, PointerTopWindow.pointerMovedInBand] {
+        PointerTopWindow.follow(window, with: self)
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
             keyWindowObservers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.refreshDividerHover() } // main-proof: observer on queue: .main
             })
@@ -89,4 +90,11 @@ extension LayoutRootView {
         for root in layouts where root.isLive && root.window === window { root.refreshDividerHover() }
     }
     #endif
+}
+
+extension LayoutRootView: PointerBandFollower {
+    public func pointerMovedInBand() {
+        guard isLive else { return }
+        refreshDividerHover()
+    }
 }
