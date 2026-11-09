@@ -471,19 +471,23 @@ impl WorkspaceRegistry {
         created: bool,
         capabilities_changed: bool,
     ) -> Value {
-        let mut fact = json!({
-            "session": record,
+        let Some(capabilities) = &record.capabilities else {
+            return json!({
+                "session": record,
+                "created": created,
+                "capabilities_changed": capabilities_changed,
+            });
+        };
+        let digest = Sha256::digest(capabilities.to_string().as_bytes());
+        let digest = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+        let session = PersonalSession { capabilities: None, ..record.clone() };
+        json!({
+            "session": session,
             "created": created,
             "capabilities_changed": capabilities_changed,
-        });
-        if let Some(capabilities) = &record.capabilities {
-            let digest = Sha256::digest(capabilities.to_string().as_bytes());
-            let digest = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
-            fact["session"]["capabilities"] = Value::Null;
-            fact["capabilities_count"] = json!(capabilities.as_array().map_or(0, Vec::len));
-            fact["capabilities_sha256"] = json!(digest);
-        }
-        fact
+            "capabilities_count": capabilities.as_array().map_or(0, Vec::len),
+            "capabilities_sha256": digest,
+        })
     }
 
     /// Forget a session: its row, follows, and personal workspace and
