@@ -342,6 +342,12 @@
   background: var(--composer-material-tint);
   box-shadow: var(--composer-material-ring), var(--composer-material-rim), var(--composer-material-depth);
 }
+/* The doodle card's change line keeps two lines' room (its longest; the line stops at two), so the
+   loading line and the words that replace it, one line or two, stand at one height (review F1 of
+   #39934; Leo 2026-11-09: no blank stage and no jump when the notes load). */
+.wn-card[data-decoration="doodle"] .wn-card-note {
+  min-height: 2.6em;
+}
 .wn-card[data-decoration="doodle"][data-glass] {
   -webkit-backdrop-filter: var(--ds-glass-popover-blur);
   backdrop-filter: var(--ds-glass-popover-blur);
