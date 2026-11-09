@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 72a96a10792e084b08f8bef41508414371a30f6430d827341b016e6b16617fb2. */
+/* cmux-tui mux protocol 12, IR f9b78794527e02e2236e0a95b57c921cb435698db4070e18bca47cb7ff74d9fe. */
 
 
 import type * as T from "./types.js";
@@ -2574,6 +2574,14 @@ export interface SetTerminalKeepRequest extends CmuxRequestBase {
   "terminal_id"?: (string) | null;
 }
 
+/** Protocol v12; authority: control. */
+export interface SetTerminalTailPinRequest extends CmuxRequestBase {
+  cmd: "set-terminal-tail-pin";
+  "pinned": boolean;
+  "surface"?: (T.Id) | null;
+  "terminal"?: (string) | null;
+}
+
 /** Protocol v9; authority: control. */
 export interface SetViewportPaneWidthRequest extends CmuxRequestBase {
   cmd: "set-viewport-pane-width";
@@ -3225,6 +3233,7 @@ export type CmuxRequest =
   | SetTerminalCommandHistoryRequest
   | SetTerminalIdlePolicyRequest
   | SetTerminalKeepRequest
+  | SetTerminalTailPinRequest
   | SetViewportPaneWidthRequest
   | SetWindowTitleRequest
   | SetWorkspaceMetadataRequest
@@ -5285,6 +5294,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "terminal-reap-v1";
+    stream: null;
+  };
+  "set-terminal-tail-pin": {
+    request: SetTerminalTailPinRequest;
+    result: T.SetTerminalTailPinResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-tail-pin-v1";
     stream: null;
   };
   "set-viewport-pane-width": {
