@@ -54,7 +54,7 @@ pub(super) struct Run<'a> {
 impl Run<'_> {
     /// Whether this Claude is not the terminal's agent but one it started.
     pub(super) fn is_nested(&self) -> bool {
-        self.verdict().is_nested()
+        self.check(false, || self.read_roster())
     }
 
     /// [`Self::is_nested`] for the journal hook's `SessionStart`. A Claude
@@ -62,11 +62,16 @@ impl Run<'_> {
     /// row that a crash may have left is counted (the session-context hook
     /// runs beside it and does neither).
     pub(super) fn start_is_nested(&self) -> bool {
-        let nested = self.verdict();
-        if nested == Nested::No {
+        self.check(true, || self.read_roster())
+    }
+
+    fn check(&self, at_start: bool, read: impl FnOnce() -> anyhow::Result<Value>) -> bool {
+        let recorded = self.terminal.and_then(|terminal| recorded_pid(self.socket, terminal));
+        let nested = nested_in(self, recorded.as_deref(), read, now_ms());
+        if at_start && nested == Nested::No {
             self.record_agent();
         }
-        if nested == Nested::StaleRow {
+        if at_start && nested == Nested::StaleRow {
             // Claude Code keeps a hook's stderr in its debug log.
             eprintln!(
                 "cmux-tui-hook: {} startup beside a quiet agent row of another process; counted in {STALE_AGENT_ROWS}",
@@ -77,14 +82,9 @@ impl Run<'_> {
         nested.is_nested()
     }
 
-    fn verdict(&self) -> Nested {
-        let read = || {
-            let terminal = self.terminal.unwrap_or_default();
-            let params = json!({"terminal_id": terminal});
-            inbox::request(self.socket, "agent.list", params, false, Instant::now() + DEADLINE)
-        };
-        let recorded = self.terminal.and_then(|terminal| recorded_pid(self.socket, terminal));
-        nested_in(self, recorded.as_deref(), read, now_ms())
+    fn read_roster(&self) -> anyhow::Result<Value> {
+        let params = json!({"terminal_id": self.terminal.unwrap_or_default()});
+        inbox::request(self.socket, "agent.list", params, false, Instant::now() + DEADLINE)
     }
 
     /// Records this Claude as the terminal's agent.
@@ -294,22 +294,38 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         let socket = dir.path().join("s.sock");
+        fn at<'a>(
+            socket: &'a Path,
+            session: &'a str,
+            start: Option<&'a str>,
+            pid: &'a str,
+        ) -> Run<'a> {
+            Run {
+                socket,
+                terminal: Some("term_a"),
+                session: Some(session),
+                start_source: start,
+                pid: Some(pid),
+            }
+        }
+        let failed = || Err(anyhow::anyhow!("timed out"));
+        let unread = || -> anyhow::Result<Value> { panic!("no roster read") };
         // The daemon does not answer: the start reports but records nothing.
-        let agent = Run {
-            socket: &socket,
-            terminal: Some("term_a"),
-            session: Some("outer-1"),
-            start_source: Some("startup"),
-            pid: Some("42"),
-        };
+        assert!(!at(&socket, "outer-1", Some("startup"), "42").check(true, failed));
         assert_eq!(recorded_pid(&socket, "term_a"), None);
-        assert!(!agent.start_is_nested());
+        // A nested Claude's prompt is never recorded.
+        assert!(at(&socket, "nested-2", None, "51").check(false, rows(outer(NOW))));
         assert_eq!(recorded_pid(&socket, "term_a"), None);
-        agent.record_agent();
-        assert_eq!(recorded_pid(&socket, "term_a").as_deref(), Some("42"));
+        // A later prompt whose read shows its own session records it.
+        assert!(!at(&socket, "outer-1", None, "42").check(false, rows(outer(NOW))));
+        assert_eq!(
+            recorded_pid(&socket, "term_a").as_deref(),
+            Some("42"),
+            "a prompt whose read shows its own session must record its process"
+        );
         assert_eq!(recorded_pid(&socket, "term_b"), None);
-        // Now its own process needs no read.
-        assert!(!agent.start_is_nested());
+        // Then an in-process `/resume` (the old session still live) needs no read.
+        assert!(!at(&socket, "older-0", Some("resume"), "42").check(true, unread));
         count_stale_row(&socket).unwrap();
         count_stale_row(&socket).unwrap();
         let counted =
