@@ -73,8 +73,13 @@ export function lastSaidLine(text: string | undefined): string | undefined {
 
 /// A tool's own name standing in for its step ("Bash", "Read"): Claude's progress names a
 /// background subagent's last tool so when it has no summary, and the parent sees none of its calls.
-const isBareToolName = (action: string | undefined, shell = false): boolean =>
-  !shell && action !== undefined && /^\S+$/.test(action.trim()) && toolForName(action) !== undefined;
+/// A shell call announced before its input ("Bash", kind `execute`) is one too; a one-word command
+/// (`ls`) is not.
+const isBareToolName = (action: string | undefined, shell = false): boolean => {
+  if (action === undefined || !/^\S+$/.test(action.trim())) return false;
+  const tool = toolForName(action);
+  return shell ? tool === "shell" : tool !== undefined;
+};
 
 /// An agent's step as every surface names it: a bare shell tool's name reads "Running a command",
 /// never "Bash", which read as the line's kind (Leo, 2026-11-05, on a tray of subagents each reading

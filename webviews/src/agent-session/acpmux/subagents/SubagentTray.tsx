@@ -112,7 +112,7 @@ import { SubagentHarnessContext, ticking } from "./subagentGroupModel";
 import { Elapsed } from "./Elapsed";
 import { commandStatus, itemStart, trayItemKey, type TrayItem } from "./runningTray";
 import { attentionFirst, type TrayCard } from "./trayAttention";
-import { latestLine, namedAction, toolDetail } from "./trayDetail";
+import { actionDetail, latestLine, namedAction } from "./trayDetail";
 import { trayPanelLook, trayRowLook, trayStopLook } from "./trayPanel.experiment";
 import { trayMotionLook } from "./trayMotion.experiment";
 import { trayHeadLook } from "./trayHead.experiment";
@@ -1073,7 +1073,7 @@ function agentTooltip(t: Translate, agent: Subagent): string | undefined {
     agent.state !== "running"
       ? undefined
       : agent.actionShell
-        ? toolDetail(t, agent.action, true)
+        ? actionDetail(t, agent.action, true)
         : namedAction(t, agent.action);
   const label = subagentTaskLabel(t, agent);
   const name = subagentDisplayName(t, agent);
