@@ -223,4 +223,24 @@ struct TabReadsTests {
         }.value
         #expect(tab.markedUnread, "a mark clear cut off by a teardown stayed cleared")
     }
+
+    /// Review of #39311 at d28f8c1 (F1): a read made after the daemon came back as a new generation, whose reused
+    /// numbers make it look like the read still backing off from the old one, is sent; the old write neither absorbs
+    /// it nor rolls it back when it finds its daemon gone.
+    @Test func aReadOnANewGenerationIsNotAbsorbedByTheOldOne() async throws {
+        let (_, tab, reads) = try Self.unreadTab()
+        var generation = "g1", fresh: Task<Void, Never>?, freshTries = 0
+        reads.pause = { _ in
+            guard fresh == nil else { return }
+            generation = "g2"
+            fresh = reads.readNotification(of: tab, generation: "g2") { (_: SurfaceID) in freshTries += 1 }
+        }
+        let old = try #require(reads.readNotification(of: tab, generation: "g1", current: { generation == "g1" }) { (_: SurfaceID) in
+            throw DaemonError.notConnected
+        })
+        await old.value
+        await fresh?.value
+        #expect(freshTries == 1, "the new generation's read was absorbed by the old write")
+        #expect(!tab.showsUnread, "the old write rolled the new read back")
+    }
 }
