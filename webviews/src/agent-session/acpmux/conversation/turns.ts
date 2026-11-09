@@ -2440,9 +2440,9 @@ const OPEN_RUN_STATES = 2;
 /// A running turn's runs: each keeps its calls in sight, in their groups (`foldRun: false`, open),
 /// the latest one too as its calls finish; nothing folds into a summary line until the turn ends,
 /// when its family's finished turn takes the work in one fold (Leo, 2026-11-08: "you only do the overarching
-/// fold at the very end ... you know what the target line height will be"). The call in flight and
-/// a thought still coming are not in the run: the turn's live line names them (WorkingFor.tsx
-/// `doing`, "Thinking") and each step replaces it in place. A call still running in an earlier run
+/// fold at the very end ... you know what the target line height will be"). The call in flight is
+/// not in the run: the turn's live line names it (WorkingFor.tsx `doing`) and each step replaces it
+/// in place. A thought still coming is, streaming in its live viewport (the row's `live`). A call still running in an earlier run
 /// (a background shell) stays in its run, except the command the live line names (`named`,
 /// `lineCall`), which reads once, on the line. Each derived row's version moves with its drawn state.
 function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
@@ -2476,11 +2476,27 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
     // finished steps and never grows a stack of live rows (Leo 2026-10-20: "rows pile up instead
     // of replacing each other").
     const all = row.items ?? [];
+    // A thought still coming stays in the run from its first words, in its live viewport
+    // (ThoughtRow `streaming`, the row's `live`), not only once the next step ends it (Leo,
+    // 2026-11-09: "we can be a bit more optimistic with, like, the displaying of the thinking ... I
+    // only started seeing your thinking bit, like, seven seconds in").
+    const tail = all.at(-1);
+    const thinking = tail !== undefined && isThought(tail) && tail.text.trim() !== "";
     const items = all.filter(
-      (item, at) => !(item.tool ? isRunning(item.tool) : at === all.length - 1 && item.kind !== "tool"),
+      (item, at) =>
+        !(item.tool ? isRunning(item.tool) : at === all.length - 1 && item.kind !== "tool" && !thinking),
     );
     if (!items.length) return [];
-    return [{ ...row, items, settled: true, foldRun: false, version: row.version * RUN_STATES + 1 }];
+    return [
+      {
+        ...row,
+        items,
+        settled: true,
+        foldRun: false,
+        ...(thinking && { live: true }),
+        version: row.version * RUN_STATES + (thinking ? 3 : 1),
+      },
+    ];
   });
 }
 

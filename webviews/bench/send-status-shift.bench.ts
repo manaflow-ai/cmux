@@ -22,13 +22,14 @@
 //                                      words, or the row a live thought draws as).
 //   ui.transcript.send.first_thought_ms  Return to the first frame that paints the turn's thinking (Leo, 2026-11-09:
 //                                      "I only started seeing your thinking bit, like, seven seconds in").
-// With `--new-chat` the reader starts from the New Tab page of a folder with no chat, the way a new chat starts, and
-// the stand-in takes `--start-ms` to start the agent (`session/new`) before the prompt goes. It also reports:
+// With `--new-chat` the reader sends from the composer of a pane with no chat yet, and with `--new-tab` from the New
+// Tab page of a folder (its own field, which starts the chat through a harness switch); the stand-in takes
+// `--start-ms` to start the agent (`session/new`) before the prompt goes. It also reports:
 //   ui.transcript.send.new.places      how many places the sent prompt showed in between the composer and its
 //                                      transcript row (a "sending" row in the composer's queue is one): 0 is one move.
 //   ui.transcript.send.new.user_ms     Return to the first frame that paints the prompt's transcript row.
 // And a log of each jump: its frame, its time since the Return, what moved and by how much.
-//   bun bench/send-status-shift.bench.ts [rounds=3] [--engines chromium,webkit] [--think-ms 1500] [--new-chat]
+//   bun bench/send-status-shift.bench.ts [rounds=3] [--engines chromium,webkit] [--think-ms 1500] [--new-chat|--new-tab]
 //     [--start-ms 1500] [--json FILE]
 /// <reference types="bun" />
 import fs from "node:fs";
@@ -47,7 +48,10 @@ const flag = (name: string) => {
 const ENGINES = (flag("--engines") ?? "chromium,webkit").split(",");
 const THINK_MS = Number(flag("--think-ms") ?? 1500);
 /// The reader starts a new chat from the New Tab page; the agent takes START_MS to start.
-const NEW_CHAT = argv.includes("--new-chat");
+const NEW_TAB = argv.includes("--new-tab");
+const NEW_CHAT = NEW_TAB || argv.includes("--new-chat");
+/// The field the reader types in: the New Tab page's own, else the chat's composer.
+const FIELD = NEW_TAB ? ".nt-field" : ".acpmux-composer-prompt";
 const START_MS = Number(flag("--start-ms") ?? 1500);
 const JSON_OUT = flag("--json");
 const ROUNDS = Number(
@@ -229,13 +233,12 @@ const startSampling = (page: Page, thoughtText: string, promptText: string) =>
       const view = scroller?.getBoundingClientRect() ?? document.body.getBoundingClientRect();
       const rows: Sample[] = [];
       // The prompt's words drawn outside the transcript and the composer's own field.
-      const field = document.querySelector(".acpmux-composer-prompt");
       let elsewhere = false;
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       for (let node = walker.nextNode(); node && !elsewhere; node = walker.nextNode()) {
         if (!node.textContent?.includes(promptText)) continue;
         const parent = node.parentElement;
-        if (!parent || scroller?.contains(parent) || field?.contains(parent)) continue;
+        if (!parent || scroller?.contains(parent) || parent.closest(".acpmux-composer-prompt, .nt-field")) continue;
         const box = parent.getBoundingClientRect();
         elsewhere = box.width > 0 && box.height > 0 && getComputedStyle(parent).visibility !== "hidden";
       }
@@ -433,9 +436,9 @@ async function round(browser: Browser, url: string): Promise<Round> {
   try {
     await installPaintedFrames(page);
     await page.goto(url);
-    await page.locator(".acpmux-composer-prompt").waitFor({ timeout: 60_000 });
+    await page.locator(FIELD).waitFor({ timeout: 60_000 });
     if (!NEW_CHAT) await page.locator("[data-row-id]").first().waitFor({ timeout: 60_000 });
-    await page.locator(".acpmux-composer-prompt").click();
+    await page.locator(FIELD).click();
     await page.keyboard.type(PROMPT);
     await page.mouse.move(0, 0);
     await rest(page);
@@ -534,7 +537,7 @@ if (import.meta.main) {
     });
     releases.push(["static server", () => statics.stop(true)]);
     const endpoint = `#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t`;
-    const url = `http://127.0.0.1:${statics.port}/${endpoint}${NEW_CHAT ? `&newtab&cwd=${encodeURIComponent("/home/dev/sun")}` : `&session=${SESSION}`}`;
+    const url = `http://127.0.0.1:${statics.port}/${endpoint}${NEW_TAB ? `&newtab&cwd=${encodeURIComponent("/home/dev/sun")}` : NEW_CHAT ? `&cwd=${encodeURIComponent("/home/dev/sun")}` : `&session=${SESSION}`}`;
 
     let failed = 0;
     const report: Record<string, Round[]> = {};
@@ -570,7 +573,7 @@ if (import.meta.main) {
       const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor((values.length - 1) / 2)]!;
       const stat = (values: number[]) => ({ p50: median(values), p95: Math.max(...values) });
       console.log(
-        `send-status-shift: ${engine}, ${rounds.length} rounds, think ${THINK_MS} ms${NEW_CHAT ? `, new chat, start ${START_MS} ms` : ""} (p50 median, p95 worst)`,
+        `send-status-shift: ${engine}, ${rounds.length} rounds, think ${THINK_MS} ms${NEW_CHAT ? `, new ${NEW_TAB ? "tab" : "chat"}, start ${START_MS} ms` : ""} (p50 median, p95 worst)`,
       );
       console.log(
         "round | jumps | slot resizes | box cls | user ms | live ms | thought ms | first thought ms | elsewhere ms | places | live heights | frame p95 ms",
@@ -584,7 +587,7 @@ if (import.meta.main) {
           `  jump frame ${jump.frame} +${jump.ms} ms ${jump.kind} ${jump.id} dx ${jump.dx} dy ${jump.dy} dh ${jump.dh}`,
         );
       if (process.env.SEND_SHIFT_TRACE) for (const line of rounds.at(-1)!.trace) console.log(`  ${line}`);
-      const name = `ui.transcript.send${NEW_CHAT ? ".new" : ""}${isChromium ? "" : ".webkit"}`;
+      const name = `ui.transcript.send${NEW_TAB ? ".new_tab" : NEW_CHAT ? ".new" : ""}${isChromium ? "" : ".webkit"}`;
       perfRow({
         name: `${name}.jumps`,
         ...stat(rounds.map((r) => r.jumps.length)),
@@ -644,7 +647,7 @@ if (import.meta.main) {
       });
     }
     if (JSON_OUT)
-      fs.writeFileSync(JSON_OUT, JSON.stringify({ thinkMs: THINK_MS, newChat: NEW_CHAT, startMs: START_MS, report }, null, 2));
+      fs.writeFileSync(JSON_OUT, JSON.stringify({ thinkMs: THINK_MS, newChat: NEW_CHAT, newTab: NEW_TAB, startMs: START_MS, report }, null, 2));
     if (failed) process.exitCode = 1;
   } finally {
     await release();

@@ -82,3 +82,36 @@ test("a new turn start alone draws the live turn again", () => {
   const shown = turnViewFrom(rows, new Set(), { now: 200_000, working: true, turnStartedAtMs: 150_000 }, previous);
   expect(shown.rows.find((row) => row.kind === THINKING)?.at).toBe(150_000);
 });
+
+// Leo, 2026-11-09: "we can be a bit more optimistic with, like, the displaying of the thinking ...
+// I only started seeing your thinking bit, like, seven seconds in". A running turn's thought draws
+// from its first words, streaming in its live viewport, not only once the next step ends it.
+test("a running turn draws its thought from its first chunk, then keeps it in the run", () => {
+  const thought = { kind: "thought", text: "Looking for every retry loop", startedAt: 2_000, endedAt: 2_400 };
+  const streaming = turnView(
+    [user(1_000), { id: "act", version: 1, at: 2_000, kind: "activity", items: [thought], streaming: true }],
+    new Set(),
+    { now: 3_000, working: true },
+  );
+  const run = streaming.find((row) => row.id === "act");
+  expect(run?.items?.map((item) => item.text)).toEqual(["Looking for every retry loop"]);
+  expect(run?.live).toBe(true);
+  expect(streaming.at(-1)?.kind).toBe(THINKING);
+  // A call after it ends it: it stays in the run, no longer live; the call in flight is the line's.
+  const call = { kind: "tool", text: "", tool: { id: "t1", title: "rg retry", kind: "execute", status: "in_progress" } };
+  const working = turnView(
+    [user(1_000), { id: "act", version: 2, at: 2_000, kind: "activity", items: [thought, call] }],
+    new Set(),
+    { now: 3_000, working: true },
+  );
+  const after = working.find((row) => row.id === "act");
+  expect(after?.items?.map((item) => item.kind)).toEqual(["thought"]);
+  expect(after?.live).toBeUndefined();
+  // An empty thought chunk draws nothing yet.
+  const empty = turnView(
+    [user(1_000), { id: "act", version: 1, at: 2_000, kind: "activity", items: [{ ...thought, text: " " }] }],
+    new Set(),
+    { now: 3_000, working: true },
+  );
+  expect(empty.some((row) => row.id === "act")).toBe(false);
+});
