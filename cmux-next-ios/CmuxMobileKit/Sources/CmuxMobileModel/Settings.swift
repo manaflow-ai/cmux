@@ -172,7 +172,7 @@ public final class SettingsStore {
         let stored = defaults.object(forKey: "cmuxMobile.settings.terminalFontSize") as? Int ?? Self.defaultTerminalFontSize
         if stored != terminalFontSize { terminalFontSize = stored }
         // A chat's Toggle Prompt Queueing writes the same key (`CmuxMobilePreferences.setQueueing`).
-        let followUp = defaults.string(forKey: "cmuxMobile.settings.followUp").flatMap(FollowUpBehavior.init(rawValue:)) ?? .queue
+        let followUp = defaults.string(forKey: "cmuxMobile.settings.followUp").flatMap(FollowUpBehavior.init(rawValue:)) ?? .steer
         if followUp != self.followUp { self.followUp = followUp }
     }
 
@@ -187,7 +187,7 @@ public final class SettingsStore {
         hapticsEnabled = bool("hapticsEnabled", true)
         terminalFontSize = defaults.object(forKey: "cmuxMobile.settings.terminalFontSize") as? Int ?? Self.defaultTerminalFontSize
         dismissKeyboardAfterSend = bool("dismissKeyboardAfterSend", true)
-        followUp = string("followUp").flatMap(FollowUpBehavior.init(rawValue:)) ?? .queue
+        followUp = string("followUp").flatMap(FollowUpBehavior.init(rawValue:)) ?? .steer
         wrapCode = bool("wrapCode", false)
         keyClicks = bool("keyClicks", true)
         predictiveEcho = bool("predictiveEcho", true)

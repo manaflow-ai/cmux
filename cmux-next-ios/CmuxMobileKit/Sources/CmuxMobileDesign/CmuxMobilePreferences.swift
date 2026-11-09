@@ -56,9 +56,11 @@ public enum CmuxMobilePreferences {
     }
 
     /// Whether a message sent while the agent is still working steers it
-    /// (acpmux `_meta.acpmux.steer`) rather than queueing after the turn.
+    /// (acpmux `_meta.acpmux.steer`) rather than queueing after the turn. It steers unless Queue
+    /// was chosen, as the Mac composer's Return does (Leo, 2026-11-05: "wt* like no these default
+    /// enters became queues?"); an agent that cannot steer still runs it after the turn.
     public static func steersFollowUps(_ defaults: UserDefaults = .standard) -> Bool {
-        defaults.string(forKey: Key.followUp) == steerFollowUp
+        defaults.string(forKey: Key.followUp) != queueFollowUp
     }
 
     /// The Mac's Toggle Prompt Queueing, from a chat: queueing on (a message sent mid-turn waits

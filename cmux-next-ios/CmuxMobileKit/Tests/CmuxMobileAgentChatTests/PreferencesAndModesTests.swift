@@ -67,20 +67,22 @@ import Testing
         #expect(CmuxMobilePreferences.predictiveEcho(defaults) == settings.predictiveEcho)
         #expect(CmuxMobilePreferences.predictiveEcho(defaults))
         #expect(CmuxMobilePreferences.dismissKeyboardAfterSend(defaults) == settings.dismissKeyboardAfterSend)
-        #expect(!CmuxMobilePreferences.steersFollowUps(defaults))
+        // A follow-up steers by default, as the Mac composer's Return does.
+        #expect(settings.followUp == .steer)
+        #expect(CmuxMobilePreferences.steersFollowUps(defaults))
 
         settings.terminalFontSize = 17
         settings.wrapCode = true
         settings.keyClicks = false
         settings.predictiveEcho = false
         settings.dismissKeyboardAfterSend = false
-        settings.followUp = .steer
+        settings.followUp = .queue
         #expect(CmuxMobilePreferences.terminalFontSize(defaults) == 17)
         #expect(CmuxMobilePreferences.wrapCode(defaults))
         #expect(!CmuxMobilePreferences.keyClicks(defaults))
         #expect(!CmuxMobilePreferences.predictiveEcho(defaults))
         #expect(!CmuxMobilePreferences.dismissKeyboardAfterSend(defaults))
-        #expect(CmuxMobilePreferences.steersFollowUps(defaults))
+        #expect(!CmuxMobilePreferences.steersFollowUps(defaults))
 
         settings.terminalFontSize = 99
         #expect(CmuxMobilePreferences.terminalFontSize(defaults) == CmuxMobilePreferences.terminalFontSizes.upperBound)
