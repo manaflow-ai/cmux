@@ -519,6 +519,34 @@ mod tests {
     }
 
     #[test]
+    fn a_move_tried_again_after_its_drafts_were_used_adds_none_back() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join(DIR);
+        for at in 0..STASH_LIMIT as u64 {
+            push(&dir, "new", &format!("moved {at}"), Vec::new(), None, at).unwrap();
+        }
+        // The move wrote the session's stack but its source stayed (a removal that failed).
+        let source = fs::read(chat_path(&dir, "new")).unwrap();
+        let first = move_stack(&dir, "new", "session").unwrap();
+        fs::write(chat_path(&dir, "new"), source).unwrap();
+        // The moved drafts are restored, then five newer ones stashed.
+        for id in &first.ids {
+            assert!(remove(&dir, "session", id).unwrap());
+        }
+        for at in 0..STASH_LIMIT as u64 {
+            push(&dir, "session", &format!("newer {at}"), Vec::new(), None, 10 + at).unwrap();
+        }
+        // Tried again, the move brings none of the used drafts back and lets no newer one go.
+        let again = move_stack(&dir, "new", "session").unwrap();
+        assert_eq!(again.count, 0);
+        assert_eq!(again.ids, first.ids);
+        let texts: Vec<String> =
+            load(&chat_path(&dir, "session")).unwrap().into_iter().map(|d| d.text).collect();
+        assert_eq!(texts, ["newer 4", "newer 3", "newer 2", "newer 1", "newer 0"]);
+        assert!(!chat_path(&dir, "new").exists());
+    }
+
+    #[test]
     fn a_move_at_the_chat_limit_loses_no_draft_of_the_new_chat() {
         let home = tempfile::tempdir().unwrap();
         let dir = home.path().join(DIR);
