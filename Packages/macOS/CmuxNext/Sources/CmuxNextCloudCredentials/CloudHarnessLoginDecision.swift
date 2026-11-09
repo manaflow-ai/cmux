@@ -180,8 +180,9 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
     /// A start onto `warmCopy`'s machine first waits for a spare warm's copy there only when its verdict races it
     /// (``Verdict/warmCopyConflict``; Rust's `wait-copy` keeps the copy in flight).
     public mutating func readGuest(exec: @escaping @Sendable (String) async -> String?, pause: @escaping @Sendable () async throws -> Void,
-                                   budget: Duration = CloudCredentialTransfer.guestCheckBudget, warmCopy: (cli: CloudMoveCLI, machine: String)? = nil) async throws {
+                                   budget: Duration = CloudCredentialTransfer.guestCheckBudget, warmCopy: (cli: CloudMoveCLI, machine: String, claims: CloudClaimedCopyRegistrations?)? = nil) async throws {
         if let warmCopy, verdict.step != .refuse, verdict.warmCopyConflict == true, let provider = verdict.transferProvider {
+            await warmCopy.claims?.registered(warmCopy.machine) // a claim's copy is in flight before the wait asks
             await warmCopy.cli.startChatWaitCopy(machine: warmCopy.machine, provider: provider.rawValue)
         }
         try await readGuest(exec: exec, pause: pause, budget: budget, clock: ContinuousClock())
@@ -193,11 +194,12 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
     /// (`warmCopy`, ``Verdict/warmCopyConflict``) reads the login only once that copy ended, since the copy is
     /// what it would read; its guest read does not wait. Nothing runs unless ``readsMachine``.
     public mutating func readMachine(exec: @escaping @Sendable (String) async -> String?, pause: @escaping @Sendable () async throws -> Void,
-                                     warmCopy: (cli: CloudMoveCLI, machine: String)? = nil,
+                                     warmCopy: (cli: CloudMoveCLI, machine: String, claims: CloudClaimedCopyRegistrations?)? = nil,
                                      login: @escaping @Sendable () async -> (probe: MachineProbe?, cached: Bool)) async throws {
         let verdict = self.verdict
         try await readMachine(exec: exec, pause: pause, clock: ContinuousClock(), login: login) {
             guard let warmCopy, verdict.step != .refuse, verdict.warmCopyConflict == true, let provider = verdict.transferProvider else { return }
+            await warmCopy.claims?.registered(warmCopy.machine) // a claim's copy is in flight before the wait asks
             await warmCopy.cli.startChatWaitCopy(machine: warmCopy.machine, provider: provider.rawValue)
         }
     }
