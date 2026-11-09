@@ -225,10 +225,18 @@ jobs:
         with:
           bun-version: "1.4.4"
 
+      - name: Cache Bun package cache
+        if: ${{ needs.plan.outputs.web == 'true' }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          restore-keys: |
+            bun-webviews-${{ runner.os }}-${{ runner.arch }}-
       - name: Install the webviews dependencies
         if: ${{ needs.plan.outputs.web == 'true' }}
         working-directory: webviews
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/.car-guard-tools/scripts/ci/bun-install.sh" --frozen-lockfile
 
       - name: Init the ghostty-next submodule (libghostty-vt for cmux-tui-core)
         if: ${{ needs.plan.outputs.rust == 'true' }}

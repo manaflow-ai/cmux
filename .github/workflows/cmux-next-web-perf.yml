@@ -43,6 +43,19 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
           submodules: false
+      # Bun waits on a registry connection that stops answering with no limit of its own; scripts/ci/bun-install.sh
+      # bounds it. This job's checkout may predate the script, so it comes from this workflow's own commit.
+      - name: Check out the bounded bun install
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .bun-install-tools
+          persist-credentials: false
+          sparse-checkout: scripts/ci/bun-install.sh
+          sparse-checkout-cone-mode: false
+      - name: Keep the bounded bun install outside the checkout
+        working-directory: .
+        run: mv .bun-install-tools/scripts/ci/bun-install.sh "$RUNNER_TEMP/bun-install.sh" && rm -rf .bun-install-tools
 
       - name: Verify exact head and fetch base identity
         run: |
@@ -70,7 +83,7 @@ jobs:
 
       - name: Install webviews dependencies
         working-directory: webviews
-        run: bun install --frozen-lockfile
+        run: bash "$RUNNER_TEMP/bun-install.sh" --frozen-lockfile
 
       - name: Cache Playwright apt packages
         uses: ./.github/actions/playwright-apt-cache

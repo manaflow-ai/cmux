@@ -117,6 +117,19 @@ jobs:
             /*
             !/cmux-next-ios/verify/
           persist-credentials: false
+      # Bun waits on a registry connection that stops answering with no limit of its own; scripts/ci/bun-install.sh
+      # bounds it. This job's checkout may predate the script, so it comes from this workflow's own commit.
+      - name: Check out the bounded bun install
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .bun-install-tools
+          persist-credentials: false
+          sparse-checkout: scripts/ci/bun-install.sh
+          sparse-checkout-cone-mode: false
+      - name: Keep the bounded bun install outside the checkout
+        working-directory: .
+        run: mv .bun-install-tools/scripts/ci/bun-install.sh "$RUNNER_TEMP/bun-install.sh" && rm -rf .bun-install-tools
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -151,7 +164,7 @@ jobs:
           git diff --name-only "$base_sha" HEAD > "$RUNNER_TEMP/changed.txt"
 
           cd webviews
-          bun install --frozen-lockfile
+          bash "$RUNNER_TEMP/bun-install.sh" --frozen-lockfile
           bun scripts/gallery/touched.ts --changed "$RUNNER_TEMP/changed.txt" --out "$RUNNER_TEMP/touched.json"
           select="$GITHUB_WORKSPACE/scripts/ci/gallery_select.py"
           # The touched entries plus any the PR body's `Gallery:` line names.
@@ -172,7 +185,7 @@ jobs:
           git worktree add --detach "$RUNNER_TEMP/base" "$base_sha"
           if [ -f "$RUNNER_TEMP/base/webviews/vite.config.gallery.ts" ] && [ -f "$RUNNER_TEMP/base/webviews/scripts/gallery/manifest.ts" ]; then
             cd "$RUNNER_TEMP/base/webviews"
-            bun install --frozen-lockfile
+            bash "$RUNNER_TEMP/bun-install.sh" --frozen-lockfile
             bun scripts/gallery/manifest.ts --entries "$ids" --themes pair --widths narrow \
               --frame component --out "$RUNNER_TEMP/base-all.json"
             CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-base" bun run gallery:build
@@ -190,7 +203,7 @@ jobs:
           cp "$RUNNER_TEMP/selection.json" "$evidence/selection.json"
 
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
-          bun install --frozen-lockfile
+          bash "$RUNNER_TEMP/bun-install.sh" --frozen-lockfile
           "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
           # Each stage renders its own states: a state the PR adds has no base
           # variant to render (the base reports it not ready), and one it removes
@@ -261,7 +274,7 @@ jobs:
             exit 1
           fi
           cd scripts/gallery-matrix
-          [ -d node_modules ] || bun install --frozen-lockfile
+          [ -d node_modules ] || bash "$RUNNER_TEMP/bun-install.sh" --frozen-lockfile
           bun test frames.test.ts
           # The head's frames decide; only a PR that removes every sampled state
           # (an empty head sample) is judged on its base frames.

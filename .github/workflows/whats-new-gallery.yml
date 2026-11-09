@@ -81,6 +81,14 @@ jobs:
         with:
           engines: chromium
 
+      - name: Cache Bun package cache
+        if: ${{ steps.plan.outputs.count != '0' }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-gallery-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'scripts/gallery-matrix/bun.lock') }}
+          restore-keys: |
+            bun-gallery-${{ runner.os }}-${{ runner.arch }}-
       - name: Render the gallery states
         if: ${{ steps.plan.outputs.count != '0' }}
         env:
@@ -92,7 +100,7 @@ jobs:
           mkdir -p "$out"
           cp "$RUNNER_TEMP/plan.json" "$out/plan.json"
           cd webviews
-          bun install --frozen-lockfile
+          bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
           # No ENTRIES: a state is still to be picked, from every entry's cases.
           bun scripts/gallery/manifest.ts ${ENTRIES:+--entries "$ENTRIES"} --themes pair --widths normal \
             --frame component --out "$RUNNER_TEMP/cases.json"
@@ -102,7 +110,7 @@ jobs:
           python3 ../scripts/cmux-next/media/whats-new-gallery.py manifest --plan "$out/plan.json" \
             --cases "$RUNNER_TEMP/cases.json" --notes "$RUNNER_TEMP/notes.json" --out "$RUNNER_TEMP/manifest.json"
           CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
-          (cd ../scripts/gallery-matrix && bun install --frozen-lockfile)
+          (cd ../scripts/gallery-matrix && bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile)
           "$GITHUB_WORKSPACE/scripts/ci/ensure-system-chrome.sh"
           render() {
             # A failed play check still writes its picture; publish skips a state with none.
@@ -120,7 +128,7 @@ jobs:
               git -C "$GITHUB_WORKSPACE" worktree add --no-checkout --detach "$at" "$parent" &&
               git -C "$at" sparse-checkout set --no-cone '/*' '!/cmux-next-ios/verify/' &&
               git -C "$at" reset -q --hard &&
-              (cd "$at/webviews" && bun install --frozen-lockfile &&
+              (cd "$at/webviews" && bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile &&
                 bun scripts/gallery/manifest.ts --themes pair --widths normal --frame component \
                   --out "$RUNNER_TEMP/cases-$parent.json") &&
               python3 "$GITHUB_WORKSPACE/scripts/cmux-next/media/whats-new-gallery.py" manifest --plan "$out/plan.json" \

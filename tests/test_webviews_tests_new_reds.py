@@ -474,7 +474,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("react-apps-base-check:", text)
         base = text[text.index("  react-apps-base-check:"):text.index("  runners:")]
         # The base builds with its own declared bun, before it installs anything.
-        self.assertLess(base.index("run: scripts/cmux-next/private-bun.sh"), base.index("bun install --frozen-lockfile"))
+        self.assertLess(base.index("run: scripts/cmux-next/private-bun.sh"), base.index("scripts/ci/bun-install.sh\" --frozen-lockfile"))
         self.assertIn("actions/download-artifact@", text)
         # The head's comparison and flake history, which its shard publishes beside its runner.
         self.assertIn('python3 "$runner/guards_new_reds.py" --label "Webview test" --flaky "$flaky"', text)
@@ -498,7 +498,7 @@ class Workflow(unittest.TestCase):
         self.assertNotIn("ref:", checkout)
         detach = base.index("          git checkout -q --detach HEAD^1\n")
         self.assertLess(detach, base.index("run: scripts/cmux-next/private-bun.sh"))
-        self.assertLess(detach, base.index("bun install --frozen-lockfile"))
+        self.assertLess(detach, base.index("scripts/ci/bun-install.sh\" --frozen-lockfile"))
 
     def test_a_green_head_shard_skips_the_base_replay_setup(self):
         """A head shard with no red has nothing to replay, yet each base job installed, built the base

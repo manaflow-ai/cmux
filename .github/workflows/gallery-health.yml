@@ -288,6 +288,13 @@ jobs:
         with:
           engines: chromium
 
+      - name: Cache Bun package cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-gallery-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'scripts/gallery-matrix/bun.lock') }}
+          restore-keys: |
+            bun-gallery-${{ runner.os }}-${{ runner.arch }}-
       - name: Choose the entries to render
         id: entries
         env:
@@ -296,7 +303,7 @@ jobs:
         run: |
           set -euo pipefail
           cd webviews
-          bun install --frozen-lockfile
+          bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
           if [ "$EVENT" = pull_request ]; then
             # The merge's first parent is the base it was merged with: the diff is the pull request's change.
             git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
@@ -335,7 +342,7 @@ jobs:
         working-directory: scripts/gallery-matrix
         run: |
           set -euo pipefail
-          bun install --frozen-lockfile
+          bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
           "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
 
       # A red here is judged state by state against the base in the next step, so the step goes on.
@@ -401,7 +408,7 @@ jobs:
           # Everything but the checker goes back to the base, so only the webviews tree differs.
           git restore --source="$BASE_SHA" --staged --worktree -- . ':(exclude)scripts/gallery-matrix'
           cd webviews
-          bun install --frozen-lockfile
+          bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
           bun scripts/gallery/manifest.ts --frame component --entries "$entries" --out "$RUNNER_TEMP/base-entries.json"
           # Every case (theme, width) of each red state, and nothing else. A state the base does not have
           # renders nothing there, so the classifier calls it the head's own.

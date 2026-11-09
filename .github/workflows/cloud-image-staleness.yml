@@ -41,7 +41,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-      - run: bun install --frozen-lockfile
+      - run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
       - name: Compare the channel images with the tip's capabilities
         id: staleness
         continue-on-error: true
