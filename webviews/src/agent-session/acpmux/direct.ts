@@ -130,6 +130,8 @@ import { withoutRelayEnvelope, withoutRelayLabel, withoutRelayLabelOfMessage } f
 import { bareSender, provenanceAuthenticated } from "./conversation/senderIdentity";
 import { recapDismissed, rememberRecapDismissed } from "./conversation/recapDismissed";
 import { startedCardsShown } from "./started/startedSessions";
+import { PLAN_BUILD_KIND } from "./planBuild/planBuild";
+import { PlanBuildRows } from "./planBuild/planBuildRows";
 import { OfferChildren } from "./offer/offerChildren";
 import type { OfferPicks } from "./offer/offerChoice";
 import { errorMessage, startCancelled } from "./transportErrors";
@@ -148,7 +150,12 @@ import { harnessModeName, highestMode } from "./harnessModes";
 import { insertRunChange, type RunChange, sessionStartOf } from "./conversation/sessionStart";
 import { reduceAgentPair } from "./conversation/agentPairs";
 import { pasteRanges } from "./conversation/promptCollapse";
-import { BACKGROUND_TURN, backgroundTurnRecord, backgroundTurnRowId } from "./conversation/backgroundTurns";
+import {
+  BACKGROUND_TURN,
+  backgroundTurnRecord,
+  backgroundTurnRowId,
+  isReactionNote,
+} from "./conversation/backgroundTurns";
 import { backgroundReactionLook, reactsOnCall } from "./conversation/backgroundReaction.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
@@ -170,6 +177,7 @@ import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIco
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
 import { STALL_CHECK_MS, stallLine, stallTiming } from "./stallLog";
 import { hostTurn, hostTurnState } from "./hostTurnState";
+import type { PlanBuildReply, PlanBuildTarget, PlanCompareReply } from "./permissions/planBuild";
 import {
   MEMORY_OFFER,
   memoryOfferFromRecord,
@@ -2499,6 +2507,8 @@ export class AcpmuxDirectClient {
   private subagentStops = subagentStops();
   /// Subagents and their records, which draw as group rows (subagents/subagentFold.ts).
   private subagents = new SubagentFold(this.subagentStops);
+  /// The plan build cards' rows and which build each of their chats is (planBuild/planBuildRows.ts).
+  private planBuilds = new PlanBuildRows();
   private readonly listener: Listener;
   private host: AcpmuxHostConfig;
   /// A purge in flight owns the selected session's disappearance; do not replace it with another
@@ -3265,6 +3275,7 @@ export class AcpmuxDirectClient {
     // A page still in flight belongs to the session before; it is dropped when it lands.
     this.loadingOlder = undefined;
     this.rows.clear();
+    this.planBuilds.clear();
     this.memoryEarly.clear();
     this.queueAuthors.clear();
     this.queueEdited.clear();
@@ -6601,15 +6612,29 @@ export class AcpmuxDirectClient {
 
   /// A background turn that ended: its reply goes onto the call its reaction is on, when the turn
   /// folds it (a silent one, or a quiet one); a reply with something to say draws as a message.
+  /// Only a short quiet note goes onto the call: a reply with more to say is the main agent's own turn
+  /// (`ownTurn`), drawn at the reply column with its own footer, never as the call's or the
+  /// subagent's words (Leo, 2026-11-08: "the text in this situation isn't from the subagent?", on
+  /// three later turns of the chat's replies drawn as one block under "Subagent finished").
   private settleReaction(turn: string): void {
     const origin = this.reactionOrigins.get(turn);
-    const reaction = origin === undefined ? undefined : this.reactions.get(origin)?.reaction;
-    if (!origin || reaction?.turn !== turn) return;
-    const line = this.rows.get(backgroundTurnRowId(turn))?.background;
-    if (line?.quiet !== true && reaction.weight !== "silent") return;
-    // An earlier end of the same call left its words (`attachReaction` carried them): these follow.
+    if (!origin) return;
+    const id = backgroundTurnRowId(turn);
+    const row = this.rows.get(id);
+    const line = row?.background;
+    if (!row || !line || (line.quiet !== true && line.cause?.weight !== "silent")) return;
     const reply = this.rows.backgroundReply(turn);
-    if (reply) this.react(origin, { ...reaction, text: reaction.text ? `${reaction.text}\n\n${reply}` : reply });
+    if (!reply) return;
+    // acpmux calls it quiet (one short line, nothing new); the length is the pane's own floor.
+    if (line.quiet !== true || !isReactionNote(reply)) {
+      if (!line.ownTurn)
+        this.rows.set(id, { ...row, version: row.version + 1, background: { ...line, ownTurn: true } });
+      return;
+    }
+    const reaction = this.reactions.get(origin)?.reaction;
+    if (reaction?.turn !== turn) return;
+    // An earlier end of the same call left its words (`attachReaction` carried them): these follow.
+    this.react(origin, { ...reaction, text: reaction.text ? `${reaction.text}\n\n${reply}` : reply });
   }
 
   /// Puts `reaction` on call `origin`: an activity row's tool call, or the subagent it started
@@ -7217,6 +7242,9 @@ export class AcpmuxDirectClient {
         // acpmux's step of a subagent's retry: whether it gave up (subagents/retryState.ts).
         this.subagents.reduceRetryStep(msg);
         this.takeSubagentRows();
+      } else if (event.kind === PLAN_BUILD_KIND) {
+        // A plan approval's builds (acpmux hub/plan_build.rs): their card, where it was approved.
+        this.planBuilds.reduce(this.rows, event, msg);
       } else if (event.kind === "subsession" && msg.event === "limits") {
         // The chat's running limit changed: its summary's, not a child's card.
         this.reduceLiveState(event);
@@ -7224,6 +7252,8 @@ export class AcpmuxDirectClient {
         // A child an `acpmux run --parent` call of this chat started (acpmux #25019): that call's
         // run, whose card stands for the call's row from now on.
         this.subagents.harness = this.summary?.harness;
+        // A plan build's chat: its card's column says where it stands.
+        this.planBuilds.child(this.rows, msg);
         const call = this.subagents.reduceChild(event, msg);
         if (call) this.dropToolItem(call);
         this.takeSubagentRows();
@@ -10039,6 +10069,37 @@ export class AcpmuxDirectClient {
       ...gestureMeta(ticket),
     });
   }
+  /// Builds a plan the chat's plan approval asks about (`_acpmux/plan/build`): `here` approves it
+  /// in this chat; `worktree` and `compare` start it in new worktrees as sub-sessions (one, or one
+  /// per harness) and answer the ask so this chat stays free. Takes a gesture ticket for that
+  /// exact build, as an answer does.
+  async planBuild(permissionId: string, target: PlanBuildTarget, session?: string): Promise<PlanBuildReply> {
+    const sessionId = session ?? this.actingSessionId;
+    // l10n-allow: refuses the card's answer so it stays answerable; never shown.
+    if (!sessionId) throw new Error("no chat to build in");
+    const params = { sessionId, permissionId, target };
+    const ticket = await postNative<{ ticket?: string }>("transport.gesture", {
+      intent: { method: "_acpmux/plan/build", params },
+    }).then(
+      (reply) => reply?.ticket,
+      () => undefined,
+    );
+    return (await this.request("_acpmux/plan/build", { ...params, ...gestureMeta(ticket) })) as PlanBuildReply;
+  }
+  /// A plan build's runs side by side (`_acpmux/plan/compare`): each one's state and diff.
+  async planCompare(buildId: string, session?: string): Promise<PlanCompareReply> {
+    const sessionId = session ?? this.actingSessionId;
+    // l10n-allow: a refusal the compare card shows as its error; never a label.
+    if (!sessionId) throw new Error("no chat to compare in");
+    return (await this.request("_acpmux/plan/compare", { sessionId, buildId })) as PlanCompareReply;
+  }
+  /// Keeps one run of a plan build (`_acpmux/plan/keep`): its branch stays, the others are archived.
+  async planKeep(buildId: string, keep: string, session?: string): Promise<PlanCompareReply> {
+    const sessionId = session ?? this.actingSessionId;
+    // l10n-allow: a refusal the compare card shows as its error; never a label.
+    if (!sessionId) throw new Error("no chat to keep a build in");
+    return (await this.request("_acpmux/plan/keep", { sessionId, buildId, keep })) as PlanCompareReply;
+  }
   /// Answers a secret card: `value` provides it (acpmux keeps it in memory and gives the agent a
   /// one-use ref), none declines. The wire log never holds the value (wire.ts).
   async secret(secretId: string, value?: string): Promise<void> {
@@ -11235,6 +11296,25 @@ export class AcpmuxDirectClient {
     // No id: the caller says the side session did not start, without a reason it does not have.
     if (typeof result?.sessionId !== "string" || !result.sessionId) throw new Error("");
     return result.sessionId;
+  }
+  /// This machine's agent spend for History > Costs (`_acpmux/ledger`, ledger/ledgerModel.ts): read
+  /// from acpmux's ledger index, never a log scan. An older acpmux answers method not found.
+  async ledger(params: Record<string, unknown>): Promise<unknown> {
+    return this.request("_acpmux/ledger", params, 15_000);
+  }
+  /// Every ask waiting on the person across agents and machines, for History > Waiting on you
+  /// (`_acpmux/review_queue`, queue/queueModel.ts).
+  async reviewQueue(params: Record<string, unknown> = {}): Promise<unknown> {
+    return this.request("_acpmux/review_queue", params, 15_000);
+  }
+  /// A pull request item's Accept or Request changes (`_acpmux/review_verdict`). Sent on the click
+  /// or key with no await before it: the relay takes a verdict only on the person's gesture.
+  async reviewVerdict(params: Record<string, unknown>): Promise<unknown> {
+    return this.request("_acpmux/review_verdict", params, 15_000);
+  }
+  /// One page of the approvals audit trail (`_acpmux/audit`): `{entries, next?}`.
+  async audit(params: Record<string, unknown> = {}): Promise<unknown> {
+    return this.request("_acpmux/audit", params, 15_000);
   }
   /// The chat's effective prompt context for the Context screen (`_acpmux/context`, acpmux
   /// context_inventory.rs): what cmux adds in full, the harness's own parts as counts.
