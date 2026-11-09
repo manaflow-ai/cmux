@@ -4,6 +4,7 @@
 // (a build error, which Vite's overlay shows). Runs the inlined source, as the page gets it.
 import { describe, expect, test } from "bun:test";
 import { Window } from "happy-dom";
+import { devEntrySrc } from "../dev-server/devEntrySrc";
 import { LIVE_RECOVERY, liveRecoveryScript } from "../dev-server/liveRecovery";
 import { directStylesheetLink } from "../dev-server/plugins";
 
@@ -123,5 +124,17 @@ describe("a page's stylesheet link", () => {
     expect(directStylesheetLink('<link rel="stylesheet" href="./x.css?v=1">')).toBe(
       '<link rel="stylesheet" href="./x.css?v=1">',
     );
+  });
+});
+
+describe("an injected dev script's URL", () => {
+  // Chief web serves at /c/ from src/chief-web: without the base, its server answered the guard's
+  // own note module 404 and the guard reloaded the page as if the server had stopped.
+  test("is under the server's base, through /@fs outside its root", () => {
+    expect(devEntrySrc({ root: "/w/src/chief-web", base: "/c/" }, "/w/src/devkit/liveNote.dev.ts")).toBe(
+      "/c/@fs/w/src/devkit/liveNote.dev.ts",
+    );
+    expect(devEntrySrc({ root: "/w", base: "/" }, "/w/src/devkit/liveNote.dev.ts")).toBe("/src/devkit/liveNote.dev.ts");
+    expect(devEntrySrc({ root: "/w", base: "./" }, "/w/a.ts")).toBe("/a.ts");
   });
 });

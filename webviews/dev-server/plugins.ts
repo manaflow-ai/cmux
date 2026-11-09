@@ -78,6 +78,7 @@ import {
 } from "./markdownHost";
 import { galleryHost, galleryModules } from "./galleryHost";
 import { perfLintOnSave } from "./perfLint";
+import { devEntrySrc } from "./devEntrySrc";
 import { liveRecoveryScript } from "./liveRecovery";
 import { viteCacheDir } from "./viteCacheDir.mjs";
 
@@ -119,11 +120,7 @@ export function perfBudgetsDevEntry(): Plugin {
     name: "cmux-dev-perf-budgets",
     apply: "serve",
     configResolved(config) {
-      const relative = path.relative(config.root, entry);
-      src =
-        relative.startsWith("..") || path.isAbsolute(relative)
-          ? `/@fs${entry}`
-          : `/${relative.split(path.sep).join("/")}`;
+      src = devEntrySrc(config, entry);
     },
     transformIndexHtml() {
       if (process.env.CMUX_PERF_BUDGETS === "off") return [];
@@ -142,11 +139,7 @@ export function liveRecoveryDevEntry(): Plugin {
     name: "cmux-dev-live-recovery",
     apply: "serve",
     configResolved(config) {
-      const relative = path.relative(config.root, entry);
-      src =
-        relative.startsWith("..") || path.isAbsolute(relative)
-          ? `/@fs${entry}`
-          : `/${relative.split(path.sep).join("/")}`;
+      src = devEntrySrc(config, entry);
     },
     transformIndexHtml() {
       return [
