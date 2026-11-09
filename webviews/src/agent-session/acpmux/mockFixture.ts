@@ -1073,10 +1073,10 @@ export function sessionSummary(session: MockSession, now: number, turnCount: num
 }
 
 /// Listed session `index` of a large list (bench/update-one.bench.ts): an idle finished chat with a
-/// title, a status dot and a cost, no history; every tenth one unread. Five wait on the person at any
-/// size, so a list's content stays the same as it grows and only its length changes.
+/// title, a status dot and a cost, no history; every tenth one unread. Five wait on the person at every
+/// size from 100 (the first hundred hold them), so the lists the home draws stay the same as it grows.
 export function listedSession(index: number, now: number): Record<string, unknown> {
-  const waiting = index < 250 && index % 50 === 7;
+  const waiting = index < 100 && index % 20 === 7;
   return {
     ...newSessionSummary(`listed-${index}`, `~/code/listed-${index % 40}`, now - (index + 10) * 60_000),
     title: `Listed chat ${index}`,
