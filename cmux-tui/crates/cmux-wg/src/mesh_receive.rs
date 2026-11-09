@@ -83,7 +83,7 @@ impl MeshDriver {
             return None;
         }
         if !retired {
-            self.table.move_to_current(&key, tokio::time::Instant::now());
+            self.table.move_to_current(&key, Instant::now());
         }
         Some(key)
     }
