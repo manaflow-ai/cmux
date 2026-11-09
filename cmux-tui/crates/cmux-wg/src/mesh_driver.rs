@@ -482,7 +482,7 @@ impl MeshDriver {
                 let _ = reply.send(self.table.get_mut(&public_key).map(|peer| peer.paths.views()));
             }
             MeshCommand::ProbeCurrent { public_key, reply } => {
-                self.probe_current(public_key, reply)
+                self.probe_current(public_key, reply);
             }
             MeshCommand::Connect { remote, reply } => self.begin_connect(remote, reply),
             MeshCommand::Listen { port, reply } => {
