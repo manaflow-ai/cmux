@@ -946,10 +946,19 @@ command goes on). The result is the `workspace create` result plus
 --remove-worktree [--discard]` runs `git worktree remove` of the workspace's
 agent folder when it has one, else of the worktree its current terminal works
 in (`--workspace <ws>`; the main checkout is never removed), then closes the
-workspace, then ends each terminal whose every tab was in it (they worked in
-the removed folder); a refused remove closes nothing. The result is the close
-result plus `worktree`, the removal, and `ended_terminals`, the terminals it
-ended (one it could not end is left to the reaper). Each step has its own key derived from `--idempotency-key` (made
+workspace, then ends each running terminal that had a tab in it and has none
+after the close (they worked in the removed folder); a refused remove closes
+nothing. Each end is `terminal.close` with `if_unplaced`, so the session
+leaves a terminal running that is marked keep, is attached or got a tab since.
+The daemon that receives the close (the same route, also with `--machine`)
+decides: a build older than `terminal-close-if-unplaced-v1` refuses the field
+as an unknown parameter, and only then the command sends the plain
+`terminal.close`, which also ends a kept or attached terminal. Any other
+failure leaves that terminal to the reaper.
+The caller's own terminal (`CMUX_TUI_TERMINAL_ID`) is not ended: the reply and
+the exit code go there, and the reaper ends it after its grace. The result is
+the close result plus `worktree`, the removal, and `ended_terminals`, the
+terminals it ended (one it did not end is left to the reaper). Each step has its own key derived from `--idempotency-key` (made
 when absent), so retrying the whole command replays the steps that ran; a
 failed step's error names `step`, the command's `idempotency_key` and what
 the steps before it `made`.
@@ -1366,10 +1375,31 @@ input box shows, is `blocked` with `dialog` (`folder_trust`,
 `update_prompt`) and a `reason`; a fresh hook record that says `blocked` is
 `agent_question`. Otherwise a fresh hook record that says idle (the
 `SessionStart` hook) or the agent's input box on screen is `ready`. Both count
-only once the screen stood still for 1 s. cmux never answers a dialog.
+only once the screen stood still for 1 s. cmux never answers a dialog. A
+blocked result also has the dialog's numbered `options` (`{number, label,
+selected}`) read from the screen; for `folder_trust` it has `accept_keys`, the
+keys that pick the trust option (for example `["down", "enter"]`), and
+`accept_label`, the label of the option those keys pick. The `reason` names
+the agent's terminal and says to ask the person and, when they agree to that
+label, run `cmux terminal <name> keys` with the keys (Enter alone can pick
+"No, exit" and end the agent). When the label also lets the agent act without
+asking for approval ("without asking", "bypass", "full access", ...), the
+reason adds a warning to tell the person. The reason is localized (English
+and Japanese).
 
-`--json` prints `{name, state, reason, dialog, harness, launcher, args, cwd,
-placement, workspace_id, screen_id, pane_id, tab_id, terminal_id, waited_ms}`.
+The new agent's pane splits the caller's pane (or the `--pane` pane) and takes
+its width only from that pane: every pane that existed before keeps its width
+(or height for a vertical row), so a person's 0.7 column stays 0.7. The agent
+panes next to the new one in that row (panes whose tabs' terminals all have
+the snapshot's `extra.agent_start` mark and still run; a tab's name does not
+count, and an exited agent kept with `--on-exit keep` keeps its width) then
+share their space equally, so the third agent of a row is not an
+eighth of it.
+
+`--json` prints `{name, state, reason, dialog, options, accept_keys,
+accept_label, harness, launcher, args, cwd, placement, workspace_id, screen_id,
+pane_id, tab_id, terminal_id, waited_ms}` (`options`, `accept_keys` and
+`accept_label` only when blocked on a dialog that shows them).
 `state` is `ready` (exit 0), `blocked` (exit 4), `timeout` (exit 124, default
 `--timeout` 90s), `exited` (exit 1) or `started` with `--no-wait` (exit 0).
 `harness` uses the one vocabulary of `terminal list --agents`.
@@ -1388,7 +1418,10 @@ arguments as separate argv words: `claude --resume <id>`, `codex resume <id>`,
 when no record does. The agent reopens in the exited tab's pane unless `--pane`
 or `--split` say otherwise, with the old tab's name and folder; the exited tab
 is closed. The output adds `resumed: {terminal_id, tab_id, agent_session_id,
-tab_closed}`.
+tab_closed}`. An exited terminal whose tab was closed has no placement, so an
+owner with a reaper (every owner a client starts: 30 s unless the client names
+another grace) ends it after the grace; resume it within that time, or keep it
+first (`terminal <t> keep on`).
 
 `terminal <sel> wait --until ready` is the same wait for any terminal (agent
 records of any age count). `ready` and `blocked` print `{terminal_id, until,

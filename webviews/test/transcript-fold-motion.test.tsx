@@ -380,7 +380,7 @@ test("the fold token is the settle (one curve for every web fold), and the chevr
     "utf8",
   );
   expect(FOLD_DURATION_VAR).toBe("--cv-fold-duration");
-  expect(css).toMatch(/--cv-fold-duration:\s*var\(--cmux-motion-settle,\s*265ms\)/);
+  expect(css).toMatch(/--cv-fold-duration:\s*var\(--cmux-motion-settle,\s*180ms\)/);
   expect(css).toMatch(/--cv-fold-ease:\s*var\(--cmux-ease-settle,\s*cubic-bezier\(0\.16, 1, 0\.3, 1\)\)/);
   expect(css).toMatch(/\.cv-rotor\s*\{\s*transition:\s*transform var\(--cv-fold-duration\) var\(--cv-fold-ease/);
   // The chevron snaps under Reduce Motion: its transition is only under no-preference.

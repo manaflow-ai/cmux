@@ -10,11 +10,13 @@ import CmuxNextComputerUse
 enum ComputerUseHandlers {
     static func bind(into registry: ActionRegistry, sessions: any ComputerUseSessionControlling, focus: any ComputerUseFocusing) {
         func work(_ id: ActionID, _ body: @escaping @MainActor (ComputerUseLiveSession) async throws -> Void) {
-            registry.bind(id, run: { _ in
+            registry.bind(id, run: { invocation in
+                // A row's drive indicator passes its agent's `terminals` (comma-separated): their session goes first.
+                let terminals = Set((invocation.arguments["terminals"]?.stringValue ?? "").split(separator: ",").map(String.init))
                 // task-owner: the action run; a capturing caller (CLI, MCP) awaits it through the registry.
                 registry.track(Task { @MainActor in
                     do {
-                        guard let newest = try await sessions.liveSessions().max(by: { $0.lastActionAt < $1.lastActionAt }) else {
+                        guard let newest = try await ComputerUseLiveSession.pick(sessions.liveSessions(), terminals: terminals) else {
                             throw ComputerUseSessionError.failed(ComputerUseSessionStrings.noLiveSession)
                         }
                         try await body(newest)

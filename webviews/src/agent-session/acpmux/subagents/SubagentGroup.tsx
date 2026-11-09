@@ -29,6 +29,7 @@ import {
   useNow,
   STACK,
 } from "./subagentGroupModel";
+import { Clock } from "../../../ui/Typography";
 
 /// A subagent's avatar: the subagent mark in the agent's tone (another family's harness mark,
 /// AgentIdentity.tsx `foreignHarness`), and its place in the running wave
@@ -100,7 +101,7 @@ export function SubagentGroupHeader({
       <span className="cv-subagents__text">
         <span className="cv-subagents__title">{groupLabel(t, language, agents)}</span>
       </span>
-      <span className="cv-subagents__time">{formatDuration(groupElapsed(agents, now))}</span>
+      <Clock className="cv-subagents__time" text={formatDuration(groupElapsed(agents, now))} />
       <Icon name={expanded ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
     </button>
   );
@@ -134,7 +135,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
         <span className="cv-subagent__name">{subagentDisplayName(t, agent)}</span>
         <span className="cv-subagent__state">{state}</span>
       </span>
-      <span className="cv-subagent__time">{formatDuration(elapsed(agent, now))}</span>
+      <Clock className="cv-subagent__time" text={formatDuration(elapsed(agent, now))} />
     </>
   );
   const kind = agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined;

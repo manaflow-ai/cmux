@@ -769,9 +769,13 @@ button.cv-subagent > :last-child {
   font-variant-numeric: tabular-nums;
 }
 /* Folded, the header names what runs (trayFoldHead.experiment.ts); the rest are a count that, like
-   the time, never truncates: the names give way first. */
+   the time, never truncates: the names give way first. It finishes the names' phrase, so it sits one
+   word space after them, and the time one full gap later: the spacing groups "names +3 more" apart
+   from "5m 41s" instead of three equal segments (Leo, 2026-11-09, on the hat's "+3 more  5m 41s").
+   The same -4px as the failed count's. */
 .acpmux-running-tray__more {
   flex: none;
+  margin-inline-start: -4px;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -803,6 +807,15 @@ button.cv-subagent > :last-child {
   flex: 1 0 auto;
   text-align: left;
   white-space: nowrap;
+}
+/* The header's time keeps room for any time under an hour ("59m 59s", tabular figures), so a tick
+   into a wider form ("59s" to "1m 1s") changes its text alone: the names, the count and the marks
+   before it never cut shorter or step aside (a DEV-build capture, 2026-11-09; Leo: "im still
+   sometimes seeing a flicker on the composer/composer hat when scrolling and things are running in
+   background aka time is ticking"). Past an hour it grows to the hour form and may still change width where a form drops its seconds ("1h 1m 59s" to "1h 2m"); a hat folded over an hour-long run is rare enough not to hold room for it. */
+.acpmux-running-tray__head > .acpmux-running-tray__time:not(:empty) {
+  min-width: 7.5ch;
+  font-variant-numeric: tabular-nums;
 }
 .acpmux-running-tray__time:empty {
   margin-left: -8px;
@@ -1477,13 +1490,13 @@ div.cv-subagent-done[data-toggle-line]::before {
   /* The tray's box is part of the transcript's dock. Its arrival must not move visible rows; the
      dock and VirtualTranscript settle their measured height in one frame, then the ink settles in
      (translate moves no layout). */
-  --acpmux-tray-enter: acpmux-tray-settle-in var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1)) both;
+  --acpmux-tray-enter: acpmux-tray-settle-in var(--cmux-motion-settle, 180ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1)) both;
   /* The kept copy leaves in the card's place, folding its height to 0 as it fades, on the same settle
      as the entrance, so the composer and the transcript over the stack move once, continuously, as
      the hat goes (Leo, 2026-11-08: "the hat auto removing/auto hiding stuff that's super done is maybe
      a bit jarring?"; trayMotionModel.ts `playTrayExit`). Reduce Motion makes no copy: the hat goes at
      once. */
-  --acpmux-tray-leave: acpmux-tray-leave var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1)) both;
+  --acpmux-tray-leave: acpmux-tray-leave var(--cmux-motion-settle, 180ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1)) both;
 }
 /* A line that joins or leaves the open list grows from, or folds to, 0 height with its opacity on the
    shared fold (SubagentTray.tsx `TrayRow`, conversation/fold.ts), so the lines around it move with it.
@@ -2210,4 +2223,9 @@ div.cv-subagent-done[data-toggle-line]::before {
 }
 .acpmux-running-tray__detail-latest {
   color: var(--agent-muted);
+}
+/* Show more under a report the card has only part of (WholeReportBody.tsx): the expand row across
+   the report's width, so the rest opens in place under the words it continues. */
+.cv-subagent-done__more-row {
+  align-self: stretch;
 }

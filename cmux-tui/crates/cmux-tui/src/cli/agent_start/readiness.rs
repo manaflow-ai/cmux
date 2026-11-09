@@ -9,7 +9,8 @@
 //!   question, the bypass-permissions warning, a login or API-key choice,
 //!   onboarding, Codex's trust or update prompt), or a fresh hook record
 //!   says the agent waits on the person. The dialog's id and a reason come
-//!   with it. cmux never answers the dialog.
+//!   with it, and the last screen, whose numbered options `agent start`
+//!   lists. cmux never answers the dialog on its own: the person decides.
 //! - `ready`: no dialog, and a fresh hook record says the agent is idle (the
 //!   `SessionStart` hook) or the screen shows the agent's input box.
 //! - `starting`: neither yet.
@@ -28,7 +29,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use super::super::command::RequestPlan;
-use super::super::mcp::Backend;
+use super::super::mcp::{Backend, CallFailure};
 use super::super::terminal_talk::send::Daemon;
 use super::Failure;
 
@@ -56,8 +57,10 @@ const DIALOGS: &[(Dialog, &[&str])] = &[
     (
         Dialog {
             id: "folder_trust",
-            reason: "the agent asks whether you trust this folder; answer it in the terminal \
-                     (cmux does not answer it for you)",
+            // agent_start.rs (add_dialog_options) replaces it with a
+            // localized reason that names the agent's terminal.
+            reason: "the agent asks whether you trust this folder; ask the person, then answer \
+                     it with cmux terminal keys (cmux never answers it on its own)",
         },
         &[
             "do you trust the files in this folder",
@@ -287,6 +290,8 @@ pub(in crate::cli) struct Outcome {
     /// The last readiness seen (`starting` when nothing else was).
     pub last: Readiness,
     pub waited: Duration,
+    /// The last screen read (the dialog's options for a blocked start).
+    pub screen: String,
 }
 
 fn number(value: &Value) -> Option<u64> {
@@ -344,10 +349,12 @@ where
         let last = assess(&look);
         let at = now();
         if let Some(done) = gate.observe(screen, last, at) {
-            return Ok(Outcome { readiness: Some(done), last, waited: at - started });
+            let screen = screen.to_owned();
+            return Ok(Outcome { readiness: Some(done), last, waited: at - started, screen });
         }
         if at >= deadline {
-            return Ok(Outcome { readiness: None, last, waited: at - started });
+            let screen = screen.to_owned();
+            return Ok(Outcome { readiness: None, last, waited: at - started, screen });
         }
         sleep(options.poll.min(deadline.saturating_duration_since(at)));
     }
@@ -368,12 +375,42 @@ pub(in crate::cli) fn wake_on_event<B: Backend + ?Sized>(
     cursor: &mut Option<Value>,
     at_most: Duration,
 ) {
-    let started = Instant::now();
+    wake_after(
+        &mut |from, deadline, tick, on_wake| {
+            backend.session_events(None, from, deadline, tick, on_wake)
+        },
+        cursor,
+        at_most,
+        &Instant::now,
+        &mut std::thread::sleep,
+    );
+}
+
+/// The daemon's `session.events` stream from a cursor (`None`: from a snapshot), held open until
+/// a deadline and ticking with `None` ([`Backend::session_events`]).
+pub(super) type Events<'a> = dyn FnMut(
+        Option<&Value>,
+        Instant,
+        Duration,
+        &mut dyn FnMut(Option<&Value>) -> bool,
+    ) -> Result<(), CallFailure>
+    + 'a;
+
+/// [`wake_on_event`] with its seams: `events` opens the stream, `now` is the clock and `sleep`
+/// waits (tests pass a fake stream and advance a fake clock).
+pub(super) fn wake_after(
+    events: &mut Events<'_>,
+    cursor: &mut Option<Value>,
+    at_most: Duration,
+    now: &dyn Fn() -> Instant,
+    sleep: &mut dyn FnMut(Duration),
+) {
+    let started = now();
     let deadline = started + at_most;
     let from = cursor.clone();
     let mut latest = None;
     let mut changed = false;
-    let streamed = backend.session_events(None, from.as_ref(), deadline, EVENT_GAP, &mut |item| {
+    let streamed = events(from.as_ref(), deadline, EVENT_GAP, &mut |item| {
         if let Some(item) = item {
             if let Some(at) = item.get("cursor") {
                 latest = Some(at.clone());
@@ -382,7 +419,7 @@ pub(in crate::cli) fn wake_on_event<B: Backend + ?Sized>(
             changed |=
                 !(field("kind") == Some("snapshot") && field("reset_reason") == Some("initial"));
         }
-        changed && started.elapsed() >= EVENT_GAP
+        changed && now().saturating_duration_since(started) >= EVENT_GAP
     });
     if latest.is_some() {
         *cursor = latest;
@@ -393,5 +430,5 @@ pub(in crate::cli) fn wake_on_event<B: Backend + ?Sized>(
         *cursor = None;
     }
     let until = if changed { (started + EVENT_GAP).min(deadline) } else { deadline };
-    std::thread::sleep(until.saturating_duration_since(Instant::now()));
+    sleep(until.saturating_duration_since(now()));
 }
