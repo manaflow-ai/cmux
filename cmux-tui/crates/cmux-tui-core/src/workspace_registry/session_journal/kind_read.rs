@@ -341,7 +341,7 @@ impl Page {
                         .and_then(|segment| check_segment_gaps(connection, segment));
                     match decoded {
                         Ok(decoded) => {
-                            self.records.extend(decoded.records.into_iter().filter(in_page))
+                            self.records.extend(decoded.records.into_iter().filter(in_page));
                         }
                         Err(error) if self.reached == self.sequence => return Err(error),
                         Err(_) => return Ok(false),
