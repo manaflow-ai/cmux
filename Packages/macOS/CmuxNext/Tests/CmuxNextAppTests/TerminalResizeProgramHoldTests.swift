@@ -227,8 +227,59 @@ struct TerminalResizeProgramHoldTests {
         try #require(host.bounds.width > oldHost.width, "SETUP: Ctrl-Shift-H did not grow p2 (\(oldHost) -> \(host.bounds.size))")
 
         #expect(torn.isEmpty, "\(torn.count) frames showed p2's pane at its new size with the program's picture at the old size: \(torn)")
-        #expect(presents.sizeOnly.isEmpty,
-                "\(presents.sizeOnly.count) frames showed a new size with the program's last picture, not its redraw at the new grid: \(presents.sizeOnly)")
+        // p2's only (RESIZE P0 21): p1's program is busy too and never redraws, so p1's size-only frame at the bound is
+        // the rule, not a miss.
+        let p2SizeOnly = presents.sizeOnly.filter { $0.hasPrefix("p2:") }
+        #expect(p2SizeOnly.isEmpty,
+                "\(p2SizeOnly.count) frames showed p2's new size with the program's last picture, not its redraw at the new grid: \(p2SizeOnly)")
+    }
+
+    /// RESIZE P0 21 (films px-keys-held-2-s1r-claude under Reduce Motion, cmux21 1x 120 Hz, #38206 head 3ddf97f3b02:
+    /// claude RM clip 21-33 vs v3 13-15; trace 011256 samples 406-408 and 413-415). The film's shrink presses are real HID
+    /// key events, and the main run loop handled such a key and the next display tick in one wake, with no presenter pass
+    /// between them. That tick found the size drawn ahead not yet sent to Ghostty (it goes in the pass), so the snap did
+    /// not wait for it: the panes took their new sizes, and each terminal's placement asked for its size only then, with a
+    /// hold for its program's redraw. The presenter kept the old width in the new pane for up to
+    /// ``TerminalFramePresenter/resizeHoldTicks`` refreshes. The Chromium model: no frame shows a pane at its new size with
+    /// its terminal at the old one. The snap waits for its terminals (bounded); the commit that shows it shows each
+    /// terminal at its new size, with the program's redraw or, at the bound, the size only.
+    /// p1 | p2 full-screen programs, busy (they print nothing after a resize); Reduce Motion on; Ctrl-Shift-L on p2 twice
+    /// (p2 shrinks, p1 grows), each press's first frame tick in the key's own run loop turn, then a refresh of time per tick.
+    @Test func aReduceMotionPressTickedInTheKeysOwnTurnNeverShowsAPaneWithItsTerminalAtTheOldSize() async throws {
+        let screen = try await Self.ringScreen(RingProgram(redraws: false))
+        defer { screen.close() }
+        screen.root.context.reduceMotionOverride = true
+        var torn: [String] = [], runs: [String: Int] = [:], longest = 0
+        for press in 1...2 {
+            let before = screen.sessions.map { $0.view.bounds.size }
+            try #require(PaneResize.press("p2", .right, model: screen.model, view: screen.root), "press \(press): Ctrl-Shift-L on p2 moved nothing")
+            for tick in 1...8 {
+                // Tick 1 runs in the key's own turn, before the presenter's pass (a HID key and a display tick in one wake).
+                _ = screen.root.advanceFrame(1.0 / 120)
+                screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, as the frame tick runs it
+                await TerminalKeyResizeFrameTests.refreshOfTime()
+                for (index, session) in screen.sessions.enumerated() {
+                    let host = session.view, view = session.surfaceView, name = "p\(index + 1)"
+                    let area = host.surfaceSize(forHostSize: host.bounds.size), shown = view.bounds.size
+                    let scale = view.layer?.contentsScale ?? 2
+                    let differs = abs(area.width - shown.width) * scale > 1 || abs(area.height - shown.height) * scale > 1
+                    guard host.bounds.size != before[index], differs else {
+                        runs[name] = 0
+                        continue
+                    }
+                    runs[name, default: 0] += 1
+                    longest = max(longest, runs[name] ?? 0)
+                    torn.append("press \(press) refresh \(tick): \(name) pane \(TerminalKeyResizeFrameTests.text(host.bounds.size)), terminal \(TerminalKeyResizeFrameTests.text(shown))")
+                }
+            }
+            await TerminalKeyResizeFrameTests.settle(screen)
+            let after = screen.sessions.map { $0.view.bounds.size }
+            try #require(after[1].width < before[1].width && after[0].width > before[0].width,
+                         "SETUP: press \(press) did not shrink p2 and grow p1 (\(before) -> \(after))")
+        }
+        print("RESIZE P0 21 RM press ticked in its key's turn: torn \(torn.count), longest run \(longest) refreshes: \(torn.prefix(8))")
+        #expect(longest <= 1,
+                "a pane showed its new size with its terminal at the old size for \(longest) refreshes in a row (\(torn.count) torn): \(torn.prefix(8))")
     }
 
     /// The bound of that wait (RESIZE P0 20): a Reduce Motion press whose program never redraws still shows its new size
