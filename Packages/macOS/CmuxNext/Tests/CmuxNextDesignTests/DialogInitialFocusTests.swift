@@ -1,14 +1,15 @@
 import AppKit
 @testable import CmuxNextDesign
-import CmuxNextTestSupport
 import Testing
 
 /// QA chrome-parity-v2-1 (multi-line paste confirm): the dialog opened with the keyboard on its
 /// Deny button, so a person typing on ("seq 1 10") had the Space press Deny, and the paste was
 /// lost. A dialog opening never puts the keyboard on a button the person did not choose: Space
 /// presses nothing until Tab (or a click) moves to a button, while Return still presses the
-/// default button and Escape the cancel one.
-@MainActor @Suite(.serialized, .closesItsWindows) struct DialogInitialFocusTests {
+/// default button and Escape the cancel one. The overlay page draws the card and its focus
+/// (webviews/src/pages/overlay/dialog, OverlayDialog.test.tsx); this guards the keys the dialog
+/// itself answers (`CmuxDialogPresentation.handle`), which a missed key reaches.
+@MainActor @Suite struct DialogInitialFocusTests {
     /// The paste confirm's shape: Deny (Escape), then Allow (Return).
     nonisolated static let paste = CmuxDialogSpec(title: "Paste into the terminal?", buttons: [
         CmuxDialogButton(id: "deny", title: "Deny", role: .cancel),
@@ -24,81 +25,51 @@ import Testing
         CmuxDialogButton(id: "allow", title: "Allow"),
     ])
 
-    private static func shown(_ spec: CmuxDialogSpec) -> (NSWindow, CmuxDialogView) {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 320), styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        let dialog = CmuxDialogView(spec: spec)
-        window.contentView?.addSubview(dialog)
-        dialog.focusInitial()
-        return (window, dialog)
+    /// Records the focus moves the dialog asks its drawing for.
+    @MainActor private final class Drawing: CmuxDialogRendering {
+        var moves: [Bool] = []
+        func dialogValuesChanged(_ dialog: CmuxDialogPresentation) {}
+        func dialogMoveFocus(_ dialog: CmuxDialogPresentation, backward: Bool) { moves.append(backward) }
     }
 
-    private static func key(_ characters: String, code: UInt16, in window: NSWindow) throws -> NSEvent {
-        try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                                      windowNumber: window.windowNumber, context: nil, characters: characters,
-                                      charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
-    }
-
-    /// The key goes where AppKit sends a key down: the window's first responder.
-    private static func type(_ event: NSEvent, in window: NSWindow) throws {
-        let responder = try #require(window.firstResponder)
-        responder.keyDown(with: event)
+    private static func shown(_ spec: CmuxDialogSpec) -> (CmuxDialogPresentation, () -> [String]) {
+        let dialog = CmuxDialogPresentation(id: 1, spec: spec, activeLook: nil)
+        var pressed: [String] = []
+        dialog.onPress = { pressed.append($0) }
+        return (dialog, { pressed })
     }
 
     @Test(arguments: [paste, close, noDefault])
-    func aTypedSpaceAsTheDialogOpensPressesNoButton(_ spec: CmuxDialogSpec) throws {
-        let (window, dialog) = Self.shown(spec)
-        defer { window.close() }
-        var pressed: [String] = []
-        dialog.onPress = { pressed.append($0) }
-        #expect(!(window.firstResponder is CmuxDialogButtonView), "the dialog opened with the keyboard on a button")
-        #expect(dialog.containsKeyboard, "the dialog does not hold the keyboard")
-        for (character, code) in [("s", 1), (" ", 49), ("1", 18)] as [(String, UInt16)] {
-            try Self.type(Self.key(character, code: code, in: window), in: window)
+    func aTypedSpaceAsTheDialogOpensPressesNoButton(_ spec: CmuxDialogSpec) {
+        let (dialog, pressed) = Self.shown(spec)
+        for character in ["s", " ", "1"] as [Character] {
+            #expect(!dialog.handle(.character(character), modifiers: []), "the dialog took a typed \(character)")
         }
-        #expect(pressed.isEmpty, "typing on pressed \(pressed)")
+        #expect(pressed().isEmpty, "typing on pressed \(pressed())")
     }
 
     @Test(arguments: [paste, close])
-    func returnStillPressesTheDefaultButton(_ spec: CmuxDialogSpec) throws {
-        let (window, dialog) = Self.shown(spec)
-        defer { window.close() }
-        var pressed: [String] = []
-        dialog.onPress = { pressed.append($0) }
-        try Self.type(Self.key("\r", code: 36, in: window), in: window)
-        #expect(pressed == [spec.defaultButton?.id].compactMap { $0 })
+    func returnStillPressesTheDefaultButton(_ spec: CmuxDialogSpec) {
+        let (dialog, pressed) = Self.shown(spec)
+        #expect(dialog.handle(.return, modifiers: []))
+        #expect(pressed() == [spec.defaultButton?.id].compactMap { $0 })
     }
 
     @Test(arguments: [paste, close, noDefault])
-    func escapeStillPressesTheCancelButton(_ spec: CmuxDialogSpec) throws {
-        let (window, dialog) = Self.shown(spec)
-        defer { window.close() }
-        var pressed: [String] = []
-        dialog.onPress = { pressed.append($0) }
-        try Self.type(Self.key("\u{1b}", code: 53, in: window), in: window)
-        #expect(pressed == [spec.cancelButton?.id].compactMap { $0 })
+    func escapeStillPressesTheCancelButton(_ spec: CmuxDialogSpec) {
+        let (dialog, pressed) = Self.shown(spec)
+        #expect(dialog.handle(.escape, modifiers: []))
+        #expect(pressed() == [spec.cancelButton?.id].compactMap { $0 })
     }
 
-    /// Tab moves the keyboard onto the first button; Space then presses the button the person chose.
-    @Test func afterTabSpacePressesTheChosenButton() throws {
-        let (window, dialog) = Self.shown(Self.paste)
-        defer { window.close() }
-        var pressed: [String] = []
-        dialog.onPress = { pressed.append($0) }
-        try Self.type(Self.key("\t", code: 48, in: window), in: window)
-        #expect((window.firstResponder as? CmuxDialogButtonView)?.button.id == "deny")
-        try Self.type(Self.key(" ", code: 49, in: window), in: window)
-        #expect(pressed == ["deny"])
-    }
-
-    /// A dialog with a text field still opens typing into it.
-    @Test func aTextFieldStillTakesTheKeyboard() throws {
-        let spec = CmuxDialogSpec(title: "Rename Workspace", fields: [
-            .text(id: "name", label: nil, initial: "", placeholder: "Name", secure: false),
-        ], buttons: [.cancel(), .ok("Rename")])
-        let (window, dialog) = Self.shown(spec)
-        defer { window.close() }
-        #expect(dialog.focusedIndex == 0, "the name field does not have the keyboard")
+    /// Tab asks the drawing to move the keyboard (forward; Shift-Tab back) and presses nothing.
+    @Test func tabMovesTheFocusAndPressesNothing() {
+        let (dialog, pressed) = Self.shown(Self.paste)
+        let drawing = Drawing()
+        dialog.renderer = drawing
+        #expect(dialog.handle(.tab, modifiers: []))
+        #expect(dialog.handle(.tab, modifiers: .shift))
+        #expect(drawing.moves == [false, true])
+        #expect(pressed().isEmpty)
     }
 }

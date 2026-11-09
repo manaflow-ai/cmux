@@ -325,3 +325,25 @@ fn a_symlinked_folder_below_home_is_never_written_through() {
     assert!(error.message.starts_with("write"), "{error}");
     assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
 }
+
+#[test]
+fn every_refusal_code_is_listed() {
+    use super::replay::Refusal;
+    use super::seal::SealError;
+    let codes = [Refusal::Stale, Refusal::Replay, Refusal::Busy, Refusal::Write]
+        .map(Refusal::code)
+        .into_iter()
+        .chain(
+            [
+                SealError::BadNonce,
+                SealError::BadEncapsulation,
+                SealError::OpenFailed,
+                SealError::Random,
+                SealError::SealFailed,
+            ]
+            .map(SealError::code),
+        );
+    for code in codes {
+        assert!(super::REFUSAL_CODES.contains(&code), "{code}");
+    }
+}

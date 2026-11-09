@@ -11,6 +11,7 @@ import ast
 import io
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import shutil
@@ -149,11 +150,13 @@ class WebLintPrePushTests(unittest.TestCase):
             "scripts/cmux-next/push_range.py",
             "scripts/cmux-next/git_batch.py",
             "scripts/ci/base_merge_warning.py",
+            "scripts/ci/github_release_download.py",
             "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
             "scripts/merge-baseline.py",
             "scripts/merge-daemon-capabilities.py",
+            "scripts/merge-insertions.py",
             "scripts/ci/merge_main_resolver.py",
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
@@ -1179,6 +1182,55 @@ class WebLintPrePushTests(unittest.TestCase):
             self.assertIn("GOMEMLIMIT", env)
             self.assertIn("--max-old-space-size", env.get("NODE_OPTIONS", ""))
 
+    def test_timings_name_each_step_before_it_spawns_so_a_stalled_one_is_the_last_named(self):
+        # A dispatched fast-gates run whose `bun install` stalled was stopped by its job timeout with nothing in the log
+        # after "::group::web lint": the step that hung was unnamed. With --timings, each spawn is named as it starts.
+        self.heavy_fixture()
+        (self.repo / "webviews/bun.lock").write_text("{}\n")
+        self.commit("a lockfile, so the run installs")
+        lint = load_lint(self.repo)
+        real = subprocess.run
+        stderr = io.StringIO()
+        spawned = []
+
+        def spy(command, *args, **kwargs):
+            words = command.split() if isinstance(command, str) else [str(w) for w in command]
+            if Path(words[0]).name == "nice":
+                words = words[3:]
+            if Path(words[0]).name == "git":
+                return real(command, *args, **kwargs)
+            if Path(words[0]).name == "sh" and words[1:2] == ["-c"]:  # a check given as a shell string
+                words = words[2:]
+            spawned.append((" ".join([Path(words[0]).name, *words[1:]]), stderr.getvalue()))
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        def run_lint(*argv):
+            stderr.seek(0)
+            stderr.truncate()
+            spawned.clear()
+            with mock.patch.dict(os.environ, {"CMUX_LOCAL_HEAVY_CHECKS": "1", "GITHUB_ACTIONS": "", "CI": ""}), \
+                    mock.patch.object(lint.subprocess, "run", spy), mock.patch("sys.stderr", stderr):
+                self.assertEqual(lint.main(["--repo", str(self.repo), "--base", "HEAD~2", "--head", "HEAD", *argv]), 0)
+            return stderr.getvalue()
+
+        def open_steps(text):
+            lines = [line for line in text.splitlines() if line.startswith("web-lint: ")]
+            started = [line[len("web-lint: "):-len(": started")] for line in lines if line.endswith(": started")]
+            return [name for name in started
+                    if not any(re.fullmatch(rf"web-lint: {re.escape(name)}: \d+\.\ds", line) for line in lines)]
+
+        out = run_lint("--timings")
+        self.assertTrue(any("bun install" in command for command, _ in spawned), spawned)
+        for command, before in spawned:
+            names = open_steps(before)
+            kind = "bun install" if command.startswith("bun install") else command
+            self.assertTrue([name for name in names if name.endswith(kind)],
+                            f"{command!r} spawned while no started step named it: {names}\n{before}")
+        self.assertEqual(open_steps(out), [], out)
+        self.assertIn("web-lint: webviews: bun install: started", out)
+
+        self.assertNotIn("web-lint: webviews: bun install", run_lint(), "without --timings the log stays as it was")
+
     def test_new_only_reruns_a_piece_on_the_base_niced_and_capped(self):
         # Both the head and the base fail `vp lint` with the same finding: the base rerun is a second type check,
         # so it gets the same nice and caps as the first.
@@ -1364,6 +1416,34 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertEqual(argv[-2:], ["vp", "lint"])
         self.assertEqual((env["GOMAXPROCS"], env["NODE_OPTIONS"]), ("3", "--max-old-space-size=1024"))
         self.assertEqual(env["GOMEMLIMIT"], lint.HEAVY_GOMEMLIMIT)
+
+    def test_a_bun_preload_in_bun_options_never_breaks_bun_install(self):
+        # A shell profile exported BUN_OPTIONS="--preload PATH" (a Claude Code preload). Bun reads the space form
+        # as a script path, so `bun install` failed with 'Script not found "install"' and the hook refused every
+        # push touching web code. Each tool the hook starts gets the `--preload=PATH` form, which means the same.
+        lint = load_lint(self.repo)
+        preload = self.root / "preload.js"
+        preload.write_text("globalThis.__preloaded = true;\n")
+        given = f"--smol --preload {preload} -r {preload} --require {preload} --import {preload} --preload=/kept.js"
+        for ci in ("", "true"):
+            with mock.patch.object(lint.subprocess, "run") as run, \
+                    mock.patch.dict(os.environ, {"GITHUB_ACTIONS": ci, "CI": "", "BUN_OPTIONS": given}):
+                lint.spawn(["bun", "install"], self.repo, None)
+            self.assertEqual(run.call_args.kwargs["env"]["BUN_OPTIONS"],
+                             f"--smol --preload={preload} --preload={preload} --require={preload} "
+                             f"--import={preload} --preload=/kept.js", ci)
+        bun = shutil.which("bun")
+        if not bun:
+            return
+        package = self.root / "bun-options-package"
+        package.mkdir()
+        (package / "package.json").write_text('{"name": "bun-options-fixture"}\n')
+        env = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", str(self.root)),
+               "BUN_OPTIONS": f"--preload {preload}"}
+        with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "", "CI": ""}):
+            installed = lint.spawn([bun, "install", "--no-save"], package, env)
+        self.assertEqual(installed.returncode, 0, installed.stdout + installed.stderr)
+        self.assertNotIn("Script not found", installed.stderr)
 
 
 # cmux-tui/frontends/web imports `cmux` from file:../../bindings/typescript, whose exports point at a

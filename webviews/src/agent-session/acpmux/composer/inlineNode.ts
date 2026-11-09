@@ -171,6 +171,9 @@ function normalize(transactions: readonly Transaction[], previous: EditorState, 
 const CHIP_FACE =
   ".acpmux-attachment-open, .acpmux-attachment-pasted-open, .acpmux-attachment-document-open, .acpmux-text-card__open";
 
+/// A chip's content opened in place under its face (ContentChip.tsx).
+const OPENED_CONTENT = ".acpmux-paste-chip__panel";
+
 /// A drag's own events: the editor's wherever they land on a chip, its buttons too, so a chip dragged
 /// over another one's thumbnail or × still drops into the text there.
 const DRAG_EVENTS = new Set(["dragstart", "drag", "dragend", "dragenter", "dragover", "dragleave", "drop"]);
@@ -247,6 +250,11 @@ function nodeView(node: ProseNode, view: EditorView, views: InlineViews): NodeVi
     // face's (`handleClickOn` below). A press elsewhere on it selects the node.
     stopEvent: (event) => {
       if (DRAG_EVENTS.has(event.type)) return false;
+      // A chip's opened content (ContentChip.tsx's panel: an inspector pick's report, its Collapse)
+      // is the chip's own: its keys scroll the report and never reach the editor, whose Enter sends
+      // the draft and whose arrows move its caret; a press there selects the report's text, not the
+      // node. The chip's own handler still folds it on Escape.
+      if (event.target instanceof Element && event.target !== dom && event.target.closest(OPENED_CONTENT)) return true;
       const button = buttonIn(event.target, dom);
       if (!button) return false;
       return !(event.type === "mousedown" && button.matches(CHIP_FACE));
@@ -416,7 +424,15 @@ export function insertInline(view: EditorView, ids: readonly string[], replace =
 /// Takes attachment `id`'s node out of the prompt, as an undoable edit.
 export function removeInline(view: EditorView, id: string, caret = false) {
   const found = inlineNodes(view.state.doc).filter((node) => node.id === id);
-  if (!found.length) return;
+  if (!found.length) {
+    // A chip with no place (an oversized paste in a code fence keeps its chip in the strip): what
+    // goes in next goes after the selection, never over the person's selected draft.
+    const { selection } = view.state;
+    if (caret && !selection.empty) {
+      view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(selection.to), -1)));
+    }
+    return;
+  }
   // `caret`: what goes in next (a pasted chip's text) takes the attachment's place, not the caret's,
   // and the two are one undo step of their own, as a Backspace over the node is: an undo brings the
   // chip back, never the typing before it.

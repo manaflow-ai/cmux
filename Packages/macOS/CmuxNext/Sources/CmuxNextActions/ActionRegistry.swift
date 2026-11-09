@@ -72,6 +72,9 @@ public final class ActionRegistry {
     public var contextMenuLayouts: [ActionMenuContext: ContextMenuLayout] = [:]
     /// Whether a whole right-click menu ends with Customize Menu… (cmux.json `contextMenus.showCustomizeItem`).
     public var showsCustomizeMenuItem = true
+    /// Called when a bound toggle's `paletteState` changes after its run returned (a cmux.json write that
+    /// lands later): the open palette reads its rows again. The palette installs it.
+    @ObservationIgnored public var paletteStateDidChange: (@MainActor () -> Void)?
     /// Customize Menu…: opens Settings > Menus on that menu. The App installs it; nil shows no row.
     @ObservationIgnored public var customizeMenu: (@MainActor (ActionMenuContext) -> Void)?
 
@@ -117,6 +120,10 @@ public final class ActionRegistry {
     /// Every known value of a suggested argument (`ActionSuggestions.source`),
     /// supplied by the App.
     @ObservationIgnored public var argumentSuggestions: (@MainActor (String) -> [ActionEnumCase])?
+    /// A suggested argument whose values are not read yet (a list the daemon has not answered):
+    /// the load that answers them, which the palette's step awaits under its loading state instead
+    /// of opening on an empty list. Nil, or a nil load, when ``argumentSuggestions`` already has them.
+    @ObservationIgnored public var argumentSuggestionsLoad: (@MainActor (String) -> (@MainActor () async -> [ActionEnumCase])?)?
     /// Shortcut recorders open now (`ShortcutRecorder`); any open one sets `.recordingShortcut`.
     @ObservationIgnored var openShortcutRecorders: Set<ObjectIdentifier> = []
     /// Whether free text is a valid value of a suggested argument (a theme

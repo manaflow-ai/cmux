@@ -293,6 +293,22 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .contextMenu], cliName: "sidebar show-controls-always",
                 surfacePlan: plan(menus: [p(.sidebarBackground, .view, 138, folder: .options)])
             ),
+            // `sidebar.floatOnHover` (Lawrence 2026-11-08): the hidden sidebar floats over the content while the pointer
+            // rests on the window's sidebar edge. On by default; the one that applies shows.
+            ActionDescriptor(
+                id: "sidebar.floatOnHover.on", title: t("action.sidebar.floatOnHover.on", "Float Hidden Sidebar on Hover"),
+                keywords: ["sidebar", "float", "floating", "hover", "peek", "edge", "overlay", "reveal", "hidden", "auto hide"],
+                category: .sidebar, symbol: "sidebar.squares.left",
+                surfaces: [.palette, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 139, folder: .options)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.floatOnHover.off", title: t("action.sidebar.floatOnHover.off", "Never Float Hidden Sidebar"),
+                keywords: ["sidebar", "float", "floating", "hover", "peek", "edge", "overlay", "off", "never", "disable"],
+                category: .sidebar, symbol: "sidebar.left",
+                surfaces: [.palette, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 140, folder: .options)])
+            ),
             // Leo (2026-10-06): Group ▸ in the sidebar's menu picks how the
             // Projects list buckets its loose rows (`sidebar.groupBy`).
             ActionDescriptor(

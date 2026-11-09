@@ -82,25 +82,42 @@ import Testing
         return CGPoint(x: CGFloat(minX + maxX + 1) / 2 - half, y: CGFloat(minY + maxY + 1) / 2 - half)
     }
 
-    /// Home's glyph, the pin and a workspace row's icon start their ink at one x, the icon column's leading edge
-    /// (Lawrence msg 19643, "left alignment here is bad"; until then they shared one center x).
+    /// Home's glyph, the pin and a workspace row's icon share one center x, the icon column's center
+    /// (https://github.com/manaflow-ai/cmux/issues/38061; Lawrence msg 19643 had started every ink at the inset, which
+    /// put the narrow pin's center left of the house's).
     @Test(arguments: HomePinnedRowAlignmentTests.cases)
-    func leadingGlyphsShareOneLeadingX(_ c: Case) throws {
+    func leadingGlyphsShareOneCenterX(_ c: Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
             let (list, window) = Self.list(width: c.width)
             defer { window.close() }
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
             let pin = try HomePinnedRowAlignmentTests.item(list, Self.pinned.id)
             let iconRow = try HomePinnedRowAlignmentTests.row(list, Self.icon)
-            let homeX = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home).minX
-            let pinX = list.convert(try #require(pin.pinInkFrame, "the pinned row drew no pin"), from: pin).minX
-            let iconX = list.convert(iconRow.icon.frame, from: iconRow).minX
-            #expect(abs(homeX - iconX) <= Self.tolerance, "\(c.testDescription): Home's glyph starts at \(homeX), a row icon's column at \(iconX)")
-            #expect(abs(pinX - iconX) <= Self.tolerance, "\(c.testDescription): the pin starts at \(pinX), a row icon's column at \(iconX)")
+            let homeX = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home).midX
+            let pinX = list.convert(try #require(pin.pinInkFrame, "the pinned row drew no pin"), from: pin).midX
+            let iconX = list.convert(iconRow.icon.frame, from: iconRow).midX
+            #expect(abs(homeX - iconX) <= Self.tolerance, "\(c.testDescription): Home's glyph centers at \(homeX), a row icon's column at \(iconX)")
+            #expect(abs(pinX - iconX) <= Self.tolerance, "\(c.testDescription): the pin centers at \(pinX), a row icon's column at \(iconX)")
         }
     }
 
-    /// Each leading glyph sits on its own title's center line.
+    /// The center line of a title's capitals in the list: the label's baseline less half its cap height, from the
+    /// label's own frame and font, independent of the rows' placement helpers. A title's frame is taller than its
+    /// capitals by the font's ascender and descender, so its frame's middle is off that line by an amount that
+    /// changes with the face (the system font replaced Inter in ab5bc5a1).
+    static func capitalsMidY(_ list: SidebarListView, frame: CGRect, baseline: CGFloat, capHeight: CGFloat, in row: NSView) -> CGFloat {
+        // The rows are flipped: the baseline is `baseline` below the label's top.
+        list.convert(CGPoint(x: frame.midX, y: frame.minY + baseline - capHeight / 2), from: row).y
+    }
+
+    /// The capitals' center line of a band or pinned row's title, in the list.
+    static func capitalsMidY(_ list: SidebarListView, of item: SidebarItemRowView) throws -> CGFloat {
+        let font = try #require(item.title.font)
+        return capitalsMidY(list, frame: item.title.frame, baseline: item.title.firstBaselineOffsetFromTop, capHeight: font.capHeight, in: item)
+    }
+
+    /// Each leading glyph sits on its own title's center line: the line through the middle of its capitals, where
+    /// a row centers its title (#27598).
     @Test(arguments: HomePinnedRowAlignmentTests.cases)
     func leadingGlyphsSitOnTheirTitlesCenterLine(_ c: Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
@@ -109,10 +126,13 @@ import Testing
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
             let pin = try HomePinnedRowAlignmentTests.item(list, Self.pinned.id)
             let iconRow = try HomePinnedRowAlignmentTests.row(list, Self.icon)
+            // A marquee title draws its one line from its top, so its baseline is the font's ascender below it.
+            let iconTitle = Self.capitalsMidY(list, frame: iconRow.title.frame, baseline: iconRow.title.font.ascender,
+                                              capHeight: iconRow.title.font.capHeight, in: iconRow)
             let pairs: [(String, CGFloat, CGFloat)] = [
-                ("Home", Self.center(list, try #require(home.glyphInkFrame), in: home).y, Self.center(list, home.titleFrame, in: home).y),
-                ("pin", Self.center(list, try #require(pin.pinInkFrame), in: pin).y, Self.center(list, pin.titleFrame, in: pin).y),
-                ("icon", Self.center(list, iconRow.icon.frame, in: iconRow).y, Self.center(list, iconRow.title.frame, in: iconRow).y),
+                ("Home", Self.center(list, try #require(home.glyphInkFrame), in: home).y, try Self.capitalsMidY(list, of: home)),
+                ("pin", Self.center(list, try #require(pin.pinInkFrame), in: pin).y, try Self.capitalsMidY(list, of: pin)),
+                ("icon", Self.center(list, iconRow.icon.frame, in: iconRow).y, iconTitle),
             ]
             for (name, glyph, text) in pairs {
                 #expect(abs(glyph - text) <= Self.tolerance, "\(c.testDescription): \(name) glyph centers at y \(glyph), its title at \(text)")

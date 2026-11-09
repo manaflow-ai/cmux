@@ -43,11 +43,16 @@ public import Foundation
     /// The account's other teams (nil: its personal scope) whose cached login this transfer reuses when
     /// ``teamID`` holds none (``CloudCredentialLogin/loadAny(provider:teamID:otherTeams:userID:)``).
     public var otherTeams: [String?] = []
+    /// Where each step's time goes (``CloudStartSteps``): the guest check, the login read, the recheck, the write, the install.
+    public var steps: CloudStartSteps?
+    /// A login read within this long of the guest check that passed is delivered on that check: the second guest
+    /// check runs only after a sign-in, or a Keychain read slow enough (a prompt) for the target to have changed.
+    var recheckAfter: Duration = .seconds(2)
 
     public init(provider: Provider, machineID: String, teamID: String?, userID: String, allowsCreatorTeamGuest: Bool = false,
-                otherTeams: [String?] = [], openTerminal: @escaping @MainActor (String) async -> Bool) {
+                otherTeams: [String?] = [], steps: CloudStartSteps? = nil, openTerminal: @escaping @MainActor (String) async -> Bool) {
         self.provider = provider; self.machineID = machineID; self.teamID = teamID; self.userID = userID
-        self.allowsCreatorTeamGuest = allowsCreatorTeamGuest; self.otherTeams = otherTeams; self.openTerminal = openTerminal
+        self.allowsCreatorTeamGuest = allowsCreatorTeamGuest; self.otherTeams = otherTeams; self.steps = steps; self.openTerminal = openTerminal
     }
 
     /// The guest check this transfer runs before and after the login.
@@ -211,6 +216,8 @@ public import Foundation
         // the machine has the image's launchers.
         guard try await effects.callerOwnsVM() else { throw Failure.sharedMachine }
         try await waitForGuest(program: preflight, effects: effects, checkScope: checkScope)
+        let checked = ContinuousClock.now
+        steps?.done("transfer.guest")
         try checkScope()
         let cached = refresh ? nil : try await effects.load()
         let credential: Data
@@ -218,20 +225,27 @@ public import Foundation
         try checkScope()
         try Self.validate(credential, provider: provider)
         if cached == nil { try await effects.store(credential) }
+        steps?.done("transfer.load")
         try checkScope()
-        // Recheck after browser/Keychain interaction; the target may have changed meanwhile.
+        // Recheck after a browser sign-in or a slow Keychain read; the target may have changed meanwhile. A login
+        // read at once is delivered on the guest check just made (one exec, about a second, less on every start).
         guard try await effects.callerOwnsVM() else { throw Failure.sharedMachine }
-        guard try await effects.exec(preflight) == 0 else { throw Failure.sharedMachine }
+        if cached == nil || checked.duration(to: .now) > recheckAfter {
+            guard try await effects.exec(preflight) == 0 else { throw Failure.sharedMachine }
+        }
         guard await effects.stillAllowed() else { throw Failure.copyTurnedOff }
+        steps?.done("transfer.recheck")
         try checkScope()
         let path = "/home/cmux/.cmux/credential-transfer/\(UUID().uuidString).json"
         do {
             try checkScope()
             try await effects.write(path, credential)
+            steps?.done("transfer.write")
             try checkScope()
             guard try await effects.exec(CloudCredentialInstaller.command(provider: provider, payloadPath: path, creatorTeamGuest: allowsCreatorTeamGuest)) == 0 else {
                 throw Failure.deliveryFailed
             }
+            steps?.done("transfer.install")
         } catch {
             // A failed/cancelled delivery must not leave a second readable copy on the target.
             // A cancelled caller cannot start an API request. An unstructured task has independent

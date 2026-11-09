@@ -61,6 +61,9 @@ fn seal_journal(mux: &Mux, key: &str) -> Vec<String> {
 
 /// Overwrite the content of every segment of one seal with bytes that are
 /// not gzip, and drop the roster snapshot so the reopen replays from zero.
+/// The segments' kept reducer records go too, as for a segment an older
+/// build sealed: a replay reads those instead of the content, and would
+/// never meet the damage.
 /// With `inflate_end`, the seal's last segment also claims to end at the
 /// first active row, past every later segment.
 fn corrupt_seal_and_drop_roster_snapshot(
@@ -77,6 +80,12 @@ fn corrupt_seal_and_drop_roster_snapshot(
     let connection = rusqlite::Connection::open(&database).unwrap();
     connection.execute_batch("DROP TRIGGER IF EXISTS journal_segments_reject_update;").unwrap();
     for segment_id in &store.seals[seal] {
+        connection
+            .execute(
+                "DELETE FROM journal_segment_reducer_records WHERE segment_id = ?1",
+                rusqlite::params![segment_id],
+            )
+            .unwrap();
         let changed = connection
             .execute(
                 "UPDATE journal_segments SET content = x'00112233' WHERE segment_id = ?1",
@@ -195,5 +204,375 @@ fn an_agent_with_events_in_a_skipped_range_is_not_reported_working() {
     assert_eq!(roster_agent_state(&reopened, &live).as_deref(), Some("working"));
     reopened.shutdown();
     drop(reopened);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// A journal with one agent working, and its roster snapshot saved as
+/// `previous_version` after `edit` changed it. Returns the terminal and the
+/// snapshot's cursor.
+fn store_with_a_previous_version_snapshot(
+    session: &str,
+    root: &Path,
+    previous_version: u32,
+    edit: impl FnOnce(&mut Value, &TerminalPublicId),
+) -> (TerminalPublicId, u64) {
+    use crate::journal_reducers::AGENT_ROSTER_REDUCER_ID;
+    let mux = open_persistent_test_mux(session, root);
+    let terminal = mux.new_workspace(None, None).unwrap().terminal_public_id().cloned().unwrap();
+    append_journal_hook(&mux, &terminal, "SessionStart", Some("bump"));
+    append_journal_hook(&mux, &terminal, "UserPromptSubmit", Some("bump"));
+    assert_eq!(roster_agent_state(&mux, &terminal).as_deref(), Some("working"));
+    mux.shutdown();
+    drop(mux);
+    let registry = WorkspaceRegistry::open(root, session).unwrap();
+    let (_, cursor, snapshot) =
+        registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID).unwrap().unwrap();
+    let mut snapshot: Value = serde_json::from_str(&snapshot).unwrap();
+    edit(&mut snapshot, &terminal);
+    registry
+        .put_journal_reducer_state(
+            AGENT_ROSTER_REDUCER_ID,
+            previous_version,
+            cursor,
+            &snapshot.to_string(),
+        )
+        .unwrap();
+    (terminal, cursor)
+}
+
+/// After an agent roster reducer version bump the start serves the old
+/// snapshot (migrated) from its own cursor, with no fold of the history, and
+/// marks it stale; the roster's owner then folds the whole journal again in
+/// the background and replaces it with the current reducer's roster, saved
+/// at the current version with the mark cleared. The bumps so far fixed the
+/// fold's logic, so the migrated roster can be wrong until then: here it
+/// says idle where the journal says working.
+#[test]
+fn a_version_bump_serves_the_migrated_roster_and_rebuilds_it_in_the_background() {
+    use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION};
+    let session = "roster-bump-migrate";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-roster-bump-migrate-{}", crate::workspace_registry::new_uuid_v4()));
+    let (terminal, cursor) = store_with_a_previous_version_snapshot(
+        session,
+        &root,
+        AGENT_ROSTER_REDUCER_VERSION - 1,
+        |snapshot, terminal| {
+            snapshot["entries"][terminal.as_str()]["state"] = serde_json::json!("idle");
+        },
+    );
+    let registry = WorkspaceRegistry::open(&root, session).unwrap();
+    let head = registry.session_journal_head().unwrap();
+    assert!(cursor > 0 && cursor <= head);
+    let restored = crate::mux::agent_roster_restore::restore_agent_roster(&registry).unwrap();
+    assert!(restored.rebuild, "a migrated roster is stale");
+    // The tail after the old cursor holds no agent record: the migrated
+    // state stands until the rebuild.
+    assert_eq!(restored.host.cursor, head, "the start folds the tail");
+    assert_eq!(restored.host.roster.entries[terminal.as_str()].state, "idle");
+    assert_eq!(
+        registry.journal_reducer_rebuild_pending(AGENT_ROSTER_REDUCER_ID).unwrap(),
+        Some(AGENT_ROSTER_REDUCER_VERSION - 1)
+    );
+    drop(registry);
+
+    // The saved snapshot is the migrated one, still marked stale: this
+    // start rebuilds it.
+    let reopened = open_persistent_test_mux(session, &root);
+    assert_eq!(roster_agent_state(&reopened, &terminal).as_deref(), Some("working"));
+    assert!(!reopened.agent_roster_rebuilding());
+    {
+        let registry = reopened.workspace_registry.lock().unwrap();
+        assert_eq!(
+            registry.journal_reducer_rebuild_pending(AGENT_ROSTER_REDUCER_ID).unwrap(),
+            None
+        );
+        let (version, _, snapshot) =
+            registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID).unwrap().unwrap();
+        assert_eq!(version, AGENT_ROSTER_REDUCER_VERSION);
+        let saved = crate::journal_reducers::AgentRoster::restore(&snapshot).unwrap();
+        assert_eq!(saved.entries[terminal.as_str()].state, "working");
+    }
+    reopened.shutdown();
+    drop(reopened);
+
+    // The next start has nothing to rebuild.
+    let again = open_persistent_test_mux(session, &root);
+    assert!(!again.agent_roster_rebuilding());
+    assert_eq!(roster_agent_state(&again, &terminal).as_deref(), Some("working"));
+    again.shutdown();
+    drop(again);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// A snapshot whose format no longer restores (a version before the hook
+/// session fences) is not folded from zero at start either: the roster is
+/// served empty from the journal head, takes live events, and the rebuild
+/// fills it.
+#[test]
+fn a_version_bump_without_a_migratable_snapshot_serves_live_events_and_rebuilds() {
+    let session = "roster-bump-empty";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-roster-bump-empty-{}", crate::workspace_registry::new_uuid_v4()));
+    let (terminal, _) = store_with_a_previous_version_snapshot(session, &root, 5, |_, _| {});
+    let registry = WorkspaceRegistry::open(&root, session).unwrap();
+    let head = registry.session_journal_head().unwrap();
+    let restored = crate::mux::agent_roster_restore::restore_agent_roster(&registry).unwrap();
+    assert!(restored.rebuild);
+    assert_eq!(restored.host.cursor, head, "the start serves from the head");
+    assert!(restored.host.roster.entries.is_empty());
+    drop(registry);
+
+    let reopened = open_persistent_test_mux(session, &root);
+    assert_eq!(roster_agent_state(&reopened, &terminal).as_deref(), Some("working"));
+    append_journal_hook(&reopened, &terminal, "Stop", Some("bump"));
+    assert_eq!(roster_agent_state(&reopened, &terminal).as_deref(), Some("idle"));
+    reopened.shutdown();
+    drop(reopened);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// Waits until `mux`'s roster rebuild is over, at most 10 s, with no
+/// request that would give the roster's owner another pass.
+fn rebuild_ends_on_its_own(mux: &Mux) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while mux.agent_roster_rebuilding() {
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    true
+}
+
+/// A rebuild whose read fails tries again on its own, after a backoff: a
+/// read error used to end the slice with nothing scheduled, so the roster
+/// stayed stale (and its projections unreconciled) until an agent event
+/// woke the owner.
+#[test]
+fn a_rebuild_read_failure_is_retried_without_another_request() {
+    use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION};
+    use crate::mux::agent_roster_fold::rebuild_faults;
+    let session = "roster-rebuild-retry";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-roster-rebuild-retry-{}", crate::workspace_registry::new_uuid_v4()));
+    let (terminal, _) = store_with_a_previous_version_snapshot(
+        session,
+        &root,
+        AGENT_ROSTER_REDUCER_VERSION - 1,
+        |snapshot, terminal| {
+            snapshot["entries"][terminal.as_str()]["state"] = serde_json::json!("idle");
+        },
+    );
+    rebuild_faults::fail_reads(session, 2);
+    let mux = open_persistent_test_mux(session, &root);
+    mux.stop_journal_maintenance();
+    assert!(rebuild_ends_on_its_own(&mux), "the rebuild stopped at its failed read");
+    assert_eq!(roster_agent_state(&mux, &terminal).as_deref(), Some("working"));
+    assert_eq!(
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .journal_reducer_rebuild_pending(AGENT_ROSTER_REDUCER_ID)
+            .unwrap(),
+        None,
+        "the retried rebuild finished"
+    );
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// The retries are bounded: a read that keeps failing ends the rebuild for
+/// this run, with the stale mark kept, so the next start rebuilds again.
+#[test]
+fn a_rebuild_whose_reads_keep_failing_gives_up_and_keeps_the_stale_mark() {
+    use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION};
+    use crate::mux::agent_roster_fold::rebuild_faults;
+    let session = "roster-rebuild-give-up";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-roster-rebuild-give-up-{}", crate::workspace_registry::new_uuid_v4()));
+    store_with_a_previous_version_snapshot(
+        session,
+        &root,
+        AGENT_ROSTER_REDUCER_VERSION - 1,
+        |_, _| {},
+    );
+    rebuild_faults::fail_reads(session, u32::MAX);
+    let mux = open_persistent_test_mux(session, &root);
+    mux.stop_journal_maintenance();
+    assert!(rebuild_ends_on_its_own(&mux), "the rebuild retries without a bound");
+    assert_eq!(
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .journal_reducer_rebuild_pending(AGENT_ROSTER_REDUCER_ID)
+            .unwrap(),
+        Some(AGENT_ROSTER_REDUCER_VERSION - 1),
+        "a rebuild that gave up must leave the roster marked stale"
+    );
+    rebuild_faults::fail_reads(session, 0);
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// The stale mark and the migrated snapshot are written together: when the
+/// mark cannot be written, the migrated snapshot is not saved at the
+/// current version either. Otherwise a stop before the rebuild finished
+/// left a migrated snapshot passing for the current reducer's fold, with no
+/// mark, and every later start trusted it.
+#[test]
+fn a_migrated_snapshot_is_not_saved_without_its_stale_mark() {
+    use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION};
+    let session = "roster-bump-mark";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-roster-bump-mark-{}", crate::workspace_registry::new_uuid_v4()));
+    let previous = AGENT_ROSTER_REDUCER_VERSION - 1;
+    store_with_a_previous_version_snapshot(session, &root, previous, |_, _| {});
+    let registry = WorkspaceRegistry::open(&root, session).unwrap();
+    let database = registry.session_journal_database_path().unwrap();
+    // The mark's write fails (a full disk, an I/O error).
+    rusqlite::Connection::open(&database)
+        .unwrap()
+        .execute_batch(&format!(
+            "CREATE TRIGGER refuse_rebuild_mark BEFORE INSERT ON meta
+             WHEN NEW.key = 'journal_reducer_rebuild.{AGENT_ROSTER_REDUCER_ID}'
+             BEGIN SELECT RAISE(ABORT, 'the mark is refused'); END;"
+        ))
+        .unwrap();
+    let restored = crate::mux::agent_roster_restore::restore_agent_roster(&registry).unwrap();
+    assert!(restored.rebuild);
+    assert_eq!(registry.journal_reducer_rebuild_pending(AGENT_ROSTER_REDUCER_ID).unwrap(), None);
+    let (version, _, _) = registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID).unwrap().unwrap();
+    assert_eq!(version, previous, "the migrated snapshot was saved without its stale mark");
+    rusqlite::Connection::open(&database)
+        .unwrap()
+        .execute_batch("DROP TRIGGER refuse_rebuild_mark;")
+        .unwrap();
+
+    // The next start migrates again, and this time marks it.
+    let restored = crate::mux::agent_roster_restore::restore_agent_roster(&registry).unwrap();
+    assert!(restored.rebuild);
+    assert_eq!(
+        registry.journal_reducer_rebuild_pending(AGENT_ROSTER_REDUCER_ID).unwrap(),
+        Some(previous)
+    );
+    let (version, _, _) = registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID).unwrap().unwrap();
+    assert_eq!(version, AGENT_ROSTER_REDUCER_VERSION);
+    drop(registry);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// A terminal the live roster retired while the rebuild ran stays retired
+/// when the rebuilt roster replaces the live one. The rebuild folds only the
+/// journal, and a close is not a journal event the roster folds, so the
+/// rebuilt roster used to bring the closed terminal's entry back.
+#[test]
+fn a_terminal_retired_during_the_rebuild_stays_retired() {
+    use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION};
+    use crate::mux::agent_roster_fold::rebuild_faults;
+    let session = "roster-rebuild-retire";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-roster-rebuild-retire-{}", crate::workspace_registry::new_uuid_v4()));
+    let (terminal, _) = store_with_a_previous_version_snapshot(
+        session,
+        &root,
+        AGENT_ROSTER_REDUCER_VERSION - 1,
+        |_, _| {},
+    );
+    rebuild_faults::hold(session, true);
+    let mux = open_persistent_test_mux(session, &root);
+    assert!(mux.agent_roster_rebuilding());
+    assert_eq!(roster_agent_state(&mux, &terminal).as_deref(), Some("working"));
+    mux.retire_roster_terminal(&terminal);
+    assert_eq!(roster_agent_state(&mux, &terminal), None, "the live pass retired it");
+    assert!(mux.agent_roster_rebuilding());
+
+    rebuild_faults::hold(session, false);
+    mux.continue_agent_roster_rebuild_later();
+    assert!(rebuild_ends_on_its_own(&mux));
+    assert_eq!(roster_agent_state(&mux, &terminal), None, "the rebuild brought it back");
+    let (_, _, snapshot) = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .journal_reducer_state(AGENT_ROSTER_REDUCER_ID)
+        .unwrap()
+        .unwrap();
+    let saved = crate::journal_reducers::AgentRoster::restore(&snapshot).unwrap();
+    assert!(!saved.entries.contains_key(terminal.as_str()), "the saved roster has it again");
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// A rebuild that gave up leaves the roster stale for the rest of the run,
+/// not only marked stale for the next start: projections (terminal adoption,
+/// respawn, the open's reconcile) are not reconciled from it.
+#[test]
+fn a_rebuild_that_gave_up_keeps_the_roster_stale() {
+    use crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION;
+    use crate::mux::agent_roster_fold::rebuild_faults;
+    let session = "roster-rebuild-gave-up-stale";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-roster-gave-up-stale-{}", crate::workspace_registry::new_uuid_v4()));
+    store_with_a_previous_version_snapshot(
+        session,
+        &root,
+        AGENT_ROSTER_REDUCER_VERSION - 1,
+        |_, _| {},
+    );
+    rebuild_faults::fail_reads(session, u32::MAX);
+    let mux = open_persistent_test_mux(session, &root);
+    mux.stop_journal_maintenance();
+    assert!(rebuild_ends_on_its_own(&mux));
+    assert!(mux.agent_roster_stale(), "a roster whose rebuild gave up is reconciled from");
+    rebuild_faults::fail_reads(session, 0);
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// When the start could not write the stale mark, a live pass does not save
+/// the migrated roster at the current version either: a stop before the
+/// rebuild finished would leave a snapshot every later start trusts. It
+/// saves at the version the roster was migrated from, so the next start
+/// migrates and marks it again.
+#[test]
+fn a_live_pass_does_not_save_an_unmarked_migrated_roster_at_the_current_version() {
+    use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION};
+    use crate::mux::agent_roster_fold::rebuild_faults;
+    let session = "roster-unmarked-live-save";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-roster-unmarked-save-{}", crate::workspace_registry::new_uuid_v4()));
+    let previous = AGENT_ROSTER_REDUCER_VERSION - 1;
+    let (terminal, _) = store_with_a_previous_version_snapshot(session, &root, previous, |_, _| {});
+    let database =
+        WorkspaceRegistry::open(&root, session).unwrap().session_journal_database_path().unwrap();
+    rusqlite::Connection::open(&database)
+        .unwrap()
+        .execute_batch(&format!(
+            "CREATE TRIGGER refuse_rebuild_mark BEFORE INSERT ON meta
+             WHEN NEW.key = 'journal_reducer_rebuild.{AGENT_ROSTER_REDUCER_ID}'
+             BEGIN SELECT RAISE(ABORT, 'the mark is refused'); END;"
+        ))
+        .unwrap();
+    // The rebuild does not finish in this run (the daemon stops first).
+    rebuild_faults::hold(session, true);
+    let mux = open_persistent_test_mux(session, &root);
+    append_journal_hook(&mux, &terminal, "Stop", Some("bump"));
+    assert_eq!(roster_agent_state(&mux, &terminal).as_deref(), Some("idle"));
+    let (version, _, _) = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .journal_reducer_state(AGENT_ROSTER_REDUCER_ID)
+        .unwrap()
+        .unwrap();
+    assert_eq!(version, previous, "a live pass saved the unmarked migrated roster as current");
+    rebuild_faults::hold(session, false);
+    mux.shutdown();
+    drop(mux);
     std::fs::remove_dir_all(root).unwrap();
 }

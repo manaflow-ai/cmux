@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type SidebarCommentEntry } from "../comments/annotations";
 import { CommentsSidebarSection } from "../comments/CommentsSection";
 import { type DiffCommentLabels } from "../comments/labels";
+import type { CommentsSendState } from "../comments/types";
 import { type DiffItem, type FileTreeSource } from "../diff-stream";
 import { treeFileRowPath } from "../file-activation";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../ui/Menu";
@@ -96,11 +97,13 @@ export function filteredFileTreeSource(
 export function FilesSidebar({
   commentEntries,
   commentLabels,
+  commentsSendState,
   dispatch,
   hasDraft,
   label,
   onActivateItem,
   onSelectComment,
+  onSendComments,
   onSelectItem,
   onToggleViewedPath,
   selectedPath,
@@ -111,11 +114,14 @@ export function FilesSidebar({
 }: {
   commentEntries: SidebarCommentEntry[];
   commentLabels: DiffCommentLabels;
+  commentsSendState?: CommentsSendState;
   dispatch: React.Dispatch<AppAction>;
   hasDraft: boolean;
   label: DiffViewerLabelResolver;
   onActivateItem: (itemId: string) => void;
   onSelectComment: (entry: SidebarCommentEntry) => void;
+  /** Sends every saved comment to the diff's chat; absent when the host cannot. */
+  onSendComments?: () => void;
   onSelectItem: (itemId: string) => void;
   onToggleViewedPath: (path: string) => void;
   selectedPath: string;
@@ -235,6 +241,8 @@ export function FilesSidebar({
         hasDraft={hasDraft}
         labels={commentLabels}
         onSelect={onSelectComment}
+        onSend={onSendComments}
+        sendState={commentsSendState}
       />
     </aside>
   );
@@ -538,8 +546,7 @@ function usePierreFileTreeSelection(
 }
 
 const FILE_TREE_ITEM_HEIGHT = 29;
-const FILE_TREE_FONT_FAMILY =
-  '"Inter", system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif';
+const FILE_TREE_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Arial, sans-serif';
 
 export function getInitialFileTreeRowCount(): number {
   const viewportHeight = window.visualViewport?.height ?? window.innerHeight;

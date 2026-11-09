@@ -133,6 +133,138 @@
         }
       }
     },
+    "action.home.undockChief": {
+      "comment": "Action title: float the docked Chief panel over the workspace again (it stops taking space at the window's edge).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undock Chief"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إلغاء إرساء Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otkači Chief"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Frigør Chief"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief abdocken"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desacoplar Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Détacher Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sgancia Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief のドッキングを解除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ដាច់ Chief ពីចត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 도킹 해제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Løsne Chief"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odepnij Chief"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desencaixar Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открепить Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลิกยึด Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief'i ayır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкріпити Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bỏ neo Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "取消停靠 Chief"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "取消停靠 Chief"
+          }
+        }
+      }
+    },
     "action.window.movePaneToDock": {
       "comment": "Action title: move the focused pane's tabs into the window dock.",
       "extractionState": "manual",
@@ -10398,127 +10530,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Column Scroll Bar"
+            "value": "Column Scroll Bar"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تبديل شريط تمرير الأعمدة"
+            "value": "شريط تمرير الأعمدة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uključi/isključi traku za pomicanje kolona"
+            "value": "Traka za pomicanje kolona"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå rullebjælke for kolonner til/fra"
+            "value": "Rullebjælke for kolonner"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Scrollleiste der Spalten umschalten"
+            "value": "Scrollleiste der Spalten"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar barra de desplazamiento de columnas"
+            "value": "Barra de desplazamiento de columnas"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Basculer la barre de défilement des colonnes"
+            "value": "Barre de défilement des colonnes"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Attiva/disattiva barra di scorrimento delle colonne"
+            "value": "Barra di scorrimento delle colonne"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "カラムのスクロールバーを切り替え"
+            "value": "カラムのスクロールバー"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បិទ/បើករបាររំកិលជួរឈរ"
+            "value": "របាររំកិលជួរឈរ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "열 스크롤 막대 전환"
+            "value": "열 스크롤 막대"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå rullefelt for kolonner av/på"
+            "value": "Rullefelt for kolonner"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przełącz pasek przewijania kolumn"
+            "value": "Pasek przewijania kolumn"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar barra de rolagem das colunas"
+            "value": "Barra de rolagem das colunas"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Переключить полосу прокрутки колонок"
+            "value": "Полоса прокрутки колонок"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "สลับแถบเลื่อนคอลัมน์"
+            "value": "แถบเลื่อนคอลัมน์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sütun kaydırma çubuğunu aç/kapat"
+            "value": "Sütun kaydırma çubuğu"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перемкнути смугу прокручування колонок"
+            "value": "Смуга прокручування колонок"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bật/tắt thanh cuộn cột"
+            "value": "Thanh cuộn cột"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切换分栏滚动条"
+            "value": "分栏滚动条"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切換分欄捲軸"
+            "value": "分欄捲軸"
           }
         }
       }
@@ -13281,6 +13413,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "將標籤頁移至工作區…"
+          }
+        }
+      }
+    },
+    "action.home.showHideChiefFromAnyApp": {
+      "comment": "Action title: the system-wide key (Option-Shift-Space) that brings cmux forward and shows or hides the floating Chief.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show/Hide Chief from Any App"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار/إخفاء Chief من أي تطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži/sakrij Chief iz bilo koje aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis/skjul Chief fra enhver app"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief aus jeder App ein-/ausblenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar/ocultar Chief desde cualquier app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher/masquer Chief depuis n’importe quelle app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra/nascondi Chief da qualsiasi app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "任意のアプリから Chief を表示/非表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញ/លាក់ Chief ពីកម្មវិធីណាមួយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 앱에서 Chief 보기/숨기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis/skjul Chief fra hvilken som helst app"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż/ukryj Chief z dowolnej aplikacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar/ocultar o Chief de qualquer app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показать/скрыть Chief из любого приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดง/ซ่อน Chief จากแอปใดก็ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief'i herhangi bir uygulamadan göster/gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показати/сховати Chief з будь-якого застосунку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện/ẩn Chief từ mọi ứng dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "从任意 App 显示/隐藏 Chief"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "從任何 App 顯示/隱藏 Chief"
           }
         }
       }

@@ -111,25 +111,16 @@ enum WorkspaceMetadataHandlers {
             let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
             let unread = tabs.filter(\.hasUnread)
             for tab in unread.isEmpty && workspace.unreadCount > 0 ? tabs : unread {
-                let surface = tab.surface
-                // Read now (dots, badges, unread count); the tree's echo settles it, a failed ack rolls it back.
-                tab.expectNotificationRead()
-                daemon.send("ack-tab-notifications", onFailure: { _ in tab.dropExpectedNotificationRead() }) {
-                    _ = try await $0.acknowledgeNotifications(of: surface)
-                }
+                // Read now (dots, badges, unread count) and kept while the daemon is down; the tree's echo settles it,
+                // only the daemon's refusal rolls it back.
+                daemon.readNotification(of: tab)
             }
         }
     }
 
-    /// Working directory of the focused tab when the workspace is shown,
-    /// else of its first tab that reports one.
+    /// Working directory of the focused tab when the workspace is shown, else of its first tab that
+    /// reports one (any tab kind: `workspaces::directory`).
     private static func directory(of workspace: WorkspaceModel, _ context: AppActionContext) -> String? {
-        let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-        if context.activeWindow?.state.workspaceID == workspace.id,
-           let pane = context.activeWindow?.focusedPane, let id = pane.stripModel.selectedID,
-           let cwd = tabs.first(where: { $0.id == id.rawValue })?.cwd {
-            return cwd
-        }
-        return tabs.lazy.compactMap(\.cwd).first
+        WorkspaceVerbHandlers.directory(of: workspace, context, terminalsOnly: false)
     }
 }

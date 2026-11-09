@@ -461,9 +461,8 @@ body {
    table itself starts where the text does and grows right up to the pane's padding before it
    scrolls. When the column fills the pane (a narrow pane, Full Width) the breakout is 0. The pane
    is the size container (`.md-scroll`), so 100cqw is its width without its scrollbar.
-   No edge of a table is faded out (user 2026-10-31: "it blurs the edges of the tables? why
-   blur?"): the box's thin sideways scrollbar (scrollers.ts SIDEWAYS_SCROLLER_ATTRIBUTE, set by
-   tables.ts) shows that it scrolls, with the overlay scrollbar hidden too. */
+   The box's thin sideways scrollbar (scrollers.ts SIDEWAYS_SCROLLER_ATTRIBUTE, set by tables.ts)
+   shows that it scrolls, with the overlay scrollbar hidden too, and so does the edge fade below. */
 .md-scroll {
   container-type: inline-size;
 }
@@ -475,6 +474,38 @@ body {
   max-width: none;
   margin-left: calc(-1 * var(--md-table-breakout));
   padding-left: var(--md-table-breakout);
+}
+
+/* The edge with more table past it fades out (tables.ts sets `data-more-left` once the table is
+   scrolled and `data-more-right` while more lies past the right; user 2026-11-07: "markdown
+   missing fade now"). Only those edges fade, and only over 24px, so no text sits under a fade at
+   rest unless more of it is past the edge (user 2026-10-31, on the older 2.5em fade of both
+   edges: "why blur?"). A mask, so the fade takes the page under it in every theme; eased stops,
+   so it never bands. */
+.md-prose .tableWrapper {
+  --md-table-fade-left: 0px;
+  --md-table-fade-right: 0px;
+}
+.md-prose .tableWrapper[data-more-left] {
+  --md-table-fade-left: var(--md-table-fade, 24px);
+}
+.md-prose .tableWrapper[data-more-right] {
+  --md-table-fade-right: var(--md-table-fade, 24px);
+}
+.md-prose .tableWrapper:is([data-more-left], [data-more-right]) {
+  --md-table-mask: linear-gradient(
+    to right,
+    rgb(0 0 0 / 0) 0,
+    rgb(0 0 0 / 0.45) calc(var(--md-table-fade-left) * 0.3),
+    rgb(0 0 0 / 0.8) calc(var(--md-table-fade-left) * 0.6),
+    #000 var(--md-table-fade-left),
+    #000 calc(100% - var(--md-table-fade-right)),
+    rgb(0 0 0 / 0.8) calc(100% - var(--md-table-fade-right) * 0.6),
+    rgb(0 0 0 / 0.45) calc(100% - var(--md-table-fade-right) * 0.3),
+    rgb(0 0 0 / 0) 100%
+  );
+  -webkit-mask-image: var(--md-table-mask);
+  mask-image: var(--md-table-mask);
 }
 
 /* Table borders (MARKDOWN-OBSIDIAN-PARITY, user 2026-10-19: in transparency mode "when the border
@@ -665,6 +696,66 @@ body {
   font-size: var(--cmux-md-toolbar-font-size);
   color: var(--cmux-md-faint-color);
   user-select: none;
+}
+
+/* A shell block's Run controls (runButtons.ts) sit in the language row, on its left. They are placed
+   over the row, never in the flow, so mounting them as the block scrolls near and the destructive
+   question that replaces Run never move the code. */
+.md-run {
+  position: absolute;
+  top: 0.35em;
+  left: 0.8em;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  max-width: calc(100% - 6em);
+  line-height: 1.2;
+  font-size: var(--cmux-md-toolbar-font-size);
+  user-select: none;
+  white-space: nowrap;
+}
+
+.md-run-button {
+  border: 0;
+  padding: 0 4px;
+  margin: 0 -4px;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--cmux-md-faint-color);
+  font: inherit;
+  line-height: inherit;
+}
+
+.md-run-button::before {
+  content: "\25B6\FE0E";
+  margin-inline-end: 4px;
+  font-size: 0.75em;
+}
+
+/* The question's Run and Cancel, and the Sent state, are words only. */
+.md-run[data-state] .md-run-button::before {
+  content: none;
+}
+
+.md-run-button:hover,
+.md-run-button:focus-visible {
+  color: var(--cmux-md-text-color);
+  background: var(--cmux-md-accent-background);
+}
+
+.md-run[data-state="sent"] .md-run-button {
+  color: var(--cmux-md-text-color);
+}
+
+.md-run-ask {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--cmux-md-text-color);
+}
+
+.md-run-confirm {
+  font-weight: 600;
+  color: var(--cmux-md-text-color);
 }
 
 .md-code [style*="--md-tok-light"] {

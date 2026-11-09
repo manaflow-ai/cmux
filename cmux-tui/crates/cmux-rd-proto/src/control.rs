@@ -102,6 +102,32 @@ pub enum Control {
     StreamClose {
         stream: u16,
     },
+    /// Viewer to host, after `welcome` lists `link.udp`: a UDP media link
+    /// (cmux-rd-link, Noise_XX) next to the stream. The offer rides the stream,
+    /// which the carrier already authenticated, so the stream vouches for both
+    /// keys. `session` is the link's Noise prologue; `key` is the viewer's link
+    /// key (64 hex characters); `candidates` are `"<kind> <addr>"`.
+    LinkOffer {
+        session: String,
+        key: String,
+        #[serde(default)]
+        candidates: Vec<String>,
+    },
+    /// Host to viewer: the host's link key; its candidates follow as `link_candidate`.
+    LinkAnswer {
+        key: String,
+    },
+    /// Either side: one more link candidate, `"<kind> <addr>"`.
+    LinkCandidate {
+        candidate: String,
+    },
+    /// Host to viewer: media datagrams now ride the link (`up`), or went back
+    /// to the stream (`reason` says why). Control always stays on the stream.
+    LinkState {
+        up: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
     Stats {
         kbps: u32,
         frames: u64,

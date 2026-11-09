@@ -672,6 +672,71 @@ class CompileTrailerTests(unittest.TestCase):
                                             "    switch s {\n    case \"one\": return 1\n    default: return 2\n    }\n}\nlet one = 1\n"})
         self.assertFalse(refused, lines)
 
+    # 2026-11-08: four of five landq trains refused after a re-pick were refused over a name a file could not reach:
+    # upstream removed `PairInviteModel.close()` (CmuxNextServer) and the train's test in CmuxNextAgentPaneTests, which
+    # does not depend on CmuxNextServer, called `window.close()`. The reach was the whole train's modules, not the
+    # file's own module and its dependencies, so each such push compiled again or gated again (70 min).
+    def server_hub(self):
+        """kit_app() plus a Server module, and a Hub module that uses it; App does not use Server."""
+        self.kit_app()
+        self.write(f"{PKG}/Sources/Server/Invite.swift",
+                   "public final class Invite {\n    public init() {}\n    public func close() {}\n}\n")
+        self.write(f"{PKG}/Sources/Hub/Hub.swift", "import Server\nstruct Hub {\n    let invite = Invite()\n}\n")
+        self.with_manifest(self.read(f"{PKG}/Package.swift").replace(
+            '.target(name: "Other"),',
+            '.target(name: "Other"),\n        .target(name: "Server"),\n        .target(name: "Hub", dependencies: ["Server"]),'))
+
+    SERVER = f"{PKG}/Sources/Server/Invite.swift"
+    HUB = f"{PKG}/Sources/Hub/Feature.swift"
+
+    def test_reach_an_upstream_removal_in_a_module_the_file_does_not_use_passes(self):
+        self.server_hub()
+        refused, lines = self.rebased_push(
+            {self.APP: "import Kit\nimport AppKit\nfunc feature(_ w: NSWindow) { w.close() }\n",
+             self.HUB: "import Server\nfunc hub() -> Int { 1 }\n"},
+            {self.SERVER: self.read(self.SERVER).replace("    public func close() {}\n", "")})
+        self.assertFalse(refused, lines)
+
+    def test_reach_an_upstream_removal_in_a_module_the_file_uses_is_refused(self):
+        self.server_hub()
+        refused, lines = self.rebased_push(
+            {self.APP: "import Kit\nfunc feature() -> Int { 1 }\n",
+             self.HUB: "import Server\nfunc hub() { Invite().close() }\n"},
+            {self.SERVER: self.read(self.SERVER).replace("    public func close() {}\n", "")})
+        self.assertTrue(refused, lines)
+        self.assertIn("close", lines[0])
+
+    def test_reach_the_push_s_removal_meets_no_upstream_file_outside_its_users(self):
+        self.server_hub()
+        refused, lines = self.rebased_push(
+            {self.SERVER: self.read(self.SERVER).replace("    public func close() {}\n", ""),
+             self.KIT: self.read(self.KIT).replace("public func run() -> Int { 1 }", "public func run() -> Int { 2 }")},
+            {self.APP: "import Kit\nimport AppKit\nfunc feature(_ w: NSWindow) { w.close() }\n"})
+        self.assertFalse(refused, lines)
+
+    def test_reach_the_push_s_removal_meets_an_upstream_file_that_uses_its_module(self):
+        self.server_hub()
+        refused, lines = self.rebased_push(
+            {self.SERVER: self.read(self.SERVER).replace("    public func close() {}\n", "")},
+            {self.HUB: "import Server\nfunc hub() { Invite().close() }\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("close", lines[0])
+
+    # 2026-11-08: upstream removed the enum case `` `return` `` of a key enum, and a train was refused because its new
+    # lines used the keyword `return`. A reserved word names a declaration only as `.return` or `` `return` ``.
+    def test_keyword_an_upstream_case_named_by_a_keyword_meets_only_a_member_use(self):
+        self.kit_app(extra="public enum Key {\n    case `return`, escape\n}\n")
+        removed = {self.KIT: self.read(self.KIT).replace("    case `return`, escape\n", "    case escape\n")}
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { return 1 }\n"}, removed)
+        self.assertFalse(refused, lines)
+
+    def test_keyword_an_upstream_case_named_by_a_keyword_is_refused_where_the_push_names_it(self):
+        self.kit_app(extra="public enum Key {\n    case `return`, escape\n}\n")
+        removed = {self.KIT: self.read(self.KIT).replace("    case `return`, escape\n", "    case escape\n")}
+        refused, lines = self.rebased_push({self.APP: "import Kit\nlet key: Key = .return\n"}, removed)
+        self.assertTrue(refused, lines)
+        self.assertIn("return", lines[0])
+
     def read(self, rel):
         return (self.repo / rel).read_text()
 

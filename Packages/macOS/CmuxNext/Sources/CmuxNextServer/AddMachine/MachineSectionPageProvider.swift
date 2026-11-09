@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+import Observation
 public import CmuxNextPages
 public import CmuxNextSettings
 
@@ -13,12 +14,16 @@ public extension PageDescriptor {
 /// machine's last check, the person's hub-joined machines and the section's layout tunable:
 /// - `snapshot` → `{rows, style, busy, failed, openMenu?}` (webviews/src/pages/machines/types.ts);
 /// - stream `changes` → the whole snapshot each time it changes, only while the section shows: a
-///   hidden section's page hears nothing, and the newest snapshot arrives when it shows again;
+///   hidden section observes nothing but whether it shows, and the newest snapshot arrives when it
+///   shows again;
 /// - `newWorkspace {machine}` → `workspace.newOnMachine`; `addMachine` → `device.add` (Add Device);
 /// - `menu {row, menu, x, y}` → the registry's native menu for the row at the page point, answered
-///   once it closes (`row`: New Workspace on This Machine; `joined`: Check, Rotate Credential, Revoke…).
+///   once it closes (`row`: New Workspace on This Machine; `joined`: Check, Rotate Credential, Revoke…);
+/// - `remove {row}` → a joined machine's Remove, after the page's own question: revoked if it still
+///   can join, and off every machine list (`cmux device remove`, whose record is cmux-tui's).
+/// Every op but `snapshot` runs only on the person's own input, on a row the section shows.
 /// The layout (groups, order, words) is the page's.
-@MainActor
+@MainActor @Observable
 public final class MachineSectionPageProvider: PageProvider {
     public nonisolated static let prefix = "cmux.machines."
     static let snapshotOp = "cmux.machines.snapshot"
@@ -26,6 +31,7 @@ public final class MachineSectionPageProvider: PageProvider {
     static let newWorkspaceOp = "cmux.machines.newWorkspace"
     static let addMachineOp = "cmux.machines.addMachine"
     static let menuOp = "cmux.machines.menu"
+    static let removeOp = "cmux.machines.remove"
     /// The menus `menuOp` opens: a row's New Workspace, and a joined machine's Check / Rotate / Revoke.
     static let rowMenu = "row", joinedMenu = "joined"
 
@@ -59,13 +65,13 @@ public final class MachineSectionPageProvider: PageProvider {
     }
 
     /// Fills in the presenter once the page exists (the page is made with this provider).
-    var present: @MainActor (NSMenu, CGPoint) async -> Void
-    private let dependencies: Dependencies
-    /// Whether the section shows: the stream sends nothing while it is hidden.
+    @ObservationIgnored var present: @MainActor (NSMenu, CGPoint) async -> Void
+    @ObservationIgnored private let dependencies: Dependencies
+    /// Whether the section shows. A stream observes only this while it is hidden (no snapshot is made
+    /// and no row is read), and the rows again once it shows.
     public private(set) var isShown = false
-    /// Each live stream's sender; a change while hidden waits for the next show. A cancelled
-    /// subscription's entry goes at the next show.
-    private var streams: [(task: Task<Void, Never>, send: @MainActor () -> Void)] = []
+    /// Each live stream's sender, which the show runs at once; a cancelled one goes at the next show.
+    @ObservationIgnored private var streams: [(task: Task<Void, Never>, send: @MainActor () -> Void)] = []
 
     public init(dependencies: Dependencies) {
         self.dependencies = dependencies
@@ -104,13 +110,25 @@ public final class MachineSectionPageProvider: PageProvider {
                   let row = dependencies.rows().first(where: { $0.id == id }) else {
                 throw PageError.invalidParams("row is not a machine of the section")
             }
-            guard kind == Self.rowMenu || (kind == Self.joinedMenu && row.joined != nil) else {
+            // A joined machine with no workspace link of its own (its row is only `joined:<id>`) has no
+            // New Workspace: its row menu is refused like any menu the row does not have.
+            let linked = row.joined.map { row.id != JoinedMachine.healthID($0.id) } ?? true
+            guard (kind == Self.rowMenu && linked) || (kind == Self.joinedMenu && row.joined != nil) else {
                 throw PageError.invalidParams("row has no \(kind) menu")
             }
             guard let menu = dependencies.menu(kind, row) else { return .object([:]) }
             let point = CGPoint(x: params["x"]?.doubleValue ?? 0, y: params["y"]?.doubleValue ?? 0)
             await present(menu, point)
             return .object([:])
+        case Self.removeOp:
+            try Self.requireGesture(context)
+            // Only a joined machine the section shows, while it shows; the page names its row, never a machine id.
+            guard isShown else { throw PageError.invalidParams("the Machines section is hidden") }
+            guard let id = params["row"]?.stringValue, let machine = dependencies.rows().first(where: { $0.id == id })?.joined,
+                  let joined = dependencies.joined() else {
+                throw PageError.invalidParams("row is not a joined machine of the section")
+            }
+            return ["removed": .bool(await joined.perform(.remove, machine.id))]
         default:
             throw PageError.unknownOp(op)
         }
@@ -138,10 +156,12 @@ public final class MachineSectionPageProvider: PageProvider {
             sent = next
         }
         // task-owner: lives as long as the page's subscription; event-driven (Observation), no timer.
+        // Hidden, the observed value is nil and reads only `isShown` (no row, no snapshot); shown, it is
+        // the snapshot, so a change of any row wakes it.
         let task = Task { [weak self] in
-            for await _ in ObservationStream({ self?.snapshot() }) {
+            for await next in ObservationStream({ self.flatMap { $0.isShown ? $0.snapshot() : nil } }) {
                 guard !Task.isCancelled else { return }
-                send()
+                if next != nil { send() }
             }
         }
         streams.append((task, send))

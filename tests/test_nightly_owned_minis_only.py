@@ -8,10 +8,18 @@ and the release-signer pool (signer-build, signer-app, signer-dmg-image, signer-
 legacy-identity copies) on Linux.
 
 1. Each job's runs-on, evaluated for manaflow-ai over sampled attempts, refs, events and picker
-   outputs, names a glaeda label (or a variable that holds one). PENDING_GLAEDA lists the jobs that
-   hold a release secret and that glaeda's exclusive class does not admit yet
-   (teamleaderleo/glaeda scripts/glaeda-cmux-runner-hook SIGNING_JOBS): until glaeda gives them the
-   whole mini they stay on hosted Ubuntu, and this list may only shrink.
+   outputs, names a glaeda label (or a variable that holds one). Lawrence, 2026-11-04: "Never move a
+   nightly job to Blacksmith, a GitHub-hosted runner or another mini". HOSTED_TAIL_JOBS are the only
+   exceptions, each with its reason, and this list may only shrink. Each one holds a release secret
+   (so never the nightly mini's shared light runners) and runs only in the tail (run_tail: on nightly-next
+   the dispatched run outside the push group), so a hosted queue never holds the push group or the
+   feed: GitHub-hosted ubuntu-24.04 had 307 jobs queued, the oldest for 39 min, on 2026-11-08. On the
+   trusted signing runner each would hold the whole Mac (glaeda's exclusive class) for a long or
+   wait-bound stretch while the next run builds and signs there. Every job in the push run, and every
+   short secret job, takes the trusted signing runner instead. HOSTED_LOOP_JOBS is Leo's override for one
+   loop-run job, the GitHub release upload (2026-11-08: "no. if this is still a good idea, we can still do it."):
+   it holds the release App key, so it runs on an ephemeral hosted VM, as publish-release-notes does with the
+   same key, rather than holding the whole signing Mac; it never takes a mini or the whole-Mac claim.
 2. The Linux release-signer pool is gone: the jobs, the sign_pool input and the
    CI_NIGHTLY_NEXT_SIGN_POOL switch. The Mac signers sign every nightly.
 3. The fleet-Linux early admission is gone from decide: no step starts or reads it.
@@ -40,7 +48,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_ci_fork_runner_routing import parse_expression  # noqa: E402
 from test_nightly_trusted_routing import evaluate  # noqa: E402
 import test_nightly_never_blacksmith as never_blacksmith  # noqa: E402
-from test_nightly_never_blacksmith import JOBS, ROOT, manaflow_route  # noqa: E402
+from test_nightly_never_blacksmith import JOBS, ROOT  # noqa: E402
+from test_nightly_never_blacksmith import manaflow_route as fork_free_route  # noqa: E402
 from test_ci_signing_owned_mac import CLAIM, CLAIM_GATE_ID, claim_gate_for, picker_ref_failures  # noqa: E402
 
 import yaml  # noqa: E402
@@ -48,14 +57,47 @@ import yaml  # noqa: E402
 WORKFLOW_TEXT = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
 RAW = yaml.safe_load(WORKFLOW_TEXT)
 
-# Secret jobs glaeda does not admit as exclusive yet (signing-jobs.patch adds them); they keep hosted Ubuntu.
-PENDING_GLAEDA = {
-    "promote-nightly-next-acked", "keep-published-dsyms", "sentry-dsyms-nightly", "sign-release-notes",
-    "publish-release-notes", "publish-nightly-reel", "publish-nightly-identity-legacy", "republish-nightly-deltas",
-    "legacy-identity-target",
+# The only nightly.yml jobs on GitHub-hosted Ubuntu: secret jobs that run only in the tail, outside the push group,
+# whose whole-Mac hold on the trusted signing runner would be long or wait-bound. job -> why it stays hosted.
+HOSTED_TAIL_JOBS = {
+    "sentry-dsyms-nightly": "a Sentry upload of 10.8 and 19.7 min (runs 41471126151, 41466468306)",
+    "sign-release-notes": "a span fetch that waits through API rate limits (70 min), and release-notes.py's "
+                          "openssl pkeyutl -rawin, which macOS's LibreSSL lacks",
+    "publish-release-notes": "up to 130 min of publish-lease and API rate-limit waits",
+    "publish-nightly-reel": "an ffmpeg render of up to 90 min",
 }
-# Secret jobs glaeda's SIGNING_JOBS already gives the whole mini, that hold no signing keychain.
-EXCLUSIVE_PUBLISHERS = ("promote-nightly-next", "publish-nightly", "publish-nightly-next-github")
+# Leo's override (2026-11-08, "no. if this is still a good idea, we can still do it."): a loop-run job on GitHub-hosted
+# Ubuntu. job -> why. Its whole-Mac hold on cmux15 (289-406 s a build, after 79-412 s queued behind keep-published-dsyms:
+# runs 42547726872, 42552327203, 42555458535, 42563930397) kept the signer from the next sign; a hosted job queued
+# 2-89 s in the same runs' tails. It holds the push group as before, so a hosted queue like 2026-11-08's 39 min would
+# hold it too: the stated cost.
+HOSTED_LOOP_JOBS = {
+    "publish-nightly-next-github": "uploads only, with the release App key that publish-release-notes already takes to "
+                                   "an ephemeral hosted VM; on the signer it held the whole Mac",
+}
+# Jobs on our minis for nightly-next only. Every other track (classic, RC) goes GitHub-hosted through this
+# short-circuit, as before #38596: its release uploads may wait out the API rate limit for up to 360 min, which must
+# not hold the exclusive signing Mac. job -> why.
+NIGHTLY_NEXT_ONLY_OWNED = {
+    "republish-nightly-deltas": "classic and RC release uploads wait out the rate limit (360 min timeout)",
+}
+TRACK_HOSTED = "github.ref != 'refs/heads/nightly-next' && 'ubuntu-24.04' ||"
+
+
+def manaflow_route(name: str) -> str:
+    """The manaflow-ai route of a nightly-next run: past the fork and the other-track short-circuits."""
+    route = fork_free_route(name)
+    return route.replace(TRACK_HOSTED, "", 1) if name in NIGHTLY_NEXT_ONLY_OWNED else route
+
+
+# Secret jobs glaeda's SIGNING_JOBS gives the whole mini, that hold no signing keychain. The last three ran on
+# GitHub-hosted Ubuntu until glaeda admitted them on the trusted signing runner; keep-published-dsyms holds the
+# push group (it runs in the loop run), republish-nightly-deltas follows generate-nightly-deltas' own hold.
+EXCLUSIVE_PUBLISHERS = ("promote-nightly-next", "publish-nightly",
+                        "keep-published-dsyms", "republish-nightly-deltas", "promote-nightly-next-acked")
+# Of those, the ones that need no sign pick: promote-nightly-next and its retired (if: false) acked twin share a route.
+PROMOTE_ROUTE = ("promote-nightly-next", "promote-nightly-next-acked")
+SIGNER = "glaeda-trusted-next-signing"
 SIGNER_POOL = ("launch-smoke-nightly", "signer-build", "signer-app", "signer-dmg-image", "signer-dmg",
                "legacy-signer-app", "legacy-signer-dmg-image", "legacy-signer-dmg",
                "verify-nightly-identity-legacy-pool")
@@ -84,7 +126,7 @@ class EveryJobOnOurMinis(unittest.TestCase):
         rng = random.Random(41751864551)
         failures = {}
         for name, job in JOBS.items():
-            if name in PENDING_GLAEDA or job.get("uses"):
+            if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or job.get("uses"):
                 continue
             runs_on = str(job.get("runs-on", ""))
             if runs_on == "${{ needs.route-visual-gate-nightly.outputs.runs_on }}":
@@ -109,12 +151,51 @@ class EveryJobOnOurMinis(unittest.TestCase):
                     break
         self.assertEqual(sorted(failures), [], "\n".join(f"{k}: {v}" for k, v in sorted(failures.items())))
 
-    def test_pending_glaeda_jobs_are_only_those_that_still_need_it(self) -> None:
-        hosted = {name for name in JOBS if NOT_OURS.search(manaflow_route(name))}
-        self.assertLessEqual(hosted, PENDING_GLAEDA, "only the jobs glaeda does not admit yet may stay hosted")
-        for name in PENDING_GLAEDA & set(JOBS):
+    def test_other_tracks_keep_the_hosted_route(self) -> None:
+        for name in NIGHTLY_NEXT_ONLY_OWNED:
             with self.subTest(job=name):
-                self.assertIn("secrets.", json.dumps(JOBS[name]), "a pending job without a secret moves to the minis now")
+                self.assertTrue(fork_free_route(name).lstrip("${ ").startswith(TRACK_HOSTED),
+                                "a non-nightly-next track must not hold the signing Mac through its rate-limit waits")
+
+    def test_only_the_listed_tail_jobs_are_hosted(self) -> None:
+        hosted = {name for name in JOBS if not JOBS[name].get("uses") and NOT_OURS.search(manaflow_route(name))}
+        self.assertEqual(hosted, set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS),
+                         "a nightly job may not reach a GitHub-hosted runner")
+        for name in (*HOSTED_TAIL_JOBS, *HOSTED_LOOP_JOBS):
+            with self.subTest(job=name):
+                self.assertIn("secrets.", json.dumps(JOBS[name]), "a hosted job without a secret moves to the light runners")
+
+    def test_the_hosted_loop_upload_never_reaches_a_mini(self) -> None:
+        # Leo's override covers this one job only, and only on a hosted VM: no variable, pick or one-mini mode may put
+        # the release App key on a mini without the whole-Mac claim, so its route is the literal hosted label.
+        self.assertEqual(set(HOSTED_LOOP_JOBS), {"publish-nightly-next-github"})
+        for name in HOSTED_LOOP_JOBS:
+            job = JOBS[name]
+            with self.subTest(job=name):
+                self.assertEqual(str(job.get("runs-on")),
+                                 "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}")
+                self.assertIn("secrets.CMUX_RELEASE_APP_KEY", json.dumps(job))
+                self.assertIn("release-next", str(job.get("environment")))
+                self.assertNotIn("pick-nightly-sign-runner", json.dumps(job))
+                # It stays in the loop run, which the next decide reads (tests/test_nightly_next_tail_off_push_group).
+                self.assertIn("needs.published-build.outputs.cross_run != 'true'", str(job.get("if")))
+                ids = [step.get("id") for step in steps(name)]
+                self.assertNotIn(CLAIM_GATE_ID, ids)
+                self.assertFalse(any(CLAIM in str(step.get("run", "")) for step in steps(name)))
+
+    def test_a_hosted_job_runs_only_in_the_tail(self) -> None:
+        # The push run holds the push group until its last job ends: a hosted queue there delays the next build.
+        # A hosted job runs only when published-build says the tail runs here (run_tail), or after a job that does.
+        def tail_only(name: str, seen: frozenset = frozenset()) -> bool:
+            condition = str(JOBS[name].get("if", ""))
+            if "needs.published-build.outputs.run_tail == 'true'" in condition:
+                return True
+            return any(other not in seen and other in JOBS and tail_only(other, seen | {name})
+                       for other in re.findall(r"needs\.([\w-]+)\.result == 'success'", condition))
+        for name in HOSTED_TAIL_JOBS:
+            with self.subTest(job=name):
+                self.assertTrue(tail_only(name), f"{name} may run in the push run, which holds the push group")
+                self.assertNotIn("always()", str(JOBS[name].get("if", "")))
 
 
 class NoLinuxSignerPool(unittest.TestCase):
@@ -155,21 +236,23 @@ class PublishersHoldTheWholeMini(unittest.TestCase):
         # promote-nightly-next runs alone (a main dispatch, no build) and keeps its earlier route: the signer
         # refuses a dispatch (test_nightly_signing_on_cmux15.test_promote_keeps_its_earlier_route). The nightly-only
         # minis' admission (glaeda-nightly-only-admit) refuses every signing-class job, so no publisher may land there.
-        self.assertEqual(manaflow_route("promote-nightly-next"),
-                         "${{  vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || "
-                         "github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && "
-                         "vars.CI_NIGHTLY_SIGN_RUNNER || "
-                         "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}")
+        for name in PROMOTE_ROUTE:
+            self.assertEqual(manaflow_route(name),
+                             "${{  vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || "
+                             "github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && "
+                             "vars.CI_NIGHTLY_SIGN_RUNNER || "
+                             "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}")
         for name in EXCLUSIVE_PUBLISHERS:
             with self.subTest(job=name):
                 route = manaflow_route(name)
-                if name != "promote-nightly-next":
+                if name not in PROMOTE_ROUTE:
                     self.assertIn("needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && "
                                   "needs.pick-nightly-sign-runner.outputs.sign_owned_pool", route)
+                    self.assertIn(f"vars.CI_NIGHTLY_MINI != '' && '{SIGNER}'", route)
                 self.assertNotRegex(route, NOT_OURS)
                 self.assertNotIn("CI_NIGHTLY_ONLY_RUNNER", route)
                 self.assertNotIn("glaeda-nightly-only-m4pro", route)
-                if name != "promote-nightly-next":
+                if name not in PROMOTE_ROUTE:
                     self.assertTrue(route.rstrip(" }").endswith(
                         "'glaeda-trusted-next-signing'"))
 

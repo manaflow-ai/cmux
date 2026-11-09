@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use cmux_link::key_holder::{self, KeyFile, KeyHolder};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
@@ -14,9 +15,9 @@ use zeroize::Zeroizing;
 /// outer WireGuard port of cmux endpoints).
 pub(super) const DEFAULT_PORT: u16 = 4101;
 
-/// The link mesh's inner MTU: 1200, the smaller of the two paths a session
-/// may use (1380 direct, 1200 through the Freestyle tunnel; transport.md
-/// 3.1), so a peer can move to the tunnel route without a size change.
+/// The link mesh's inner MTU. 1200 fit the nested tunnel route, which is
+/// gone; it stays until a change measures a larger one (1380 direct,
+/// transport.md 3.1).
 pub(super) const LINK_MTU: u16 = 1200;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,7 +82,7 @@ impl LinkState {
     }
 
     fn key_path(&self) -> PathBuf {
-        self.dir.join("private.key")
+        KeyFile::Link.path_in(&self.dir)
     }
 
     pub(super) fn config(&self) -> io::Result<LinkConfig> {
@@ -204,23 +205,42 @@ impl LinkState {
         Ok(())
     }
 
-    pub(super) fn private_key(&self) -> io::Result<Zeroizing<[u8; 32]>> {
+    /// This link's private key, for the mesh it serves: only with this
+    /// machine's WireGuard key lock (`holder`) held.
+    pub(super) fn private_key(&self, holder: &KeyHolder) -> io::Result<Zeroizing<[u8; 32]>> {
         let config = self.config()?;
         if config.server_identity.is_some() {
             return Ok(enrolled(&config)?.wireguard_key());
         }
-        let text = Zeroizing::new(std::fs::read_to_string(self.key_path())?);
-        let bytes = Zeroizing::new(
-            STANDARD
-                .decode(text.trim())
-                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?,
-        );
-        let key: [u8; 32] = bytes
-            .as_slice()
-            .try_into()
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "key is not 32 bytes"))?;
-        Ok(Zeroizing::new(key))
+        holder.open(KeyFile::Link, &self.dir, read_key)
     }
+
+    /// The public half of this link's key (`show`, `status`, the enrollment
+    /// checks), read without the lock: no session runs with it.
+    pub(super) fn own_public_key(&self) -> io::Result<[u8; 32]> {
+        let config = self.config()?;
+        let private = if config.server_identity.is_some() {
+            enrolled(&config)?.wireguard_key()
+        } else {
+            key_holder::open_for_public_key(KeyFile::Link, &self.dir, read_key)?
+        };
+        Ok(public_key(&private))
+    }
+}
+
+/// A link key file: the base64 of 32 bytes.
+fn read_key(path: &Path) -> io::Result<Zeroizing<[u8; 32]>> {
+    let text = Zeroizing::new(std::fs::read_to_string(path)?);
+    let bytes = Zeroizing::new(
+        STANDARD
+            .decode(text.trim())
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?,
+    );
+    let key: [u8; 32] = bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "key is not 32 bytes"))?;
+    Ok(Zeroizing::new(key))
 }
 
 fn enrolled(config: &LinkConfig) -> io::Result<cmux_server::pairing::EnrolledIdentity> {
@@ -256,7 +276,9 @@ pub(super) fn default_dir() -> Option<PathBuf> {
 pub(super) fn socket_path_for(dir: &Path) -> PathBuf {
     use sha2::{Digest as _, Sha256};
     let canonical = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
-    let digest = Sha256::digest(canonical.as_os_str().as_encoded_bytes());
+    // The name from before NEXT's folder move, so a link an older daemon started keeps its socket.
+    let identity = cmux_agent_pane_policy::build_identity::path_identity(&canonical);
+    let digest = Sha256::digest(identity.as_os_str().as_encoded_bytes());
     let hex: String = digest.iter().take(6).map(|byte| format!("{byte:02x}")).collect();
     let leaf = format!("link-{hex}.sock");
     let preferred = cmux_tui_core::platform::runtime_dir().join(&leaf);

@@ -31,6 +31,7 @@ test("the categories are the approved ones, in order", () => {
   expect(categories.map((category) => category.id)).toEqual([
     "general",
     "updates",
+    "personalization",
     "theme",
     "appearance",
     "terminal",

@@ -270,10 +270,11 @@ test("a streaming reply reads only its own row again; an older row that changed 
   const tool = shell("gh pr list", "");
   referenceScopes([prompt, tool, assistant("…")], cache);
   const prefix = cache.prefix;
-  // The reply grew: the rows before it are the same objects, so their reading is kept.
+  // The reply grew: the rows before it are the same objects, so their reading is kept as it is
+  // (no row before the reply is new, so nothing is read into it and it is not copied).
   const scopeOf = referenceScopes([prompt, tool, assistant(`#7 and o/r#8`)], cache);
-  expect(cache.prefix).not.toBe(prefix);
-  expect(cache.prefix!.mentions).toEqual(prefix!.mentions);
+  expect(cache.prefix).toBe(prefix);
+  expect(cache.prefix!.mentions).toEqual(new Map([[7, [{ at: 0, repo: CMUX }]]]));
   expect(scopeOf(prompt.id).turn).toEqual(
     new Map([
       [7, CMUX],

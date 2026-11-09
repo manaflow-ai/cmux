@@ -330,10 +330,6 @@ final class CEFLayerHosting {
     /// The view is in a resize motion: a live resize of its window or a motion of its pane.
     var inResizeMotion: Bool { inLiveResize || motionHolders > 0 }
 
-    /// The page holds the keys, so its window stays a page window through this motion (``motionKeepsAttached``): every
-    /// resize of the view resizes that window through the WindowServer, and Chromium lays out at each size after it.
-    var keepsWindowInMotion: Bool { inResizeMotion && motionKeepsAttached && !isDetached }
-
     /// A resize motion of the view's pane began (`true`) or landed (`false`): a person's divider drag, from the press
     /// to the landing (a key resize keeps the page attached, RESIZE P0 5). Every frame of it resizes or moves the
     /// page, so for its length a hosted page that does not hold the keys is detached: its window leaves the parent

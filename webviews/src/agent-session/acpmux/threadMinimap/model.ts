@@ -1,9 +1,12 @@
 // The thread minimap's model: one tick per user message at the pane's left edge
 // (the Codex desktop app's prompt rail). Pure functions, so geometry and previews need no DOM.
+import { withoutRelayLabelOfMessage } from "../conversation/relayEnvelope";
+import { senderName } from "../conversation/senderIdentity";
 import { transcriptColumn, type AcpmuxRow } from "../model";
 import { opensTurn } from "../turnStart";
 import { inboxCounts } from "../conversation/inboxNotice";
 import { MOTION_MS } from "../../../motion/scale.generated";
+import type { SenderReference } from "../senderIdentity";
 
 export type ReplySpan = { text: string; bold: boolean; code?: true };
 export type ReplyBlock = { kind: "paragraph" | "item"; spans: ReplySpan[] };
@@ -15,6 +18,8 @@ export type MinimapTurnMetadata = {
   links: string[];
   failed?: boolean;
   failure?: string;
+  /** A received agent message keeps its identity; it is not labelled as the person's prompt. */
+  sender?: SenderReference;
 };
 export type MinimapTurn = {
   /// The user row's index in the transcript rows (and in the layout's tops).
@@ -61,8 +66,13 @@ export function railPlacement(
   paneWidth: number,
   textInset = transcriptColumn(paneWidth).inset,
   spacing: { min: number; max: number; compact: number; narrowest?: number } = { min: 8, max: 16, compact: 12 },
+  /// The `inset-first` arm (restTick.experiment.ts): the inset follows the text's own gutter too, so it
+  /// shrinks before the hit width where the text comes near (and moves the rail when Session Info pushes).
+  insetFirst = false,
 ): { left: number; width: number; overlapsText: boolean; gutter: number } {
-  const paneInset = transcriptColumn(paneWidth).inset;
+  const paneInset = insetFirst
+    ? Math.min(transcriptColumn(paneWidth).inset, textInset)
+    : transcriptColumn(paneWidth).inset;
   // The narrowest hit width: the compact step for the tight gutter (gutter.experiment.ts), so the
   // resting rail fits the page edge; the inset plus that step for the edge strip.
   const minimumWidth = spacing.narrowest ?? spacing.min + spacing.compact;
@@ -543,7 +553,26 @@ function cardState(prompt: AcpmuxRow, row: AcpmuxRow, before?: CardState): CardS
   const shape = `${row.kind}:${row.ended ?? ""}:${row.foldRun ?? ""}:${row.settled ?? ""}`;
   const cached = previous?.version === row.version && previous.shape === shape ? previous : undefined;
   if (cached && cached.before === before) return cached.state;
-  let state = before ?? { metadata: { at: row.at, links: [] }, files: noFiles };
+  let state = before ?? {
+    metadata: {
+      at: row.at,
+      links: [],
+      // An app or persona label (`[from Muse]`), a Chief or a person names its own sender; the
+      // session it came through never replaces that name, so such a card keeps its "From <name>"
+      // line (IncomingMessageCard.tsx looks no chat up for these either).
+      ...(prompt.incoming?.kind === "message" &&
+        !prompt.incoming.message.app &&
+        !prompt.incoming.message.chief &&
+        !prompt.incoming.message.fromPerson && {
+          sender: {
+            name: prompt.incoming.message.name,
+            sessionId: prompt.incoming.message.sessionId,
+            relation: prompt.incoming.message.relation,
+          },
+        }),
+    },
+    files: noFiles,
+  };
   let metadata = state.metadata;
   let files = state.files;
   // A link discovered in a still-streaming reply is not stable yet. Read only its bounded prefix
@@ -592,9 +621,16 @@ export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt" | "from" | "
 /// sort of thing?").
 export function promptSender(row: AcpmuxRow): string | undefined {
   const incoming = row.incoming;
-  if (incoming?.kind === "message") return incoming.message.name || undefined;
+  if (incoming?.kind === "message") return senderName(incoming.message.name) || undefined;
   if (incoming?.kind === "inbox") return inboxCounts(incoming.notice).senders.join(", ") || undefined;
   return undefined;
+}
+
+/// A turn's prompt as its tick shows it: another agent's message without the broker's label around
+/// it (conversation/relayEnvelope.ts), the person's as written.
+function promptText(row: AcpmuxRow): string {
+  const text = (row.text ?? "").trim();
+  return row.incoming?.kind === "message" ? withoutRelayLabelOfMessage(text).trim() : text;
 }
 
 /// The turns of `rows`, the ticks they draw, and the rows they were read from.
@@ -703,7 +739,7 @@ export function minimapTurns(
         key: turnKey(sessionId, user),
         // Keep explicit prompt line breaks for the hover card; its CSS clamps the title without
         // changing what the person wrote. Spaces are normalized by white-space: pre-line there.
-        prompt: (user.text ?? "").trim(),
+        prompt: promptText(user),
         ...withSender(user),
         reply: sameReply ? kept.turn.reply : reply?.text ? replyPreview(reply.text) : [],
         metadata: nextMetadata,
@@ -719,12 +755,16 @@ export function minimapTurns(
   const start = keep < (reuse?.turns.length ?? 0) ? reuse!.turns[keep]!.index : 0;
   for (let index = reuse && keep > 0 ? start : 0; index < rows.length; index += 1) {
     const row = rows[index]!;
+    // A "Worked for" that folds its turn's prompt (other agents' messages, conversation/turns.ts
+    // `shapedTurn`) starts the turn in the prompt's place, open or closed; the prompt's copy the
+    // open fold draws under it starts none. The turn keeps its tick, its key and its prompt.
+    const folded = row.foldedPrompt;
     // A steer goes on with its turn (turnStart.ts): it starts no minimap turn.
-    if (opensTurn(row)) {
+    if (folded || (opensTurn(row) && !(user && isFoldedPrompt(row, user, userIndex, rows)))) {
       close();
-      user = row;
+      user = folded ?? row;
       userIndex = index;
-      details = cardState(row, row);
+      details = cardState(user, user);
     } else if (user) {
       if (!reply && row.kind === "assistant" && row.text) {
         reply = row;
@@ -782,7 +822,7 @@ export function minimapTurns(
           index: -1,
           id: row.id,
           key: turnKey(sessionId, row),
-          prompt: (row.text ?? "").trim(),
+          prompt: promptText(row),
           ...withSender(row),
           reply: [],
         }));
@@ -813,6 +853,11 @@ export function minimapTurns(
   const loaded = sameTicks ? oldTicks! : ticksOf(list, oldTicks);
   return withEarlier(list, loaded, old as MinimapTurn[]);
 }
+
+/// Whether `row` is the open fold's copy of `user`, the prompt the "Worked for" at `rows[at]` folds:
+/// the prompt itself, or a delivery its inbox notice draws as (laneNoticeBatches.ts).
+const isFoldedPrompt = (row: AcpmuxRow, user: AcpmuxRow, at: number, rows: readonly AcpmuxRow[]) =>
+  rows[at]?.foldedPrompt === user && (row.id === user.id || row.inboxSource === user.id);
 
 /// A turn's `from`, only when it has one, so a person's turn keeps the shape it had.
 function withSender(row: AcpmuxRow): Pick<MinimapTurn, "from"> {

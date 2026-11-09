@@ -102,13 +102,17 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var blockHeights: [String: CGFloat] = [:]
     /// Document sections folded by their header: their groups do not list.
     public var collapsedDocSections: Set<String> = []
-    /// Document sections whose block draws no item (at most a title): during a drag (`showEmptyPinned`)
-    /// each opens a one-row drop zone under its title, so an empty section always takes a drop.
+    /// Document sections whose block draws no item (at most a title) during a drag: each opens a one-row drop
+    /// zone under its title. A section the drag empties keeps it in the dragged rows' place; an empty section has
+    /// one only while the drag reaches it (`SidebarEmptyZones`).
     public var emptyDocSections: Set<String> = []
     /// When set, only these workspaces show; containers force-expand.
     public var filterMatches: Set<WorkspaceID>?
-    /// Show the drop zone for an empty pinned section.
+    /// Show the drop zone for an empty pinned section: only while a drag reaches the list's top edge
+    /// (`SidebarEmptyZones`), or for a drag that empties it, never for a drag's start alone.
     public var showEmptyPinned = false
+    /// A workspace or document drag runs: the Archive stays closed (its rows take no drop).
+    public var dragClosesArchive = false
     /// Live gap to open, and its height.
     public var gap: DropPosition?
     public var gapHeight: CGFloat = 0

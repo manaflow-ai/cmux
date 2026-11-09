@@ -1,0 +1,43 @@
+/* A pasted cmux link drawn as what it names (chips/CmuxLinkChip.tsx): the session link chip
+   (startedSessions.css .acpmux-started-chip: the theme's text on a wash of it, never the link blue;
+   design/chat-transcript.md "Session link chip") with the kind's icon before the title and, for
+   another machine's, the machine muted after it. Inline, so a long title wraps with the sentence,
+   and the line's own height: the chip replacing the link never moves the lines under it. */
+/* The box the link and its chip are drawn in (CmuxLinkChip.tsx LinkSlot): it draws nothing, so the
+   line lays out as if the anchor were the text's own child. */
+.cv-cmux-link-slot {
+  display: contents;
+}
+.cv-cmux-link {
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.cv-cmux-link__icon {
+  display: inline-block;
+  margin-inline-end: var(--ds-space-1, 4px);
+  vertical-align: -2px;
+  color: var(--cv-text-muted, var(--agent-muted));
+}
+/* The kind and the machine are quieter than the title, but on the chip's wash over a sent message's
+   bubble the muted token reads 2.9:1 in dark; 78% of the text holds 4.5:1 in both schemes there. */
+.cv-cmux-link__kind {
+  margin-inline-end: var(--ds-space-1, 4px);
+  color: color-mix(in srgb, var(--cv-text, var(--agent-text)) 78%, transparent);
+}
+.cv-cmux-link__host {
+  margin-inline-start: var(--ds-space-1, 4px);
+  color: color-mix(in srgb, var(--cv-text, var(--agent-text)) 78%, transparent);
+  font-size: var(--text-detail);
+  white-space: nowrap;
+}
+/* The link under the place's title in its card: what was pasted, which copies as written. */
+.cv-cmux-link-card__link {
+  margin-top: var(--ds-space-1, 4px);
+  max-width: 320px;
+  overflow-wrap: anywhere;
+  color: var(--agent-muted);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  user-select: text;
+}

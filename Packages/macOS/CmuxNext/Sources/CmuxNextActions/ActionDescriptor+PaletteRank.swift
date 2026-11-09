@@ -83,7 +83,7 @@ extension ActionDescriptor {
         "layout.centerFocusedColumn.never", "layout.centerFocusedColumn.onOverflow", "layout.toggleStripScrollbar",
         "appearance.titlebar.minimal", "appearance.titlebar.standard", "increaseWorkspaceTerminalFontSize",
         "decreaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize",
-        // Interface Size is a Debug opt-in (chrome.interfaceSize); Interface Scale is the setting.
+        // Text Size steps rank below App Zoom; the Density card is the main place for Text Size.
         "appearance.interfaceSize.increase", "appearance.interfaceSize.decrease", "appearance.interfaceSize.reset",
         // Cloud machine plumbing.
         "cloudPrepareSCP", "cloudDomainList", "cloudNetworkList", "cloudPublicationList", "cloudAPIKeyList", "cloudAPIKeyRevoke",
@@ -246,7 +246,7 @@ extension ActionDescriptor {
                           "appearance.chromeStyle.default", "appearance.chromeStyle.bare", "appearance.chromeStyle.card",
                           "appearance.chromeStyle.cardOutlined", "appearance.chromeStyle.flat",
                           "appearance.chromeStyle.flatSidebarLine", "appearance.chromeStyle.floating",
-                          "appearance.chromeStyle.panes", "appearance.chromeStyle.twoTone",
+                          "appearance.chromeStyle.panes", "appearance.chromeStyle.twoTone", "appearance.chromeStyle.blocks",
                       ]),
         PaletteFamily("paneChrome", title: familyTitle("palette.family.paneChrome", "Pane Borders and Focus Ring…"),
                       symbol: "square.dashed", members: [

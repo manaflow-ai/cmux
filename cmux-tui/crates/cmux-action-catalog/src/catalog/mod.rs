@@ -35,6 +35,7 @@ mod density;
 mod extension;
 mod file_page;
 mod files_pane;
+mod git;
 mod hang_reports;
 mod help_link;
 mod hibernation;
@@ -49,6 +50,7 @@ mod list;
 mod machine_icon;
 mod markdown_page;
 mod music;
+mod new_placement;
 mod notification;
 mod notification_sound;
 mod now_playing_card;
@@ -97,6 +99,7 @@ pub static GROUPS: &[&[Action]] = &[
     profile::ACTIONS,
     theme::ACTIONS,
     pane::ACTIONS,
+    new_placement::ACTIONS,
     tab::ACTIONS,
     vertical_tabs::ACTIONS,
     agent_chat_rail::ACTIONS,
@@ -133,6 +136,7 @@ pub static GROUPS: &[&[Action]] = &[
     agent_chat_view::ACTIONS,
     agent_side_question::ACTIONS,
     agent_harness::ACTIONS,
+    git::ACTIONS,
     cloud::ACTIONS,
     cloud_port::ACTIONS,
     account::ACTIONS,

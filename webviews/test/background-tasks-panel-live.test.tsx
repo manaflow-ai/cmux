@@ -11,11 +11,8 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { backgroundGroups, type BackgroundGroup } from "../src/agent-session/acpmux/backgroundTasks/backgroundTasks";
 import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { BackgroundTasksPanel } from "../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel";
-import {
-  NestedAgents,
-  SubagentTranscript,
-  WINDOW,
-} from "../src/agent-session/acpmux/backgroundTasks/SubagentTranscript";
+import { SubagentTranscript } from "../src/agent-session/acpmux/backgroundTasks/SubagentTranscript";
+import { NestedAgents, WINDOW } from "../src/agent-session/acpmux/backgroundTasks/subagentTranscriptModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -136,6 +133,9 @@ test("a finished command with no known end shows no time that keeps counting", a
       />,
     ),
   );
+  // Finished starts folded, as Claude Desktop's panel opens (Leo, 2026-11-07): open it first.
+  const finished = container.querySelector<HTMLElement>('[data-section="finished"] .acpmux-bg__section-head')!;
+  await act(async () => finished.click());
   const times = [...container.querySelectorAll(".acpmux-bg__time")].map((node) => node.textContent ?? "");
   expect(times.length).toBeGreaterThan(0);
   expect(times.every((text) => text === "")).toBe(true);
@@ -538,4 +538,107 @@ test("a reply that stops streaming without a new version redraws as settled", as
   await act(async () => freshRoot.render(<SubagentTranscript rows={reply(false)} running={false} />));
   expect(container.querySelector("[data-row-id]")!.innerHTML).toBe(fresh.querySelector("[data-row-id]")!.innerHTML);
   await act(async () => freshRoot.unmount());
+});
+
+// Streaming can draw fewer blocks with no row removed: two work rows with one call each are two lines,
+// and the second's next call folds them into one run (subagentTranscriptModel.ts transcriptBlocks).
+// That is not a transcript cut short, so the window the reader opened on stays where it is.
+test("work rows that fold into one run as a call arrives keep an anchored window in place", async () => {
+  const container = installDom();
+  const call = (id: string) => ({
+    kind: "tool" as const,
+    text: id,
+    tool: { id, title: id, kind: "execute", status: "completed" },
+  });
+  const tail = (second: boolean): AcpmuxRow[] => [
+    { id: "w0", version: 1, at: 500, kind: "activity", items: [call("c0")] },
+    {
+      id: "w1",
+      version: second ? 2 : 1,
+      at: 501,
+      kind: "activity",
+      items: second ? [{ kind: "thought", text: "…" }, call("c1")] : [{ kind: "thought", text: "…" }],
+    },
+  ];
+  root = createRoot(container);
+  await act(async () =>
+    root!.render(<SubagentTranscript rows={[...rows(500), ...tail(false)]} running anchor="r20" />),
+  );
+  expect(container.querySelector('[data-row-id="r20"]')).not.toBeNull();
+  await act(async () => root!.render(<SubagentTranscript rows={[...rows(500), ...tail(true)]} running anchor="r20" />));
+  expect(container.querySelector('[data-row-id="r20"]')).not.toBeNull();
+});
+
+// A transcript cut short (rows removed) still takes its window again from the rows that are left.
+test("a transcript cut short under an anchored window takes the newest window", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  await act(async () => root!.render(<SubagentTranscript rows={rows(500)} running anchor="r20" />));
+  expect(container.querySelector('[data-row-id="r20"]')).not.toBeNull();
+  await act(async () => root!.render(<SubagentTranscript rows={rows(300)} running anchor="r20" />));
+  expect(container.querySelector('[data-row-id="r299"]')).not.toBeNull();
+  expect(container.querySelectorAll("[data-row-id]").length).toBe(WINDOW);
+});
+
+// A row removed while the block count holds (a run of two rows cut to one lone call: one block either
+// way) is still a transcript cut short: the window is taken again from the rows that are left.
+test("a row removed from a folded run under an anchored window takes the newest window", async () => {
+  const container = installDom();
+  const call = (id: string) => ({
+    kind: "tool" as const,
+    text: id,
+    tool: { id, title: id, kind: "execute", status: "completed" },
+  });
+  const w0: AcpmuxRow = { id: "w0", version: 1, at: 500, kind: "activity", items: [call("c0")] };
+  const w1: AcpmuxRow = { id: "w1", version: 1, at: 501, kind: "activity", items: [call("c1")] };
+  root = createRoot(container);
+  await act(async () => root!.render(<SubagentTranscript rows={[...rows(500), w0, w1]} running anchor="r20" />));
+  expect(container.querySelector('[data-row-id="r20"]')).not.toBeNull();
+  // The same 501 blocks before (500 replies, then the run w0+w1) and after (500 replies, then w0 alone).
+  await act(async () => root!.render(<SubagentTranscript rows={[...rows(500), w0]} running anchor="r20" />));
+  expect(container.querySelector('[data-row-id="r20"]')).toBeNull();
+  expect(container.querySelector('[data-row-id="w0"]')).not.toBeNull();
+});
+
+// A fold above the window and a reply appended below in one update: the block count holds, but every
+// block after the fold moved up by one. The window keeps the rows it mounted (review of #39499).
+test("a fold above an anchored window with a reply appended below keeps the window's rows", async () => {
+  const container = installDom();
+  const call = (id: string) => ({
+    kind: "tool" as const,
+    text: id,
+    tool: { id, title: id, kind: "execute", status: "completed" },
+  });
+  const w0: AcpmuxRow = { id: "w0", version: 1, at: 0, kind: "activity", items: [call("c0")] };
+  const w1 = (folded: boolean): AcpmuxRow => ({
+    id: "w1",
+    version: folded ? 2 : 1,
+    at: 0,
+    kind: "activity",
+    items: folded ? [{ kind: "thought", text: "…" }, call("c1")] : [{ kind: "thought", text: "…" }],
+  });
+  const later: AcpmuxRow = { id: "later", version: 1, at: 9_999, kind: "assistant", text: "later" };
+  root = createRoot(container);
+  // r20 is block 22; its window starts 15 blocks up, at r5.
+  await act(async () => root!.render(<SubagentTranscript rows={[w0, w1(false), ...rows(500)]} running anchor="r20" />));
+  expect(container.querySelector('[data-row-id="r5"]')).not.toBeNull();
+  await act(async () =>
+    root!.render(<SubagentTranscript rows={[w0, w1(true), ...rows(500), later]} running anchor="r20" />),
+  );
+  expect(container.querySelector('[data-row-id="r5"]')).not.toBeNull();
+  expect(container.querySelector('[data-row-id="r20"]')).not.toBeNull();
+});
+
+// Rows replaced by as many new ones (a fresh page of the same length): a transcript replaced, so the
+// window is taken from the newest rows.
+test("a transcript replaced by as many new rows takes the newest window", async () => {
+  const container = installDom();
+  const fresh = (n: number): AcpmuxRow[] =>
+    Array.from({ length: n }, (_, index) => ({ id: `n${index}`, version: 2, at: index, kind: "assistant", text: "y" }));
+  root = createRoot(container);
+  await act(async () => root!.render(<SubagentTranscript rows={rows(500)} running anchor="r20" />));
+  expect(container.querySelector('[data-row-id="r20"]')).not.toBeNull();
+  await act(async () => root!.render(<SubagentTranscript rows={fresh(500)} running anchor="r20" />));
+  expect(container.querySelector('[data-row-id="n499"]')).not.toBeNull();
+  expect(container.querySelector('[data-row-id="n20"]')).toBeNull();
 });

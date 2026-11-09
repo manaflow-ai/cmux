@@ -103,13 +103,16 @@ describe("one item heads the hat", () => {
       expect(head!.getAttribute("aria-expanded")).toBe("false");
       // Folded: its task and what it does now, on the header's one line.
       expect(head!.querySelector(".acpmux-running-tray__title")?.textContent).toBe("Diagnose nightly lag, idle fleet");
-      expect(head!.querySelector(".acpmux-running-tray__latest")?.textContent).toBe("Bash");
+      expect(head!.querySelector(".acpmux-running-tray__latest")?.textContent).toBe("Running a command");
       await act(async () => head!.click());
       expect(view.opened).toEqual([]);
       expect(head!.getAttribute("aria-expanded")).toBe("true");
       const line = view.line();
       expect(line).not.toBeNull();
+      // The line expands in place too; its detail's Open chat opens it (Leo, 2026-11-07).
       await act(async () => line!.click());
+      expect(view.opened).toEqual([]);
+      await act(async () => view.host.querySelector<HTMLButtonElement>("[data-line-detail] button")!.click());
       expect(view.opened).toEqual(["a1"]);
     } finally {
       await view.done();

@@ -69,6 +69,23 @@ impl Client {
         value["result"].clone()
     }
 
+    /// Proves this connection is the person's, as the app's pane does (`hub/person.rs`).
+    async fn prove_person(&mut self, hub: &Arc<Hub>) {
+        const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        hub.person.install_spawn_key(KEY).unwrap();
+        let init = self.call("initialize", json!({"protocolVersion": 1})).await;
+        let challenge = &init["_meta"]["acpmux"]["personChallenge"];
+        let proof = acpmux::hub::person::person_proof(
+            KEY,
+            acpmux::hub::person::TRANSPORT_UNIX,
+            challenge["nonce"].as_str().unwrap(),
+            challenge["connection"].as_str().unwrap(),
+        )
+        .unwrap();
+        let proved = self.call("_acpmux/person_prove", json!({"proof": proof})).await;
+        assert_eq!(proved["person"], json!(true), "{proved}");
+    }
+
     async fn new_session(&mut self, cwd: &Path) -> String {
         let new = json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}});
         let created = self.call("session/new", new).await;
@@ -181,8 +198,19 @@ async fn a_hidden_attach_keeps_the_hold_and_a_persons_prompt_lifts_it() {
         "a hidden attach started an agent in a protected folder"
     );
 
+    // A unix client proves no person: even the owner's own terminal send, recorded as theirs,
+    // lifts nothing (`PromptOptions::unproven_owner`): only the proven person's prompt does.
+    c.send("session/prompt", prompt(&held, "p-unproven", "from a shell")).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        !c.ran(&held, "p-held").await,
+        "an unproven prompt started an agent in a protected folder"
+    );
+
     // A prompt the person sends there runs, after what waited in the queue.
-    c.send("session/prompt", prompt(&held, "p-new", "after")).await;
+    let mut person = Client::open(&hub);
+    person.prove_person(&hub).await;
+    person.send("session/prompt", prompt(&held, "p-new", "after")).await;
     c.wait_ran(&held, "p-held").await;
     c.wait_ran(&held, "p-new").await;
     hub.shutdown_all().await;

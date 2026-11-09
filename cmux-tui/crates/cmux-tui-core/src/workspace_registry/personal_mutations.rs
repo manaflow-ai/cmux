@@ -7,6 +7,7 @@ use std::collections::HashSet;
 
 use rusqlite::{OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use super::personal_store::{
     DEFAULT_PROFILE_ID, PersonalGroup, PersonalProfile, PersonalSession, PersonalSnapshot,
@@ -412,6 +413,9 @@ impl WorkspaceRegistry {
         }
         let existing = read_session(tx, session)?;
         let created = existing.is_none();
+        let capabilities_changed = capabilities.is_some_and(|value| {
+            existing.as_ref().is_none_or(|record| record.capabilities.as_ref() != Some(value))
+        });
         if let Some(room) = follow_with {
             anyhow::ensure!(read_profile(tx, room)?.is_some(), "unknown room {room}");
         }
@@ -452,9 +456,38 @@ impl WorkspaceRegistry {
             tx,
             "personal.session.put",
             vec![subject("session", session)],
-            &json!({"session": record, "created": created}),
+            &Self::session_put_fact(&record, created, capabilities_changed),
         )?;
         Ok((record, created))
+    }
+
+    /// The `personal.session.put` fact. The `sessions` row holds the
+    /// capability list; the fact names it by hash. The list is about 6 KB
+    /// (280 tokens on 2026-11-09), and a session whose transport or name
+    /// flapped put it into the journal about 12 times a second: 96% of the
+    /// rows and 36 GB of one registry in a week.
+    fn session_put_fact(
+        record: &PersonalSession,
+        created: bool,
+        capabilities_changed: bool,
+    ) -> Value {
+        let Some(capabilities) = &record.capabilities else {
+            return json!({
+                "session": record,
+                "created": created,
+                "capabilities_changed": capabilities_changed,
+            });
+        };
+        let digest = Sha256::digest(capabilities.to_string().as_bytes());
+        let digest = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+        let session = PersonalSession { capabilities: None, ..record.clone() };
+        json!({
+            "session": session,
+            "created": created,
+            "capabilities_changed": capabilities_changed,
+            "capabilities_count": capabilities.as_array().map_or(0, Vec::len),
+            "capabilities_sha256": digest,
+        })
     }
 
     /// Forget a session: its row, follows, and personal workspace and

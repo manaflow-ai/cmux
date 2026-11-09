@@ -1,0 +1,256 @@
+/* The Add Machine card on the server card panel's glass (design/server-cards.md "Add Machine"):
+   460 wide, its height its content's; the panel grows downward from its top edge in the same frame
+   (cmux.card.resize). Every layout keeps the header and the footer where they are; only the middle
+   changes, so a phase change moves nothing above it. */
+.am-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-sizing: border-box;
+  width: 460px;
+  padding: 24px 24px 16px;
+  color: var(--page-text);
+}
+
+.am-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.am-header-status {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+}
+
+.am-title {
+  margin: 0;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: 600;
+  letter-spacing: var(--text-title--letter-spacing);
+}
+
+.am-subtitle {
+  margin: 0;
+  color: var(--page-text-2);
+}
+
+.am-caption {
+  font-size: var(--text-caption);
+  color: var(--page-text-2);
+}
+
+.am-tertiary {
+  color: var(--page-text-3);
+}
+
+.am-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.am-fields input {
+  box-sizing: border-box;
+  width: 100%;
+  border: 0.5px solid var(--page-separator);
+  border-radius: 8px;
+  background: var(--page-field, transparent);
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.am-fields input:focus-visible {
+  border-color: var(--cmux-accent, var(--page-text-2));
+}
+
+.am-host {
+  height: 32px;
+  padding: 0 12px;
+  font-size: var(--text-field);
+}
+
+.am-name {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.am-name input {
+  height: 28px;
+  padding: 0 8px;
+}
+
+.am-looking {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.am-candidates {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* At most about five rows show; the rest scroll inside, so a long tailnet keeps the card's size. */
+.am-candidate-list {
+  max-height: 168px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  border: 0.5px solid var(--page-separator);
+  border-radius: 8px;
+}
+
+/* A long tailnet draws only the rows in view. */
+.am-candidate-list > li {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 32px;
+}
+
+.am-candidate {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 4px 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+
+.am-candidate[data-picked] {
+  background: var(--page-selection);
+}
+
+.am-candidate:disabled {
+  opacity: 0.5;
+}
+
+.am-candidate-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.am-candidate-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.am-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 0.5px solid var(--page-separator);
+  border-radius: 12px;
+}
+
+.am-progress-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.am-progress-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.am-link {
+  border: 0;
+  background: none;
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-caption);
+}
+
+.am-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.am-rail-dots {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.am-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.am-step {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.am-glyph {
+  flex: none;
+  align-self: center;
+}
+
+.am-step[data-status="pending"] .am-step-name {
+  color: var(--page-text-3);
+}
+
+.am-step-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.am-step[data-open] .am-step-name {
+  font-weight: 600;
+}
+
+.am-step-detail,
+.am-step-fix {
+  font-size: var(--text-caption);
+  user-select: text;
+}
+
+.am-step-detail {
+  overflow: hidden;
+  color: var(--page-text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.am-step[data-open] .am-step-detail {
+  color: var(--page-danger, #ff3b30);
+  white-space: normal;
+}
+
+.am-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.am-spacer {
+  flex: 1;
+}
+

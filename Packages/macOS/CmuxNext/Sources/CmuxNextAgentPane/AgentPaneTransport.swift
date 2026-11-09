@@ -107,6 +107,9 @@ import CmuxNextCompat
     private(set) var remoteWire = false
     /// The current remote chat's host reader, installed from the same wire that carries its ACP.
     var remoteImageLoader: (@Sendable (String) async throws -> Data)?
+    /// The same wire's video range reader (`path, offset, length, handle`), for
+    /// ``AgentPaneRemoteMedia``.
+    var remoteMediaRange: (@Sendable (String, Int, Int, String?) async throws -> Data)?
     /// Cloud repository actions use the current machine/attachment daemon frame connection.
     public var cloudRepository: (@Sendable (String, [String: any Sendable], Duration?) async throws -> Data)?
     /// A `session/new` took the person's send gesture: the first `session/prompt` on that
@@ -274,11 +277,15 @@ import CmuxNextCompat
         let wire = connection.remote?.makeWire()
         if let wire {
             remoteImageLoader = { path in try await wire.loadRemoteImage(path) }
+            remoteMediaRange = { path, offset, length, handle in
+                try await wire.loadRemoteMediaRange(path, offset: offset, length: length, handle: handle)
+            }
             cloudRepository = { method, params, timeout in
                 try await wire.cloudRepository(method: method, params: params, timeout: timeout)
             }
         } else {
             remoteImageLoader = nil
+            remoteMediaRange = nil
             cloudRepository = nil
         }
         if !remoteWire { remoteHomeChosen = [] }
@@ -389,6 +396,9 @@ import CmuxNextCompat
             if let ticket = takeQuestionKeyTicket(intent) { return ticket }
             guard gestures.hasFreshAnswerGesture else { return nil }
         }
+        // A plan build answers the chat's plan approval or starts the plan in new worktrees: only
+        // right after the person's own click, as an answer (its chat is bound above).
+        if intent.method == "_acpmux/plan/build", !gestures.hasFreshAnswerGesture { return nil }
         // A prompt held for the folder trust answer right after a new chat's start: the start took
         // the send's gesture, and its credit becomes the prompt's ticket (the ticket outlives it).
         if intent.method == "session/prompt", !gestures.isAvailable,

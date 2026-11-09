@@ -2,6 +2,7 @@
 import AppKit
 import CmuxConversationCore
 import CmuxConversationGeometry
+import CmuxSpinner
 
 /// Transcript table that routes trackpad horizontal swipes and clicks on
 /// row accessories (badges, footers) back to the controller.
@@ -75,7 +76,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     let keyboard = MacConversationKeyboardState()
     let audioPlayer = ConversationAudioPlayer()
     lazy var audioComposer = MacAudioComposer(controller: self)
-    private let initialSpinner = NSProgressIndicator()
+    private let initialSpinner = CmuxSpinnerView(side: 32)
 
     private(set) var rows: [MacConversationRow] = []
     private(set) var rowIndex: [String: Int] = [:]
@@ -204,8 +205,6 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         view.addSubview(replyBanner)
 
 
-        initialSpinner.style = .spinning
-        initialSpinner.controlSize = .regular
         initialSpinner.translatesAutoresizingMaskIntoConstraints = false
         initialSpinner.setAccessibilityIdentifier("conversation.initialLoading")
         view.addSubview(initialSpinner)

@@ -183,6 +183,8 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("stash.restore", STASH_REASON),
     ("stash.delete", STASH_REASON),
     ("stash.import", STASH_REASON),
+    ("classic_import.plan", CLASSIC_IMPORT_REASON),
+    ("classic_import.record", CLASSIC_IMPORT_REASON),
     ("conductor_import.plan", CONDUCTOR_IMPORT_REASON),
     ("conductor_import.record", CONDUCTOR_IMPORT_REASON),
     ("cloud.machine.io", CLOUD_API_REASON),
@@ -203,23 +205,17 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("cloud.runs.sandbox", CLOUD_API_REASON),
     ("cloud.runs.start", CLOUD_API_REASON),
     ("cloud.runs.wait", CLOUD_API_REASON),
-    ("cloud.vm.delete_snapshot", CLOUD_API_REASON),
     ("cloud.vm.domains", CLOUD_API_REASON),
     ("cloud.vm.firewall_create", CLOUD_API_REASON),
     ("cloud.vm.firewall_delete", CLOUD_API_REASON),
     ("cloud.vm.firewall_get", CLOUD_API_REASON),
     ("cloud.vm.firewall_list", CLOUD_API_REASON),
-    ("cloud.vm.fork", CLOUD_API_REASON),
     ("cloud.vm.networks", CLOUD_API_REASON),
     ("cloud.vm.provision_api", CLOUD_API_REASON),
     ("cloud.vm.publication_api_keys", CLOUD_API_REASON),
     ("cloud.vm.publications", CLOUD_API_REASON),
-    ("cloud.vm.resize", CLOUD_API_REASON),
-    ("cloud.vm.restore", CLOUD_API_REASON),
     ("cloud.vm.revoke_publication_api_key", CLOUD_API_REASON),
     ("cloud.vm.scp_endpoint", CLOUD_API_REASON),
-    ("cloud.vm.snapshot", CLOUD_API_REASON),
-    ("cloud.vm.snapshots", CLOUD_API_REASON),
     ("cloud.vm.tunnel_attach", CLOUD_API_REASON),
     ("cloud.vm.tunnel_detach", CLOUD_API_REASON),
     ("cloud.vm.tunnel_enroll", CLOUD_API_REASON),
@@ -273,14 +269,18 @@ const AGENT_MESSAGE_UNSEND_REASON: &str = "Agent messages go through `cmux agent
      taking one back is `cmux agent message unsend`, beside the send it undoes.";
 
 const PROJECT_REASON: &str = "The user's folders (project-list-v1) stay with the app and its importers; an MCP client never reads or edits them.";
-const SESSION_REASON: &str =
-    "Session plumbing in the cmux-tui-only scope; the curated cmux CLI omits it.";
-const LIFECYCLE_REASON: &str = "Session lifecycle (ends every terminal or reloads the daemon); \
-     cmux-tui-only, and the cmux CLI's `server` scope does not send it.";
-const SESSION_SETTING_REASON: &str = "A session-wide setting in the cmux-tui-only scope.";
+// The `session` and `client` scopes are on the `cmux` CLI too since #38290 (an agent in a
+// cmux-tui pane reads its topology and cleans up with the `cmux` on its PATH); they stay
+// off MCP, which the catalog test allows for these two scopes only.
+const SESSION_REASON: &str = "Session plumbing: the `session` scope of the CLI, not an MCP tool.";
+const LIFECYCLE_REASON: &str = "Session lifecycle (ends every terminal or reloads the daemon): \
+     only the CLI's `session` scope sends it, never an MCP tool.";
+const SESSION_SETTING_REASON: &str =
+    "A session-wide setting: the `session` scope of the CLI, not an MCP tool.";
 const JOURNAL_REASON: &str =
-    "Session journal plumbing for producers and hooks in the cmux-tui-only scope.";
-const CLIENT_REASON: &str = "Connection-scoped client records in the cmux-tui-only scope.";
+    "Session journal plumbing for producers and hooks: the CLI's `session` scope, not MCP.";
+const CLIENT_REASON: &str =
+    "Connection-scoped client records: the `client` scope of the CLI, not an MCP tool.";
 const PROJECTION_REASON: &str = "Frontend projection records the app writes; cmux-tui-only.";
 const PAIRING_REASON: &str =
     "Device pairing approval: a person approves a pairing, never an agent; cmux-tui-only.";
@@ -294,6 +294,8 @@ const PALETTE_USAGE_REASON: &str = "The user's own palette usage history: the ap
      records and reads it; agents rank rows through palette.query, never read or write usage.";
 const STASH_REASON: &str = "The user's stashed web pages (stash-v1): the app's OneTab \
      list; agents close and open tabs through the tab and browser tools, never the stash.";
+const CLASSIC_IMPORT_REASON: &str = "The app's move from classic cmux drives these: it reads \
+     the plan and records what it made; agents never import.";
 const CONDUCTOR_IMPORT_REASON: &str = "The app's Import from Conductor drives these: it reads \
      the dry-run plan and records what it made; agents never import.";
 const CLOUD_API_REASON: &str = "The app's Cloud code and `cmux cloud` call these with the \
@@ -798,6 +800,7 @@ impl V2Tool {
                 stream: false,
                 resolve: Vec::new(),
                 view: Default::default(),
+                filter: Default::default(),
             },
             session,
             page,

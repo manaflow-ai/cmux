@@ -1,9 +1,10 @@
 import { type ReactNode, useId, useState } from "react";
 import { DialogButton } from "../../ui/DialogButton";
 import { Notice } from "../../ui/Notice";
-import { HOST_ERROR_DEADLINE_MS } from "./hostRetry";
-import { useNow } from "./subagents/SubagentGroup";
+import { HOST_ERROR_DEADLINE_MS, type HostRestoring, hostRecoveryLine } from "./hostRetry";
+import { useNow } from "./subagents/subagentGroupModel";
 import { useT } from "./i18n";
+import { waitedText } from "./hostErrorModel";
 
 /// A chat acpmux would not start (a folder harness without its Enable or Trust): the reason above
 /// the composer as the shared notice (ui/Notice.tsx), with its own `hint` (null: none) and button
@@ -110,12 +111,6 @@ export function HostUnavailableLine({
   );
 }
 
-/// How long the pane has waited, as `m:ss` (a count, the same in every language).
-export function waitedText(ms: number): string {
-  const seconds = Math.max(0, Math.floor(ms / 1000));
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-}
-
 /// The pane's handshake waits for this app's acpmux, which has not answered yet. The app never
 /// restarts a slow acpmux on its own (rule R5: a late answer is not a crash, and under load a
 /// restart reloads every chat), so the person sees how long the pane has waited and decides:
@@ -152,6 +147,37 @@ export function HostWaitingLine({
           {t(restarting ? "host.restartingService" : "host.restartService")}
         </DialogButton>
       )}
+    </output>
+  );
+}
+
+/// The quiet line while the pane gets its chat back on its own (hostRetry.ts `hostRecoveryLine`):
+/// "Restoring sessions… m:ss" while the host says acpmux restores its chats, "Reconnecting…" while
+/// a lost connection comes back. No button and no card: nothing waits on the person. Otherwise
+/// (`otherwise`) the host's other line, if any.
+export function HostRecoveringLine({
+  relinkingSince,
+  restoring,
+  otherwise = null,
+  now: fixedNow,
+}: {
+  relinkingSince?: number;
+  restoring?: HostRestoring;
+  otherwise?: ReactNode;
+  /// A fixed clock for the gallery and tests; the pane passes none and the line counts each second.
+  now?: number;
+}) {
+  const t = useT();
+  const ticking = useNow(fixedNow === undefined && (relinkingSince !== undefined || restoring !== undefined));
+  const line = hostRecoveryLine({ relinkingSince, restoring, now: fixedNow ?? ticking });
+  if (!line) return otherwise;
+  return (
+    <output className="acpmux-host-line" data-host-recovering={line.kind}>
+      <p className="acpmux-host-line-message">
+        {line.kind === "restoring"
+          ? t("host.restoringSessions", { time: waitedText(line.waitedMs) })
+          : t("host.reconnecting")}
+      </p>
     </output>
   );
 }

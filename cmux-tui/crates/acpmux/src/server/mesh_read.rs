@@ -41,7 +41,7 @@ fn pages(m: &str) -> bool {
 /// The params of an events read that go across. The session is the target's; nothing else is
 /// taken from the asker.
 const EVENT_PARAMS: &[&str] =
-    &["afterSeq", "beforeSeq", "limit", "kinds", "maxBytes", "promptIndex", "waitLogs"];
+    &["afterSeq", "beforeSeq", "limit", "kinds", "maxBytes", "promptIndex", "subagent", "waitLogs"];
 
 /// The largest events page a read asks for first. The JSON of a page runs past its byte budget
 /// (`hub/paging.rs` counts records, not the reply around them), so this leaves the hub's 64 KiB
@@ -55,6 +55,7 @@ const MIN_READ_PAGE_BYTES: u64 = 4 * 1024;
 const READ_WAIT: Duration = Duration::from_secs(50);
 
 /// One wait on the receipt (the hub holds it at most 25 s).
+// timeout: one long-poll on the receipt (the hub holds it 25 s); READ_WAIT bounds the read.
 const ANSWER_WAIT: Duration = Duration::from_secs(25);
 
 /// The refusal prefix of a session the receiving daemon does not have.

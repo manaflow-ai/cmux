@@ -1,6 +1,7 @@
 #if os(iOS)
 import AVFoundation
 import CmuxMobileDesign
+import CmuxSpinner
 import NaturalLanguage
 import Observation
 import SwiftUI
@@ -93,6 +94,9 @@ public enum AgentChatCopy: String, CaseIterable, Identifiable, Sendable {
                 case .message(_, let markdown):
                     let text = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !text.isEmpty { blocks.append("**Assistant:**\n" + text) }
+                case .steer(let message) where message.incoming == nil:
+                    let text = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !text.isEmpty { blocks.append("**User:**\n" + text) }
                 case .tool(let call):
                     let title = call.title.split(whereSeparator: \.isWhitespace).joined(separator: " ")
                     guard !title.isEmpty else { continue }
@@ -126,7 +130,7 @@ struct ChatCopyChoicesSheet: View {
                                 Label(row.title, systemImage: row.systemImage)
                                 Spacer()
                                 if copying == row {
-                                    ProgressView()
+                                    CmuxSpinner()
                                 } else if copied == row {
                                     Image(systemName: "checkmark").foregroundStyle(.tint).accessibilityLabel("Copied")
                                 }

@@ -23,7 +23,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -470,6 +470,33 @@ class DiffTests(unittest.TestCase):
         self.assertFalse(cron.over_target("diff.sidecar.manifest_decode_p95", rows["diff.sidecar.manifest_decode_p95"], None))
         self.assertEqual(cron.part_for_row("diff.stream.p95"), "diff-viewer")
 
+    def test_a_busy_runner_divides_the_stream_row_by_its_bench_contention(self):
+        report = {"sidecar": {"manifestDecodeP95Micros": 400, "sequentialReadMibPerSecond": 1024.0},
+                  "stream": {"p95Ms": 120.0}, "load": {"sidecar": 1.0, "stream": 2.0}}
+        rows = cron.rows_of_part(cron.PART_BY_NAME["diff-viewer"], report, budgets_mod, {"rows": {}})
+        self.assertEqual(rows["diff.stream.p95"]["p95"], 60.0)
+        self.assertEqual(rows["diff.stream.p95"]["raw_p95"], 120.0)
+        self.assertEqual(rows["diff.stream.p95"]["load"], 2.0)
+        self.assertEqual(rows["diff.sidecar.manifest_decode_p95"]["p95"], 400, "a factor of 1 leaves the row as measured")
+        self.assertNotIn("load", rows["diff.sidecar.manifest_decode_p95"])
+
+    def test_the_sidecar_medians_of_short_reads_are_never_scaled(self):
+        """#39309 F1: a busy run's 89.22 ms/GiB divided by 4 would make the next idle 74.03 a regression."""
+        report = {"sidecar": {"manifestDecodeP95Micros": 400, "sequentialReadMibPerSecond": 1024 * 1000 / 89.22},
+                  "stream": {"p95Ms": 120.0}, "load": {"sidecar": 4.0, "stream": 1.0}}
+        rows = cron.rows_of_part(cron.PART_BY_NAME["diff-viewer"], report, budgets_mod, {"rows": {}})
+        self.assertEqual(rows["diff.sidecar.read_ms_per_gib"]["p95"], 89.22)
+        self.assertEqual(rows["diff.sidecar.read_ms_per_gib"]["load"], 4.0)
+        self.assertNotIn("raw_p95", rows["diff.sidecar.read_ms_per_gib"])
+        self.assertEqual(rows["diff.sidecar.manifest_decode_p95"]["p95"], 400)
+
+    def test_the_contention_factor_is_the_median_clamped(self):
+        self.assertEqual(cron.contention_factor([1.01, 0.97, 1.0]), 1.0)
+        self.assertEqual(cron.contention_factor([2.1, 1.9, 2.0, 30]), 2.05)
+        self.assertEqual(cron.contention_factor([50, 60]), cron.CONTENTION_MAX)
+        self.assertEqual(cron.contention_factor([]), 1.0)
+        self.assertGreater(cron.spin_ratio(0.005), 0.5)
+
     def test_the_last_json_object_a_bench_printed(self):
         self.assertEqual(cron.last_json_object('Compiling\n{\n "a": 1\n}\nnoise\n{\n "b": 2\n}\n'), {"b": 2})
         self.assertIsNone(cron.last_json_object("no json here"))
@@ -504,6 +531,15 @@ class WebUiTests(unittest.TestCase):
         self.assertIsNone(cron.mac_host("webui.chat_open.compact.latest@blacksmith-4vcpu-ubuntu-2404"))
         self.assertEqual(cron.part_config("diff-viewer"), "9c9749c7fe76", "the diff-viewer rows are not rebased")
         self.assertNotEqual(cron.part_config("web-ui"), cron.part_config("diff-viewer"))
+
+    def test_the_update_one_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-scale"))
+        self.assertEqual(cron.part_for_row("webui.update_one.home.status.n3000@linux"), "web-ui-scale")
+        self.assertEqual(cron.part_for_row("webui.update_one.chat.title.growth@linux"), "web-ui-scale")
+        self.assertEqual(cron.part_for_row("webui.chat_open.compact.latest@linux"), "web-ui")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-scale")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "update-one"])
+        self.assertEqual(cwd, "/r/webviews")
 
     def test_a_regression_of_a_webui_row(self):
         name = "webui.chat_switch.unread.latest@linux"
@@ -2466,10 +2502,22 @@ class DiffBenchVersionTests(unittest.TestCase):
                       "stream": {"p95Ms": 19.0}, "bench_versions": {"sidecar": 1, "stream": stream_version}}
             return cron.rows_of_part(part, report, budgets_mod, {"rows": {}, "_animations": {}})
         base = rows(1)
-        self.assertEqual(base["diff.stream.p95"]["measure_version"], 1)
-        legacy = {n: {k: v for k, v in r.items() if k != "measure_version"} for n, r in base.items()}
-        self.assertEqual(cron.version_changed(rows(1), legacy), [], "a reference stored before versions is version 1")
+        self.assertEqual(base["diff.stream.p95"]["measure_version"], 1 + 100 * cron.DIFF_LOAD_VERSION)
+        self.assertEqual(cron.version_changed(rows(1), base), [])
         self.assertEqual(cron.version_changed(rows(2), base), ["diff.stream.p95"])
+
+    def test_a_change_of_load_normalization_rebases_every_diff_row(self):
+        """#39353 F1: a sidecar reference scaled by #39309 (22.3 ms/GiB at factor 4) is not compared with a raw 74."""
+        part = cron.PART_BY_NAME["diff-viewer"]
+        report = {"sidecar": {"manifestDecodeP95Micros": 3, "sequentialReadMibPerSecond": 1024 * 1000 / 74.03},
+                  "stream": {"p95Ms": 19.0}, "bench_versions": {"sidecar": 1, "stream": 1}}
+        now = cron.rows_of_part(part, report, budgets_mod, {"rows": {}, "_animations": {}})
+        scaled = {n: {**r, "measure_version": 101} for n, r in now.items()}
+        scaled["diff.sidecar.read_ms_per_gib"]["p95"] = 22.305
+        legacy = {n: {k: v for k, v in r.items() if k != "measure_version"} for n, r in now.items()}
+        every = sorted(now)
+        self.assertEqual(cron.version_changed(now, scaled), every)
+        self.assertEqual(cron.version_changed(now, legacy), every, "a reference stored before versions is unscaled v1")
 
 
 

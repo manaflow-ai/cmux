@@ -9,16 +9,21 @@
 // content on no fill of its own. Only the presentation crosses: the content, its layout, focus, keys and
 // dismissal stay in the page.
 //
-// No flash and no pop: a marked surface draws nothing until the App has answered the report that
-// carried it (`data-host-glass-drawn="1"`), so it never shows as a clear box first. That is one round trip
-// after its first frame; past HOST_GLASS_DEADLINE_MS it shows with the page's own glass
-// (`data-host-glass-drawn="0"`, today's look), so a slow or older App never hides a menu.
+// Content and glass move together (Leo, 2026-11-09: "it loads the placeholder, THEN the content...
+// every single time"). A marked surface draws its content in the first frame that paints it
+// (`data-host-glass-drawn="1"`, set in the task it mounts in), and the App puts its glass there as the
+// report reaches it, which never waits on the page. Waiting for the App's answer instead showed the
+// App's empty glass for as long as the page stayed busy after a popup mounted (260 to 530 ms in Leo's
+// recording): the answer queues behind that work. A surface that goes is withdrawn in the task it goes
+// in, so its glass leaves with its content. The answer only confirms: a surface the App has not
+// answered for by HOST_GLASS_DEADLINE_MS shows with the page's own glass (`data-host-glass-drawn="0"`,
+// the old look), so a slow or older App never leaves a menu on no glass.
 //
 // Cost: one MutationObserver (added nodes and the marker attribute only), and while a marked surface
 // moves (an open, a fade, a resize, a scroll), one rect and opacity read per surface per frame. The loop
 // stops after STABLE_FRAMES unchanged frames; a resize, a style write, a transition or a scroll starts it
 // again. Nothing runs while no marked surface is mounted, and the App's answer is the only other work.
-import { LENS_ATTRIBUTE } from "./glassState";
+import { LENS_ATTRIBUTE, LIVE_BACKGROUND_ATTRIBUTE } from "./glassState";
 import { attachSeeThroughBlur, type CoveredCandidates, type SeeThroughOptions } from "./seeThroughBlur";
 
 /** pages/shared/desktop.ts SEE_THROUGH_ATTRIBUTE: the page sits on the window glass. */
@@ -61,11 +66,12 @@ const SELECTOR = `[${HOST_GLASS_ATTRIBUTE}]`;
 const round = (value: number) => Math.round(value * 100) / 100;
 
 /** Whether the App's glass can show under this page now: a see-through Chromium page (WebKit's own
- * backdrop already takes in the window glass), outside the lens (whose canvas covers what is under the
- * page) and Reduce Transparency (every glass is opaque there). */
+ * backdrop already takes in the window glass), outside the lens and the live background (whose
+ * canvases cover what is under the page) and Reduce Transparency (every glass is opaque there). */
 export function hostGlassApplies(doc: Document): boolean {
   const root = doc.documentElement;
   if (!root.hasAttribute(SEE_THROUGH_ATTRIBUTE) || root.hasAttribute(LENS_ATTRIBUTE)) return false;
+  if (root.hasAttribute(LIVE_BACKGROUND_ATTRIBUTE)) return false;
   if (root.hasAttribute("data-reduce-transparency")) return false;
   const css = doc.defaultView?.CSS;
   return !(css?.supports?.("-webkit-backdrop-filter", "none") ?? true);
@@ -138,10 +144,9 @@ export function reportHostGlass(
   let sent = "[]";
   let live = true;
 
+  // The deadline stays armed while a surface is marked "1" before the App answered (adopt): only an
+  // answer or a fallback settles it.
   const mark = (element: Element, drawn: "0" | "1") => {
-    const timer = deadlines.get(element);
-    if (timer !== undefined) clearTimeout(timer);
-    deadlines.delete(element);
     if (element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE) !== drawn)
       element.setAttribute(HOST_GLASS_DRAWN_ATTRIBUTE, drawn);
     if (drawn === "0") unblur(element);
@@ -157,8 +162,11 @@ export function reportHostGlass(
   // surface that fell back only because host glass did not apply (the lens, Reduce Transparency, an
   // opaque page) goes back to the App's glass when it applies again.
   const timedOut = new WeakSet<Element>();
+  // Surfaces the App answered a report for: drawn, so the deadline leaves them be.
+  const answered = new WeakSet<Element>();
   const forget = (element: Element) => {
     timedOut.delete(element);
+    answered.delete(element);
     const timer = deadlines.get(element);
     if (timer !== undefined) clearTimeout(timer);
     deadlines.delete(element);
@@ -179,10 +187,16 @@ export function reportHostGlass(
     if (text === sent) return;
     sent = text;
     post(surfaces).then(() => {
-      if (!live) return;
+      // An answer that comes after host glass stopped applying (Reduce Transparency, a live
+      // background) draws nothing. An answer to an earlier report still draws: a surface whose box
+      // changes every frame (a scroll, a fade) is never answered for its latest report in time.
+      if (!live || !hostGlassApplies(doc)) return;
       // A surface that already fell back keeps the page's glass: a late answer never swaps it.
       for (const element of elements)
-        if (ids.has(element) && element.isConnected && !fellBack(element)) mark(element, "1");
+        if (ids.has(element) && element.isConnected && !fellBack(element)) {
+          answered.add(element);
+          mark(element, "1");
+        }
     }, end);
   };
   const fellBack = (element: Element) => timedOut.has(element);
@@ -202,6 +216,8 @@ export function reportHostGlass(
       if (surface) {
         surfaces.push(surface);
         elements.push(element);
+        // On the App's glass from this report on: the App draws it as the report reaches it.
+        mark(element, "1");
       } else if (!applies && live) mark(element, "0");
     }
     if (live) send(surfaces, elements);
@@ -228,12 +244,27 @@ export function reportHostGlass(
       mark(element, "0");
       return;
     }
-    // A slow App never hides a surface: past the deadline it draws the page's own glass.
+    // Its content shows in the frame that first paints it, on the glass its report asks for; the
+    // report goes out this frame (kick). While host glass does not apply, measure gives it the page's.
+    if (hostGlassApplies(doc)) mark(element, "1");
+    // A slow App never leaves a surface on no glass: past the deadline it draws the page's own.
+    arm(element, view.performance.now(), false);
+  };
+  const arm = (element: Element, start: number, late: boolean) => {
     deadlines.set(
       element,
       setTimeout(() => {
         deadlines.delete(element);
-        if (element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE) === "1") return;
+        if (!live || answered.has(element) || !ids.has(element)) return;
+        // While host glass does not apply the surface already shows the page's glass (measure), and
+        // it goes back to the App's glass when host glass applies again: only a slow App keeps it off.
+        if (!hostGlassApplies(doc)) return;
+        // A deadline that ran late waited behind the page's own work, where the App's answer may wait
+        // too: it gets one more deadline to land.
+        if (!late && view.performance.now() - start > HOST_GLASS_DEADLINE_MS * 2) {
+          arm(element, start, true);
+          return;
+        }
         timedOut.add(element);
         mark(element, "0");
         // Measuring may have settled already (a 120 Hz display): withdraw its box from the App.
@@ -250,9 +281,10 @@ export function reportHostGlass(
   };
   const observer = new view.MutationObserver((records) => {
     let changed = false;
+    let gone = false;
     for (const record of records) {
       if (record.type === "attributes") {
-        // The page's look changed (see-through, the lens, Reduce Transparency), or a surface was
+        // The page's look changed (see-through, the lens, the live background, Reduce Transparency), or a surface was
         // marked or unmarked in place.
         const element = record.target as Element;
         if (element !== root && element.hasAttribute(HOST_GLASS_ATTRIBUTE)) adopt(element);
@@ -261,14 +293,24 @@ export function reportHostGlass(
       }
       for (const node of record.addedNodes) collect(node);
       if (record.addedNodes.length > 0 || (record.removedNodes.length > 0 && ids.size > 0)) changed = true;
+      if (record.removedNodes.length > 0 && ids.size > 0) gone = true;
     }
+    // A surface that went is withdrawn now, not on the next frame: the App takes its glass away as the
+    // page paints the frame without its content.
+    if (gone && [...ids.keys()].some((element) => !element.isConnected)) measure();
     if (changed) kick();
   });
   observer.observe(root, {
     childList: true,
     subtree: true,
     attributes: true,
-    attributeFilter: [HOST_GLASS_ATTRIBUTE, SEE_THROUGH_ATTRIBUTE, LENS_ATTRIBUTE, "data-reduce-transparency"],
+    attributeFilter: [
+      HOST_GLASS_ATTRIBUTE,
+      SEE_THROUGH_ATTRIBUTE,
+      LENS_ATTRIBUTE,
+      LIVE_BACKGROUND_ATTRIBUTE,
+      "data-reduce-transparency",
+    ],
   });
   // A popup is placed by its positioner's inline style, rewritten on scroll; a fade is a transition.
   const follow = () => {

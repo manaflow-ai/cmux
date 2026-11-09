@@ -78,6 +78,16 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.agentHostMachine], targets: [],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
+            // New Cloud Chat: a new agent chat whose composer has Cloud picked, the Where menu's own
+            // Cloud row (the page runs the pick; Leo 2026-11-08 on teammates starting a Cloud chat:
+            // "how would they know?"). The CLI starts Cloud chats with `cmux cloud move` or a send.
+            ActionDescriptor(
+                id: "palette.newCloudChat",
+                title: String(localized: "action.palette.newCloudChat", defaultValue: "New Cloud Chat", bundle: .module),
+                keywords: ["agent", "chat", "new", "cloud", "vm", "remote", "machine", "sleep"],
+                category: .agents, symbol: "cloud", surfaces: [.palette], targets: [],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
             ActionDescriptor(
                 id: "agentPane.toggleSessionInfo",
                 title: String(localized: "action.agentPane.toggleSessionInfo", defaultValue: "Toggle Session Info", bundle: .module),
@@ -295,6 +305,21 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 requires: [.agentPaneFocused], targets: [.pane],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
+            // The floating mini (the Chief pet) stands for the focused chat (Leo 2026-11-07); run while
+            // it does, it gives the mini back to the Chief (its palette title says so). Person-only:
+            // with the mini managed off it opens the mini's reply box, which takes the keyboard.
+            {
+                var showInMini = ActionDescriptor(
+                    id: "agentPane.showInMini",
+                    title: String(localized: "action.agentPane.showInMini", defaultValue: "Show in Mini", bundle: .module),
+                    keywords: ["agent", "chat", "mini", "pet", "chief", "floating", "avatar", "coordinator"],
+                    category: .agents, symbol: "pip", surfaces: [.palette],
+                    requires: [.agentPaneFocused], targets: [.pane],
+                    surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+                )
+                showInMini.isPersonOnly = true
+                return showInMini
+            }(),
             ActionDescriptor(
                 id: "agentPane.archiveChat",
                 title: String(localized: "action.agentPane.archiveChat", defaultValue: "Archive Chat", bundle: .module),

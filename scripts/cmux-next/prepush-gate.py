@@ -60,9 +60,10 @@ that note (its 11-character sha) passes. CI also sweeps every commit since the c
 (`--only sidebar --commits`), so a push from an old hook copy or a cancelled CI run is still caught.
 Also on every push, in any file: "Merge conflict markers": a file the push adds both a `<<<<<<< ` and
 a `>>>>>>> ` line to (c779988d57d, 2026-10-22, broke CmuxNextAppTests). Nothing skips it.
-Also on every push: "Leo's bans" (check-leo-bans.py): the UI font stays Inter, bundled, with its
-calculated tracking (schemas/type-scale/leo-bans.json), and no webviews stylesheet names the system
-font. It is not skippable either; only a `Leo-order: <Leo's words>` trailer changes the pin.
+Also on every push: "UI font" (check-ui-font.py): the UI font stays the macOS system font with no
+letter-spacing and nothing bundled (schemas/type-scale/ui-font-pin.json; Lawrence 2026-11-07), and no
+webviews default font stack names Inter. It is not skippable either; only a `Font-order: <the user's
+words>` trailer changes the pin.
 
 Also on every local run (the hook and a plain run; never --base/--head, --commits or GitHub Actions, so CI gains no
 gate): "What's New highlights": each release-notes/next/highlights/*.md file the push adds or changes is validated as
@@ -71,6 +72,10 @@ it after the merge: digest.parse, then digest.entry_problems (scripts/whats-new/
 link, at most 2 sentences, 240 characters, no internal names). Unchanged highlights are never read. The hook runs
 the validator of this clone's origin/feat-cmux-next, never the pushed one (a plain run: the head's). 2026-11-01:
 #30774, #31156 and #31140 each landed a highlight that turned that check red on every pull request.
+Also on every local run, the same way: "What's New pictures": each New or Improved highlight the push adds names
+where its picture comes from: a `gallery:` or `clip:` line, a clip spec (release-notes/next/clips/<id>.json), or a
+webview *.gallery.ts(x) change on the branch (whats-new-gallery.yml picks the state). On 2026-11-08, 61 of the 166
+New or Improved highlights of 21 days changed only Swift and went out with no picture (goal whats-new-pretty).
 Also on every local run, the same way: "Workflow YAML parses": each .github/workflows/*.yml (and composite
 action.yml) the push changes must parse at the pushed head (PyYAML, else Ruby's Psych; plus the local actionlint's
 new [syntax-check] findings when it is on PATH), for a push to any branch, main and feat-cmux-next included.
@@ -277,9 +282,9 @@ WINDOW_FILE = Path(os.environ.get("CMUX_WINDOW_FILE") or
 FREEZE_LINE = re.compile(r"(?m)^FREEZE:[ \t]*(\S+)[ \t]+token=(\S+)")
 FREEZE_TRAILER = re.compile(r"(?mi)^Freeze-Token:[ \t]*(\S+)[ \t]*$")
 
-# The UI font is Inter with its calculated tracking (Leo 2026-10-21, ask-52da478628).
-LEO_BANS_CHECK = "Leo's bans (Inter UI font and tracking, schemas/type-scale/leo-bans.json)"
-LEO_BANS_SCRIPT = SCRIPTS + "/check-leo-bans.py"
+# The UI font is the macOS system font, everywhere (Lawrence 2026-11-07).
+UI_FONT_CHECK = "UI font (the system font, schemas/type-scale/ui-font-pin.json)"
+UI_FONT_SCRIPT = SCRIPTS + "/check-ui-font.py"
 
 # The What's New highlights (release-notes/next/WRITING.md), judged by the release-notary job's own validator.
 HIGHLIGHTS_CHECK = "What's New highlights (scripts/whats-new/validate.py, the release-notary test)"
@@ -287,6 +292,22 @@ HIGHLIGHTS_DIR = "release-notes/next/highlights/"
 HIGHLIGHTS_CODE = ("scripts/whats-new/digest.py", "scripts/whats-new/validate.py")
 HIGHLIGHTS_HINT = ("Fix the highlight: add docs: https://cmux.com/docs/<page> or a tryIt; at most 2 sentences, "
                    "240 characters (release-notes/next/WRITING.md).")
+# A New or Improved highlight the push adds names where its picture comes from (goal whats-new-pretty; Leo, 2026-10-20:
+# "tho i think vids and before/afters for our techincal stuff is p important... we want things to be PRETTY!!!!").
+PICTURES_CHECK = "What's New pictures (release-notes/next/WRITING.md, \"A gallery picture\" and \"A clip\")"
+PICTURES_GALLERY_FILE = re.compile(r"webviews/.+\.gallery\.tsx?")
+PICTURES_CLIPS_DIR = "release-notes/next/clips/"
+PICTURES_HINT = ("Give each one a picture: change the webview *.gallery.ts(x) state that shows it on this branch "
+                 "(whats-new-gallery.yml picks it), or add a line such as `gallery: agent-pane.composer-send-menu/idle`, "
+                 "or, for a native change, write release-notes/next/clips/<id>.json (a clip spec).")
+# A variant a gallery file marks as the look its change replaced: a note opening "Before:" (or "Before ("), or a
+# variant key (`name: {`) ending in an old-look word; whats-new-gallery.py marked_before reads the same marks. Only
+# notes and variant keys count, never a prop such as `before: true`.
+PICTURES_BEFORE_MARK = re.compile(r"""^\s*note:\s*["'`]Before\s*[:(]|^\s*["']?(?:[\w.]+-)*(?:before|old|solid|previous)["']?\s*:\s*\{""",
+                                  re.M)
+PICTURES_BEFORE_HINT = ("An Improved entry's before is its state at the commit before it, and a gallery file the branch "
+                        "adds has none there: add the variant that draws the old look, its note opening \"Before:\", "
+                        "or name both with `gallery:` and `before:` lines.")
 # Run in its own interpreter: argv[1] holds digest.py and validate.py, argv[2] is the result file, then pairs of
 # (file name, path to its text). Each file is judged alone, as test_the_repository_highlights_validate judges it: read
 # as strict UTF-8 like the test's open() (a file it cannot decode is a test error there, so a finding here), and a file
@@ -434,6 +455,40 @@ def read_lock(lock: Path) -> dict[str, tuple[str, str, str, str]]:
     return rows
 
 
+def release_download():
+    """scripts/ci/github_release_download.py: the copy install-git-hooks.sh puts beside the hook's copy of this
+    file, else this checkout's, else None. None in a hook installed before it: that install's refresh_checks.py
+    rewrites this file from feat-cmux-next but copies nothing from scripts/ci (#38454 review)."""
+    name = "cmux_github_release_download"
+    if name not in sys.modules:
+        script = Path(__file__).with_name("github_release_download.py")
+        if not script.is_file():
+            script = Path(__file__).resolve().parent.parent / "ci" / "github_release_download.py"
+        if not script.is_file():
+            return None
+        spec = importlib.util.spec_from_file_location(name, script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        sys.modules[name] = module
+    return sys.modules[name]
+
+
+def download(url: str, archive: Path) -> None:
+    """The pinned archive at `url`, through the release-assets API when its GitHub release download fails
+    (github_release_download.py). The caller's sha256 check judges either."""
+    fetcher = release_download()
+    if fetcher is None:
+        log("prepush-gate: github_release_download.py is not installed, so a failed release download is not retried "
+            "through the release-assets API; rerun scripts/install-git-hooks.sh")
+        with urllib.request.urlopen(url, timeout=120) as response, open(archive, "wb") as out:
+            shutil.copyfileobj(response, out)
+        return
+    try:
+        fetcher.download(url, archive, log=lambda message: log(f"prepush-gate: {message}"))
+    except fetcher.NoAsset as error:
+        raise SystemExit(f"prepush-gate: {error}") from error
+
+
 def ensure_tool(lock: Path, tool: str) -> Path:
     """The pinned binary, downloaded and sha256-checked once per version."""
     rows = read_lock(lock)
@@ -447,8 +502,7 @@ def ensure_tool(lock: Path, tool: str) -> Path:
     log(f"prepush-gate: downloading {tool} {version} (once) from {url}")
     with tempfile.TemporaryDirectory(dir=target.parent) as tmp:
         archive = Path(tmp) / "tool.zip"
-        with urllib.request.urlopen(url, timeout=120) as response, open(archive, "wb") as out:
-            shutil.copyfileobj(response, out)
+        download(url, archive)
         digest = hashlib.sha256(archive.read_bytes()).hexdigest()
         if digest != sha:
             raise SystemExit(f"prepush-gate: {tool} download sha256 {digest} != pinned {sha}; refusing it")
@@ -1081,21 +1135,21 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
     return fresh
 
 
-def leo_bans(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
-    """What head adds to Leo's bans (LEO_BANS_CHECK) over base: findings base does not have, and a
-    pin change in base..head with no `Leo-order:` trailer."""
-    script = check_script(repo, head, LEO_BANS_SCRIPT, trusted_scripts)
+def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """What head adds to the UI font check (UI_FONT_CHECK) over base: findings base does not have, and a
+    pin change in base..head with no `Font-order:` trailer."""
+    script = check_script(repo, head, UI_FONT_SCRIPT, trusted_scripts)
     if script is None:
         return []  # a commit older than this check
-    with tempfile.TemporaryDirectory(prefix="cmux-leo-bans-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="cmux-ui-font-") as tmp:
         check = Path(tmp) / "check.py"
         check.write_bytes(script)
 
         def findings(*args: str) -> list[str]:
             code, out = run(["python3", "-I", str(check), "--repo", str(repo), *args], Path(tmp), timeout=600)
             if code == 124:
-                return [f"check-leo-bans.py {' '.join(args)}: {out}"]
-            return [line for line in out.splitlines() if line.strip() and not line.startswith("leo bans:")]
+                return [f"check-ui-font.py {' '.join(args)}: {out}"]
+            return [line for line in out.splitlines() if line.strip() and not line.startswith("ui font:")]
 
         base_lines = set(findings("--rev", base))
         return [line for line in findings("--rev", head, "--base", base) if line not in base_lines]
@@ -1323,6 +1377,71 @@ def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path |
     return found
 
 
+def picture_problems(repo: Path, base: str, head: str, restrict: set[str] | None = None) -> list[str]:
+    """`<highlight file>: ...` for each New or Improved What's New highlight BASE..HEAD adds with no picture source.
+
+    NOW's whats_new line counts the New and Improved highlights of the last ten nightlies that went out with no
+    picture; on 2026-11-08, 61 of the 166 in 21 days changed only Swift, where whats-new-gallery.yml finds no state,
+    and none named one. A highlight passes with a `clip:` or `gallery:` line, with a clip spec
+    (release-notes/next/clips/<id>.json) at HEAD, or when the branch changes a webview *.gallery.ts(x) file since it
+    left origin/feat-cmux-next (a gallery change pushed before the highlight counts). An Improved one also needs, in
+    each gallery file the branch adds (with a `gallery:` line and no `before:`, the file of its entry), a variant
+    marked as the old look (PICTURES_BEFORE_MARK): its before is otherwise the same state at the commit before it,
+    where the file is not (agent-file-result-cards and agent-web-result-cards shipped with none, 2026-11-09). Fixed and Security entries need no picture; a highlight
+    already on the base is never judged. It fails open, with a warning."""
+    names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=A", "-z", base, head, "--",
+                HIGHLIGHTS_DIR).decode()
+    files = sorted(n for n in names.split("\0") if n.endswith(".md") and "/" not in n[len(HIGHLIGHTS_DIR):]
+                   and (restrict is None or n in restrict))
+    if not files:
+        return []
+    try:
+        since = base
+        for ref in DEFAULT_BASE_REFS:
+            if rev_ok(repo, ref):
+                since = git(repo, "merge-base", ref, head).decode().strip() or base
+                break
+        changed = [p for p in git(repo, "diff", "--name-only", "--no-renames", "-z", since, head).decode().split("\0")
+                   if PICTURES_GALLERY_FILE.fullmatch(p)]
+        added = set(git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=A", "-z", since, head, "--",
+                        *changed).decode().split("\0")) if changed else set()
+        # A gallery file the branch adds has no state at the commit before, so an improvement drawn from it has
+        # its before only where that file marks the old look; each new file on its own (one marked never covers another).
+        new_files = sorted(added - {""})
+        new_blobs = git_batch.cat_file(repo, [f"{head}:{path}" for path in new_files])
+        texts = {path: (new_blobs[f"{head}:{path}"] or b"").decode("utf-8", "replace") for path in new_files}
+        unmarked = sorted(path for path, text in texts.items() if not PICTURES_BEFORE_MARK.search(text))
+        clips = set(git(repo, "ls-tree", "--name-only", "-z", head, "--", PICTURES_CLIPS_DIR).decode().split("\0"))
+        blobs = git_batch.cat_file(repo, [f"{head}:{p}" for p in files])
+        found = []
+        for p in files:
+            meta = {}
+            for line in (blobs[f"{head}:{p}"] or b"").decode("utf-8", "replace").partition("\n\n")[0].splitlines():
+                key, sep, value = line.partition(":")
+                if sep:
+                    meta[key.strip().lower()] = value.strip()
+            highlight_id = Path(p).stem
+            category = (meta.get("category") or "new").lower()
+            if category not in ("new", "improved") or meta.get("clip") or f"{PICTURES_CLIPS_DIR}{highlight_id}.json" in clips:
+                continue
+            if meta.get("gallery"):
+                # A named state with no `before:` is rendered at the commit before too: its entry's file must exist there.
+                entry = meta["gallery"].partition("/")[0]
+                new = [path for path in unmarked if re.search(r"""\bid:\s*["']""" + re.escape(entry) + r"""["']""",
+                                                              texts[path])]
+                if category == "improved" and not meta.get("before") and new:
+                    found.append(f"{p}: an improved highlight whose gallery file is new, with no before ({', '.join(new)})")
+                continue
+            if not changed:
+                found.append(f"{p}: a {category} highlight with no picture source")
+            elif category == "improved" and unmarked:
+                found.append(f"{p}: an improved highlight whose gallery file is new, with no before ({', '.join(unmarked)})")
+        return found
+    except (Exception, SystemExit) as error:  # noqa: BLE001 - fail open: the NOW count still shows a miss
+        log(f"prepush-gate: WARNING: the What's New pictures were not checked ({type(error).__name__}: {error}).")
+        return []
+
+
 def window_freezes(repo: Path, base: str, head: str, window: Path | None = None) -> list[str]:
     """Each pushed commit that changes a path a WINDOW FREEZE line holds without that line's token.
 
@@ -1407,9 +1526,9 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     if only is None or "reserved" in only:
         fresh = reserved_keys(repo, base, head, trusted_scripts)
         reserved = [(RESERVED_CHECK, fresh)] if fresh else []
-    if only is None or "leo-bans" in only:
-        fresh = leo_bans(repo, base, head, trusted_scripts)
-        reserved += [(LEO_BANS_CHECK, fresh)] if fresh else []
+    if only is None or "ui-font" in only:
+        fresh = ui_font(repo, base, head, trusted_scripts)
+        reserved += [(UI_FONT_CHECK, fresh)] if fresh else []
     if only is None or "conflicts" in only:
         markers = conflict_markers(repo, base, head)
         if markers:
@@ -1446,6 +1565,11 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
             log(f"  {time.monotonic() - t0:5.2f}s  {HIGHLIGHTS_CHECK}")
         if bad:
             reserved.append((HIGHLIGHTS_CHECK, bad))
+    # Local only, like the highlights (CLAUDE.md: no new CI gates): NOW's whats_new count is the backstop.
+    if highlights_layer if only is None else "pictures" in only:
+        missing = picture_problems(repo, base, head, restrict)
+        if missing:
+            reserved.append((PICTURES_CHECK, missing))
     # The git-only checks above need no trees: a run of only those (CI's sidebar sweep) stops here.
     if only is not None and not only & {"scanners", "ast-grep", "swiftformat", "swiftlint", "rustfmt"}:
         return reserved
@@ -1858,8 +1982,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--own-range", help="sidebar sweep on a pull request: the PR's own commits (BASE..HEAD). A "
                                             "finding on a commit outside it (on the base) is a warning that names the "
                                             "commit and the owner file; one inside it is an error")
-    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,leo-bans,conflicts,"
-                                       "cargo-lock,sidebar,crash-allow,freeze,highlights,workflows")
+    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
+                                       "cargo-lock,sidebar,crash-allow,freeze,highlights,pictures,workflows")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     args = parser.parse_args(argv)
@@ -1988,9 +2112,9 @@ def main(argv: list[str] | None = None) -> int:
     elif skip and any(name == RESERVED_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {RESERVED_CHECK}. Changing a Ghostty-default "
               "shortcut needs the user's explicit OK, quoted in a `Ghostty-defaults-OK: <the user's words>` commit trailer.")
-    elif skip and any(name == LEO_BANS_CHECK for name, _ in found_any):
-        print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {LEO_BANS_CHECK}. The UI font and its "
-              "tracking change only by Leo's order, quoted in a `Leo-order: <Leo's words>` commit trailer.")
+    elif skip and any(name == UI_FONT_CHECK for name, _ in found_any):
+        print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {UI_FONT_CHECK}. The UI font changes only "
+              "on the user's order, quoted in a `Font-order: <the user's words>` commit trailer.")
     elif skip:
         print(f"prepush-gate: SKIPPED by CMUX_NEXT_CHECKS_SKIP_REASON={skip!r}. Say so in your report; "
               "CI still names the commit.")
@@ -2000,6 +2124,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if any(name == HIGHLIGHTS_CHECK for name, _ in found_any):
         print(HIGHLIGHTS_HINT)
+    if any(name == PICTURES_CHECK for name, _ in found_any):
+        lines = [line for name, found in found_any if name == PICTURES_CHECK for line in found]
+        if any("no picture source" in line for line in lines):
+            print(PICTURES_HINT)
+        if any("with no before" in line for line in lines):
+            print(PICTURES_BEFORE_HINT)
     if any(name == CARGO_LOCK_CHECK for name, _ in found_any):
         print(CARGO_HINT)
     if any(name == WORKFLOW_CHECK for name, _ in found_any):
