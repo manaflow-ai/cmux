@@ -11,6 +11,7 @@ import { MentionMenu } from "./MentionMenu";
 import { type MentionState } from "./mentionMenuModel";
 import {
   fuzzyIndices,
+  guestMention,
   loadRecentMentionPaths,
   mentionInsert,
   mentionItems,
@@ -153,6 +154,26 @@ test("a harness mention is offered as a read-only guest and inserts its target t
   const items = mentionItems({ query: "cod", files: [], sessions: [], harnesses: catalog });
   expect(items.map((item) => item.key)).toEqual(["harness:codex"]);
   expect(mentionInsert(items[0]!).shown).toBe("@codex ");
+});
+
+test("a send asks the first harness named outside code, and keeps the rest of its words", () => {
+  const catalog = [
+    { id: "codex", name: "Codex", models: [], pickable: true, family: "codex" },
+    { id: "claude", name: "Claude", models: [], pickable: true, family: "claude" },
+  ];
+  expect(guestMention("@codex review @src/auth.ts for bugs", catalog)).toEqual({
+    harnessId: "codex",
+    question: "review @src/auth.ts for bugs",
+  });
+  expect(guestMention("@nobody @Claude compare this plan with @codex", catalog)).toEqual({
+    harnessId: "claude",
+    question: "@nobody  compare this plan with @codex",
+  });
+  // A code example is literal text: the send stays the main agent's.
+  expect(guestMention("Why does this fail?\n```\n@codex explain retries\n```", catalog)).toBeUndefined();
+  expect(guestMention("Explain what `@codex hi` does", catalog)).toBeUndefined();
+  expect(guestMention("```sh\nunclosed\n@codex run", catalog)).toBeUndefined();
+  expect(guestMention("email me@codex please", catalog)).toBeUndefined();
 });
 
 test("a bare @ also offers recently picked files, and a query fuzzy-matches them", () => {

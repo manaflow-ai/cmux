@@ -674,6 +674,7 @@ import { steerQueueExperiment } from "./steerQueue/steerQueue.experiment";
 import { BtwNotes } from "./aside/btwNotes";
 import { askBtwQuestion } from "./btwCapability";
 import { SecondOpinionContext } from "./conversation/secondOpinion";
+import { guestMention } from "./mentionItems";
 import { HELD_EFFORT_ID, HELD_FAST_ID, HELD_FAST_ON, isFastModeOption } from "./heldOptions";
 import { clearHeldFork, prepareHeldFork, sendHeldFork } from "./forkHold";
 import { setSuggestedTasks } from "./offer/offersShown";
@@ -11041,30 +11042,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               // Until acpmux connects nothing takes a prompt; the composer keeps it.
               if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
               // An installed harness mention is a read-only guest request. Keep the normal send
-              // path untouched for ordinary @text, attachments, or unknown profiles; each known
-              // mention gets one inline guest note anchored at the current transcript tail.
+              // path untouched for ordinary @text, code, attachments, or unknown profiles; the first
+              // known mention outside code gets one inline guest note at the transcript tail.
               if (!chips?.length && snapshot.sessionId && directClient.current) {
-                const mentionPattern = /(^|\s)@([A-Za-z0-9_.:/-]+)(?=\s|$)/g;
-                const mentions = [...text.matchAll(mentionPattern)]
-                  .map((match) => {
-                    const id = match[2]!;
-                    const entry = composerSnapshot.catalog.find(
-                      (candidate) =>
-                        candidate.id.toLowerCase() === id.toLowerCase() &&
-                        candidate.pickable !== false &&
-                        (!candidate.unavailable || candidate.probeFailed),
-                    );
-                    return entry ? { id: entry.id } : undefined;
-                  })
-                  .filter((entry): entry is { id: string } => entry !== undefined);
-                if (mentions.length > 0) {
+                const guest = guestMention(text, composerSnapshot.catalog);
+                if (guest) {
                   const changedFiles =
                     cardEdit.changes?.files
                       .map((file) => file.path)
                       .filter(Boolean)
                       .slice(0, 40) ?? [];
                   const question = [
-                    text.replace(mentionPattern, " ").trim() || "Review this chat and its current working changes.",
+                    guest.question || "Review this chat and its current working changes.",
                     changedFiles.length > 0 ? `Current changed files: ${changedFiles.join(", ")}` : undefined,
                   ]
                     .filter(Boolean)
@@ -11072,18 +11061,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   const anchor = [...turnRowsShown]
                     .reverse()
                     .find((row) => ![WORKING, THINKING, ACTIVITY_LINE, DATE].includes(row.kind));
-                  for (const mention of mentions) {
-                    const client = directClient.current;
-                    btwNotes.ask(
-                      snapshot.sessionId,
-                      question,
-                      anchor,
-                      (guestQuestion, guestSession, harness) =>
-                        client?.btwInline(guestQuestion, harness ?? mention.id, guestSession) ??
-                        Promise.reject(new Error(translate("error.notOpen"))),
-                      mention.id,
-                    );
-                  }
+                  const client = directClient.current;
+                  btwNotes.ask(
+                    snapshot.sessionId,
+                    question,
+                    anchor,
+                    (guestQuestion, guestSession, harness) =>
+                      client.btwInline(guestQuestion, harness ?? guest.harnessId, guestSession),
+                    guest.harnessId,
+                  );
                   return true;
                 }
               }

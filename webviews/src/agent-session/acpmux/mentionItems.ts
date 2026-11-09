@@ -229,6 +229,31 @@ function harnessItems(catalog: readonly AcpmuxSnapshot["catalog"][number][], que
   }));
 }
 
+/// The installed harness a send asks as a read-only guest, and the question it asks: the first
+/// `@id` naming one outside code (a fenced block or an inline span is literal text, never a
+/// mention). One guest per send: each guest request spends the send's one gesture. Only that
+/// token leaves the question, so a file's `@path` and the rest of the text stay as written.
+export function guestMention(
+  text: string,
+  catalog: readonly AcpmuxSnapshot["catalog"][number][],
+): { harnessId: string; question: string } | undefined {
+  const outsideCode = text.replace(/(```|~~~)[\s\S]*?(?:\1|$)|`[^`\n]*`/g, (code) => code.replace(/[^\n]/g, " "));
+  for (const match of outsideCode.matchAll(/(^|\s)@([A-Za-z0-9_.:/-]+)(?=\s|$)/g)) {
+    const id = match[2]!.toLowerCase();
+    const entry = catalog.find(
+      (candidate) =>
+        candidate.id.toLowerCase() === id &&
+        candidate.pickable !== false &&
+        (!candidate.unavailable || candidate.probeFailed),
+    );
+    if (!entry) continue;
+    const start = match.index! + match[1]!.length;
+    const question = `${text.slice(0, start)}${text.slice(start + 1 + match[2]!.length)}`.trim();
+    return { harnessId: entry.id, question };
+  }
+  return undefined;
+}
+
 /// `text` as runs marked matched or not, without splitting it at a slash as a path is.
 function textRuns(text: string, indexes: readonly number[] = []): Run[] {
   const hit = new Set(indexes);
