@@ -5,6 +5,7 @@
 // view stacks under the first.
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Button } from "../../ui/Button";
+import { SplitEdge } from "../../ui/SplitEdge";
 import { Switch } from "../../ui/Switch";
 import type { Strings } from "../shared/i18n";
 import { ViewGlyph } from "./parts";
@@ -115,6 +116,16 @@ export function ChiefViewsPage({
                 </button>
               </div>
               <side.component {...props} placement={layout.side.placement} />
+              {/* Its line is the split's divider and drags as one (ui/SplitEdge.tsx); each placement
+                  keeps its own width. */}
+              <SplitEdge
+                side="left"
+                property="--chief-views-side-width"
+                storageKey={`cmux.chiefViews.side.${layout.side.placement}.width`}
+                min={200}
+                max={layout.side.placement === "split" ? 1200 : 480}
+                on="parent"
+              />
             </section>
           )}
         </div>

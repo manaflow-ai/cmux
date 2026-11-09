@@ -709,6 +709,7 @@
    pane's right edge, its own width (data-enter, ui/presence.ts). */
 .acpmux-artifact {
   --ui-enter-distance: 100%;
+  position: relative;
   flex: 0 0 var(--acpmux-artifact-width, clamp(320px, 46vw, 760px));
   min-width: 0;
   display: flex;
@@ -718,8 +719,11 @@
   color: var(--agent-text);
   font-family: var(--cv-font);
 }
+/* Its width: a share of the pane, the default one until its left edge is dragged (SplitEdge sets
+   --acpmux-artifact-share on the shell). Never under 320px, and the chat beside it keeps 400px. */
 .acpmux-shell {
   --acpmux-artifact-push: 0px;
+  --acpmux-artifact-width: clamp(320px, var(--acpmux-artifact-share, min(46vw, 760px)), max(320px, 100vw - 400px));
 }
 /* A shell sibling must leave the offered native tab row clear, including when the narrow
    preview covers the chat. Its background belongs below the row, never in its tools hole. */
@@ -730,7 +734,7 @@
 /* The header lives in the chat column while Preview is a shell sibling. Keep its tools at the
    pane edge, across the Preview column, just as the inline Summary does. */
 .acpmux-shell[data-tab-row]:has(> .acpmux-artifact) {
-  --acpmux-artifact-push: var(--acpmux-artifact-width, clamp(320px, 46vw, 760px));
+  --acpmux-artifact-push: var(--acpmux-artifact-width);
 }
 @media (max-width: 720px) {
   .acpmux-artifact {
@@ -738,6 +742,10 @@
     inset: 0;
     z-index: var(--layer-overlay);
     box-shadow: none;
+  }
+  /* Covering the pane, it splits nothing: no edge to drag. */
+  .acpmux-artifact > .ui-split-edge {
+    display: none;
   }
   .acpmux-shell[data-tab-row]:has(> .acpmux-artifact) {
     --acpmux-artifact-push: 0px;
