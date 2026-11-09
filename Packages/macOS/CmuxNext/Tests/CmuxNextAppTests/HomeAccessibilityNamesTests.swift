@@ -169,4 +169,27 @@ import Testing
             #expect(!(part.accessibilityLabel() ?? "").isEmpty, "\(String(describing: part.accessibilitySubrole())) has no name")
         }
     }
+
+    /// The Home transcript's own scroller (`SequenceScroller`, which follows the Unread filter in
+    /// the probe's tree) names its arrow and page parts too.
+    @Test func transcriptScrollerPartsAreNamed() throws {
+        _ = NSApplication.shared
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
+        scrollView.scrollerStyle = .legacy
+        scrollView.hasVerticalScroller = true
+        scrollView.verticalScroller = SequenceScroller()
+        scrollView.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 2000))
+        let window = NSWindow(contentRect: scrollView.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = scrollView
+        scrollView.layoutSubtreeIfNeeded()
+        let scroller = try #require(scrollView.verticalScroller as? SequenceScroller)
+        let parts = (scroller.accessibilityChildren() ?? []).compactMap { $0 as? any NSAccessibilityProtocol }
+            .filter { $0.accessibilityRole() == .button }
+        #expect(!parts.isEmpty, "a legacy scroller has its arrow and page parts")
+        for part in parts {
+            #expect(!(part.accessibilityLabel() ?? "").isEmpty, "\(String(describing: part.accessibilitySubrole())) has no name")
+        }
+    }
 }
