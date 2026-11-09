@@ -30,6 +30,11 @@ export type AcpmuxSessionEntry = {
   createdAt?: number;
   pendingPermissions?: number;
   unread?: boolean;
+  /** Turns that ended while nobody showed the chat, since a person last did (`unreadTurns`). */
+  unreadTurns?: number;
+  /** The log seq the person had seen when they last left the chat (`seenSeq`): where "New since
+   *  you looked" goes. */
+  seenSeq?: number;
   /** The status dot acpmux decided (`SessionSummary.indicator`, cx-zlox); absent for none. */
   indicator?: SessionIndicator;
   /** The machine the session runs on ("This Mac", or a cloud machine's name), and which kind it is. */
@@ -278,6 +283,8 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     createdAt: typeof session.createdAt === "number" ? session.createdAt : undefined,
     pendingPermissions: Number.isFinite(pending) ? pending : 0,
     unread: session.unread === true,
+    unreadTurns: count(session.unreadTurns),
+    seenSeq: count(session.seenSeq),
     indicator: INDICATORS.includes(session.indicator) ? session.indicator : undefined,
     host: text(session.host),
     peer: text(session.peer),
@@ -332,6 +339,8 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
   };
 }
 
+const count = (value: unknown) =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
 const time = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined);
 
 /** When the person or the agent last did something in a chat, from acpmux's session summary.
@@ -445,7 +454,8 @@ export function sessionTitle(
   return session.title?.trim() || firstPrompt(session.lastPrompt) || t("sidebar.newChat");
 }
 
-/// How long acpmux keeps `lastPrompt` (hub/turns.rs `short_text(&line, 200)`), an ellipsis after.
+/// How long acpmux keeps `lastPrompt` (hub/turns.rs `short_text(&line, 200)`), an ellipsis after,
+/// in characters (Rust `chars`, code points here), not UTF-16 units.
 const LAST_PROMPT_CHARS = 200;
 
 /// A chat's first prompt as its title: a lane's message the broker relayed reads as the message,
@@ -455,7 +465,7 @@ const LAST_PROMPT_CHARS = 200;
 /// of the message and titles nothing (cmux#38642 review).
 const firstPrompt = (prompt: string | undefined) => {
   const line = prompt?.trim() ?? "";
-  const cut = line.endsWith("…") && line.length > LAST_PROMPT_CHARS;
+  const cut = line.endsWith("…") && Array.from(line).length > LAST_PROMPT_CHARS;
   return (cut ? withoutRelayLabel(line) : withoutRelayLabelOfMessage(line)).trim();
 };
 

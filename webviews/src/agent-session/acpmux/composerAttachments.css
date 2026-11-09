@@ -806,8 +806,14 @@ button.acpmux-attachment-pasted-open:hover {
 
 /* The opened paste as a sheet over the pane (PastedTextChip.tsx PastedTextSheet): the sheet role's
    glass (ui/popupSurface.css), its name and size, the text in a scroller, the actions under it. */
+/* A column as tall as its content, never past the pane: the dialog starts 12vh down (ui/popupSurface.css),
+   so it takes at most the rest less a margin, and only its text gives up height (review of #38350:
+   at a 200 px pane its actions fell below the pane). */
 .acpmux-paste-view {
+  display: flex;
+  flex-direction: column;
   width: min(640px, calc(100vw - 32px));
+  max-height: calc(88vh - var(--ds-space-2));
   padding: 0;
   overflow: hidden;
   border: var(--cmux-hairline, 0.5px) solid transparent;
@@ -821,6 +827,7 @@ button.acpmux-attachment-pasted-open:hover {
 }
 .acpmux-paste-view__bar {
   display: flex;
+  flex: none;
   align-items: center;
   gap: var(--ds-space-2);
   padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-2) var(--ds-space-4);
@@ -846,9 +853,12 @@ button.acpmux-attachment-pasted-open:hover {
   letter-spacing: var(--text-detail--letter-spacing);
   line-height: var(--text-detail--line-height);
 }
+/* The text takes the room the bar and the actions leave, scrolling in it. */
 .acpmux-paste-view__text {
   display: block;
+  flex: 1 1 auto;
   box-sizing: border-box;
+  min-height: 0;
   max-height: min(60vh, 480px);
   padding: var(--ds-space-3) var(--ds-space-4);
   overflow: auto;
@@ -868,6 +878,7 @@ button.acpmux-attachment-pasted-open:hover {
 }
 .acpmux-paste-view__actions {
   display: flex;
+  flex: none;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--ds-space-2);
@@ -908,7 +919,7 @@ button.acpmux-attachment-pasted-open:hover {
   overflow: hidden;
 }
 .acpmux-paste-chip__panel .acpmux-paste-view__text {
-  max-height: 200px;
+  max-height: min(200px, 30vh);
   border-top: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   white-space: pre-wrap;
   /* The opened content is for reading and copying, in the strip too (a press there never drags the

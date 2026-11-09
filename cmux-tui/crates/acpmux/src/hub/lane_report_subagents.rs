@@ -11,8 +11,8 @@
 //!   (`lane_report_reads.rs` [`super::lane_report_reads::LaneReplyReader`]).
 //! - Any other turn whose prompt a subagent of the parent sent ([`asking_subagent`]) reports to
 //!   that subagent while it may still run: the report is left for it
-//!   (`crate::subagent_notice`), and acpmux's Bash hook gives it to the subagent after its next
-//!   shell command (`bg_hook.rs`). acpmux has no other way into a subagent's context.
+//!   (`crate::subagent_notice`), and acpmux's hook gives it to the subagent after its next Bash
+//!   or acpmux MCP call (`bg_hook.rs`). acpmux has no other way into a subagent's context.
 //! - Once the subagent has stopped (its `SubagentStop` hook marked it) or no subagent of the
 //!   parent runs any more (`SubagentTree::running_count`, which also covers one that ended with no
 //!   hook), a report it did not take goes to the parent's chat as any report does, saying whose
@@ -23,8 +23,13 @@
 //! A daemon restart keeps the left reports on disk; they reach the lead at the parent's next
 //! turn end or change of running subagents. A closed parent's folder is removed with its link.
 //!
-//! Not covered: a subagent that calls acpmux through the cmux MCP tools (`acpmux_bg_start`,
-//! `cmux_exec`) and not through Bash carries no mark, so its reports reach the lead as before.
+//! A subagent that calls acpmux through MCP tools (`mcp__acpmux__send`, cmux's
+//! `acpmux_bg_start`, a `cmux_exec` script) and not through Bash is named by its call's tool use
+//! id (`crate::subagent_call`). Not covered: a cmux workflow script's calls (they carry no tool
+//! use id), `run_wait`, and a send the MCP server hands to the send relay; their reports go to
+//! the lead. A background task's end message (`bg_notify.rs`) goes to the lead's chat whoever
+//! started it. A subagent that makes no Bash or acpmux MCP call after its report came keeps it until
+//! it ends.
 //! A subagent that ends with no `SubagentStop` keeps its reports until no subagent of the lead
 //! runs. A message steered into a running turn, or one that joined another message's turn
 //! (`digest.rs`), reports with that turn; one Claude Code carried into a turn of its own
@@ -91,8 +96,8 @@ fn notice_text(report: &Report) -> String {
     let name = &report.name;
     format!(
         "[acpmux] A session you started or prompted without waiting for its reply ended a \
-turn. Its report:\n{}\nAnswer it only if it needs you: `acpmux send {name} \"…\"`; `acpmux last \
-{name}` reads its whole reply.",
+turn. Its report:\n{}\nAnswer it only if it needs you, with the send tool (to: \"{name}\"); the \
+last tool (name: \"{name}\") reads its whole reply.",
         report.text()
     )
 }

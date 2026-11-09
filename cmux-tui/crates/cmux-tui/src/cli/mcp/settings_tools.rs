@@ -197,6 +197,7 @@ impl SettingTool {
             stream: false,
             resolve: Vec::new(),
             view: Default::default(),
+            filter: Default::default(),
         };
         let result = match backend.resource(session, plan, &[]) {
             Ok(result) => result,

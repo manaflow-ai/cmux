@@ -190,7 +190,7 @@ export function ContentChip({
             {collapse === "corner" ? collapseButton : null}
             {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- its keys only scroll the read-only text (readInEditor). */}
             <span
-              className="acpmux-paste-view__text"
+              className="acpmux-paste-view__text selectable"
               role="document"
               // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focus the text's scroller to read it with the keys.
               tabIndex={0}
@@ -313,7 +313,7 @@ function ContentSheet({
           </button>
         </div>
         {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focus the text's scroller to read it with the keys. */}
-        <div ref={body} className="acpmux-paste-view__text" role="document" tabIndex={0} dir="auto">
+        <div ref={body} className="acpmux-paste-view__text selectable" role="document" tabIndex={0} dir="auto">
           {text}
         </div>
         <div className="acpmux-paste-view__actions">{children}</div>

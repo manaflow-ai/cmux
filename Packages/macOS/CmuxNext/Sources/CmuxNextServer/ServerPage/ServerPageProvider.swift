@@ -36,7 +36,10 @@ public final class ServerPageProvider: WebCard {
 
     public var card: String { Self.route }
     public var prefix: String { "cmux.server." }
-    public weak var host: WebCardPanel?
+    /// The panel names the native control from the model's state as it attaches, not at the next change.
+    public weak var host: WebCardPanel? {
+        didSet { host?.setPersonControl(personControl, card: card) }
+    }
 
     public let model: ServerModel
     private let qr: (String) -> String?
@@ -70,8 +73,11 @@ public final class ServerPageProvider: WebCard {
         changed()
     }
 
-    /// The card closed any way but its Cancel: the draft stays, as a reopening looks it up again.
-    public func closed() {}
+    /// The card closed any way but its Cancel: the typed code stays, and the found server goes, so a
+    /// reopening looks the code up again (``ServerModel/closeApproval()``).
+    public func closed() {
+        model.closeApproval()
+    }
 
     // MARK: - Page ops
 
@@ -112,6 +118,9 @@ public final class ServerPageProvider: WebCard {
         nextListener += 1
         listeners[id] = onEvent
         startWatch()
+        // The watch reports only later changes: a server found before the page listened (no watch
+        // ran) still shows its native control now.
+        host?.setPersonControl(personControl, card: card)
         return PageSubscription { [weak self] in
             guard let self else { return }
             self.listeners[id] = nil

@@ -14,7 +14,9 @@ and git ls-remote (no network) and checks what it does to the run:
 - glaeda-gh down (exit 3) gives one round of gh run watch, then glaeda-gh again;
 - rounds are spaced, so a waiter that returns at once does not spin on the API;
 - --cancel-on-timeout cancels at the deadline;
-- Ctrl-C (SIGINT to the process group) cancels; SIGTERM or SIGHUP to the script does not.
+- Ctrl-C (SIGINT to the process group) cancels; SIGTERM or SIGHUP to the script does not;
+- a dispatch that gets HTTP 5xx is tried again (3 tries), a run GitHub created anyway is adopted,
+  and when every try fails the script says no run was created.
 """
 
 from __future__ import annotations
@@ -35,7 +37,19 @@ RUN_ID = "4242"
 GH_STUB = r"""#!/usr/bin/env bash
 echo "gh $*" >> "$STUB_DIR/calls.log"
 case "$*" in
-  api*) echo __RUN_ID__ ;;
+  api*)
+    # FAKE_DISPATCH_FAILS: how many dispatches answer HTTP 502 (FAKE_DISPATCH_CODE) first.
+    n=$(cat "$STUB_DIR/dispatches" 2>/dev/null || echo 0)
+    echo $((n + 1)) > "$STUB_DIR/dispatches"
+    if (( n < ${FAKE_DISPATCH_FAILS:-0} )); then
+      echo "gh: Server Error (HTTP ${FAKE_DISPATCH_CODE:-502})" >&2
+      exit 1
+    fi
+    echo __RUN_ID__ ;;
+  "run list"*)
+    if [[ "${FAKE_LIST_FAILS:-0}" == 1 ]]; then echo "gh: Server Error (HTTP 503)" >&2; exit 1; fi
+    # FAKE_LIST_FINDS=1: GitHub created the run despite the error, and lists it.
+    if [[ "${FAKE_LIST_FINDS:-0}" == 1 ]]; then echo __RUN_ID__; fi ;;
   *headSha*) printf '%s\t%s\tworkflow_dispatch\n' "$(cat "$STUB_DIR/head")" "$(cat "$STUB_DIR/branch")" ;;
   *status,conclusion*)
     n=$(cat "$STUB_DIR/views" 2>/dev/null || echo 0)
@@ -120,7 +134,7 @@ class Sandbox:
 
     def start(self, args: list[str], **env: str) -> subprocess.Popen[str]:
         # Fast defaults a case may override.
-        full_env = {**self.env, "CMUX_TUI_HOSTED_ROUND_SECONDS": "1",
+        full_env = {**self.env, "CMUX_TUI_HOSTED_ROUND_SECONDS": "1", "CMUX_TUI_HOSTED_DISPATCH_BACKOFF_SECONDS": "1",
                     "CMUX_TUI_HOSTED_RESCUE_WINDOW_SECONDS": "5", **env}
         process = subprocess.Popen(["bash", f"scripts/{SCRIPT.name}", *args], cwd=self.repo, env=full_env,
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -165,6 +179,41 @@ def scenario(failures: list[str], name: str, test) -> None:
         test(failures, name, box)
     finally:
         box.close()
+
+
+def dispatch_server_error_is_retried(failures: list[str], name: str, box: Sandbox) -> None:
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_DISPATCH_FAILS="2",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, box.count("gh api -X POST") == 3 and box.count("gh run download") >= 1
+          and "HTTP 502" in out, box, out)
+
+
+def dispatch_server_errors_give_up_and_say_no_run(failures: list[str], name: str, box: Sandbox) -> None:
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_DISPATCH_FAILS="9",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, code == 1 and box.count("gh api -X POST") == 3 and "no run was created" in out
+          and box.count("glaeda-gh wait run") == 0, box, out)
+
+
+def dispatch_error_with_a_created_run_adopts_it(failures: list[str], name: str, box: Sandbox) -> None:
+    # A 5xx can come after GitHub created the run: it is found by its request id, never dispatched twice.
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_DISPATCH_FAILS="1", FAKE_LIST_FINDS="1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, box.count("gh api -X POST") == 1 and box.count("gh run download") >= 1, box, out)
+
+
+def dispatch_lookup_failure_does_not_dispatch_again(failures: list[str], name: str, box: Sandbox) -> None:
+    # The run list fails in the same incident: the run may exist, so no second dispatch, and say how to check.
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_DISPATCH_FAILS="9", FAKE_LIST_FAILS="1",
+                        CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, code == 1 and box.count("gh api -X POST") == 1 and "gh run list --repo" in out
+          and "HTTP 503" in out, box, out)
+
+
+def dispatch_client_error_is_not_retried(failures: list[str], name: str, box: Sandbox) -> None:
+    code, out = box.run(["--full"], FAKE_STATES="completed|success|1", FAKE_DISPATCH_FAILS="9",
+                        FAKE_DISPATCH_CODE="422", CMUX_TUI_HOSTED_TIMEOUT_SECONDS="60")
+    check(failures, name, code == 1 and box.count("gh api -X POST") == 1 and "HTTP 422" in out, box, out)
 
 
 def deadline_does_not_cancel(failures: list[str], name: str, box: Sandbox) -> None:
@@ -246,6 +295,12 @@ def main() -> int:
         return 1
     failures: list[str] = []
     for name, test in [
+        ("a dispatch that gets HTTP 5xx is tried again", dispatch_server_error_is_retried),
+        ("three 5xx dispatches give up and say no run was created", dispatch_server_errors_give_up_and_say_no_run),
+        ("a 5xx dispatch whose run GitHub did create is adopted, not dispatched twice",
+         dispatch_error_with_a_created_run_adopts_it),
+        ("a failed run lookup after a 5xx does not dispatch again", dispatch_lookup_failure_does_not_dispatch_again),
+        ("a 4xx dispatch is not tried again", dispatch_client_error_is_not_retried),
         ("at the deadline the run is not cancelled and the script exits 3", deadline_does_not_cancel),
         ("a waiter that returns before the run is done is started again", early_waiter_return_waits_again),
         ("a run cancelled by the CI rescue and re-run is followed", rescue_rerun_is_followed),
