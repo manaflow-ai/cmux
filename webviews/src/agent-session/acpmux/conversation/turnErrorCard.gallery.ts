@@ -157,7 +157,7 @@ export default agentPaneEntry({
       ),
     },
     "cloud-sign-in-aws": {
-      note: "A chat on a cloud provider whose SSO sign-in expired: the card names `aws sso login` to run in a terminal, then Retry.",
+      note: "A chat on a cloud provider whose SSO sign-in expired, its profile unknown: the card says to run `aws sso login --profile` with the profile this agent uses, then Retry.",
       snapshot: failed(
         "Error loading SSO Token: The SSO session associated with this profile has expired or is otherwise invalid.",
       ),

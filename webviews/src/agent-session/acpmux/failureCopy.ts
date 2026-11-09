@@ -34,6 +34,9 @@ export type FailureRoute = {
   /// A Cloud team machine whose start passed no personal Claude login (the host's handshake
   /// `cloudTeamMachine`: CloudHarnessLoginDecision skipped it as `guest-not-owner`, guest `team`).
   teamMachine?: boolean;
+  /// The AWS profile the chat's agent signs in with (its `AWS_PROFILE`), when the host knows it: an
+  /// expired SSO sign-in names it in `aws sso login --profile`.
+  awsProfile?: string;
 };
 
 /// CodeRouter's refusal on a team Cloud machine whose team has no account for the agent: a 403
@@ -59,7 +62,11 @@ const NO_CREDIT =
 /// 429 `free.rate`, "too many requests; wait a moment", backend inference/free.ts; a team's
 /// `inference.daily_limit`). It counts only without a router code or rate words beside it.
 const INSUFFICIENT_QUOTA = /insufficient[ _-]quota/i;
-const ROUTER_LIMIT = /\b(?:free|inference|usage)\.[a-z_]+\b|too many requests|rate.?limit|wait a moment/i;
+const ROUTER_LIMIT = /too many requests|rate.?limit|wait a moment/i;
+/// The cmux model router's own refusal codes (backend inference/): `free.rate`, `inference.daily_limit`,
+/// `budget.exhausted` (a 429), `usage.included_reached` (a 402). Never the account behind the chat's
+/// own key, whatever status or type comes with them: none of them is `no-credit`.
+const ROUTER_CODE = /\b(?:free|inference|usage|budget)\.[a-z_]+\b/i;
 /// The cloud provider credentials a Bedrock or Vertex chat uses have expired or were refused: the AWS
 /// SDK's `ExpiredToken`, `ExpiredTokenException`, `UnrecognizedClientException`, "The security token
 /// included in the request is expired", "Could not load credentials", an expired SSO session; Google's
@@ -70,6 +77,10 @@ const AWS_AUTH_EXPIRED =
   /\bExpiredToken(?:Exception)?\b|\bUnrecognizedClientException\b|security token included in the request is (?:expired|invalid)|could not load credentials|\bSSO session\b.{0,60}\bexpired\b|token has expired and refresh failed/i;
 /// `aws sso login` fixes only an SSO sign-in; static keys fail with the same exceptions.
 const AWS_SSO = /\bSSO\b|token has expired and refresh failed/i;
+/// The profile an error names (`--profile work`, `profile: work`, `profile "work"`), never the words
+/// after "this profile". A profile name that is not one never reaches a command.
+const AWS_PROFILE_NAMED = /(?:--profile\s+|\bprofile\s*[:=]\s*["']?|\bprofile\s+["'])([A-Za-z0-9_.-]+)/i;
+const AWS_PROFILE_NAME = /^[A-Za-z0-9_.-]{1,64}$/;
 const ADC_AUTH_EXPIRED = /reauthentication is needed|could not load the default credentials/i;
 /// `invalid_grant` alone is the agent's own OAuth refresh (SUBSCRIPTION), Gemini's through
 /// google-auth-library included: application default credentials or Vertex must be named.
@@ -202,7 +213,11 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   // Before capacity: a refused request's body can name the quota it was measured against.
   if (CONTEXT_FULL.test(message)) return "context-full";
   // Before capacity: OpenAI's out-of-credit answer is a 429 that names a quota.
-  if (NO_CREDIT.test(message) || (INSUFFICIENT_QUOTA.test(message) && !ROUTER_LIMIT.test(message))) return "no-credit";
+  if (
+    !ROUTER_CODE.test(message) &&
+    (NO_CREDIT.test(message) || (INSUFFICIENT_QUOTA.test(message) && !ROUTER_LIMIT.test(message)))
+  )
+    return "no-credit";
   if (cloudSignIn(message)) return "cloud-auth-expired";
   // Capacity and network first: their messages often mention authentication or keys in passing.
   if (RATE.test(message)) return "rate-limited";
@@ -236,13 +251,17 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
 
 /// The expired cloud provider credentials `message` names, with the command that refreshes them when
 /// the message says which one does; undefined when it names none.
-function cloudSignIn(message: string): { command?: string } | undefined {
+function cloudSignIn(message: string, route?: FailureRoute): { command?: string; sso?: boolean } | undefined {
   if (ADC_AUTH_EXPIRED.test(message) || (ADC_REFRESH.test(message) && ADC_WORDS.test(message)))
     // l10n-allow: a shell command the person runs, never translated.
     return { command: "gcloud auth application-default login" };
+  if (!AWS_AUTH_EXPIRED.test(message)) return undefined;
+  if (!AWS_SSO.test(message)) return {};
+  // A bare `aws sso login` refreshes the default profile, which may not be the one the agent uses.
+  const profile = route?.awsProfile ?? AWS_PROFILE_NAMED.exec(message)?.[1];
+  if (!profile || !AWS_PROFILE_NAME.test(profile)) return { sso: true };
   // l10n-allow: a shell command the person runs, never translated.
-  if (AWS_AUTH_EXPIRED.test(message)) return AWS_SSO.test(message) ? { command: "aws sso login" } : {};
-  return undefined;
+  return { command: `aws sso login --profile ${profile}` };
 }
 
 /// The way out a failure's card offers first: send the prompt again, move to another model (with
@@ -315,9 +334,10 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
     case "no-credit":
       return t("turn.failure.noCredit", { harness });
     case "cloud-auth-expired": {
-      const command = message ? cloudSignIn(message)?.command : undefined;
-      return command
-        ? t("turn.failure.cloudSignInExpired", { harness, command })
+      const found = message ? cloudSignIn(message, route) : undefined;
+      if (found?.command) return t("turn.failure.cloudSignInExpired", { harness, command: found.command });
+      return found?.sso
+        ? t("turn.failure.cloudSsoExpired", { harness })
         : t("turn.failure.cloudCredentialsExpired", { harness });
     }
     case "rate-limited":
