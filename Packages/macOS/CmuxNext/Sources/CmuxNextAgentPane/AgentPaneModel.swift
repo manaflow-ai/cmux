@@ -81,7 +81,7 @@ public final class AgentPaneModel {
     /// The new tab page asked to change a kind's shortcut.
     @ObservationIgnored public var onEditShortcut: ((AgentPaneTabKind) -> Void)?
     /// Runs an app action requested by an empty-state or new-tab control, with its string arguments.
-    @ObservationIgnored public var onRunAction: ((String, [String: String]) -> Bool)?
+    @ObservationIgnored public var onRunAction: ((String, [String: String]) -> AgentPaneActionRun)?
     /// Resolves the explicit Browse… fallback in the project picker.
     @ObservationIgnored public var onBrowseProject: (() async -> String?)?
     /// A new chat's Sandboxed send (`sandbox.run`, hq#3367): the App runs one task on a throwaway

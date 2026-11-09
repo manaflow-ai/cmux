@@ -6,7 +6,7 @@ import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
-import type { ConnectKind, OffloadKind } from "./environments";
+import type { ConnectKind, OffloadKind, OffloadReasons } from "./environments";
 import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
 import { useScrollEdges } from "../../ui/scrollEdges";
@@ -402,6 +402,8 @@ type Props = {
   /// A started chat's Move to Cloud or Bring Back Local (see ComposerContext), as `offloads` lists them.
   onOffload?(kind: OffloadKind): void;
   offloads?: readonly OffloadKind[];
+  /// Why each offered move would refuse now (see ComposerContext).
+  offloadReasons?: OffloadReasons;
   /// The environment picker opened: read the machines and their status again.
   onRefreshMachines?(): void;
   /// The folder menu's quiet line while a new chat has no folder (ComposerContext `folderNote`).
@@ -518,6 +520,7 @@ function ComposerFrame({
   onConnect,
   onOffload,
   offloads,
+  offloadReasons,
   onRefreshMachines,
   folderNote,
   runMode,
@@ -2349,6 +2352,7 @@ function ComposerFrame({
       onConnect={onConnect}
       {...(onOffload ? { onOffload } : {})}
       {...(offloads ? { offloads } : {})}
+      {...(offloadReasons ? { offloadReasons } : {})}
       summary={snapshot.summary}
       sessions={snapshot.sessions}
       peers={snapshot.peers}

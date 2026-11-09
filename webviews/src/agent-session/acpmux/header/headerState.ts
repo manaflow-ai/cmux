@@ -67,6 +67,9 @@ export interface HeaderState {
   /// The Cloud moves the chat's right-click menu offers now (`cloudMove`, `cloudBringBack`): the
   /// composer's picker offers the same. Only a `pane.tabState` reply carries it; a push keeps it.
   readonly moves: readonly string[];
+  /// Why each of `moves` would refuse now, by action id (a chat with no first message yet): the
+  /// picker shows that row greyed with it. Only a `pane.tabState` reply carries it, with `moves`.
+  readonly moveReasons: Readonly<Record<string, string>>;
   /// Eligible Cloud machine targets for the title menu. The host validates ids again on dispatch.
   readonly moveTargets: readonly HeaderMoveTarget[];
   /// Rises with each change the App sees: a `pane.tabState` reply that arrives after a newer push is dropped.
@@ -89,10 +92,19 @@ let current: HeaderState = {
   headerControls: "standard",
   headerMotion: "still",
   moves: [],
+  moveReasons: {},
   moveTargets: [],
   version: 0,
 };
 const listeners = new Set<() => void>();
+
+/// The `moveReasons` object: each non-empty string reason by action id.
+function moveReasonsOf(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const reasons: Record<string, string> = {};
+  for (const [id, reason] of Object.entries(value)) if (typeof reason === "string" && reason.trim()) reasons[id] = reason;
+  return reasons;
+}
 
 /// The App's state (a `pane.tabState` reply or a `headerState` push); fields it leaves out keep their value.
 export function setHeaderState(value: unknown): void {
@@ -106,6 +118,7 @@ export function setHeaderState(value: unknown): void {
     headerMotion?: unknown;
     pullRequest?: unknown;
     moves?: unknown;
+    moveReasons?: unknown;
     moveTargets?: unknown;
     version?: unknown;
   };
@@ -122,6 +135,8 @@ export function setHeaderState(value: unknown): void {
     headerMotion: "headerMotion" in raw ? headerMotionOf(raw.headerMotion) : current.headerMotion,
     pullRequest: "pullRequest" in raw ? pullRequestOf(raw.pullRequest) : current.pullRequest,
     moves: Array.isArray(raw.moves) ? raw.moves.filter((id): id is string => typeof id === "string") : current.moves,
+    // Read with `moves`: a reply that names the moves and no reasons offers them all.
+    moveReasons: Array.isArray(raw.moves) ? moveReasonsOf(raw.moveReasons) : current.moveReasons,
     moveTargets: Array.isArray(raw.moveTargets)
       ? raw.moveTargets.flatMap((target: unknown): HeaderMoveTarget[] => {
           const row = (target ?? {}) as Record<string, unknown>;
