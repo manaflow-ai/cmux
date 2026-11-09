@@ -12,8 +12,9 @@
 //!   first-turn context that say when to read it. The person's skills are a second session
 //!   plugin, `cmux-user` ([`materialize_user_plugin`]), so Claude Code lists them natively.
 //! - Codex and every other harness: [`AGENT_GUIDANCE`] in the first-turn context, the channel
-//!   Codex itself uses for AGENTS.md (a hidden user-role block), and an index of the person's
-//!   skills (name, description, path) so the agent reads one when it applies.
+//!   Codex itself uses for AGENTS.md (a hidden user-role block), and an index of cmux's own
+//!   skills whose tools the chat has (`agent_tools::skill_index`) and of the person's skills
+//!   (name, description, path) so the agent reads one when it applies.
 //!
 //! The text is captured when the session is created (`context_inventory::snapshot_session`),
 //! so the Context viewer shows exactly what the chat got. Switches, all on by default, are
@@ -207,7 +208,7 @@ fn valid_name(name: &str) -> bool {
 }
 
 /// `name` and `description` from a `---` frontmatter block (one line each, quotes removed).
-fn frontmatter(text: &str) -> Option<(String, String)> {
+pub(crate) fn frontmatter(text: &str) -> Option<(String, String)> {
     let body = text.strip_prefix("---\n").or_else(|| text.strip_prefix("---\r\n"))?;
     let (block, _) = body.split_once("\n---")?;
     let field = |key: &str| {
@@ -255,8 +256,13 @@ pub fn first_turn_text(
     (!out.is_empty()).then_some(out)
 }
 
-/// The guidance for a new session of profile `harness`, read now.
-pub fn for_session(cfg: &crate::config::Config, harness: &str) -> Option<String> {
+/// The guidance for a new session of profile `harness`, read now. `remote_origin`: a session
+/// started for a remote client, which gets no cmux tools and so no cmux skills.
+pub fn for_session(
+    cfg: &crate::config::Config,
+    harness: &str,
+    remote_origin: bool,
+) -> Option<String> {
     let family = Family::of(&cfg.family(harness).unwrap_or_else(|| harness.to_owned()));
     let switches = Switches::current();
     let skills = if switches.user_skills {
@@ -264,7 +270,45 @@ pub fn for_session(cfg: &crate::config::Config, harness: &str) -> Option<String>
     } else {
         Vec::new()
     };
-    first_turn_text(family, &switches, &skills)
+    // Claude Code lists cmux's skills from the session plugin; the built-in switch for the
+    // family turns this index off with the rest of cmux's guidance.
+    let cmux_skills = if family != Family::Claude && switches.builtin_for(family) {
+        let env = cfg.harnesses.get(harness).map(|p| p.env.clone()).unwrap_or_default();
+        crate::agent_tools::skill_index::for_new_session(remote_origin, &env)
+    } else {
+        Vec::new()
+    };
+    let text = first_turn_text(family, &switches, &skills);
+    match cmux_skills_text(&cmux_skills) {
+        Some(index) => Some(match text {
+            Some(text) => format!("{text}\n\n{index}"),
+            None => index,
+        }),
+        None => text,
+    }
+}
+
+/// cmux's own skills for a harness without Claude Code's plugin, or `None` without any. Their
+/// folders share one parent (the session plugin's `skills/`), so it is written once.
+pub fn cmux_skills_text(skills: &[UserSkill]) -> Option<String> {
+    let parent = skills.first()?.dir.parent()?;
+    let shared = skills.iter().all(|s| s.dir.parent() == Some(parent));
+    let mut out = if shared {
+        format!(
+            "cmux skills, each at {}/<name>/SKILL.md. When one's description matches the task, read its SKILL.md first and follow it:",
+            parent.display()
+        )
+    } else {
+        "cmux skills. When one's description matches the task, read its SKILL.md first and follow it:"
+            .to_owned()
+    };
+    for skill in skills {
+        out.push_str(&format!("\n- {}: {}", skill.name, skill.description));
+        if !shared {
+            out.push_str(&format!(" ({})", skill.dir.join("SKILL.md").display()));
+        }
+    }
+    Some(out)
 }
 
 /// The person's skills as a Claude Code plugin under `state_dir`, written once per content hash
@@ -396,7 +440,15 @@ mod tests {
         // Claude Code: the rules a cut skill listing would hide, then the skill for the rest.
         let claude = first_turn_text(Family::Claude, &on, &[]).unwrap();
         assert!(claude.contains("cmux:cmux-chat") && claude.contains("first reads"), "{claude}");
-        for rule in ["TaskCreate", "TaskUpdate", "TodoWrite", "background", "HOST/NAME", "recap", "acpmux_wrap_up"] {
+        for rule in [
+            "TaskCreate",
+            "TaskUpdate",
+            "TodoWrite",
+            "background",
+            "HOST/NAME",
+            "recap",
+            "acpmux_wrap_up",
+        ] {
             assert!(claude.contains(rule), "{rule} missing: {claude}");
         }
         assert!(claude.len() < AGENT_GUIDANCE.len(), "stays under Codex's: {} bytes", claude.len());
@@ -450,6 +502,27 @@ mod tests {
         let off = Switches { codex: false, ..on };
         let only_index = first_turn_text(Family::Codex, &off, &skills).unwrap();
         assert!(only_index.starts_with("The person's own skills"), "{only_index}");
+    }
+
+    /// Codex's index of cmux's own skills: one line per skill under a header naming their
+    /// shared folder once (each line its own path when they do not share one), nothing at all
+    /// without skills.
+    #[test]
+    fn cmux_skills_are_indexed_with_their_folder() {
+        assert_eq!(cmux_skills_text(&[]), None);
+        let skill = |name: &str, root: &str| UserSkill {
+            name: name.into(),
+            description: format!("About {name}."),
+            dir: PathBuf::from(root).join(name),
+        };
+        let root = "/state/agent-tools/abc/skills";
+        let text = cmux_skills_text(&[skill("cmux-browser", root), skill("acpmux", root)]).unwrap();
+        assert_eq!(
+            text,
+            "cmux skills, each at /state/agent-tools/abc/skills/<name>/SKILL.md. When one's description matches the task, read its SKILL.md first and follow it:\n- cmux-browser: About cmux-browser.\n- acpmux: About acpmux."
+        );
+        let mixed = cmux_skills_text(&[skill("a", root), skill("b", "/elsewhere")]).unwrap();
+        assert!(mixed.ends_with("- b: About b. (/elsewhere/b/SKILL.md)"), "{mixed}");
     }
 
     #[cfg(unix)]

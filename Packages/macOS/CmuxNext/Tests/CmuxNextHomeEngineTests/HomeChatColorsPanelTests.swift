@@ -81,7 +81,7 @@ import Testing
         }
     }
 
-    @Test func aChangeFromTheCLIWhileOpenStreamsTheNewState() async throws {
+    @Test(.timeLimit(.minutes(1))) func aChangeFromTheCLIWhileOpenStreamsTheNewState() async throws {
         let rig = try rig()
         let events = Events()
         let subscription = try await rig.provider.subscribe(HomeChatColorsProvider.stateStream, filter: .object([:]),
@@ -100,11 +100,12 @@ import Testing
         try await call(rig, "set", ["role": .string("sent"), "color": .string("#AF52DE")])
         await settle { color(events.last, "sent") == "#AF52DE" }
         #expect(color(events.last, "sent") == "#AF52DE")
-        // Closed: a later change sends nothing.
+        // Closed: the loop that streamed the state is over, so a later change sends nothing.
+        let loop = try #require(rig.provider.following)
         rig.provider.end()
+        await loop.value
         let count = events.count
         try rig.store.apply([:], reset: true, to: "chat")
-        try? await Task.sleep(for: .milliseconds(100))
         #expect(events.count == count)
     }
 
