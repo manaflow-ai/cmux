@@ -150,8 +150,8 @@
           "groups": [
             {"group": "settings.group.terminalFont"},
             {"group": "settings.group.densityMotion"},
-            {"title": {"key": "settings.pageGroup.sizes", "text": "Sizes"}, "keys": [
-              "app.uiScale", "appearance.metrics.chromeFontSize", "appearance.metrics.sidebarWidth",
+            {"title": {"key": "settings.pageGroup.sizes", "text": "Sizes"}, "note": "Text Size (appearance.metrics.chromeFontSize) is in the Density card.", "keys": [
+              "app.uiScale", "appearance.metrics.sidebarWidth",
               "appearance.metrics.columnGap", "appearance.metrics.dividerThickness",
               "appearance.metrics.dividerHitWidth", "appearance.metrics.titlebarHeight"
             ]},

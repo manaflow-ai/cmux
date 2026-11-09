@@ -30,3 +30,11 @@ extension AgentChatAppOps {
         AgentChatAppOps { store.agentChats() }
     }
 }
+
+extension AppProviderChangeFeed {
+    /// `agent_chat.changed` whenever the chats `agent_chat.list` answers change (``AgentLaneStore/agentChats(now:)``),
+    /// so a thread list reloads on the event instead of polling.
+    @MainActor public static func agentChats(_ store: AgentLaneStore = .shared) -> AppProviderChangeFeed {
+        AppProviderChangeFeed(family: "agent_chat") { store.agentChats(now: .distantPast) }
+    }
+}
