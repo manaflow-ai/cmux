@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42562894681",
+  "recorded_at": "2026-11-09T04:46:09Z",
+  "reason": "cmux-tui 29b1527bdde8 changes the image's cmux-tui (pinned 228c8d04b085)",
+  "dry_run": false,
+  "cmux_tui": "29b1527bdde83941e8061b1b39ee9408ed15326c",
+  "fixes": [
+    {
+      "sha": "29b1527bdde83941e8061b1b39ee9408ed15326c",
+      "mergedAt": "2026-11-08T20:22:39-08:00",
+      "subject": "remote_stream_bench: a two-host cut is timed from the stream and needs another path (#39174)"
+    },
+    {
+      "sha": "24291d345b488abf0ea2b48a26ea1fc681197b46",
+      "mergedAt": "2026-11-08T20:20:06-08:00",
+      "subject": "acpmux lane reports: a still-waiting turn's report is held, not sent (#39105)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T04:46:09Z",
+    "snapshot_id": "sh-bf8efdb2427344b5a8fa421d2324f20b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42562894681): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ab00b8a92bcabc206c3c34aaa064cc9efd6b7561",
+    "image": "cloud-native-auto-29b1527b-42562894681-1",
+    "revision": "ci-42562894681-1",
+    "at": "2026-11-09T04:46:09Z"
+  },
+  "rolled_back": false
+}
