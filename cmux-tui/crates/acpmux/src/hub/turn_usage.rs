@@ -208,8 +208,9 @@ fn generic_usage(usage: Option<&Value>, fresh_harness: bool) -> TurnUsage {
 
 #[cfg(test)]
 mod tests {
-    use super::generic_usage;
-    use serde_json::json;
+    use super::{claude_tokens, generic_usage};
+    use crate::store::TurnUsage;
+    use serde_json::{Value, json};
 
     #[test]
     fn claude_hour_long_writes_never_exceed_the_writes_and_a_tier_only_payload_counts_none() {

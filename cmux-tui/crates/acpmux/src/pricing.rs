@@ -254,7 +254,8 @@ mod tests {
         assert!((cost(Some(5_000_000)) - 8.0).abs() < 1e-9, "{}", cost(Some(5_000_000)));
         // A tier count with no aggregate writes is reported usage (priced, not unpriced), and
         // bills as no writes: the aggregate counts as 0 (#39324 review F2).
-        let tier_only = TurnUsage { cache_write_1h_tokens: Some(1_000_000), ..TurnUsage::default() };
+        let tier_only =
+            TurnUsage { cache_write_1h_tokens: Some(1_000_000), ..TurnUsage::default() };
         assert_eq!(t.cost("claude-opus-5-5", &tier_only), Some(0.0));
 
         // An entry's own hour-long rate wins; a vendor that charges no writes bills none.
