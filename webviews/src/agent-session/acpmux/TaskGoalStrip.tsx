@@ -153,14 +153,6 @@ function GoalStrip({
   const canControl = provider === "codex";
   const live = goal.status === "running" || goal.status === "active";
   const done = goal.status === "done" || goal.status === "complete";
-  const current = useNow(live);
-  const start = goal.startedAt;
-  const elapsed =
-    goal.elapsedMs !== undefined
-      ? goal.elapsedMs + (live && goal.updatedAt !== undefined ? Math.max(0, current - goal.updatedAt) : 0)
-      : start !== undefined
-        ? Math.max(0, (goal.endedAt ?? (live ? current : (goal.updatedAt ?? current))) - start)
-        : undefined;
   const status = live
     ? t("goal.headRunning")
     : done
@@ -212,11 +204,14 @@ function GoalStrip({
       void box.offsetHeight;
     }
     box.style.height = `${target}px`;
+    // Ends this fold. A click mid-way cancels the transition it replaces, and that cancel reaches
+    // the new fold's listener after the old one is gone: a cancel settles only when no transition
+    // runs any more (the host turned motion off), never on a reversal (review of cmux#39151, F1).
     const settle = (event: TransitionEvent) => {
       if (event.target !== box || event.propertyName !== "height") return;
+      if (event.type === "transitioncancel" && box.getAnimations().length > 0) return;
       box.removeEventListener("transitionend", settle);
       box.removeEventListener("transitioncancel", settle);
-      if (event.type === "transitioncancel") return;
       box.style.height = shown ? "auto" : "";
       if (!shown) setClamped(true);
     };
@@ -227,13 +222,9 @@ function GoalStrip({
       box.removeEventListener("transitioncancel", settle);
     };
   }, [shown]);
-  // The time and chevron's width, which the objective's first line leaves free (its digits change
-  // width only when a unit is added, so this reads the same value nearly every tick).
-  useLayoutEffect(() => {
-    const end = trail.current;
-    const row = end?.parentElement;
-    if (end && row) row.style.setProperty("--acpmux-goal-trail", `${end.offsetWidth}px`);
-  });
+  // The time and chevron's width, which the objective's first line leaves free; GoalTime keeps it
+  // as its own text changes.
+  useLayoutEffect(() => keepTrailWidth(trail.current));
   // The field takes focus in the commit that draws it, the caret after the text.
   useLayoutEffect(() => {
     const node = field.current;
@@ -248,10 +239,18 @@ function GoalStrip({
     if (!editing || !box || !inner || box.style.height === "auto") return;
     box.style.height = `${inner.scrollHeight}px`;
   }, [draft, editing]);
-  // A cut objective is what the hover card is for: measured after layout, and again when the text changes.
+  // A cut objective is what the hover card is for: measured after layout, when the text changes, and
+  // while folded whenever the line's width does (a pane narrowed or widened; review of cmux#39151, F2).
+  // The observer goes with the folded state or the row.
   useLayoutEffect(() => {
     const node = text.current;
-    if (node) setCut(clamped && !shown && node.scrollWidth > node.clientWidth + 0.5);
+    if (!node) return;
+    const measure = () => setCut(clamped && !shown && node.scrollWidth > node.clientWidth + 0.5);
+    measure();
+    if (!clamped || shown || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
   }, [goal.objective, clamped, shown]);
   const toggle = () => {
     if (editing) return;
@@ -415,7 +414,7 @@ function GoalStrip({
             </button>
           )}
         </span>
-        {elapsed !== undefined && <time className="acpmux-goal-time">{formatDuration(elapsed)}</time>}
+        <GoalTime goal={goal} live={live} />
         <span className="acpmux-goal-chevron" aria-hidden="true">
           <ChevronDown size={14} />
         </span>
@@ -426,5 +425,35 @@ function GoalStrip({
         </span>
       )}
     </section>
+  );
+}
+
+/** Writes the trail's width (the time and chevron) on its row as `--acpmux-goal-trail`, only when it
+ *  changed: the objective's first line stops short of it. */
+function keepTrailWidth(trail: HTMLElement | null | undefined) {
+  const row = trail?.parentElement;
+  if (!trail || !row) return;
+  const width = `${trail.offsetWidth}px`;
+  if (row.style.getPropertyValue("--acpmux-goal-trail") !== width) row.style.setProperty("--acpmux-goal-trail", width);
+}
+
+/** The goal's elapsed time, a leaf of its own: the page clock's tick re-renders only this text, never
+ *  the row, the hat or the composer around it. Its width changes only when a unit is added. */
+function GoalTime({ goal, live }: { goal: TaskGoal; live: boolean }) {
+  const node = useRef<HTMLTimeElement>(null);
+  const current = useNow(live);
+  const start = goal.startedAt;
+  const elapsed =
+    goal.elapsedMs !== undefined
+      ? goal.elapsedMs + (live && goal.updatedAt !== undefined ? Math.max(0, current - goal.updatedAt) : 0)
+      : start !== undefined
+        ? Math.max(0, (goal.endedAt ?? (live ? current : (goal.updatedAt ?? current))) - start)
+        : undefined;
+  const text = elapsed === undefined ? undefined : formatDuration(elapsed);
+  useLayoutEffect(() => keepTrailWidth(node.current?.parentElement), [text]);
+  return text === undefined ? null : (
+    <time ref={node} className="acpmux-goal-time">
+      {text}
+    </time>
   );
 }

@@ -108,7 +108,7 @@
    so showing them moves nothing. The line is one button (`.acpmux-goal-toggle`, under the text);
    open, the objective unfolds in place under its own first line, which never moves.
    The fold's height moves on the reference's open and close curves (frame-stepped: cmuxterm-hq
-   design/notes/goal-ui-reference-study.md). */
+   docs/design/goal-ui-reference-study). */
 .acpmux-goal[data-look] {
   --acpmux-goal-row: var(--ui-row-height, 28px);
   --acpmux-goal-line: 18px;
@@ -201,6 +201,18 @@
 }
 .acpmux-goal[data-open] .acpmux-goal-clip {
   transition: height var(--acpmux-goal-open) var(--acpmux-goal-open-ease);
+}
+/* A long goal or draft scrolls inside the open card, at most ten lines and never past 40% of the
+   pane, so its lower lines and Save stay in reach in a short pane (review of cmux#39151, F3). */
+.acpmux-goal[data-look][data-open] {
+  /* The stack gives up height in a short pane (bottomStack.css): the open card's one row takes what
+     is left, and its scroller fits it. */
+  grid-template-rows: minmax(0, 1fr);
+}
+.acpmux-goal[data-look][data-open] .acpmux-goal-clip {
+  max-height: min(calc(10 * var(--acpmux-goal-line) + var(--ds-space-6)), 40vh, 100%);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .acpmux-goal-objective {
   display: block;

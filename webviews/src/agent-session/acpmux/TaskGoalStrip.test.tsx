@@ -245,3 +245,30 @@ test("a render past the run time, before the next clock tick, drops the countdow
   await act(async () => root!.render(<TaskGoalStrip goal={{ ...goal }} command={never} now={now} />));
   expect(host.querySelector(".acpmux-goal-state")?.textContent).toBe("Looping");
 });
+
+// composer-typing-flicker, on cmux#39151: the goal heads the composer hat and its time ticks every
+// second. A tick re-renders only the time (`GoalTime`), never the row, or the hat flickers with it.
+test("a clock tick changes the goal's time and re-renders nothing else of the row", async () => {
+  const host = installDom();
+  root = createRoot(host);
+  // The row reads its `now` once per render (its "Updated" line); the time leaf reads the page clock.
+  let rowRenders = 0;
+  const now = () => {
+    rowRenders++;
+    return Date.now();
+  };
+  const startedAt = Date.now() - 65_000;
+  const goal = { objective: "Ship the fix", status: "active" as const, provider: "codex" as const, startedAt };
+  await act(async () =>
+    root!.render(<TaskGoalStrip goal={{ ...goal, updatedAt: startedAt }} command={never} now={now} />),
+  );
+  const time = () => host.querySelector(".acpmux-goal-time")?.textContent;
+  const first = time();
+  const before = rowRenders;
+  await act(async () => {
+    // fixed-wait: the page clock's real one-second tick is what this measures; two pass.
+    await new Promise((resolve) => setTimeout(resolve, 2_100));
+  });
+  expect(time()).not.toBe(first);
+  expect(rowRenders).toBe(before);
+});

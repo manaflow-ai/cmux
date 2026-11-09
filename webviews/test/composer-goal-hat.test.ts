@@ -3,7 +3,7 @@
 // The chat's goal in the composer hat (TaskGoalStrip.tsx `GoalStrip`). Leo, 2026-11-09, on a
 // reference goal pill: "that rapid click togle on/of fand its speed too... we need to study that!",
 // "why they didnt have hover to see the goal?" and "no expansion of the goal in place either". The
-// reference, frame-stepped (cmuxterm-hq design/notes/goal-ui-reference-study.md), opens in about
+// reference, frame-stepped (cmuxterm-hq docs/design/goal-ui-reference-study), opens in about
 // 200 ms and closes in about 110 ms, takes clicks 68 ms apart, reverses each from where it is and
 // never drops or queues one. This holds ours to that in real Chromium, on the gallery's frames
 // (agent-pane.composer-goal), and prints the measured numbers:
@@ -166,6 +166,28 @@ await requireBrowserLane("composer-goal-hat.test.ts", async () => {
       );
       expect(late).toEqual([]);
       expect(last.open).toBe(true);
+      // Review of cmux#39151, F1: a fold that reversed still settles: open ends on `auto` height.
+      expect(await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-goal-clip")!.style.height)).toBe(
+        "auto",
+      );
+      // One more click mid-open, then one back: it ends folded, one cut line again (its ellipsis
+      // and hover card come back).
+      await page.mouse.click(x, y);
+      // fixed-wait: the reversal must land while the open transition still runs.
+      await page.waitForTimeout(40);
+      await page.mouse.click(x, y);
+      // fixed-wait: and this close is reversed mid-way too, then left to finish folded.
+      await page.waitForTimeout(40);
+      await page.mouse.click(x, y);
+      await settled(page);
+      const end = await page.evaluate(() => {
+        const goal = document.querySelector<HTMLElement>(".acpmux-goal[data-look]")!;
+        return {
+          clamped: goal.hasAttribute("data-clamped"),
+          height: goal.querySelector<HTMLElement>(".acpmux-goal-clip")!.style.height,
+        };
+      });
+      expect(end).toEqual({ clamped: true, height: "" });
       expect(new Set(rest.map((frame) => frame.h.toFixed(1))).size).toBeLessThanOrEqual(1);
     } finally {
       await page.close();
@@ -199,6 +221,31 @@ await requireBrowserLane("composer-goal-hat.test.ts", async () => {
       } finally {
         await page.close();
       }
+    }
+  });
+
+  test("a long goal opened in a short pane scrolls inside the card, its end in reach", async () => {
+    const port = (vite!.httpServer!.address() as { port: number }).port;
+    const page = await browser!.newPage({ viewport: { width: 420, height: 300 } });
+    try {
+      await page.goto(
+        `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: "editing", width: 420, theme: "dark" })}`,
+      );
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+        timeout: 90_000,
+      });
+      await page.locator(".acpmux-goal-field").waitFor({ timeout: 30_000 });
+      await settled(page);
+      const save = page.getByRole("button", { name: "Save" });
+      await save.scrollIntoViewIfNeeded();
+      const inView = await save.evaluate((node) => {
+        const r = node.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return hit === node || node.contains(hit);
+      });
+      expect(inView).toBe(true);
+    } finally {
+      await page.close();
     }
   });
 
