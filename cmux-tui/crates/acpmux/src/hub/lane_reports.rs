@@ -55,9 +55,10 @@
 //!   `resend`, so a retry never runs twice and no other prompt takes its id.
 //! - A still-waiting turn's report is held, not sent: the lane is `idle` but a background task
 //!   of its own still runs that brings its end to the lane (`bg_notify.rs`), so a turn that
-//!   reports is sure to follow; and its turn names no pull request or commit not reported
-//!   before, no review verdict, and none of [`DECISIVE`]'s words (merged, failed, blocked, done,
-//!   needs, a question mark...). A harness's own background shell or subagent does not count:
+//!   reports is sure to follow; and its reply says it still waits ([`WAITING`]) and names no
+//!   pull request or commit not reported before, no review verdict, and none of [`DECISIVE`]'s
+//!   words (merged, failed, blocked, done, please, timed out, a question mark...). A reply that
+//!   says anything else is news. A harness's own background shell or subagent does not count:
 //!   the turn its end starts is the harness's (`background_turn.rs`), which reports nothing. Leo, 2026-11-09, about a coordinator one helper woke 15 times in a row to say
 //!   "still waiting on fleet run": "for stuff like this, are you able to simply not respond? why
 //!   are you even the one reading and responding to these no-ops anyways". It neither wakes nor
@@ -308,20 +309,29 @@ pub(super) fn reports_only(provenance: Option<&Value>) -> bool {
     }
 }
 
-/// Words that make a turn's reply news for its parent even while the lane's own work runs: an
-/// end, a failure, a block or an ask (module docs). One that says neither is a still-waiting
-/// turn's; a false match only sends a report, as before.
-const DECISIVE: &str = r"(?i)\b(merged|landed|shipped|done|finished|completed?|passed|passing|green|succeeded|ready|fail(?:ed|s|ing|ure|ures)?|errors?|blocked|stuck|needs?|question|approve|approval|refused|denied|cancell?ed|broken|red)\b|\?";
+/// What a still-waiting turn's reply says: that it still waits, or that nothing changed. A reply
+/// is a still-waiting one only when it says so (review of #39105 at bfdb6cd, F1): a reply this
+/// does not recognise is news.
+const WAITING: &str = r"(?i)\b(still (waiting|running|in progress|pending|going|queued)|waiting (on|for)|nothing new|no news|no change|not (done|finished|back) yet|keeps? waiting|wait(ing)? again)\b";
 
+/// Words that make a turn's reply news for its parent even while it says it waits: an end, a
+/// failure, a block, an ask, or a request to act (module docs). A false match only sends a
+/// report, as before.
+const DECISIVE: &str = r"(?i)\b(merged|landed|shipped|done|finished|completed?|passed|passing|green|succeeded|ready|fail(?:ed|s|ing|ure|ures)?|errors?|blocked|stuck|needs?|question|approve|approval|refused|denied|cancell?ed|broken|red|timed out|time ?outs?|please|rebase|restart|retry|retrying|can you|could you|should|must|want)\b|\?|!";
+
+static WAITING_WORDS: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(WAITING).ok());
 static DECISIVE_WORDS: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(DECISIVE).ok());
 
-/// Whether `reply`, a lane's turn's, says only that it still waits, or nothing: no review
-/// verdict, no full commit sha and none of [`DECISIVE`]'s words. A pull request it names is news
-/// only when not reported before, which delivery decides (`due_report`). A pattern that failed
-/// to build counts every reply as news.
+/// Whether `reply`, a lane's turn's, says only that it still waits: it says it waits
+/// ([`WAITING`]) and has no review verdict, no full commit sha and none of [`DECISIVE`]'s words.
+/// A pull request it names is news only when not reported before, which delivery decides
+/// (`due_report`). A pattern that failed to build counts every reply as news.
 fn says_only_waiting(reply: &str) -> bool {
-    let Some(re) = DECISIVE_WORDS.as_ref() else { return false };
-    !re.is_match(reply)
+    let (Some(waiting), Some(decisive)) = (WAITING_WORDS.as_ref(), DECISIVE_WORDS.as_ref()) else {
+        return false;
+    };
+    waiting.is_match(reply)
+        && !decisive.is_match(reply)
         && !super::lane_report_text::has_verdict(reply)
         && matches(&FULL_SHA, reply).is_empty()
 }
@@ -967,22 +977,15 @@ fn delivered(l: &mut Link, report: &Report, key: String, now: u64) {
 /// named, and counting a still-waiting one it folds in. A still-waiting turn's report never
 /// replaces one that is news: that one stays queued, to go as it is.
 fn replace_ready(mut newer: Report, queued: Option<Report>) -> Report {
-    let Some(mut queued) = queued else { return newer };
+    let Some(queued) = queued else { return newer };
     if newer.interim && !queued.interim {
-        // Its pull requests still go, with the news (review of #39105, F2). Added ones make it
-        // a report of its own: the queued one may be on its way under its id, and its delivery
-        // would clear this one with it (review at 75930e4, F1).
-        let mut added = false;
-        for pr in newer.prs {
-            if !queued.prs.contains(&pr) {
-                queued.prs.push(pr);
-                added = true;
-            }
+        // A still-waiting turn that names a pull request the news does not is news itself: it
+        // replaces the news as any newer report does, under its own turn and id (review of
+        // #39105 at bfdb6cd, F2). One that names none leaves the news queued as it is.
+        if newer.prs.iter().all(|pr| queued.prs.contains(pr)) {
+            return queued;
         }
-        if added {
-            queued.prompt_id = newer.prompt_id;
-        }
-        return queued;
+        newer.interim = false;
     }
     newer.quiet_turns = queued.quiet_turns.saturating_add(u32::from(queued.interim));
     for pr in queued.prs {
@@ -1688,7 +1691,6 @@ mod tests {
             "Still waiting on fleet run 42549646257; nothing new.",
             "Nothing new yet: the compile check is still running on the pool.",
             "Still waiting on https://github.com/o/r/pull/9; 4 min in.",
-            "",
         ] {
             assert!(says_only_waiting(quiet), "{quiet:?} read as news");
         }
@@ -1701,6 +1703,11 @@ mod tests {
             "Should I rebase onto feat first?",
             "Pushed 0123456789abcdef0123456789abcdef01234567, still waiting on CI.",
             "It needs your approval to post the review.",
+            "Please rebase the branch before I continue.",
+            "The deployment timed out; please restart it.",
+            "Still waiting, but the deployment timed out; please restart it.",
+            "The preview is up at http://localhost:3000.",
+            "",
         ] {
             assert!(!says_only_waiting(news), "{news:?} read as no news");
         }
@@ -1731,10 +1738,16 @@ mod tests {
         assert!(due_report(&mut l, 1).is_some(), "a new pull request was held");
         l.prs = vec![pr.into()];
         assert!(due_report(&mut l, 1).is_none(), "a reported pull request made it news");
-        // News kept queued over a still-waiting turn still takes that turn's pull requests (F2).
+        // A still-waiting turn naming a pull request the queued news does not replaces it as
+        // news, under its own turn (F2); one naming none leaves the news queued.
         let kept =
             replace_ready(Report { interim: true, ..report(7, &[pr]) }, Some(report(4, &[])));
-        assert_eq!((kept.turn, kept.prs.as_slice()), (4, [pr.to_owned()].as_slice()));
+        assert_eq!(
+            (kept.turn, kept.interim, kept.prs.as_slice()),
+            (7, false, [pr.to_owned()].as_slice())
+        );
+        let kept = replace_ready(Report { interim: true, ..report(8, &[]) }, Some(report(4, &[])));
+        assert_eq!((kept.turn, kept.interim), (4, false));
         // News on its way when a still-waiting turn adds a pull request: its delivery leaves the
         // added one queued, and that goes next.
         let mut l = Link { ready: Some(report(4, &[])), ..Link::default() };
