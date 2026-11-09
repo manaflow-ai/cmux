@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42605860065",
+  "recorded_at": "2026-11-09T11:08:08Z",
+  "reason": "cmux-tui c61f3174a7ef changes the image's cmux-tui (pinned 79a0cbe2d0b2)",
+  "dry_run": false,
+  "cmux_tui": "c61f3174a7ef40e098a60448ee3838b0a3107882",
+  "fixes": [
+    {
+      "sha": "c61f3174a7ef40e098a60448ee3838b0a3107882",
+      "mergedAt": "2026-11-09T02:44:10-08:00",
+      "subject": "acpmux: an old or unproven acpmux CLI is never the person; agents get ACPMUX_BIN (#39020)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-09T11:08:08Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
