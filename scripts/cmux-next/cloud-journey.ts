@@ -1314,19 +1314,6 @@ export async function deleteJourneyMachines(ids: string[], scopes: MachineScope[
   return { deleted, failed };
 }
 
-/** Every page of cloud.machine.list (bounded). */
-async function listAllMachines(api: Api): Promise<any[]> {
-  const rows: any[] = [];
-  let cursor: string | null = null;
-  for (let page = 0; page < 50; page++) {
-    const v: any = await api.read("cloud.machine.list", { limit: 100, ...(cursor ? { cursor } : {}) });
-    rows.push(...(v?.machines ?? v?.items ?? (Array.isArray(v) ? v : [])));
-    cursor = typeof v?.next_cursor === "string" && v.next_cursor ? v.next_cursor : null;
-    if (!cursor) return rows;
-  }
-  throw new Error("cloud.machine.list: more than 50 pages");
-}
-
 /** The Stack password sign-in the journey uses: the agent test account's access token. */
 async function passwordSignIn(stack: (typeof STACK)[StackName], email: string, password: string): Promise<{ access: string; refresh: string }> {
   const r = await http("POST", `${STACK_API}/api/v1/auth/password/sign-in`, { email, password }, {
@@ -1375,7 +1362,7 @@ async function machinesMode(argv: string[], backend: Backend, email: string | un
     api.bearer = bearer;
     return {
       scope: t || "personal",
-      list: () => listAllMachines(api),
+      list: () => listAllMachines((params) => api.read("cloud.machine.list", params), 50),
       get: async (id, timeoutMs) => {
         try { return await api.read("cloud.machine.get", { machine: id }, timeoutMs); } catch (e) {
           if (/HTTP 404|not[ _.-]?found/i.test(String((e as Error).message))) return null;
