@@ -271,7 +271,7 @@ fn with_build(
     identity: &mut Value,
     own: &str,
     daemon: Option<&super::skew::DaemonBuild>,
-    _reach: Reach<'_>,
+    reach: Reach<'_>,
 ) {
     let Some(object) = identity.as_object_mut() else { return };
     let matches = daemon.map(|daemon| daemon.build_id == own);
@@ -284,13 +284,23 @@ fn with_build(
             "matches": matches,
         }),
     );
-    let warning = daemon.filter(|_| matches == Some(false)).map(|daemon| {
-        crate::localization::catalog()
-            .pane_cli
-            .build_mismatch
-            .replace("{own}", own)
-            .replace("{daemon}", &daemon.build_id)
-            .replace("{cli}", &daemon.cli_path.display().to_string())
+    let warning = daemon.filter(|_| matches == Some(false)).map(|daemon| match reach {
+        // The daemon's `cmux` is a path on the other machine: name the
+        // remote upgrade, as the CLI's own skew line does.
+        Reach::Tunnel { socket } => super::skew::remote_skew(daemon, own, socket),
+        Reach::Local { pane_cli } => {
+            let cli = daemon.cli_path.display().to_string();
+            let run = match pane_cli.filter(|path| Path::new(path).is_absolute()) {
+                Some(_) => format!("\"$CMUX_TUI_CLI\" ({cli})"),
+                None => cli,
+            };
+            crate::localization::catalog()
+                .pane_cli
+                .build_mismatch
+                .replace("{own}", own)
+                .replace("{daemon}", &daemon.build_id)
+                .replace("{run}", &run)
+        }
     });
     object.insert("warning".into(), json!(warning));
 }
@@ -298,7 +308,6 @@ fn with_build(
 /// How the CLI reached the daemon that answered, as [`with_build`] words its
 /// warning.
 #[derive(Clone, Copy, Debug)]
-#[allow(dead_code)] // W5-Q red: the fix reads the fields.
 enum Reach<'a> {
     /// The daemon itself answered on a local socket; `pane_cli` is the
     /// `CMUX_TUI_CLI` this process has (set in a cmux pane), when absolute.

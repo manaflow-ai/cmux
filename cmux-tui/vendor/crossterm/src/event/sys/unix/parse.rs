@@ -41,15 +41,21 @@ pub(crate) fn advance(
     more: bool,
     events: &mut VecDeque<InternalEvent>,
 ) {
-    for (idx, byte) in input.iter().enumerate() {
-        let more = idx + 1 < input.len() || more;
+    // Bytes an event did not use (the keys after Alt+]) are parsed again
+    // before the rest of `input`.
+    let mut again: VecDeque<u8> = VecDeque::new();
+    let mut input = input.iter().copied();
+    while let Some(byte) = again.pop_front().or_else(|| input.next()) {
+        let more = !again.is_empty() || input.len() > 0 || more;
 
-        pending.push(*byte);
+        pending.push(byte);
 
-        match parse_event(pending, more) {
-            Ok(Some(ie)) => {
+        match parse_event_len(pending, more) {
+            Ok(Some((ie, used))) => {
                 events.push_back(ie);
-                pending.clear();
+                for byte in pending.drain(..).skip(used).rev() {
+                    again.push_front(byte);
+                }
             }
             Ok(None) => {
                 // Event can't be parsed, because we don't have enough bytes for
@@ -65,12 +71,18 @@ pub(crate) fn advance(
 }
 
 /// The event at the start of `buffer` and how many of its bytes it used
-/// (cmux patch).
+/// (cmux patch). Every event uses the whole buffer except Alt+] from an
+/// `ESC ]` that is no host color reply: it uses 2 bytes, and the bytes
+/// after it are input of their own.
 pub(crate) fn parse_event_len(
     buffer: &[u8],
     input_available: bool,
 ) -> io::Result<Option<(InternalEvent, usize)>> {
-    Ok(parse_event(buffer, input_available)?.map(|event| (event, buffer.len())))
+    let used = match crate::event::scan_host_reply(buffer) {
+        crate::event::HostReply::NotAReply if buffer.starts_with(b"\x1b]") => 2,
+        _ => buffer.len(),
+    };
+    Ok(parse_event(buffer, input_available)?.map(|event| (event, used)))
 }
 
 pub(crate) fn parse_event(
@@ -125,15 +137,21 @@ pub(crate) fn parse_event(
                     }
                     b'[' => parse_csi(buffer),
                     b'\x1B' => Ok(Some(InternalEvent::Event(Event::Key(KeyCode::Esc.into())))),
-                    // cmux patch: a host's OSC reply (a color query answered
-                    // late) is no input. The whole reply is dropped; `ESC ]`
-                    // alone with nothing after it is still Alt+].
+                    // cmux patch: a host's OSC 10/11 reply (a color query
+                    // answered late) is no input. The whole reply is dropped,
+                    // and its start waits for its end. `ESC ]` alone with
+                    // nothing after it, or followed by anything else, is
+                    // Alt+]; `parse_event_len` says it used 2 bytes, so the
+                    // bytes after it are parsed again as input.
                     b']' => match crate::event::scan_host_reply(buffer) {
                         crate::event::HostReply::Complete(_) => Err(could_not_parse_event_error()),
                         crate::event::HostReply::Partial if buffer.len() > 2 || input_available => {
                             Ok(None)
                         }
-                        _ => parse_alt_event(buffer, input_available),
+                        _ => Ok(Some(InternalEvent::Event(Event::Key(KeyEvent::new(
+                            KeyCode::Char(']'),
+                            KeyModifiers::ALT,
+                        ))))),
                     },
                     _ => parse_alt_event(buffer, input_available),
                 }

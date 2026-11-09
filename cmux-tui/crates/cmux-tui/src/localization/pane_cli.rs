@@ -29,8 +29,9 @@ pub(crate) struct PaneCliMessages {
     /// The warning row's label of `cmux identify`.
     pub warning: &'static str,
     /// `cmux identify` from a `cmux` of another build than the session
-    /// daemon: `{own}` this build, `{daemon}` the daemon's, `{cli}` the
-    /// daemon's own `cmux`.
+    /// daemon on this machine: `{own}` this build, `{daemon}` the daemon's,
+    /// `{run}` how to run the daemon's own `cmux` (`"$CMUX_TUI_CLI" (path)`
+    /// in a pane, else the path).
     pub build_mismatch: &'static str,
 }
 
@@ -52,7 +53,7 @@ pub(super) const ENGLISH: PaneCliMessages = PaneCliMessages {
     app_heading_outer: "CMUX APP (the cmux app around this session; it does not own this session)",
     skill_usage: "usage: cmux skill show [--json]\n\n`cmux skill show` prints the agent guide for this cmux CLI, built from the\nCLI that runs it. --json prints it as {\"name\", \"version\", \"markdown\"}.\n",
     warning: "warning",
-    build_mismatch: "this cmux is build {own}, but the session daemon is build {daemon}; run the session's own cmux: \"$CMUX_TUI_CLI\" ({cli})",
+    build_mismatch: "this cmux is build {own}, but the session daemon is build {daemon}; run the session's own cmux: {run}",
 };
 
 pub(super) const JAPANESE: PaneCliMessages = PaneCliMessages {
@@ -73,5 +74,5 @@ pub(super) const JAPANESE: PaneCliMessages = PaneCliMessages {
     app_heading_outer: "CMUX アプリ (このセッションの外側の cmux アプリ。このセッションの所有者ではありません)",
     skill_usage: "使い方: cmux skill show [--json]\n\n`cmux skill show` は、この cmux CLI のエージェントガイドを、実行中の CLI から\n生成して表示します。--json は {\"name\", \"version\", \"markdown\"} として表示します。\n",
     warning: "警告",
-    build_mismatch: "この cmux はビルド {own} ですが、セッションデーモンはビルド {daemon} です。セッション自身の cmux を使ってください: \"$CMUX_TUI_CLI\" ({cli})",
+    build_mismatch: "この cmux はビルド {own} ですが、セッションデーモンはビルド {daemon} です。セッション自身の cmux を使ってください: {run}",
 };

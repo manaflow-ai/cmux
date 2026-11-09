@@ -45,10 +45,15 @@ reply as typed text. The cmux client asks at startup and waits a short time,
 so a host that answered later had its reply typed into the focused pane
 (bench round 4: `10;rgb:fdfd/ffff/f1f1` in the shell, and a bell).
 
-The cmux patch scans `ESC ] digits ; text` up to BEL or `ESC \`
-(`event/host_reply.rs`, `scan_host_reply`) and drops a complete reply. The
-parser waits for the end of a started reply; `ESC ]` with nothing after it is
-still Alt+]. The client's startup input reader (`ui/graphics.rs`) uses the same
-scanner. Regression tests: `cmux-tui/crates/cmux-tui/tests/tui_host_color_replies.rs`
+The cmux patch scans only the replies the client asks for, `ESC ] 10 ;` and
+`ESC ] 11 ;` followed by printable text up to BEL or `ESC \`, at most 64 bytes
+(`event/host_reply.rs`, `scan_host_reply`), and drops a complete reply. The
+parser waits for the end of such a started reply. Any other `ESC ]` (`ESC ]`
+alone, `ESC ] a`, `ESC ] ESC [ A`, `ESC ] 1 2`, a control byte or too much
+text in the reply) is Alt+], and the bytes after `ESC ]` are parsed again as
+input: the shared parse loop `parse::advance` (used by the tty and mio
+sources) takes the length each event used from `parse_event_len`, so no
+typed key is dropped. The client's startup input reader (`ui/graphics.rs`)
+uses the same scanner and event length. Regression tests: `cmux-tui/crates/cmux-tui/tests/tui_host_color_replies.rs`
 and `crossterm_host_replies.rs`. Remove this part when upstream Crossterm
 parses OSC replies.

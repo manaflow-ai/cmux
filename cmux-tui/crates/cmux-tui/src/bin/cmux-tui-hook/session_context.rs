@@ -1,8 +1,9 @@
 //! What an agent learns about cmux when its session starts in a cmux
 //! terminal: that it runs in cmux, the ids of its session, workspace, screen,
 //! pane, tab and terminal, that `"$CMUX_TUI_CLI"` is the session's own
-//! `cmux` and `"$CMUX_TUI_CLI" skill show` prints the guide, and which other
-//! agents run in the session and how to reach them (W5-Q).
+//! `cmux` (when the pane sets it to an absolute path; else `cmux`) and
+//! `skill show` prints the guide, and which other agents run in the session
+//! and how to reach them (W5-Q).
 //!
 //! It goes to the model as the `SessionStart` hook's `additionalContext`.
 //! Claude Code gets it from the extra `SessionStart` hook the `claude` shim
@@ -48,12 +49,15 @@ const MAX_PEERS: usize = 12;
 /// The session's agents other than `own_terminal`, from `agent.list` and
 /// `tab.list` records: terminal agents whose session did not end (the
 /// daemon's `done`), once per terminal, named by their tab when that is an
-/// agent name (`agent start NAME`), else by terminal id.
+/// agent name (`agent start NAME`) no other tab has, else by terminal id.
+/// A harness word outside the agent name rule is `agent`.
 pub(crate) fn peers_from(agents: &[Value], tabs: &[Value], own_terminal: &str) -> Vec<Peer> {
+    let name_of = |tab: &Value| tab.get("name").and_then(Value::as_str);
+    let unique = |name: &str| tabs.iter().filter(|tab| name_of(tab) == Some(name)).count() == 1;
     let tab_name = |terminal: &str| {
         tabs.iter()
             .filter(|tab| tab.get("content_id").and_then(Value::as_str) == Some(terminal))
-            .find_map(|tab| tab.get("name").and_then(Value::as_str).filter(|name| agent_name(name)))
+            .find_map(|tab| name_of(tab).filter(|name| agent_name(name) && unique(name)))
             .map(str::to_owned)
     };
     let mut peers: Vec<Peer> = Vec::new();
@@ -69,6 +73,7 @@ pub(crate) fn peers_from(agents: &[Value], tabs: &[Value], own_terminal: &str) -
             .pointer("/extra/agent")
             .or_else(|| agent.get("agent"))
             .and_then(Value::as_str)
+            .filter(|harness| agent_name(harness))
             .unwrap_or("agent")
             .to_owned();
         let name = tab_name(terminal).unwrap_or_else(|| terminal.to_owned());
@@ -157,9 +162,17 @@ pub(crate) fn text(place: &Place) -> String {
         Some(name) if !name.is_empty() => format!("{} (\"{name}\")", id(&place.workspace)),
         _ => id(&place.workspace),
     };
-    let cli = match &place.cli {
-        Some(path) => format!("`\"$CMUX_TUI_CLI\"` ({path})"),
-        None => "`\"$CMUX_TUI_CLI\"`".to_owned(),
+    // `"$CMUX_TUI_CLI"` only when the pane set it to an absolute path; else
+    // it runs `""` there, and `cmux` is the one to run.
+    let (cmux, own) = match &place.cli {
+        Some(path) => (
+            "\"$CMUX_TUI_CLI\"",
+            format!(
+                "Run this session's own cmux as `\"$CMUX_TUI_CLI\"` ({path}); a `cmux` on PATH \
+                 can be another, older build."
+            ),
+        ),
+        None => ("cmux", "Run cmux as `cmux`.".to_owned()),
     };
     let peers = if place.peers.is_empty() {
         "No other agent runs in this session now.".to_owned()
@@ -170,16 +183,14 @@ pub(crate) fn text(place: &Place) -> String {
     };
     format!(
         "cmux: you run in a cmux terminal (a cmux-tui pane). Session {session}; workspace \
-         {workspace}; screen {}; pane {}; tab {}; terminal {}. Run this session's own cmux as \
-         {cli}; a `cmux` on PATH can be another, older build. `current` names your own pane, \
-         not the one the person looks at. Run `\"$CMUX_TUI_CLI\" skill show` for the full \
-         agent guide (identity, targeting, `terminal send --wait`, `screen wait`, reads, errors, \
-         cleanup) and `\"$CMUX_TUI_CLI\" --json identify` to check where you are. {peers} To \
-         talk to an agent of this session, use `\"$CMUX_TUI_CLI\" terminal NAME send --text \
-         '...' --wait idle` (`\"$CMUX_TUI_CLI\" agent list` names them); Claude Code's \
-         SendMessage and other cross-session tools do not reach them and can reach another \
-         person's session. Do not move the person's focus, type into your own terminal, or \
-         close panes you did not open.",
+         {workspace}; screen {}; pane {}; tab {}; terminal {}. {own} `current` names your own \
+         pane, not the one the person looks at. Run `{cmux} skill show` for the full agent \
+         guide (identity, targeting, `terminal send --wait`, `screen wait`, reads, errors, \
+         cleanup) and `{cmux} --json identify` to check where you are. {peers} To talk to an \
+         agent of this session, use `{cmux} terminal NAME send --text '...' --wait idle` \
+         (`{cmux} agent list` names them); Claude Code's SendMessage and other cross-session \
+         tools do not reach them and can reach another person's session. Do not move the \
+         person's focus, type into your own terminal, or close panes you did not open.",
         id(&place.screen),
         id(&place.pane),
         id(&place.tab),

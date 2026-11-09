@@ -1212,10 +1212,20 @@ fn parse_incomplete_input_lossy(bytes: &[u8]) -> Vec<crossterm::event::Event> {
     let mut events = Vec::new();
     let mut offset = 0;
     while offset < bytes.len() {
-        // The start of a host reply whose end never came is still no input.
+        // The start of a host color reply whose end never came is still no
+        // input; an `ESC ]` that is only the start of one (`ESC ]`, `ESC ] 1`,
+        // `ESC ] 11`) is Alt+], and the bytes after it are keys.
         let rest = bytes.get(offset..).unwrap_or_default();
-        if rest.len() > 2 && host_reply(rest) == HostReply::Partial {
-            break;
+        if host_reply(rest) == HostReply::Partial {
+            if rest.len() >= REPLY_TEXT_START {
+                break;
+            }
+            events.push(crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Char(']'),
+                crossterm::event::KeyModifiers::ALT,
+            )));
+            offset += 2;
+            continue;
         }
         if let Some((event, consumed)) = parse_one_input_event(&bytes[offset..]) {
             events.push(event);
@@ -1285,6 +1295,10 @@ pub(crate) fn finish_startup_input(
     pending.events
 }
 
+/// Where a host color reply's text starts: after `ESC ] 1 0 ;` or
+/// `ESC ] 1 1 ;`.
+const REPLY_TEXT_START: usize = 5;
+
 /// A host OSC reply at the start of `bytes` (vendored Crossterm's scanner;
 /// `vendor/crossterm/CMUX_PATCH.md`).
 fn host_reply(bytes: &[u8]) -> HostReply {
@@ -1294,21 +1308,23 @@ fn host_reply(bytes: &[u8]) -> HostReply {
 fn parse_one_input_event(bytes: &[u8]) -> Option<(crossterm::event::Event, usize)> {
     let minimum = usize::from(bytes.first() == Some(&b'\x1b') && bytes.len() > 1) + 1;
     for end in minimum..=bytes.len() {
-        let Some(event) = parse_startup_input_event(&bytes[..end]) else { continue };
-        return Some((event, end));
+        let Some((event, used)) = parse_startup_input_event(&bytes[..end]) else { continue };
+        return Some((event, used.min(end)));
     }
     None
 }
 
+/// The event at the start of `bytes` and how many bytes it used (Alt+]
+/// from an `ESC ]` that is no host reply uses 2; the rest are keys).
 #[cfg(unix)]
-fn parse_startup_input_event(bytes: &[u8]) -> Option<crossterm::event::Event> {
-    crossterm::event::parse_event_from_bytes(bytes, true).ok().flatten()
+fn parse_startup_input_event(bytes: &[u8]) -> Option<(crossterm::event::Event, usize)> {
+    crossterm::event::parse_event_len_from_bytes(bytes, true).ok().flatten()
 }
 
 #[cfg(not(unix))]
-fn parse_startup_input_event(bytes: &[u8]) -> Option<crossterm::event::Event> {
+fn parse_startup_input_event(bytes: &[u8]) -> Option<(crossterm::event::Event, usize)> {
     let event = terminput::Event::parse_from(bytes).ok().flatten()?;
-    terminput_crossterm::to_crossterm(event).ok()
+    terminput_crossterm::to_crossterm(event).ok().map(|event| (event, bytes.len()))
 }
 
 #[cfg(test)]

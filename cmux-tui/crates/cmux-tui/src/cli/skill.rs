@@ -307,7 +307,7 @@ pub(super) fn render_with(location: &Option<Value>, pane_cli: Option<&str>) -> S
     out
 }
 
-fn write_location(out: &mut String, location: &Option<Value>, _pane_cli: Option<&str>) {
+fn write_location(out: &mut String, location: &Option<Value>, pane_cli: Option<&str>) {
     out.push_str("## Where you are\n\n");
     let Some(identity) = location else {
         out.push_str(
@@ -319,13 +319,22 @@ fn write_location(out: &mut String, location: &Option<Value>, _pane_cli: Option<
     };
     let text =
         |pointer: &str| identity.pointer(pointer).and_then(Value::as_str).unwrap_or("-").to_owned();
-    let _ = writeln!(
-        out,
-        "You run in a cmux terminal. Run this session's own cmux as `\"$CMUX_TUI_CLI\"`: the \
-         pane sets it to the absolute path of the session's build, and a `cmux` on PATH can be \
-         another, older install. Every `cmux` in this guide means `\"$CMUX_TUI_CLI\"` (for \
-         example `\"$CMUX_TUI_CLI\" --json identify`); it talks to this session by default.\n"
-    );
+    // `"$CMUX_TUI_CLI"` only when the pane set it to an absolute path (a
+    // pane of an older daemon has none): else it runs `""`.
+    if pane_cli.is_some_and(|path| std::path::Path::new(path).is_absolute()) {
+        let _ = writeln!(
+            out,
+            "You run in a cmux terminal. Run this session's own cmux as `\"$CMUX_TUI_CLI\"`: \
+             the pane sets it to the absolute path of the session's build, and a `cmux` on PATH \
+             can be another, older install. Every `cmux` in this guide means \
+             `\"$CMUX_TUI_CLI\"` (for example `\"$CMUX_TUI_CLI\" --json identify`); it talks \
+             to this session by default.\n"
+        );
+    } else {
+        out.push_str(
+            "You run in a cmux terminal. `cmux` here talks to this session by default.\n\n",
+        );
+    }
     let _ = writeln!(out, "| object | id |\n| --- | --- |");
     let _ =
         writeln!(out, "| session | `{}` (name `{}`) |", text("/session/id"), text("/session/name"));
