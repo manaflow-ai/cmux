@@ -1388,8 +1388,8 @@ div.cv-subagent-done[data-toggle-line]::before {
 /* A finished line with a report is the one message row (AgentMessageRow.tsx): its trailing column
    (the new-result dot and the time) and its chevron keep their room at any width, opened or shut
    (Leo, 2026-11-09: "these rendered previews dont have time... maybe they dont have other things
-   too"). The name chip took a fixed 40% (AgentTag.css `flex: none`), so in a narrow pane the line ran
-   past the row and the time was drawn outside it. The first line gives way first (the toggle, shrink
+   too"). The name chip barely shrank (AgentMessageRow.css `flex: 0 0.0001` on the sentence's name), so
+   in a narrow pane the line ran past the row and the time was drawn outside it. The first line gives way first (the toggle, shrink
    1000000, as a received row's), then the chip behind its ellipsis; opened, the chip's name wraps
    (AgentMessageRow.css `[data-open]`). test/notification-reply-browser.test.ts at 900, 560 and
    380px. */
