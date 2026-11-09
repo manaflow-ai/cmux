@@ -720,8 +720,14 @@ function ComposerFrame({
     attach,
     attachLater,
   } = useAttachmentIntake({
+    // An attachment the person brings is their edit of the prompt, as a key is: a draft read that
+    // answers while it loads keeps the prompt that holds its placeholder, never replaces it (Leo,
+    // 2026-11-09: "the loading placeholder for attachments goes to the top... when it actually
+    // loads, it gets smashed in between text that you were typing"). In shell mode the box waits
+    // to place it until the mode ends (inlineAttachments.tsx `place`).
     place: (chips, kind) => {
-      if (!shell) box.current?.place(chips, kind);
+      typedAt.current = performance.now();
+      box.current?.place(chips, kind);
     },
     allowImages,
     dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
@@ -2520,6 +2526,9 @@ function ComposerFrame({
       )}
       <ComposerBox
         handle={box}
+        onPersonEdit={() => {
+          typedAt.current = performance.now();
+        }}
         boxRef={setComposerBox}
         inert={locked}
         fieldRef={fieldRef}

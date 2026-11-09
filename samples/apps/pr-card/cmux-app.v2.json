@@ -1,0 +1,32 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "cmux/pr-card",
+  "name": { "en": "Pull request card", "ja": "プルリクエストカード" },
+  "version": "1.0.0",
+  "description": "A chat card for one pull request: its state and its checks, paged, kept current while it shows.",
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "GPL-3.0-or-later",
+  "icon": { "symbol": "arrow.triangle.pull" },
+  "categories": ["git", "samples"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.chat.widget/1": {
+      "export": "renderPRCard",
+      "title": { "en": "Pull request", "ja": "プルリクエスト" },
+      "symbol": "arrow.triangle.pull"
+    }
+  },
+  "scopes": {
+    "net:api.github.com": "Read the public pull request and its checks when GitHub is not connected.",
+    "actions:run": "Open the pull request or a check in a browser tab when you click it.",
+    "storage:local": "Remember which page of checks each card shows."
+  },
+  "optionalScopes": {
+    "integration:github:read": "Use your connected GitHub account (private repositories) without seeing its token."
+  },
+  "activation": ["onInterface:cmux.chat.widget/1"],
+  "files": ["dist/"]
+}
