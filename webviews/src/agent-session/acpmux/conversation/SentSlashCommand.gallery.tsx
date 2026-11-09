@@ -22,10 +22,12 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 360,
   covers: [
-    "agent-session/acpmux/conversation/skillWords.ts",
-    "agent-session/acpmux/conversation/withSkillWords.tsx",
-    "agent-session/acpmux/conversation/PromptText.tsx",
-    "agent-session/acpmux/conversation/InlinePromptContent.tsx",
+    "agent-session/acpmux/conversation/SkillWord.tsx#SkillWord",
+    "agent-session/acpmux/conversation/PromptText.tsx#PromptTyped",
+    "agent-session/acpmux/conversation/PromptText.tsx#PromptText",
+    "agent-session/acpmux/conversation/InlinePromptContent.tsx#InlinePromptContent",
+    "agent-session/acpmux/conversation/SentUIPick.tsx#SentUIPicks",
+    "agent-session/acpmux/ComposerQueue.tsx#ComposerQueue",
   ],
   variants: {
     "compact-sent": {
