@@ -52,7 +52,6 @@ const MAX_PEERS: usize = 12;
 /// agent name (`agent start NAME`) no other tab has, else by terminal id.
 /// A harness word outside the agent name rule is `agent`.
 pub(crate) fn peers_from(agents: &[Value], tabs: &[Value], own_terminal: &str) -> Vec<Peer> {
-    let name_of = |tab: &Value| tab.get("name").and_then(Value::as_str);
     let unique = |name: &str| tabs.iter().filter(|tab| name_of(tab) == Some(name)).count() == 1;
     let tab_name = |terminal: &str| {
         tabs.iter()
@@ -83,6 +82,11 @@ pub(crate) fn peers_from(agents: &[Value], tabs: &[Value], own_terminal: &str) -
         }
     }
     peers
+}
+
+/// A tab record's name.
+fn name_of(tab: &Value) -> Option<&str> {
+    tab.get("name").and_then(Value::as_str)
 }
 
 /// `agent start`'s name rule: a lowercase letter, then up to 31 lowercase
