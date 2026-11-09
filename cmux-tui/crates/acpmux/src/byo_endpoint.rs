@@ -269,7 +269,7 @@ pub fn check_keychain_item(item: &str) -> Result<String, (bool, String)> {
     Ok(item.to_owned())
 }
 
-/// The item a keyless endpoint's reply names for this kind (where a key would go).
+/// The item `cmux harness secret set ID KEY` writes for this kind.
 pub fn default_item(kind: Kind, id: &str) -> String {
     crate::cli::harness_secret::reference(id, kind.secret_key())
 }
@@ -296,8 +296,8 @@ pub fn profile_text(e: &Endpoint<'_>) -> String {
     let key = e.kind.secret_key();
     let head = format!(
         "# cmux harness profile: your own {} endpoint. Guide: docs/add-your-harness.md\n\
-         # A key is only ever in the Keychain item named below, never in this file. A new key:\n\
-         #   add it again with --key --force (or from Settings > Agents), id {id}, key {key}\n\
+         # A key is only ever in the Keychain item named below, never in this file. Store it with:\n\
+         #   cmux harness secret set {id} {key}\n\
          # Check it (one real hello turn) with: cmux harness doctor {id}\n\
          schema = 1\nid = {}\nname = {}\n",
         match e.kind {
@@ -340,7 +340,7 @@ pub fn profile_text(e: &Endpoint<'_>) -> String {
             // apiKey is the env reference (never a value), and only when the profile names a
             // Keychain item: a keyless endpoint's config reads no variable, so a stray
             // CMUX_BYO_API_KEY in some env never reaches it (the spawn removes it too:
-            // [`clear_inherited`]). A key comes only with an add (`--key`, Settings).
+            // [`clear_inherited`]). `cmux harness secret set` later rewrites the profile.
             let mut options = serde_json::json!({"baseURL": e.base_url});
             if e.keychain_item.is_some() {
                 options["apiKey"] = serde_json::Value::String(format!("{{env:{OPENAI_KEY_ENV}}}"));
@@ -614,7 +614,7 @@ pub fn fix(problem: Problem, kind: Kind, id: &str) -> String {
     };
     match problem {
         Problem::Key => format!(
-            "check the key ({key}): the endpoint refused it. Add {id} again with its key (`cmux harness add {id} ... --key --force`, or Settings > Agents)"
+            "check the key: the endpoint refused it. Store it again with `cmux harness secret set {id} {key}`"
         ),
         Problem::BaseUrl => format!(
             "check the base URL: the endpoint was not reached or has no such path. It is {base}; add the harness again with the right baseUrl (--base-url)"
@@ -624,54 +624,8 @@ pub fn fix(problem: Problem, kind: Kind, id: &str) -> String {
         ),
         Problem::Model => "model not found: the endpoint has no such model. Add the harness again with a model id from its model list (--model)".to_owned(),
         Problem::Other => format!(
-            "check the base URL, the key ({key}; add {id} again with `--key --force`) and the model"
+            "check the base URL, the key (`cmux harness secret set {id} {key}`) and the model"
         ),
-    }
-}
-
-/// Whether a Keychain service is cmux's own (`cmux-harness`), in any spelling: endpoint keys
-/// cmux stored, one item per endpoint profile.
-pub fn is_own_service(service: &str) -> bool {
-    let service = service.trim();
-    let service = service.strip_prefix("keychain:").unwrap_or(service).trim();
-    service.eq_ignore_ascii_case(crate::cli::harness_secret::SERVICE)
-}
-
-/// Whether `account` is endpoint `id`'s own (`<id>/<KEY>.<generation>`, or `<id>/<KEY>` as an
-/// older build wrote it). `id` None: any one endpoint's own account, exactly (the profile env
-/// resolver, which has no id).
-pub fn is_own_account(account: &str, id: Option<&str>) -> bool {
-    let Some((owner, rest)) = account.split_once('/') else { return false };
-    let (key, generation) = match rest.split_once('.') {
-        Some((key, g)) => (key, Some(g)),
-        None => (rest, None),
-    };
-    crate::config::profiles::valid_id(owner)
-        && id.is_none_or(|id| id == owner)
-        && crate::config::profiles::valid_env_key(key)
-        && generation.is_none_or(|g| !g.is_empty() && g.chars().all(|c| c.is_ascii_hexdigit()))
-}
-
-/// Every Keychain read for an endpoint harness's key goes through here: the `*` models read of
-/// an add (`id` Some) and the profile env resolver (spawn, doctor, run, sign-in; `id` None).
-/// An item in cmux's own `cmux-harness` service is read only by its exact account, endpoint
-/// `id`'s own: never the bare service, which would match any endpoint's key. Any other item is
-/// one the person named for this endpoint (`keychainItem`), read as named.
-pub fn endpoint_keychain_lookup(
-    id: Option<&str>,
-    service: &str,
-    account: Option<&str>,
-    lookup: &dyn Fn(&str, Option<&str>) -> Result<String, String>,
-) -> Result<String, String> {
-    if !is_own_service(service) {
-        return lookup(service, account);
-    }
-    match account.filter(|a| is_own_account(a, id)) {
-        Some(account) => lookup(crate::cli::harness_secret::SERVICE, Some(account)),
-        None => Err(format!(
-            "an endpoint reads only its own item in {} (by its exact account)",
-            crate::cli::harness_secret::SERVICE
-        )),
     }
 }
 

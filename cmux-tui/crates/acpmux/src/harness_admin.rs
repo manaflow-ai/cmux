@@ -580,14 +580,17 @@ pub fn endpoint_id_free(
 /// What an endpoint profile file is: its kind, the base URL its harness sends to, and the
 /// Keychain item it reads its key from (if any).
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ExistingEndpoint {
-    kind: byo_endpoint::Kind,
-    base_url: String,
-    item: Option<String>,
+pub(crate) struct ExistingEndpoint {
+    pub kind: byo_endpoint::Kind,
+    pub base_url: String,
+    pub item: Option<String>,
+    pub name: Option<String>,
+    /// The model ids as an add takes them (OpenAI's without `byo/`).
+    pub models: Vec<String>,
 }
 
 /// The endpoint profile `text` (one `add_endpoint` wrote), or None for any other profile.
-fn existing_endpoint(text: &str) -> Option<ExistingEndpoint> {
+pub(crate) fn existing_endpoint(text: &str) -> Option<ExistingEndpoint> {
     use byo_endpoint::Kind;
     let value: toml::Value = toml::from_str(text).ok()?;
     let env = value.get("env")?.as_table()?;
@@ -609,39 +612,47 @@ fn existing_endpoint(text: &str) -> Option<ExistingEndpoint> {
         .and_then(|v| v.get("keychain"))
         .and_then(toml::Value::as_str)
         .map(str::to_owned);
-    Some(ExistingEndpoint { kind, base_url, item })
+    let prefix = format!("{}/", byo_endpoint::OPENCODE_PROVIDER);
+    let models = value
+        .get("models")
+        .and_then(|m| m.get("list"))
+        .and_then(toml::Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(toml::Value::as_str)
+                .map(|m| match kind {
+                    Kind::OpenAi => m.strip_prefix(&prefix).unwrap_or(m).to_owned(),
+                    Kind::Anthropic => m.to_owned(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let name = value.get("name").and_then(toml::Value::as_str).map(str::to_owned);
+    Some(ExistingEndpoint { kind, base_url, item, name, models })
 }
 
 /// The Keychain item the endpoint profile at `path` reads its key from, only when that profile
 /// is of `kind` and sends to `base_url` (checked): a key reaches only the URL it was stored with,
 /// so a replace that changes the URL or the kind never takes the old key along.
-fn item_for_same_url(
-    path: &Path,
-    id: &str,
-    kind: byo_endpoint::Kind,
-    base_url: &str,
-) -> Option<String> {
+fn item_for_same_url(path: &Path, kind: byo_endpoint::Kind, base_url: &str) -> Option<String> {
     let old = existing_endpoint(&std::fs::read_to_string(path).ok()?)?;
     let same = old.kind == kind
         && byo_endpoint::check_base_url(&old.base_url).is_ok_and(|url| url == base_url);
-    // An item in cmux's own service only if it is this id's own (an older build took any).
-    let own_or_named = |item: &String| {
-        let service = item.split_once('/').map_or(item.as_str(), |(s, _)| s);
-        !byo_endpoint::is_own_service(service) || own_account(item, id).is_some()
-    };
-    old.item.filter(|item| same && own_or_named(item))
+    old.item.filter(|_| same)
 }
 
 /// The account suffix (`KEY` or `KEY.<generation>`) of an item in endpoint `id`'s own
 /// Keychain space (`cmux-harness/<id>/...`), or None for any other item.
 fn own_account<'a>(item: &'a str, id: &str) -> Option<&'a str> {
-    let (service, account) = item.split_once('/')?;
-    if service != crate::cli::harness_secret::SERVICE
-        || !byo_endpoint::is_own_account(account, Some(id))
-    {
-        return None;
-    }
-    account.split_once('/').map(|(_, key)| key)
+    let rest = item.strip_prefix(crate::cli::harness_secret::SERVICE)?.strip_prefix('/')?;
+    let account = rest.strip_prefix(id)?.strip_prefix('/')?;
+    let (key, generation) = match account.split_once('.') {
+        Some((key, g)) => (key, Some(g)),
+        None => (account, None),
+    };
+    let generation_ok =
+        generation.is_none_or(|g| !g.is_empty() && g.chars().all(|c| c.is_ascii_hexdigit()));
+    (profiles::valid_env_key(key) && generation_ok).then_some(account)
 }
 
 /// A new account for endpoint key `key`: `KEY.<generation>`, unique to one profile generation.
@@ -658,15 +669,13 @@ fn new_generation(key: &str) -> String {
     format!("{key}.{nanos:x}{:x}{n:x}", std::process::id())
 }
 
-/// A `keychainItem` an endpoint add may name: any item but one in cmux's own `cmux-harness`
-/// service, in any spelling (bare, with an account, `keychain:`, another case), which holds keys
-/// cmux stored for one endpoint profile each (typed for its URL); the bare service would match any.
+/// A `keychainItem` an endpoint add may name: any item but one in cmux's own `cmux-harness/`
+/// space, which holds keys cmux stored for one endpoint profile each (typed for its URL).
 fn given_item(item: &str) -> Result<String, AdminError> {
     let item = byo_endpoint::check_keychain_item(item).map_err(|(secret, m)| {
         if secret { AdminError::SecretInline(m) } else { AdminError::Invalid(m) }
     })?;
-    let service = item.split_once('/').map_or(item.as_str(), |(s, _)| s);
-    if byo_endpoint::is_own_service(service) {
+    if item.starts_with(&format!("{}/", crate::cli::harness_secret::SERVICE)) {
         return Err(AdminError::Invalid(format!(
             "keychainItem {item:?} is a key cmux stored for one endpoint; give the key itself \
              (it is stored for this endpoint only)"
@@ -746,7 +755,7 @@ fn add_endpoint(
     let item = match (given, &account) {
         (Some(item), _) => Some(item),
         (None, Some(account)) => Some(crate::cli::harness_secret::reference(&id, account)),
-        (None, None) => item_for_same_url(&path, &id, kind, &base_url).filter(|_| p.replace),
+        (None, None) => item_for_same_url(&path, kind, &base_url).filter(|_| p.replace),
     };
     let text = byo_endpoint::profile_text(&byo_endpoint::Endpoint {
         kind,
@@ -827,7 +836,7 @@ pub async fn fetch_endpoint_models(
             user_dir(sources)
                 .ok()
                 .filter(|_| p.replace)
-                .and_then(|dir| item_for_same_url(&dir.join(format!("{id}.toml")), &id, kind, &url))
+                .and_then(|dir| item_for_same_url(&dir.join(format!("{id}.toml")), kind, &url))
         }),
     };
     let key = match (key, item) {
@@ -835,13 +844,10 @@ pub async fn fetch_endpoint_models(
         (None, None) => None,
         (None, Some(item)) => tokio::task::spawn_blocking(move || {
             let (service, account) = match item.split_once('/') {
-                Some((s, a)) => (s, Some(a)),
-                None => (item.as_str(), None),
+                Some((s, a)) => (s.to_owned(), Some(a.to_owned())),
+                None => (item.clone(), None),
             };
-            // The one gate for an endpoint's Keychain reads: cmux's own items by exact account.
-            byo_endpoint::endpoint_keychain_lookup(Some(&id), service, account, &lookup_keychain)
-                .ok()
-                .map(zeroize::Zeroizing::new)
+            lookup_keychain(&service, account.as_deref()).ok().map(zeroize::Zeroizing::new)
         })
         .await
         .map_err(failed)?,
@@ -981,6 +987,42 @@ fn endpoint_own_keys(text: &str, id: &str) -> Vec<String> {
         .collect()
 }
 
+/// `secret set` on an endpoint profile file at `path` (`cmux harness secret set ID KEY`, the
+/// daemon's `secret/set`): the profile is written again (a replace of the same URL, models and
+/// name) naming a new item of its own that holds `value`, as an add with that key does; never
+/// an item another profile, a backup or an earlier generation of this id reads. Ok(None): the
+/// file is not an endpoint profile. Its only key is the kind's (`kind.secret_key()`).
+pub(crate) fn rekey_endpoint(
+    path: &Path,
+    id: &str,
+    key: &str,
+    value: &str,
+    store: &dyn Fn(&crate::cli::harness_secret::StoreCommand) -> anyhow::Result<()>,
+) -> Result<Option<String>, AdminError> {
+    let Some(old) = std::fs::read_to_string(path).ok().and_then(|t| existing_endpoint(&t)) else {
+        return Ok(None);
+    };
+    if key != old.kind.secret_key() {
+        return Err(AdminError::Invalid(format!(
+            "{id} is an endpoint harness; its key is {}",
+            old.kind.secret_key()
+        )));
+    }
+    let dir = path.parent().ok_or_else(|| failed("the profile has no folder"))?;
+    let p = AddParams {
+        id: Some(id.to_owned()),
+        display_name: old.name,
+        example: Some(old.kind.example().to_owned()),
+        base_url: Some(old.base_url),
+        models: old.models,
+        replace: true,
+        ..Default::default()
+    };
+    let added =
+        add_endpoint(old.kind, &p, dir, &EndpointKey { value: Some(value), store, taken: &never })?;
+    Ok(added.secret.map(|s| s.keychain_item))
+}
+
 #[derive(Debug, Serialize)]
 pub struct Restored {
     pub id: String,
@@ -1032,7 +1074,8 @@ pub struct SecretStored {
     /// The Keychain item (`cmux-harness/<id>/<key>`).
     pub keychain_item: String,
     /// `written` (the profile now names the item), `unchanged` (it did
-    /// already) or `manual` (add `line` under `[env]` by hand).
+    /// already), `manual` (add `line` under `[env]` by hand) or `pending`
+    /// (no such harness yet: the add that follows names the item).
     pub profile: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
@@ -1043,9 +1086,10 @@ pub struct SecretStored {
 /// `_acpmux/harness/secret/set`: store `value` for harness `id`'s env `key`
 /// in the system secret store (service `cmux-harness`, account
 /// `<id>/<key>`, the item `keychain_lookup` reads) and point a user profile
-/// at it, as `cmux harness secret set` does. Never for an endpoint harness
-/// (its key comes only with its add). `store` runs the store command (the
-/// value only on its stdin). No error or reply holds the value.
+/// at it, as `cmux harness secret set` does. An id with no harness yet is
+/// stored too (the app's endpoint add: key first, then the profile naming
+/// it). `store` runs the store command (the value only on its stdin). No
+/// error or reply holds the value.
 pub fn secret_set(
     id: &str,
     key: &str,
@@ -1060,11 +1104,31 @@ pub fn secret_set(
     if !profiles::valid_env_key(key) {
         return Err(AdminError::Invalid(format!("{key:?} is not an env variable name")));
     }
+    // A harness not added yet: the app stores an endpoint's key first and then
+    // adds the profile that names this item (`keychainItem`), so the key is
+    // never in the add. Nothing to point at yet: `profile` is `pending`.
+    if cfg.profile(id).is_none() {
+        let cmd = secret::store_command(std::env::consts::OS, id, key, value)
+            .map_err(|e| AdminError::Failed(format!("{e:#}")))?;
+        store(&cmd).map_err(|e| AdminError::Failed(format!("{e:#}")))?;
+        return Ok(SecretStored {
+            id: id.to_owned(),
+            key: key.to_owned(),
+            keychain_item: secret::reference(id, key),
+            profile: "pending",
+            path: None,
+            line: None,
+        });
+    }
     // Errors of the store path name the step, never the value.
     let change = secret::secret_set(id, key, value, cfg, store)
         .map_err(|e| AdminError::Failed(format!("{e:#}")))?;
-    let keychain_item = secret::reference(id, key);
+    let mut keychain_item = secret::reference(id, key);
     let (profile, path, line) = match change {
+        FileChange::Endpoint { path, item } => {
+            keychain_item = item;
+            ("written", Some(path.display().to_string()), None)
+        }
         FileChange::Written(p) => ("written", Some(p.display().to_string()), None),
         FileChange::Unchanged(p) => ("unchanged", Some(p.display().to_string()), None),
         FileChange::Manual { path, .. } => ("manual", path, Some(secret::reference_line(id, key))),

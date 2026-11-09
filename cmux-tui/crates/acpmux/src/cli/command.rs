@@ -766,14 +766,10 @@ pub enum HarnessCmd {
         /// model the endpoint lists at <base URL>/models.
         #[arg(long)]
         model: Vec<String>,
-        /// anthropic-endpoint / openai-endpoint: a Keychain item of your own that holds the key
-        /// (`service` or `service/account`; never cmux's own `cmux-harness` items).
-        #[arg(long, conflicts_with = "key")]
-        keychain_item: Option<String>,
-        /// anthropic-endpoint / openai-endpoint: read the key (a hidden prompt, or stdin) and
-        /// store it in the Keychain for this endpoint only. Never on the command line.
+        /// anthropic-endpoint / openai-endpoint: the Keychain item that holds the key
+        /// (default: cmux-harness/ID/KEY, which `cmux harness secret set ID KEY` writes).
         #[arg(long)]
-        key: bool,
+        keychain_item: Option<String>,
         /// anthropic-endpoint / openai-endpoint: the name the model picker shows.
         #[arg(long)]
         name: Option<String>,
