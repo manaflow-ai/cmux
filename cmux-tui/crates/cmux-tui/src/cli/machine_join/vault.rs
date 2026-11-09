@@ -390,8 +390,10 @@ pub(super) fn run(
                         "delivery": e.policy.delivery.wire(),
                         "allowedHosts": e.policy.allowed_hosts,
                     });
-                    if !vault_name_ok(&e.name) {
-                        row["delivered"] = false.into();
+                    if !vault_name_ok(&e.name)
+                        && let Some(fields) = row.as_object_mut()
+                    {
+                        fields.insert("delivered".to_owned(), false.into());
                     }
                     row
                 })
