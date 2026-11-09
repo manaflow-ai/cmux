@@ -1678,7 +1678,9 @@ jobs:
           echo "::notice title=publish skipped::${REF_NAME} is build-only. This tree has no artifact yet; re-run after a trusted feat-cmux-next publication."
 
   sentry-dsyms:
-    environment: sentry-dsyms
+    environment:
+      name: sentry-dsyms
+      deployment: false
     # The macOS client's debug symbols (cmux-tui, cmux-tui-host, acpmux, ...),
     # so Sentry symbolicates their crashes in the app bundle, where the
     # binaries are stripped. Never blocks a publish: a failed upload is a warning.
