@@ -194,10 +194,20 @@ pub(crate) const FROM_LABEL_ENV: &str = "ACPMUX_FROM_LABEL";
 const LABEL_NAME_BYTES: usize = 64;
 
 /// A character the label leaves out of a sender's name: a control character, a Unicode line or
-/// paragraph separator (U+2028, U+2029), or a bidi control (U+202A-U+202E, U+2066-U+2069).
+/// paragraph separator (U+2028, U+2029), or a bidi control or mark (U+202A-U+202E,
+/// U+2066-U+2069, U+200E, U+200F, U+061C).
 fn hidden_in_a_label(c: char) -> bool {
     c.is_control()
-        || matches!(c, '\u{2028}' | '\u{2029}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+        || matches!(
+            c,
+            '\u{061C}'
+                | '\u{200E}'
+                | '\u{200F}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202A}'..='\u{202E}'
+                | '\u{2066}'..='\u{2069}'
+        )
 }
 
 /// Who a relayed send is from: `name`, the relay's `ACPMUX_FROM` (the sender's session, where
