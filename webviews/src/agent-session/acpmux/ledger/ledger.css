@@ -14,12 +14,12 @@
 .cst[data-loading] .cst-strip,.cst[data-loading] .cst-scroll{opacity:.6;transition:opacity var(--cmux-motion-settle,265ms) var(--cmux-ease-settle,cubic-bezier(0.16,1,0.3,1))}
 .cst-scroll{flex:1;min-height:0;display:flex;flex-direction:column;transition:opacity var(--cmux-motion-settle,265ms) var(--cmux-ease-settle,cubic-bezier(0.16,1,0.3,1))}
 .cst-list{flex:1;min-height:0}
-.cst-head{flex:none;display:grid;grid-template-columns:minmax(0,1fr) repeat(5,72px);gap:var(--ds-space-2);padding:0 var(--ds-space-3);font-size:var(--text-detail);color:var(--agent-muted);text-align:right}
+.cst-head{flex:none;display:grid;grid-template-columns:minmax(0,1fr) repeat(8,64px);gap:var(--ds-space-2);padding:0 var(--ds-space-3);font-size:var(--text-detail);color:var(--agent-muted);text-align:right}
 .cst-head-label{text-align:left}
 .cst-row{position:relative;box-sizing:border-box;width:100%;display:flex;align-items:center;gap:var(--ds-space-3);padding:var(--ds-space-2) var(--ds-space-3);border:0;border-radius:var(--radius-control);background:transparent;color:inherit;font:inherit;text-align:left;overflow:hidden}
 button.cst-row:hover{background:color-mix(in srgb,var(--agent-text) 5%,transparent)}
 button.cst-row:focus-visible{outline:none;background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 12%,transparent)}
-.cst-row[data-look="table"]{display:grid;grid-template-columns:minmax(0,1fr) repeat(5,72px);gap:var(--ds-space-2)}
+.cst-row[data-look="table"]{display:grid;grid-template-columns:minmax(0,1fr) repeat(8,64px);gap:var(--ds-space-2)}
 .cst-row[data-look="stacked"]{flex-wrap:wrap;row-gap:var(--ds-space-1)}
 .cst-text{position:relative;flex:1;min-width:0;display:flex;flex-direction:column}
 .cst-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-body);line-height:var(--text-body--line-height)}
@@ -36,3 +36,4 @@ button.cst-row:focus-visible{outline:none;background:color-mix(in srgb,var(--age
 .cst-status{flex:none;display:flex;align-items:center;gap:var(--ds-space-2);min-height:var(--text-body--line-height);padding:var(--ds-space-2) var(--ds-space-3);font-size:var(--text-detail);color:var(--agent-muted)}
 .cst-link{height:24px;padding:0 var(--ds-space-2);border:0;border-radius:var(--radius-control);background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-detail)}
 .cst-legend{display:inline-flex;align-items:center;gap:var(--ds-space-1)}
+.cst-exported[data-tone="error"]{color:var(--agent-error,var(--agent-text))}

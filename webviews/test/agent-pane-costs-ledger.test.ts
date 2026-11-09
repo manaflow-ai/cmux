@@ -4,15 +4,22 @@
 // where each cost came from (reported by the agent, priced from the table, or no price).
 import { expect, test } from "bun:test";
 import {
+  cacheHitRate,
   costSource,
+  csvField,
   formatCost,
   groupLabel,
   LEDGER_GROUPS,
+  ledgerCsv,
+  ledgerFileName,
+  ledgerJson,
   ledgerLines,
   ledgerParams,
   readLedger,
   tokensIn,
 } from "../src/agent-session/acpmux/ledger/ledgerModel";
+import { historyPages } from "../src/agent-session/acpmux/queue/historyPages";
+import { cacheReadShare } from "../src/agent-session/acpmux/usageStats";
 
 const HOUR = 3_600_000;
 const NOW = 1_800_000_000_000;
@@ -46,6 +53,7 @@ const reply = readLedger({
       pullRequests: [],
       repo: "acme/app",
       branch: "lane/docs",
+      account: "work",
     },
     {
       ...totals({ costUsd: 8, harnessCostUsd: 8, turns: 20 }),
@@ -73,8 +81,9 @@ test("each range asks for its window and every rollup in one read", () => {
     since: NOW - 24 * HOUR,
     until: NOW,
     limit: 200,
-    groupBy: ["workspace", "repo", "pr", "day", "person", "vendor", "model"],
+    groupBy: ["workspace", "repo", "pr", "day", "person", "account", "vendor", "model"],
   });
+  expect(ledgerParams("7d", NOW, 5000).limit).toBe(5000);
   expect(ledgerParams("7d", NOW).since).toBe(NOW - 7 * 24 * HOUR);
   expect(ledgerParams("30d", NOW).since).toBe(NOW - 30 * 24 * HOUR);
   // All time starts at the epoch: acpmux reads a missing start as its own default window.
@@ -159,4 +168,163 @@ test("ranking a long list stays one sort: 10,000 sessions group in one pass", ()
 test("tokens in counts uncached input and cache writes, never cache reads", () => {
   expect(tokensIn(totals({ inputTokens: 120, cacheWriteTokens: 30, cacheReadTokens: 90_000 }))).toBe(150);
   expect(tokensIn(totals())).toBe(0);
+});
+
+test("the cache hit rate is Session Info's prompt cache share: reads over uncached input, reads and writes", () => {
+  const counts = totals({ inputTokens: 100, cacheReadTokens: 9_400, cacheWriteTokens: 500 });
+  expect(cacheHitRate(counts as never)).toBe(0.94);
+  expect(cacheHitRate(counts as never)).toBe(cacheReadShare(9_400, 100, 500));
+  // Four places, as acpmux rounds `cacheReadShare24h`.
+  expect(cacheHitRate(totals({ inputTokens: 2, cacheReadTokens: 1 }) as never)).toBe(0.3333);
+  // No prompt tokens: unknown, never 0%.
+  expect(cacheHitRate(totals() as never)).toBeUndefined();
+});
+
+test("a session row keeps its account", () => {
+  expect(reply.rows.find((row) => row.sessionId === "s1")!.account).toBe("work");
+  expect(reply.rows.find((row) => row.sessionId === "s2")!.account).toBeUndefined();
+});
+
+/// A CSV parser that honors quotes (RFC 4180), so a test reads back what a spreadsheet would.
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    if (quoted && c === '"' && text[i + 1] === '"') {
+      field += '"';
+      i++;
+    } else if (quoted && c === '"') {
+      quoted = false;
+    } else if (quoted) {
+      field += c;
+    } else if (c === '"') {
+      quoted = true;
+    } else if (c === ",") {
+      row.push(field);
+      field = "";
+    } else if (c === "\r" && text[i + 1] === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+      i++;
+    } else {
+      field += c;
+    }
+  }
+  return rows;
+}
+
+test("a CSV field is quoted for commas, quotes and line breaks, and never runs as a formula", () => {
+  expect(csvField("plain")).toBe("plain");
+  expect(csvField("a, b")).toBe('"a, b"');
+  expect(csvField('say "hi"')).toBe('"say ""hi"""');
+  expect(csvField("one\ntwo")).toBe('"one\ntwo"');
+  expect(csvField("one\r\ntwo")).toBe('"one\r\ntwo"');
+  expect(csvField("=HYPERLINK(1)")).toBe("'=HYPERLINK(1)");
+  expect(csvField("-rm, all")).toBe(`"'-rm, all"`);
+  expect(csvField(0.25)).toBe("0.25");
+  expect(csvField(undefined)).toBe("");
+});
+
+const titled = readLedger({
+  priceTable: { version: "2026-11-08", currency: "USD" },
+  range: { since: NOW - 7 * 24 * HOUR, until: NOW },
+  totals: totals({ costUsd: 3, harnessCostUsd: 3, turns: 3, sessions: 3, inputTokens: 10, cacheReadTokens: 90 }),
+  rows: [
+    {
+      ...totals({ costUsd: 0.1 + 0.2, harnessCostUsd: 0.1 + 0.2, turns: 1, inputTokens: 10, cacheReadTokens: 90 }),
+      sessionId: "s1",
+      title: 'Fix "quotes", commas\nand lines',
+      models: ["model-a", "model-b"],
+      pullRequests: ["https://example.com/pull/1"],
+      repo: "acme/app",
+      account: "work",
+      lastAt: NOW,
+    },
+    { ...totals({ costUsd: 2, tableCostUsd: 2, turns: 1 }), sessionId: "s2", title: "Second", models: [], pullRequests: [] },
+    { ...totals({ unpricedTurns: 1, turns: 1 }), sessionId: "s3", title: "Third", models: [], pullRequests: [] },
+  ],
+  rollups: { repo: [{ ...totals({ costUsd: 3, harnessCostUsd: 3 }), key: "acme/app" }] },
+});
+
+test("CSV holds every row of the grouping with its source, the range and the price table", () => {
+  const csv = ledgerCsv(titled, "session");
+  expect(csv.endsWith("\r\n")).toBe(true);
+  const [header, ...rows] = parseCsv(csv);
+  // Every row, not only the ones a screen shows, most expensive first.
+  expect(rows.map((row) => row[header!.indexOf("sessionId")])).toEqual(["s2", "s1", "s3"]);
+  const at = (row: string[], column: string) => row[header!.indexOf(column)];
+  const first = rows[1]!;
+  // The title round-trips through the quoting: commas, quotes and the line break intact.
+  expect(at(first, "label")).toBe('Fix "quotes", commas\nand lines');
+  expect(at(first, "costUsd")).toBe("0.3");
+  expect(at(first, "costSource")).toBe("harness");
+  expect(at(first, "cacheHitRate")).toBe("0.9");
+  expect(at(first, "models")).toBe("model-a model-b");
+  expect(at(first, "account")).toBe("work");
+  expect(at(first, "priceTableVersion")).toBe("2026-11-08");
+  expect(at(first, "rangeSince")).toBe(new Date(NOW - 7 * 24 * HOUR).toISOString());
+  expect(at(first, "rangeUntil")).toBe(new Date(NOW).toISOString());
+  expect(at(rows[0]!, "costSource")).toBe("table");
+  expect(at(rows[2]!, "costSource")).toBe("unpriced");
+  // No prompt tokens: an empty cell, not 0.
+  expect(at(rows[2]!, "cacheHitRate")).toBe("");
+  // A rollup has its own rows and no session fields.
+  const [repoHeader, repo] = parseCsv(ledgerCsv(titled, "repo"));
+  expect(repo![repoHeader!.indexOf("key")]).toBe("acme/app");
+  expect(repo![repoHeader!.indexOf("sessionId")]).toBe("");
+});
+
+test("JSON holds the range, the price table, the totals with the hit rate, and every row", () => {
+  const body = JSON.parse(ledgerJson(titled, "7d", "session"));
+  expect(body.range).toEqual({
+    name: "7d",
+    since: new Date(NOW - 7 * 24 * HOUR).toISOString(),
+    until: new Date(NOW).toISOString(),
+  });
+  expect(body.groupBy).toBe("session");
+  expect(body.priceTable).toEqual({ version: "2026-11-08", currency: "USD" });
+  expect(body.totals.cacheHitRate).toBe(0.9);
+  expect(body.totals.costSource).toBe("harness");
+  expect(body.rows).toHaveLength(3);
+  expect(body.rows[1].label).toBe('Fix "quotes", commas\nand lines');
+  expect(body.rows[1].pullRequests).toBe("https://example.com/pull/1");
+  // An absent field is left out, not null.
+  expect("cacheHitRate" in body.rows[2]).toBe(false);
+  expect(ledgerFileName(titled, "7d", "repo")).toBe(`cmux-costs-7d-by-repo-${new Date(NOW).toISOString().slice(0, 10)}`);
+});
+
+test("Export saves through the host's save panel, and copies when the host cannot save", async () => {
+  const calls: { method: string; params: Record<string, unknown> | undefined }[] = [];
+  const copied: string[] = [];
+  let host: "save" | "cancel" | "refuse" = "save";
+  const pages = historyPages({
+    client: () => undefined,
+    callNative: async <T>(method: string, params?: Record<string, unknown>) => {
+      calls.push({ method, params });
+      if (host === "refuse") throw new Error("unsupported");
+      return (host === "save") as unknown as T;
+    },
+    selectSession: () => {},
+    asks: [],
+    copy: async (text) => {
+      copied.push(text);
+      return text !== "refused";
+    },
+  });
+  const save = pages.ledger.save!;
+  expect(await save("a,b\r\n", "cmux-costs", "csv")).toBe("saved");
+  expect(calls[0]).toEqual({ method: "pane.saveFile", params: { text: "a,b\r\n", suggestedName: "cmux-costs", kind: "csv" } });
+  host = "cancel";
+  expect(await save("{}", "cmux-costs", "json")).toBe("cancelled");
+  expect(copied).toEqual([]);
+  // An app that predates the kind refuses it: the file goes to the clipboard instead.
+  host = "refuse";
+  expect(await save("{}", "cmux-costs", "json")).toBe("copied");
+  expect(copied).toEqual(["{}"]);
+  await expect(save("refused", "cmux-costs", "csv")).rejects.toThrow();
 });

@@ -7,24 +7,35 @@
 //
 // Tokens in is what the agent sent that was not a cache read: uncached input plus cache writes.
 // Cache reads are the same context sent again at a tenth of the price; counted in, a long chat's
-// input reads as many times what it is.
+// input reads as many times what it is. Cache reads, cache writes and the cache hit rate (the
+// share of prompt tokens the cache served, as Session Info's) show beside it.
+//
+// Export saves the range and grouping as CSV or JSON (ledgerModel.ts `ledgerCsv`, `ledgerJson`):
+// every row, read again at acpmux's most sessions when the page shows only the top ones.
 import React, { memo, useCallback, useEffect, useRef, useState } from "react";
+import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { Select } from "../../../ui/Select";
 import { Tabs, TabsList, TabsTrigger } from "../../../ui/Tabs";
 import { VirtualList } from "../../../ui/VirtualList";
 import { currentLanguage, useT, type Translate } from "../i18n";
 import {
+  cacheHitRate,
   formatCost,
   formatCount,
   formatDuration,
   groupLabel,
+  LEDGER_EXPORT_LIMIT,
   LEDGER_GROUPS,
   LEDGER_RANGES,
+  ledgerCsv,
+  ledgerFileName,
+  ledgerJson,
   ledgerLines,
   ledgerParams,
   readLedger,
   tokensIn,
   type CostSource,
+  type LedgerExportKind,
   type LedgerGroup,
   type LedgerLine,
   type LedgerRange,
@@ -32,6 +43,7 @@ import {
   type LedgerTotals,
 } from "./ledgerModel";
 import { isOlderDaemon } from "../queue/queueModel";
+import { UNKNOWN, usageShare } from "../usageStats";
 import "./ledger.css";
 
 /// How rows read (gallery `agent-pane.costs`): `bars` a label over a share bar with the cost at the
@@ -62,11 +74,23 @@ export function createLedgerCache(): LedgerCache {
   };
 }
 
+/// What the note line says after an export.
+type ExportWord = "saved" | "copied" | "failed";
+
+/// How an export ended: the file was saved, the host could not save it so it went to the
+/// clipboard, or the person dismissed the save panel.
+export type LedgerSaveOutcome = "saved" | "copied" | "cancelled";
+
 type Props = {
   /// `_acpmux/ledger` with `params` (direct.ts `ledger`).
   load(params: Record<string, unknown>): Promise<unknown>;
   /// Shows a session's chat.
   openSession(sessionId: string): void;
+  /// Saves an export (queue/historyPages.ts: the host's save panel, else the clipboard); rejects
+  /// when neither took it. Unset: no Export.
+  save?(text: string, suggestedName: string, kind: LedgerExportKind): Promise<LedgerSaveOutcome>;
+  /// The Export menu starts open (the gallery).
+  initialExportOpen?: boolean;
   look?: LedgerLook;
   initialRange?: LedgerRange;
   initialGroup?: LedgerGroup;
@@ -77,6 +101,8 @@ type Props = {
 export function LedgerScreen({
   load,
   openSession,
+  save,
+  initialExportOpen,
   look = "bars",
   initialRange = "7d",
   initialGroup = "session",
@@ -94,6 +120,8 @@ export function LedgerScreen({
   const request = useRef(0);
   const loadRef = useRef(load);
   loadRef.current = load;
+  // How the last export ended, for the range and grouping it wrote.
+  const [lastExport, setLastExport] = useState<{ range: LedgerRange; group: LedgerGroup; outcome: ExportWord }>();
 
   const read = useCallback(
     (which: LedgerRange) => {
@@ -134,6 +162,28 @@ export function LedgerScreen({
   useEffect(() => {
     cache?.keep({ range, group, ...(reply ? { reply } : {}) });
   }, [cache, range, group, reply]);
+  // A new range or grouping is a new file: the last export's word shows only for its own.
+  const exported = lastExport?.range === range && lastExport.group === group ? lastExport.outcome : undefined;
+
+  const runExport = async (kind: LedgerExportKind) => {
+    if (!reply || !save) return;
+    const done = (outcome: ExportWord | undefined) =>
+      setLastExport(outcome ? { range, group, outcome } : undefined);
+    try {
+      // The page holds the top sessions only: the file reads them all, for the same range.
+      const data =
+        group === "session" && reply.totals.sessions > reply.rows.length
+          ? readLedger(
+              await loadRef.current(ledgerParams(range, reply.range.until ?? now ?? Date.now(), LEDGER_EXPORT_LIMIT)),
+            )
+          : reply;
+      const text = kind === "csv" ? ledgerCsv(data, group) : ledgerJson(data, range, group);
+      const outcome = await save(text, ledgerFileName(data, range, group), kind);
+      done(outcome === "cancelled" ? undefined : outcome);
+    } catch {
+      done("failed");
+    }
+  };
   const lines = reply ? ledgerLines(reply, group) : [];
   // acpmux returns at most LEDGER_ROW_LIMIT sessions, the most recent; the totals count them all.
   const moreSessions =
@@ -178,6 +228,27 @@ export function LedgerScreen({
           </TabsList>
         </Tabs>
         <span className="cst-fill" />
+        {save && (
+          <Menu {...(initialExportOpen ? { open: true } : {})}>
+            <MenuButton
+              className="cst-link"
+              data-menu="costs-export"
+              label={t("ledger.export")}
+              // Only an answer for the range on screen: never an older range's rows under this one's name.
+              disabled={state.phase !== "ready"}
+            >
+              {t("ledger.export")}
+            </MenuButton>
+            <MenuPopup side="bottom" align="end" className="acpmux-quick-menu" label={t("ledger.export")}>
+              <MenuItem className="acpmux-quick-item" onSelect={() => void runExport("csv")}>
+                {t("ledger.export.csv")}
+              </MenuItem>
+              <MenuItem className="acpmux-quick-item" onSelect={() => void runExport("json")}>
+                {t("ledger.export.json")}
+              </MenuItem>
+            </MenuPopup>
+          </Menu>
+        )}
         <Select
           label={t("ledger.group")}
           value={group}
@@ -192,6 +263,11 @@ export function LedgerScreen({
         {reply?.priceTable && <span>{t("ledger.priceTable", { version: reply.priceTable.version })}</span>}
         {reply && reply.totals.unpricedTurns > 0 && (
           <span>{t("ledger.unpriced", { n: formatCount(reply.totals.unpricedTurns, locale) })}</span>
+        )}
+        {exported && (
+          <span className="cst-exported" data-tone={exported === "failed" ? "error" : undefined} role="status">
+            {t(`ledger.export.${exported}`)}
+          </span>
         )}
         {moreSessions !== undefined && (
           <span>
@@ -215,6 +291,9 @@ export function LedgerScreen({
           <span className="cst-head-label">{t(`ledger.group.${group}`)}</span>
           <span>{t("ledger.total.cost")}</span>
           <span>{t("ledger.total.tokensIn")}</span>
+          <span>{t("ledger.column.cacheRead")}</span>
+          <span>{t("ledger.column.cacheWrite")}</span>
+          <span>{t("ledger.column.hitRate")}</span>
           <span>{t("ledger.total.tokensOut")}</span>
           <span>{t("ledger.total.turns")}</span>
           <span>{t("ledger.total.time")}</span>
@@ -252,6 +331,9 @@ function Strip({ totals, locale, t }: { totals?: LedgerTotals; locale: string; t
   const tiles: [string, string][] = [
     [t("ledger.total.cost"), value((each) => formatCost(each.costUsd, locale))],
     [t("ledger.total.tokensIn"), value((each) => formatCount(tokensIn(each), locale))],
+    [t("ledger.total.cacheRead"), value((each) => formatCount(each.cacheReadTokens, locale))],
+    [t("ledger.total.cacheWrite"), value((each) => formatCount(each.cacheWriteTokens, locale))],
+    [t("ledger.total.hitRate"), value((each) => hitRateText(each, locale))],
     [t("ledger.total.tokensOut"), value((each) => formatCount(each.outputTokens, locale))],
     [t("ledger.total.turns"), value((each) => formatCount(each.turns, locale))],
     [t("ledger.total.tools"), value((each) => formatCount(each.toolCalls, locale))],
@@ -267,6 +349,12 @@ function Strip({ totals, locale, t }: { totals?: LedgerTotals; locale: string; t
       ))}
     </dl>
   );
+}
+
+/// The cache hit rate in the page's language; the unknown mark with no prompt tokens.
+function hitRateText(totals: LedgerTotals, locale: string): string {
+  const rate = cacheHitRate(totals);
+  return rate === undefined ? UNKNOWN : usageShare(rate, locale);
 }
 
 const SOURCE_KEY: Record<
@@ -303,10 +391,13 @@ const Line = memo(function Line({
   const sourceKey = SOURCE_KEY[line.source];
   const source = sourceKey ? t(sourceKey) : undefined;
   const cost = formatCost(totals.costUsd, locale);
-  const meta = t("ledger.row.meta", {
+  const rate = cacheHitRate(totals);
+  const counts = t("ledger.row.meta", {
     turns: formatCount(totals.turns, locale),
     tokens: formatCount(tokensIn(totals) + totals.outputTokens, locale),
   });
+  const meta =
+    rate === undefined ? counts : `${counts} · ${t("ledger.row.cacheHit", { rate: usageShare(rate, locale) })}`;
   const bar = (
     <span className="cst-bar" style={{ "--cst-share": line.share } as React.CSSProperties} aria-hidden="true" />
   );
@@ -319,6 +410,9 @@ const Line = memo(function Line({
           <SourceMark source={line.source} />
         </span>
         <span className="cst-num">{formatCount(tokensIn(totals), locale)}</span>
+        <span className="cst-num">{formatCount(totals.cacheReadTokens, locale)}</span>
+        <span className="cst-num">{formatCount(totals.cacheWriteTokens, locale)}</span>
+        <span className="cst-num">{hitRateText(totals, locale)}</span>
         <span className="cst-num">{formatCount(totals.outputTokens, locale)}</span>
         <span className="cst-num">{formatCount(totals.turns, locale)}</span>
         <span className="cst-num">{formatDuration(totals.wallMs, locale)}</span>
