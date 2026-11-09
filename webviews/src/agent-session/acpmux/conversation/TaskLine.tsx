@@ -75,6 +75,7 @@ function TaskLine({ task }: { task: StartedTask }) {
         )
       }
       className={`cv-task-line${working ? " is-live" : ""}`}
+      ariaLabel={title}
       attributes={{ "data-task-line": state, "data-session-id": task.sessionId }}
     />
   );

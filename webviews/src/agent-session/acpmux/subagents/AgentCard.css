@@ -24,6 +24,11 @@
   min-width: 0;
   height: 24px;
 }
+/* The name chip that opens the chat takes the room the name needs, not AgentTag.css's 40%. */
+.cv-agent-card__head > .cv-agent-tag {
+  flex: 0 1 auto;
+  max-width: none;
+}
 /* An agent session's own avatar (agentAvatar.ts), in place of its harness mark: also the sender chip's. */
 .cv-agent-avatar {
   display: block;

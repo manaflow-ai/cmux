@@ -2,8 +2,10 @@
 // `openSessionAttributes`) is that chat's link chip (conversation/AgentTag.tsx), never a whole line:
 // the chip is the one part that opens the chat and the one part that lights under the pointer (Leo,
 // 2026-11-05: "subagents need to have their clickable bit be highlighted instead of the whole line
-// click sending me to the subagent righ split"). A new opener that is not an AgentTag fails here;
-// the few that are a chip or a button of their own already are listed with what they are.
+// click sending me to the subagent righ split"). A new opener marked `openSessionAttributes` that is
+// not an AgentTag fails here; the few that are a chip or a button of their own already are listed
+// with what they are. An opener without the attributes (a bare `onClick={() => open(id)}`) is not
+// seen: give every opener the attributes, as the right-click menu needs them anyway (menuParts.ts).
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";

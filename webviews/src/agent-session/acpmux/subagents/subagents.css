@@ -1736,6 +1736,17 @@ button.cv-subagent > :last-child {
 .cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]) > .cv-subagent-done[data-state="failed"] {
   color: var(--cv-activity-text);
 }
+/* A title that opens the subagent is the link chip (SubagentDoneLine.tsx), yet at rest it stays the
+   plain title, uncut by AgentTag.css's 40%: its wash and ring come only under the pointer or focus,
+   so the clickable bit is what lights (Leo, 2026-11-05). */
+.cv-subagent-failed__text > .cv-agent-tag.is-open {
+  display: block;
+  flex: 0 1 auto;
+  max-width: none;
+}
+.cv-subagent-failed__text > .cv-agent-tag.is-open:not(:hover, :focus-visible, :active) {
+  background: transparent;
+}
 .cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]) > .cv-subagent-done .cv-tool__icon {
   color: var(--agent-status-failure);
 }
