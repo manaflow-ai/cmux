@@ -69,11 +69,14 @@ public struct DaemonStartup: Sendable {
     ///
     /// `first`, when given, is the first attempt's outcome (an attempt
     /// already running, `DaemonPrestart`); `makeConnection` makes the rest.
+    /// `linkRunning`: a failure while the link has no process takes the policy's
+    /// ``RetryPolicy/bootstrap`` retry (``RetryPacer/failed(linkRunning:)``).
     public func connect(
         policy: RetryPolicy = .firstConnect,
         wake: RetryWake = RetryWake(owner: "DaemonStartup"),
         clock: any Clock<Duration> = ContinuousClock(),
         first: (@Sendable () async -> DaemonPrestart.Outcome)? = nil,
+        linkRunning: (@Sendable () -> Bool)? = nil,
         makeConnection: @Sendable () -> DaemonConnection,
         onFailure: @Sendable (DaemonError) async -> Void
     ) async -> (DaemonConnection, DaemonIdentity)? {
@@ -93,6 +96,7 @@ public struct DaemonStartup: Sendable {
         }
         // wakeup-allow: each iteration waits in RetryPacer (capped backoff, then events only, or the cap with `keepsTrying`)
         while !Task.isCancelled {
+            let mark = wake.eventMark
             let connection = makeConnection()
             // The tuple is built after the do/catch: Swift -O drops tuple elements returned
             // from an awaiting do (swiftlang/swift#92698, cx-21wc5).
@@ -119,7 +123,7 @@ public struct DaemonStartup: Sendable {
                 if failure.isBusyRefusal { pacer.refusedBusy() }
             }
             if let identity { return (connection, identity) }
-            guard await pacer.waitAfterFailure(wake: wake, clock: clock) else { return nil }
+            guard await pacer.waitAfterFailure(wake: wake, clock: clock, since: mark, linkRunning: linkRunning) else { return nil }
         }
         return nil
     }
