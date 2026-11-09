@@ -47,8 +47,11 @@ import Testing
         #expect(settings.snapshot.updates.downloadAutomatically)
     }
 
+    /// A value someone wrote is never filled by the build default; one that does not decode reads as
+    /// the schema's default.
     @Test func aValueSomeoneWroteWins() async throws {
-        for (json, expected) in [(#"{"updates": {"downloadAutomatically": false}}"#, false), (#"{"updates": {"downloadAutomatically": "yes"}}"#, false)] {
+        for (json, expected) in [(#"{"updates": {"downloadAutomatically": false}}"#, false),
+                                 (#"{"updates": {"downloadAutomatically": "yes"}}"#, UpdatesSettings.downloadAutomaticallyDefault)] {
             let (settings, home) = try await Self.settings(json, .channel(downloadsAutomatically: true))
             defer { try? FileManager.default.removeItem(at: home) }
             #expect(settings.snapshot.updates.downloadAutomatically == expected, "\(json) lost to the channel default")
