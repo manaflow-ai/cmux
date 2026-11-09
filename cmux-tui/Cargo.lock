@@ -1708,6 +1708,7 @@ dependencies = [
 name = "cmux-rd-link"
 version = "0.1.0"
 dependencies = [
+ "cmux-rd-proto",
  "cmux-transport",
  "hmac",
  "libc",
@@ -2004,6 +2005,8 @@ dependencies = [
  "cmux-process",
  "cmux-pty",
  "cmux-rd-host",
+ "cmux-rd-link",
+ "cmux-rd-proto",
  "cmux-relay",
  "cmux-remote",
  "cmux-remote-protocol",
