@@ -1,5 +1,5 @@
 import type { Env } from "./env.ts"
-import { overageModelMarkup, poolsMachineTime, usagePriceVersion } from "./billing-catalog.ts"
+import { markupPriceVersion, poolsMachineTime } from "./billing-catalog.ts"
 import { usagePriceSet } from "./billing-usage-sync.ts"
 import { readRawBody, timingSafeEqual } from "./ingress/verify.ts"
 import { personalTeamIdFor, stackTeamIdFor, userIdFor } from "./domains/user.ts"
@@ -75,11 +75,9 @@ export const handleBillingLevels = async (request: Request, env: Env): Promise<R
   const levels = await Promise.all(
     items.map(async (item) => {
       const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(item.team))
-      const set = usagePriceSet(env)
-      const markup = overageModelMarkup(set)
-      const l = await meter.billedLevel(item.team, item.from, item.to, poolsMachineTime(set), markup)
-      // v1 and e2e keep the pass-through version this read has always named.
-      return { ...item, micros: l.micros, cost_micros: l.cost_micros, models_micros: l.models_micros, machine_micros: l.machine_micros, included_micros: l.included_micros, meter_micros: l.meter_micros, facts: l.facts, last_at: l.last_at, price_version: markup === 1 ? AI_PRICE_VERSION : usagePriceVersion(set) }
+      const l = await meter.billedLevel(item.team, item.from, item.to, poolsMachineTime(usagePriceSet(env)))
+      // The period's pinned markup names the version; pass-through keeps the version this read has always named.
+      return { ...item, micros: l.micros, cost_micros: l.cost_micros, models_micros: l.models_micros, machine_micros: l.machine_micros, included_micros: l.included_micros, meter_micros: l.meter_micros, markup_bp: l.markup_bp, facts: l.facts, last_at: l.last_at, price_version: l.markup_bp === 10_000 ? AI_PRICE_VERSION : markupPriceVersion(l.markup_bp) }
     })
   ).catch((e: unknown) => {
     console.error(JSON.stringify({ msg: "billing.levels.meter_failed", error: String(e).slice(0, 160) }))

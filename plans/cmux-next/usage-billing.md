@@ -552,19 +552,46 @@ integer micros (`billedLevelMicros`), from its facts split by `UsageMeterDO.leve
   overage_machines = the rest;
 - billed = min(total, included) + round(overage_models x markup) + overage_machines.
 
+The markup is pinned to the billing period like its included amount (`usage-billing-store.ts` `periodMarkupBp`,
+column `markup_bp` in basis points on `usage_push` and `usage_billable`): the sync's first mark or push of a period
+stores the markup of the set then in force, and the sync, the levels read, the console and the team cap all use it
+until the period closes. A period that started under v1 stays at 1.0 after the set flips to v2; a v2 period keeps 1.1
+after a flip back to v1, so a running period's level is never lowered. Rows from before pinning have none and read
+as pass-through (they were all sent at cost), so an unchanged v1 level keeps its identifier and is not sent again.
+
 The sync sends the billed level: per seat it subtracts included x seats as before, per team the graduated
 price's free first tier does, so Stripe bills exactly the billed overage. The Stripe catalog needs no new
 object (still 1.00 USD per unit); a v2 price the script makes names the markup in its nickname and
 `price_version` metadata (`ai-overage-models110-v2`). `teamUsage` (the console line) shows the billed level for
 a billable team. `POST /v1/internal/billing/levels` answers the billed level too (`UsageMeterDO.billedLevel`),
-with the at-cost figure as `cost_micros` and the meter's expected value as `meter_micros` (section 9).
+with the at-cost figure as `cost_micros`, the pinned `markup_bp` and the meter's expected value as `meter_micros`
+(section 9).
 
-Team spending cap (`UsageMeterDO.teamCap(team, machineTime, set?)`, for the model router and cmux-platform):
+Team spending cap (`team-cap.ts`; `UsageMeterDO.teamCap(team, machineTime, set?)` for cmux-platform):
 `{ state: "under" | "near" | "at_cap", spent_usd, cap_usd, period_end }`. Spent: the billing period's model
-spend (settled and open calls) at billed prices, plus machine time when `machineTime`; without a billable mark,
-the UTC month at cost. Cap: the admin's `usage.cap.set`, else under v2 twice the pool (50 USD x seats) for a
-per-seat team the sync marked, else none (`under`). `near` at 80%. Under v2 the model router refuses
-new calls for every member at `at_cap` (402 `team.cap_reached`, with spent, cap and period end), besides the
-existing hard cap (A18, `summarize`: the UTC month at cost over every meter, machine time included, against
-min(admin cap, AUTOMATION_CAP_CEILING_USD)). cmux-platform refuses new machine starts at `at_cap` and pauses
-running machines after a 15-minute warning. The member budget refuses new calls only (unchanged).
+spend, settled plus open calls at their reserved maximum (calls reserved in the period), at billed prices with the
+period's pinned markup, plus machine time when `machineTime`; without a fresh billable mark, the UTC month at cost.
+Cap: the admin's `usage.cap.set`, else under v2 twice the pool (50 USD x seats) for a per-seat team the sync
+marked, else none (`under`). `near` at 80%.
+
+- Refusal: under v2 the model router checks the cap inside `reserveUser`'s transaction, like the included stop: a
+  call whose maximum would take the period's billed spend past the cap is refused for every member (402
+  `team.cap_reached` with spent, cap and period end). Open calls count at their maximum, so concurrent calls cannot
+  all pass just under the cap; the overshoot is bounded by what the calls actually cost against their maxima.
+- Two caps refuse model calls and the stricter wins: this cap (billing period, billed prices) and the existing hard
+  cap (A18, `summarize`: the UTC month at cost over every meter, machine time included, against min(admin cap,
+  AUTOMATION_CAP_CEILING_USD)). The deployment ceiling is an operator brake on model calls only; it pauses no
+  machine.
+- Cost per call: constant in the number of facts. `usage_period_spend` keeps one row per billing period with its
+  model and machine micros; every billable fact adds to the row whose period holds its recorded time, in the fact's
+  own transaction (`record`, `settleCall`, expired reservations, late corrections). The row is seeded once by a range
+  sum when the sync first marks the period (or, failing that, on the first cap read). Running totals were chosen
+  over a cached state because the reservation needs the exact spend plus its own maximum in one transaction, which a
+  cache refreshed on writes would have to recompute anyway. Without a mark the cap reads `usage_month`, already a
+  running total.
+- cmux-platform refuses new machine starts at `at_cap` and pauses running machines after a 15-minute warning. The
+  member budget refuses new calls only (unchanged).
+
+Question for Leo (not built, nothing changes until he answers): with the default cap (2x the pool), an admin can
+raise or lower the cap but cannot remove it (setting none falls back to the default). Is that what he wants, or
+should an admin be able to turn the cap off?

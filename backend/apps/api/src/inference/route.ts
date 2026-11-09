@@ -13,7 +13,7 @@ import { cardCost, MODELS, modelById, routeCost, type ModelEntry, type ProviderI
 import { providerTarget } from "./providers.ts"
 import { callUpstream } from "./upstream.ts"
 import { freeCaller, freeSettle, freeAdmit } from "./free.ts"
-import { includedMicrosFor, includedModeFor, includedReached } from "./included-stop.ts"
+import { includedMicrosFor, includedModeFor, includedReached, teamCapReached } from "./included-stop.ts"
 import { poolsMachineTime, teamCapApplies } from "../billing-catalog.ts"
 import { usagePriceSet } from "../billing-usage-sync.ts"
 import { creditsMargin, creditsMinReserveUsd } from "../credits.ts"
@@ -220,14 +220,15 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
     }
   } else {
     const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team))
-    // Under price set v2 the team spending cap (UsageMeterDO.teamCap: billed prices, machine time pooled) refuses too.
-    const set = usagePriceSet(env)
-    const check = await meter.check(caller.team, teamCapApplies(set) ? { machineTime: poolsMachineTime(set), set } : undefined)
-    if (!check.allowed) return err(402, "team.cap_reached", "the team reached its monthly usage cap", check.cap ? { details: { spent_usd: check.cap.spent_usd, cap_usd: check.cap.cap_usd, resets_at: check.cap.period_end } } : {})
+    const check = await meter.check(caller.team)
+    if (!check.allowed) return err(402, "team.cap_reached", "the team reached its monthly usage cap")
     // The member's own monthly limit (usage-user.ts): reserved before the global lines, released at once if they refuse.
-    // A team whose usage above the plan's included amount cannot be billed stops at that amount, checked in the
-    // reservation's own transaction (cx-y79zh S5).
-    const held = await meter.reserveUser(caller.team, caller.user, id, maxMicros, caller.limitMicros, includedMicrosFor(env, caller), includedModeFor(env, caller), poolsMachineTime(set))
+    // A team whose usage above the plan's included amount cannot be billed stops at that amount, and under price set v2
+    // a team at its spending cap (team-cap.ts: billing period, billed prices, machine time pooled) stops for every
+    // member; both are checked in the reservation's own transaction (cx-y79zh S5; Leo 2026-11-09).
+    const set = usagePriceSet(env)
+    const held = await meter.reserveUser(caller.team, caller.user, id, maxMicros, caller.limitMicros, includedMicrosFor(env, caller), includedModeFor(env, caller), poolsMachineTime(set), teamCapApplies(set) ? set : undefined)
+    if (!held.ok && "team_cap" in held) return teamCapReached(held.spent_usd, held.cap_usd, held.period_end)
     if (!held.ok && held.included) return includedReached(held.spent_usd, held.limit_usd)
     if (!held.ok) {
       return err(402, "usage.user_limit_reached", "You reached your monthly AI spending limit for this team. A team admin can raise it.", { details: { limit_usd: held.limit_usd, spent_usd: held.spent_usd, resets_at: nextMonthStart(Date.now()) } })

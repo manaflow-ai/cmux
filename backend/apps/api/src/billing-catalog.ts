@@ -72,6 +72,11 @@ export const usageMeterValueMicros = (mode: IncludedMode, levelMicros: number, i
 export const overageModelMarkup = (set: UsagePriceSet): number => (set === "v2" ? 1.1 : 1)
 /** The pricing a set's usage prices name (Stripe metadata price_version, the levels read): pass-through, or the model overage markup in percent. */
 export const usagePriceVersion = (set: UsagePriceSet): string => (overageModelMarkup(set) === 1 ? `ai-passthrough-${set}` : `ai-overage-models${Math.round(overageModelMarkup(set) * 100)}-${set}`)
+/** The version a pinned markup (basis points) names: the price set whose markup it is (v2's `ai-overage-models110-v2`), else the percent alone. */
+export const markupPriceVersion = (markupBp: number): string => {
+  const set = (Object.keys(USAGE_PRICE_SETS) as UsagePriceSet[]).find((s) => Math.round(overageModelMarkup(s) * 10_000) === markupBp && overageModelMarkup(s) !== 1)
+  return set ? usagePriceVersion(set) : `ai-overage-models${Math.round(markupBp / 100)}`
+}
 /** The team spending cap an admin did not set (margins.md section 4): this many times the pool, v2 Team (per seat) only; null elsewhere. */
 export const defaultTeamCapPools = (set: UsagePriceSet): number | null => (set === "v2" ? 2 : null)
 /**

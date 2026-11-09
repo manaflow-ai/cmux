@@ -1,29 +1,27 @@
-import { env } from "cloudflare:workers"
-import { afterEach, describe, expect, it, vi } from "vitest"
-import { billedLevelMicros, defaultTeamCapPools, overageModelMarkup, teamCapApplies, usageMeterValueMicros } from "../src/billing-catalog.ts"
+import { describe, expect, it } from "vitest"
+import { billedLevelMicros, defaultTeamCapPools, markupPriceVersion, overageModelMarkup, teamCapApplies, usageMeterValueMicros } from "../src/billing-catalog.ts"
 import { stackTeamIdFor, userIdFor } from "../src/domains/user.ts"
-import { chat, inDO, paidPerson, post, testEnv } from "./setup/inference-person.ts"
-import { fakeBoundaries, fakeStripe, nowS, sync, SYNC_KEY } from "./setup/fake-stripe.ts"
-import { handleBillingLevels } from "../src/billing-levels.ts"
+import { teamCapReached } from "../src/inference/included-stop.ts"
+import { inDO, paidPerson, post, testEnv } from "./setup/inference-person.ts"
 
 /**
  * Leo 2026-11-09 (plans/team-plan/margins.md "Decided", sections 3 and 4): model overage at the provider's list
  * price + 10% under price set v2, and the team spending cap (refuse new model calls at the cap; cmux-platform
- * reads UsageMeterDO.teamCap to refuse machine starts and pause machines after a 15-minute warning).
+ * reads UsageMeterDO.teamCap to refuse machine starts and pause machines after a 15-minute warning). Driven at the
+ * DO's RPC surface; the sync and levels-read tests that fake the payment service live in inference-spend-facts.test.ts
+ * (one file replaces globalThis.fetch).
  */
 
 const M = 1_000_000
-const v2Env = { ...(env as object), ENVIRONMENT: "staging", BILLING_USAGE_PRICE_SET: "v2" }
+const V2_BP = 11_000
 const stub = (team: string) => testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)) as any
 const modelFact = (usd: number) => ({ key: `model:${crypto.randomUUID()}`, meter: "model.spend_usd", quantity: usd, source: "coderouter", observed_at: Date.now() })
 const machineFact = (usd: number) => ({ key: `cloud:machine_${crypto.randomUUID()}:1:2026-11:${Math.round(usd * M)}`, meter: "cloud.machine_usd", quantity: usd, source: "cloud", observed_at: Date.now(), user: userIdFor(testEnv.STACK_PROJECT_ID, "cap-machine-creator") })
-/** A fresh billable mark, as the usage sync writes it: the period started an hour ago and ends in 30 days. */
-const markBillable = (team: string, mode: "per_seat" | "per_team", seats: number, includedUsd: number) =>
-  stub(team).markBillable(team, `sub_${crypto.randomUUID()}`, nowS() + 30 * 86_400, { period_start: nowS() - 3600, mode, seats, included_usd: includedUsd })
-
-afterEach(() => {
-  vi.restoreAllMocks()
-})
+/** A fresh billable mark, as the usage sync writes it under v2 (markup pinned): the period started an hour ago, ends in 30 days. */
+const markBillable = (team: string, mode: "per_seat" | "per_team", seats: number, includedUsd: number, markupBp: number | null = V2_BP) =>
+  stub(team).markBillable(team, `sub_${crypto.randomUUID()}`, nowS() + 30 * 86_400, { period_start: nowS() - 3600, mode, seats, included_usd: includedUsd, ...(markupBp === null ? {} : { markup_bp: markupBp }) })
+const nowS = () => Math.floor(Date.now() / 1000)
+const setCap = async (t: string, usd: number) => expect((await post("/v1/ops", t, { op: "usage.cap.set", params: { cap_usd: usd }, idempotency_key: crypto.randomUUID(), origin: "cli" })).ok).toBe(true)
 
 describe("model overage markup (billing-catalog.ts billedLevelMicros)", () => {
   it("is 1.10 under v2 only; v1 (production) and e2e stay pass-through", () => {
@@ -74,43 +72,14 @@ describe("model overage markup (billing-catalog.ts billedLevelMicros)", () => {
   })
 })
 
-describe("the usage sync and the console under v2 bill the model overage at list + 10%", () => {
-  it("sends the billed overage above 3 x 25 for models and machine time, and the console shows the same", async () => {
-    const stackTeam = "a1b2c3d4-0e0f-4a1b-8c2d-0f1e2d3c4b5a"
-    const team = stackTeamIdFor(testEnv.STACK_PROJECT_ID, stackTeam)
-    const stripe = fakeStripe({ start: nowS() - 3600, end: nowS() + 30 * 86_400 })
-    const sub = stripe.addSub("sub_markup_team", "cus_markup_team", { plan: "team", stackTeamId: stackTeam }, "cmux-team-monthly-20")
-    sub.items.data[0].quantity = 3
-    fakeBoundaries(stripe, 0)
-    await stub(team).record(team, [modelFact(60), machineFact(40)])
-    expect((await sync(v2Env)).body).toMatchObject({ checked: 1, pushed: 1, failed: 0 })
-    expect(stripe.events).toEqual([expect.objectContaining({ event_name: "cmux_ai_usage_above_included", "payload[value]": "26.500000" })])
-    const usage = await stub(team).teamUsage(team, "per_seat", true, overageModelMarkup("v2"))
-    expect(usage.billable).toMatchObject({ mode: "per_seat", seats: 3, included_usd: 75, spent_usd: 101.5 })
-    // The same period read at cost (markup 1, the default) is the level unchanged.
-    expect((await stub(team).teamUsage(team, "per_seat", true)).billable.spent_usd).toBe(100)
-
-    // The operator's levels read under v2 answers the billed level, and its meter figure is what was sent to Stripe.
-    const item = { stack_team: stackTeam, from: stripe.period.start * 1000, to: stripe.period.end * 1000 }
-    const read = async (runEnv: unknown, it: unknown = item) => (await (await handleBillingLevels(new Request("https://api.test/v1/internal/billing/levels", { method: "POST", headers: { authorization: `Bearer ${SYNC_KEY}` }, body: JSON.stringify({ items: [it] }) }), runEnv as any)).json()) as any
-    const v2Read = await read(v2Env)
-    expect(v2Read.levels[0]).toMatchObject({ team, micros: 101.5 * M, cost_micros: 100 * M, models_micros: 60 * M, machine_micros: 40 * M, included_micros: 75 * M, meter_micros: 26.5 * M, facts: 2, price_version: "ai-overage-models110-v2" })
-    expect((v2Read.levels[0].meter_micros / M).toFixed(6)).toBe(stripe.events[0]!["payload[value]"])
-    // Under v1 the same read is at cost (models only) and keeps its pass-through version.
-    expect((await read(env)).levels[0]).toMatchObject({ micros: 60 * M, cost_micros: 60 * M, machine_micros: 0, included_micros: 75 * M, meter_micros: 0, price_version: "ai-passthrough-v1" })
-    // A period the sync never saw has no pool: the level at cost.
-    const unseen = await read(v2Env, { ...item, from: item.from - 86_400_000 })
-    expect(unseen.levels[0]).toMatchObject({ micros: 100 * M, cost_micros: 100 * M, included_micros: null, meter_micros: 100 * M })
-  })
-})
-
 describe("the team spending cap (UsageMeterDO.teamCap)", () => {
   it("a team with no cap is under, cap null; v1 and e2e have no default cap", async () => {
     const team = stackTeamIdFor(testEnv.STACK_PROJECT_ID, "a1b2c3d4-0e0f-4a1b-8c2d-000000000001")
     const fresh = await stub(team).teamCap(team, true, "v2")
     expect(fresh).toMatchObject({ state: "under", spent_usd: 0, cap_usd: null })
     await stub(team).record(team, [modelFact(500)])
-    await markBillable(team, "per_seat", 2, 25)
+    // As a v1 sync marks it: pass-through pinned.
+    await markBillable(team, "per_seat", 2, 25, 10_000)
     expect(await stub(team).teamCap(team, false, "v1")).toMatchObject({ state: "under", spent_usd: 500, cap_usd: null })
     expect(defaultTeamCapPools("v1")).toBeNull()
     expect(defaultTeamCapPools("e2e")).toBeNull()
@@ -158,22 +127,89 @@ describe("the team spending cap (UsageMeterDO.teamCap)", () => {
     expect(await meter.teamCap(team, true, "v2")).toMatchObject({ state: "at_cap", cap_usd: 10 })
   })
 
-  it("refuses new model calls for every member at the cap under v2, priced with the markup; v1 keeps today's check", async () => {
+  it("refuses a new model call for every member inside the reservation (v2): open calls count at their maximum", async () => {
     const { t, team } = await paidPerson("team-cap-router")
-    expect((await post("/v1/ops", t, { op: "usage.cap.set", params: { cap_usd: 20 }, idempotency_key: crypto.randomUUID(), origin: "cli" })).ok).toBe(true)
-    fakeBoundaries(fakeStripe({ start: nowS() - 3600, end: nowS() + 30 * 86_400 }), 0.000007)
+    await setCap(t, 20)
     // 19.5 at cost is under the cap (and the test ceiling, 25); billed with a 10 USD pool it is 10 + 9.5 x 1.1 = 20.45.
     await stub(team).record(team, [modelFact(19.5)])
     await markBillable(team, "per_seat", 1, 10)
-    // The test Worker is v1 (its sign-in keys need ENVIRONMENT=test): the router's check is today's, and the call goes.
-    expect((await chat(t)).status).toBe(200)
-    // The router's check under v2 (route.ts passes { machineTime: poolsMachineTime(set), set } when teamCapApplies):
-    // refused, with the cap state for the 402 details; the same team under v1 is allowed.
     expect(teamCapApplies("v2")).toBe(true)
-    const v2 = await stub(team).check(team, { machineTime: true, set: "v2" })
-    expect(v2).toMatchObject({ allowed: false, cap: { state: "at_cap", cap_usd: 20 } })
-    expect(v2.cap.spent_usd).toBeCloseTo(20.45 + 0.000007 * 1.1, 6)
+    // Without the cap (v1: route.ts passes no set) the call is reserved as today; the hard cap (A18) still allows it.
     expect((await stub(team).check(team)).allowed).toBe(true)
+    expect(await stub(team).reserveUser(team, "user_a", "cap-v1", 1_000, 200 * M, undefined, "per_team", true)).toEqual({ ok: true })
+    await stub(team).settleCall(team, "cap-v1", null)
+    // Under v2: refused in the reservation's transaction, with the period's billed spend and end.
+    const refused = await stub(team).reserveUser(team, "user_b", "cap-v2", 1_000, 200 * M, undefined, "per_team", true, "v2")
+    expect(refused).toMatchObject({ ok: false, team_cap: true, cap_usd: 20, period_end: (nowS() + 30 * 86_400) * 1000 })
+    expect(refused.spent_usd).toBeCloseTo(20.45, 6)
+  })
+
+  it("open calls count at their maximum, so concurrent calls cannot all pass just under the cap", async () => {
+    const { t, team } = await paidPerson("team-cap-open-calls")
+    await setCap(t, 10)
+    const meter = stub(team)
+    await meter.record(team, [modelFact(6)])
+    // 6 settled + 3 reserved = 9: under, then near (>= 8).
+    expect(await meter.reserveUser(team, "user_a", "open-1", 3 * M, 200 * M, undefined, "per_team", false, "v2")).toEqual({ ok: true })
+    expect(await meter.teamCap(team, false, "v2")).toMatchObject({ state: "near", spent_usd: 9, cap_usd: 10 })
+    // A second call of up to 3 would reach 12: refused while the first is open, though settled spend is only 6.
+    expect(await meter.reserveUser(team, "user_b", "open-2", 3 * M, 200 * M, undefined, "per_team", false, "v2")).toMatchObject({ ok: false, team_cap: true, spent_usd: 9, cap_usd: 10 })
+    // A call of up to 1 still fits (9 + 1 = 10, not past the cap) and brings the state to at_cap.
+    expect(await meter.reserveUser(team, "user_b", "open-3", 1 * M, 200 * M, undefined, "per_team", false, "v2")).toEqual({ ok: true })
+    expect(await meter.teamCap(team, false, "v2")).toMatchObject({ state: "at_cap", spent_usd: 10 })
+    // The first call settles at 0.5: its reservation's 3 leave, the fact's 0.5 stays.
+    await meter.settleCall(team, "open-1", 0.5 * M)
+    expect(await meter.teamCap(team, false, "v2")).toMatchObject({ state: "under", spent_usd: 7.5 })
+  })
+
+  it("a stale billable mark falls back to the UTC month at cost, with the admin cap", async () => {
+    const { t, team } = await paidPerson("team-cap-stale-mark")
+    await setCap(t, 30)
+    const meter = stub(team)
+    await meter.record(team, [modelFact(20), machineFact(5)])
+    // A mark last seen 3 hours ago (past BILLABLE_GRACE_MS): no billing period, no pool, no markup.
+    await inDO(meter, async (m) => {
+      m.ctx.storage.sql.exec(`INSERT INTO usage_billable (subscription, period_end, seen_at, period_start, mode, seats, included_usd, markup_bp) VALUES ('sub_stale', ?, ?, ?, 'per_seat', 1, 10, 11000)`, nowS() + 30 * 86_400, Date.now() - 3 * 3600_000, nowS() - 3600)
+    })
+    const d = new Date()
+    const nextMonth = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)
+    expect(await meter.teamCap(team, true, "v2")).toMatchObject({ state: "near", spent_usd: 25, cap_usd: 30, period_end: nextMonth })
+    expect(await meter.teamCap(team, false, "v2")).toMatchObject({ state: "under", spent_usd: 20, cap_usd: 30 })
+  })
+
+  it("the 402 of the team cap names the spend, the cap and when the period ends", async () => {
+    const res = teamCapReached(20.45, 20, 1_800_000_000_000)
+    expect(res.status).toBe(402)
+    expect(await res.json()).toEqual({ error: { code: "team.cap_reached", message: "Your team reached its spending cap for this billing period. A team admin can raise it.", type: "insufficient_quota", details: { spent_usd: 20.45, cap_usd: 20, resets_at: 1_800_000_000_000 } } })
+  })
+
+  it("reads the period's settled spend from its running total, not by summing facts per call", async () => {
+    const { t, team } = await paidPerson("team-cap-running-total")
+    await setCap(t, 1_000)
+    const meter = stub(team)
+    await meter.record(team, [modelFact(3), machineFact(2)])
+    await markBillable(team, "per_seat", 1, 25)
+    await meter.record(team, [modelFact(1)])
+    await meter.reserveUser(team, "user_a", "rt-1", 1 * M, 200 * M)
+    await meter.settleCall(team, "rt-1", 0.25 * M)
+    let row: any = null
+    await inDO(meter, async (m) => {
+      row = m.ctx.storage.sql.exec(`SELECT models_micros, machine_micros FROM usage_period_spend`).one()
+    })
+    // Seeded at the mark (3 + 2), then each fact added in its own write (record, settle).
+    expect(row).toEqual({ models_micros: 4.25 * M, machine_micros: 2 * M })
+    expect((await meter.teamCap(team, true, "v2")).spent_usd).toBe(6.25)
+  })
+
+  it("uses the markup pinned to the period: a mark from before pinning (none) is pass-through", async () => {
+    const team = stackTeamIdFor(testEnv.STACK_PROJECT_ID, "a1b2c3d4-0e0f-4a1b-8c2d-000000000005")
+    const meter = stub(team)
+    await meter.record(team, [modelFact(20)])
+    await markBillable(team, "per_seat", 1, 10, null)
+    // 20 on a 10 pool at pass-through: 20, though the set in force (v2) marks up.
+    expect((await meter.teamCap(team, false, "v2")).spent_usd).toBe(20)
+    expect((await meter.teamUsage(team, "per_seat", false)).billable.spent_usd).toBe(20)
+    expect(markupPriceVersion(V2_BP)).toBe("ai-overage-models110-v2")
   })
 })
 
