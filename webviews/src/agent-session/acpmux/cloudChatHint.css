@@ -10,7 +10,7 @@
   display: grid;
   grid-template-rows: 1fr;
   opacity: 1;
-  animation: acpmux-cloud-hint-open var(--cmux-motion-settle, 265ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1))
+  animation: acpmux-cloud-hint-open var(--cmux-motion-settle, 180ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1))
     both;
 }
 .acpmux-cloud-hint-fold[data-leaving="true"] {

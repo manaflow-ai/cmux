@@ -2294,8 +2294,9 @@ async fn dispatch_request_with_identity(
                 cfg.save()
                     .map_err(|e| RpcError::internal(format!("save permission policy: {e}")))?;
             }
-            // deny-all is a lockdown: every chat without a policy of its own follows it.
-            if policy == PermissionPolicy::DenyAll {
+            // deny-all and review are lockdowns: every chat without a policy of its own follows
+            // them (`hub/policy_mode.rs`).
+            if matches!(policy, PermissionPolicy::DenyAll | PermissionPolicy::Review) {
                 hub.follow_default_policy().await;
             } else if policy == PermissionPolicy::ApproveAll {
                 hub.approve_pending_default_tools().await;
