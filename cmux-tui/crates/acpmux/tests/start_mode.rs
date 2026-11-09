@@ -1543,3 +1543,195 @@ async fn a_remote_chat_keeps_its_entrys_launch_through_an_unchanged_reload() {
     assert!(marked.is_empty(), "an unchanged entry respawns no remote chat: {marked:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The lead, 2026-11-09: an `asksBeforeTools` claim is believed only from a launch that nothing
+/// but the config chose. Each test below is one way the launch can differ from what the config
+/// entry says, and each has a test of its own so each red shows.
+mod claim_launch {
+    use super::*;
+
+    /// A home with `asker` (the fake, which claims) and the harness `name` running `argv`.
+    fn home_with(tag: &str, name: &str, argv: Value, extra: Value) -> PathBuf {
+        home_with_entry(tag, name, json!({"argv": argv}), extra)
+    }
+
+    /// A home with `asker` and the harness entry `name` as `entry`.
+    fn home_with_entry(tag: &str, name: &str, entry: Value, extra: Value) -> PathBuf {
+        let dir = home(tag, extra);
+        let path = dir.join("config.json");
+        let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        config["harnesses"][name] = entry;
+        std::fs::write(&path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+        dir
+    }
+
+    /// The `why` of a `policy_unenforceable` answer to a new chat with policy `ask`.
+    async fn refusal_why(app: &mut Client, dir: &Path, harness: &str) -> String {
+        let r = app.new_chat_with_policy(dir, harness, "ask").await;
+        assert_eq!(r["error"]["data"]["reason"], "policy_unenforceable", "{r}");
+        r["error"]["data"]["why"].as_str().unwrap_or_default().to_owned()
+    }
+
+    /// The `why` of the one `policy_refused` record of chat `id`, after its policy became `ask`.
+    async fn narrowed_why(app: &mut Client, id: &str) -> String {
+        let r = app.call("_acpmux/set_policy", json!({"sessionId": id, "policy": "ask"})).await;
+        assert!(r.get("error").is_none(), "{r}");
+        let refused = app.records(id, "policy_refused").await;
+        assert_eq!(refused.len(), 1, "the agent was stopped: {refused:?}");
+        refused[0]["msg"]["why"].as_str().unwrap_or_default().to_owned()
+    }
+
+    /// A config entry whose command runs a file of the chat's folder (`${cwd}`): the folder, not
+    /// the config, chose the code, so its claim is not believed.
+    #[tokio::test]
+    async fn a_claim_from_a_launch_that_runs_the_chat_folders_code_is_not_believed() {
+        let dir =
+            home_with("claim-cwd", "cwdasker", json!(["python3", "${cwd}/agent.py"]), json!({}));
+        std::fs::copy(FAKE_AGENT, dir.join("work").join("agent.py")).unwrap();
+        let daemon = hub(&dir);
+        let mut app = Client::app(&daemon).await;
+        let why = refusal_why(&mut app, &dir, "cwdasker").await;
+        assert!(why.contains("launch_reads_folder"), "{why}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A config entry that runs a Python module by name (`python3 -m`): Python imports it from
+    /// the chat's folder first, so the folder chose the code.
+    #[tokio::test]
+    async fn a_claim_from_python_running_a_module_by_name_is_not_believed() {
+        let dir =
+            home_with("claim-pymod", "modasker", json!(["python3", "-m", "w5lagent"]), json!({}));
+        std::fs::copy(FAKE_AGENT, dir.join("work").join("w5lagent.py")).unwrap();
+        let daemon = hub(&dir);
+        let mut app = Client::app(&daemon).await;
+        let why = refusal_why(&mut app, &dir, "modasker").await;
+        assert!(why.contains("launch_reads_folder"), "{why}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A config entry whose env names the chat's folder by a relative path (`PYTHONPATH=.`):
+    /// the agent imports from the folder.
+    #[tokio::test]
+    async fn a_claim_from_a_launch_whose_env_points_into_the_folder_is_not_believed() {
+        let entry = json!({"argv": ["python3", FAKE_AGENT], "env": {"PYTHONPATH": "."}});
+        let dir = home_with_entry("claim-relenv", "relasker", entry, json!({}));
+        let daemon = hub(&dir);
+        let mut app = Client::app(&daemon).await;
+        let why = refusal_why(&mut app, &dir, "relasker").await;
+        assert!(why.contains("launch_reads_folder"), "{why}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A config entry with a bare program that its `PATH` finds in the chat's folder: the folder
+    /// supplies the program.
+    #[tokio::test]
+    async fn a_claim_from_a_program_found_in_the_chat_folder_is_not_believed() {
+        let dir = home("claim-pathdir", json!({}));
+        let bin = dir.join("work").join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let program = bin.join("w5l-asker");
+        let script =
+            format!("#!/bin/sh\nexec python3 {} \"$@\"\n", daemon_env::sh_quote(FAKE_AGENT));
+        std::fs::write(&program, script).unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let path = format!("{}:/usr/bin:/bin", bin.display());
+        let config = dir.join("config.json");
+        let mut cfg: Value = serde_json::from_slice(&std::fs::read(&config).unwrap()).unwrap();
+        cfg["harnesses"]["pathasker"] = json!({"argv": ["w5l-asker"], "env": {"PATH": path}});
+        std::fs::write(&config, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
+        let daemon = hub(&dir);
+        let mut app = Client::app(&daemon).await;
+        let why = refusal_why(&mut app, &dir, "pathasker").await;
+        assert!(why.contains("launch_reads_folder"), "{why}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A config entry whose command skips approvals (`--yolo`): the agent says it asks, but its
+    /// command says it never does, so the claim is not believed.
+    #[tokio::test]
+    async fn a_claim_from_an_agent_pinned_to_skip_approvals_is_not_believed() {
+        let dir = home_with(
+            "claim-yolo",
+            "yoloasker",
+            json!(["python3", FAKE_AGENT, "--yolo"]),
+            json!({}),
+        );
+        let daemon = hub(&dir);
+        let mut app = Client::app(&daemon).await;
+        let why = refusal_why(&mut app, &dir, "yoloasker").await;
+        assert!(why.contains("argv_skips_approvals"), "{why}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The preset's env changed after the agent started: it no longer launches what the agent
+    /// started from, so the claim is not believed.
+    #[tokio::test]
+    async fn a_claim_is_not_believed_once_its_presets_env_changed() {
+        let presets = json!({"presets": {"asked": {"harness": "asker", "env": {"W5L": "1"}}}});
+        let dir = home("claim-preset", presets);
+        let daemon = hub(&dir);
+        let mut app = Client::app(&daemon).await;
+        let r = app
+            .call(
+                "session/new",
+                json!({"cwd": dir.join("work"), "mcpServers": [],
+                    "_meta": {"acpmux": {"preset": "asked", "policy": "approve-all"}}}),
+            )
+            .await;
+        let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+        let mut cfg = daemon.config.write().await;
+        cfg.presets.get_mut("asked").expect("preset").env.insert("W5L".into(), "2".into());
+        drop(cfg);
+        let why = narrowed_why(&mut app, &id).await;
+        assert!(why.contains("entry_changed"), "{why}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The harness's `defaults` env changed after the agent started: the same.
+    #[tokio::test]
+    async fn a_claim_is_not_believed_once_its_defaults_env_changed() {
+        let defaults = json!({"defaults": {"asker": {"env": {"W5L": "1"}}}});
+        let dir = home("claim-defaults", defaults);
+        let daemon = hub(&dir);
+        let mut app = Client::app(&daemon).await;
+        let (id, _) = app.chat_with_policy(&dir, "asker", "approve-all").await;
+        let mut cfg = daemon.config.write().await;
+        cfg.defaults.get_mut("asker").expect("defaults").env.insert("W5L".into(), "2".into());
+        drop(cfg);
+        let why = narrowed_why(&mut app, &id).await;
+        assert!(why.contains("entry_changed"), "{why}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An agent started from a folder profile stays a folder profile's agent after a config
+    /// entry of the same name and the same command appears: its claim is still not believed.
+    #[tokio::test]
+    async fn a_folder_profiles_agent_is_not_believed_after_a_config_entry_takes_its_name() {
+        use acpmux::config::folder_profiles;
+        let dir = home("claim-shadow", json!({}));
+        let (repo, gate) = folder_profile(&dir);
+        acpmux::trust::set(&gate.trust, &repo.to_string_lossy(), "trusted").unwrap();
+        let enabled = Config { folder_gate: Some(gate.clone()), ..Default::default() };
+        let loaded = folder_profiles::load_one(&enabled, &gate, &repo, "acme").expect("acme");
+        let sha = loaded.sha256.clone().expect("sha256");
+        folder_profiles::enable(&enabled, &gate, &repo, "acme", &sha).unwrap();
+        // The same command and env as the folder profile runs.
+        let same = folder_profiles::load_one(&enabled, &gate, &repo, "acme")
+            .and_then(|fp| fp.profile)
+            .expect("the folder profile's command");
+        let daemon = hub_with(&dir, |cfg| cfg.folder_gate = Some(gate));
+        let mut app = Client::app(&daemon).await;
+        let r = app
+            .call(
+                "session/new",
+                json!({"cwd": repo, "mcpServers": [],
+                    "_meta": {"acpmux": {"harness": "acme", "policy": "approve-all"}}}),
+            )
+            .await;
+        let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+        daemon.config.write().await.harnesses.insert("acme".into(), same);
+        let why = narrowed_why(&mut app, &id).await;
+        assert!(why.contains("not_a_config_entry"), "{why}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
