@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextDaemon
 import Foundation
+import os
 
 /// A tab with no process to reference moves to another machine's workspace by reopening there
 /// (unimplemented audit row 11): a browser tab on its page (URL, engine, and its profile when known
@@ -22,33 +23,32 @@ extension RemoteTerminalService {
         } else if let page = tab.page {
             land(tab, closingOn: source, on: destination, completion: completion) { try await destination.request(NewConversationTabRequest(page: page, route: route, pane: handle)).surface }
         } else {
-            services.registry.refuse(RemoteStrings.moveTabAcrossMachines)
-            completion(false)
+            services.registry.refuse(RemoteStrings.moveTabAcrossMachines); completion(false)
         }
     }
 
-    /// Opens `tab`'s new tab on `destination` (`open`), then closes the original on `source`. The new
-    /// tab is the same tab to the user: its name and pin come along (best effort: a daemon without tab
-    /// metadata keeps it unpinned, and the move still lands).
+    /// Opens `tab`'s new tab on `destination` (`open`), then closes the original on `source`. Its name and pin come
+    /// along (best effort: a daemon without tab metadata keeps it unpinned, and the move still lands).
     func land(_ tab: TabModel, closingOn source: DaemonConnection, on destination: DaemonConnection, completion: @escaping (Bool) -> Void,
               open: @escaping @MainActor () async throws -> SurfaceID) {
-        let (name, pinned, surface, id) = (tab.name.flatMap { $0.isEmpty ? nil : $0 }, tab.pinned, tab.surface, tab.id)
-        let terminal = tab.kind == .pty || tab.kind == .remoteTerminal
+        let (name, pinned, surface, id, terminal) = (tab.name.flatMap { $0.isEmpty ? nil : $0 }, tab.pinned, tab.surface, tab.id, tab.kind == .pty || tab.kind == .remoteTerminal)
         services.registry.track(Task { [weak self] in
             do {
                 let created = try await open()
                 if let name { try? await destination.renameTab(created, to: name) }
                 if pinned { _ = try? await destination.setTabPinned(created, true) }
-                // The tab is there now: an original that cannot close (a pinned column's tab) stays beside it, said once.
-                do { try await source.closeTab(surface) } catch { completion(true); return ActionWorkFailure(log: "close moved tab: \(error)", reason: RemoteStrings.originalTabStayed) }
+                do { try await source.closeTab(surface) } catch { self?.originalStayed(error); completion(true); return nil } // landed: a pinned original stays
                 self?.forget(tabID: id)
                 if !terminal { self?.services.cache.release(id) } // its page closes with it
-                completion(true)
-                return nil
+                completion(true); return nil
             } catch {
-                completion(false)
-                return ActionWorkFailure(terminal ? "move terminal to another machine" : "move tab to another machine", error)
+                completion(false); return ActionWorkFailure(terminal ? "move terminal to another machine" : "move tab to another machine", error)
             }
         })
+    }
+    /// The moved tab landed but its original here could not close: logged, and one notice for the person.
+    private func originalStayed(_ error: any Error) {
+        Logger(subsystem: "com.cmuxterm.next", category: "remote").notice("moved tab's original stayed: \(String(describing: error), privacy: .public)")
+        services.refusalHUD.show(RemoteStrings.originalTabStayed, in: services.windows.active?.window ?? services.keyWindowSource())
     }
 }

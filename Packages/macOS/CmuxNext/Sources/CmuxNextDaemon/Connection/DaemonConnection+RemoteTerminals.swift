@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Remote-terminal tabs (`remote-terminal-tabs-v1`, plans/cmux-next/
 /// data-model.md 1.2b): references in the home session's layout to
@@ -102,7 +103,9 @@ extension DaemonConnection {
         do {
             return (surface, try await terminalConnection?.keepTerminalIfReaping(ref.terminalID))
         } catch {
-            try? await closeTab(surface)
+            do { try await closeTab(surface) } catch let closing {
+                Logger(subsystem: "com.cmuxterm.app.next", category: "daemon").error("remote-terminal tab \(surface.rawValue) stayed after its keep failed: \(String(describing: closing), privacy: .public)")
+            }
             throw error
         }
     }
