@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42564791062",
+  "recorded_at": "2026-11-09T05:02:19Z",
+  "reason": "cmux-tui ab00b8a92bca changes the image's cmux-tui (pinned 73b88a5cf8b1)",
+  "dry_run": false,
+  "cmux_tui": "ab00b8a92bcabc206c3c34aaa064cc9efd6b7561",
+  "fixes": [
+    {
+      "sha": "6b6348ec2fcd4c66953dfffa18bbd0dfa63958b2",
+      "mergedAt": "2026-11-08T20:45:42-08:00",
+      "subject": "cmux-wg: mesh paths are ranked again when the interface table changes (#39196)"
+    },
+    {
+      "sha": "3ca81041cc99792977b853ab761e89a326eebe9d",
+      "mergedAt": "2026-11-08T20:42:08-08:00",
+      "subject": "rd: a UDP datagram link for the Cloud desktop, negotiated inside the carrier (takes over #39054) (#39099)"
+    },
+    {
+      "sha": "ac8bbe1e0bd8e064c4284eb4e76d4811c3f57b25",
+      "mergedAt": "2026-11-08T20:39:21-08:00",
+      "subject": "cmux-tui-core: refused_saves reads a poisoned apps lock (panic ratchet red on tip) (#39192)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-09T05:02:19Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
