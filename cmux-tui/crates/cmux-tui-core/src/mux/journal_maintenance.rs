@@ -13,6 +13,13 @@ const OUTPUT_CLEANUP_SEAL_HOLD_RECORDS: u64 = 65_536;
 /// tick stalls the app's requests (a 12-15 s stall on 2026-10-21 left no
 /// trace of its cause).
 const SLOW_MAINTENANCE_TICK: Duration = Duration::from_millis(500);
+/// How long one tick spends filling the kept reducer records of segments
+/// sealed before sealing kept them. A segment decodes in tens of
+/// milliseconds on this thread, with no registry lock; only its commit
+/// takes the lock.
+const REDUCER_RECORD_BACKFILL_BUDGET: Duration = Duration::from_millis(200);
+/// Segments that need no kept records one backfill plan passes over.
+const REDUCER_RECORD_BACKFILL_SKIP: usize = 256;
 
 /// How long each step of one maintenance tick took.
 #[derive(Default)]
@@ -274,6 +281,12 @@ impl Mux {
         // settled worker wakes on every journal change, so the head never
         // moves without a tick that catches the roster up.
         steps.time("agent_roster", || self.catch_up_agent_roster());
+        let backfill_remains = steps
+            .time("reducer_record_backfill", || self.backfill_sealed_reducer_records())
+            .unwrap_or_else(|error| {
+                eprintln!("cmux-tui: sealed reducer record backfill deferred: {error:#}");
+                true
+            });
         let result = (|| -> anyhow::Result<TickOutcome> {
             let migration = steps.time("auto_vacuum_migration", || {
                 self.workspace_registry
@@ -384,7 +397,9 @@ impl Mux {
             self.report_internal_diagnostic(report);
         }
         match result {
-            Ok(TickOutcome::Settled) if !ledgers_remain => TickOutcome::Settled,
+            Ok(TickOutcome::Settled) if !ledgers_remain && !backfill_remains => {
+                TickOutcome::Settled
+            }
             Ok(_) => TickOutcome::WorkRemains,
             Err(error) => {
                 eprintln!("cmux-tui: journal maintenance deferred: {error:#}");
@@ -398,6 +413,60 @@ impl Mux {
 }
 
 impl Mux {
+    /// One bounded slice of the backfill of kept reducer records
+    /// (`session_journal::reducer_records`): segments sealed before sealing
+    /// kept them are decoded off the registry lock, a segment at a time,
+    /// for about [`REDUCER_RECORD_BACKFILL_BUDGET`]. The cursor is durable,
+    /// so a stopped daemon resumes where it was. Never at start: until a
+    /// segment is filled, a kind-scoped read decodes it as before. True
+    /// while segments remain. What the slice committed (kept records and
+    /// cursor moves) is flushed: no request answer follows to flush it, and
+    /// an idle daemon would leave the whole backfill in the WAL.
+    pub(super) fn backfill_sealed_reducer_records(&self) -> anyhow::Result<bool> {
+        let remains = self.backfill_sealed_reducer_records_slice();
+        self.request_registry_flush();
+        remains
+    }
+
+    fn backfill_sealed_reducer_records_slice(&self) -> anyhow::Result<bool> {
+        use crate::workspace_registry::session_journal::reducer_records::ReducerRecordBackfillStep;
+        // The cleanup rebuilds every segment under a new id; rows written
+        // now would be dropped with the old ones.
+        if self.output_cleanup_pending() {
+            return Ok(false);
+        }
+        let started = Instant::now();
+        let mut reader = None;
+        while started.elapsed() < REDUCER_RECORD_BACKFILL_BUDGET {
+            let step = self
+                .workspace_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .plan_reducer_record_backfill(REDUCER_RECORD_BACKFILL_SKIP)?;
+            let plan = match step {
+                ReducerRecordBackfillStep::Done => return Ok(false),
+                ReducerRecordBackfillStep::Passed => continue,
+                ReducerRecordBackfillStep::Decode(plan) => plan,
+            };
+            if reader.is_none() {
+                let path = self
+                    .workspace_registry
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .session_journal_database_path()
+                    .context("the reducer record backfill needs a persistent session")?;
+                reader = Some(crate::workspace_registry::SessionJournalReader::open(&path)?);
+            }
+            let Some(reader) = reader.as_ref() else { continue };
+            let prepared = plan.prepare(reader)?;
+            self.workspace_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .commit_reducer_record_backfill(prepared)?;
+        }
+        Ok(true)
+    }
+
     pub(crate) fn journal_hook_states(
         &self,
     ) -> anyhow::Result<Vec<crate::workspace_registry::JournalHookState>> {

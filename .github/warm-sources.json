@@ -46,6 +46,7 @@
     "cloud-chat-proof.yml:proof": {"class": "mac-build", "warm": [], "exempt": "cold: a tagged reload.sh build into a fresh DerivedData on an ephemeral Mac that holds the dev stack pair; no shared cache is read in a secret-bearing job"},
     "cloud-devbox-image-rebake.yml:rebake": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "cloud-journey-pr.yml:journey": {"class": "linux-rust", "warm": [], "exempt": "cold: cargo build of cmux-tui from an empty target directory for the PR Cloud journey; no warm source wired yet"},
+    "cloud-rd-link-readback.yml:readback": {"class": "mac-build", "warm": [], "exempt": "cold: cargo build of cmux-tui from an empty target directory on an ephemeral Mac that holds the dev stack pair; manual dispatch only, and no shared cache is read in a secret-bearing job"},
     "cloud-vm-guest-install.yml:guest-install": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "cloud-vm-image-bake.yml:bake": {"class": "linux-js", "warm": ["actions-cache"]},
     "cloud-vm-image-lock.yml:lock": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
