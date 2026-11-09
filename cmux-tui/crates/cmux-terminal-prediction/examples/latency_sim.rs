@@ -87,7 +87,8 @@ fn simulate(rtt_ms: i64, jitter_ms: i64, loss_percent: u64, seed: u64) -> Outcom
             word_left -= 1;
             b'a' + u8::try_from(random.range(0, 25)).unwrap_or(0)
         };
-        let mut trip = (rtt_ms * 1000 + random.range(-jitter_ms * 1000, jitter_ms * 1000)).max(1000);
+        let mut trip =
+            (rtt_ms * 1000 + random.range(-jitter_ms * 1000, jitter_ms * 1000)).max(1000);
         let retransmit = (rtt_ms * 2000).max(200_000);
         for _leg in 0..2 {
             while random.next() % 100 < loss_percent {
@@ -218,9 +219,8 @@ fn main() {
         "{:<12} {:<13} {:>7} {:>7} {:>7} {:>7}  {:>9} {:>11}",
         "rtt", "mode", "p50", "p95", "p99", "max", "predicted", "withdrawals"
     );
-    for (rtt, jitter, loss) in [20, 50, 150, 300]
-        .into_iter()
-        .flat_map(|rtt| [0, 2, 5].map(|loss| (rtt, rtt / 10, loss)))
+    for (rtt, jitter, loss) in
+        [20, 50, 150, 300].into_iter().flat_map(|rtt| [0, 2, 5].map(|loss| (rtt, rtt / 10, loss)))
     {
         let outcome = simulate(rtt, jitter, loss, 0x5EED ^ u64::try_from(rtt).unwrap_or(0));
         let label = format!("{rtt}±{jitter} {loss}%");

@@ -88,13 +88,18 @@ test("a huge prompt with placed attachments opens collapsed on its head only", (
   expect(html.length).toBeLessThan(HUGE_PROMPT_HEAD_CHARS + 1_000);
 });
 
-test("a short Markdown note beside a huge paste keeps its Markdown", () => {
+// A paste is part of the message's one body (ask-14d16a6247), so a note beside a huge paste is part
+// of a huge body: it draws literally, collapsed to its head, as a huge typed prompt does.
+test("a short Markdown note beside a huge paste draws with it as one literal body, collapsed to its head", () => {
   const note = "- one\n- two";
   const text = `${note}\n${"y".repeat(HUGE_PROMPT_CHARS + 10)}`;
   const html = renderToStaticMarkup(
     <PromptText rowId="note" text={text} pasted={[{ start: note.length + 1, end: text.length }]} show={same} />,
   );
-  expect(html).toContain("<li");
+  expect(html).not.toContain("<li");
+  expect(html).toContain("- one\n- two\nyyy");
+  expect(html).toContain("is-clamped");
+  expect(html.length).toBeLessThan(HUGE_PROMPT_HEAD_CHARS + 1_000);
 });
 
 test("a huge typed part beside a paste opens collapsed on its head", () => {
@@ -161,32 +166,21 @@ test("a huge prompt whose drawn head measures short stays collapsed, never flipp
   }
 });
 
-test("a huge paste beside a short note is its chip, not a huge prompt with a dead Show more", () => {
+test("a huge paste beside a short note folds with the message under a live Show more, drawing only its head", () => {
   const note = "see this log";
   const text = `${note}\n${"log line\n".repeat(HUGE_PROMPT_CHARS / 8)}`;
-  const before = globalThis.cmuxExperiments;
-  try {
-    // The card (sentPasteLook `card`): the chip is the whole paste, closed.
-    globalThis.cmuxExperiments = { ...before, "sent-paste-look": "card" };
-    const card = renderToStaticMarkup(
-      <PromptText rowId="paste-huge" text={text} pasted={[{ start: note.length + 1, end: text.length }]} show={same} />,
-    );
-    expect(card).not.toContain("is-clamped");
-    expect(card).not.toContain("cv-user__more");
-    // Drawn as text (the default), it folds under a live Show more and draws only its head.
-    globalThis.cmuxExperiments = { ...before, "sent-paste-look": "text" };
-    const shown = renderToStaticMarkup(
-      <PromptText
-        rowId="paste-huge-text"
-        text={text}
-        pasted={[{ start: note.length + 1, end: text.length }]}
-        show={same}
-      />,
-    );
-    expect(shown).toContain("is-clamped");
-    expect(shown).toContain("cv-user__more");
-    expect(shown.length).toBeLessThan(HUGE_PROMPT_CHARS / 4);
-  } finally {
-    globalThis.cmuxExperiments = before;
-  }
+  // The paste is part of the message's one body (ask-14d16a6247): the body is huge, so it folds
+  // under a live Show more and draws only its head.
+  const shown = renderToStaticMarkup(
+    <PromptText
+      rowId="paste-huge-text"
+      text={text}
+      pasted={[{ start: note.length + 1, end: text.length }]}
+      show={same}
+    />,
+  );
+  expect(shown).toContain("is-clamped");
+  expect(shown).toContain("cv-user__more");
+  expect(shown).not.toContain("cv-user__paste");
+  expect(shown.length).toBeLessThan(HUGE_PROMPT_CHARS / 4);
 });

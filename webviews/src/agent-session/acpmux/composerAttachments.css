@@ -653,7 +653,8 @@ button.acpmux-attachment-pasted-open:hover {
    one element, and set the prompt's copy at the composer's 14px, over its label (review of #37516). */
 .acpmux-text-card > .acpmux-attachment-keep-file {
   position: absolute;
-  right: 8px;
+  /* The label row's end, where its reserve is, in either writing direction (review of #38247). */
+  inset-inline-end: 8px;
   bottom: 4px;
   padding: 0 4px;
   border: 0;

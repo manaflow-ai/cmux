@@ -49,6 +49,9 @@ pub enum Item {
     },
 }
 
+/// The `dir` of a record `push_local_error` keeps: an error this client showed, with no seq.
+const LOCAL_ERROR: &str = "local_error";
+
 #[derive(Debug, Default, Clone)]
 pub struct Transcript {
     pub items: Vec<Item>,
@@ -902,6 +905,9 @@ impl Transcript {
             && let Some(params) = ev.get("params")
         {
             self.apply_update_inner(params);
+        } else if ev.get("dir").and_then(Value::as_str) == Some(LOCAL_ERROR) {
+            let text = ev.get("text").and_then(Value::as_str).unwrap_or_default();
+            self.items.push(Item::Error { text: text.to_string() });
         } else {
             self.apply_event_inner(ev);
         }
@@ -910,6 +916,15 @@ impl Transcript {
     /// A transcript that keeps its records, so `prepend_events` can page older history in.
     pub(crate) fn paging() -> Self {
         Transcript { keeps_records: true, ..Transcript::default() }
+    }
+
+    /// Show an error this client raised (not one the daemon logged). A paging transcript keeps it
+    /// as a record with no seq, so a rebuild puts it back where it was shown.
+    pub(crate) fn push_local_error(&mut self, text: String) {
+        if self.keeps_records {
+            self.raw_events.push(json!({"dir": LOCAL_ERROR, "text": text}));
+        }
+        self.items.push(Item::Error { text });
     }
 
     /// Record a message shown before the daemon echoes it, with the row it is shown as.

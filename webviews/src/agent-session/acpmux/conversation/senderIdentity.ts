@@ -30,6 +30,12 @@ export type SenderRecord = {
   session?: string;
 };
 
+/// A relayed sender's address (`MACHINE/SESSION`, the relay's `--relayed-from`), whole: the chat its
+/// chip asks for. acpmux's label for it is cut to `fromAgent`'s 64 characters (prompt_provenance.rs
+/// `relayed_label`), so two sessions sharing their first 64 read as one there (cmux#38642 review).
+export const relayAddress = (relay: SenderRelay | undefined): string | undefined =>
+  relay?.machine && relay.session ? `${relay.machine}/${relay.session}` : undefined;
+
 /// `name` without the unverified suffix an older acpmux wrote into it, and whether it had one.
 export function bareSender(name: string): { name: string; declared: boolean } {
   const bare = name.replace(UNVERIFIED_SUFFIX, "");

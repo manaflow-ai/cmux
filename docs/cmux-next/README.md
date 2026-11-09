@@ -70,6 +70,12 @@ comes back as a chat that resumes its session. A toast says when it's done and w
 classic. [classic-to-next.md](classic-to-next.md) lists exactly what comes over, and has an agent
 playbook for choosing workspaces or bringing launch commands too.
 
+## Uninstalling
+
+[uninstall.md](uninstall.md) lists everything a build leaves on your Mac (the app, its session
+daemons, acpmux login job, CLI links, data, preferences and Keychain items) and the commands to
+remove each, including which folders it shares with cmux classic.
+
 ## Settings in your dotfiles
 
 Settings live in `~/.config/cmux/cmux-next.json` and key bindings in

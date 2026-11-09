@@ -15,6 +15,8 @@ pub(in crate::cli) struct RequestPlan {
     pub resolve: Vec<Resolve>,
     /// The part of the result the command prints.
     pub view: ResponseView,
+    /// The rows a list keeps (`--name`, `--cwd`; wire/list_filter.rs).
+    pub filter: super::list_filter::ListFilter,
 }
 
 /// The part of a result a command prints. `TerminalProgramStatus` is
@@ -27,6 +29,9 @@ pub(in crate::cli) enum ResponseView {
     #[default]
     Full,
     TerminalProgramStatus,
+    /// `terminal <t> screen read` without `--details`: human output is the
+    /// screen's `text` alone, as it shows; `--json` keeps the whole record.
+    ScreenText,
     AgentRoster(AgentRosterView),
 }
 
@@ -63,7 +68,7 @@ impl ResponseView {
         match self {
             // wire/agent_roster.rs shapes the roster once it has the
             // terminals' titles and folders.
-            Self::Full | Self::AgentRoster(_) => result,
+            Self::Full | Self::AgentRoster(_) | Self::ScreenText => result,
             Self::TerminalProgramStatus => match result.pointer("/extra/program_status") {
                 Some(Value::Array(records)) => Value::Array(records.clone()),
                 _ => Value::Array(Vec::new()),
@@ -138,6 +143,17 @@ impl super::CommandPlan {
         match self {
             Self::Protocol(mut plan) => {
                 plan.view = ResponseView::TerminalProgramStatus;
+                Self::Protocol(plan)
+            }
+            other => other,
+        }
+    }
+
+    /// `terminal <t> screen read`: human output prints the screen text only.
+    pub(super) fn screen_text(self) -> Self {
+        match self {
+            Self::Protocol(mut plan) => {
+                plan.view = ResponseView::ScreenText;
                 Self::Protocol(plan)
             }
             other => other,

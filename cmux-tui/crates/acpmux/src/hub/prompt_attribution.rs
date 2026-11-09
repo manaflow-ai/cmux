@@ -29,6 +29,20 @@ pub(crate) fn agent_line(name: &str) -> String {
     format!("From another agent ({name}), not the person:")
 }
 
+/// The opening line ahead of a message a Claude Code subagent of session `name` sent to a lane
+/// of `name` (`prompt_provenance::SUBAGENT_GETS_REPLY`, `label` "TYPE subagent ID8"). It runs in
+/// its lead's session, so the receiver read the lead as its sender and answered the lead (a
+/// reviewer SendMessage'd claude-17 its review, 2026-11-08); the turn's answer reaches the
+/// subagent by itself (`hub/lane_report_reads.rs`, `hub/lane_report_subagents.rs`). A subagent's
+/// message to any other session, or a steer, names it in [`agent_line`] only.
+pub(crate) fn subagent_line(name: &str, label: &str) -> String {
+    format!(
+        "From another agent ({name}'s {label}), not the person. End your turn with your answer: \
+acpmux gives it to that subagent, or to {name} once the subagent has ended. Do not send it to \
+{name} yourself (acpmux send, SendMessage):"
+    )
+}
+
 /// The opening line ahead of a prompt no sender is known for.
 pub(crate) fn unverified_line(claimed: Option<&str>) -> String {
     match claimed {
@@ -132,7 +146,17 @@ pub(super) fn mark(params: &mut Value, sender: Option<&str>, provenance: Option<
     // Ahead of the first block the agent reads as the prompt, after acpmux's hidden context.
     let first = blocks.iter().position(|b| !crate::prompt_context::is_context(b)).unwrap_or(0);
     if let Some(name) = sender.filter(|n| !n.trim().is_empty()) {
-        blocks.insert(first, text_block(agent_line(name)));
+        let sub = provenance.and_then(|p| p.get(crate::prompt_provenance::FROM_SUBAGENT));
+        let gets_reply = provenance
+            .and_then(|p| p.get(crate::prompt_provenance::SUBAGENT_GETS_REPLY))
+            .and_then(Value::as_bool)
+            == Some(true);
+        let line = match super::lane_report_subagents::label(sub) {
+            Some(label) if gets_reply => subagent_line(name, &label),
+            Some(label) => agent_line(&format!("{name}'s {label}")),
+            None => agent_line(name),
+        };
+        blocks.insert(first, text_block(line));
         return;
     }
     // A suggested task's result (`offer_results.rs`) names no sender: it is that task's chat's
@@ -140,10 +164,15 @@ pub(super) fn mark(params: &mut Value, sender: Option<&str>, provenance: Option<
     if let Some(p) =
         provenance.filter(|p| p.get("kind").and_then(Value::as_str) == Some("offer_result"))
     {
-        let title = p.get("title").and_then(Value::as_str).filter(|t| !t.trim().is_empty());
+        // One line however the title breaks, so it never splits the attribution line.
+        let title = p
+            .get("title")
+            .and_then(Value::as_str)
+            .map(|t| t.split_whitespace().collect::<Vec<_>>().join(" "))
+            .filter(|t| !t.is_empty());
         let name = title.map_or_else(
             || "a suggested task".to_owned(),
-            |t| format!("the suggested task \"{}\"", t.trim()),
+            |t| format!("the suggested task \"{t}\""),
         );
         blocks.insert(first, text_block(agent_line(&name)));
         return;
@@ -272,6 +301,19 @@ mod tests {
         );
     }
 
+    /// Review of #37190 (F3): a title's newlines never break the attribution line.
+    #[test]
+    fn a_suggested_tasks_title_reads_on_one_line() {
+        let provenance =
+            crate::prompt_provenance::offer_result("offer-1", "child-1", "Fix\nlogin\n\nnow");
+        let mut params = json!({"sessionId": "s", "prompt": [{"type": "text", "text": "Done."}]});
+        mark(&mut params, None, Some(&provenance));
+        assert_eq!(
+            texts(&params)[0],
+            "From another agent (the suggested task \"Fix login now\"), not the person:"
+        );
+    }
+
     #[test]
     fn an_agents_message_names_its_sender() {
         let context = json!({"type": "text", "text": "<cmux-workspace-context/>",
@@ -332,6 +374,13 @@ mod tests {
         let mut msg = json!({"text": HANDOFF, "_meta": {"provenance": {"kind": "agent_message", "from": "x"}}});
         super::super::session::mark_pasted(&mut msg, &typed);
         assert!(msg.get("agentText").is_none());
+        // Follow-up to #37190 (F1): a prompt the daemon made from no person (an unverified
+        // client's, a suggested task's result, a fan-in or inbox digest) gets no note either.
+        for kind in ["unverified", "offer_result", "agent_digest", "inbox_digest"] {
+            let mut msg = json!({"text": HANDOFF, "_meta": {"provenance": {"kind": kind}}});
+            super::super::session::mark_pasted(&mut msg, &typed);
+            assert!(msg.get("agentText").is_none(), "{kind} got agentText");
+        }
         let mut msg = json!({"text": "Merge whenever."});
         super::super::session::mark_pasted(&mut msg, &[mine]);
         assert_eq!(msg, json!({"text": "Merge whenever."}));

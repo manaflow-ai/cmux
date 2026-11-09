@@ -157,6 +157,8 @@ public final class TerminalSurfaceView: NSView {
     private(set) lazy var clipboardRequests = TerminalClipboardRequests(view: self)
     /// Cmd-hover and Cmd-click on links beyond Ghostty's own (``TerminalLinkPointer``).
     private(set) lazy var linkPointer = TerminalLinkPointer(view: self)
+    /// Option-drag selection while a program has the mouse, and its first-use hint (``TerminalSelectionHint``).
+    private(set) lazy var selectionHint = TerminalSelectionHint(view: self)
 
     // MARK: Lifecycle
 
@@ -234,7 +236,7 @@ public final class TerminalSurfaceView: NSView {
         lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output",
                                   frameLayer: layer.map(ObjectIdentifier.init), prediction: bridge.takeUnretainedValue().prediction)
         if TypingLatencyProbe.isEnabled, let layer { TypingFrameProbe.install(on: layer) }
-        registerForDraggedTypes([.fileURL, .URL, .string])
+        registerForDraggedTypes([.fileURL, .URL, .string, .png, .tiff])
         updateContentScale()
         updateSurfaceSize(forceReport: true)
         updateOcclusion()

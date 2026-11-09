@@ -165,7 +165,7 @@ struct KeyboardToggleKey: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Color.primary.opacity(0.78))
                 .contentTransition(.opacity)
-                .animation(.easeInOut(duration: 0.2), value: shown)
+                .animation(.easeInOut(duration: 0.2).unlessReduceMotion, value: shown)
         }
         .buttonStyle(KeyCapStyle(width: TerminalDockMetrics.keyRowHeight + 12))
         .keyGlass(armed: false)
