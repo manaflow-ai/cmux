@@ -405,79 +405,172 @@ fn restore_cursor_decodes_a_multi_page_segment_once() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// The non-output read returns every other kind in sequence order, skips
-/// terminal output, pages by `limit`, and crosses windows longer than one
-/// page's span ([`JOURNAL_KIND_SEEK_WINDOW`]) without losing a record. It
-/// seeks per kind, so a page costs the records it covers, not every
-/// non-output entry the journal kept (5.6M on a nightly registry made each
-/// roster catch-up 5-8 s, and the app's requests timed out behind it).
-#[test]
-fn non_output_read_pages_every_other_kind_across_seek_windows() {
-    let registry = WorkspaceRegistry::in_memory("journal-non-output").unwrap();
-    let producer = JournalProducer { kind: "test".into(), id: "test".into() };
-    let subjects: Vec<JournalSubject> = Vec::new();
-    let payload = serde_json::json!({});
-    let kinds = ["agent.hook", "workspace.rename", "terminal.output", "zeta.kind"];
-    let total = JOURNAL_KIND_SEEK_WINDOW as usize * 2 + 300;
+/// A registry whose whole journal is `segments` sealed segments of
+/// `JOURNAL_SEGMENT_RECORD_LIMIT` records, the shape of a nightly registry
+/// that ran for weeks: two of every three records are terminal output of
+/// `output_bytes` each, the rest an agent kind the roster folds (of a test
+/// producer, so its fold changes nothing), so a roster replay inflates every
+/// segment. Returns the registry and the non-output sequences.
+pub(crate) fn output_heavy_sealed_registry(
+    segments: u64,
+    output_bytes: usize,
+) -> (WorkspaceRegistry, Vec<u64>) {
+    use std::io::Write as _;
+    let registry = WorkspaceRegistry::in_memory("journal-output-heavy").unwrap();
+    registry
+        .connection
+        .get()
+        .execute_batch(
+            "DROP TRIGGER session_journal_reject_delete;
+             DELETE FROM session_journal;
+             CREATE TRIGGER session_journal_reject_delete
+               BEFORE DELETE ON session_journal
+             BEGIN SELECT RAISE(ABORT, 'session journal is append-only'); END;",
+        )
+        .unwrap();
+    let per_segment = u64::try_from(journal_extensions::JOURNAL_SEGMENT_RECORD_LIMIT).unwrap();
+    let mut state = 0x2545_f491_u64;
     let mut expected = Vec::new();
-    {
-        let db = registry.connection.get();
-        let tx = db.unchecked_transaction().unwrap();
-        for index in 0..total {
-            // A long run of output in the middle: a whole window holds no other kind.
-            let kind = if (4_000..4_000 + JOURNAL_KIND_SEEK_WINDOW as usize + 500).contains(&index)
-            {
-                "terminal.output"
+    for segment in 0..segments {
+        let start = segment * per_segment + 1;
+        let end = start + per_segment - 1;
+        let mut records = Vec::new();
+        let mut kinds = BTreeSet::new();
+        for sequence in start..=end {
+            let output = sequence % 3 != 0;
+            let kind = if output { "terminal.output" } else { "agent.test.noop" };
+            let payload = if output {
+                // Printable pseudo-random bytes, so gzip works about as hard
+                // as it does on real terminal output.
+                let bytes = (0..output_bytes)
+                    .map(|_| {
+                        state ^= state << 13;
+                        state ^= state >> 7;
+                        state ^= state << 17;
+                        b' ' + u8::try_from(state % 95).unwrap()
+                    })
+                    .collect::<Vec<_>>();
+                let offset = (sequence - 1) * u64::try_from(output_bytes).unwrap();
+                serde_json::json!({
+                    "format": "cmux.terminal-output.v1",
+                    "encoding": "base64",
+                    "data": base64::engine::general_purpose::STANDARD.encode(&bytes),
+                    "byte_count": bytes.len().to_string(),
+                    "stream_offset_start": offset.to_string(),
+                    "stream_offset_end": (offset + u64::try_from(bytes.len()).unwrap()).to_string(),
+                    "sha256": encode_bytes_hex(Sha256::digest(&bytes).as_slice()),
+                })
             } else {
-                kinds[index % kinds.len()]
+                expected.push(sequence);
+                serde_json::json!({"workspace_id": format!("ws_{sequence:032x}")})
             };
-            let content = (kind == "terminal.output").then_some(&b"x"[..]);
-            let event_id = format!("event_{index}");
-            let sequence = append_journal_record(
-                &tx,
-                &JournalAppend {
-                    event_id: &event_id,
-                    schema_version: 1,
-                    kind,
-                    class: JournalClass::Observation,
-                    replay: JournalReplayPolicy::Advisory,
-                    occurred_at_ms: 1,
-                    producer: &producer,
-                    authority: None,
-                    causation_id: None,
-                    correlation_id: None,
-                    causation_depth: 0,
-                    subjects: &subjects,
-                    sensitivity: JournalSensitivity::Metadata,
-                    payload: &payload,
-                    content,
-                    resource_revision: None,
-                    previous_resource_revision: None,
-                    actor: None,
-                },
+            kinds.insert(kind);
+            records.push(SessionJournalRecord {
+                sequence,
+                event_id: format!("event_{sequence}"),
+                schema_version: 1,
+                kind: kind.into(),
+                class: JournalClass::Observation,
+                replay: JournalReplayPolicy::Advisory,
+                occurred_at_ms: sequence,
+                committed_at_ms: sequence,
+                producer: JournalProducer { kind: "test".into(), id: "test".into() },
+                authority: None,
+                causation_id: None,
+                correlation_id: None,
+                causation_depth: 0,
+                subjects: Vec::new(),
+                sensitivity: JournalSensitivity::Metadata,
+                payload,
+                resource_revision: None,
+                previous_resource_revision: None,
+                terminal_output: None,
+            });
+        }
+        let uncompressed = serde_json::to_vec(&records).unwrap();
+        let digest = Sha256::digest(&uncompressed);
+        let mut encoder =
+            flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(&uncompressed).unwrap();
+        let compressed = encoder.finish().unwrap();
+        let segment_id = format!("segment_{start}_{end}");
+        let db = registry.connection.get();
+        db.execute(
+            "INSERT INTO journal_segments(
+               segment_id, start_sequence, end_sequence, record_count, codec, content,
+               uncompressed_bytes, sha256, sealed_at_ms
+             ) VALUES(?1, ?2, ?3, ?4, 'gzip-json-v1', ?5, ?6, ?7, 1)",
+            params![
+                segment_id,
+                i64::try_from(start).unwrap(),
+                i64::try_from(end).unwrap(),
+                i64::try_from(per_segment).unwrap(),
+                compressed,
+                i64::try_from(uncompressed.len()).unwrap(),
+                digest.as_slice()
+            ],
+        )
+        .unwrap();
+        for kind in kinds {
+            db.execute(
+                "INSERT INTO journal_segment_kinds(segment_id, kind) VALUES(?1, ?2)",
+                params![segment_id, kind],
             )
             .unwrap();
-            if kind != "terminal.output" {
-                expected.push(sequence);
-            }
         }
-        tx.commit().unwrap();
     }
-    let head = registry.session_journal_head().unwrap();
-    // The first appended record is not output; anything the registry wrote before it is not ours.
-    let start = expected[0] - 1;
-    let (mut cursor, mut seen) = (start, Vec::new());
-    while cursor < head {
-        let (records, reached) =
-            registry.session_journal_without_output_after(cursor, head, 512).unwrap();
-        assert!(reached > cursor, "each page makes progress");
-        assert!(records.len() <= 512);
-        assert!(records.iter().all(|record| record.kind != "terminal.output"));
-        assert!(
-            records.iter().all(|record| record.sequence > cursor && record.sequence <= reached)
-        );
-        seen.extend(records.iter().map(|record| record.sequence));
-        cursor = reached;
+    (registry, expected)
+}
+
+/// A kind backfill an older build stopped partway (marker `0`) resumes after
+/// the last segment it finished: segments at or before that progress are not
+/// decoded again, a partly mapped one gets its missing kinds, and the run
+/// ends with the marker at `1` and no progress row.
+#[test]
+fn a_stopped_kind_backfill_resumes_after_its_last_finished_segment() {
+    let (registry, _) = output_heavy_sealed_registry(4, 64);
+    let db = registry.connection.get();
+    db.execute_batch(
+        "DELETE FROM journal_segment_kinds
+         WHERE segment_id IN ('segment_2049_3072', 'segment_3073_4096');
+         INSERT INTO journal_segment_kinds VALUES('segment_2049_3072', 'agent.test.noop');
+         INSERT INTO meta(key, value) VALUES('journal_segment_kinds_backfill', '0')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+         INSERT INTO meta(key, value) VALUES('journal_segment_kinds_backfill_through', '1025')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+         DROP TRIGGER IF EXISTS journal_segments_reject_update;
+         UPDATE journal_segments SET content = x'00112233'
+         WHERE segment_id IN ('segment_1_1024', 'segment_1025_2048');",
+    )
+    .unwrap();
+    // The two finished segments no longer decode: a backfill that decoded
+    // them again would fail here.
+    backfill_legacy_journal_segment_kinds(&db).unwrap();
+    for segment_id in ["segment_2049_3072", "segment_3073_4096"] {
+        let kinds = db
+            .prepare("SELECT kind FROM journal_segment_kinds WHERE segment_id = ?1 ORDER BY kind")
+            .unwrap()
+            .query_map([segment_id], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(kinds, ["agent.test.noop", "terminal.output"], "{segment_id}");
     }
-    assert_eq!(seen, expected);
+    let marker: String = db
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'journal_segment_kinds_backfill'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(marker, "1");
+    let progress: Option<String> = db
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'journal_segment_kinds_backfill_through'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap();
+    assert_eq!(progress, None);
 }

@@ -2,7 +2,7 @@
 //! reads those records, not the history around them.
 //!
 //! The agent roster's replay after a reducer version change read every
-//! record other than terminal output (`query_session_journal_without_output_after`).
+//! record other than terminal output.
 //! On Leo's registry (2026-11-08) that was about 12M rows, 96.6% of them
 //! `personal.session.put`, which the roster discards, and the daemon took
 //! 26 min to start. This read seeks the `(kind, sequence)` index once per
@@ -34,8 +34,10 @@ impl WorkspaceRegistry {
 
 impl SessionJournalReader {
     /// [`WorkspaceRegistry::session_journal_kinds_after`] on this reader's
-    /// own read-only connection (no registry lock), in one read transaction
-    /// like [`SessionJournalReader::without_output_after`].
+    /// own read-only connection (no registry lock). The page reads in one
+    /// read transaction: the archive head and the active rows come from one
+    /// snapshot, so a seal that commits between the two reads cannot hide
+    /// the records it moved.
     pub(crate) fn kinds_after(
         &self,
         sequence: u64,
