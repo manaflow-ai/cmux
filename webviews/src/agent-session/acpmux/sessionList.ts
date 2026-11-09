@@ -52,6 +52,9 @@ export type AcpmuxSessionEntry = {
   pullRequestUrls?: string[];
   /** A line of the session's latest reply, for previews. */
   preview?: string;
+  /** Its log is in acpmux's cold archive (`coldArchive`, hub/cold_archive.rs): the row draws this
+   *  preview only, and opening the chat brings the log back. */
+  coldArchive?: ColdArchive;
   /** The latest message text from acpmux's summary, when present. */
   lastMessage?: string;
   /** A fork: the chat it was forked from and that chat's event it branched after (cx-ncc.61). */
@@ -115,6 +118,37 @@ export type AcpmuxSessionEntry = {
   /** What it spends: context, 24h tokens and cost, subagents (acpmux `usageStats`, usageStats.ts). */
   usageStats?: SessionUsageStats;
 };
+
+/** A cold-archived chat's preview, as acpmux keeps it in `session.json` (`ColdPreview`). */
+export type ColdArchive = {
+  archivedAt: number;
+  /** The prompts and replies its log held. */
+  messages: number;
+  bytesBefore: number;
+  bytesAfter: number;
+  /** Its last few messages, oldest first, each cut short. */
+  last: { role: string; text: string; at: number }[];
+};
+
+const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0);
+
+/** acpmux's `coldArchive`, else undefined. */
+export function coldArchive(value: unknown): ColdArchive | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const cold = value as Record<string, unknown>;
+  const last = (Array.isArray(cold.last) ? cold.last : []).flatMap((item) => {
+    const message = item as Record<string, unknown> | null;
+    const body = text(message?.text);
+    return body ? [{ role: text(message?.role) ?? "assistant", text: body, at: count(message?.at) }] : [];
+  });
+  return {
+    archivedAt: count(cold.archivedAt),
+    messages: count(cold.messages),
+    bytesBefore: count(cold.bytesBefore),
+    bytesAfter: count(cold.bytesAfter),
+    last,
+  };
+}
 
 export type LifecycleReceipt = {
   id: string;
@@ -262,6 +296,7 @@ export type SessionMark = "input" | "running" | "error" | "unread" | undefined;
 export function sessionEntry(session: Record<string, any> & { sessionId: string }): AcpmuxSessionEntry {
   const pending = Number(session.pendingPermissions ?? 0);
   const turn = chiefTurn(session.tags);
+  const cold = coldArchive(session.coldArchive);
   return {
     sessionId: session.sessionId,
     displayTitle: sessionTitle(session),
@@ -294,6 +329,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     // a list's preview reads the message.
     preview: shown(session.preview),
     lastMessage: shown(session.lastMessage?.text) ?? shown(session.preview),
+    ...(cold && { coldArchive: cold }),
     parentId: text(session.parentId),
     spawnedBy: text(session.spawnedBy),
     startedBy: text(session.startedBy),

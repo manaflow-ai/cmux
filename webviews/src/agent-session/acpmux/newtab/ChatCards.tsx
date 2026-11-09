@@ -19,6 +19,7 @@ export function ChatCards({
   onOpen,
   onOpenInTerminal,
   onShowAll,
+  onColdArchive,
 }: {
   cards: ChatCard[];
   /** The first session-list read has not settled; populated cards stay visible. */
@@ -32,6 +33,9 @@ export function ChatCards({
   onOpenInTerminal?(sessionId: string): void;
   /// "All Chats >"; omitted when the page shows All chats itself.
   onShowAll?(): void;
+  /// The card menu's Archive Chat and Unarchive (acpmux `_acpmux/cold_archive`): an acpmux chat's
+  /// log goes into its cold archive, or comes back. Omitted where the page cannot ask acpmux.
+  onColdArchive?(sessionId: string, archived: boolean): void;
 }) {
   const nt = useNt();
   const t = useT();
@@ -51,12 +55,14 @@ export function ChatCards({
       className="nt-card"
       data-state={card.state}
       data-child={child ? "" : undefined}
+      data-archived={card.archived ? "" : undefined}
       aria-label={nt("card.open", { title: card.title })}
       {...pressToOpen(() => onOpen(card.sessionId))}
     >
       <span className="nt-card-meta">
         <AgentMark harness={card.harness} />
         <span className="nt-card-age">{card.age}</span>
+        {card.archived && <span className="nt-card-badge">{nt("card.archived")}</span>}
       </span>
       <span className="nt-card-title">{card.title}</span>
       {(card.state !== "idle" || card.message) && (
@@ -115,7 +121,8 @@ export function ChatCards({
       ) : (
         <div ref={list} className="nt-cards" data-variant={variant}>
           {cards.map((card) => (
-            // Its right-click menu: Open, and Open in Terminal (cx-2lm4).
+            // Its right-click menu: Open, Open in Terminal (cx-2lm4), and an acpmux chat's Archive
+            // Chat or Unarchive.
             <ContextMenu
               key={card.sessionId}
               className="nt-card-host"
@@ -127,6 +134,15 @@ export function ChatCards({
                         id: "terminal",
                         label: t("shell.openInTerminal"),
                         onSelect: () => onOpenInTerminal(card.sessionId),
+                      },
+                    ]
+                  : []),
+                ...(onColdArchive && !card.chatKey
+                  ? [
+                      {
+                        id: "cold-archive",
+                        label: nt(card.archived ? "card.unarchive" : "card.archiveChat"),
+                        onSelect: () => onColdArchive(card.sessionId, !card.archived),
                       },
                     ]
                   : []),

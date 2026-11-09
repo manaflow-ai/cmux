@@ -131,6 +131,7 @@ mod log_load;
 #[cfg(test)]
 pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
 mod cold_archive;
+pub(crate) use cold_archive::COLD_CHANGED;
 mod machine_info;
 mod repo_sync;
 mod retention;

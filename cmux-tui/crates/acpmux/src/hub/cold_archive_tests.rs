@@ -70,7 +70,11 @@ async fn archive_lists_from_its_preview_and_opens_back() {
     };
     let (_, hub) = open(&root.0);
     let session = hub.resolve("old").unwrap();
+    let mut heard = hub.subscribe();
     let summary = hub.cold_archive_request(session.clone(), true).await.unwrap();
+    // The watchers hear the row's change, with nothing logged for it.
+    let ev = heard.try_recv().unwrap();
+    assert_eq!((ev.session_id.as_str(), ev.record.dir.as_str()), ("old", COLD_CHANGED));
     let cold = &summary["coldArchive"];
     assert_eq!(cold["messages"], json!(10), "{summary}");
     let last = cold["last"].as_array().unwrap();

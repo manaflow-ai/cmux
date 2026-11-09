@@ -1853,6 +1853,25 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         }
         return;
     }
+    // A chat's cold archive came or went (`hub/cold_archive.rs`): its row's `coldArchive`. Not a
+    // logged record, so nothing but this notice goes out for it.
+    if ev.record.dir == crate::hub::COLD_CHANGED {
+        let attached = conn.sub_opts(&ev.session_id).is_some();
+        if (attached || conn.watch_all.load(Ordering::SeqCst))
+            && let Ok(s) = hub.resolve(&ev.session_id)
+        {
+            let session = if attached || conn.watch_tools.load(Ordering::SeqCst) {
+                hub.session_summary(&s)
+            } else {
+                hub.session_list_summary(&s)
+            };
+            conn.send(&Message::notification(
+                method::MUX_SESSION_CHANGED,
+                json!({"sessionId": ev.session_id, "session": session, "kind": crate::hub::COLD_CHANGED, "recordKind": crate::hub::COLD_CHANGED, "seq": s.meta().last_seq}),
+            ));
+        }
+        return;
+    }
     chats::push_activity(hub, conn, &ev);
     processes::push_update(conn, &ev);
     let rec = &ev.record;

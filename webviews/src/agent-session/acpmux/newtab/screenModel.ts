@@ -538,6 +538,9 @@ export type ChatCard = {
   message?: string;
   /// `failed`: its last turn failed (the chat itself is fine); `error`: it lost its agent.
   state: "idle" | "input" | "running" | "failed" | "error" | "unread";
+  /// Its log is in acpmux's cold archive: the card is drawn from the preview alone (its last
+  /// message), badged Archived; opening it brings the log back.
+  archived?: true;
   /// The chats its agent started (acpmux `spawnedBy`, a device chat's `parent`), newest first:
   /// listed under it, never on their own.
   children?: ChatCard[];
@@ -621,14 +624,18 @@ function liveChatCards(
 }
 
 function sessionCard(session: AcpmuxSessionEntry, now: number, t: Translate): ChatCard {
+  // An archived chat's card reads its cold preview only: its last message.
+  const cold = session.coldArchive;
+  const message = cold ? (cold.last.at(-1)?.text ?? session.preview) : session.preview;
   return {
     sessionId: session.sessionId,
     title: session.displayTitle ?? session.sessionId,
     ...(session.agentSessionId ? { chatId: session.agentSessionId } : {}),
     ...(session.harness ? { harness: session.harness } : {}),
     age: ageLabel(activityTime(session), now, t),
-    ...(session.preview ? { message: session.preview } : {}),
+    ...(message ? { message } : {}),
     state: session.indicator === "failed" ? "failed" : (sessionMark(session, false) ?? "idle"),
+    ...(cold && { archived: true as const }),
   };
 }
 

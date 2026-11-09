@@ -17,8 +17,11 @@
 //!
 //! The log comes back on its own: opening the chat (`session_log_at`), a replay
 //! (`scan_events`, `events`) or any other read of the log rehydrates it, byte for byte, and the
-//! preview is dropped. A read through the store alone (a search, `acpmux stats` skips them) leaves
-//! a stale preview that the next pass clears.
+//! preview is dropped. Any rehydrate, on any path (a search's read through the store too), calls
+//! the store's hook (`watch_rehydrates`), and `rehydrate_worker` drops that chat's preview from
+//! `session.json` right after; one a crash left behind goes at the next start (`cold_at_start`).
+//! Each change of a chat's archive goes to the watchers as a `session_changed` (`cold_changed`):
+//! no record is logged for it, since a write to the log brings the archive back.
 //!
 //! `_acpmux/cold_archive {sessionId, archived}` archives one chat now (`archived: true`) or brings
 //! it back (`false`). With `agents.chats.coldArchive` on (off by default), the retention worker
@@ -28,6 +31,10 @@
 
 use super::*;
 use crate::store::{ColdPreview, PreviewMessage};
+
+/// The `dir` and `kind` of the unlogged hub event that says a chat's archive came or went
+/// (`cold_changed`); `server::deliver` sends it as a `session_changed`.
+pub(crate) const COLD_CHANGED: &str = "cold_archive";
 
 /// The messages a preview keeps.
 const PREVIEW_MESSAGES: usize = 3;
@@ -165,6 +172,7 @@ impl Hub {
         // A failed save leaves the chat archived without its preview: it lists as before, and its
         // first read brings it back.
         self.save_meta(session);
+        self.cold_changed(session);
         tracing::info!(
             session = %session.id,
             before = stats.bytes_before,
@@ -182,7 +190,28 @@ impl Hub {
         if had {
             self.save_meta(session);
         }
+        if back || had {
+            self.cold_changed(session);
+        }
         Ok(back || had)
+    }
+
+    /// Tells the watchers `session`'s row changed: its `coldArchive` came or went. Not a logged
+    /// record (an append would bring the archive back), so it has no seq.
+    pub(super) fn cold_changed(&self, session: &Session) {
+        let _ = self.events.send(HubEvent {
+            session_id: session.id.clone(),
+            record: Arc::new(EventRecord {
+                seq: 0,
+                at: now_ms(),
+                dir: COLD_CHANGED.into(),
+                kind: COLD_CHANGED.into(),
+                msg: json!({}),
+                host_seq: None,
+            }),
+            remote: None,
+            update_line: Default::default(),
+        });
     }
 
     /// Installs the store's rehydrate hook: the chat's id goes in `cold_rehydrated` and the
@@ -213,6 +242,7 @@ impl Hub {
             let had = session.meta.lock().unwrap_or_else(|e| e.into_inner()).cold.take().is_some();
             if had {
                 self.save_meta(&session);
+                self.cold_changed(&session);
                 dropped += 1;
             }
         }
