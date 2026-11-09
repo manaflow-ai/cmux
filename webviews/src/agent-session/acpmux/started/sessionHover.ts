@@ -120,6 +120,9 @@ export class SessionHoverStore {
   /// The entries in the last list, a session listed twice counted twice: with ``from``'s size it
   /// shows a list that held a duplicate, which the patch path cannot read.
   private count = -1;
+  /// The last list's ids in order: the agent-link indexes take the first chat that matches, so a
+  /// reordered list rebuilds them.
+  private order: string[] = [];
   private readonly listeners = new Set<() => void>();
 
   /// Replaces the cards with `sessions`'; a card whose content did not change keeps its object.
@@ -163,6 +166,7 @@ export class SessionHoverStore {
     this.hosts = hosts;
     this.from = from;
     this.count = sessions.length;
+    this.order = sessions.map((entry) => entry.sessionId);
     if (changed) for (const listener of this.listeners) listener();
   }
 
@@ -173,7 +177,9 @@ export class SessionHoverStore {
     if (sessions.length !== this.from.size || sessions.length !== this.count) return false;
     const changed: AcpmuxSessionEntry[] = [];
     const seen = new Set<string>();
-    for (const entry of sessions) {
+    for (let at = 0; at < sessions.length; at++) {
+      const entry = sessions[at]!;
+      if (entry.sessionId !== this.order[at]) return false;
       const before = this.from.get(entry.sessionId);
       // Equal length with every id known can still hide one listed twice in place of another.
       if (!before || seen.has(entry.sessionId)) return false;
