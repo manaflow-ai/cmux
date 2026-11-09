@@ -265,14 +265,40 @@ pub fn pending_hint(request: &Value, session: &str) -> String {
 /// policy asks before some tools run, and only the cmux app can allow
 /// those (the CLI may deny or cancel). None when its policy never asks
 /// (approve-all) or denies by itself (deny-all), or is not known.
+///
+/// A daemon default of ask, approve-reads or approve-edits is not the chat's own policy and does
+/// not change its mode (chats start in full access, `hub/policy_gate.rs`): in a mode that runs
+/// tools unasked (`web_modes::NON_ASKING_MODES`, such as `bypassPermissions` from the harness's
+/// settings) nothing asks, so the note says that and how to hold the policy (W5-S, bench round
+/// 4 friction 6, 2026-11-08). In Japanese for a Japanese locale.
 pub fn app_allow_note(info: &Value, session: &str) -> Option<String> {
     use crate::config::PermissionPolicy;
     // A session's own policy, else the daemon default it runs under.
-    let policy = info.get("policy").and_then(Value::as_str);
-    let policy = policy.or_else(|| info.pointer("/enforcement/policy").and_then(Value::as_str));
+    let own = info.get("policy").and_then(Value::as_str);
+    let policy = own.or_else(|| info.pointer("/enforcement/policy").and_then(Value::as_str));
     let policy: PermissionPolicy = policy?.parse().ok()?;
     if matches!(policy, PermissionPolicy::ApproveAll | PermissionPolicy::DenyAll) {
         return None;
+    }
+    let mode = info.pointer("/modes/currentModeId").and_then(Value::as_str);
+    let held_default = policy == PermissionPolicy::Review;
+    if let Some(mode) =
+        mode.filter(|m| own.is_none() && !held_default && crate::web_modes::non_asking(m))
+    {
+        let japanese = crate::cli::sender::japanese(|k| std::env::var(k).ok());
+        return Some(if japanese {
+            format!(
+                "注意: {session} はモード {mode} でツールを確認なしで実行します。ポリシー {policy} は\
+                 デーモンの既定値にすぎず、このセッションには適用されません。適用するには \
+                 `acpmux session set {session} policy={policy}` を実行するか、--policy {policy} で開始してください。"
+            )
+        } else {
+            format!(
+                "note: {session} runs tools without asking (mode {mode}); policy {policy} is only \
+                 the daemon default and does not hold here. To hold it: `acpmux session set \
+                 {session} policy={policy}`, or start it with --policy {policy}."
+            )
+        });
     }
     Some(format!(
         "note: {session} asks before some tools run (policy {policy}); only the cmux app can allow that (the chat's permission card). From here, `acpmux session deny {session}` or `acpmux session cancel {session}`."
