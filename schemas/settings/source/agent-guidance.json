@@ -36,7 +36,7 @@
         {
           "key": "agents.guidance.codex",
           "name": "guidanceCodex",
-          "note": "On: a new Codex chat gets cmux's chat guidance (agent_guidance.rs AGENT_GUIDANCE) as its developer instructions, or as first-turn context when its Codex config sets developer_instructions itself.",
+          "note": "On: a new Codex chat gets cmux's chat guidance (agent_guidance.rs AGENT_GUIDANCE) as its developer instructions, after any developer_instructions its own Codex config sets.",
           "title": {
             "key": "settings.agents.guidance.codex",
             "text": "cmux Guidance for Codex"

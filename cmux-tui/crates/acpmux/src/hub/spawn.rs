@@ -332,10 +332,9 @@ impl Hub {
         // prefix every chat shares, never a hidden addition after the person's first prompt.
         // A remote-origin chat captures none.
         if !meta.remote_origin {
-            p.argv.extend(crate::context_inventory::launch_args(
-                meta.cmux_context.as_deref(),
-                profile,
-            ));
+            let rules =
+                crate::context_inventory::launch_args(meta.cmux_context.as_deref(), &p, &meta.cwd);
+            p.argv.extend(rules);
         }
         // Claude Code defers MCP tools behind its tool search, which it turns
         // off by itself behind a router; the cmux server lists every tool

@@ -145,28 +145,41 @@ pub fn codex_args(args: Vec<String>, configs: &[toml::Table]) -> Vec<String> {
     lifted
 }
 
-/// Whether a `codex app-server` launch of `args` in `cwd` (`home`: the profile's `CODEX_HOME`)
-/// already has the dotted config `key`: from its command line, or from codex's own config
-/// (`config.toml`, its active profile, the project's), as [`codex_args`] reads them.
-pub fn codex_sets(
+/// The string a `codex app-server` launch of `args` in `cwd` (`home`: its `CODEX_HOME`) has
+/// for the config `key`: the last `-c`/`--config` setting on its command line (as Codex reads
+/// them, the last wins), else its active profile's in Codex's config files, else the files'
+/// own (nearest first, as [`codex_args`] reads them). None when nothing sets it.
+pub fn codex_string(
     args: &[String],
     cwd: &std::path::Path,
     home: Option<std::path::PathBuf>,
     key: &str,
-) -> bool {
-    if sets_codex_key(args, key) {
-        return true;
+) -> Option<String> {
+    let sets = |v: &str| v.split_once('=').is_some_and(|(k, _)| k.trim() == key);
+    let mut on_line = None;
+    for (i, a) in args.iter().enumerate() {
+        let assignment = match a.as_str() {
+            "-c" | "--config" => args.get(i + 1).map(String::as_str),
+            _ => a.strip_prefix("--config="),
+        };
+        if let Some(v) = assignment.filter(|v| sets(v)) {
+            // Codex parses the value as TOML, and takes it as a bare string when it is not.
+            let parsed = v
+                .parse::<toml::Table>()
+                .ok()
+                .and_then(|t| t.get(key).and_then(toml::Value::as_str).map(str::to_owned));
+            on_line = Some(parsed.unwrap_or_else(|| v.split_once('=').unwrap().1.trim().into()));
+        }
+    }
+    if on_line.is_some() {
+        return on_line;
     }
     let configs = codex_configs(cwd, home);
     let profile = codex_profile(args, &configs);
-    configs.iter().any(|c| {
-        toml_has(c, key)
-            || profile.as_ref().is_some_and(|p| {
-                c.get("profiles")
-                    .and_then(|ps| ps.get(p.as_str()))
-                    .is_some_and(|t| t.as_table().is_some_and(|t| toml_has(t, key)))
-            })
-    })
+    let in_profile = profile.as_ref().and_then(|p| {
+        configs.iter().find_map(|c| c.get("profiles")?.get(p.as_str())?.get(key)?.as_str())
+    });
+    in_profile.or_else(|| configs.iter().find_map(|c| c.get(key)?.as_str())).map(str::to_owned)
 }
 
 /// Codex's config files that apply in `cwd`: `.codex/config.toml` in `cwd`
