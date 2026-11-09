@@ -99,4 +99,32 @@ struct AgentPaneRemoteChatShellTests {
         #expect(Self.code(reply) == "shell.failed")
         #expect((reply["error"] as? [String: Any])?["userMessage"] as? String == AgentPaneModel.shellFailureMessage(AgentPaneShell.Failure.tooMany))
     }
+
+    private static func settle(_ machine: Machine, stops count: Int) async {
+        for _ in 0..<200 where machine.stops.count < count { await Task.yield() }
+    }
+
+    @Test func aRunningCommandKeepsItsMachinePastSixteenFinishedOnes() async {
+        let machine = Machine()
+        let shell = Self.model(machine).shell
+        shell.noteMachineRun("long", on: machine)
+        for index in 0..<AgentPaneShell.maximumKept {
+            shell.noteMachineRun("short_\(index)", on: machine)
+            shell.noteMachineExit("short_\(index)")
+        }
+        #expect(shell.machineShell(of: "long") != nil, "reads and Stop still reach the running command")
+        shell.terminateAll()
+        await Self.settle(machine, stops: 1)
+        #expect(machine.stops == ["long"], "closing the pane stops what still runs, and only that")
+    }
+
+    @Test func aStartThatAnswersAfterThePaneClosedIsStopped() async {
+        let machine = Machine()
+        let shell = Self.model(machine).shell
+        shell.terminateAll()
+        shell.noteMachineRun("late", on: machine)
+        await Self.settle(machine, stops: 1)
+        #expect(machine.stops == ["late"])
+        #expect(shell.machineShell(of: "late") == nil)
+    }
 }

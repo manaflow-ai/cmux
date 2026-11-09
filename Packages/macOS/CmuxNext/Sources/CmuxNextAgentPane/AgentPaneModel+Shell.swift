@@ -19,10 +19,12 @@ extension AgentPaneModel {
             }
         case .shellRead(let id, let after):
             do {
-                let chunk = if let link = shell.machineShell(of: id) {
-                    try await link.readShell(id, after: after)
+                let chunk: AgentPaneShell.Chunk
+                if let link = shell.machineShell(of: id) {
+                    chunk = try await link.readShell(id, after: after)
+                    if chunk.exit != nil { shell.noteMachineExit(id) }
                 } else {
-                    try await shell.read(id, after: after)
+                    chunk = try await shell.read(id, after: after)
                 }
                 return Self.shellReply(chunk)
             } catch {

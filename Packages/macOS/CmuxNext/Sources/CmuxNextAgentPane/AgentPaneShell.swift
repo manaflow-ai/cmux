@@ -34,8 +34,11 @@ public final class AgentPaneShell {
     public var machine: (@MainActor () -> (any AgentPaneMachineShell)?)?
     /// This pane's name on a machine's daemon, which caps running commands per pane.
     let machineScope = UUID().uuidString
-    /// Commands started on a chat's machine, oldest first, each with the link it went to.
-    private var machineRuns: [(id: String, link: any AgentPaneMachineShell)] = []
+    /// Commands started on a chat's machine, oldest first, each with the link it went to and
+    /// whether a read saw it end. Only an ended one is forgotten past ``maximumKept``.
+    private var machineRuns: [(id: String, link: any AgentPaneMachineShell, ended: Bool)] = []
+    /// The pane closed: a command whose start answers after this is stopped at once.
+    private var closed = false
 
     public nonisolated struct Exit: Equatable, Sendable {
         public var code: Int32?
@@ -237,16 +240,30 @@ public final class AgentPaneShell {
             kill(-run.pid, SIGHUP)
             kill(-run.pid, SIGCONT)
         }
-        for (id, link) in machineRuns {
+        closed = true
+        for (id, link, ended) in machineRuns where !ended {
             // task-owner: one bounded request; a command that already ended is left as it is.
             Task { await link.stopShell(id) }
         }
     }
 
     /// `id` runs on a chat's machine through `link`; reads and Stop for it go there.
+    /// A start that answers after the pane closed is stopped there, so it outlives no pane.
     func noteMachineRun(_ id: String, on link: any AgentPaneMachineShell) {
-        machineRuns.append((id, link))
-        if machineRuns.count > Self.maximumKept { machineRuns.removeFirst(machineRuns.count - Self.maximumKept) }
+        if closed {
+            // task-owner: one bounded request, for a command no pane shows.
+            Task { await link.stopShell(id) }
+            return
+        }
+        machineRuns.append((id, link, false))
+        while machineRuns.count > Self.maximumKept, let index = machineRuns.firstIndex(where: { $0.ended }) {
+            machineRuns.remove(at: index)
+        }
+    }
+
+    /// A read saw `id` end on its machine: it may now be forgotten, and closing the pane leaves it.
+    func noteMachineExit(_ id: String) {
+        if let index = machineRuns.lastIndex(where: { $0.id == id }) { machineRuns[index].ended = true }
     }
 
     /// The link of a command started on a chat's machine; nil for one of this Mac.
