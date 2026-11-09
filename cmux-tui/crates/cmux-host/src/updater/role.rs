@@ -425,13 +425,22 @@ pub fn check(paths: &Paths) -> Outcome {
     outcome
 }
 
-/// Runs one check (`inner`, given its start in wall ms from `clock`).
+/// Runs one check (`inner`, given its start in wall ms from `clock`), then
+/// looks at its wall time on every way out but a flip (which looked right
+/// before it): a check that returned early after a stop (a busy look that
+/// timed out across a pause) starts the connect hold, or the next wait's
+/// clock would start after the resume and a flip could follow a minute later.
 pub(super) fn check_step(
-    _paths: &Paths,
+    paths: &Paths,
     clock: &dyn Fn() -> u64,
     inner: impl FnOnce(u64) -> Outcome,
 ) -> Outcome {
-    inner(clock())
+    let started = clock();
+    let outcome = inner(started);
+    if !matches!(outcome, Outcome::Updating(_)) {
+        hold_if_stopped(paths, started, clock(), CHECK_BOUND);
+    }
+    outcome
 }
 
 fn check_inner(paths: &Paths, started: u64) -> Outcome {
