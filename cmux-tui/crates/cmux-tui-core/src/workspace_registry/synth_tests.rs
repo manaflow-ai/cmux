@@ -133,3 +133,45 @@ fn bumping_an_existing_registry_keeps_its_roster_cursor_and_snapshot() {
     assert_eq!(bump_roster_version(&report.registry_path).unwrap(), None);
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// A registry copied without its state root's pepper does not open in a new
+/// root; bound to a new pepper there, it opens with its workspaces.
+#[test]
+fn a_registry_copied_without_its_pepper_opens_once_rebound() {
+    let root = temp_root("pepper-source");
+    let options = SynthOptions {
+        session: "synth-source".into(),
+        session_puts: 20,
+        agent_events: 10,
+        workspaces: 2,
+        batch_rows: 16,
+        ..SynthOptions::default()
+    };
+    let report = generate(&root, &options).unwrap();
+    let copy_root = temp_root("pepper-copy");
+    let copy = registry_path(&copy_root, "synth-copy");
+    std::fs::create_dir_all(copy.parent().unwrap()).unwrap();
+    std::fs::copy(&report.registry_path, &copy).unwrap();
+    let open =
+        || crate::Mux::open_persistent("synth-copy", crate::SurfaceOptions::default(), &copy_root);
+
+    let refused = format!("{:#}", open().err().expect("a registry without its pepper opens"));
+    assert!(refused.contains("pepper"), "{refused}");
+    rebind_resource_pepper(&copy_root, &copy).unwrap();
+    let mux = open().unwrap();
+    let names = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .snapshot()
+        .unwrap()
+        .workspaces
+        .into_iter()
+        .filter(|workspace| workspace.name.starts_with("synth "))
+        .count();
+    mux.shutdown();
+    drop(mux);
+    assert_eq!(names, 2);
+    let _ = std::fs::remove_dir_all(root);
+    let _ = std::fs::remove_dir_all(copy_root);
+}

@@ -30,6 +30,10 @@
 //! - `--print-registry-path`: print the registry path an owner of
 //!   `--session` opens below `--out`, and exit
 //! - `--print-roster-version`: print the current roster reducer version
+//! - `--rebind-pepper --out ROOT --registry PATH`: write a new resource
+//!   receipt pepper in ROOT and bind that registry to it
+//!   (`synth_registry::rebind_resource_pepper`), for a copy whose own
+//!   pepper is not at hand. Only on a copy
 //! - `--bump-only --registry PATH`: set that registry's roster snapshot one
 //!   version behind (`synth_registry::bump_roster_version`), and print
 //!   `{"roster_version_before":V|null,"roster_version":V,...}`. Only on a
@@ -38,14 +42,15 @@
 use std::path::PathBuf;
 
 use cmux_tui_core::synth_registry::{
-    ROSTER_REDUCER_VERSION, SynthOptions, bump_roster_version, generate, registry_path,
+    ROSTER_REDUCER_VERSION, SynthOptions, bump_roster_version, generate, rebind_resource_pepper,
+    registry_path,
 };
 
 fn main() -> anyhow::Result<()> {
     let mut options = SynthOptions { progress: true, ..SynthOptions::default() };
     let mut out = None;
     let mut registry = None;
-    let (mut print_registry_path, mut bump_only) = (false, false);
+    let (mut print_registry_path, mut bump_only, mut rebind_pepper) = (false, false, false);
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         let mut value = || args.next().ok_or_else(|| anyhow::anyhow!("{arg} needs a value"));
@@ -64,6 +69,7 @@ fn main() -> anyhow::Result<()> {
             "--registry" => registry = Some(PathBuf::from(value()?)),
             "--print-registry-path" => print_registry_path = true,
             "--bump-only" => bump_only = true,
+            "--rebind-pepper" => rebind_pepper = true,
             "--print-roster-version" => {
                 println!("{ROSTER_REDUCER_VERSION}");
                 return Ok(());
@@ -86,6 +92,11 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
     let out = out.ok_or_else(|| anyhow::anyhow!("--out DIR is required"))?;
+    if rebind_pepper {
+        let registry =
+            registry.ok_or_else(|| anyhow::anyhow!("--rebind-pepper needs --registry"))?;
+        return rebind_resource_pepper(&out, &registry);
+    }
     if print_registry_path {
         println!("{}", registry_path(&out, &options.session).display());
         return Ok(());

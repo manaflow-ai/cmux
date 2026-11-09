@@ -19,12 +19,17 @@
 # drs opens it (`cp -c` on macOS: an APFS clone, instant and no extra disk, so CMUX_DRS_SCRATCH
 # must be on the same volume; `cp --reflink=auto` on Linux). Only the clone is ever opened
 # read-write; the source is only read by cp. bump=1 sets the clone's roster snapshot one version
-# behind first (synth_registry --bump-only), bump=0 starts it as it is. DRS-REG {json} replaces
-# DRS-GEN: sizes, journal head and roster version as found. The report holds only sizes, counts,
-# versions and timings, no paths or row contents. The scratch dir with the clone goes at exit.
+# behind first (synth_registry --bump-only), bump=0 starts it as it is. An owner opens a registry
+# only with its state root's resource receipt pepper: pepper=/path/to/resource-effect-pepper
+# (default: the one two levels up from the registry, its state root, with machine-id beside it)
+# is copied next to the clone; with pepper=new, or none found, the clone is bound to a new one
+# (synth_registry --rebind-pepper). The pepper is a secret: copied, never printed. DRS-REG {json}
+# replaces DRS-GEN: sizes, journal head and roster version as found. The report holds only sizes,
+# counts, versions and timings, no paths or row contents. The scratch dir with the clone goes at
+# exit. An owner that exits before ready leaves its last log line on stderr (DRS-OWNER-EXIT).
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-size_gb=2 bump=1 seal=1 output_gb=0 rounds=1 ready_timeout=3600 registry=
+size_gb=2 bump=1 seal=1 output_gb=0 rounds=1 ready_timeout=3600 registry= pepper=
 for kv in "$@"; do
   case "$kv" in
     size_gb=*) size_gb="${kv#*=}" ;;
@@ -34,6 +39,7 @@ for kv in "$@"; do
     rounds=*) rounds="${kv#*=}" ;;
     ready_timeout=*) ready_timeout="${kv#*=}" ;;
     registry=*) registry="${kv#*=}" ;;
+    pepper=*) pepper="${kv#*=}" ;;
     *) echo "error: unknown argument $kv" >&2; exit 2 ;;
   esac
 done
@@ -82,6 +88,20 @@ if [[ -n "$registry" ]]; then
     fi
     chmod 600 "$clone$suffix"
   done
+  # The owner refuses a registry without its root's pepper (resource_effect_pepper_id).
+  source_root="$(dirname "$(dirname "$registry")")"
+  [[ -n "$pepper" ]] || pepper="$source_root/resource-effect-pepper"
+  if [[ "$pepper" != new && -f "$pepper" ]]; then
+    cp "$pepper" "$scratch/state/resource-effect-pepper"
+    chmod 600 "$scratch/state/resource-effect-pepper"
+    if [[ -f "$(dirname "$pepper")/machine-id" ]]; then
+      cp "$(dirname "$pepper")/machine-id" "$scratch/state/machine-id"
+    fi
+    pepper_source=copied
+  else
+    "$synth" --rebind-pepper --out "$scratch/state" --registry "$clone"
+    pepper_source=new
+  fi
   # Sizes, journal head and roster as found, read-only on the clone.
   python3 - "$clone" "$(( $(date +%s) - clone_started ))" > "$out/found.json" <<'PY'
 import json, os, sqlite3, sys
@@ -113,8 +133,8 @@ PY
     echo "{\"roster_current_version\":$("$synth" --print-roster-version)}" > "$out/bump.json"
   fi
   python3 -c 'import json, sys; found, bumped = (json.load(open(p)) for p in sys.argv[1:3])
-found.update(source="registry", bumped=bumped); print(json.dumps(found))' \
-    "$out/found.json" "$out/bump.json" > "$out/generate.json"
+found.update(source="registry", pepper=sys.argv[3], bumped=bumped); print(json.dumps(found))' \
+    "$out/found.json" "$out/bump.json" "$pepper_source" > "$out/generate.json"
   echo "DRS-REG $(cat "$out/generate.json")"
 else
   if (( free_gb < size_gb * 3 )); then

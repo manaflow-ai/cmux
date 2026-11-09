@@ -57,7 +57,10 @@ use super::session_journal::{
     JournalAppend, append_journal_record, query_journal_head, query_session_journal_after,
     write_journal_reducer_state,
 };
-use super::{Actor, WORKSPACE_REGISTRY_FILE, WorkspaceRegistry, persistent_session_state_dir};
+use super::{
+    Actor, RESOURCE_EFFECT_PEPPER_FILE, RESOURCE_EFFECT_PEPPER_META_KEY, WORKSPACE_REGISTRY_FILE,
+    WorkspaceRegistry, persistent_session_state_dir, root_identity,
+};
 use crate::journal_reducers::{
     AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster, RosterEvent,
 };
@@ -774,6 +777,24 @@ pub fn bump_roster_version(registry_path: &Path) -> anyhow::Result<Option<u32>> 
         snapshot,
     )?;
     Ok(Some(version))
+}
+
+/// Bind a copied registry to a new resource receipt pepper in `state_root`,
+/// for a copy whose state root's pepper did not come with it: an owner
+/// refuses a registry whose `resource_effect_pepper_id` does not match its
+/// root's pepper. Receipts written under the old pepper no longer verify,
+/// which a start never needs. Only on a copy: it writes to the file.
+pub fn rebind_resource_pepper(state_root: &Path, registry_path: &Path) -> anyhow::Result<()> {
+    let path = state_root.join(RESOURCE_EFFECT_PEPPER_FILE);
+    anyhow::ensure!(!path.exists(), "{} already exists", path.display());
+    let pepper = root_identity::create_pepper(state_root, &path, false)?;
+    let connection = Connection::open(registry_path)?;
+    connection.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![RESOURCE_EFFECT_PEPPER_META_KEY, pepper.identifier()],
+    )?;
+    Ok(())
 }
 
 /// The registry file of `session` below `state_root`.
