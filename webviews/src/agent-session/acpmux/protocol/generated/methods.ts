@@ -75,6 +75,7 @@ export interface AcpmuxRequests {
   "_acpmux/waiting_day": { params: unknown; result: unknown };
   "_acpmux/workspace_purge": { params: unknown; result: unknown };
   "_acpmux/review_queue": { params: unknown; result: unknown };
+  "_acpmux/review_brief": { params: unknown; result: unknown };
   "_acpmux/review_verdict": { params: unknown; result: unknown };
   "_acpmux/audit": { params: unknown; result: unknown };
   "_acpmux/github_action": { params: unknown; result: unknown };
@@ -414,6 +415,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/waiting_day", kind: "request", acp: false, typed: false },
   { name: "_acpmux/workspace_purge", kind: "request", acp: false, typed: false },
   { name: "_acpmux/review_queue", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/review_brief", kind: "request", acp: false, typed: false },
   { name: "_acpmux/review_verdict", kind: "request", acp: false, typed: false },
   { name: "_acpmux/audit", kind: "request", acp: false, typed: false },
   { name: "_acpmux/github_action", kind: "request", acp: false, typed: false },
