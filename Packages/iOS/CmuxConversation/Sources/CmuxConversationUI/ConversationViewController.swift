@@ -37,6 +37,20 @@ public struct ConversationPresentationOptions {
 public final class ConversationViewController: UIViewController {
     public let store: ConversationStore
     public var onBack: (() -> Void)?
+    /// Room a host keeps under the header for its own pinned row (Chief's
+    /// question bar, upstream request U8), as Messages pins a business
+    /// chat's request under its navigation bar: the transcript starts this
+    /// much lower, so no bubble is ever under the row, and the header (its
+    /// back button above all) stays where it always is.
+    public var headerAccessoryRoom: CGFloat = 0 {
+        didSet {
+            guard oldValue != headerAccessoryRoom, isViewLoaded else { return }
+            view.setNeedsLayout()
+        }
+    }
+    /// The header's bottom edge in this controller's view: a host places its
+    /// pinned row (``headerAccessoryRoom``) from here.
+    public var headerBottom: CGFloat { header.frame.maxY }
     /// Replaces the details page when the name or avatar is activated.
     public var onHeaderInfo: (() -> Void)?
     /// Runs only in the normal header state. Reply/edit/select still dismiss
@@ -550,7 +564,7 @@ public final class ConversationViewController: UIViewController {
         // Landscape (compact bar): the transcript starts at the bar's bottom
         // (Messages 27, iPhone 17 Pro Max: content inset 78 = 24 + 54).
         let spacing = options.header.transcriptTopSpacing ?? (header.isCompact ? 0 : 10.0 / 3.0)
-        let top = header.frame.maxY + max(0, spacing)
+        let top = header.frame.maxY + max(0, spacing) + max(0, headerAccessoryRoom)
         collectionView.edgeTopInset = options.header.scrollEdge == .system ? top : 0
         // The last body rests 16.71 pt above the field (ChatKit's send
         // lands it there on iOS 26 and 27): the field sits 4 pt into the

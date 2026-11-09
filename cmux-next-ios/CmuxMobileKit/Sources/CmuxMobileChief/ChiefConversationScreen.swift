@@ -382,10 +382,9 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         return host
     }()
 
-    /// One solid band from the top of the screen to just below the bar
-    /// (R3-1): no scrolled-out bubble shows behind the clock or around the
-    /// bar, so the status bar and the bar read as one top bar. Goes once the
-    /// package can host the bar under its header (UPSTREAM-REQUESTS.md U8).
+    /// One solid band behind the bar, from the header's bottom edge to just
+    /// below the bar (R3-1): no scrolled-out bubble shows around the bar, so
+    /// the bar reads as part of the top bar. The header keeps its own wash.
     private let topBand: UIView = {
         let band = UIView()
         band.backgroundColor = .systemBackground
@@ -401,24 +400,26 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         questionBar.didMove(toParent: self)
     }
 
-    /// The bar takes its own room (R2-1), as Messages' pinned rows do:
-    /// the conversation is inset from the top by the bar's height + 8 pt, so
-    /// its header and transcript start below the bar and nothing in the
-    /// conversation is ever under it. The bar sits in that room, under the
-    /// status bar. (CmuxConversation pins its header to the safe area and the
-    /// transcript to the header, so a safe-area inset moves both; a hook to
-    /// put the bar under the header is upstream request U8.)
+    /// The bar sits under the header, as Messages pins a business chat's
+    /// request under its name (U8), and takes its own room there: the
+    /// transcript starts the bar's height + 8 pt lower
+    /// (``ConversationViewController/headerAccessoryRoom``), so nothing in
+    /// the conversation is ever under it (R2-1). The header never moves:
+    /// the back button stays in the top-left corner whether or not Chief is
+    /// asking or messages wait to send (CMUX-25: the bar used to sit above
+    /// the header and push the back button about 70 pt down).
     private func layoutQuestionBar() {
         guard questionBar.parent === self else { return }
+        conversation.view.layoutIfNeeded()
         let size = questionBar.sizeThatFits(in: CGSize(width: view.bounds.width, height: .greatestFiniteMagnitude))
         let height = size.height < 1 ? 0 : size.height
-        let top = view.safeAreaInsets.top + 4
+        let top = conversation.view.convert(CGPoint(x: 0, y: conversation.headerBottom), to: view).y + 4
         questionBar.view.frame = CGRect(x: 0, y: top, width: view.bounds.width, height: height)
-        if height > 0 { topBand.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: top + height + 4) }
-        let inset: CGFloat = height > 0 ? height + 8 : 0
-        guard conversation.additionalSafeAreaInsets.top != inset else { return }
+        if height > 0 { topBand.frame = CGRect(x: 0, y: top - 4, width: view.bounds.width, height: height + 8) }
+        let room: CGFloat = height > 0 ? height + 8 : 0
+        guard conversation.headerAccessoryRoom != room else { return }
         let apply = { [conversation] in
-            conversation.additionalSafeAreaInsets.top = inset
+            conversation.headerAccessoryRoom = room
             conversation.view.layoutIfNeeded()
         }
         if view.window != nil, !UIAccessibility.isReduceMotionEnabled {
