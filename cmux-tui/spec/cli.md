@@ -944,8 +944,9 @@ Every `--pattern` regex (`screen wait`, `send`, `run`, and `agents wait
 `pane.move` request, which the daemon commits as one journaled change (a crash
 leaves the pane before or after the move; a retry with the same key replays
 the result). `--to-pane <q> --split right|down|left|up` puts the pane beside
-pane q, and `--to-workspace <w>` or `--new-screen` (alias `--new-tab`, the
-pane's own workspace) makes it the only pane of a new screen there, named
+pane q, and `--to-workspace <w>` (also with `--new-screen`) or `--new-screen`
+alone (alias `--new-tab`, the pane's own workspace) makes it the only pane of a
+new screen there, named
 `--name`: in these the pane keeps its id. `--to-pane <q>` without `--split`
 appends the tabs to pane q (at `--index <n>` if given), and `--to-tab <t>` puts
 them after tab t; the tabs keep their ids and the moved pane closes. With

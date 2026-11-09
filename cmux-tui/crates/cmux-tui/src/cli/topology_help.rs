@@ -150,8 +150,9 @@ instead of splitting again.
 move moves the whole pane, all its tabs in order (tmux join-pane and
 break-pane), in one change: a retry with the same --idempotency-key does not
 move it twice. With --to-pane and --split it goes beside that pane, with
---to-workspace into a new screen in that workspace, with --new-screen
-(--new-tab is the same) into a new screen in its own workspace: the pane keeps
+--to-workspace (with or without --new-screen) into a new screen in that
+workspace, with --new-screen (--new-tab is the same) alone into a new screen in
+its own workspace: the pane keeps
 its id. --to-pane without --split puts the tabs at the end of that pane (or at
 --index), --to-tab after that tab: the tabs keep their ids and the moved pane
 closes. With --to-pane or --to-tab, --to-workspace and --to-screen name that
