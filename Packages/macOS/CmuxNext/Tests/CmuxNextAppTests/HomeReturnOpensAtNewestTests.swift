@@ -102,27 +102,50 @@ import Testing
         try expectAtNewest(view, "shown again")
 
         // The window's Chief panel borrows the chat beside a link it opened: the link's workspace shows and
-        // Home is parked hidden, then the chat moves out of it into the visible panel in one turn
-        // (WindowRootView.show, ChiefPanelView.hold). It stays on screen, so the reader keeps their place.
+        // Home is parked hidden, then the chat's host moves out of it into the visible panel in one turn
+        // (WindowRootView.show, ChiefPanelView.hold moves `HomeHostView`). It stays on screen, so the reader
+        // keeps their place.
         let home = NSView(frame: container.bounds)
         container.addSubview(home)
+        let host = NSView(frame: container.bounds)
+        home.addSubview(host)
         view.removeFromSuperview()
-        home.addSubview(view)
+        view.frame = host.bounds
+        host.addSubview(view)
         await settle()
+        pass(window, view)
         try await scrollUp(window, view, "scrolled up before the Chief panel takes it")
         let before = try place(view, "before the Chief panel takes it").back
-        home.isHidden = true
-        await settle()
-        _ = try place(view, "parked hidden")
         let panel = NSView(frame: container.bounds)
         container.addSubview(panel)
-        view.removeFromSuperview()
+        home.isHidden = true
+        _ = try place(view, "parked hidden")
+        host.removeFromSuperview()
         _ = try place(view, "out of the parked Home")
-        panel.addSubview(view)
+        panel.addSubview(host)
         _ = try place(view, "into the Chief panel, same turn")
         await settle()
         pass(window, view)
         let held = try place(view, "in the Chief panel")
         #expect(!held.pinned && abs(held.back - before) < 1, "in the Chief panel: \(held.back) pt up, was \(before)")
+
+        // The panel gives it back to Home (shown again in the same turn): still the reader's place.
+        host.removeFromSuperview()
+        home.addSubview(host)
+        home.isHidden = false
+        await settle()
+        pass(window, view)
+        let back = try place(view, "given back to Home")
+        #expect(!back.pinned && abs(back.back - before) < 1, "given back to Home: \(back.back) pt up, was \(before)")
+
+        // Cmd-I opens the panel from a Home parked in an earlier turn: the person had not seen the chat, so it
+        // arrives at its newest message.
+        home.isHidden = true
+        await settle()
+        host.removeFromSuperview()
+        panel.addSubview(host)
+        await settle()
+        pass(window, view)
+        try expectAtNewest(view, "Cmd-I from a parked Home")
     }
 }

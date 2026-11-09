@@ -580,10 +580,11 @@ public final class HomeNativeTranscriptView: NSView {
         if newSuperview == nil { noteLeaving() }
     }
 
-    /// Leaving its window: a return into the same window before this turn ends is a move on screen
-    /// (``returnedToView``).
+    /// Leaving its window while the person sees it: a return into the same window before this turn ends is a
+    /// move on screen (``returnedToView``). A chat that was out of sight (a Home parked in an earlier turn,
+    /// which Cmd-I's Chief panel then takes) is not: it arrives at its newest message.
     private func noteLeaving() {
-        guard let window else { return }
+        guard let window, seenAtTurnEnd else { return }
         windowLeftThisTurn = ObjectIdentifier(window)
         leftWindowTurns += 1
         let turn = leftWindowTurns
@@ -598,6 +599,18 @@ public final class HomeNativeTranscriptView: NSView {
     private var windowLeftThisTurn: ObjectIdentifier?
     private var leftWindowTurns = 0
 
+    /// Whether the person could see this chat when the turn of its last hide, show or move ended. The link
+    /// case hides Home and moves the chat into the Chief panel in one turn, so it still reads the turn before.
+    private var seenAtTurnEnd = false
+
+    private func checkSeenAtTurnEnd() {
+        // task-owner: one main-actor turn; ends at once
+        Task { [weak self] in
+            guard let self else { return }
+            self.seenAtTurnEnd = self.inWindowViewTree && !self.isHiddenOrHasHiddenAncestor
+        }
+    }
+
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         observers = []
@@ -608,6 +621,7 @@ public final class HomeNativeTranscriptView: NSView {
         }
         guard let window else { return }
         // The toasts may have come or gone while the tab was out of the window.
+        checkSeenAtTurnEnd()
         CmuxToastAvoidance.reservingViewMoved(self, to: window)
         if attachmentPreparer != nil { attachmentPanel?.warmWhenIdle() }  // the "+" opens without making a panel
         observers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
@@ -625,8 +639,14 @@ public final class HomeNativeTranscriptView: NSView {
     }
 
     /// Shown again in the same window (a hidden tab or container unhidden): at the newest message too.
+    public override func viewDidHide() {
+        super.viewDidHide()
+        checkSeenAtTurnEnd()
+    }
+
     public override func viewDidUnhide() {
         super.viewDidUnhide()
+        checkSeenAtTurnEnd()
         // AppKit also sends this as the view leaves a hidden parent (the Chief panel takes it out of a parked
         // Home), before `window` is cleared: it is in no view tree then, and where it arrives decides.
         if returnedToView { showNewestOnReturn() }
@@ -643,6 +663,12 @@ public final class HomeNativeTranscriptView: NSView {
     /// moved inside its window in this turn (left it and came back: the Chief panel's take and give-back).
     private var returnedToView: Bool {
         guard let window, !isHiddenOrHasHiddenAncestor, windowLeftThisTurn != ObjectIdentifier(window) else { return false }
+        return inWindowViewTree
+    }
+
+    /// In its window's view tree: not in a subtree that is being taken out of it.
+    private var inWindowViewTree: Bool {
+        guard let window else { return false }
         let top = sequence(first: self as NSView, next: \.superview).reduce(self as NSView) { $1 }
         return top === window.contentView || top === window.contentView?.superview
     }
