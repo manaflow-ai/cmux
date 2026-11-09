@@ -229,12 +229,40 @@ test("with its room kept at the column's end, the strip is its full width in eve
   expect(css).toContain(`--cv-inset-end: max(var(--cv-inset), ${COMPUTER_USE_PREVIEW_RESERVE}px);`);
   // The strip steps aside for the computer use preview card at the same corner.
   expect(css).toMatch(/\.acpmux-main\[data-cu-preview\] \.acpmux-chat-minimap \{\s*visibility: hidden;/);
-  // The bands in the column above the composer end where the column does, so the strip lies over none.
-  const styles = await Bun.file(new URL("../src/agent-session/acpmux/styles.css", import.meta.url)).text();
-  for (const band of [".acpmux-open-app-cards{", ".acpmux-dictation-notice{", ".acpmux-composer-remote-note {"]) {
-    const rule = styles.slice(styles.indexOf(band), styles.indexOf("}", styles.indexOf(band)));
-    expect(rule).toContain("var(--cv-inset-end");
+  // Every band in the column ends where the column does (--cv-inset-end), so neither the strip nor the
+  // computer use preview lies over it: a padding or margin whose right side is the start inset alone
+  // fails here (Glob over the pane's CSS; galleries are fixtures).
+  const values = (value: string) => {
+    const parts: string[] = [];
+    let depth = 0;
+    let part = "";
+    for (const char of value.trim()) {
+      if (char === "(") depth += 1;
+      if (char === ")") depth -= 1;
+      if (char === " " && depth === 0) {
+        if (part) parts.push(part);
+        part = "";
+      } else part += char;
+    }
+    if (part) parts.push(part);
+    return parts;
+  };
+  const startOnly: string[] = [];
+  const root = new URL("../src/agent-session/acpmux/", import.meta.url).pathname;
+  for (const file of new Bun.Glob("**/*.css").scanSync(root)) {
+    if (file.endsWith(".gallery.css")) continue;
+    const text = await Bun.file(root + file).text();
+    for (const [, body] of text.matchAll(/\{([^{}]*)\}/g)) {
+      for (const [, prop, value] of body!.matchAll(/(?:^|[;\s])(padding|margin)\s*:\s*([^;]+)/g)) {
+        const right = values(value!.replace(/\s*,\s*/g, ",").replace(/\s*!important/, ""))[1];
+        const startInset = right?.startsWith("var(--cv-inset,") || right === "var(--cv-inset)";
+        // A longhand after it may give the right side the column's end.
+        if (startInset && !new RegExp(`${prop}-right\\s*:\\s*var\\(--cv-inset-end`).test(body!))
+          startOnly.push(`${file}: ${prop}: ${value!.trim()}`);
+      }
+    }
   }
+  expect(startOnly).toEqual([]);
 });
 
 test("a reply draws as 2 px text lines every 4 px, as VS Code's minimap at scale 2", () => {

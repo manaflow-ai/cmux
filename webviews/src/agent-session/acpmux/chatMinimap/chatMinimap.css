@@ -20,9 +20,6 @@
 .acpmux-main[data-vscode-minimap][data-cu-preview] {
   --cv-inset-end: max(var(--cv-inset), 204px);
 }
-.acpmux-main[data-vscode-minimap] .acpmux-composer {
-  padding-right: var(--cv-inset-end);
-}
 /* Sized inline, so it contains its own layout and style (not paint: that would clip the focus ring). */
 .acpmux-chat-minimap__track {
   position: absolute;
