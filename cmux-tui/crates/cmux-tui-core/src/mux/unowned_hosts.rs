@@ -658,6 +658,79 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
     }
 
+    #[test]
+    fn state_roots_cover_the_builds_of_their_key_on_the_app_layout() {
+        // `BuildIdentity` (CmuxNextCompat `daemonStateDirectory`): a build
+        // with kept names in `tags/<tag>/tui`, any other bundled build (the
+        // untagged DEV build, an unknown bundle such as `cmux_NIGHTLY`) in
+        // `builds/<key>/tui`, and release, unbundled and adopted legacy
+        // channel builds in the shared default root.
+        let base = std::env::temp_dir().join(format!("unowned-builds-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let cmux = base.join("cmux");
+        let mut expected = Vec::new();
+        for dir in [
+            cmux.join("tags").join("cmux-next").join("tui"),
+            cmux.join("tags").join("nightly").join("tui"),
+            cmux.join("builds").join("cmux_NIGHTLY").join("tui"),
+            cmux.join("builds").join("com.cmuxterm.app.debug").join("tui"),
+            base.join("cmux-tui").join("sessions"),
+        ] {
+            std::fs::create_dir_all(&dir).unwrap();
+            expected.push(dir);
+        }
+        // A build directory with no daemon state is not a root.
+        std::fs::create_dir_all(cmux.join("builds").join("no-state")).unwrap();
+        expected.sort();
+        for own in &expected {
+            assert_eq!(&state_roots(own), &expected, "from {}", own.display());
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn entries_of_an_empty_root_past_the_root_cap_leave_before_they_drop_new_hosts() {
+        let sessions = (0..=MAX_ROOTS_PER_PASS)
+            .map(|index| format!("cmux-app-{index:03}"))
+            .collect::<Vec<_>>();
+        let names = sessions.iter().map(String::as_str).collect::<Vec<_>>();
+        let (dir, own, roots) = state_with_sessions("past-cap", &names);
+        // The last root in order is empty and holds a full store's entries;
+        // a pass reaches the root cap before it.
+        let empty = roots[MAX_ROOTS_PER_PASS].clone();
+        let store_path = dir.join(STORE_FILE);
+        let mut store = Store::default();
+        for index in 0..MAX_STORE_ENTRIES {
+            store.hosts.insert(
+                format!("{}|t{index}|i", empty.display()),
+                Seen { first_seen_ms: index as u64, owner_mark: String::new(), failed_ms: None },
+            );
+        }
+        save_store(&store_path, &store);
+        let records = |root: &Path| -> LoadedRecords {
+            Ok(if *root == *empty { Vec::new() } else { vec![fake_record(root, 0)] })
+        };
+        let hosts = HostOps {
+            load: &records,
+            liveness: &|_, _| TerminalHostLiveness::Live,
+            end: &|_, _| panic!("ended in its grace"),
+        };
+        let never = || false;
+        let first = 10_000_000;
+        let report = reap_pass_with(&hosts, &own, &store_path, first, Timing::STANDARD, &never);
+        assert!(report.capped, "{report:?}");
+        let saved = load_store(&store_path);
+        let key = format!("{}|t000|i", roots[0].display());
+        assert_eq!(
+            saved.hosts.get(&key).map(|seen| seen.first_seen_ms),
+            Some(first),
+            "a new host's time was dropped for an empty root's: {} entries kept",
+            saved.hosts.len()
+        );
+        assert_eq!(saved.hosts.len(), MAX_ROOTS_PER_PASS, "stale entries kept");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// A state root with an own record root and one free-guarded record
     /// root per session in `sessions`; returns (own root, other roots).
     fn state_with_sessions(name: &str, sessions: &[&str]) -> (PathBuf, PathBuf, Vec<PathBuf>) {
