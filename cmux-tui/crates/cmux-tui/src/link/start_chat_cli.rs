@@ -1001,7 +1001,8 @@ fn push(
 /// answered at the seed's head.
 fn pushed_fields(line: &Value) -> Value {
     let mut fields = serde_json::Map::new();
-    for key in ["mode", "fallback_code", "fallback_why", "install_url", "skipped_files", "filling"] {
+    for key in ["mode", "fallback_code", "fallback_why", "install_url", "skipped_files", "filling"]
+    {
         if let Some(value) = line.get(key).filter(|value| !value.is_null()) {
             fields.insert(key.to_string(), value.clone());
         }

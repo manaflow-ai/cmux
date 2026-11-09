@@ -868,8 +868,10 @@ mod tests {
     /// A machine that answers each op from `answers` in turn, keeping the ops it was asked.
     fn machine(
         answers: Vec<Result<Value, &'static str>>,
-    ) -> (impl FnMut(&str, Value) -> Result<Value, SeedError>, std::rc::Rc<std::cell::RefCell<Vec<String>>>)
-    {
+    ) -> (
+        impl FnMut(&str, Value) -> Result<Value, SeedError>,
+        std::rc::Rc<std::cell::RefCell<Vec<String>>>,
+    ) {
         let asked = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let seen = asked.clone();
         let mut answers = answers.into_iter();
@@ -919,8 +921,7 @@ mod tests {
             Ok(json!({"state": "running", "phase": "checkout", "head_ready": true})),
         ]);
         let mut pauses = 0;
-        let ended =
-            seed_job(&mut call, &mut || pauses += 1, json!({}), true, later()).unwrap();
+        let ended = seed_job(&mut call, &mut || pauses += 1, json!({}), true, later()).unwrap();
         assert!(matches!(&ended, Ended::HeadReady { job } if job == "j"), "{ended:?}");
         assert_eq!(*asked.borrow(), ["git.seed.start", "git.seed.status", "git.seed.status"]);
         assert_eq!(pauses, 1);
@@ -1019,8 +1020,7 @@ mod tests {
             Ok(json!({"state": "done"})),
         ]);
         let mut pauses = 0;
-        let ended =
-            seed_job(&mut call, &mut || pauses += 1, json!({}), false, later()).unwrap();
+        let ended = seed_job(&mut call, &mut || pauses += 1, json!({}), false, later()).unwrap();
         assert!(matches!(ended, Ended::Done(_)));
         assert_eq!(asked.borrow()[..3], ["git.seed.start"; 3]);
         assert_eq!(pauses, 2);
