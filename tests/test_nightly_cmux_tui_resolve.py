@@ -186,7 +186,13 @@ for name in shipping:
         continue
     if name == "published-in":
         # It reads the build commit from published-build, which records the resolver's build_sha from its own
-        # needs in the run that published (an older dispatch's from that run's checked record).
+        # needs in the run that published; a loop run's dispatched tail reads it from the record that run's
+        # dispatch-published-in packed from the same needs.
+        dispatch = blocks.get("dispatch-published-in", "")
+        dispatch_needs = re.search(r"^    needs: (.*)$", dispatch, re.MULTILINE)
+        check(bool(dispatch_needs) and RESOLVE in dispatch_needs.group(1), f"dispatch-published-in must need {RESOLVE}")
+        check("nightly_published_build.py pack" in dispatch and "NEEDS: ${{ toJSON(needs) }}" in dispatch,
+              "dispatch-published-in must record the resolved build commit")
         source = blocks.get("published-build", "")
         source_needs = re.search(r"^    needs: (.*)$", source, re.MULTILINE)
         check(bool(source_needs) and RESOLVE in source_needs.group(1), f"published-build must need {RESOLVE}")

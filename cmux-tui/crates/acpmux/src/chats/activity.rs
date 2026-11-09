@@ -43,6 +43,8 @@ pub fn changes_activity(kind: &str) -> bool {
             | "permission_request"
             | "permission_decision"
             | "permission_auto"
+            // A sub-session below it started or stopped waiting on the person (`hub/asks_below.rs`).
+            | "subsessions_waiting"
             | "purged"
             // `spawnedBy` names the chat's parent (`Hub::spawned_by`).
             | "tags"
@@ -77,6 +79,8 @@ pub fn attention(session: &Session) -> Option<&'static str> {
         SessionStatus::Closed => return None,
         SessionStatus::Waiting => return Some("needsInput"),
         _ if session.has_pending_permissions() => return Some("needsInput"),
+        // An open sub-session below it asks: the run stalls there (`hub/asks_below.rs`).
+        _ if session.waits_below() => return Some("needsInput"),
         SessionStatus::Running => return None,
         _ => {}
     }

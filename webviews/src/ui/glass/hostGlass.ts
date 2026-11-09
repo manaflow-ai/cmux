@@ -18,7 +18,7 @@
 // moves (an open, a fade, a resize, a scroll), one rect and opacity read per surface per frame. The loop
 // stops after STABLE_FRAMES unchanged frames; a resize, a style write, a transition or a scroll starts it
 // again. Nothing runs while no marked surface is mounted, and the App's answer is the only other work.
-import { LENS_ATTRIBUTE } from "./glassState";
+import { LENS_ATTRIBUTE, LIVE_BACKGROUND_ATTRIBUTE } from "./glassState";
 import { attachSeeThroughBlur, type CoveredCandidates, type SeeThroughOptions } from "./seeThroughBlur";
 
 /** pages/shared/desktop.ts SEE_THROUGH_ATTRIBUTE: the page sits on the window glass. */
@@ -61,11 +61,12 @@ const SELECTOR = `[${HOST_GLASS_ATTRIBUTE}]`;
 const round = (value: number) => Math.round(value * 100) / 100;
 
 /** Whether the App's glass can show under this page now: a see-through Chromium page (WebKit's own
- * backdrop already takes in the window glass), outside the lens (whose canvas covers what is under the
- * page) and Reduce Transparency (every glass is opaque there). */
+ * backdrop already takes in the window glass), outside the lens and the live background (whose
+ * canvases cover what is under the page) and Reduce Transparency (every glass is opaque there). */
 export function hostGlassApplies(doc: Document): boolean {
   const root = doc.documentElement;
   if (!root.hasAttribute(SEE_THROUGH_ATTRIBUTE) || root.hasAttribute(LENS_ATTRIBUTE)) return false;
+  if (root.hasAttribute(LIVE_BACKGROUND_ATTRIBUTE)) return false;
   if (root.hasAttribute("data-reduce-transparency")) return false;
   const css = doc.defaultView?.CSS;
   return !(css?.supports?.("-webkit-backdrop-filter", "none") ?? true);
@@ -179,7 +180,10 @@ export function reportHostGlass(
     if (text === sent) return;
     sent = text;
     post(surfaces).then(() => {
-      if (!live) return;
+      // An answer that comes after host glass stopped applying (Reduce Transparency, a live
+      // background) draws nothing. An answer to an earlier report still draws: a surface whose box
+      // changes every frame (a scroll, a fade) is never answered for its latest report in time.
+      if (!live || !hostGlassApplies(doc)) return;
       // A surface that already fell back keeps the page's glass: a late answer never swaps it.
       for (const element of elements)
         if (ids.has(element) && element.isConnected && !fellBack(element)) mark(element, "1");
@@ -234,6 +238,9 @@ export function reportHostGlass(
       setTimeout(() => {
         deadlines.delete(element);
         if (element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE) === "1") return;
+        // While host glass does not apply the surface already shows the page's glass (measure), and
+        // it goes back to the App's glass when host glass applies again: only a slow App keeps it off.
+        if (!hostGlassApplies(doc)) return;
         timedOut.add(element);
         mark(element, "0");
         // Measuring may have settled already (a 120 Hz display): withdraw its box from the App.
@@ -252,7 +259,7 @@ export function reportHostGlass(
     let changed = false;
     for (const record of records) {
       if (record.type === "attributes") {
-        // The page's look changed (see-through, the lens, Reduce Transparency), or a surface was
+        // The page's look changed (see-through, the lens, the live background, Reduce Transparency), or a surface was
         // marked or unmarked in place.
         const element = record.target as Element;
         if (element !== root && element.hasAttribute(HOST_GLASS_ATTRIBUTE)) adopt(element);
@@ -268,7 +275,13 @@ export function reportHostGlass(
     childList: true,
     subtree: true,
     attributes: true,
-    attributeFilter: [HOST_GLASS_ATTRIBUTE, SEE_THROUGH_ATTRIBUTE, LENS_ATTRIBUTE, "data-reduce-transparency"],
+    attributeFilter: [
+      HOST_GLASS_ATTRIBUTE,
+      SEE_THROUGH_ATTRIBUTE,
+      LENS_ATTRIBUTE,
+      LIVE_BACKGROUND_ATTRIBUTE,
+      "data-reduce-transparency",
+    ],
   });
   // A popup is placed by its positioner's inline style, rewritten on scroll; a fade is a transition.
   const follow = () => {

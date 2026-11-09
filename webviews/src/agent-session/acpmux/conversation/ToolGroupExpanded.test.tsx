@@ -12,8 +12,8 @@ import { FindReveal, type FindRevealTarget } from "./chatFind";
 import { ToolRows } from "./TurnRows";
 import * as toolFailure from "./toolFailure";
 import * as thoughts from "./thoughts";
-import { thoughtLayout } from "./ThoughtRow";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { thoughtLayout } from "./thoughtRowModel";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -381,7 +381,9 @@ test("one mixed run exposes individual steps and drills into an MCP call's field
 
 for (const agentFamily of ["claude", "codex"])
   for (const working of [false, true])
-    test(`${agentFamily} ${working ? "live" : "finished"} turn projects mixed calls into one folded run`, async () => {
+    test(`${agentFamily} ${
+      working ? "live turn keeps mixed calls in sight" : "finished turn projects mixed calls into one folded run"
+    }`, async () => {
       const { mixedToolTurnFixture } = await import("./mixedToolRunFixture");
       const { turnView } = await import("./turns");
       const projected = turnView(mixedToolTurnFixture(working), new Set(["worked-mixed-prompt"]), {
@@ -390,13 +392,21 @@ for (const agentFamily of ["claude", "codex"])
       });
       const work = projected.find((row) => row.kind === "activity")!;
       expect(work).toBeDefined();
+      if (working) {
+        // While the turn runs nothing folds: the run's finished calls are in sight with no click,
+        // and only the turn's end folds them (Leo, 2026-11-08: "you only do the overarching fold
+        // at the very end").
+        expect(work.foldRun).toBe(false);
+        const live = await render(<ToolRows row={work} sessionId={`${agentFamily}-${working}`} />);
+        expect(live.textContent).toContain("Find the retry handler");
+        expect(projected.some((row) => row.doing?.includes("Capture the repaired screen"))).toBe(false);
+        return;
+      }
       expect(work.foldRun).toBe(true);
       const container = await render(<ToolRows row={work} sessionId={`${agentFamily}-${working}`} />);
       const header = container.querySelector<HTMLButtonElement>("button.cv-tool")!;
       expect(header.getAttribute("aria-expanded")).toBe("false");
       await act(async () => header.click());
-      // A finished call stays in its run while the live line reads Thinking (#37635), so a live
-      // turn of finished calls lists every step, as the ended turn does.
       expect(container.querySelectorAll("[data-mixed-tool-steps] > .cv-step")).toHaveLength(5);
       expect(projected.some((row) => row.doing?.includes("Capture the repaired screen"))).toBe(false);
     });

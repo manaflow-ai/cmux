@@ -13,14 +13,14 @@
 // Nothing here calls GitHub. The host answers from its own cache and reads gh in the background
 // (pullRequestStore.ts, AgentReplyPullRequests); when its answer is not fresh the card prints how
 // old it is instead of an error.
-import { type CSSProperties, type ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import { FILE_KINDS, kindTotals, missingTests, type FileKind } from "../../../fileKinds";
 import { usePaneLanguage, useT, type PaneLanguage, type StringKey, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { Tooltip } from "../../../ui/Tooltip";
 import { relativeTime } from "../conversation/relativeTime";
 import { usePullRequestAnswer, type LinkedPullRequest } from "./pullRequestStore";
-import { pullRequestRef } from "./pullRequestCardModel";
+import { githubItemRef } from "./pullRequestCardModel";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { useLoadFade } from "../../shared/loadFade";
 
@@ -29,6 +29,13 @@ const BADGES: Record<string, StringKey> = {
   draft: "header.prBadge.draft",
   merged: "header.prBadge.merged",
   closed: "header.prBadge.closed",
+};
+
+/// An issue's states as GitHub words them: closed (completed) is "Closed", not planned its own.
+const ISSUE_BADGES: Record<string, StringKey> = {
+  open: "header.prBadge.open",
+  closed: "header.prBadge.closed",
+  not_planned: "prCard.issueNotPlanned",
 };
 
 const REVIEWS: Record<string, StringKey> = {
@@ -71,10 +78,15 @@ export function PullRequestCardBody({
   // (UserBubble): without it Intl falls back to the host's ICU default and a Japanese pane reads
   // "vor 3 Minuten".
   const language = usePaneLanguage();
-  const link = pullRequestRef(url)?.url;
+  const item = githubItemRef(url);
+  const link = item?.url;
   const plain = link ?? url;
   const answer = usePullRequestAnswer(plain, open);
   const read = answer?.pullRequest ?? undefined;
+  // An issue (Leo 2026-11-08, of a private repo's issue whose card showed only its link): its
+  // state, author and labels; it has no checks, files or branches.
+  const issue = item?.kind === "issue" || read?.kind === "issue";
+  const badges = issue ? ISSUE_BADGES : BADGES;
   // The host is still reading (or has not answered the card's own ask yet: no answer, or only the
   // chip's cache-only one): its rows are held at their size, so the card opens at about the size
   // it ends at and no row pops in under the pointer (Leo 2026-11-06). A reader that is never asked
@@ -84,8 +96,23 @@ export function PullRequestCardBody({
   // The host's answer came after the card drew its placeholders: the rows it fills fade in once
   // (shared/loadFade.ts) instead of popping; a card drawn from a kept answer shows at once.
   const loadFade = useLoadFade(!waiting);
+  // The swap is a crossfade in place (Leo 2026-11-08: "a bit too discontinuous and jumpy"): each
+  // placeholder, drawn in the shape its row takes, shares one grid cell with the row it held
+  // (`Slot`), fades out as the row fades in, and goes on its own animation's end. No timer.
+  const leaving = loadFade && fadePlays();
+
   const title = read?.title || known.title;
   const state = read?.state || known.state;
+  // What the placeholders held, so only those rows crossfade.
+  const heldStatus = !known.state;
+  const live = !issue && state !== "merged" && state !== "closed";
+  const shown = {
+    status: !!state || (live && (!!read?.checks || read?.mergeable === "conflicting")),
+    who: !!read?.author,
+    changes: hasChanges(read),
+    branches: !!(read?.baseRef && read.headRef),
+    labels: !!(read && ((read.review && REVIEWS[read.review]) || (read.labels?.length ?? 0) > 0)),
+  };
   const now = Date.now();
   // A time the card cannot read is a line it leaves out, never a throw: `relativeTime` hands an
   // unparsed date to `Intl.DateTimeFormat`, which raises RangeError on NaN, and a raise in here
@@ -93,9 +120,13 @@ export function PullRequestCardBody({
   const updatedAt = read?.updatedAt == null ? Number.NaN : Date.parse(read.updatedAt);
   const reference = `${known.repo}#${known.number}`;
   const glyph = (
-    <span className="acpmux-pr-card__glyph" data-state={state || undefined}>
+    <span className="acpmux-pr-card__glyph" data-state={state || undefined} data-kind={issue ? "issue" : undefined}>
       {/* The state's word is the glyph's accessible name; the card also shows it in the status row. */}
-      <Icon name="git.pullrequest" size={14} title={state && BADGES[state] ? t(BADGES[state]!) : undefined} />
+      <Icon
+        name={issue ? issueGlyph(state) : "git.pullrequest"}
+        size={14}
+        title={state && badges[state] ? t(badges[state]!) : undefined}
+      />
     </span>
   );
   return (
@@ -103,28 +134,34 @@ export function PullRequestCardBody({
       {head?.(title || reference, glyph)}
       <div className="acpmux-pr-card__body" data-load-fade={loadFade ? "" : undefined}>
         {!head && title && <div className="acpmux-pr-card__title">{title}</div>}
-        {waiting && !state ? <Placeholder row="status" /> : <Status state={state} read={read} t={t} />}
-        {waiting && <Placeholder row="who" />}
-        {read?.author && (
-          <div className="acpmux-pr-card__who">
-            {read.authorAvatar?.startsWith("data:image/") ? (
-              // The host's copy of their GitHub picture (Leo 2026-11-07: "can you not just also pull
-              // the GitHub icon for the profile picture?"), in the monogram's own box, so the row
-              // keeps its size whichever one shows.
-              <img className="acpmux-pr-card__avatar" src={read.authorAvatar} alt="" width={18} height={18} />
-            ) : (
-              <Monogram login={read.author} />
-            )}
-            <span className="acpmux-pr-card__author">{read.author}</span>
-            {Number.isFinite(updatedAt) && (
-              <span className="acpmux-pr-card__when">
-                {t("prCard.updated", { ago: relativeTime(updatedAt, now, language) })}
-              </span>
-            )}
-          </div>
+        <Slot hold={waiting && !state} leaving={leaving && heldStatus} shown={shown.status} row="status">
+          <Status state={state} read={read} t={t} issue={issue} badges={badges} />
+        </Slot>
+        <Slot hold={waiting} leaving={leaving} shown={shown.who} row="who">
+          {read?.author && (
+            <div className="acpmux-pr-card__who">
+              {read.authorAvatar?.startsWith("data:image/") ? (
+                // The host's copy of their GitHub picture (Leo 2026-11-07: "can you not just also pull
+                // the GitHub icon for the profile picture?"), in the monogram's own box, so the row
+                // keeps its size whichever one shows.
+                <img className="acpmux-pr-card__avatar" src={read.authorAvatar} alt="" width={18} height={18} />
+              ) : (
+                <Monogram login={read.author} />
+              )}
+              <span className="acpmux-pr-card__author">{read.author}</span>
+              {Number.isFinite(updatedAt) && (
+                <span className="acpmux-pr-card__when">
+                  {t("prCard.updated", { ago: relativeTime(updatedAt, now, language) })}
+                </span>
+              )}
+            </div>
+          )}
+        </Slot>
+        {!issue && (
+          <Slot hold={waiting} leaving={leaving} shown={shown.changes} row="changes">
+            <Changes read={read} t={t} />
+          </Slot>
         )}
-        {waiting && <Placeholder row="changes" />}
-        <Changes read={read} t={t} />
         <div className="acpmux-pr-card__facts">
           {!head && glyph}
           {/* The pull request's link, styled as one (Leo 2026-10-20: "the hovers need to be
@@ -138,9 +175,14 @@ export function PullRequestCardBody({
             <span className="acpmux-pr-card__ref">{reference}</span>
           )}
         </div>
-        {waiting && <Placeholder row="branches" />}
-        <Secondary read={read} t={t} />
-        <Freshness answer={answer} now={now} t={t} language={language} />
+        {/* A pull request's last held row is its branches; an issue's, its labels. */}
+        <Slot hold={waiting && !issue} leaving={leaving && !issue} shown={shown.branches} row="branches">
+          <Branches read={read} />
+        </Slot>
+        <Slot hold={waiting && issue} leaving={leaving && issue} shown={shown.labels} row="labels">
+          <Review read={read} t={t} />
+        </Slot>
+        <Freshness answer={answer} now={now} t={t} language={language} held={waiting} />
       </div>
     </>
   );
@@ -149,69 +191,156 @@ export function PullRequestCardBody({
 /// One row the host's answer fills, held at its height while the host reads: the row's own class
 /// (so its line height and gaps are the real row's) around static muted bars, hidden from screen
 /// readers (the "reading…" line says it). No shimmer: nothing moves while the card waits.
-function Placeholder({ row }: { row: "status" | "who" | "changes" | "branches" }) {
+/// Whether the load fade plays here: with motion reduced or off there is no fade to end, so no
+/// placeholder stays for one.
+function fadePlays(): boolean {
+  if (typeof document === "undefined") return false;
+  const motion = document.documentElement.dataset;
+  if ([motion.agentMotion, motion.cmuxMotion].some((value) => value === "off" || value === "reduced")) return false;
+  return !globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+}
+
+type PlaceholderRow = "status" | "who" | "changes" | "branches" | "labels";
+
+function Placeholder({ row, onAnimationEnd }: { row: PlaceholderRow; onAnimationEnd?: () => void }) {
   const bar = (size: "s" | "m" | "l") => <span className="acpmux-pr-card__bar" data-size={size} />;
   switch (row) {
     case "status":
       return (
-        <div className="acpmux-pr-card__status" data-placeholder={row} aria-hidden="true">
+        <div
+          className="acpmux-pr-card__status"
+          data-placeholder={row}
+          aria-hidden="true"
+          onAnimationEnd={onAnimationEnd}
+        >
           {bar("s")}
         </div>
       );
     case "who":
       return (
-        <div className="acpmux-pr-card__who" data-placeholder={row} aria-hidden="true">
-          <span className="acpmux-pr-card__monogram" />
+        <div className="acpmux-pr-card__who" data-placeholder={row} aria-hidden="true" onAnimationEnd={onAnimationEnd}>
+          <span className="acpmux-pr-card__face" />
           {bar("m")}
         </div>
       );
     case "changes":
       return (
-        <div className="acpmux-pr-card__changes" data-placeholder={row} aria-hidden="true">
+        // The answer's three lines: the counts, the bar by kind, and each kind's `+/−`.
+        <div
+          className="acpmux-pr-card__changes"
+          data-placeholder={row}
+          aria-hidden="true"
+          onAnimationEnd={onAnimationEnd}
+        >
           <div className="acpmux-pr-card__counts">{bar("s")}</div>
+          <div className="acpmux-pr-card__kindBar" />
           <div className="acpmux-pr-card__breakdown">{bar("m")}</div>
         </div>
       );
     case "branches":
       return (
-        <div className="acpmux-pr-card__branches" data-placeholder={row} aria-hidden="true">
+        <div
+          className="acpmux-pr-card__branches"
+          data-placeholder={row}
+          aria-hidden="true"
+          onAnimationEnd={onAnimationEnd}
+        >
           {bar("l")}
+        </div>
+      );
+    case "labels":
+      return (
+        <div
+          className="acpmux-pr-card__review"
+          data-placeholder={row}
+          aria-hidden="true"
+          onAnimationEnd={onAnimationEnd}
+        >
+          {bar("m")}
         </div>
       );
   }
 }
 
-function Status({ state, read, t }: { state: string | undefined; read: LinkedPullRequest | undefined; t: Translate }) {
-  const checks = state !== "merged" && state !== "closed" ? <Checks read={read} t={t} /> : null;
-  if (!state && !checks && read?.mergeable !== "conflicting") return null;
+/// The pack's issue glyph for `state`: open, closed (completed) or not planned.
+function issueGlyph(state: string | undefined) {
+  return state === "closed" ? "git.issue.closed" : state === "not_planned" ? "git.issue.notplanned" : "git.issue";
+}
+
+function Status({
+  state,
+  read,
+  t,
+  issue,
+  badges,
+}: {
+  state: string | undefined;
+  read: LinkedPullRequest | undefined;
+  t: Translate;
+  issue: boolean;
+  badges: Record<string, StringKey>;
+}) {
+  const live = !issue && state !== "merged" && state !== "closed";
+  const checks = live && read?.checks ? <Checks read={read} t={t} /> : null;
+  if (!state && !checks && (!live || read?.mergeable !== "conflicting")) return null;
   return (
     <div className="acpmux-pr-card__status">
       {state && (
-        <span className="acpmux-pr-card__state" data-state={state}>
-          {BADGES[state] ? t(BADGES[state]!) : state}
+        <span className="acpmux-pr-card__state" data-state={state} data-kind={issue ? "issue" : undefined}>
+          {badges[state] ? t(badges[state]!) : state}
         </span>
       )}
       {checks}
-      {read?.mergeable === "conflicting" && state !== "merged" && state !== "closed" && (
+      {live && read?.mergeable === "conflicting" && (
         <span className="acpmux-pr-card__conflicts">{t("header.prConflicts")}</span>
       )}
     </div>
   );
 }
 
-function Secondary({ read, t }: { read: LinkedPullRequest | undefined; t: Translate }) {
-  if (!read) return null;
+/// One row the host's answer fills. While `hold`, its placeholder; once the answer lands, the row,
+/// and while `leaving` (the load fade, shared/loadFade.ts) the placeholder too, in the same grid
+/// cell, fading out as the row fades in (linkCard.css `__slot`): nothing moves, and the cell is
+/// already the row's size, so nothing moves when the placeholder goes either. A row the answer
+/// leaves empty drops its placeholder at once, in the frame the answer lands.
+///
+/// Each slot goes on its own placeholder's animation end, so a row that starts later keeps its
+/// whole crossfade (review of #38163, F1). The wrapper stays once the row shows: dropping it would
+/// remount the row and restart its fade from nothing. An empty wrapper takes no space
+/// (linkCard.css `__slot:empty`).
+function Slot({
+  hold,
+  leaving,
+  shown,
+  row,
+  children,
+}: {
+  hold: boolean;
+  leaving: boolean;
+  /// The row draws something once the answer lands.
+  shown: boolean;
+  row: PlaceholderRow;
+  children: ReactNode;
+}) {
+  const [faded, setFaded] = useState(false);
+  if (hold) return <Placeholder row={row} />;
   return (
-    <>
-      {read.baseRef && read.headRef && (
-        <div className="acpmux-pr-card__branches">
-          <span className="acpmux-pr-card__branch">{read.baseRef}</span>
-          <span aria-hidden="true">←</span>
-          <span className="acpmux-pr-card__branch">{read.headRef}</span>
-        </div>
-      )}
-      <Review read={read} t={t} />
-    </>
+    // The row first, so the placeholder draws over it as it fades out.
+    <div className="acpmux-pr-card__slot">
+      {children}
+      {leaving && shown && !faded && <Placeholder row={row} onAnimationEnd={() => setFaded(true)} />}
+    </div>
+  );
+}
+
+function Branches({ read }: { read: LinkedPullRequest | undefined }) {
+  if (!read?.baseRef || !read.headRef) return null;
+  return (
+    <div className="acpmux-pr-card__branches">
+      <span className="acpmux-pr-card__branch">{read.baseRef}</span>
+      <span aria-hidden="true">←</span>
+      <span className="acpmux-pr-card__branch">{read.headRef}</span>
+    </div>
   );
 }
 
@@ -370,8 +499,14 @@ function toneOf(text: string, tones: number): number {
 /// it (Leo 2026-11-07: "as for the code, the test, the generated files, and whatever, could we do
 /// that better?"). When GitHub listed only some of the files (it sends the first 100), the numbers
 /// say so beside them: "from 100 of 255 files".
+/// Whether the answer has a files and lines row to draw (``Changes``).
+function hasChanges(read: LinkedPullRequest | undefined): boolean {
+  if (!read) return false;
+  return (read.changedFiles || read.files?.length || 0) > 0 || (read.additions ?? 0) > 0 || (read.deletions ?? 0) > 0;
+}
+
 function Changes({ read, t }: { read: LinkedPullRequest | undefined; t: Translate }) {
-  if (!read) return null;
+  if (!hasChanges(read) || !read) return null;
   const files = read.files ?? [];
   const changed = read.changedFiles || files.length;
   const additions = read.additions ?? 0;
@@ -439,13 +574,18 @@ function Freshness({
   now,
   t,
   language,
+  held,
 }: {
   answer: { fetchedAt?: number; reading: boolean } | undefined;
   now: number;
   t: Translate;
   language: PaneLanguage;
+  /// The placeholders hold the card's rows: "reading…" is for screen readers only, so no line
+  /// shows and then goes when the answer lands.
+  held?: boolean;
 }) {
   if (!answer) return null;
+  if (held) return answer.reading ? <div className="acpmux-pr-card__sr">{t("prCard.reading")}</div> : null;
   const at = Number.isFinite(answer.fetchedAt) ? answer.fetchedAt! * 1000 : undefined;
   // Nothing read and nothing being read: the host has no answer and is not going to have one
   // soon (no gh on the PATH, or a pull request this account cannot see — it waits `retry` before

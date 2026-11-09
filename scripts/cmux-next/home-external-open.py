@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tagged-app check: a link from another app while Chief's Home is shown (#27897, classic Home off).
+"""Tagged-app check: a link from another app while a Home is shown (#27897, #38063, classic Home off).
 
 With cmux the default browser, a web link clicked in another app reaches the app as a URL
 (`debug.external_open`, the route `application(_:open:)` takes). Home is the home workspace with the
@@ -9,6 +9,10 @@ of the person's, never as a new column beside the dock. Through the app's contro
 - debug.external_open https://example.com/... is accepted;
 - the window then shows a workspace other than Home, with a browser tab;
 - home.show again: Home's panes and tabs are the ones it had before the open.
+Then the same in a second window (#38063): newWindow, home.show there makes the window's own Home
+(cmux#27880, a workspace whose kind is not "home" holding Home's page in the pinned dock), and a link
+opened while it is shown also opens as a tab of a workspace other than that Home, never as a new
+column beside its dock.
 Runs on cmux-lawrence-2 through
 `nx-remote --needs gui --app-from-fleet cmux --tag <tag> --ref <sha> -- 'python3 scripts/cmux-next/home-external-open.py'`
 with an isolated HOME and Chief home under /tmp; it launches the app itself and ends with
@@ -26,6 +30,7 @@ os.makedirs(OUT, exist_ok=True)
 SCRATCH = tempfile.mkdtemp(prefix="h27897-", dir="/tmp")
 HOME, CHIEF = os.path.join(SCRATCH, "home"), os.path.join(SCRATCH, "chief")
 URL = "https://example.com/?cmux-27897"
+URL2 = "https://example.com/?cmux-38063"
 failures = []
 
 
@@ -78,20 +83,29 @@ def shot(name):
     rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(OUT, name + ".png")}, 60)
 
 
-def window():
+def window(wid=None):
     windows = (rpc("debug.focus") or {}).get("windows") or [{}]
-    return windows[0]
+    return next((w for w in windows if w.get("id") == wid), {}) if wid else windows[0]
 
 
-def layout():
+def window_ids():
+    return [w.get("id") for w in (rpc("debug.focus") or {}).get("windows") or [] if w.get("id")]
+
+
+def layout(wid=None):
     """The shown workspace's panes and their tabs, as the focus model has them."""
-    return sorted((p.get("pane"), sorted(p.get("tabs") or [])) for p in window().get("topology") or [])
+    return sorted((p.get("pane"), sorted(p.get("tabs") or [])) for p in window(wid).get("topology") or [])
 
 
-def dock_pane():
+def dock_pane(wid=None):
     windows = (rpc("debug.pane_chrome") or {}).get("windows") or []
-    panes = sorted((windows[0] if windows else {}).get("panes") or [], key=lambda p: (p.get("cell") or [0])[0])
+    chrome = next((w for w in windows if w.get("id") == wid), {}) if wid else (windows[0] if windows else {})
+    panes = sorted(chrome.get("panes") or [], key=lambda p: (p.get("cell") or [0])[0])
     return (panes or [{}])[0].get("pane")
+
+
+def browser(w):
+    return sum(t.endswith(":browser") for p in w.get("topology") or [] for t in p.get("tabs") or [])
 
 
 def launch():
@@ -148,7 +162,6 @@ try:
 
     opened = rpc("debug.external_open", {"url": URL})
     check("debug.external_open accepts the link", opened is True or opened == {"value": True}, opened)
-    browser = lambda w: sum(t.endswith(":browser") for p in w.get("topology") or [] for t in p.get("tabs") or [])
     moved = poll(lambda: (lambda w: w if w.get("workspace") not in (None, home) and browser(w) else None)(window()), 60)
     check("the link opens in a browser tab of a workspace other than Home", bool(moved), {"home": home, "window": window()})
     if moved:
@@ -161,6 +174,38 @@ try:
     back = poll(lambda: window().get("workspace") == home and layout(), 30)
     check("Home's panes and tabs are unchanged by the open", back == before, {"before": before, "after": back})
     shot("3-home-after")
+
+    # A window's own Home (#38063): the second window's Home is not the store's home workspace.
+    first = window_ids()
+    run("newWindow")
+    second = poll(lambda: next((w for w in window_ids() if w not in first), None), 60)
+    check("newWindow opens a second window", bool(second), window_ids())
+    started = poll(lambda: window(second).get("workspace"), 60)
+    # The app is not active (CMUX_NEXT_NO_ACTIVATE): this makes the second window the active one, as a click in it does.
+    rpc("debug.window.focus", {"window": second})
+    shown2 = poll(lambda: (lambda r: None if refused(r) else r)(run("home.show")), 60)
+    check("home.show in the second window is not refused", bool(shown2), run("home.show"))
+    page = lambda w: any(t.endswith(":page") for p in w.get("topology") or [] for t in p.get("tabs") or [])
+    own = poll(lambda: (lambda w: w.get("workspace") if w.get("workspace") not in (None, home, started) and page(w) else None)(window(second)), 60)
+    check("the second window shows a Home of its own", bool(own), {"home": home, "started": started, "window": window(second)})
+    dock2 = poll(lambda: dock_pane(second), 60)
+    rpc("debug.mouse", {"window": second, "pane": dock2, "action": "click"})
+    in_dock2 = poll(lambda: (window(second).get("model") or {}).get("resolved_pane") == dock2, 20)
+    check("the keyboard is in the window Home's dock before the open", bool(dock2) and bool(in_dock2), window(second).get("model"))
+    before2 = poll(lambda: layout(second), 20)
+    shot("4-window-home-before")
+
+    opened2 = rpc("debug.external_open", {"url": URL2})
+    check("debug.external_open accepts the second link", opened2 is True or opened2 == {"value": True}, opened2)
+    moved2 = poll(lambda: (lambda w: w if w.get("workspace") not in (None, own, home) and browser(w) else None)(window(second)), 60)
+    check("the link opens in a browser tab of a workspace other than the window's Home", bool(moved2),
+          {"own": own, "window": window(second)})
+    shot("5-window-home-after-open")
+
+    run("home.show")
+    back2 = poll(lambda: window(second).get("workspace") == own and layout(second), 30)
+    check("the window Home's panes and tabs are unchanged by the open", back2 == before2, {"before": before2, "after": back2})
+    shot("6-window-home-after")
 finally:
     if app:
         stop(app)

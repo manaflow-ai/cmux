@@ -9,11 +9,12 @@
 use crate::args::Opts;
 use crate::carrier::SocketCarrier;
 use crate::clock::now_ns;
+use crate::hybrid::LinkCfg;
 use crate::stream::{MediaSession, SessionCfg};
 use crate::wire::{write_control, Control, DatagramOut, FrameReader, FRAME_CONTROL};
 use crate::Res;
 use cmux_rd_core::policy::{ConsentRule, HostPolicy, Mode, Principal, PrincipalClass};
-use cmux_rd_core::service::{negotiate, Negotiated, SERVICE_DESKTOP};
+use cmux_rd_core::service::{caps, negotiate, Negotiated, SERVICE_DESKTOP};
 use cmux_rd_core::session::{Actor, SessionId, SessionTable, StartRequest};
 use cmux_rd_proto::{MAX_DATAGRAM_DEFAULT, OVERLAY_PORT};
 use std::io::{self, Read, Write};
@@ -102,7 +103,7 @@ pub fn run(opts: &Opts) -> Res<()> {
                 continue;
             }
         }
-        match serve_viewer(stream, Some(&udp), &mut table, &cfg, &Admission::Token(&token)) {
+        match serve_viewer(stream, Some(&udp), &mut table, &cfg, &Admission::Token(&token), None) {
             Ok(reason) => eprintln!("viewer {peer} ended: {reason}"),
             Err(e) => eprintln!("viewer {peer} failed: {e}"),
         }
@@ -115,9 +116,15 @@ pub fn run(opts: &Opts) -> Res<()> {
 
 /// The session settings from the options (every mode).
 fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
+    let display = opts.str_or("display", DEFAULT_DISPLAY);
+    // An explicit --max-fps wins; else the display's refresh rate (60 when it cannot be read).
+    let max_fps = match opts.get("max-fps") {
+        Some(_) => opts.num_or("max-fps", 60)?,
+        None => crate::desktop::default_max_fps(&display),
+    };
     Ok(SessionCfg {
-        display: opts.str_or("display", DEFAULT_DISPLAY),
-        max_fps: opts.num_or("max-fps", 60)?,
+        display,
+        max_fps,
         start_kbps: opts.num_or("start-kbps", 8000)?,
         max_kbps: opts.num_or("max-kbps", 50_000)?,
         preset: opts.str_or("preset", "ultrafast"),
@@ -210,6 +217,11 @@ fn run_systemd(opts: &Opts) -> Res<()> {
         return Err(format!("--{bad} is not used with --listen-systemd").into());
     }
     let idle_ms = opts.num_or::<u64>("idle-exit-s", 120)?.saturating_mul(1000);
+    // The UDP media link (cap `link.udp`), on unless `--no-udp-link`; see hybrid.rs.
+    let link = match opts.flag("no-udp-link") {
+        true => None,
+        false => Some(LinkCfg::new(crate::hybrid::stun_names(opts.get("link-stun"))?)),
+    };
     let listener = crate::systemd::listener_from_env()?;
     let cfg = session_cfg(opts)?;
     let owner = opts.str_or("owner", MACHINE_OWNER);
@@ -234,7 +246,14 @@ fn run_systemd(opts: &Opts) -> Res<()> {
                 continue;
             }
         };
-        match serve_viewer(stream, None, &mut table, &cfg, &Admission::LinkOwner(&owner)) {
+        match serve_viewer(
+            stream,
+            None,
+            &mut table,
+            &cfg,
+            &Admission::LinkOwner(&owner),
+            link.as_ref(),
+        ) {
             Ok(reason) => eprintln!("viewer ended: {reason}"),
             Err(e) => eprintln!("viewer failed: {e}"),
         }
@@ -433,6 +452,7 @@ fn serve_viewer<S: ViewerStream>(
     table: &mut SessionTable,
     cfg: &SessionCfg,
     admission: &Admission<'_>,
+    link: Option<&LinkCfg>,
 ) -> Res<String> {
     stream.prepare()?;
     stream.nonblocking(true)?;
@@ -466,7 +486,11 @@ fn serve_viewer<S: ViewerStream>(
         cfg.upstream_record.as_deref(),
         cfg.upstream_record_max_bytes,
     );
-    let host_caps = crate::upstream::offered_caps(&*sink);
+    let mut host_caps = crate::upstream::offered_caps(&*sink);
+    // A UDP media link next to a stream carrier (the systemd socket), in a build with the link.
+    if cfg!(feature = "link") && link.is_some() && udp.is_none() {
+        host_caps.push(caps::LINK_UDP);
+    }
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {
@@ -507,6 +531,17 @@ fn serve_viewer<S: ViewerStream>(
         return Err("max_datagram below 512 refused".into());
     }
     let max_datagram = max_datagram.min(MAX_DATAGRAM_DEFAULT);
+    // With the link, every datagram fits it sealed, so none has to fall back to the stream.
+    let link = link.filter(|_| negotiated.caps.iter().any(|c| c == caps::LINK_UDP));
+    // The STUN names resolve in the background now; the offer comes after `started`.
+    if let Some(link) = link {
+        link.resolve_stun();
+    }
+    #[cfg(feature = "link")]
+    let max_datagram = match link {
+        Some(_) => max_datagram.min(crate::hybrid::LINK_MAX_DATAGRAM),
+        None => max_datagram,
+    };
     let Control::Start { key, mode } = read_control(&mut stream, &mut reader)? else {
         return Err("second message must be start".into());
     };
@@ -542,6 +577,7 @@ fn serve_viewer<S: ViewerStream>(
         max_datagram,
         &negotiated,
         sink,
+        link,
     ) {
         Ok(reason) => reason,
         Err(e) => format!("failed: {e}"),
@@ -567,6 +603,7 @@ fn stream_session<S: ViewerStream>(
     max_datagram: usize,
     negotiated: &Negotiated,
     sink: Box<dyn crate::upstream::UpstreamSink>,
+    link: Option<&LinkCfg>,
 ) -> Res<String> {
     // Datagrams left over from an earlier viewer must not reach this session (bounded).
     let mut scratch = [0u8; 2048];
@@ -594,8 +631,18 @@ fn stream_session<S: ViewerStream>(
         },
     )?;
     write_control(stream, &Control::Started { session })?;
-    let mut carrier = SocketCarrier::new(stream, reader, udp, out);
-    let reason = media.run(&mut carrier, table, session, principal);
+    let carrier = SocketCarrier::new(stream, reader, udp, out);
+    let reason = match link {
+        #[cfg(feature = "link")]
+        Some(link) => {
+            let mut carrier = crate::hybrid::HybridCarrier::new(carrier, link.clone());
+            media.run(&mut carrier, table, session, principal)
+        }
+        _ => {
+            let mut carrier = carrier;
+            media.run(&mut carrier, table, session, principal)
+        }
+    };
     media.release_input();
     media.close_upstreams();
     Ok(reason)

@@ -64,11 +64,12 @@ final class BookmarksTopPage: InternalPageProvider {
         })
         page.onNavigate = { [weak services, weak page] url in
             guard let services, let page else { return }
-            BookmarkOpener(services: services).open(url, profile: page.source.profile, disposition: .newTab)
+            BookmarkOpener(services: services).open(url, profile: page.host.profile, disposition: .newTab)
         }
+        page.webPage?.onOpenExternal = page.onNavigate
         pages[key] = page
         return page.contentView
     }
 
-    func tabClosed(_ key: String) { pages[key] = nil }
+    func tabClosed(_ key: String) { pages.removeValue(forKey: key)?.close() }
 }

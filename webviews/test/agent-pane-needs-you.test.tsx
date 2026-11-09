@@ -532,8 +532,14 @@ afterEach(async () => {
 });
 
 const click = (element: Element) => element.dispatchEvent(new dom!.window.MouseEvent("click", { bubbles: true }));
+/// A button's name as read aloud: its text without what it hides from assistive tech (a keycap).
+const readName = (element: Element) => {
+  const copy = element.cloneNode(true) as Element;
+  for (const hidden of copy.querySelectorAll('[aria-hidden="true"]')) hidden.remove();
+  return copy.textContent;
+};
 const buttonNamed = (host: HTMLElement, name: string) =>
-  [...host.querySelectorAll("button")].find((button) => button.textContent === name);
+  [...host.querySelectorAll("button")].find((button) => readName(button) === name);
 
 test("the panel lists each ask with who asked, answers it, and hides it once sent", async () => {
   const host = installDom();

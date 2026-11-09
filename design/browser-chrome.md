@@ -161,19 +161,39 @@ browser on this Mac (`webviews/src/browser-chrome/cookie-import/CookieImportCard
 `browser-chrome.cookie-import`). Leo, 2026-11-07: "this looks kind of ugly, to be honest. Like
 this isn't styled well." The native card drew two labels and buttons of two different kinds,
 with Don't Show Again as loose gray text at another height.
+Leo, 2026-11-08: "i dont like this. 1. looks bad. 2. not glass. 3. talks about too much
+irrelevant shit". It is a toast now, with one line, drawn on the glass the window's toasts use
+(cmux-design-references `claude/live/sidebar-mobile-promo-banner`: an icon, one line, a link and
+a close button; `cursor/live/import-nudge-dismiss-on-hover`: a quiet nudge with a close button,
+not a banner).
 
-- **Surface.** The native card is the glass (the theme's tint, the dialog radius 8, the popups'
-  elevation-2 shadow, the blur of the page behind its window, opaque under Reduce Transparency);
-  the page draws only text and buttons on it. Width: the pane's, at most `promptMaxWidth`.
-- **Layout (Standard density).** Padding 12. The browser's app icon at 32, 12 to the text. Title
-  in the body step (13) at emphasis, one line, cut at its end; detail in the detail step (12) in
-  the muted ink, at most two lines. 8 below, one row of answers.
-- **Answers.** Not Now (subtle) and Import… (the theme accent), both the compact control height
-  (24) and one width, the wider label's. Don't Show Again is a ghost button of the same height in
-  the faint ink (muted on hover), its text on the title's column; all three share one baseline.
-  No key hints: the card never takes focus, so Return and Escape stay the page's.
-- **States.** It shows only once its page reported the height of its lines, fading in at that
-  height (no empty frame, no growth after it appeared); until then every click goes to the page.
+- **Surface.** The native card is the toast surface's glass (`SurfaceRole.toast`: the neutral
+  glass, the theme-tinted veil and rim, radius 9, opaque under Reduce Transparency). This is the
+  material the window's toasts draw on the same overlay host, with the popups' elevation-2
+  shadow. The page draws only the line and the answers on it. Width: the pane's, at most 7/8 of
+  the palette width (560 at Standard), so the English line and its answers fit on one row.
+- **Layout (Standard density).** One row, padding 8, 12 at the leading edge. The browser's app
+  icon is 20 and sits 8 before the line. The line is in the body step (13), and wraps to a second
+  line before it cuts a word. The answers follow at the trailing edge as one group. In a narrow
+  pane, or with longer labels, the group wraps under the line, still at the trailing edge.
+- **Answers.** These use the toast's grammar (toasts.css): clear text with the hover fill only
+  under the pointer. Don't Show Again is in the secondary ink, Import… is bold in the ink, and the
+  close button (×, labelled and titled Not Now) is last. No key hints: the card never takes focus,
+  so Return and Escape stay the page's.
+- **Copy.** The title is the only line. The detail ("Stay signed in to your sites. Nothing leaves
+  this Mac.") and the Keep in sync checkbox are gone. Keep in sync is
+  Settings > Browser > Import (`browser.import.cookieSync`, on by default), and Import uses
+  that setting.
+- **States.** It shows once, and only after its page has reported the height of its line. It
+  fades in at that height, so there is no empty frame and no growth after it appears. Until
+  then every click goes to the page. After that it stays put (Leo, 2026-11-08: "the import
+  cookies from google chrome card flickers sometimes"):
+  - Its page measuring itself turns its clicks on where it is.
+  - The keyboard leaving its tab hides it where it is, and the keyboard coming back shows it
+    again.
+  - The same offer shown again keeps the card.
+  - None of these presents it again or makes a new card.
+
   Any answer fades it out and the chrome answers the host. After cookies came over by any path
   (this card, File > Import from Browser, Import Cookies from Browser) it never shows again.
 
@@ -198,7 +218,7 @@ with Don't Show Again as loose gray text at another height.
 | Site settings | parity (today), grouped (inset cards), segmented (choices on the row) | **parity** |
 | On-device site data | parity (today), grouped (this site / third parties headed), compact (one line) | **parity** |
 | Certificate viewer | list (Details shows every field's value), tabs (today: pick a field), sheet (no tabs) | **list** |
-| Import Cookies card | split (link on the text column, buttons at the end), trailing (all three answers at the end), inline (one row, buttons beside the text) | **split** |
+| Import Cookies card | toast (one row: the line, Don't Show Again and Import as text, the close button as Not Now), buttons (one row of ghost, subtle and accent buttons), stacked (the line, then a row of buttons) | **toast** |
 
 - **Flat** keeps the bar a field you can find at a glance on any wallpaper or theme, and its fill
   is what the joined card continues. Outlined reads lighter but loses the bar on busy pages and
