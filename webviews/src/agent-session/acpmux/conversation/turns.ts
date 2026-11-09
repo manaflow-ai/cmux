@@ -75,6 +75,7 @@ import { currentLanguage, translatorFor } from "../i18n";
 import { writeCall } from "./writeLabelModel";
 import { oneRowPerCall } from "./oneRowPerCall.experiment";
 import { MEMORY_OFFER } from "./memoryInbox";
+import { PRESET_APPROVAL } from "./presetApproval";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -1862,6 +1863,8 @@ const staysOut = (row: AcpmuxRow) =>
   row.kind === SINCE_DIVIDER ||
   // A memory offer waits for the person's Accept or Dismiss (MemoryOfferCard.tsx).
   row.kind === MEMORY_OFFER ||
+  // A preset approval waits for the person's Approve or Not now (PresetApprovalCard.tsx).
+  row.kind === PRESET_APPROVAL ||
   // A policy the harness cannot keep: the agent runs without the asks the person chose.
   row.kind === "policyUnenforced" ||
   // A paused agent pair waits for the person's Resume.
@@ -2251,17 +2254,25 @@ function codexLiveTurn(
   ];
 }
 
-/// The turn's compaction still running, with nothing from the agent since: no reply, call or prompt
-/// after it. A note after it (a failover, a background task's end) leaves it running. Once it ends,
+/// The turn's compaction still running, with nothing from the agent since: no reply or call after
+/// it. A note after it (a failover, a background task's end) leaves it running, and so does a prompt
+/// the person sent while it runs: the compaction stays the live line, under that prompt, never a
+/// row above it (Leo, 2026-11-09: "im still seeing compacting not be at the bottom"). Once it ends,
 /// its note is a row and the line reads "Thinking" at once, as after any finished step.
 function liveCompaction(drawn: readonly AcpmuxRow[]): AcpmuxRow | undefined {
   for (let index = drawn.length - 1; index >= 0; index -= 1) {
     const row = drawn[index]!;
     if (row.kind === "compaction") return row.compaction?.state === "running" ? row : undefined;
-    if (row.kind === "assistant" || row.kind === "activity" || row.kind === "user") return undefined;
+    if (row.kind === "assistant" || row.kind === "activity" || (row.kind === "user" && !sentByPerson(row)))
+      return undefined;
   }
   return undefined;
 }
+
+/// The person's own prompt (typed here or on another of their devices), not another agent's
+/// message, a task's result or harness bookkeeping.
+const sentByPerson = (row: AcpmuxRow) =>
+  row.kind === "user" && !row.incoming && !row.received && !row.untyped && row.from === undefined;
 
 /// The time a live turn's thoughts streamed, each from its first chunk to its latest, summed;
 /// undefined when none is dated or the dated ones each came as one chunk, which measured nothing.

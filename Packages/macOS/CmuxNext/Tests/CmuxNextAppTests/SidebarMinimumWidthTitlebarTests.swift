@@ -179,7 +179,13 @@ import Testing
             window.setContentSize(size)
             settle(root)
             let lights = try #require(WindowTitlebar.trafficLightsFrame(in: window))
-            let center = root.convert(lights, from: nil).midY
+            // The band, the badge and the indicator share the top row's one line (#37619). Since 7f3090eb
+            // (Lawrence 2026-11-07, "make it all concentric with macos windows by default") the default line is
+            // the top row's pills' (`TopRowLineLook.concentric`), and only the traffic lights, which macOS draws,
+            // keep their own; a window with no top row line keeps the lights'. The line's value is held by
+            // `WindowConcentricCornerTests` and `TopRowAlignmentTests`.
+            let center = WindowTitlebar.topRowLine(in: window).map { root.bounds.maxY - $0.centerY }
+                ?? root.convert(lights, from: nil).midY
             for view in [root.toolbarBand, badge, indicator] as [NSView] {
                 let frame = view.frame
                 for edge in [frame.minX, frame.maxX, frame.minY, frame.maxY] {
@@ -187,7 +193,7 @@ import Testing
                             "\(density)/\(scale)x: \(frame) has an edge between device pixels")
                 }
                 #expect(abs(frame.midY - center) * scale <= 0.5001,
-                        "\(density)/\(scale)x: \(frame) left the traffic lights' center line")
+                        "\(density)/\(scale)x: \(frame) left the top row's line at \(center)")
             }
         }
     }
