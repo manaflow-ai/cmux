@@ -50,20 +50,24 @@ function blurActiveComposer(): void {
   if (active?.closest(".acpmux-composer-box")) (active as HTMLElement).blur();
 }
 
-/// Whether `active` gives up the page's focus when the pane loses the keyboard: a pressable control
-/// (a header tool, a transcript chip) that a click left focused. Kept focused, the browser hands focus
-/// back to it each time the pane gets the keyboard again (the workspace shown again, the window
-/// raised), its `:focus-visible` ring draws around the pane's top-right tools, and the composer's
-/// activation claim sees a focused page and stands down (https://github.com/manaflow-ai/cmux/issues/38193).
-/// Released, the return finds the page idle and the keyboard lands in the prompt. A control that owns
-/// its keys (a field, a menu, a dialog) and one whose own popup is open keep their focus.
+/// The pane's toolbar chrome: the header tools of the embedded and floating chat headers. Like a
+/// native toolbar button, it never keeps the keyboard across a leave.
+const PANE_CHROME = ".acpmux-header-tool";
+
+/// Whether `active` gives up the page's focus when the pane loses the keyboard: a header tool a click
+/// (or a menu's close) left focused. Kept focused, the browser hands focus back to it each time the
+/// pane gets the keyboard again (the workspace shown again, the window raised), its `:focus-visible`
+/// ring draws around the pane's top-right tools, and the composer's activation claim sees a focused
+/// page and stands down (https://github.com/manaflow-ai/cmux/issues/38193). Released, the return finds
+/// the page idle and the keyboard lands in the prompt. A tool whose own popup is open keeps its focus,
+/// and so does every control in the page's content (a field, the New Tab page's buttons): the page
+/// gives those back as they were (new-tab-field-reclaims-keyboard.test.ts).
 function releasesFocusOnLeave(active: Element | null): boolean {
-  if (!active || active === active.ownerDocument?.body) return false;
-  if (!active.matches(PRESSABLE) || active.closest(OWNS_KEYS)) return false;
+  if (!active?.matches(PANE_CHROME)) return false;
   return !active.matches('[aria-expanded="true"], [data-popup-open]');
 }
 
-/// The pane lost the keyboard: the composer and a click-focused control give up the page's focus.
+/// The pane lost the keyboard: the composer and a click-focused header tool give up the page's focus.
 function releaseFocusOnLeave(): void {
   blurActiveComposer();
   const active = document.activeElement;
@@ -161,7 +165,7 @@ export function useComposerKeyboard(focusComposer: () => boolean, page: PageClie
       clearTimeout(settling);
       settling = undefined;
     };
-    // Focus that lands on a pressable control while the page lacks the keyboard is never the
+    // Focus that lands on a header tool while the page lacks the keyboard is never the
     // person's: a menu the pane left open closes after the window's blur and hands focus back to
     // its trigger, which then rang on the return just as a clicked tool did. It lets go at once.
     const onFocusIn = (event: FocusEvent) => {

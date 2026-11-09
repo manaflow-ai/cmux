@@ -187,6 +187,7 @@ describe("composer click-away focus", () => {
         ),
       ),
       React.createElement("input", { id: "field" }),
+      React.createElement("button", { id: "content-button" }, "all chats"),
       React.createElement(
         "div",
         { role: "menu" },
@@ -222,8 +223,13 @@ describe("composer click-away focus", () => {
     expect(document.activeElement).toBe(container.querySelector("[contenteditable]"));
   });
 
-  for (const id of ["field", "open-tool"])
-    test(`leaving the pane keeps focus on ${id === "field" ? "a field" : "a tool whose popup is open"}`, async () => {
+  const keptNames: Record<string, string> = {
+    field: "a field",
+    "open-tool": "a tool whose popup is open",
+    "content-button": "a button in the page's content",
+  };
+  for (const id of Object.keys(keptNames))
+    test(`leaving the pane keeps focus on ${keptNames[id]}`, async () => {
       const container = installDom();
       await act(async () => {
         root = createRoot(container);
