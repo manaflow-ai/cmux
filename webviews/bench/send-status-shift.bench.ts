@@ -39,7 +39,9 @@
 //               busy-waits MS ms, and a 120 ms long task runs every 500 ms ("everything's just a bit slow rn").
 // The mode ("open", "mid-turn", either with "+loadMS") is in the report's header and the JSON; the metric names stay.
 //   bun bench/send-status-shift.bench.ts [rounds=3] [--engines chromium,webkit] [--think-ms 1500] [--mid-turn]
-//     [--load MS] [--arm NAME] [--json FILE]
+//     [--load MS] [--arm NAME] [--chat-motion full|minimal] [--json FILE]
+//   --chat-motion  pins the chat's motion on the page (frameBudget.ts): `full` keeps the frame budget from turning
+//               minimal motion on, `minimal` starts in it, to measure the budget's own cost and the minimal mode.
 //   --arm NAME  the follow-motion experiment's arm for the page (followMotion.experiment.ts), so one checkout can
 //               measure the slim `send` arm against the spring chase (`blocks`); the page's default without it.
 /// <reference types="bun" />
@@ -62,23 +64,25 @@ const JSON_OUT = flag("--json");
 const MID_TURN = argv.includes("--mid-turn");
 const LOAD_MS = Number(flag("--load") ?? 0);
 const ARM = flag("--arm");
+const CHAT_MOTION = flag("--chat-motion");
 /// The flags that take a value: a number after one of them is that value, not the rounds.
-const VALUED = new Set(["--engines", "--think-ms", "--json", "--load", "--arm"]);
+const VALUED = new Set(["--engines", "--think-ms", "--json", "--load", "--arm", "--chat-motion"]);
 const ROUNDS = Number(argv.find((arg, index) => /^\d+$/.test(arg) && !VALUED.has(argv[index - 1] ?? "")) ?? 3);
 if (
   !Number.isInteger(ROUNDS) ||
   ROUNDS < 1 ||
   !Number.isFinite(LOAD_MS) ||
+  (CHAT_MOTION !== undefined && CHAT_MOTION !== "full" && CHAT_MOTION !== "minimal") ||
   LOAD_MS < 0 ||
   ENGINES.some((name) => name !== "chromium" && name !== "webkit")
 ) {
   console.error(
-    "usage: bun bench/send-status-shift.bench.ts [rounds=3] [--engines chromium,webkit] [--think-ms N] [--mid-turn] [--load MS] [--arm NAME]",
+    "usage: bun bench/send-status-shift.bench.ts [rounds=3] [--engines chromium,webkit] [--think-ms N] [--mid-turn] [--load MS] [--arm NAME] [--chat-motion full|minimal]",
   );
   process.exit(2);
 }
 /// What the round sends into, for the report and the JSON: "open" (an idle chat) or "mid-turn", "+loadN" under load.
-export const MODE = `${MID_TURN ? "mid-turn" : "open"}${LOAD_MS > 0 ? `+load${LOAD_MS}` : ""}${ARM ? `+arm=${ARM}` : ""}`;
+export const MODE = `${MID_TURN ? "mid-turn" : "open"}${LOAD_MS > 0 ? `+load${LOAD_MS}` : ""}${ARM ? `+arm=${ARM}` : ""}${CHAT_MOTION ? `+${CHAT_MOTION}` : ""}`;
 /// A row that moves more than this in one frame jumped; under it, a step of a motion.
 export const JUMP_PX = 2;
 
@@ -599,6 +603,12 @@ async function round(browser: Browser, url: string): Promise<Round> {
       await page.addInitScript((arm) => {
         (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "follow-motion": arm };
       }, ARM);
+    if (CHAT_MOTION)
+      await page.addInitScript((mode) => {
+        const pin = () => document.documentElement?.setAttribute("data-chat-motion", mode);
+        pin();
+        document.addEventListener("readystatechange", pin, { once: true });
+      }, CHAT_MOTION);
     await page.goto(url);
     await page.locator(".acpmux-composer-prompt").waitFor({ timeout: 60_000 });
     await page.locator("[data-row-id]").first().waitFor({ timeout: 60_000 });
