@@ -1,5 +1,5 @@
 import type { Env } from "../env.ts"
-import { isUsagePlan, usageIncludedUsd, type UsagePlan } from "../billing-catalog.ts"
+import { defaultIncludedMode, isUsagePlan, usageIncludedUsd, type IncludedMode, type UsagePlan } from "../billing-catalog.ts"
 import { nextMonthStart } from "../usage-user.ts"
 import { usagePriceSet } from "../billing-usage-sync.ts"
 
@@ -28,6 +28,9 @@ export const includedMicrosFor = (env: Env, caller: { readonly plan?: string | n
   // A paid plan this catalog does not know has no included amount: no AI until it is billable.
   return Math.round((plan ? usageIncludedUsd(plan, usagePriceSet(env)) : 0) * 1_000_000)
 }
+
+/** The stop's included mode for a team with no operator setting: per seat for Team under price set v2, else per team. */
+export const includedModeFor = (env: Env, caller: { readonly plan?: string | null }): IncludedMode => defaultIncludedMode(includedPlanOf(caller.plan), usagePriceSet(env))
 
 /** The 402 of the included-amount stop: Cloud-service copy, the amounts and the reset time. */
 export const includedReached = (spentUsd: number, includedUsd: number) =>
