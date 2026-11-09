@@ -1,5 +1,6 @@
 /**
- * Orphan sweep (cmux#35013): deletes provider VMs this environment made that no ownership row records.
+ * Orphan sweep (cmux#35013): deletes provider VMs this environment made that no ownership row records, or whose row was
+ * deleted long enough ago that its provider delete evidently did not take.
  *
  * A create makes the VM at the provider first and records its ownership row after. Whenever that second step never
  * happens (the receipt check failed, the database write failed, the Worker died in between), the VM runs and bills
@@ -10,7 +11,9 @@
  *    one a create of that id uses (`cmux-vm-<environment>-vm-<id>`): it is ours;
  *  - it was created at least ORPHAN_MIN_AGE_MS ago, longer than a create request's idempotency lease and send grace
  *    (src/limits/ledger.ts, 10 minutes each), so no create that could still record it is running;
- *  - no ownership row of any state (live, uncommitted or deleted) names its cmux id.
+ *  - no ownership row protects its cmux id: none names it (reason `no_row`), or the row was deleted at least
+ *    ORPHAN_DELETED_ROW_GRACE_MS ago (src/db/orphans.ts, reason `deleted_row`). A live row, committed or uncommitted,
+ *    always protects it, and so does a row deleted more recently.
  *
  * Only exact provider ids from that listing are deleted, never a slug pattern. Listing is complete before anything is
  * deleted, so a delete never shifts the pages still to read.
@@ -49,7 +52,11 @@ export interface OrphanVm {
   /** vCPUs and memory (MiB) the provider reports, for the cost a deletion stops. */
   readonly vcpus: number | null;
   readonly memoryMib: number | null;
+  /** `no_row`: no ownership row names it; `deleted_row`: its row was deleted and the VM is still there. */
+  readonly reason: OrphanReason;
 }
+
+export type OrphanReason = "no_row" | "deleted_row";
 
 export interface OrphanSweepReport {
   /** VMs of this environment the provider listed. */
@@ -71,8 +78,10 @@ export interface OrphanSweepOptions<E, R> {
   readonly dryRun: boolean;
   /** Deletes per run (default 200). */
   readonly maxDeletes?: number;
-  /** The cmux ids among these that have an ownership row of any state. */
+  /** The cmux ids among these that an ownership row protects (src/db/orphans.ts recordedVmIds). */
   readonly recorded: (cmuxIds: ReadonlyArray<string>) => Effect.Effect<ReadonlySet<string>, E, R>;
+  /** The cmux ids among these whose row is deleted, for each orphan's reason; without it every reason is `no_row`. */
+  readonly deletedRows?: (cmuxIds: ReadonlyArray<string>) => Effect.Effect<ReadonlySet<string>, E, R>;
 }
 
 export const orphanSlug = (environment: string, cmuxId: string) => `cmux-vm-${environment}-${cmuxId.replace("_", "-")}`;
@@ -101,7 +110,7 @@ export const sweepOrphanVms = <E, R>(config: UpstreamConfig, options: OrphanSwee
         const createdMs = Date.parse(vm.createdAt);
         if (!Number.isFinite(createdMs) || options.nowMs - createdMs < minAgeMs) continue;
         candidates.set(vm.id, { upstreamId: vm.id, cmuxId, tenant: metadata["cmux_tenant"] ?? null, state: vm.state, createdAt: vm.createdAt,
-          vcpus: vm.resources?.cpu ?? null, memoryMib: vm.resources?.memory ?? null });
+          vcpus: vm.resources?.cpu ?? null, memoryMib: vm.resources?.memory ?? null, reason: "no_row" });
       }
       if (body.vms.length < PAGE_SIZE) {
         complete = true;
@@ -113,7 +122,14 @@ export const sweepOrphanVms = <E, R>(config: UpstreamConfig, options: OrphanSwee
     for (let index = 0; index < all.length; index += LOOKUP_BATCH) {
       for (const id of yield* options.recorded(all.slice(index, index + LOOKUP_BATCH).map((vm) => vm.cmuxId))) recorded.add(id);
     }
-    const orphans = all.filter((vm) => !recorded.has(vm.cmuxId));
+    const unprotected = all.filter((vm) => !recorded.has(vm.cmuxId));
+    const deletedRows = new Set<string>();
+    if (options.deletedRows !== undefined) {
+      for (let index = 0; index < unprotected.length; index += LOOKUP_BATCH) {
+        for (const id of yield* options.deletedRows(unprotected.slice(index, index + LOOKUP_BATCH).map((vm) => vm.cmuxId))) deletedRows.add(id);
+      }
+    }
+    const orphans: OrphanVm[] = unprotected.map((vm) => deletedRows.has(vm.cmuxId) ? { ...vm, reason: "deleted_row" } : vm);
     const deleted: string[] = [];
     const failed: string[] = [];
     if (!options.dryRun) {

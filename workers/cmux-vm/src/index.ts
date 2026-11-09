@@ -27,7 +27,7 @@ import { sqlMeshStoreLayer } from "./db/mesh.ts";
 import { meshConfigLayer, parseMeshExperiment, parseReceiverPolicyLease } from "./mesh/config.ts";
 import { upstreamMeshLayer } from "./upstream/live-mesh.ts";
 import { sqlMembershipCacheLayer, sqlWebhookDeliveryStoreLayer } from "./db/identity.ts";
-import { recordedVmIds } from "./db/orphans.ts";
+import { deletedVmIds, recordedVmIds } from "./db/orphans.ts";
 import { sweepOrphanVms } from "./upstream/orphan-sweep.ts";
 
 /** The per-tenant counters Durable Object; wrangler binds it as TENANT_LIMITS. */
@@ -152,7 +152,7 @@ const notConfigured = (): Promise<Response> =>
 const unconfigured: Served = { handler: notConfigured, reap: () => Promise.resolve(), sweep: () => Promise.resolve() };
 
 /**
- * Deletes provider VMs of this environment that no ownership row records (src/upstream/orphan-sweep.ts). Staging and
+ * Deletes provider VMs of this environment that no ownership row protects (src/upstream/orphan-sweep.ts). Staging and
  * production only: each is one Worker with its own database, while every preview Worker shares the environment name
  * "preview" (and its slugs) with the others, so one preview's sweep could see another's VMs as orphans.
  */
@@ -163,14 +163,14 @@ const runOrphanSweep = async (env: Env) => {
   const environment = parseEnvironment(raw);
   const config = { baseUrl: env.UPSTREAM_API_URL, apiKey: Redacted.make(env.UPSTREAM_API_KEY), environment };
   const report = await Effect.runPromise(
-    withRequestConnection(sweepOrphanVms(config, { nowMs: Date.now(), dryRun: false, recorded: recordedVmIds })).pipe(
+    withRequestConnection(sweepOrphanVms(config, { nowMs: Date.now(), dryRun: false, recorded: recordedVmIds, deletedRows: deletedVmIds })).pipe(
       Effect.provide(hyperdriveSqlLayer(env.HYPERDRIVE.connectionString)),
     ),
   );
   if (report.orphans.length > 0 || !report.complete) {
     console.log(JSON.stringify({
       event: "cmux_vm_orphan_sweep", listed: report.listed, complete: report.complete, orphans: report.orphans.length,
-      deleted: report.deleted, failed: report.failed,
+      deleted_row: report.orphans.filter((vm) => vm.reason === "deleted_row").length, deleted: report.deleted, failed: report.failed,
     }));
   }
 };
