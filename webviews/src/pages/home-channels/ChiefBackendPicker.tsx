@@ -11,6 +11,7 @@ import { EndpointFields } from "../shared/EndpointFields";
 import {
   bringEndpoint,
   checkEndpoint,
+  declaredModelId,
   endpointBackend,
   endpointBusy,
   modelList,
@@ -313,7 +314,8 @@ function BringYourOwn({
   };
   const submit = async () => {
     if (!complete || busy) return;
-    const model = endpoint ? (modelList(draft.models)[0] ?? "") : "";
+    // The id the harness declares (`byo/<model>` for an OpenAI-compatible endpoint), not the typed one.
+    const model = endpoint ? declaredModelId(kind as EndpointKind, modelList(draft.models)[0] ?? "") : "";
     const full = { ...draft, kind: kind as EndpointKind, name };
     const at = endpoint ? (next.target ?? undefined) : undefined;
     if (endpoint && !at) return;

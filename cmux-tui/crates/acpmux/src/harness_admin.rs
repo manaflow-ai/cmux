@@ -517,7 +517,9 @@ fn id_free(
     replace: bool,
     taken: &dyn Fn(&str) -> bool,
 ) -> Result<(), AdminError> {
-    if !path.exists() && taken(id) {
+    // `taken` answers for other sources only (`taken_elsewhere`): a user file of this id that
+    // another source overrides is refused too, `replace` or not.
+    if taken(id) {
         return Err(AdminError::Exists(format!(
             "{id} is already a harness from another source; pick another id"
         )));
@@ -528,6 +530,33 @@ fn id_free(
         )));
     }
     Ok(())
+}
+
+/// Whether a harness `id` comes from somewhere other than this user folder's own `<id>.toml`
+/// (a built-in, a managed or cmux.json profile, a program on PATH): the `taken` an endpoint add
+/// refuses. The folder's own file is not "taken": `replace` writes over it.
+pub fn taken_elsewhere<'a>(
+    cfg: &'a Config,
+    sources: &ProfileSources,
+) -> impl Fn(&str) -> bool + 'a {
+    let dir = sources.user_dir.clone();
+    move |id: &str| {
+        if cfg.profile(id).is_none() {
+            return false;
+        }
+        let own = dir.as_ref().map(|d| d.join(format!("{id}.toml")));
+        let from = cfg.profile_meta.get(id).map(|m| PathBuf::from(&m.source_path));
+        match (own, from) {
+            (Some(own), Some(from)) => {
+                let same = |a: &Path, b: &Path| {
+                    a == b
+                        || matches!((a.canonicalize(), b.canonicalize()), (Ok(x), Ok(y)) if x == y)
+                };
+                !same(&own, &from)
+            }
+            _ => true,
+        }
+    }
 }
 
 /// The id check of an endpoint add, run before anything else it does (reading the endpoint's
@@ -875,13 +904,14 @@ pub fn restore(
         .ok_or_else(|| AdminError::Invalid(format!("{name:?} is not a backup name")))?;
     let dir = user_dir(sources)?;
     let to = dir.join(format!("{id}.toml"));
+    // Under the lock adds and removes take: a restore never races an add of this id.
+    let _one = lock_endpoint_adds(&dir)?;
     if to.exists() {
         return Err(AdminError::Exists(format!(
             "{} exists; remove or rename it first",
             to.display()
         )));
     }
-    ensure_dir(&dir)?;
     move_file(&from, &to)?;
     Ok(Restored { id, path: to })
 }

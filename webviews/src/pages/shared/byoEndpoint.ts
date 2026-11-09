@@ -238,6 +238,14 @@ export function addedTarget(target: AddTarget, backend: EndpointBackend): AddTar
 }
 
 /** A harness's model ids as the form lists them (acpmux names an OpenAI-compatible one `byo/<id>`). */
+/** The model id the harness declares for one the form lists, the id a Chief saves: OpenCode
+ * names an OpenAI-compatible endpoint's models `byo/<id>`; Claude Code takes the id as typed.
+ * `*` (every model) is none: the harness's own default. */
+export function declaredModelId(kind: EndpointKind, model: string): string {
+  if (!model || model === ALL_MODELS) return "";
+  return kind === "openai-endpoint" && !model.startsWith(PROVIDER_PREFIX) ? `${PROVIDER_PREFIX}${model}` : model;
+}
+
 export function endpointModelIds(kind: EndpointKind, models: { id: string }[]): string[] {
   return models.map((model) =>
     kind === "openai-endpoint" && model.id.startsWith(PROVIDER_PREFIX)

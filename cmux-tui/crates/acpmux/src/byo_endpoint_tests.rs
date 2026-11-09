@@ -496,6 +496,15 @@ fn byo_endpoint_model_lists_parse_from_every_shape() {
         models_url(Kind::Anthropic, "https://gw.example.com/v1"),
         "https://gw.example.com/v1/models"
     );
+    // A query stays a query: /models goes on the path.
+    assert_eq!(
+        models_url(Kind::OpenAi, "https://gw.example.com/openai/v1/?api-version=2026-01-01"),
+        "https://gw.example.com/openai/v1/models?api-version=2026-01-01"
+    );
+    assert_eq!(
+        models_url(Kind::Anthropic, "https://gw.example.com?team=a"),
+        "https://gw.example.com/v1/models?team=a"
+    );
 }
 
 /// A one-thread fake `/v1/models` on 127.0.0.1: the list for `Bearer
@@ -1335,4 +1344,79 @@ fn byo_endpoint_a_key_that_cannot_be_deleted_is_reported_never_claimed_gone() {
     // Exit 44 means "not found" only for `security`.
     std::fs::remove_file(bin.join("security")).unwrap();
     assert!(run_delete(&script("secret-tool", 44)).is_err());
+}
+
+#[test]
+fn byo_endpoint_restore_waits_on_the_add_lock() {
+    let root = scratch("restorelock");
+    let src = sources(&root);
+    let home = root.join("home");
+    let dir = root.join("harnesses");
+    let p = params("openai-endpoint", "team", "https://one.example.com/v1", "m", None);
+    let added = admin::add_endpoint_keyed(&p, &src, &admin::EndpointKey::NONE).unwrap();
+    let (profile, meta) = load(&added.path, "team");
+    let cfg = config("team", profile, meta);
+    let removed = admin::remove("team", &cfg, &src, &home, None).unwrap();
+    // An add (here: another open file) holds the lock: the restore waits for it.
+    let held = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join(".endpoint-add.lock"))
+        .unwrap();
+    held.lock().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let (src2, home2, backup) = (src.clone(), home.clone(), removed.backup.clone());
+    let worker = std::thread::spawn(move || {
+        tx.send(admin::restore(&backup, &src2, &home2).map(|r| r.id)).unwrap();
+    });
+    assert!(
+        rx.recv_timeout(Duration::from_millis(300)).is_err(),
+        "the restore did not wait for the lock"
+    );
+    assert!(!dir.join("team.toml").exists());
+    held.unlock().unwrap();
+    assert_eq!(rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap(), "team");
+    worker.join().unwrap();
+}
+
+#[test]
+fn byo_endpoint_a_user_file_another_source_overrides_is_refused_even_with_replace() {
+    let root = scratch("stalefile");
+    let src = sources(&root);
+    let p = params("openai-endpoint", "team", "https://one.example.com/v1", "m", None);
+    let added = admin::add_endpoint_keyed(&p, &src, &admin::EndpointKey::NONE).unwrap();
+    let (profile, meta) = load(&added.path, "team");
+    // The folder's own file: not taken elsewhere, so `replace` writes it again.
+    let own = config("team", profile.clone(), meta.clone());
+    let plain = profile.clone();
+    let mut again = params("openai-endpoint", "team", "https://two.example.com/v1", "m", None);
+    again.replace = true;
+    admin::endpoint_id_free(&again, &src, &admin::taken_elsewhere(&own, &src)).unwrap();
+    // A managed profile of that id wins over the (now stale) user file: refused, `replace` or not.
+    let managed = config(
+        "team",
+        profile,
+        ProfileMeta {
+            source: ProfileSource::Managed,
+            source_path: root.join("managed.toml").display().to_string(),
+            ..meta
+        },
+    );
+    let refused =
+        admin::endpoint_id_free(&again, &src, &admin::taken_elsewhere(&managed, &src)).unwrap_err();
+    assert!(matches!(refused, AdminError::Exists(_)), "{refused:?}");
+    let key = admin::EndpointKey {
+        taken: &admin::taken_elsewhere(&managed, &src),
+        ..admin::EndpointKey::NONE
+    };
+    assert!(matches!(
+        admin::add_endpoint_keyed(&again, &src, &key).unwrap_err(),
+        AdminError::Exists(_)
+    ));
+    // A built-in (no profile file at all) is taken too.
+    let mut builtin = Config::default();
+    builtin.harnesses.insert("opencode".into(), plain);
+    assert!(admin::taken_elsewhere(&builtin, &src)("opencode"));
+    assert!(!admin::taken_elsewhere(&builtin, &src)("free"));
 }

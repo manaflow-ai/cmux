@@ -303,7 +303,7 @@ async fn add_endpoint_cmd(
     // `--keychain-item` the profile names no item, so a keyless endpoint never fails on one. An id
     // another source has (a built-in, managed or cmux.json harness) is refused, as the daemon does.
     let cfg = Config::load()?;
-    let taken = |id: &str| cfg.profile(id).is_some();
+    let taken = crate::harness_admin::taken_elsewhere(&cfg, &sources);
     let added = crate::harness_admin::add_endpoint_keyed(
         p,
         &sources,

@@ -6,6 +6,7 @@ import {
   bringEndpoint,
   addedTarget,
   canFetchModels,
+  declaredModelId,
   endpointBackend,
   endpointId,
   endpointProblemAt,
@@ -178,6 +179,14 @@ test("a new target goes past every harness id, terminal ones too", async () => {
     own: false,
     typedKey: false,
   });
+});
+
+test("the model a Chief saves is the id the harness declares", () => {
+  expect(declaredModelId("openai-endpoint", "model-large")).toBe("byo/model-large");
+  expect(declaredModelId("openai-endpoint", "byo/model-large")).toBe("byo/model-large");
+  expect(declaredModelId("anthropic-endpoint", "claude-like")).toBe("claude-like");
+  expect(declaredModelId("openai-endpoint", "*")).toBe("");
+  expect(declaredModelId("openai-endpoint", "")).toBe("");
 });
 
 test("a new id is an ASCII slug numbered past every harness, never a localized name's my-backend", () => {

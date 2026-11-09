@@ -491,6 +491,26 @@ test("Bring your own: until the harness ids are read, Add waits (no guessed id)"
   expect("id" in added && added.id).toBe("acme-2");
 });
 
+test("Bring your own: an OpenAI-compatible endpoint's Chief saves the model id the harness declares (byo/...)", async () => {
+  const container = installDom();
+  const { service, calls, checks } = fakeService();
+  await mount(container, service, CHIEF);
+  const picker = byLabel<HTMLSelectElement>(container, t("chief.backend.title"));
+  await choose(picker, picker.options[picker.options.length - 1]!.value);
+  const within = "[data-chief-byo]";
+  await click(byLabel(container, t("chief.byo.kind.openai"), within));
+  await type(byLabel(container, t("chief.byo.name"), within), "Acme");
+  await type(byLabel(container, t("chief.byo.baseUrl"), within), "https://api.acme.dev/v1");
+  await type(byLabel(container, t("chief.byo.model"), within), "acme-1, acme-2");
+  await type(byLabel(container, t("chief.byo.apiKey"), within), "sk-secret-123");
+  await click(button(container, t("chief.byo.add")));
+  await act(async () => checks[0]!.answer({ ok: true, steps: [{ name: "prompt", ok: true }] }));
+  await flush();
+  await save(container);
+  // acpmux declares an OpenAI-compatible endpoint's models as `byo/<id>`: the Chief saves that one.
+  expect(lastSave(calls)!.engine).toEqual({ harness: "acme", model: "byo/acme-1" });
+});
+
 test("the lock switch sends locked, and only when it changed", async () => {
   const container = installDom();
   const { service, calls } = fakeService();

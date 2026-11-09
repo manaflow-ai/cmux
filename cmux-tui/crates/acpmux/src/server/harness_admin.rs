@@ -200,7 +200,7 @@ pub(super) async fn handle(
             // page never takes a failed add of an id it did not get for its own.
             if endpoint.is_some() {
                 let cfg = hub.config.read().await;
-                admin::endpoint_id_free(&p, &sources, &|id| cfg.profile(id).is_some())
+                admin::endpoint_id_free(&p, &sources, &admin::taken_elsewhere(&cfg, &sources))
                     .map_err(rpc_error)?;
             }
             // `*`: the endpoint's own model list, read with the key this add brings or the stored one.
@@ -221,7 +221,7 @@ pub(super) async fn handle(
                         &admin::EndpointKey {
                             value: key.as_deref().map(String::as_str),
                             store: &crate::cli::harness_secret::run_store,
-                            taken: &|id| cfg.profile(id).is_some(),
+                            taken: &admin::taken_elsewhere(&cfg, &sources),
                         },
                     )
                 })

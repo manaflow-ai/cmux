@@ -372,12 +372,21 @@ pub fn profile_text(e: &Endpoint<'_>) -> String {
 /// Where the endpoint lists its models: `<base>/models` for an OpenAI base
 /// (it ends in `/v1`), `<base>/v1/models` for an Anthropic base (it ends
 /// before `/v1`), as each API names it.
+/// A query on the base (`?api-version=...`) stays, after the path.
 pub fn models_url(kind: Kind, base_url: &str) -> String {
-    let base = base_url.trim_end_matches('/');
-    if kind == Kind::OpenAi || base.ends_with("/v1") {
+    let (path, query) = match base_url.split_once('?') {
+        Some((path, query)) => (path, Some(query)),
+        None => (base_url, None),
+    };
+    let base = path.trim_end_matches('/');
+    let url = if kind == Kind::OpenAi || base.ends_with("/v1") {
         format!("{base}/models")
     } else {
         format!("{base}/v1/models")
+    };
+    match query {
+        Some(query) => format!("{url}?{query}"),
+        None => url,
     }
 }
 
