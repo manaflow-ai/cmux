@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42596327341",
+  "recorded_at": "2026-11-09T09:58:45Z",
+  "reason": "cmux-tui ba9afd2adf81 changes the image's cmux-tui (pinned 749c21135589)",
+  "dry_run": false,
+  "cmux_tui": "ba9afd2adf813dbcde1083efab1dc8188d53a951",
+  "fixes": [
+    {
+      "sha": "ba9afd2adf813dbcde1083efab1dc8188d53a951",
+      "mergedAt": "2026-11-09T01:32:20-08:00",
+      "subject": "acpmux: a subagent's background task end goes to that subagent, not the lead (#39029)"
+    },
+    {
+      "sha": "d032ed4aa70c0a6f5dca3fecd07f7b8ab5981858",
+      "mergedAt": "2026-11-09T01:29:47-08:00",
+      "subject": "Sidebar: keep the order drawn at launch until the owner serves (Rust rule) (#39149)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T09:58:45Z",
+    "snapshot_id": "sh-eb18688d07d6430ab01e9ff252b9ed5c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42596327341): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8d40c09042b0bb56500bd8a483be4d88ca98e617",
+    "image": "cloud-native-auto-ba9afd2a-42596327341-1",
+    "revision": "ci-42596327341-1",
+    "at": "2026-11-09T09:58:45Z"
+  },
+  "rolled_back": false
+}
