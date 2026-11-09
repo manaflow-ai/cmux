@@ -634,12 +634,17 @@ fn start_new(
     settings: &Settings,
     site: &Site,
     label: &str,
-    version: u64,
+    (old_version, version): (u64, u64),
     expected_entries: &Value,
     premigrated: bool,
 ) -> Start {
     let registry = site.registry();
     let head = journal_head(&registry);
+    // Build N+1 starts on build N's roster: an older version, or the start
+    // would fold nothing and the update would test nothing.
+    let saved = roster(&registry).map(|(saved, _, _)| saved);
+    assert_eq!(saved, Some(old_version), "owner {label} would start on a roster of {saved:?}");
+    assert!(old_version < version, "build N+1's roster {version} is not past build N's {old_version}");
     let mut action = HeldAction::new(label);
     let _ = fs::remove_file(site.socket());
     action.try_first(&site.socket());
@@ -875,7 +880,10 @@ fn an_update_that_bumps_the_roster_reducer_repairs_itself() {
     let (template, generated) = template_registry(&settings, &options);
     let old_version = generated["roster_version"].as_u64().unwrap();
     let new_version = settings.new_version.unwrap_or(old_version + 1);
-    assert_ne!(new_version, old_version, "build N+1 must bump the roster reducer");
+    assert!(
+        new_version > old_version,
+        "build N+1 must bump the roster reducer past build N's {old_version}, not to {new_version}"
+    );
     let (_, _, entries) = roster(&template.registry()).unwrap();
     assert!(
         entries.as_object().is_some_and(|entries| !entries.is_empty()),
@@ -888,14 +896,14 @@ fn an_update_that_bumps_the_roster_reducer_repairs_itself() {
 
     let old = start_old(&settings, &template, "baseline-n");
     old.hand_off(&settings.new_bin);
-    let baseline = start_new(&settings, &template, "baseline-n1", new_version, &entries, false);
+    let baseline = start_new(&settings, &template, "baseline-n1", (old_version, new_version), &entries, false);
     drop(template);
 
     let warm = warm_site.map(|warm_site| {
         let mut old = start_old(&settings, &warm_site, "premigrate-n");
         let took = premigrate(&settings, &warm_site, &mut old, new_version);
         old.hand_off(&settings.new_bin);
-        (took, start_new(&settings, &warm_site, "premigrate-n1", new_version, &entries, true))
+        (took, start_new(&settings, &warm_site, "premigrate-n1", (old_version, new_version), &entries, true))
     });
 
     let seconds = |value: Option<Duration>| {
@@ -919,8 +927,10 @@ fn an_update_that_bumps_the_roster_reducer_repairs_itself() {
         baseline.ensures,
         warm.as_ref().map_or(0, |(_, start)| start.ensures),
     );
+    let versions = format!("E2E-ROSTER old={old_version} new={new_version}");
+    println!("{versions}");
     println!("{summary}");
     if let Some(path) = &settings.result_file {
-        fs::write(path, format!("{summary}\n")).unwrap();
+        fs::write(path, format!("{versions}\n{summary}\n")).unwrap();
     }
 }

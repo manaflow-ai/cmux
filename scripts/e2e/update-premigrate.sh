@@ -68,7 +68,12 @@ cp "$test_bin" "$work/update-premigrate-e2e"
 echo "update-premigrate: build N+1 (roster reducer $new_version)" >&2
 cp "$reducer" "$work/journal_reducers.rs.n"
 sed -i "s/$pattern/pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = $new_version;/" "$reducer"
-grep -q "AGENT_ROSTER_REDUCER_VERSION: u32 = $new_version;" "$reducer"
+# A bump that changed nothing would test an update to the same reducer: refuse it.
+if cmp -s "$reducer" "$work/journal_reducers.rs.n" ||
+  [[ "$(sed -n "s/$pattern/\\1/p" "$reducer")" != "$new_version" ]]; then
+  echo "error: the reducer bump $old_version -> $new_version changed nothing in $reducer" >&2
+  exit 3
+fi
 cargo build --locked --release -p cmux-tui --bin cmux-tui \
   --message-format=json-render-diagnostics >"$work/build-n1.json"
 new_bin="$(executable bin <"$work/build-n1.json")"
