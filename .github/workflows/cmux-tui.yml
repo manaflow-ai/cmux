@@ -107,8 +107,37 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
+      # cmux-tui runs are dispatch-only. A 502/504 at deps.files.ghostty.org failed
+      # every Linux job on 2026-11-08; the fetch's curl seed and retries carry a short
+      # outage. On Blacksmith, only this job restored a dispatch save in a later run
+      # (run 42482435964), so only it saves there; elsewhere a job saves only on an
+      # owned mini, whose GitHub store restores per branch.
+      - name: Fetch the Ghostty Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          source: ghostty
+          save-on-dispatch: "true"
+
       - name: Install Rust 1.91
         run: rustup toolchain install 1.91.0 --profile minimal
+
+      # Before rust-cache: its cleanup must never reach a home a sibling runner builds from.
+      - name: Give this runner instance its own CARGO_HOME
+        uses: ./.github/actions/runner-cargo-home
+
+      # Keep cargo's registry and the MSRV target dir between runs, as lint and test
+      # do: without it every run checked the whole workspace from an empty target.
+      # The job's own key, with the toolchain in it, so 1.91 artifacts never mix
+      # with the pinned toolchain's.
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          # Only main dispatches save: a dispatch on another branch never restores
+          # its own save, so it would only push useful entries out of the cache store.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          workspaces: cmux-tui -> target
+          key: rust-1.91.0
 
       - name: cargo check with MSRV
         working-directory: cmux-tui
@@ -193,6 +222,12 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
+      - name: Fetch the Ghostty Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          source: ghostty
+          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
+
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
@@ -261,6 +296,12 @@ jobs:
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
+
+      - name: Fetch the Ghostty Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          source: ghostty
+          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -480,6 +521,12 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
+      - name: Fetch the Ghostty Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          source: ghostty
+          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
+
       - name: Ghostty VT cursor replay checks
         if: inputs.mode == 'full'
         working-directory: ghostty
@@ -510,6 +557,8 @@ jobs:
           key: cmux-tui-source-${{ hashFiles('cmux-tui/**/*.rs', 'cmux-tui/**/Cargo.toml', 'cmux-tui/Cargo.lock') }}
           cache-all-crates: true
           cache-workspace-crates: true
+          # Only main dispatches save: a dispatch on another branch never restores
+          # its own save, so it would only push useful entries out of the cache store.
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Report cargo cache hit rate
@@ -708,6 +757,17 @@ jobs:
           rustup target add x86_64-pc-windows-gnu
           printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
 
+      # Keep cargo's registry and the windows-gnu target dir between runs, as the
+      # Linux and macOS test jobs do. Its own job key: no other job builds this target.
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          # Only main dispatches save: a dispatch on another branch never restores
+          # its own save, so it would only push useful entries out of the cache store.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          workspaces: cmux-tui -> target
+
       - name: Verify LLVM GNU linker
         shell: bash
         run: ld.lld --version
@@ -730,9 +790,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Linux only, as on feat-cmux-next: no Playwright, Puppeteer or downloaded Chromium on
+        # Mac runners (Lawrence, 2026-11-02); the old Mac lane ran on a self-hosted fleet Mac.
         include:
-          - os: macos
-            runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
           - os: linux
             runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
@@ -755,30 +815,44 @@ jobs:
         working-directory: web
         run: bun install --frozen-lockfile
 
-      - name: Install pinned Playwright Chromium (Linux)
+      - name: Install system Chrome and chrome-headless-shell (Linux)
         if: runner.os == 'Linux'
         working-directory: web
-        run: bunx playwright install --with-deps chromium
+        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
 
-      - name: Install pinned Playwright Chromium (macOS)
-        if: runner.os == 'macOS'
-        working-directory: web
-        run: bunx playwright install chromium
-
-      - name: Resolve Playwright Chromium executable
+      # The step above installs no Playwright Chromium (system Chrome only, CVE-2026-118306).
+      # Use the chrome-headless-shell it fetched (the engine Playwright's headless launches use),
+      # else the system Chrome it checked.
+      - name: Resolve Chromium executable
         id: chromium
-        working-directory: web
         shell: bash
         run: |
           set -euo pipefail
-          path="$(bun -e 'const { chromium } = require("@playwright/test"); process.stdout.write(chromium.executablePath())')"
+          path="${CMUX_CHROME_HEADLESS_SHELL:-}"
+          if [[ -z "$path" ]]; then
+            path="$(command -v google-chrome-stable || command -v google-chrome || true)"
+          fi
           test -n "$path"
           test -x "$path"
           printf 'path=%s\n' "$path" >> "$GITHUB_OUTPUT"
-          echo "Using Playwright Chromium at $path"
+          echo "Using Chromium at $path ($("$path" --version 2>/dev/null || echo 'version unknown'))"
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
+
+      # Keep cargo's registry and cmux-tui/target between runs, as test and lint do.
+      # Its own job key: test's shared key holds the whole workspace build, and the
+      # first save under a key wins, so a small CDP-only save there would starve test.
+      # cache-bin: false keeps an owned mini's own ~/.cargo/bin (rust-cache's save
+      # cleanup deletes what was there at restore).
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          # Only main dispatches save: a dispatch on another branch never restores
+          # its own save, so it would only push useful entries out of the cache store.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run configured Chrome CDP smoke
         working-directory: cmux-tui
@@ -837,6 +911,12 @@ jobs:
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
+
+      - name: Fetch the Ghostty Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          source: ghostty
+          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust

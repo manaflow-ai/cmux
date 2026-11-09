@@ -41,6 +41,7 @@ import http.client
 import json
 import os
 import re
+import subprocess
 import sys
 import urllib.parse
 import urllib.request
@@ -49,16 +50,25 @@ import urllib.request
 # connection, a timeout or an HTTP status, but a truncated response arrives as
 # http.client.IncompleteRead, which is an HTTPException and not an OSError;
 # one of those on 2026-10-26 was two guards away from taking the whole check
-# down. A read that fails in transit is always a warning, never a traceback.
+# down. Feed read failures warn; GitHub failures mark health unavailable.
 TRANSPORT = (OSError, http.client.HTTPException)
 
-FEED_URL = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"  # cmux NEXT (cx-x7hwx)
-# nightly-next writes two appcasts: the bare path an installed app polls and
-# the `/next/` channel path. They can disagree -- on 2026-10-26 the bare feed
-# was two hours ahead of `/next/` -- so freshness is the OLDER of the two and a
-# build that reached one path and not the other still counts as behind.
+# Exit status is part of the workflow's durable health signal.  A stale feed
+# is an expected alarm (1); an API outage means this run could not assess
+# release health at all (3), so the scheduled job is visibly degraded.
+EXIT_OK = 0
+EXIT_STALE = 1
+EXIT_UNAVAILABLE = 3
+
+# nightly-next has one feed: the bare path cmux NIGHTLY (com.cmuxterm.app.nightly) polls. Each build
+# is signed once, as cmux NIGHTLY (hq#7156); the `/next/` cmux NEXT-identity appcast is retired and
+# gets no builds, so it is not watched.
 BARE_FEED_URL = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
-NEXT_FEED_URLS = (BARE_FEED_URL, FEED_URL)
+NEXT_FEED_URLS = (BARE_FEED_URL,)
+# The `/next/` appcast, read only to find builds the legacy jobs have not copied to the bare feed
+# (legacy_lag). While nightly-next still runs the copy it is the newer side; once nightly-next signs
+# once, it freezes, no build is missing, and nothing is re-run.
+FEED_URL = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
 # The old feed, nightly.yml's NIGHTLY_NEXT_LEGACY_FEED_BASE: cmux NIGHTLY (com.cmuxterm.app.nightly,
 # Leo's daily driver) has it as SUFeedURL. Only publish-nightly-identity-legacy writes it, re-signing
 # each cmux NEXT Nightly build, so a failed legacy job leaves it behind while FEED_URL looks current
@@ -69,6 +79,11 @@ LEGACY_JOBS = ("legacy-identity-target", "sign-nightly-identity-legacy", "verify
 # Nightly freshness (rulebook): no feed more than 30 minutes behind; a legacy job's re-run takes ~15.
 LEGACY_MAX_LAG_MINUTES = 15.0
 LEGACY_MAX_ATTEMPTS = 3
+# A legacy job that ended any of these did not publish, so the watch re-runs it. Cancelled counts:
+# the Blacksmith macOS signing jobs sat queued with no runner and were cancelled on 2026-10-30
+# (run 41000008430, two attempts), and cmux NIGHTLY's feed stayed 9 hours behind while the watch
+# re-ran nothing.
+LEGACY_UNPUBLISHED = ("failure", "timed_out", "cancelled")
 LABEL = "nightly-next-feed-stale"
 PUSH_WORKFLOW = "cmux-next-guards.yml"  # every feat-cmux-next push, no path filter
 RELEASE_COMPILE_JOB = "cmux-next Release compile (Xcode 26)"
@@ -217,9 +232,28 @@ def stamp(when: dt.datetime) -> str:
     return when.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def ls_remote_sha(repo: str, branch: str, timeout: float = 60) -> str:
+    """A branch's tip from git's smart-HTTP ref advertisement, not the REST API.
+
+    The repository is public, so this needs no token and spends none of the installation's
+    API budget. On 2026-11-04 that budget ran out and the tick's `git/ref/heads/nightly-next`
+    read failed, so ticks 41791114042 and 41791169626 promoted nothing. Raises OSError,
+    subprocess.SubprocessError or ValueError; callers fall back to the API."""
+    server = os.environ.get("GITHUB_SERVER_URL", "https://github.com").rstrip("/")
+    out = subprocess.run(
+        ["git", "ls-remote", "--exit-code", f"{server}/{repo}", f"refs/heads/{branch}"],
+        capture_output=True, text=True, timeout=timeout, check=True, stdin=subprocess.DEVNULL,
+        env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}).stdout
+    sha = out.split()[0].lower() if out.split() else ""
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise ValueError(f"git ls-remote {branch}: no sha in {out[:80]!r}")
+    return sha
+
+
 class GitHub:
     def __init__(self, repo: str, token: str, dry_run: bool):
         self.base = f"https://api.github.com/repos/{repo}"
+        self.repo = repo
         self.token = token
         self.dry_run = dry_run
 
@@ -286,6 +320,11 @@ class GitHub:
         return runs
 
     def ref_sha(self, branch: str) -> str:
+        """git ls-remote first (no API budget), the refs API only when that fails."""
+        try:
+            return ls_remote_sha(self.repo, branch)
+        except (OSError, subprocess.SubprocessError, ValueError) as error:
+            print(f"git ls-remote {branch} failed ({error!r}); reading it through the API")
         return self.call("GET", f"/git/ref/heads/{branch}")["object"]["sha"]
 
     def ref_commit(self, branch: str) -> tuple[str, dt.datetime | None]:
@@ -297,7 +336,9 @@ class GitHub:
         sha = self.ref_sha(branch)
         try:
             return sha, parse_time(self.call("GET", f"/commits/{sha}")["commit"]["committer"]["date"])
-        except (*TRANSPORT, AttributeError, KeyError, TypeError, ValueError):
+        except TRANSPORT:
+            raise
+        except (AttributeError, KeyError, TypeError, ValueError):
             return sha, None
 
     def dispatch(self, workflow: str, ref: str, inputs: dict[str, str] | None = None) -> None:
@@ -310,7 +351,9 @@ class GitHub:
                 for note in self.call("GET", f"/check-runs/{job['id']}/annotations?per_page=50"):
                     if note.get("title") == TICK_ANNOTATION:
                         return f"{note.get('message', '').strip()} ({runs[0]['html_url']})"
-        except (*TRANSPORT, KeyError, IndexError, TypeError):
+        except TRANSPORT:
+            raise
+        except (KeyError, IndexError, TypeError):
             pass
         return ""
 
@@ -393,12 +436,16 @@ def run_is_building(run: dict, jobs: list[dict], now: dt.datetime,
     return not unserved or any(queued_minutes(job, run, now) < unstarted_minutes for job in unserved)
 
 
-def started(gh: "GitHub", run: dict, now: dt.datetime) -> bool:
+def started(gh: "GitHub", run: dict, now: dt.datetime, errors: list[Exception] | None = None) -> bool:
     """run_is_building for one run, reading its jobs. A failed read keeps the run (fail
     closed: it may be carrying the tip, and a doubled build is the worse mistake)."""
     try:
         return run_is_building(run, gh.jobs(run), now)
-    except Exception:  # noqa: BLE001 - fail closed
+    except TRANSPORT as error:
+        if errors is not None:
+            errors.append(error)
+        return True
+    except Exception:  # noqa: BLE001 - malformed job data fails closed
         return True
 
 
@@ -419,7 +466,8 @@ def next_delivery_workflows(train: str) -> list[tuple[str, str]]:
     return flows
 
 
-def next_carries_tip(gh: "GitHub", run: dict, tip: str, tip_landed: dt.datetime | None = None) -> bool:
+def next_carries_tip(gh: "GitHub", run: dict, tip: str, tip_landed: dt.datetime | None = None,
+                     errors: list[Exception] | None = None) -> bool:
     """Whether a cmux NEXT delivery run builds `tip` or a commit that contains it, judged by the
     run's head_sha against the compare API, never by when the run was created. A run with no
     head_sha, or a compare that fails, does not carry it (the dispatch then asks the tick, and the
@@ -434,7 +482,13 @@ def next_carries_tip(gh: "GitHub", run: dict, tip: str, tip_landed: dt.datetime 
         return True
     try:
         status = gh.call("GET", f"/compare/{tip}...{head}").get("status")
-    except Exception as error:  # noqa: BLE001 - fail toward dispatching
+    except TRANSPORT as error:
+        if errors is not None:
+            errors.append(error)
+        else:
+            print(f"::warning::could not compare {tip[:12]}...{head[:12]} ({error!r}); the run does not count")
+        return False
+    except Exception as error:  # noqa: BLE001 - malformed compare fails toward dispatching
         print(f"::warning::could not compare {tip[:12]}...{head[:12]} ({error!r}); the run does not count")
         return False
     return status in ("identical", "ahead")
@@ -469,7 +523,7 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
                         active_workflows: list[tuple[str, str | None]] | None = None,
                         minutes: float = 25.0, tip_input: str | None = None,
                         feed_unknown: bool = False, by_tip_age: bool = False,
-                        carries=None) -> str:
+                        carries=None, api_errors: list[Exception] | None = None) -> str:
     """Start one build of the branch tip after `minutes` without a publication.
 
     Nothing is ever cancelled: a newer tip builds alongside a running build,
@@ -550,7 +604,7 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
               for run in gh.recent_runs(name, run_branch, now)
               if is_active_delivery_run(name, run_branch, run)
               and (carries or carries_tip)(run, tip, tip_landed)
-              and started(gh, run, now)]
+              and started(gh, run, now, api_errors)]
     if active:
         return f"running {active[0].get('html_url', active[0].get('id', '?'))}"
     gh.dispatch(workflow, ref, {**(inputs or {}), tip_input: tip} if tip_input else inputs)
@@ -560,7 +614,9 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
 def published_commit(gh: GitHub) -> str:
     try:
         body = gh.call("GET", "/releases/tags/nightly-next").get("body") or ""
-    except Exception:  # noqa: BLE001 - the issue only loses one line
+    except TRANSPORT:
+        raise
+    except Exception:  # noqa: BLE001 - a malformed release only loses one line
         return ""
     match = PUBLISHED_MARKER.search(body)  # scripts/ci/nightly-publication-marker.py
     return match.group(1).lower() if match else ""
@@ -644,7 +700,7 @@ def legacy_rerun(gh: GitHub, build: int) -> str:
         return f"run {url} is not a nightly-next nightly.yml run"
     if run.get("status") in ACTIVE:
         return f"its run {url} is still running"
-    failed = {job["name"]: job for job in gh.jobs(run) if job.get("name") in LEGACY_JOBS and job.get("conclusion") in ("failure", "timed_out")}
+    failed = {job["name"]: job for job in gh.jobs(run) if job.get("name") in LEGACY_JOBS and job.get("conclusion") in LEGACY_UNPUBLISHED}
     if not failed:
         return f"run {url} has no failed legacy job to re-run"
     if int(run.get("run_attempt") or 1) >= LEGACY_MAX_ATTEMPTS:
@@ -675,7 +731,7 @@ def read_feeds(urls) -> tuple[dt.datetime | None, list[str]]:
     return newest, missing
 
 
-def heal(label: str, guard) -> None:
+def heal(label: str, guard, errors: list[Exception] | None = None) -> None:
     """Run one starvation guard inside its own boundary.
 
     No guard may be skipped because another call failed. On 2026-10-26 every
@@ -691,6 +747,8 @@ def heal(label: str, guard) -> None:
         print(f"{label} starvation: {guard()}")
     except Exception as error:  # noqa: BLE001 - a guard never takes the check down
         print(f"::warning::{label} starvation guard skipped: {error!r}")
+        if errors is not None:
+            errors.append(error)
 
 
 def sync_issue(gh: GitHub, stage: Stage, body: str, max_lag_hours: float, run_url: str) -> str:
@@ -713,6 +771,21 @@ def sync_issue(gh: GitHub, stage: Stage, body: str, max_lag_hours: float, run_ur
         gh.call("POST", f"/issues/{issue['number']}/comments", {"body": f"Duplicate of #{keep['number']}."})
         gh.call("PATCH", f"/issues/{issue['number']}", {"state": "closed"})
     return f"stale; updated #{keep['number']}"
+
+
+def record_unavailable(error: Exception, count: int = 1) -> None:
+    """Leave a durable Actions signal when GitHub could not be queried."""
+    message = f"GitHub API failure; release health was not assessed: {error}"
+    print(f"::error title=nightly-next feed health unavailable::{message}")
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        try:
+            with open(summary, "a", encoding="utf-8") as output:
+                output.write("## Nightly feed health degraded\n\n")
+                output.write(f"GitHub API access failed ({count} failure(s)); this run could not assess release health.\n\n")
+                output.write(f"`{error}`\n")
+        except OSError as summary_error:
+            print(f"::warning::could not write GITHUB_STEP_SUMMARY: {summary_error}")
 
 
 def main(argv: list[str]) -> int:
@@ -747,6 +820,7 @@ def main(argv: list[str]) -> int:
     # invisible: one 403 on a release lookup raised before any guard ran, and
     # the run still reported success.
     published_sha: str | None = None
+    api_errors: list[Exception] = []
 
     def published() -> str:
         nonlocal published_sha
@@ -761,7 +835,8 @@ def main(argv: list[str]) -> int:
         branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main", tip_input="sha",
         feed_unknown=bool(missing),
         active_workflows=next_delivery_workflows(args.train),
-        carries=lambda run, tip, landed: next_carries_tip(gh, run, tip, landed)))
+        carries=lambda run, tip, landed: next_carries_tip(gh, run, tip, landed, api_errors),
+        api_errors=api_errors), api_errors)
     # cmux NIGHTLY's feed on its own: its staleness comes from the two feeds, so neither a failed
     # re-run nor an API error elsewhere can turn a stale feed green.
     try:
@@ -778,14 +853,18 @@ def main(argv: list[str]) -> int:
             legacy = f"{legacy}; {legacy_rerun(gh, legacy_build)}"
         except Exception as error:  # noqa: BLE001 - a failed re-run never hides the stale feed
             legacy = f"{legacy}; the re-run failed: {error!r}"
+            if isinstance(error, TRANSPORT):
+                api_errors.append(error)
     if legacy:
         print("cmux NIGHTLY feed: " + legacy)
 
     if newest is None:
         if legacy_stale:
             print(f"::error title=cmux NIGHTLY feed behind::{legacy}")
-            return 1
-        return 0
+        if api_errors:
+            record_unavailable(api_errors[0], len(api_errors))
+            return EXIT_UNAVAILABLE
+        return EXIT_STALE if legacy_stale else EXIT_OK
     try:
         published_sha = published()
         oldest = oldest_waiting_push(gh, published_sha, newest)
@@ -807,24 +886,29 @@ def main(argv: list[str]) -> int:
             except (*TRANSPORT, KeyError, TypeError) as error:
                 gates = ""
                 print(f"::warning::could not read queued gate jobs: {error}")
+                if isinstance(error, TRANSPORT):
+                    api_errors.append(error)
             if gates:
                 stage = dataclasses.replace(stage, detail=" ".join(filter(None, [f"Waiting for a runner: {gates}.", stage.detail])))
         print(f"feed newest {newest.isoformat()}, waited {stage.waited_hours:.1f}h: {stage.reason}")
         print(sync_issue(gh, stage, issue_body(stage, newest, now, published_sha, args.max_lag_hours, args.run_url), args.max_lag_hours, args.run_url))
     except TRANSPORT as error:  # the next check runs in 10 minutes
-        print(f"::warning::GitHub API error, skipped this check: {error}")
+        api_errors.append(error)
+        record_unavailable(error, len(api_errors))
         if legacy_stale:
             print(f"::error title=cmux NIGHTLY feed behind::{legacy}")
-            return 1
-        return 0
+        return EXIT_UNAVAILABLE
+    if api_errors:
+        record_unavailable(api_errors[0], len(api_errors))
+        return EXIT_UNAVAILABLE
     if stage.stale:
         print(f"::error title=nightly-next feed stale::feat-cmux-next pushes have waited {stage.waited_hours:.1f}h "
               f"(limit {args.max_lag_hours:g}h). {' '.join(filter(None, [stage.reason, stage.detail]))}")
-        return 1
+        return EXIT_STALE
     if legacy_stale:
         print(f"::error title=cmux NIGHTLY feed behind::{legacy}")
-        return 1
-    return 0
+        return EXIT_STALE
+    return EXIT_OK
 
 
 if __name__ == "__main__":

@@ -194,7 +194,8 @@ class DriftReportingOverVariables(unittest.TestCase):
 HEALTH_REPORT_WORKFLOW = ROOT / ".github" / "workflows" / "ci-health-report.yml"
 # RUNNER_POOLS is a JSON map of pool -> label, read as fromJSON(vars.RUNNER_POOLS).<pool>; its labels are
 # checked by scripts/ci/runner_pools.py --check (ci-repo-variables.yml), not by the label policy.
-NON_LABEL_RUNNER_VARIABLES = {"CI_SEED_KEEP_LOCAL_RUNNERS", "RUNNER_POOLS"}
+# CI_RUNNER_STATE is compressed discovery metadata, not a runs-on label.
+NON_LABEL_RUNNER_VARIABLES = {"CI_RUNNER_STATE", "CI_SEED_KEEP_LOCAL_RUNNERS", "RUNNER_POOLS"}
 
 
 def reported_runner_variables() -> set[str]:
@@ -293,6 +294,33 @@ class NightlyRunnerVariable(unittest.TestCase):
         self.assertIn("vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != ''", text)
 
 
+class NightlySlotVariable(unittest.TestCase):
+    def test_only_a_nightly_slot_label_is_allowed(self) -> None:
+        # nightly.yml's decide and the scheduled nightly-next canary and launch smoke take
+        # CI_NIGHTLY_NEXT_BUILD_RUNNER whole as runs-on, with write tokens in their failure jobs.
+        self.assertEqual(drifted_runner_variables({"CI_NIGHTLY_NEXT_BUILD_RUNNER": "glaeda-nightly-std-xcode-26.6"}), [])
+        self.assertEqual(drifted_runner_variables({"CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}), [])
+        for label in ("self-hosted-nightly-prod", "glaeda-nightly-", "glaeda-nightly-only-m4pro", "glaeda-std-xcode-26.6",
+                      "glaeda-side-std-xcode-26.6", "glaeda-trusted-std-xcode-26.6", "blacksmith-6vcpu-macos-26"):
+            with self.subTest(label=label):
+                self.assertEqual(
+                    [name for name, _, _ in drifted_runner_variables({"CI_NIGHTLY_NEXT_BUILD_RUNNER": label})],
+                    ["CI_NIGHTLY_NEXT_BUILD_RUNNER"],
+                )
+
+    def test_the_scheduled_gate_bounds_it_to_the_slot_prefix(self) -> None:
+        # Every runs-on that reads the variable checks the prefix first (the variable check runs on a schedule).
+        for workflow in ("nightly-next-canary.yml", "nightly-next-launch-smoke.yml"):
+            text = (ROOT / ".github" / "workflows" / workflow).read_text(encoding="utf-8")
+            reads = [line for line in text.splitlines()
+                     if "runs-on:" in line and "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER" in line]
+            self.assertEqual(len(reads), 4, workflow)
+            for line in reads:
+                self.assertEqual(line.count("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER"), 2, line)
+                self.assertIn("github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, "
+                              "'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER", line)
+
+
 class NextNightlyTrustedLabels(unittest.TestCase):
     def test_next_has_a_separate_trusted_pool_and_runner(self):
         self.assertEqual(drifted_runner_variables({
@@ -326,6 +354,82 @@ class NextNightlyCapabilityGuard(unittest.TestCase):
             other.unlink()
             nightly.write_text('runs-on: glaeda-trusted-next-nightly\n')
             self.assertNotEqual(check().returncode, 0)
+
+
+class MainNightlyBootstrapGuard(unittest.TestCase):
+    SELECTOR = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                "github.ref == 'refs/heads/main' && "
+                "(startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && "
+                "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || "
+                "github.ref == 'refs/heads/nightly-next' && github.event_name == 'push' && github.run_attempt == 1 && "
+                "(startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && "
+                "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || "
+                "'blacksmith-2vcpu-ubuntu-2404' }}")
+
+    def check(self, *, selector=SELECTOR, job="decide", workflow="nightly.yml",
+              trigger="on: [push, schedule, workflow_dispatch]", extra="", shared=""):
+        return self.run_guard(
+            f"{trigger}\n{shared}jobs:\n  {job}:\n    runs-on: {selector}\n"
+            f"{extra}    steps:\n      - run: echo metadata\n", workflow)
+
+    def run_guard(self, text, workflow="nightly.yml"):
+        import subprocess
+        import tempfile
+
+        script = ('set -euo pipefail\nROOT_DIR="$1"\nE2E_FILE="$1/.github/workflows/test-e2e.yml"\n'
+                  'check_no_self_hosted_fleet_runners() {\n'
+                  + _guard_function(GUARD_SCRIPT.read_text())
+                  + '\n}\ncheck_no_self_hosted_fleet_runners')
+        with tempfile.TemporaryDirectory() as directory:
+            workflows = Path(directory) / ".github/workflows"
+            workflows.mkdir(parents=True)
+            (workflows / "test-e2e.yml").write_text("on: workflow_dispatch\n")
+            (workflows / workflow).write_text(text)
+            return subprocess.run(["bash", "-c", script, "guard", directory],
+                                  capture_output=True, text=True)
+
+    def test_approved_main_bootstrap_passes_the_real_guard(self):
+        result = self.check()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_real_main_workflow_accepts_only_its_bootstrap_line(self):
+        text = (ROOT / ".github/workflows/nightly.yml").read_text()
+        text, count = re.subn(r"(\n  decide:\n[\s\S]*?\n    runs-on: )[^\n]+",
+                              lambda match: match[1] + self.SELECTOR, text, count=1)
+        self.assertEqual(count, 1)
+        result = self.run_guard(text)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        text += "\n  other:\n    runs-on: " + self.SELECTOR + "\n"
+        result = self.run_guard(text)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_other_routes_and_jobs_stay_forbidden(self):
+        cases = {
+            "RC instead of main": {"selector": self.SELECTOR.replace("refs/heads/main", "refs/heads/rc/1.0")},
+            "no ref gate": {"selector": self.SELECTOR.replace("github.ref == 'refs/heads/main' && ", "")},
+            "no owner gate": {"selector": self.SELECTOR.replace("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ", "")},
+            "other job": {"job": "build"},
+            "other workflow": {"workflow": "another.yml"},
+            "untrusted trigger": {"trigger": "on: [push, pull_request_target]"},
+            "job secret": {"extra": "    env:\n      TOKEN: ${{ secrets.API_KEY }}\n"},
+            "shared secret": {"shared": "env:\n  TOKEN: ${{ secrets.API_KEY }}\n"},
+            "bracket secret": {"extra": "    env:\n      TOKEN: ${{ secrets['API_KEY'] }}\n"},
+            "whole secret context": {"extra": "    env:\n      TOKEN: ${{ toJSON(SECRETS) }}\n"},
+            "environment": {"extra": "    environment: release\n"},
+            "extra fleet fallback": {"selector": self.SELECTOR.replace(" }}", " || 'glaeda-side-std-xcode-26.6' }}")},
+        }
+        for name, kwargs in cases.items():
+            with self.subTest(case=name):
+                result = self.check(**kwargs)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("FAIL: workflow references a self-hosted", result.stdout)
+
+    def test_alias_cannot_exempt_another_jobs_runner(self):
+        text = ("on: push\njobs:\n  other:\n    runs-on: &route " + self.SELECTOR
+                + "\n  decide:\n    runs-on: *route\n")
+        result = self.run_guard(text)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("FAIL: workflow references a self-hosted", result.stdout)
 
 
 class OwnedPoolLabels(unittest.TestCase):

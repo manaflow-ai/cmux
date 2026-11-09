@@ -33,17 +33,24 @@ impl HeadlessServer {
     }
 
     fn start_with_config(name: &str, config_contents: Option<&str>) -> Self {
-        Self::start_with_options(name, config_contents, None)
+        Self::start_with_options(name, config_contents, None, &[])
     }
 
     fn start_in(name: &str, launch_cwd: &std::path::Path) -> Self {
-        Self::start_with_options(name, None, Some(launch_cwd))
+        Self::start_with_options(name, None, Some(launch_cwd), &[])
+    }
+
+    /// Shells launched without Ghostty shell integration emit no OSC 133
+    /// prompt marks, so the terminal sees no prompt boundary.
+    fn start_without_shell_integration(name: &str) -> Self {
+        Self::start_with_options(name, None, None, &[("CMUX_TUI_SHELL_INTEGRATION", "none")])
     }
 
     fn start_with_options(
         name: &str,
         config_contents: Option<&str>,
         launch_cwd: Option<&std::path::Path>,
+        env: &[(&str, &str)],
     ) -> Self {
         let dir = unique_temp_dir(name);
         fs::create_dir_all(&dir).unwrap();
@@ -56,13 +63,15 @@ impl HeadlessServer {
         if let Some(contents) = config_contents {
             fs::write(&config, contents).unwrap();
         }
-        let mut command = Command::new(bin());
+        let mut command = cmux_command();
         command
             .args(["--headless", "--socket"])
             .arg(&socket)
             .arg("--state")
             .arg(&state)
             .env("CMUX_TUI_CONFIG", &config)
+            .env("CMUX_TUI_LOG_FILE", daemon_log_path(&dir))
+            .envs(env.iter().copied())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
         if let Some(launch_cwd) = launch_cwd {
@@ -131,7 +140,7 @@ impl HeadlessServer {
         // close every terminal resource, including zero-view terminals that
         // cannot appear in the legacy workspace tree below.
         let mut close_failures = Vec::new();
-        if let Ok(output) = Command::new(bin())
+        if let Ok(output) = cmux_command()
             .args(["--json", "--socket"])
             .arg(&self.socket)
             .args(["terminal", "list"])
@@ -143,7 +152,7 @@ impl HeadlessServer {
         {
             for terminal in terminals {
                 let Some(terminal_id) = terminal["id"].as_str() else { continue };
-                let output = Command::new(bin())
+                let output = cmux_command()
                     .args(["--quiet", "--socket"])
                     .arg(&self.socket)
                     .args(["terminal", terminal_id, "close"])
@@ -249,8 +258,36 @@ fn signal_test_process_group(pid: u32, signal: libc::c_int) {
     }
 }
 
+/// The headless daemon's diagnostic log. The daemon records the cause of a
+/// `mutation.indeterminate` and other internal faults only here.
+fn daemon_log_path(dir: &std::path::Path) -> PathBuf {
+    dir.join("daemon.log")
+}
+
+/// Prints the end of the daemon log, so a failed CLI assertion shows the
+/// daemon-side cause next to the client error.
+fn print_daemon_log(dir: &std::path::Path) {
+    const MAX_PRINTED_BYTES: usize = 64 * 1024;
+    let path = daemon_log_path(dir);
+    let Ok(log) = fs::read(&path) else {
+        eprintln!("headless daemon log {}: none", path.display());
+        return;
+    };
+    let tail = &log[log.len().saturating_sub(MAX_PRINTED_BYTES)..];
+    eprintln!(
+        "--- headless daemon log {} (last {} of {} bytes) ---\n{}\n--- end of daemon log ---",
+        path.display(),
+        tail.len(),
+        log.len(),
+        String::from_utf8_lossy(tail)
+    );
+}
+
 impl Drop for HeadlessServer {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            print_daemon_log(&self.dir);
+        }
         // Durable terminal hosts intentionally outlive the daemon. Tests must
         // close their terminal resources first rather than assuming SIGKILL
         // of the daemon also owns or reaps their processes.
@@ -337,7 +374,7 @@ fn wait_for_socket_path(path: &std::path::Path) {
 }
 
 fn lifecycle_cli(args: &[&str]) -> Output {
-    Command::new(bin())
+    cmux_command()
         .args(args)
         .env("LC_ALL", "C")
         .env("LC_MESSAGES", "C")
@@ -547,6 +584,16 @@ fn server_lifecycle_help_and_typos_do_not_fall_back_to_startup_help() {
     let scope_error = String::from_utf8(scope_typo.stderr).unwrap();
     assert!(scope_error.contains("Did you mean `server`?"), "{scope_error}");
     assert!(!scope_error.contains("START OPTIONS"), "{scope_error}");
+}
+
+#[test]
+fn server_start_hint_survives_misplaced_startup_switches() {
+    for option in ["--ephemeral", "--ws-insecure-bind"] {
+        let output = lifecycle_cli(&[option, "server", "start"]);
+        assert_eq!(output.status.code(), Some(2));
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert!(error.contains("after `server start`"), "{option}: {error}");
+    }
 }
 
 #[test]
@@ -827,7 +874,7 @@ fn explicit_session_overrides_an_inherited_socket_route() {
         .unwrap();
     });
     let inherited = unique_temp_dir("inherited-wrong-route").join("wrong.sock");
-    let output = Command::new(bin())
+    let output = cmux_command()
         .args(["--json", "--session", &session, "server", "status"])
         .env("CMUX_TUI_SOCKET", &inherited)
         .env_remove("CMUX_MUX_SOCKET")
@@ -935,7 +982,7 @@ fn absent_server_stop_serializes_a_non_utf8_inherited_socket_path() {
     let dir = TestTempDir::create("server-stop-non-utf8-socket");
     let dir = dir.path();
     let socket = dir.join(std::ffi::OsString::from_vec(b"mux-\xff.sock".to_vec()));
-    let output = Command::new(bin())
+    let output = cmux_command()
         .args(["--json", "server", "stop"])
         .env("CMUX_TUI_SOCKET", &socket)
         .env_remove("CMUX_MUX_SOCKET")
@@ -1106,6 +1153,9 @@ fn server_status_rejects_a_malformed_lifecycle_readiness_value() {
             })
         )
         .unwrap();
+        // Hold the connection until the CLI closes it (EOF). macOS rejects the
+        // CLI's read timeout (EINVAL) on a socket whose peer already closed.
+        let _ = reader.read_to_end(&mut Vec::new());
     });
 
     let output = lifecycle_cli(&[
@@ -1121,6 +1171,62 @@ fn server_status_rejects_a_malformed_lifecycle_readiness_value() {
     assert_eq!(output.status.code(), Some(3));
     let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
     assert_eq!(error["code"], "server.invalid_identity");
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn starting_server_status_is_retryable() {
+    let dir = unique_temp_dir("server-status-starting");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("owned.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let thread = std::thread::spawn(move || {
+        let stream = accept_with_timeout(&listener, Duration::from_secs(5)).unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let mut request = String::new();
+        reader.read_line(&mut request).unwrap();
+        let identify: serde_json::Value = serde_json::from_str(&request).unwrap();
+        assert_eq!(identify["cmd"], "identify");
+        writeln!(
+            writer,
+            "{}",
+            serde_json::json!({
+                "id": identify["id"],
+                "ok": true,
+                "data": {
+                    "app": "cmux-tui",
+                    "session": "still-starting",
+                    "pid": 4242,
+                    "generation": "generation-a",
+                    "capabilities": [],
+                    "lifecycle_ready": false
+                }
+            })
+        )
+        .unwrap();
+        // Hold the connection until the CLI closes it (EOF). macOS rejects the
+        // CLI's read timeout (EINVAL) on a socket whose peer already closed.
+        let _ = reader.read_to_end(&mut Vec::new());
+    });
+
+    let output = lifecycle_cli(&[
+        "--json",
+        "server",
+        "status",
+        "--session",
+        "still-starting",
+        "--socket",
+        socket.to_str().unwrap(),
+    ]);
+    thread.join().unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+    assert_eq!(error["code"], "server.unavailable");
+    // The message says to retry, so the error says so too.
+    assert_eq!(error["retryable"], true, "{error}");
+    assert_eq!(error["details"]["reason"], "starting", "{error}");
     fs::remove_dir_all(dir).unwrap();
 }
 
@@ -1234,7 +1340,7 @@ fn named_server_status_stop_alias_and_durable_restart_preserve_topology() {
     let socket = dir.join("mux.sock");
     let state = dir.join("state");
     let spawn = || {
-        Command::new(bin())
+        cmux_command()
             .args(["--session", "durable", "server", "start", "--socket"])
             .arg(&socket)
             .arg("--state")
@@ -1343,10 +1449,11 @@ fn explicit_socket_keeps_state_in_platform_root() {
     fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("mux.sock");
     let state = dir.join("platform-state");
-    let child = Command::new(bin())
+    let child = cmux_command()
         .args(["--headless", "--socket"])
         .arg(&socket)
         .env("CMUX_TUI_STATE_DIR", &state)
+        .env("CMUX_TUI_LOG_FILE", daemon_log_path(&dir))
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
@@ -1463,7 +1570,7 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     }
 
     let launch = |locale: &str| {
-        let mut command = Command::new(bin());
+        let mut command = cmux_command();
         command
             .args(["--headless", "--session", session, "--socket"])
             .arg(&socket)
@@ -1698,7 +1805,7 @@ fn session_reset_state_rejects_global_routing_options() {
     for (option, value) in
         [("--socket", "ignored.sock"), ("--session", "ignored"), ("--machine", "ignored")]
     {
-        let output = Command::new(bin())
+        let output = cmux_command()
             .args(["--json", option, value, "session", "target", "reset-state", "--state"])
             .arg(&state)
             .env_remove("CMUX_TUI_SOCKET")
@@ -1756,7 +1863,7 @@ fn session_reset_state_removes_only_the_named_saved_state() {
     connection.execute("UPDATE meta SET value = '999' WHERE key = 'schema_version'", []).unwrap();
     drop(connection);
 
-    let preview = Command::new(bin())
+    let preview = cmux_command()
         .args(["--json", "session", stale_session, "reset-state", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -1773,7 +1880,7 @@ fn session_reset_state_removes_only_the_named_saved_state() {
     assert!(stale_database.exists(), "preview removed stale database");
     assert!(stale_host_root.exists(), "preview removed stale terminal-host state");
 
-    let rejected = Command::new(bin())
+    let rejected = cmux_command()
         .args(["session", stale_session, "reset-state", "--force", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -1783,7 +1890,7 @@ fn session_reset_state_removes_only_the_named_saved_state() {
     assert!(stale_database.exists(), "rejected force removed stale database");
     assert!(stale_host_root.exists(), "rejected force removed stale terminal-host state");
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args([
             "session",
             stale_session,
@@ -1819,7 +1926,7 @@ fn session_reset_state_refuses_live_terminal_host_state() {
     let database = find_session_database(&state, session);
     let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, session);
     let _live_host = create_live_terminal_host_record(&host_root);
-    let preview = Command::new(bin())
+    let preview = cmux_command()
         .args(["--json", "session", session, "reset-state", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -1829,7 +1936,7 @@ fn session_reset_state_refuses_live_terminal_host_state() {
     let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
     let confirm_reset = preview["confirm_reset"].as_str().unwrap();
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args([
             "session",
             session,
@@ -1879,7 +1986,7 @@ fn session_reset_state_refuses_orphan_terminal_host_live_marker() {
         .open(&live_marker)
         .unwrap();
     assert_eq!(unsafe { libc::flock(live_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
-    let preview = Command::new(bin())
+    let preview = cmux_command()
         .args(["--json", "session", session, "reset-state", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -1889,7 +1996,7 @@ fn session_reset_state_refuses_orphan_terminal_host_live_marker() {
     let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
     let confirm_reset = preview["confirm_reset"].as_str().unwrap();
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args([
             "session",
             session,
@@ -1931,7 +2038,7 @@ fn session_reset_state_removes_dead_orphan_terminal_host_live_marker() {
         .mode(0o600)
         .open(&live_marker)
         .unwrap();
-    let preview = Command::new(bin())
+    let preview = cmux_command()
         .args(["--json", "session", session, "reset-state", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -1941,7 +2048,7 @@ fn session_reset_state_removes_dead_orphan_terminal_host_live_marker() {
     let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
     let confirm_reset = preview["confirm_reset"].as_str().unwrap();
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args([
             "session",
             session,
@@ -1975,7 +2082,7 @@ fn session_reset_state_rejects_stale_preview_when_targets_change() {
     let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, session);
     assert!(!host_root.exists());
 
-    let preview = Command::new(bin())
+    let preview = cmux_command()
         .args(["--json", "session", session, "reset-state", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -1989,7 +2096,7 @@ fn session_reset_state_rejects_stale_preview_when_targets_change() {
     fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
     fs::write(host_root.join("sentinel"), b"new-host-state").unwrap();
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args([
             "session",
             session,
@@ -2022,7 +2129,7 @@ fn session_reset_state_rejects_preview_for_recreated_registry() {
     let original_database = find_session_database(&state, session);
     let session_dir = original_database.parent().unwrap().to_path_buf();
 
-    let preview = Command::new(bin())
+    let preview = cmux_command()
         .args(["--json", "session", session, "reset-state", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -2036,7 +2143,7 @@ fn session_reset_state_rejects_preview_for_recreated_registry() {
     drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
     let recreated_database = find_session_database(&state, session);
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args([
             "session",
             session,
@@ -2068,7 +2175,7 @@ fn session_reset_state_rejects_preview_when_session_sidecar_appears() {
     let database = find_session_database(&state, session);
     let session_dir = database.parent().unwrap();
 
-    let preview = Command::new(bin())
+    let preview = cmux_command()
         .args(["--json", "session", session, "reset-state", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -2081,7 +2188,7 @@ fn session_reset_state_rejects_preview_when_session_sidecar_appears() {
     let sidecar = session_dir.join("workspace-registry.sqlite3-wal");
     fs::write(&sidecar, b"new-sidecar-state").unwrap();
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args([
             "session",
             session,
@@ -2116,7 +2223,7 @@ fn session_reset_state_rejects_preview_when_nested_session_file_appears() {
     fs::create_dir_all(&nested_dir).unwrap();
     fs::write(nested_dir.join("previewed"), b"old").unwrap();
 
-    let preview = Command::new(bin())
+    let preview = cmux_command()
         .args(["--json", "session", session, "reset-state", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -2129,7 +2236,7 @@ fn session_reset_state_rejects_preview_when_nested_session_file_appears() {
     let unpreviewed = nested_dir.join("unpreviewed");
     fs::write(&unpreviewed, b"new").unwrap();
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args([
             "session",
             session,
@@ -2163,7 +2270,7 @@ fn session_reset_state_bad_token_does_not_mutate_state_root() {
     let session_dir = resetter.session_dir(session);
     fs::create_dir_all(&session_dir).unwrap();
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args([
             "session",
             session,
@@ -2202,7 +2309,7 @@ fn session_reset_state_rejects_symlinked_terminal_host_state() {
     fs::write(&outside_sentinel, b"outside").unwrap();
     symlink(&outside_host_root, &host_root).unwrap();
 
-    let preview = Command::new(bin())
+    let preview = cmux_command()
         .args(["--json", "session", session, "reset-state", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -2212,7 +2319,7 @@ fn session_reset_state_rejects_symlinked_terminal_host_state() {
     let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
     let confirm_reset = preview["confirm_reset"].as_str().unwrap();
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args([
             "session",
             session,
@@ -2252,7 +2359,7 @@ fn session_reset_state_rejects_symlinked_state_root() {
     fs::create_dir_all(&host_root).unwrap();
     fs::write(host_root.join("orphaned-sidecar"), b"stale").unwrap();
 
-    let preview = Command::new(bin())
+    let preview = cmux_command()
         .args(["--json", "session", session, "reset-state", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -2262,7 +2369,7 @@ fn session_reset_state_rejects_symlinked_state_root() {
     let preview_error: serde_json::Value = serde_json::from_slice(&preview.stderr).unwrap();
     assert_eq!(preview_error["code"], "session.reset_state.filesystem");
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args([
             "--json",
             "session",
@@ -2298,7 +2405,7 @@ fn session_reset_state_missing_target_does_not_mutate_state_root() {
     fs::set_permissions(&state, fs::Permissions::from_mode(0o755)).unwrap();
     fs::write(state.join("sentinel"), b"keep").unwrap();
 
-    let reset = Command::new(bin())
+    let reset = cmux_command()
         .args(["--json", "session", "missing-session", "reset-state", "--force", "--state"])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
@@ -2324,7 +2431,7 @@ fn durable_registry_survives_sigkill_and_rejects_a_second_writer() {
     let second_socket = dir.join("second.sock");
     let state = dir.join("state");
     let spawn = |socket: &std::path::Path| {
-        Command::new(bin())
+        cmux_command()
             .args(["--headless", "--session", "durable", "--socket"])
             .arg(socket)
             .arg("--state")
@@ -2386,7 +2493,7 @@ fn durable_registry_survives_sigkill_and_rejects_a_second_writer() {
 #[cfg(unix)]
 #[test]
 fn machine_agent_is_a_real_entrypoint_without_changing_ordinary_cli_dispatch() {
-    let machine_agent = Command::new(bin())
+    let machine_agent = cmux_command()
         .env("LC_ALL", "C")
         .env("LC_MESSAGES", "C")
         .env("LANG", "C")
@@ -2400,7 +2507,7 @@ fn machine_agent_is_a_real_entrypoint_without_changing_ordinary_cli_dispatch() {
     assert!(!help.contains("cmux machine register"));
     assert!(!help.contains("BatchMode"));
 
-    let version = Command::new(bin()).arg("--version").output().unwrap();
+    let version = cmux_command().arg("--version").output().unwrap();
     assert_success(&version);
     assert!(String::from_utf8(version.stdout).unwrap().starts_with("cmux "));
 }
@@ -2422,7 +2529,7 @@ fn ghostty_config_helper_outputs_resolved_file_defaults() {
     )
     .unwrap();
 
-    let output = Command::new(bin())
+    let output = cmux_command()
         .arg("__ghostty-config-defaults")
         .env("HOME", dir.join("home"))
         .env("CFFIXED_USER_HOME", dir.join("home"))
@@ -2474,7 +2581,7 @@ fn ghostty_config_helper_scrubs_provider_env_before_desktop_probe() {
     .unwrap();
     fs::set_permissions(&gdbus, fs::Permissions::from_mode(0o700)).unwrap();
 
-    let output = Command::new(bin())
+    let output = cmux_command()
         .arg("__ghostty-config-defaults")
         .env("HOME", dir.join("home"))
         .env("CFFIXED_USER_HOME", dir.join("home"))
@@ -2499,7 +2606,7 @@ fn ghostty_config_helper_scrubs_provider_env_before_desktop_probe() {
 #[cfg(unix)]
 #[test]
 fn machine_agent_argument_failures_are_stable_and_localized() {
-    let output = Command::new(bin())
+    let output = cmux_command()
         .env("LC_ALL", "ja_JP.UTF-8")
         .env("LC_MESSAGES", "ja_JP.UTF-8")
         .env("LANG", "ja_JP.UTF-8")
@@ -2548,7 +2655,7 @@ fn known_daemon_human_output_uses_selected_locale() {
     fs::set_permissions(&known, fs::Permissions::from_mode(0o600)).unwrap();
 
     let localized = |arguments: &[&str]| {
-        Command::new(bin())
+        cmux_command()
             .args(arguments)
             .arg("--state-dir")
             .arg(&dir)
@@ -2573,7 +2680,7 @@ fn known_daemon_human_output_uses_selected_locale() {
     assert_eq!(forget, "デーモン enrolled-fingerprint を削除しました。\n");
 
     let empty_dir = unique_temp_dir("known-daemon-empty-locale");
-    let empty = Command::new(bin())
+    let empty = cmux_command()
         .args(["known-daemons", "--state-dir"])
         .arg(&empty_dir)
         .env("LC_ALL", "ja_JP.UTF-8")
@@ -2596,7 +2703,7 @@ fn noun_first_ratio_commands_reject_nonfinite_values_before_connecting() {
         ["pane", PANE, "split", "--right", "--ratio", "NaN"].as_slice(),
         ["pane", PANE, "split", "ratio", "set", "--split", SPLIT, "--ratio", "NaN"].as_slice(),
     ] {
-        let output = Command::new(bin())
+        let output = cmux_command()
             .env("LC_ALL", "ja_JP.UTF-8")
             .env("LC_MESSAGES", "ja_JP.UTF-8")
             .env("LANG", "ja_JP.UTF-8")
@@ -2628,7 +2735,7 @@ fn noun_first_viewport_width_rejects_invalid_values_before_connecting() {
             "--viewport-width requires --right",
         ),
     ] {
-        let output = Command::new(bin()).args(args).output().unwrap();
+        let output = cmux_command().args(args).output().unwrap();
         assert_eq!(output.status.code(), Some(2));
         let stderr = String::from_utf8(output.stderr).unwrap();
         assert!(stderr.starts_with("cmux: "), "{stderr}");
@@ -2905,7 +3012,7 @@ exit 0
     .unwrap();
     fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
 
-    let output = Command::new(bin())
+    let output = cmux_command()
         .args(["--machine-provider", "/does/not/exist", "--headless", "--socket"])
         .arg(&socket)
         .env("GHOSTTY_BIN", &helper)
@@ -3281,7 +3388,7 @@ fn raw_command_is_the_explicit_private_protocol_v10_escape() {
         request
     });
 
-    let output = Command::new(bin())
+    let output = cmux_command()
         .args(["--json", "--socket"])
         .arg(&socket)
         .args([
@@ -3625,31 +3732,6 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     assert_success(&copied);
     assert!(json_output(&copied)["text"].as_str().unwrap().contains(&marker));
 
-    let pending = format!("echo prompt_kept_{}", std::process::id());
-    let type_pending =
-        cli(&server, &["--quiet", "terminal", &terminal, "write", "--text", &pending]);
-    assert_success(&type_pending);
-    wait_for_screen(&server, &terminal, &pending);
-
-    let cleared = cli(&server, &["--quiet", "terminal", &terminal, "history", "clear"]);
-    assert_success(&cleared);
-    assert!(cleared.stdout.is_empty(), "--quiet history clear wrote output");
-    let output = json_cli(&server, &["terminal", &terminal, "screen", "read"]);
-    assert_success(&output);
-    let cleared_screen = json_output(&output)["text"].as_str().unwrap().to_string();
-    assert!(
-        cleared_screen.contains(&marker),
-        "clear-history removed visible output without a safe prompt boundary: {cleared_screen:?}"
-    );
-    assert!(!cleared_screen.trim().is_empty(), "clear-history blanked the active terminal");
-    let cleared_scrollback =
-        json_cli(&server, &["terminal", &terminal, "history", "read", "--limit", "200"]);
-    assert_success(&cleared_scrollback);
-    assert!(
-        !String::from_utf8_lossy(&cleared_scrollback.stdout).contains(&marker),
-        "clear-history retained prior output in scrollback"
-    );
-
     let notify = json_cli(&server, &["notification", "create", "--title", "Build", "--body", "ok"]);
     assert_success(&notify);
     assert!(json_output(&notify)["value"]["id"].as_str().unwrap().starts_with("notification_"));
@@ -3722,7 +3804,7 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     }
     assert!(terminal_closed, "terminal remained addressable after three inspected close attempts");
 
-    let bogus = Command::new(bin())
+    let bogus = cmux_command()
         .args(["--json", "--socket"])
         .arg(server.dir.join("missing.sock"))
         .args(["session", "current", "show"])
@@ -3732,6 +3814,73 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     assert_eq!(bogus.status.code(), Some(3));
 
     assert_subscribe_reports_tree_changed(&server);
+}
+
+/// `history clear` on a shell without prompt marks keeps the visible screen
+/// (a pending command line included) and drops the scrollback (cx-6so.48).
+/// Deterministic on purpose: bash without rc files and a fixed one-cell
+/// prompt, so neither a long user prompt nor a resize redraw can wrap the
+/// pending line, and every step waits for the screen it needs.
+#[test]
+fn history_clear_without_a_prompt_boundary_keeps_the_visible_screen() {
+    let server = HeadlessServer::start_without_shell_integration("history-clear");
+    let created = json_cli(&server, &["workspace", "create", "--name", "history-clear"]);
+    assert_success(&created);
+    let terminal = json_output(&created)["value"]["terminal_id"].as_str().unwrap().to_string();
+    let write = |text: &str| {
+        let sent = cli(&server, &["--quiet", "terminal", &terminal, "write", "--text", text]);
+        assert_success(&sent);
+    };
+    let screen = || {
+        let read = json_cli(&server, &["terminal", &terminal, "screen", "read"]);
+        assert_success(&read);
+        json_output(&read)["text"].as_str().unwrap().to_string()
+    };
+    let wait_until = |what: &str, done: &dyn Fn(&str) -> bool| {
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            let text = screen();
+            if done(&text) {
+                return text;
+            }
+            assert!(Instant::now() < deadline, "{what} never happened: {text:?}");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    };
+
+    // Replace the login shell (any user rc and prompt) with a clean bash.
+    write("exec env PS1='$ ' PROMPT_COMMAND= bash --norc --noprofile -i\r");
+    write("clear\r");
+    wait_until("the clean prompt", &|text| text.trim() == "$");
+
+    // Old output that only the scrollback holds after the next screenful.
+    write("seq -f old_%g 1 60\r");
+    let marker = format!("history_clear_marker_{}", std::process::id());
+    write(&format!("echo {marker}\r"));
+    wait_until("the marker", &|text| text.contains(&format!("{marker}\n$")));
+    let pending = format!("echo prompt_kept_{}", std::process::id());
+    write(&pending);
+    wait_until("the pending line", &|text| text.contains(&pending));
+
+    // `old_1` exactly (not `old_10`): the first line, long scrolled off.
+    let history_has_old_1 = || {
+        let read = json_cli(&server, &["terminal", &terminal, "history", "read", "--limit", "200"]);
+        assert_success(&read);
+        let text = String::from_utf8_lossy(&read.stdout).into_owned();
+        text.match_indices("old_1")
+            .any(|(at, _)| !text[at + 5..].starts_with(|c: char| c.is_ascii_digit()))
+    };
+    assert!(history_has_old_1(), "the scrollback never held the old output");
+
+    let cleared = cli(&server, &["--quiet", "terminal", &terminal, "history", "clear"]);
+    assert_success(&cleared);
+    assert!(cleared.stdout.is_empty(), "--quiet history clear wrote output");
+    let cleared_screen = screen();
+    assert!(
+        cleared_screen.contains(&marker) && cleared_screen.contains(&pending),
+        "clear-history removed visible output without a safe prompt boundary: {cleared_screen:?}"
+    );
+    assert!(!history_has_old_1(), "clear-history retained prior output in scrollback");
 }
 
 #[test]
@@ -3892,7 +4041,7 @@ fn raw_command_preserves_a_partial_response_line() {
         stream.flush().unwrap();
     });
 
-    let output = Command::new(bin())
+    let output = cmux_command()
         .args(["--json", "--socket"])
         .arg(&socket)
         .args(["raw", "command", "--request-json", r#"{"id":"partial","cmd":"ping"}"#])
@@ -3909,7 +4058,7 @@ fn raw_command_preserves_a_partial_response_line() {
 
 #[test]
 fn help_uses_public_cmux_scopes_and_keeps_startup_options_discoverable() {
-    let root = Command::new(bin()).arg("--help").env_remove("CMUX_TUI_SOCKET").output().unwrap();
+    let root = cmux_command().arg("--help").env_remove("CMUX_TUI_SOCKET").output().unwrap();
     assert_success(&root);
     let root = String::from_utf8(root.stdout).unwrap();
     assert!(root.starts_with("cmux - terminal multiplexer and resource client"));
@@ -3917,18 +4066,15 @@ fn help_uses_public_cmux_scopes_and_keeps_startup_options_discoverable() {
     assert!(!root.contains("cmux-tui"));
     assert!(!root.contains("new-pane-right"));
 
-    let sidebar = Command::new(bin())
-        .args(["sidebar", "--help"])
-        .env_remove("CMUX_TUI_SOCKET")
-        .output()
-        .unwrap();
+    let sidebar =
+        cmux_command().args(["sidebar", "--help"]).env_remove("CMUX_TUI_SOCKET").output().unwrap();
     assert_success(&sidebar);
     let sidebar = String::from_utf8(sidebar.stdout).unwrap();
     assert!(sidebar.contains("cmux sidebar plugin install <git-url>"));
     assert!(sidebar.contains("cmux sidebar plugin use --builtin"));
 
     let startup =
-        Command::new(bin()).args(["help", "start"]).env_remove("CMUX_TUI_SOCKET").output().unwrap();
+        cmux_command().args(["help", "start"]).env_remove("CMUX_TUI_SOCKET").output().unwrap();
     assert_success(&startup);
     let startup = String::from_utf8(startup.stdout).unwrap();
     assert!(startup.starts_with("cmux - "));
@@ -4247,7 +4393,7 @@ fn wait_for_screen(server: &HeadlessServer, terminal: &str, marker: &str) -> Str
 }
 
 fn plugin_cli(data_home: &PathBuf, config_path: &PathBuf, args: &[&str]) -> Output {
-    Command::new(bin())
+    cmux_command()
         .args(args)
         // Keep plugin builds and their Git subprocesses away from the real
         // home directory. The config parent is created by each test and is
@@ -4292,7 +4438,7 @@ fn new_terminals_default_to_the_daemon_launch_directory() {
 }
 
 fn cli(server: &HeadlessServer, args: &[&str]) -> Output {
-    Command::new(bin())
+    cmux_command()
         .args(["--socket"])
         .arg(&server.socket)
         .args(args)
@@ -4302,7 +4448,7 @@ fn cli(server: &HeadlessServer, args: &[&str]) -> Output {
 }
 
 fn json_cli(server: &HeadlessServer, args: &[&str]) -> Output {
-    Command::new(bin())
+    cmux_command()
         .args(["--json", "--socket"])
         .arg(&server.socket)
         .args(args)
@@ -4313,7 +4459,7 @@ fn json_cli(server: &HeadlessServer, args: &[&str]) -> Output {
 
 fn raw_cli(server: &HeadlessServer, request: serde_json::Value) -> Output {
     let request = serde_json::to_string(&request).unwrap();
-    Command::new(bin())
+    cmux_command()
         .args(["--json", "--socket"])
         .arg(&server.socket)
         .args(["raw", "command", "--request-json", &request])
@@ -4461,6 +4607,29 @@ fn unique_temp_dir(name: &str) -> PathBuf {
     PathBuf::from("/tmp").join(format!("cmux-cli-{name}-{}-{stamp}", std::process::id()))
 }
 
+/// The binary as the npm `cmux` launcher runs it, so output names `cmux`.
+/// Tests that check the installed `cmux-tui` name run `bin()` directly.
+fn cmux_command() -> Command {
+    #[cfg(unix)]
+    {
+        let mut command = Command::new(bin());
+        std::os::unix::process::CommandExt::arg0(&mut command, "cmux");
+        command
+    }
+    // Windows has no separate argv[0]; run a copy named cmux.exe.
+    #[cfg(not(unix))]
+    {
+        static COPY: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+        Command::new(COPY.get_or_init(|| {
+            let dir = std::env::temp_dir().join(format!("cmux-launcher-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let copy = dir.join("cmux.exe");
+            std::fs::copy(bin(), &copy).unwrap();
+            copy
+        }))
+    }
+}
+
 fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_cmux-tui")
 }
@@ -4509,7 +4678,7 @@ fn wg_hub_reports_readiness_and_removes_its_socket_on_sigterm() {
     fs::write(&config, contents).unwrap();
     fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
     let socket = dir.path().join("hub").join("wg.sock");
-    let mut child = Command::new(bin())
+    let mut child = cmux_command()
         .args(["wg", "hub", "--config"])
         .arg(&config)
         .arg("--socket")
@@ -4539,7 +4708,7 @@ fn wg_hub_reports_readiness_and_removes_its_socket_on_sigterm() {
     assert_eq!(fs::metadata(socket.parent().unwrap()).unwrap().permissions().mode() & 0o777, 0o700);
 
     // A live socket must be refused by a second hub.
-    let second = Command::new(bin())
+    let second = cmux_command()
         .args(["wg", "hub", "--config"])
         .arg(&config)
         .arg("--socket")
@@ -4571,7 +4740,7 @@ fn wg_hub_refuses_a_readable_config_and_missing_options() {
     let dir = TestTempDir::create("wg-hub-perms");
     let config = write_wg_hub_config(dir.path(), 0o644);
     let socket = dir.path().join("wg.sock");
-    let output = Command::new(bin())
+    let output = cmux_command()
         .args(["wg", "hub", "--config"])
         .arg(&config)
         .arg("--socket")
@@ -4592,3 +4761,11 @@ fn wg_hub_refuses_a_readable_config_and_missing_options() {
     assert!(help.status.success());
     assert!(String::from_utf8(help.stdout).unwrap().starts_with("USAGE: cmux wg hub"));
 }
+
+#[cfg(unix)]
+#[path = "cli/tabless_terminals.rs"]
+mod tabless_terminals;
+
+#[cfg(unix)]
+#[path = "cli/stop_start_lock.rs"]
+mod stop_start_lock;
