@@ -12363,6 +12363,8 @@ export class AcpmuxDirectClient {
       streamingAssistant: this.streamingAssistant,
       streamingAssistantMessageId: this.streamingAssistantMessageId,
       assistantCut: this.assistantCut,
+      // A turn's claim checks mark the live chat's last reply, never an older page's.
+      lastReplyRow: this.lastReplyRow,
       streamingActivity: this.streamingActivity,
       planRow: this.planRow,
       progressRow: this.progressRow,
