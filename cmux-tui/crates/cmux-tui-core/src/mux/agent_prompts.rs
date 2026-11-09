@@ -28,7 +28,8 @@
 //! The last harness session id stays with its terminal too (`last_sessions`, W3-H): an ended
 //! session leaves the roster, so `session.snapshot` shows it on the terminal value's
 //! `extra.agent_session_id` (and the harness on `extra.agent`), and `cmux agent resume` can
-//! bring back an agent that quit. Memory only: a daemon restart or a closed terminal forgets it.
+//! bring back an agent that quit. A closed terminal forgets it; a daemon restart takes it back
+//! from the journal's agent roster (its hook session fences, W5-R).
 //!
 //! A question hook's question rides the same way (`live_question`, `agent_hook_question.rs`):
 //! its notification takes it, and the terminal keeps it while the agent waits on it, so
@@ -59,6 +60,21 @@ pub(crate) struct AgentTexts {
 }
 
 impl AgentTexts {
+    /// The texts a daemon starts with: each terminal's last harness session id and harness
+    /// from the journal's roster (`AgentRoster::hook_sessions`), less the local generation
+    /// tokens of session-less adapters (`published_agent_session_id`).
+    pub(crate) fn with_sessions(sessions: Vec<(String, String, Option<String>)>) -> Self {
+        let last_sessions = sessions
+            .into_iter()
+            .filter_map(|(terminal, session, harness)| {
+                let terminal = TerminalPublicId::parse(&terminal).ok()?;
+                let session = published_agent_session_id(&terminal, &session)?;
+                Some((terminal, (Arc::from(session.as_str()), harness.as_deref().map(Arc::from))))
+            })
+            .collect();
+        Self { last_sessions, ..Self::default() }
+    }
+
     pub(crate) fn forget(&mut self, terminal: &TerminalPublicId) {
         self.prompts.remove(terminal);
         self.replies.remove(terminal);
@@ -369,6 +385,24 @@ pub(crate) struct AgentListReplies {
 /// ([`with_last_reply_text`]).
 pub(crate) fn with_agent_list_replies(agent: Value, replies: &AgentListReplies) -> Value {
     with_last_reply_text(with_last_reply(agent, &replies.folded), replies.whole.as_ref())
+}
+
+/// Adds the terminal's kept harness session id ([`Mux::agent_last_sessions`]) to a public agent
+/// value (`agent.list`, `session.snapshot`) that names none: a screen-detection report after a
+/// daemon restart replaces the hook's record without it (W5-R, bench round 4 A6). A value with
+/// its own id keeps it.
+pub(crate) fn with_kept_session(
+    mut agent: Value,
+    sessions: &HashMap<String, (String, Option<String>)>,
+) -> Value {
+    let kept = agent.get("terminal_id").and_then(Value::as_str).and_then(|id| sessions.get(id));
+    if let (Some((session, _)), Some(extra)) =
+        (kept, agent.get_mut("extra").and_then(Value::as_object_mut))
+        && extra.get("agent_session_id").is_none_or(|value| value.as_str().is_none())
+    {
+        extra.insert("agent_session_id".into(), Value::String(session.clone()));
+    }
+    agent
 }
 
 /// Adds `extra.agent_session_id` (and `extra.agent`, the harness) to a public terminal value

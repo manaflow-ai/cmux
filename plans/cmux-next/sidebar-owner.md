@@ -12,6 +12,14 @@
   `SidebarFoldKeepsGroupLookTests`. An opt-out of Lawrence's visible-background invariant (2026-11-05 below) that only the person picks; Automatic
   stays the default. Gallery: Sidebar States Playground > Group backgrounds (Sections, Sections hovered). Regression:
   `GroupHeaderSectionsTests`.
+- 2026-11-09: Next and Previous Sidebar Item from a selected row step from where it draws. Leo (2026-11-07): "when I
+  command 1 2 3 4 5 6 7, right, when I do that around an area that has a group at the, like, immediate top or bottom,
+  it messes things up." #39747's review follow-ups: a selected row of an opened "Done (N)" fold stepped from the
+  fold's end, a folded row's place skipped link rows, and a selected archived row jumped to the list's ends. Places
+  now come from the list laid out with its folds, row limit and Archive section off (the order rows draw in when
+  selected); a row that layout does not draw either falls back to its model-order place. Numbers do not change.
+  Regression: `SidebarStepThroughGroupsTests`.
+
 - 2026-11-07: Cmd-1…9 count the rows the sidebar draws. Leo: "when I command 1 2 3 4 5 6 7, right, when I do that
   around an area that has a group at the, like, immediate top or bottom, it messes things up. It messes things up a
   ton." `itemOrder` laid rows out without the Done fold and the row limit, so a member folded into "Done (N)" (or
