@@ -513,6 +513,7 @@ impl ClientRegistry {
                 owner_plugin,
                 #[cfg(unix)]
                 machine_catalog: None,
+                started_tabs: HashSet::new(),
             },
         );
         drop(state);
@@ -982,6 +983,23 @@ impl ClientRegistry {
                 && record.origin.page.is_none()
                 && record.capabilities.contains(capability)
         })
+    }
+
+    /// Records that `client`'s own `agent-session-start` bound a chat to `surface`.
+    pub(super) fn remember_started_tab(&self, client: u64, surface: SurfaceId) {
+        if let Some(record) = self.state.lock().recover_poison().clients.get_mut(&client) {
+            record.started_tabs.insert(surface);
+        }
+    }
+
+    /// Whether `client`'s own `agent-session-start` bound a chat to `surface`.
+    pub(super) fn started_tab(&self, client: u64, surface: SurfaceId) -> bool {
+        self.state
+            .lock()
+            .recover_poison()
+            .clients
+            .get(&client)
+            .is_some_and(|record| record.started_tabs.contains(&surface))
     }
 
     pub(crate) fn supports_capability(&self, client: u64, capability: &str) -> bool {
