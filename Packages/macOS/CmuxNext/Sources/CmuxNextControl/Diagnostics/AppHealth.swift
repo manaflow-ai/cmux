@@ -110,8 +110,9 @@ public final class AppHealth: Sendable {
         let model = Model()
         /// The deadline the timer is armed to (model ms); nil: no timer.
         var armedAt: UInt64?
-        var snapshotData = Data()
         var snapshot: JSONValue = AppHealth.quietSnapshot
+        /// Bumped with each new snapshot; delivery drops one older than the last delivered.
+        var version: UInt64 = 0
         var subscribers: [UInt64: @Sendable (JSONValue) -> Void] = [:]
         var nextSubscriber: UInt64 = 0
         var repairs: [Kind: RepairHandler] = [:]
@@ -120,6 +121,9 @@ public final class AppHealth: Sendable {
     }
 
     private let box = Mutex(Box())
+    /// The version last delivered to the subscribers. Delivery runs under this lock, outside the
+    /// model's, so two ops racing to publish never land an older snapshot after a newer one.
+    private let delivered = Mutex<UInt64>(0)
     private let timer: DemandTimer
     private let elapsed: @Sendable () -> Duration
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.health")
@@ -257,15 +261,20 @@ public final class AppHealth: Sendable {
     public var headline: Headline? { Self.headline(of: snapshot) }
 
     /// Calls `onChange` with the current snapshot now and with each changed one after it, on the
-    /// thread that changed it; hop where needed. Returns the token for ``unsubscribe(_:)``.
+    /// thread that changed it; hop where needed. Snapshots arrive in order, never an older after a
+    /// newer; `onChange` runs under the delivery lock, so it must not call back into this model
+    /// synchronously. Returns the token for ``unsubscribe(_:)``.
     @discardableResult
     public func subscribe(_ onChange: @escaping @Sendable (JSONValue) -> Void) -> UInt64 {
-        let (token, current) = box.withLock { box -> (UInt64, JSONValue) in
+        let (token, current, version) = box.withLock { box -> (UInt64, JSONValue, UInt64) in
             box.nextSubscriber += 1
             box.subscribers[box.nextSubscriber] = onChange
-            return (box.nextSubscriber, box.snapshot)
+            return (box.nextSubscriber, box.snapshot, box.version)
         }
-        onChange(current)
+        // A newer snapshot already delivered reached this subscriber too.
+        delivered.withLock { last in
+            if version >= last { onChange(current) }
+        }
         return token
     }
 
@@ -313,23 +322,28 @@ public final class AppHealth: Sendable {
         var request = fields
         if timed { request["nowMs"] = .number(Double(now)) }
         let body = Data(JSONValue.object(request).compactText.utf8)
-        let (reply, publish) = box.withLock { box -> (JSONValue?, (JSONValue, [@Sendable (JSONValue) -> Void])?) in
+        let (reply, publish) = box.withLock { box -> (JSONValue?, (UInt64, JSONValue, [@Sendable (JSONValue) -> Void])?) in
             guard let data = box.model.call(op, body), let reply = try? JSONValue.parse(data) else { return (nil, nil) }
             if reply["actions"]?.arrayValue?.contains(where: { $0["action"]?.stringValue == Repair.holdReplace.rawValue }) == true {
                 box.holdsReplace = true
             }
             if reply["nextTickMs"] != nil { arm(&box, next: reply["nextTickMs"]?.doubleValue.flatMap { $0 > 0 ? UInt64(exactly: $0.rounded(.up)) : 0 }, now: now) }
-            guard let data = box.model.call("snapshot", Data()), data != box.snapshotData,
-                  let snapshot = try? JSONValue.parse(data) else { return (reply, nil) }
-            box.snapshotData = data
+            // Compared by value: the first op's quiet snapshot equals the initial one and publishes nothing.
+            guard let data = box.model.call("snapshot", Data()), let snapshot = try? JSONValue.parse(data),
+                  snapshot != box.snapshot else { return (reply, nil) }
             box.snapshot = snapshot
-            return (reply, (snapshot, Array(box.subscribers.values)))
+            box.version += 1
+            return (reply, (box.version, snapshot, Array(box.subscribers.values)))
         }
         if reply == nil, box.withLock({ $0.model.isLinked }) {
             logger.fault("health op \(op, privacy: .public) was refused")
         }
-        if let publish {
-            for subscriber in publish.1 { subscriber(publish.0) }
+        if let (version, snapshot, subscribers) = publish {
+            delivered.withLock { last in
+                guard version > last else { return }
+                last = version
+                for subscriber in subscribers { subscriber(snapshot) }
+            }
         }
         return reply
     }

@@ -105,7 +105,11 @@ public final class AppHealthFeeds {
         guard let daemon else { return false }
         switch action {
         case .reconnect: daemon.recovery.retryNow()
-        case .restartConnection: daemon.reconnectNow()
+        case .restartConnection:
+            // A connected daemon that stopped answering keeps its socket through a wake: close it, so
+            // the reconnect opens a fresh one (the daemon process is never touched).
+            if let connection = daemon.connection { await connection.close() }
+            daemon.reconnectNow()
         default: return false
         }
         return true
