@@ -76,11 +76,8 @@ impl Client {
 }
 
 fn hub(root: &Path) -> Arc<Hub> {
-    // The fixture says it asks before every tool call (`FAKE_ASK_CLAIM`): the races' own
-    // policies hold on it.
     let mut config: Config = serde_json::from_value(json!({"harnesses":{"fake":{"argv":[
-        "python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_race_agent.py")],
-        "env": {"FAKE_ASK_CLAIM": "1"}}},
+        "python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_race_agent.py")]}},
         "defaultHarness":"fake", "permissionPolicy":"approve-all",
         // A peer's session/new may use only a known project or a webRoots folder (not one
         // holding HOME, which is under `root` here).

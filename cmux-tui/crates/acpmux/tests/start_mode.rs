@@ -56,12 +56,11 @@ fn home(name: &str, extra: Value) -> PathBuf {
         "harnesses": {
             "claude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
             "codex": {"argv": [codex, "app-server"]},
-            // The fake as it is by default: it says nothing about asking, so it cannot keep a
-            // policy.
-            "plain": {"argv": ["python3", FAKE_AGENT]},
-            // The same agent, which says it asks before every tool call (`FAKE_ASK_CLAIM`,
+            // Says nothing about asking (`FAKE_ASK_CLAIM=0`): it cannot keep a policy.
+            "plain": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_ASK_CLAIM": "0"}},
+            // The same agent, which says it asks before every tool call (the fake's default,
             // `agentCapabilities._meta.acpmux.asksBeforeTools`).
-            "asker": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_ASK_CLAIM": "1"}},
+            "asker": {"argv": ["python3", FAKE_AGENT]},
         },
         "defaultHarness": "codex",
         "permissionPolicy": "ask",
@@ -1256,14 +1255,7 @@ async fn a_policy_holds_on_an_asks_before_tools_claim_only_from_an_unchanged_con
     use acpmux::config::folder_profiles;
     let dir = home("asks-claim-trust", json!({}));
     let (repo, gate) = folder_profile(&dir);
-    // The folder profile `acme` runs the fake that claims.
-    std::fs::write(
-        folder_profiles::profile_dir(&repo).join("acme.toml"),
-        format!(
-            "schema = 1\nid = \"acme\"\ncommand = \"python3\"\nargs = [{FAKE_AGENT:?}]\n\n[env]\nFAKE_ASK_CLAIM = \"1\"\n"
-        ),
-    )
-    .unwrap();
+    // The folder profile `acme` runs the fake, which claims.
     acpmux::trust::set(&gate.trust, &repo.to_string_lossy(), "trusted").unwrap();
     let enabled = Config { folder_gate: Some(gate.clone()), ..Default::default() };
     let sha = folder_profiles::load_one(&enabled, &gate, &repo, "acme")
@@ -1279,7 +1271,7 @@ async fn a_policy_holds_on_an_asks_before_tools_claim_only_from_an_unchanged_con
     assert_eq!(claims.len(), 1, "{claims:?}");
     assert_eq!(claims[0]["msg"]["harness"], "asker", "{claims:?}");
     assert_eq!(claims[0]["msg"]["trusted"], true, "{claims:?}");
-    // The fake as it is by default makes no claim, and none is logged.
+    // An agent that makes no claim: none is logged.
     let (id, _) = app.chat_with_policy(&dir, "plain", "approve-all").await;
     assert!(app.records(&id, "asks_before_tools_claim").await.is_empty());
 

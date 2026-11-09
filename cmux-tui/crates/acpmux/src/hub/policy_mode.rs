@@ -676,11 +676,20 @@ fn claims_asks(meta: &SessionMeta) -> bool {
 /// - `not_a_config_entry`: the harness is no entry of the config (a folder profile, the
 ///   repository's `.cmux/harnesses`, or an entry removed since the start);
 /// - `entry_changed`: the entry launches something else now (changed since the start, such as an
-///   agent host adopted after a restart).
+///   agent host adopted after a restart). A remote start's canonical program path
+///   (`resolve::fix_remote_executable`) is the entry's own program, not a change.
 pub(super) fn claim_distrust(meta: &SessionMeta, cfg: &Config) -> Option<&'static str> {
     let Some(started) = meta.launch_digest.as_deref() else { return Some("not_started_here") };
     let Some(entry) = cfg.profile(&meta.harness) else { return Some("not_a_config_entry") };
-    (entry.launch_digest() != started).then_some("entry_changed")
+    if entry.launch_digest() == started {
+        return None;
+    }
+    // A remote start runs the entry's own program by its canonical path
+    // (`resolve::fix_remote_executable`): still that entry.
+    let mut canonical = entry.clone();
+    let remote_start = super::resolve::fix_remote_executable(&mut canonical).is_ok()
+        && canonical.launch_digest() == started;
+    (!remote_start).then_some("entry_changed")
 }
 
 /// The `policy_refused` record of refusal `e` (`unenforceable`): its data and its message.
@@ -776,6 +785,15 @@ mod tests {
         // A folder profile, or an entry removed since.
         meta.harness = "acme".to_owned();
         assert_eq!(claim_distrust(&meta, &cfg), Some("not_a_config_entry"));
+        // A remote start of an entry runs its program by its canonical path: still that entry.
+        cfg.harnesses.insert("py".to_owned(), cfg.harnesses["lane"].clone());
+        cfg.harnesses.get_mut("py").unwrap().argv = vec!["python3".to_owned()];
+        let mut remote = cfg.harnesses["py"].clone();
+        super::super::resolve::fix_remote_executable(&mut remote).unwrap();
+        assert_ne!(remote.argv, cfg.harnesses["py"].argv);
+        meta.harness = "py".to_owned();
+        meta.launch_digest = Some(remote.launch_digest());
+        assert_eq!(claim_distrust(&meta, &cfg), None);
         // No claim at all: nothing to believe.
         meta.harness = "lane".to_owned();
         meta.agent_capabilities = Some(json!({}));

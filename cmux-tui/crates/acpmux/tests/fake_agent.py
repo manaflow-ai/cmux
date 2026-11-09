@@ -1793,11 +1793,11 @@ def main():
                 "_meta": {"steering": {"supported": "1" in (os.environ.get("FAKE_CODEX_STEER"), os.environ.get("FAKE_CLAUDE_STEER"))}},
                 "agentInfo": {"name": "fake", "version": "0"},
                 "agentCapabilities": {"loadSession": os.environ.get("FAKE_NO_LOAD") != "1", "sessionCapabilities": {} if os.environ.get("FAKE_NO_FORK") == "1" else {"fork": {}},
-                                      # FAKE_ASK_CLAIM=1: it says it asks (session/request_permission)
-                                      # before every tool call it makes, so any acpmux policy holds on
-                                      # it. Off by default: a test that needs the claim sets it, and a
-                                      # policy otherwise holds only by the agent's mode.
-                                      **({"_meta": {"acpmux": {"asksBeforeTools": True}}} if os.environ.get("FAKE_ASK_CLAIM") == "1" else {})},
+                                      # It asks (session/request_permission) before every tool call
+                                      # it makes, so it keeps any acpmux policy (acpmux believes it
+                                      # only from a harness entry of its config); FAKE_ASK_CLAIM=0
+                                      # says nothing, as an agent acpmux cannot trust to ask.
+                                      **({} if os.environ.get("FAKE_ASK_CLAIM") == "0" else {"_meta": {"acpmux": {"asksBeforeTools": True}}})},
                 "authMethods": [] if not os.environ.get("FAKE_AUTH_FILE") else [
                     {"id": "fake-login", "name": "Fake login", "description": "opens a browser"},
                     {"id": "fake-terminal", "name": "Terminal login", "type": "terminal", "args": ["--fake-login"]},

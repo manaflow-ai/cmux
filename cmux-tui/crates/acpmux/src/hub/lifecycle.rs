@@ -793,6 +793,12 @@ impl Hub {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             let changed = m.spawn_argv.as_ref() != Some(&profile.argv)
                 || m.launch_digest.as_ref() != Some(&profile.launch_digest);
+            // What another launch's agent said at `initialize` (a fork's or a failover's copy)
+            // is not this one's: an `asksBeforeTools` claim must come from the agent this start
+            // runs (`policy_mode.rs` `claim_distrust`), which `initialize` records again.
+            if m.launch_digest.as_ref() != Some(&profile.launch_digest) {
+                m.agent_capabilities = None;
+            }
             m.spawn_argv = Some(profile.argv.clone());
             m.launch_digest = Some(profile.launch_digest.clone());
             changed
