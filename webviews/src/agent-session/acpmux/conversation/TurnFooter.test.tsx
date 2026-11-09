@@ -55,7 +55,7 @@ test("a 5 s turn says Worked for 5s in its time's tooltip, never in front of the
   // under it (turnTokensModel.ts `replyTimeDetail`).
   expect(markup).toMatch(/<time class="cv-turn-time"[^>]*title="[A-Z][a-z]{2} \d{1,2}, \d{4}, /);
   expect(markup).toMatch(
-    /<time class="cv-turn-time"[^>]*data-tooltip-detail="Worked for 5s\nOutput 359\nInput across calls 1K\u00a0uncached · 327.8K\u00a0cached"/,
+    /<time class="cv-turn-time"[^>]*data-tooltip-detail="Worked for 5s\nOutput 359\nInput 1K\u00a0uncached · 327.8K\u00a0cached"/,
   );
 });
 
