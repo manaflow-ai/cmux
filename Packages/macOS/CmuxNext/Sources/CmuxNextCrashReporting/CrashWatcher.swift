@@ -57,13 +57,14 @@ struct CrashWatcher: Sendable {
     static let script = #"""
     zmodload zsh/system || exit 0
     # Fractional SECONDS: each deadline below is a full bound, not one cut short by up to 1 s.
+    # Each loop reads it once per pass (left): sysread fails (2) on a negative -t, data or not.
     typeset -F SECONDS
     pid=$1 out=$2 seconds=$3 sampler=$4 sampling=$5
     # fd 3: the read end of the app's pipe. A byte: a crash path began. EOF: the app ended.
     sysread -i 3 -s 1 byte || exit 0
     deadline=$(( SECONDS + seconds ))
-    while (( SECONDS < deadline )); do
-      sysread -i 3 -s 64 -t $(( deadline - SECONDS )) more
+    while (( (left = deadline - SECONDS) > 0 )); do
+      sysread -i 3 -s 64 -t $left more
       case $? in
         0) ;;
         4) break ;;
@@ -78,8 +79,8 @@ struct CrashWatcher: Sendable {
     exec {sampled}<&p
     # A bounded wait is the intended deadline: sample's EOF (5) or $sampling seconds, never longer.
     stop=$(( SECONDS + sampling )) got=4
-    while (( SECONDS < stop )); do
-      sysread -i $sampled -s 4096 -t $(( stop - SECONDS )) chunk
+    while (( (left = stop - SECONDS) > 0 )); do
+      sysread -i $sampled -s 4096 -t $left chunk
       got=$?
       (( got == 0 )) || break
     done
