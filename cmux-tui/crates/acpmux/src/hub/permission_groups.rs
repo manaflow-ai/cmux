@@ -259,11 +259,11 @@ impl PermissionState {
     /// Tests: opens collecting group `id` for answers, as its timer does
     /// (`start_permission_group_timer`); its revision then.
     #[cfg(test)]
-    pub(super) fn open_group(&mut self, id: &str) -> u64 {
-        let g = self.groups.iter_mut().find(|g| g.id == id).expect("a group");
+    pub(super) fn open_group(&mut self, id: &str) -> Option<u64> {
+        let g = self.groups.iter_mut().find(|g| g.id == id)?;
         g.state = "pending";
         g.revision += 1;
-        g.revision
+        Some(g.revision)
     }
 
     fn prune(&mut self) {

@@ -313,7 +313,7 @@ async fn a_group_deny_logs_a_member_it_dismissed_as_a_cancel() {
         let (group, _) = state.register("p1", &tool_request("Run ls"), None, 0, now).unwrap();
         let (same, _) = state.register("p2", &no_reject, None, 0, now).unwrap();
         assert_eq!(group, same);
-        let revision = state.open_group(&group);
+        let revision = state.open_group(&group).unwrap();
         (group, revision)
     };
     let params =
