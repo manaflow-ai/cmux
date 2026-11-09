@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42721742403",
+  "recorded_at": "2026-11-09T23:43:46Z",
+  "reason": "cmux-tui 6c8ba0bb2a04 changes the image's cmux-tui (pinned 49235606dd58)",
+  "dry_run": false,
+  "cmux_tui": "6c8ba0bb2a04a915ff82a08358ed7d22ff1fa13e",
+  "fixes": [
+    {
+      "sha": "827d96b0f494ca592abdf47c843fd7b2c91d3a81",
+      "mergedAt": "2026-11-09T15:17:03-08:00",
+      "subject": "acpmux: workflow-subagent follow-ups (negative tests, runner send test, docs) (#39733)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T23:43:46Z",
+    "snapshot_id": "sh-e1f7c1a97bd64c4e8a0018cc15191d53",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42721742403): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5ab0c4dd7201fe5a0c33aea8178210b3549ff9b8",
+    "image": "cloud-native-auto-6c8ba0bb-42721742403-1",
+    "revision": "ci-42721742403-1",
+    "at": "2026-11-09T23:43:46Z"
+  },
+  "rolled_back": false
+}
