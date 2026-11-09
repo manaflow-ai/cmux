@@ -406,8 +406,10 @@ cat
         probe.write_text("export const   probe=[1,2,\n3]\n")
         env = dict(self.env, CLAUDE_PROJECT_DIR=str(SOURCE))
         payload = {"tool_name": "Write", "tool_input": {"file_path": str(probe)}}
+        # The real vp fmt on a shared CI runner: the whole file took 84 s on one run and passed 120 s
+        # on three runs of #39669's react-apps-check (1) (a busy machine is slower, never a failure).
         result = subprocess.run(["bash", str(SOURCE / HOOK)], cwd=SOURCE / "webviews", env=env,
-                                input=json.dumps(payload), text=True, capture_output=True, timeout=120)
+                                input=json.dumps(payload), text=True, capture_output=True, timeout=300)
         self.assertEqual(result.returncode, 0)
         self.assertEqual(probe.read_text(), "export const probe = [1, 2, 3];\n", result.stderr)
 
