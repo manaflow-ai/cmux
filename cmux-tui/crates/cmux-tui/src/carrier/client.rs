@@ -5,11 +5,11 @@
 //! Each attempt fetches a fresh ticket and grant (a grant is single-use),
 //! opens the relay's control socket, waits for the lane allocation (the
 //! relay parks it until the machine's daemon registers) until the deadline,
-//! then runs the Noise handshake. A failed attempt backs off with full
-//! jitter while time is left. The attempts run on `remote_runtime`'s route
-//! runner ([`run_route_rounds`], [`select_initial_route`]): one round per
-//! attempt over the answer's routes ([`carrier_routes`]), and the session
-//! resumes through [`CarrierRoutes`]. Once up, the session's own reconnect carries
+//! then runs the Noise handshake. The attempts run on the first-dial state
+//! machine ([`LinkCell::dial`]), whose jittered waits retry a failed attempt
+//! while time is left; each attempt picks its route with
+//! [`select_initial_route`] over the answer's routes ([`carrier_routes`]),
+//! and the session resumes through [`CarrierRoutes`]. Once up, the session's own reconnect carries
 //! it: a resume presents no grant (the daemon re-admits the Noise key a
 //! grant admitted, into its own session), so it needs nothing from the
 //! platform but relay tickets.

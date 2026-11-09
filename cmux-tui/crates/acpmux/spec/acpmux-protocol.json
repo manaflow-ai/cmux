@@ -5480,6 +5480,16 @@
         "harness": {
           "type": "string"
         },
+        "harnessSandboxFailed": {
+          "default": null,
+          "description": "Unix milliseconds when its harness first refused a command because the harness's own\nsandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "indicator": {
           "anyOf": [
             {
@@ -6124,6 +6134,16 @@
         },
         "harness": {
           "type": "string"
+        },
+        "harnessSandboxFailed": {
+          "default": null,
+          "description": "Unix milliseconds when its harness first refused a command because the harness's own\nsandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "indicator": {
           "anyOf": [

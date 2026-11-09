@@ -75,6 +75,11 @@ pub struct SessionSummary {
     #[serde(default)]
     #[schemars(default)]
     pub loop_episode: Option<LoopEpisodeSummary>,
+    /// Unix milliseconds when its harness first refused a command because the harness's own
+    /// sandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.
+    #[serde(default)]
+    #[schemars(default)]
+    pub harness_sandbox_failed: Option<u64>,
     pub agent_session_id: Option<String>,
     /// The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):
     /// a Codex chat's earlier roots, which its older records still name, so a client folding

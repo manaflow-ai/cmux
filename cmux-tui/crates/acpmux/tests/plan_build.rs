@@ -201,14 +201,17 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
     assert!(app.said(rid).await.contains("chose yes"));
 
     // Build on two agents: two chats in two new worktrees, the plan's own chat stopped.
-    let (rid, pid) = app.ask_plan(&chat, "plan-ask: Add a license file").await;
+    // A harness that plans on after the rejected plan (as Claude's adapter does) is stopped.
+    let (rid, pid) = app.ask_plan(&chat, "plan-ask-on: Add a license file").await;
     let built = app
         .ok(
             "_acpmux/plan/build",
             json!({"sessionId": chat, "permissionId": pid, "target": "compare", "harnesses": ["fake", "fake"]}),
         )
         .await;
-    assert!(app.said(rid).await.contains("chose no"), "the plan's chat stops: {built}");
+    let said = app.said(rid).await;
+    assert!(said.contains("chose no"), "the plan's chat stops: {built}");
+    assert!(!said.contains("kept planning"), "the plan's turn is stopped: {said}");
     let builds = built["builds"].as_array().unwrap();
     assert_eq!(builds.len(), 2, "{built}");
     let build_id = built["buildId"].as_str().unwrap().to_owned();
@@ -300,6 +303,15 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
         .call("_acpmux/plan/keep", json!({"sessionId": chat, "buildId": build_id, "keep": chat}))
         .await;
     assert!(r.get("error").is_some(), "only a build is kept: {r}");
+    // One winner: keeping the kept build again answers as before, keeping the other is refused.
+    let again = app
+        .ok("_acpmux/plan/keep", json!({"sessionId": chat, "buildId": build_id, "keep": second}))
+        .await;
+    assert_eq!(again["keptSessionId"], json!(second), "{again}");
+    let other = app
+        .call("_acpmux/plan/keep", json!({"sessionId": chat, "buildId": build_id, "keep": first}))
+        .await;
+    assert_eq!(reason(&other), "plan_build.already_kept", "{other}");
 
     let _ = std::fs::remove_dir_all(&root);
 }
