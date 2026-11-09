@@ -92,7 +92,8 @@
 #   db-connections-staging  who holds the staging database's connection slots (db-connections.ts; the
 #                         deploy gate's 53300 "remaining connection slots are reserved"): settings, backends
 #                         by role, application and state, and the staging Hyperdrive config's origin limit.
-#                         dry_run=false first restarts the staging Hyperdrive pool (drains the Worker role's
+#                         dry_run=false first caps the staging Hyperdrive pool (hyperdrive.sh limit, 10) and
+#                         restarts it (drains the Worker role's
 #                         origin connections; a full server lets nobody in to end them one by one), then
 #                         ends the Worker role's backends idle over 2 min; never another role's, never an
 #                         active one; it waits up to 5 min for the old pool to drain. Environment
@@ -1457,13 +1458,15 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: bash scripts/hyperdrive.sh show cmux-vm-staging
-      - name: Restart the staging Hyperdrive pool (the Worker role's connections)
+      - name: Cap and restart the staging Hyperdrive pool (the Worker role's connections)
         if: ${{ !inputs.dry_run }}
         working-directory: workers/cmux-vm
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: bash scripts/hyperdrive.sh restart cmux-vm-staging
+        run: |
+          bash scripts/hyperdrive.sh limit cmux-vm-staging
+          bash scripts/hyperdrive.sh restart cmux-vm-staging
       - name: ${{ inputs.dry_run && 'Connections (read only)' || 'Connections, then end the Worker role''s idle backends' }}
         working-directory: scripts/cmux-next/release
         env:

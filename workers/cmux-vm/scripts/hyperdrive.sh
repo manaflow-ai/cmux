@@ -7,6 +7,8 @@
 #   hyperdrive.sh show    <name>   prints the id, origin port and origin_connection_limit
 #   hyperdrive.sh restart <name>   drains the config's connection pool (its origin connections, all the
 #                                  Worker role's) and starts a new one; the config itself is unchanged
+#   hyperdrive.sh limit   <name>   sets only origin_connection_limit (PATCH, no origin check, so it works
+#                                  while the database is full); ensure runs it before its PUT
 #
 # ensure sets origin_connection_limit, the most connections Hyperdrive opens to the database. Unset, Cloudflare's
 # paid default is 60, and the staging branch has max_connections 25 (3 reserved): on 2026-11-09 the Worker's pool
@@ -53,6 +55,21 @@ fail() {
   exit 1
 }
 
+# patch_limit ID: PATCH only origin_connection_limit. Cloudflare checks the origin on a PUT (error 2015 while the
+# database is full, which is when the limit matters most), so the limit goes first and alone.
+patch_limit() {
+  [ -n "$HYPERDRIVE_ORIGIN_CONNECTION_LIMIT" ] || return 0
+  if ! [[ "$HYPERDRIVE_ORIGIN_CONNECTION_LIMIT" =~ ^[0-9]+$ ]] || [ "$HYPERDRIVE_ORIGIN_CONNECTION_LIMIT" -lt 5 ] || [ "$HYPERDRIVE_ORIGIN_CONNECTION_LIMIT" -gt 100 ]; then
+    echo "::error::HYPERDRIVE_ORIGIN_CONNECTION_LIMIT must be a whole number from 5 to 100" >&2
+    exit 1
+  fi
+  printf '{"origin_connection_limit":%s}' "$HYPERDRIVE_ORIGIN_CONNECTION_LIMIT" > "$work/limit.json"
+  local code
+  code="$(call PATCH "$api/$1" "$work/limit.json")"
+  [ "$code" = 200 ] || fail "setting origin_connection_limit on Hyperdrive config $config_name" "$code"
+  echo "Hyperdrive config $config_name: origin_connection_limit $(jq -r '.result.origin_connection_limit // "?"' "$work/body")"
+}
+
 find_id() {
   local code
   code="$(call GET "$api?per_page=100")"
@@ -97,6 +114,7 @@ case "$command" in
       [ "$code" = 200 ] || fail "creating Hyperdrive config $config_name" "$code"
       action=created
     else
+      patch_limit "$id"
       # Cloudflare connects to the origin before it takes an update, and refuses with error 2015 while the
       # database is out of connection slots (cmux-vm.yml staging, 2026-11-09): try again twice, 20 s apart.
       for attempt in 1 2 3; do
@@ -126,8 +144,14 @@ case "$command" in
     [ "$code" = 200 ] || fail "restarting Hyperdrive config $config_name" "$code"
     echo "Hyperdrive config $config_name: pool restarted ($(jq -r '.result.restarted_on // "?"' "$work/body"))"
     ;;
+  limit)
+    id="$(find_id)"
+    [ -n "$id" ] || { echo "::error::Hyperdrive config $config_name does not exist" >&2; exit 1; }
+    [ -n "$HYPERDRIVE_ORIGIN_CONNECTION_LIMIT" ] || { echo "::error::no origin_connection_limit for $config_name" >&2; exit 1; }
+    patch_limit "$id"
+    ;;
   *)
-    echo "usage: hyperdrive.sh resolve|ensure|show|restart <cmux-vm-preview|cmux-vm-staging|cmux-vm-production>" >&2
+    echo "usage: hyperdrive.sh resolve|ensure|show|restart|limit <cmux-vm-preview|cmux-vm-staging|cmux-vm-production>" >&2
     exit 2
     ;;
 esac
