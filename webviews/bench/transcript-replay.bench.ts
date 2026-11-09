@@ -609,6 +609,7 @@ export function judge(opens: Open[], lives: Live[]): { rows: PerfRow[]; misses: 
         p50: longLive.idleMsPerS,
         p95: longLive.idleMsPerS,
         target: BUDGET.idleMsPerS,
+        clock: "cpu",
         floor: 0.5,
       },
       `the pane keeps working (${longLive.idleMsPerS} ms each second) after the replay settled: idle CPU`,

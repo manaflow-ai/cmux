@@ -268,7 +268,14 @@ try {
             floor: 0.5,
           });
           if (idle.cpuMs !== null)
-            perfRow({ name: `${name}.idle_cpu_ms`, p50: idle.cpuMs, p95: idle.cpuMs, target: 5, floor: 2 });
+            perfRow({
+              name: `${name}.idle_cpu_ms`,
+              p50: idle.cpuMs,
+              p95: idle.cpuMs,
+              target: 5,
+              floor: 2,
+              clock: "cpu",
+            });
         }
       } catch (error) {
         failed += 1;

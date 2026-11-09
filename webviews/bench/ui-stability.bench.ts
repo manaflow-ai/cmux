@@ -238,7 +238,7 @@ try {
         floor: 0.5,
       });
       if (quiet.cpuMs !== null)
-        perfRow({ name: `${name}.idle_cpu_ms`, p50: quiet.cpuMs, p95: quiet.cpuMs, target: 5, floor: 2 });
+        perfRow({ name: `${name}.idle_cpu_ms`, p50: quiet.cpuMs, p95: quiet.cpuMs, target: 5, floor: 2, clock: "cpu" });
     }
     for (const { page } of kept) await page.context().close();
   }
