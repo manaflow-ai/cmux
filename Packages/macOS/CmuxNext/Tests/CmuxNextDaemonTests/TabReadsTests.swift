@@ -9,11 +9,12 @@ import Testing
 /// daemon's refusal, or a newer notification in its record, shows the dot again (``TabReads``).
 @MainActor
 struct TabReadsTests {
-    static func tree(unread: Bool, notification: UInt64 = 4) -> DaemonTree {
+    static func tree(unread: Bool, notification: UInt64 = 4, generation: String = "g1", tab: Bool = true) -> DaemonTree {
         let marker = TabNotification(notification: NotificationID(rawValue: notification), unread: unread, level: .info, source: "agent")
-        let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, terminalResourceID: "term_7", notification: marker)])
+        let pane = PaneSnapshot(id: 1, tabs: tab ? [TabSnapshot(surface: 1, terminalResourceID: "term_7", notification: marker)] : [])
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
-        return DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])])
+        return DaemonTree(generation: DaemonGeneration(rawValue: generation),
+                          workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])])
     }
 
     static func unreadTab() throws -> (DaemonStore, TabModel, TabReads) {
@@ -141,5 +142,49 @@ struct TabReadsTests {
         }.value
         #expect(shownAtATry == 0)
         #expect(tab.attention == mark, "a refused clear stayed hidden")
+    }
+
+    /// The daemon came back as another generation, which numbers its notifications anew: the same number, unread, may
+    /// be a notification the person never saw. The read is not sent to it; the dot shows what the new record holds.
+    @Test func aReadMadeOnAnotherDaemonIsNotSentToTheNext() async throws {
+        let (store, tab, reads) = try Self.unreadTab()
+        var tries = 0
+        let sent = try #require(reads.readNotification(of: tab, current: store.holdsRead(of: tab)) { (_: SurfaceID) in
+            tries += 1
+            store.apply(snapshot: Self.tree(unread: true, generation: "g2"))
+            // Bounds the run without the fix, which would send it on and on.
+            if tries > 3 { throw DaemonError.command(cmd: "ack-tab-notifications", message: "stop", code: nil) }
+            throw DaemonError.notConnected
+        })
+        await sent.value
+        #expect(tries == 1, "the read went to a daemon of another generation")
+        #expect(tab.showsUnread, "the new daemon's unread notification stayed hidden")
+    }
+
+    /// The tab left the tree while the daemon was away: its read stops instead of going on for a handle that may be
+    /// another tab's once the daemon is back.
+    @Test func aRemovedTabsReadStops() async throws {
+        let (store, tab, reads) = try Self.unreadTab()
+        var tries = 0
+        let sent = try #require(reads.readNotification(of: tab, current: store.holdsRead(of: tab)) { (_: SurfaceID) in
+            tries += 1
+            store.apply(snapshot: Self.tree(unread: true, tab: false))
+            // Bounds the run without the fix, which would send it on and on.
+            if tries > 3 { throw DaemonError.command(cmd: "ack-tab-notifications", message: "stop", code: nil) }
+            throw DaemonError.notConnected
+        })
+        await sent.value
+        #expect(tries == 1, "a removed tab's read went on")
+    }
+
+    /// Before a new connection's first tree lands, the store still shows the last daemon's: a read waits, as
+    /// unanswered, rather than reach a daemon that may number surfaces anew.
+    @Test func aReadWaitsForTheConnectionsFirstTree() throws {
+        let (store, _, _) = try Self.unreadTab()
+        #expect(throws: Never.self) { try store.awaitLiveTree() }
+        store.connectionEpoch += 1
+        #expect(throws: DaemonError.notConnected) { try store.awaitLiveTree() }
+        store.apply(snapshot: Self.tree(unread: true))
+        #expect(throws: Never.self) { try store.awaitLiveTree() }
     }
 }
