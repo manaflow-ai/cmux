@@ -64,8 +64,6 @@
   font-size: var(--text-detail);
   text-align: start;
 }
-.acpmux-time-breakdown__total-row:not(:disabled) {
-}
 .acpmux-time-breakdown__total-row:focus-visible {
   outline: var(--cmux-hairline, 0.5px) solid var(--agent-text);
   outline-offset: var(--cmux-hairline, 0.5px);
