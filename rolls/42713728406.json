@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42713728406",
+  "recorded_at": "2026-11-09T22:46:20Z",
+  "reason": "cmux-tui aff712f53bc8 changes the image's cmux-tui (pinned 3747293ebbc3)",
+  "dry_run": false,
+  "cmux_tui": "aff712f53bc873fc14b6eec40c9e9e03f6babaf5",
+  "fixes": [
+    {
+      "sha": "aff712f53bc873fc14b6eec40c9e9e03f6babaf5",
+      "mergedAt": "2026-11-09T14:17:21-08:00",
+      "subject": "acpmux: a fork and its parent's rules record take one lock (#39841)"
+    },
+    {
+      "sha": "aaa881aedfb3a8ce8e2dcae759681b64eafc845c",
+      "mergedAt": "2026-11-09T13:39:01-08:00",
+      "subject": "acpmux: a restart goes on with queues in the home folder off macOS (#39862)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T22:46:20Z",
+    "snapshot_id": "sh-071a3d3c387d442c9eb36c626281335b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42713728406): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "44f256539bc3b6f8d56d96026852f04f22a1dc00",
+    "image": "cloud-native-auto-aff712f5-42713728406-1",
+    "revision": "ci-42713728406-1",
+    "at": "2026-11-09T22:46:20Z"
+  },
+  "rolled_back": false
+}
