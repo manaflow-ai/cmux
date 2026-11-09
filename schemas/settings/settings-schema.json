@@ -597,9 +597,6 @@
               "sidebar.border",
               "sidebar.borderWidth",
               "sidebar.sectionLook",
-              "sidebar.topBandMaxShare",
-              "sidebar.bottomBandMaxShare",
-              "sidebar.pinnedBandsScroll",
               "sidebar.noFade",
               "sidebar.controlsOnHover",
               "sidebar.floatOnHover",
@@ -647,7 +644,10 @@
               "sidebar.chromeGroups",
               "sidebar.sideBySide",
               "sidebar.groupPalette",
-              "sidebar.groupGradient"
+              "sidebar.groupGradient",
+              "sidebar.topBandMaxShare",
+              "sidebar.bottomBandMaxShare",
+              "sidebar.pinnedBandsScroll"
             ],
             "title" : {
               "key" : "settings.pageGroup.sidebarLayout",
