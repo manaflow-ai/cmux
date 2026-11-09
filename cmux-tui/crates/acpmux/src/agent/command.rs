@@ -165,6 +165,23 @@ pub(crate) fn harness_command(
     for key in crate::agent_tools::INHERITED_CALLER_ENV {
         cmd.env_remove(key);
     }
+    // Nor is the cmux-tui Claude Code plugin of that terminal: its hooks
+    // report to it. The agent keeps its other plugin folders; a profile's own
+    // value, applied below, still wins. A remote base has none of the daemon's.
+    if !remote_environment {
+        let plugins = crate::agent_tools::CLAUDE_PLUGIN_DIRS_ENV;
+        let inherited = match cmd.as_std().get_envs().find(|(key, _)| key.to_str() == Some(plugins))
+        {
+            Some((_, value)) => value.map(std::ffi::OsStr::to_os_string),
+            None => std::env::var_os(plugins),
+        };
+        if let Some(inherited) = inherited {
+            match crate::agent_tools::without_cmux_tui_plugins(&inherited) {
+                Some(kept) => cmd.env(plugins, kept),
+                None => cmd.env_remove(plugins),
+            };
+        }
+    }
     // A cmux tool allowlist in the daemon's own env (a daemon started from a
     // Chief turn's shell) is not the agent's: a harness passes its env to
     // its MCP servers. A turn's preset puts its own value back (`envs`).

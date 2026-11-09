@@ -1,5 +1,7 @@
-/* A folded group's hover (MessageGroupHover.tsx): the messages, newest first, each its sender's mark
-   and short name, then the first line or two of what it said, in the hover card's glass. */
+/* A folded group's hover (MessageGroupHover.tsx), in the hover card's glass. The digest (the
+   default): the newest message whole under its sender, a hairline, then the other senders with
+   their counts. The gallery versions: the messages newest first, each its sender's mark and short
+   name, then the first line or two of what it said. */
 .ui-card.cv-group-hover__popup {
   max-width: min(360px, calc(100vw - 24px));
   padding: var(--ds-space-2) var(--ds-space-3);
@@ -62,4 +64,46 @@
 }
 .cv-group-hover__more {
   color: var(--cmux-text-secondary, var(--cv-text-muted));
+}
+/* The digest's newest message: its lines as lines, cut near twelve. */
+.cv-group-hover__newest {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-half-step);
+  min-width: 0;
+}
+.cv-group-hover__body {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 12;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+/* The other senders, one wrapping line under a hairline: mark, name, count. */
+.cv-group-hover__senders {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-1) var(--ds-space-2);
+  padding-top: var(--ds-space-2);
+  border-top: var(--cmux-hairline, 0.5px) solid var(--ds-color-separator);
+  color: var(--cmux-text-secondary, var(--cv-text-muted));
+}
+.cv-group-hover__sender {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  max-width: 100%;
+  white-space: nowrap;
+}
+.cv-group-hover__sender .cv-group-hover__name {
+  max-width: 160px;
+  font-weight: inherit;
+}
+.cv-group-hover__count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
 }

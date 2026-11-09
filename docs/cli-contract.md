@@ -455,8 +455,8 @@ Blocked agents sort first, then done, working, idle, unknown and ended.
 Listing never clears `done`; viewing the tab in a client does. `--json` prints
 `[{terminal, harness, status, state, title, workspace_id, workspace, cwd,
 updated_at_ms, age_ms, source}]`: `status` is the word above (`null` for an
-ended session) and `state` keeps the older words (`busy`, `idle`,
-`waiting-for-input`, `ended`) for existing scripts.
+ended session) and `state` is a deprecated alias that has the same word
+(`ended` for an ended session).
 
 Each `list --agents` row also has `name` (the tab's name when it is an agent
 name, see `cmux agent start`), `tab_id`, `tab_name`, `pane_id` and
@@ -473,13 +473,17 @@ multi-line message stays one message in Claude Code, Codex or a line editor),
 presses Enter 300 ms later, and waits. `--wait idle` (default) ends when no
 agent record or OSC 7501 status newer than the send says `working`, no command
 or OSC 9;4 progress runs, and the screen has not changed for `--settle`
-(default 3s); an agent that stops on a dialog ends it as `waiting-for-input`.
+(default 3s); an agent that stops on a dialog ends it as `blocked`.
 `--wait prompt` ends when the shell shows its prompt and the screen is still.
 `--wait none` returns after Enter. It prints only what the terminal printed
 after the message's echo (reading history pages when the reply is longer than
 the screen), less the harness's input box and status footer; `--json` prints
-`{terminal, harness, bracketed_paste, state, timed_out, waited_ms, anchored,
-output}`. `--timeout` (default 5m) exits 124 with the output so far. A
+`{terminal, harness, bracketed_paste, status, state, timed_out, waited_ms,
+anchored, output}`. `status` is the word `list --agents` says for the same
+turn: `idle`, `done` (the turn finished and the terminal has an unread
+notification), `blocked`, `working` (the wait timed out) or `ended` (the
+program exited); `state` is the wait's own word (`idle`, `blocked`, `working`,
+`exited`). `--timeout` (default 5m) exits 124 with the output so far. A
 terminal whose agent waits on a dialog is refused (`agent.waiting_for_input`)
 unless `--force`, because the text would answer the dialog. The MCP tools
 `agents_terminal_list` and `agents_terminal_send` run the same code.
@@ -521,7 +525,7 @@ refused. `--window` and `--id-format` are accepted and ignored.
 ```text
 cmux agent list [--terminal <term_id>] [--state working|blocked|done|idle|unknown|ended] [--needs-me]
                 [--sort needs-me|recent|none] [--limit <n>] [--counts]
-cmux agent report --terminal <term_id> --state <state> --source hook|socket [--source-session <id>]
+cmux agent report --terminal <term_id> --state working|blocked|idle|ended|unknown --source hook|socket [--source-session <id>]
 cmux agent hook install|uninstall|status [provider...]
 cmux agent hook emit --source <agent> --event <native-event> [--terminal <term_id>] [--payload-json <json>]
 cmux agent plugin list
@@ -534,11 +538,15 @@ cmux agent plugin use --builtin
 chats created in its workspaces (`--all-sessions` for every session and every
 chat on the machine). Each row's `status` is the word `terminal list --agents`
 uses: `blocked`, `done` (idle with an unread notification), `working`, `idle`,
-`unknown`, or null for an ended session; the daemon's `state` field stays, and
-an acpmux chat's own status is `acp_status`. `--state` takes those words and
+`unknown`, or null for an ended session; `state` is a deprecated alias with
+the same word (`ended` for an ended session), and an acpmux chat's own status
+is `acp_status`. The CLI does not list an ended agent of a terminal that
+closed; `--state ended` shows those rows too. `--state` takes those words and
 `ended` (`--state done` selected ended sessions before; that is `--state ended`
 now). It puts blocked agents first, then done, working, idle, unknown and
-ended (`--sort recent|none` for recency or the daemon's order). `--json` stays
+ended (`--sort recent|none` for recency or the daemon's order). `agent report --state ended` reports a session
+that ended (`--state done` is an old alias of it), and its record says
+`ended`. `--json` stays
 a bare array of agents; `--json --counts` adds the counts by status, `ended` and
 `total` (`{"agents": [...], "counts": {...}}`).
 

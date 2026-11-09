@@ -2555,6 +2555,7 @@ fn run_server(
         cmux_tui_core::server::bind_session_socket(&args.session, args.socket.clone())?
             .serve_restoring()?;
     startup_timings.lap("socket.bind");
+    local_owner::debug_slow_restore();
     let mux =
         match (state_root.as_deref(), provider_workspace_authority, provider_management_pending) {
             (Some(root), Some(authority), false) => Mux::open_persistent_provider_managed(

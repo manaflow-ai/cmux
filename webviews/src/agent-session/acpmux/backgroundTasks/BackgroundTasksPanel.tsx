@@ -62,6 +62,7 @@ import { SubagentTranscript } from "./SubagentTranscript";
 import { NestedAgents } from "./subagentTranscriptModel";
 import "./backgroundTasks.css";
 import { FINISHED_PAGE, type PanelSection, panelSections } from "./backgroundTasksPanelModel";
+import { Clock } from "../../../ui/Typography";
 
 /// Whether this chat's subagents stop on their own (Claude Code's do; App.tsx `stopsSubagents`): a
 /// subagent's row shows no stop button where it would do nothing (never a dead click).
@@ -518,7 +519,7 @@ function GroupBlock({
         {!live && group.state === "failed" ? (
           <span className="acpmux-bg__time acpmux-bg__failed">{t("subagents.state.failed")}</span>
         ) : (
-          <span className="acpmux-bg__time">{time(group.startedAt, group.endedAt, now, live)}</span>
+          <Clock className="acpmux-bg__time" text={time(group.startedAt, group.endedAt, now, live) ?? ""} />
         )}
         <StopSlot target={group.stop} name={group.name} onStop={onStop} />
       </div>
@@ -696,7 +697,10 @@ function TaskRow({
         </span>
         <span className="acpmux-bg__label">{task.title}</span>
       </Button>
-      <span className="acpmux-bg__time">{time(task.startedAt, task.endedAt, now, task.state === "running")}</span>
+      <Clock
+        className="acpmux-bg__time"
+        text={time(task.startedAt, task.endedAt, now, task.state === "running") ?? ""}
+      />
       <StopSlot target={task.stop} name={task.title} onStop={onStop} />
     </div>
   );
