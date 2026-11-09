@@ -719,7 +719,8 @@ async function composer(typed: string) {
 const titled = () =>
   [...host.querySelectorAll<HTMLElement>(".is-titled[data-title]")].map((node) => [
     node.dataset.title,
-    node.textContent,
+    // The chip's link: the draft's text, hidden beside it (composer/deeplinkTitles.ts).
+    node.dataset.link,
   ]);
 
 test("the draft draws a known link as its chip and sends the link as pasted", async () => {
