@@ -7,10 +7,12 @@
 // at 200. bench/update-one.bench.ts times the same paths in the real pane.
 import { expect, test } from "bun:test";
 import { homeLists } from "./homeListsModel";
+import { workedProfiles } from "./modelCatalogData";
 import { pillAsks } from "./needsYou/jumpPillModel";
 import { needsYouItems } from "./needsYou/model";
 import { promptSuggestion } from "./promptSuggestion";
 import { hatQuestions } from "./question/hatModel";
+import { noteReplaced, SessionIndex, sessionIndex, type SessionMark } from "./sessionIndex";
 import { folderFields, recentLocalFolders, sessionEntry, SessionsBy, type AcpmuxSessionEntry } from "./sessionList";
 import { SessionHoverStore } from "./started/sessionHover";
 import { SubsessionStore } from "./subagents/subsessions";
@@ -24,7 +26,9 @@ const shows = (index: number): Record<string, unknown> =>
     ? {}
     : {
         ...(index % 50 === 7 ? { status: "waiting", indicator: "input" } : {}),
-        ...(index % 50 === 9 ? { pullRequest: { number: index, title: `PR ${index}`, state: "open", reviewReady: true } } : {}),
+        ...(index % 50 === 9
+          ? { pullRequest: { number: index, title: `PR ${index}`, state: "open", reviewReady: true } }
+          : {}),
         ...(index % 50 === 11 ? { pullRequest: { number: index, title: `PR ${index}`, state: "draft" } } : {}),
         ...(index % 50 === 13 ? { indicator: "working" } : {}),
       };
@@ -152,4 +156,73 @@ test("the pill and the hat read only the changed session", () => {
       hatQuestions({ sessionId: "s2", rows: [], sessions, asks: [] });
     }),
   ).toBeLessThan(2);
+});
+
+test("an index made from the last one in place matches one made whole", () => {
+  const marks: SessionMark[] = ["waiting", "openPullRequest", "working", "started"];
+  const same = (list: readonly AcpmuxSessionEntry[]) => {
+    const whole = SessionIndex.build(list);
+    const made = sessionIndex(list);
+    for (const mark of marks) expect(made.of(mark)).toEqual(whole.of(mark));
+    for (const entry of list) expect(made.get(entry.sessionId)).toBe(entry);
+  };
+  let list: readonly AcpmuxSessionEntry[] = Array.from({ length: 300 }, (_, index) => counted(index));
+  same(list);
+  // A chat starts waiting, one stops, a pull request opens, a dot goes from working to done: through
+  // the recorded change (direct.ts) and through a copy compared by identity.
+  const changes: [number, Record<string, unknown>][] = [
+    [20, { status: "waiting" }],
+    [7, { status: "idle" }],
+    [250, { pullRequest: { number: 1, title: "PR", state: "open" } }],
+    [13, { indicator: "done" }],
+  ];
+  changes.forEach(([at, fields], step) => {
+    const next = list.slice();
+    next[at] = counted(at, fields);
+    if (step % 2 === 0) noteReplaced(list, next, [at]);
+    same(next);
+    list = next;
+  });
+});
+
+test("the folder lists follow a recorded in-place change without walking the list", () => {
+  const by = new SessionsBy(folderFields);
+  const one = Array.from({ length: 300 }, (_, index) => counted(index));
+  expect(by.of(one)).toBe(one);
+  const renamed = one.slice();
+  renamed[5] = counted(5, { title: "Renamed" });
+  noteReplaced(one, renamed, [5]);
+  reads = 0;
+  expect(by.of(renamed)).toBe(one);
+  expect(reads).toBeLessThan(20);
+  const moved = renamed.slice();
+  moved[6] = counted(6, { cwd: "/Users/me/code/elsewhere" });
+  noteReplaced(renamed, moved, [6]);
+  expect(by.of(moved)).toBe(moved);
+});
+
+test("the picker's worked profiles follow a recorded change at that chat alone, as a whole read orders them", () => {
+  const harnesses = ["claude", "codex", "gemini"];
+  const worked = (index: number, fields: Record<string, unknown> = {}) =>
+    counted(index, { harness: harnesses[index % 3], lastTurn: { status: "completed" }, ...fields });
+  let list: readonly AcpmuxSessionEntry[] = Array.from({ length: 3000 }, (_, index) => worked(index));
+  expect(workedProfiles(list)).toEqual(["gemini", "codex", "claude"]);
+  // Newer; then the newest chat no longer completed, which reads the list again (its profile's
+  // next newest is not kept); then a tie that the earlier place wins.
+  const changes: [number, Record<string, unknown>, boolean][] = [
+    [30, { updatedAt: 9_000_000 }, true],
+    [30, { lastTurn: { status: "failed" } }, false],
+    [4, { updatedAt: 1_000_000 + 2999 }, true],
+  ];
+  for (const [at, fields, flat] of changes) {
+    const next = list.slice();
+    next[at] = worked(at, fields);
+    noteReplaced(list, next, [at]);
+    reads = 0;
+    const made = workedProfiles(next);
+    if (flat) expect(reads).toBeLessThan(20);
+    expect(made).toEqual(workedProfiles(next.slice()));
+    list = next;
+  }
+  expect(workedProfiles(list)).toEqual(["codex", "gemini", "claude"]);
 });

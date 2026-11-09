@@ -5,6 +5,7 @@ import { type Translate, translate } from "./i18n";
 import { withoutRelayLabel, withoutRelayLabelOfMessage } from "./conversation/relayEnvelope";
 import { readRetry, type RetryState } from "./subagents/retryState";
 import { senderSessionName } from "./senderIdentity";
+import { replacedSince } from "./sessionIndex";
 import { type SessionUsageStats, usageStatsOf } from "./usageStats";
 
 /** A session as the sidebar sees it, cut from acpmux's session summary. */
@@ -168,7 +169,7 @@ export function withoutChildren(entries: AcpmuxSessionEntry[]): AcpmuxSessionEnt
  * The Home inbox and the sidebar share this folding rule; acpmux may report a pending permission
  * or question before its indicator moves to "input". A lost host cannot answer its old asks.
  */
-export const folded = (entry: AcpmuxSessionEntry, parents: ReadonlySet<string>) => {
+export const folded = (entry: AcpmuxSessionEntry, parents: Pick<ReadonlySet<string>, "has">) => {
   const needsPerson =
     entry.indicator !== "lost" &&
     ((entry.pendingPermissions ?? 0) > 0 || entry.waitingOn !== undefined || entry.status === "waiting");
@@ -506,16 +507,22 @@ export class SessionsBy {
   private kept: readonly AcpmuxSessionEntry[] | undefined;
   private seen = new Map<string, { entry: AcpmuxSessionEntry; key: string; at: number }>();
   private count = -1;
+  /// The list `of` was last given, which a list made from it in place (sessionIndex.ts
+  /// `noteReplaced`) is compared with at the replaced entries only.
+  private last: readonly AcpmuxSessionEntry[] | undefined;
 
   constructor(private readonly fields: (entry: AcpmuxSessionEntry) => readonly unknown[]) {}
 
   of(sessions: readonly AcpmuxSessionEntry[]): readonly AcpmuxSessionEntry[] {
-    if (sessions === this.kept) return sessions;
-    let moved = this.kept === undefined || sessions.length !== this.count;
+    if (sessions === this.kept) return (this.last = sessions);
+    const replaced = this.kept === undefined ? undefined : replacedSince(this.last, sessions);
+    this.last = sessions;
+    let moved = replaced === undefined && (this.kept === undefined || sessions.length !== this.count);
     // Same length: updated in place, as an id not seen before marks the list moved. Another length
     // starts again, so a session no longer listed leaves nothing behind.
     if (moved) this.seen = new Map();
-    for (let at = 0; at < sessions.length; at++) {
+    const positions = replaced ?? sessions.keys();
+    for (const at of positions) {
       const entry = sessions[at]!;
       const before = this.seen.get(entry.sessionId);
       if (before?.entry === entry) {

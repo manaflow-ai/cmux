@@ -10,6 +10,7 @@ import { createContext, useContext, useMemo, useSyncExternalStore } from "react"
 import type { StringKey, Translate } from "../i18n";
 import type { RetryState } from "./retryState";
 import { cloudHost, listed, type AcpmuxSessionEntry, type SessionWaiting } from "../sessionList";
+import { replacedSince, sessionIndex } from "../sessionIndex";
 import { resolveSenderIdentity, type SenderIdentity, type SenderReference } from "../senderIdentity";
 
 /// What a sub-session is doing: its turn runs, it waits on the person (a permission or a question),
@@ -220,7 +221,8 @@ const RANK: Record<SubsessionState, number> = { input: 0, working: 1, failed: 2,
 export function subsessionRows(sessions: readonly AcpmuxSessionEntry[], chatId: string | undefined): SubsessionRow[] {
   if (!chatId) return [];
   const children = new Map<string, AcpmuxSessionEntry[]>();
-  for (const entry of sessions) {
+  // Among the chats another started only (sessionIndex.ts), not every listed chat.
+  for (const entry of sessionIndex(sessions).of("started")) {
     if (!entry.startedBy || entry.archived) continue;
     const list = children.get(entry.startedBy);
     if (list) list.push(entry);
@@ -276,6 +278,9 @@ export class SubsessionStore {
   private nameFrom = new Map<string, AcpmuxSessionEntry>();
   private nameSigs = new Map<string, string>();
   private nameCount = -1;
+  /// The list the last `set` was given: a list made from it in place (sessionIndex.ts `noteReplaced`)
+  /// is patched at the replaced entries only, with no lookup per listed chat.
+  private last: readonly AcpmuxSessionEntry[] | undefined;
   private readonly nameListeners = new Set<() => void>();
 
   senderEntries = (): ReadonlyMap<string, AcpmuxSessionEntry> => this.senders;
@@ -284,7 +289,9 @@ export class SubsessionStore {
   /// change keeps its object. The pane sends the list with every snapshot, reusing the entry of a
   /// session that did not change, so an entry seen last time is not read again.
   set(sessions: readonly AcpmuxSessionEntry[]): void {
-    if (this.patch(sessions)) return;
+    const last = this.last;
+    this.last = sessions;
+    if (this.patch(sessions, replacedSince(last, sessions))) return;
     const infos = new Map<string, SubsessionInfo>();
     const keys = new Map<string, string>();
     const entries = new Map<string, AcpmuxSessionEntry>();
@@ -429,10 +436,10 @@ export class SubsessionStore {
   /// (``nameFields``): only the changed sub-sessions' views are made again, in place. False (nothing
   /// done) when a session came or went, a page lists one twice, or a change moved a name: `set`
   /// rebuilds then.
-  private patch(sessions: readonly AcpmuxSessionEntry[]): boolean {
+  private patch(sessions: readonly AcpmuxSessionEntry[], replaced?: readonly number[]): boolean {
     if (sessions.length !== this.nameFrom.size || sessions.length !== this.nameCount) return false;
     const changed: AcpmuxSessionEntry[] = [];
-    for (const entry of sessions) {
+    for (const entry of replaced ? replaced.map((at) => sessions[at]!) : sessions) {
       const before = this.nameFrom.get(entry.sessionId);
       if (!before) return false;
       if (before === entry) continue;

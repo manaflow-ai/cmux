@@ -16,6 +16,7 @@ import {
   projectLabel,
   sessionPlace,
 } from "../sessionList";
+import { replacedSince } from "../sessionIndex";
 import {
   MIN_TITLE_MENTION,
   type SessionMention,
@@ -117,11 +118,16 @@ export class SessionHoverStore {
   /// (direct.ts `sessionEntryList`), so an entry seen last time keeps its card and key unread, and
   /// one session's change costs one card, not one per listed chat.
   private from = new Map<string, AcpmuxSessionEntry>();
+  /// The list the last `set` was given: a list made from it in place (sessionIndex.ts `noteReplaced`)
+  /// is patched at the replaced entries only, with no lookup per listed chat.
+  private last: readonly AcpmuxSessionEntry[] | undefined;
   private readonly listeners = new Set<() => void>();
 
   /// Replaces the cards with `sessions`'; a card whose content did not change keeps its object.
   set(sessions: readonly AcpmuxSessionEntry[]): void {
-    if (this.patch(sessions)) return;
+    const last = this.last;
+    this.last = sessions;
+    if (this.patch(sessions, replacedSince(last, sessions))) return;
     const infos = new Map<string, SessionHoverInfo>();
     const keys = new Map<string, string>();
     const agents = new Map<string, string>();
@@ -165,10 +171,10 @@ export class SessionHoverStore {
   /// The same sessions as last time, some of them changed: only the changed ones' cards are made
   /// again, in place. False (nothing done) when a session came or went, a page lists one twice, or a
   /// change moved what the link indexes read (its agent link, its machine): `set` rebuilds them.
-  private patch(sessions: readonly AcpmuxSessionEntry[]): boolean {
+  private patch(sessions: readonly AcpmuxSessionEntry[], replaced?: readonly number[]): boolean {
     if (sessions.length !== this.from.size) return false;
     const changed: AcpmuxSessionEntry[] = [];
-    for (const entry of sessions) {
+    for (const entry of replaced ? replaced.map((at) => sessions[at]!) : sessions) {
       const before = this.from.get(entry.sessionId);
       if (!before) return false;
       if (before === entry) continue;
