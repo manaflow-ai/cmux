@@ -16,7 +16,12 @@ import {
   mcpToolName,
 } from "../scripts/export-next-docs";
 import { docsChannelUrl, docsPathAvailableInChannel } from "../app/lib/docs-channel";
-import { docsContentLang, flatNavItems, navItemsForLocale } from "../app/[locale]/components/docs-nav-items";
+import {
+  docsContentLang,
+  docsContentLangAttributes,
+  flatNavItems,
+  navItemsForLocale,
+} from "../app/[locale]/components/docs-nav-items";
 
 // The cmux-next docs reference pages are generated from the action catalog and
 // the settings schema (plans/cmux-next/docs-DESIGN.md). web/ never reads those
@@ -198,7 +203,19 @@ describe("cmux-next docs", () => {
     }
     expect(docsContentLang("/docs/getting-started", "ja")).toBe("ja");
     const layout = readFileSync(join(repo, "web/app/[locale]/(landing)/docs/docs-nav.tsx"), "utf8");
-    expect(layout).toMatch(/className="docs-content[^"]*"\s+lang=\{/);
+    expect(layout).toMatch(/className="docs-content[^"]*"\s+\{\.\.\.docsContentLangAttributes\(contentLang, locale\)\}/);
+  });
+
+  // Under Arabic the root is dir="rtl" and lang="en" does not change direction, so the English
+  // body of a cmux-next page laid out its text and tables right to left.
+  test("an English body under a right-to-left locale is marked left to right", () => {
+    const attributes = (path: string, locale: string) =>
+      docsContentLangAttributes(docsContentLang(path, locale), locale);
+    expect(attributes("/docs/next/own-keys", "ar")).toEqual({ lang: "en", dir: "ltr" });
+    expect(attributes("/docs/base", "ar")).toEqual({ lang: "en", dir: "ltr" });
+    expect(attributes("/docs/next/own-keys", "ja")).toEqual({ lang: "en" });
+    expect(attributes("/docs/next/own-keys", "en")).toEqual({});
+    expect(attributes("/docs/getting-started", "ar")).toEqual({});
   });
 
   test("release docs fall back to Getting Started for a next page", () => {
