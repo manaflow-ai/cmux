@@ -56,12 +56,27 @@ pub(crate) const RESTORE_DEADLINE: Duration = Duration::from_secs(120);
 /// fixed timeout shorter than `RESTORE_DEADLINE`.
 pub(crate) const PROGRESS_INTERVAL: Duration = Duration::from_secs(5);
 
+/// How long a progress report waits for the restoring owner's `identify`
+/// (it answers at once; an older owner holds it unanswered).
+const RESTORE_PROBE_DEADLINE: Duration = Duration::from_secs(1);
+
 /// The owner is alive and still restoring its session.
 pub(crate) struct Restoring {
     /// The owner's pid when known (its socket identity or this call's spawn).
     pub pid: Option<u64>,
     /// Time since this ensure started waiting on the restore.
     pub waited: Duration,
+    /// What the owner said its restore does now (`identify`'s `restore`:
+    /// phase, done, total, elapsed_ms, last_advance_ms), when it said.
+    pub restore: Option<Value>,
+}
+
+thread_local! {
+    /// The `restore` of the last `lifecycle_ready: false` identity `attempt`
+    /// read on this thread: every wait reports its owner on the thread that
+    /// probed it, right after the probe.
+    static OWNER_RESTORE: std::cell::RefCell<Option<Value>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// Reports a restoring owner to the caller: the first sighting at once, then
@@ -95,7 +110,8 @@ impl<'a> RestoreProgress<'a> {
             return;
         }
         self.last.set(Some(now));
-        (self.report)(&Restoring { pid, waited: now.duration_since(first) });
+        let restore = OWNER_RESTORE.with_borrow(Clone::clone);
+        (self.report)(&Restoring { pid, waited: now.duration_since(first), restore });
     }
 }
 
@@ -634,6 +650,9 @@ fn wait_for_spawned_owner(
         }
         // Silent for the first slice: a quick owner start is not a restore.
         if started.elapsed() + Duration::from_millis(50) >= PROGRESS_INTERVAL {
+            // Ask the owner how far its restore is, for the report; the
+            // pipe alone decides when it is ready.
+            let _ = attempt(spec, expected, Instant::now() + RESTORE_PROBE_DEADLINE);
             progress.restoring(Some(u64::from(pid)));
         }
     }
@@ -687,6 +706,7 @@ fn attempt(
     expected_session: Option<&str>,
     deadline: Instant,
 ) -> Result<Attempt, EnsureError> {
+    OWNER_RESTORE.set(None);
     let stream =
         match cmux_tui_core::server::connect_session_socket(&spec.socket, spec.socket_is_derived) {
             Ok(stream) => stream,
@@ -717,6 +737,8 @@ fn attempt(
     // missing or malformed field is a broken identity, never "ready".
     match identity.get("lifecycle_ready") {
         Some(Value::Bool(false)) => {
+            // An owner that restores says how far it is (restoring.rs).
+            OWNER_RESTORE.set(identity.get("restore").cloned());
             return Ok(Attempt::Starting(identity.get("pid").and_then(Value::as_u64)));
         }
         Some(Value::Bool(true)) => {}

@@ -41,6 +41,8 @@ pub(super) fn restore_agent_roster(
     use crate::journal_reducers::{
         AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster, RosterEvent,
     };
+    crate::restore_progress::enter(crate::restore_progress::RestorePhase::AgentRoster);
+    crate::restore_progress::test_delay();
     let mut problems = Vec::new();
     let state = registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID).unwrap_or_else(|_| {
         eprintln!("cmux-tui: agent roster snapshot is unreadable; rebuilding it from the journal");
@@ -73,7 +75,11 @@ pub(super) fn restore_agent_roster(
     let started_at = host.cursor;
     let mut skipped = Vec::new();
     let head = registry.session_journal_head()?;
+    // Journal rows this fold covers, for `identify` while the owner restores
+    // (a reducer version change folds the whole journal).
+    let fold_total = Some(head.saturating_sub(started_at));
     loop {
+        crate::restore_progress::advance(host.cursor.saturating_sub(started_at), fold_total);
         if host.cursor >= head {
             break;
         }

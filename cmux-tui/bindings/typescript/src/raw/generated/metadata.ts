@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2f64fd8595b0c23ce4e6ad169aa7a5a48b6fd548d677b6128eb27abefb81caf8. */
+/* cmux-tui mux protocol 12, IR aeadf39add6a73fa8d298962efa4725e3e308c1d0f186269452d0eb60415eef5. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "2f64fd8595b0c23ce4e6ad169aa7a5a48b6fd548d677b6128eb27abefb81caf8" as const;
+export const SDK_IR_SHA256 = "aeadf39add6a73fa8d298962efa4725e3e308c1d0f186269452d0eb60415eef5" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -7707,6 +7707,67 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "IdentifyRestore": {
+    "additional_properties": false,
+    "fields": {
+      "done": {
+        "constraints": [
+          "Units of the phase done (agent_roster: journal rows folded); null when the phase does not count."
+        ],
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "elapsed_ms": {
+        "constraints": [
+          "Milliseconds since the owner bound its socket and began the restore."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "last_advance_ms": {
+        "constraints": [
+          "When the restore last advanced (a new phase or a new done count), in milliseconds since it began."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "phase": {
+        "constraints": [
+          "The restore step running now: registry_open, schema, migrations, integrity, snapshot, agent_roster, mux_build, browsers, host_adoption, reconcile or finish. Clients show an unknown name as is."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "total": {
+        "constraints": [
+          "Units of the phase in all; null when unknown."
+        ],
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "IdentifyResult": {
     "additional_properties": false,
     "fields": {
@@ -7922,6 +7983,18 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "restore": {
+        "constraints": [
+          "Only with identify {revisions: true}, and only while the owner restores its session (lifecycle_ready false): what the restore does now. A restore that advances moves last_advance_ms; one that hangs keeps it while elapsed_ms grows."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "IdentifyRestore"
         }
       },
       "session": {

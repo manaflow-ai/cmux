@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "2f64fd8595b0c23ce4e6ad169aa7a5a48b6fd548d677b6128eb27abefb81caf8";
+inline constexpr std::string_view kProtocolIrSha256 = "aeadf39add6a73fa8d298962efa4725e3e308c1d0f186269452d0eb60415eef5";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -101,6 +101,7 @@ struct HostSizePolicy;
 struct HostSizePolicyRequest;
 struct Id;
 struct IdMapping;
+struct IdentifyRestore;
 struct IdentifyResult;
 struct IdsResult;
 struct JsonValue;
@@ -3322,6 +3323,15 @@ struct IdentifyRequest {
     friend bool operator==(const IdentifyRequest&, const IdentifyRequest&) = default;
 };
 
+struct IdentifyRestore {
+    std::optional<std::uint64_t> done{};
+    std::uint64_t elapsed_ms{};
+    std::uint64_t last_advance_ms{};
+    std::string phase{};
+    std::optional<std::uint64_t> total{};
+    friend bool operator==(const IdentifyRestore&, const IdentifyRestore&) = default;
+};
+
 struct MachinePlatform {
     std::string arch{};
     std::string os{};
@@ -3349,6 +3359,7 @@ struct IdentifyResult {
     std::uint32_t pid{};
     std::uint32_t protocol{};
     std::string registry_id{};
+    std::optional<IdentifyRestore> restore{};
     std::string session{};
     std::optional<std::string> session_id{};
     std::uint64_t terminal_revision{};
@@ -6781,6 +6792,12 @@ template <>
 struct Codec<IdMapping> {
     static Result<Json> encode(const IdMapping& value);
     static Result<IdMapping> decode(const Json& value);
+};
+
+template <>
+struct Codec<IdentifyRestore> {
+    static Result<Json> encode(const IdentifyRestore& value);
+    static Result<IdentifyRestore> decode(const Json& value);
 };
 
 template <>

@@ -2264,6 +2264,18 @@
      "default": true,
      "since": 12
     },
+    "restore": {
+     "type": {
+      "kind": "ref",
+      "name": "IdentifyRestore"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "constraints": [
+      "Only with identify {revisions: true}, and only while the owner restores its session (lifecycle_ready false): what the restore does now. A restore that advances moves last_advance_ms; one that hangs keeps it while elapsed_ms grows."
+     ]
+    },
     "launch_snapshot_path": {
      "type": {
       "kind": "scalar",
@@ -2315,6 +2327,67 @@
      "nullable": false,
      "default": [],
      "since": 12
+    }
+   },
+   "additional_properties": false
+  },
+  "IdentifyRestore": {
+   "kind": "object",
+   "fields": {
+    "phase": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The restore step running now: registry_open, schema, migrations, integrity, snapshot, agent_roster, mux_build, browsers, host_adoption, reconcile or finish. Clients show an unknown name as is."
+     ]
+    },
+    "done": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "Units of the phase done (agent_roster: journal rows folded); null when the phase does not count."
+     ]
+    },
+    "total": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "Units of the phase in all; null when unknown."
+     ]
+    },
+    "elapsed_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "Milliseconds since the owner bound its socket and began the restore."
+     ]
+    },
+    "last_advance_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "When the restore last advanced (a new phase or a new done count), in milliseconds since it began."
+     ]
     }
    },
    "additional_properties": false

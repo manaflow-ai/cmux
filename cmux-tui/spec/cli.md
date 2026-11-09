@@ -318,16 +318,26 @@ Detached startup is deferred until cmux has explicit supervisor ownership,
 readiness, log, PID/state, crash, and stop contracts.
 The owner binds its local socket before it restores its session (registry,
 terminal host adoption). While it restores, the socket accepts connections
-and holds them unanswered; when the restore ends, every held connection is
-served by the normal protocol handler. `identify` then reports
-`lifecycle_ready: false` until the owner finishes startup. `daemon stop` waits
+and answers `identify` at once with `lifecycle_ready: false` and, with
+`revisions: true`, `restore`: `phase` (`registry_open`, `schema`,
+`migrations`, `integrity`, `snapshot`, `agent_roster`, `mux_build`,
+`browsers`, `host_adoption`, `reconcile`, `finish`), `done` and `total` (null
+when the phase does not count; `agent_roster` counts journal rows),
+`elapsed_ms` and `last_advance_ms` (when the restore last moved, in ms since it
+began: a restore that hangs keeps it while `elapsed_ms` grows). `server-stats`
+fails with `server.restoring` and the same `restore` in `error_details`. A
+connection's first other request is held unanswered; when the restore ends,
+every held connection is served by the normal protocol handler, from that
+request on. `identify` then reports `lifecycle_ready: false` until the owner
+finishes startup. `server ensure --restore-progress` adds the owner's
+`restore` to its progress lines when the owner reports one. `daemon stop` waits
 for a restoring owner, through both phases, and then stops it: up to
 `--restore-wait-seconds` (1 to 3600, default 120, the bound `server ensure`
 gives a restore). While it waits it prints a progress line on stderr after the
 first second and then every 5 s (with `--json`, one JSON object per line:
-`progress: "restoring"`, `session`, `phase` (`restoring`: the owner holds the
-connection unanswered; `starting`: it restored and reports
-`lifecycle_ready: false`), `pid` when known, `waited_ms`, `message`). Past the
+`progress: "restoring"`, `session`, `phase` (`restoring`: the owner restores
+its session (it reports its `restore`, or an older owner holds the connection
+unanswered); `starting`: it restored and reports `lifecycle_ready: false`), `pid` when known, `waited_ms`, `message`). Past the
 bound it fails with `server.stop_restoring` (exit 3, retryable; `details`:
 `reason`, `phase`, `pid`, `waited_ms`, and `retry`, the stop command with a
 longer wait, also named in the message) and leaves the owner running. Other

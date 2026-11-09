@@ -4543,6 +4543,95 @@ Result<IdMapping> Codec<IdMapping>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<IdentifyRestore>::encode(const IdentifyRestore& value) {
+    (void)value;
+    Json::Object object;
+    if (value.done) {
+        auto encoded = encode_value(*value.done);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("done", std::move(encoded).value());
+    } else {
+        object.emplace("done", Json(nullptr));
+    }
+    auto encoded_elapsed_ms = encode_value(value.elapsed_ms);
+    if (!encoded_elapsed_ms) return std::move(encoded_elapsed_ms).error();
+    object.emplace("elapsed_ms", std::move(encoded_elapsed_ms).value());
+    auto encoded_last_advance_ms = encode_value(value.last_advance_ms);
+    if (!encoded_last_advance_ms) return std::move(encoded_last_advance_ms).error();
+    object.emplace("last_advance_ms", std::move(encoded_last_advance_ms).value());
+    auto encoded_phase = encode_value(value.phase);
+    if (!encoded_phase) return std::move(encoded_phase).error();
+    object.emplace("phase", std::move(encoded_phase).value());
+    if (value.total) {
+        auto encoded = encode_value(*value.total);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("total", std::move(encoded).value());
+    } else {
+        object.emplace("total", Json(nullptr));
+    }
+    return Json(std::move(object));
+}
+
+Result<IdentifyRestore> Codec<IdentifyRestore>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    IdentifyRestore result{};
+    const Json* field_done = value.find("done");
+    if (!field_done) {
+        return make_error(ErrorCode::decode, "missing required field 'done'");
+    }
+    if (field_done) {
+        if (field_done->is_null()) {
+            result.done.reset();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_done);
+            if (!decoded) return std::move(decoded).error();
+            result.done = std::move(decoded).value();
+        }
+    }
+    const Json* field_elapsed_ms = value.find("elapsed_ms");
+    if (!field_elapsed_ms) {
+        return make_error(ErrorCode::decode, "missing required field 'elapsed_ms'");
+    }
+    if (field_elapsed_ms) {
+        auto decoded = decode_value<std::uint64_t>(*field_elapsed_ms);
+        if (!decoded) return std::move(decoded).error();
+        result.elapsed_ms = std::move(decoded).value();
+    }
+    const Json* field_last_advance_ms = value.find("last_advance_ms");
+    if (!field_last_advance_ms) {
+        return make_error(ErrorCode::decode, "missing required field 'last_advance_ms'");
+    }
+    if (field_last_advance_ms) {
+        auto decoded = decode_value<std::uint64_t>(*field_last_advance_ms);
+        if (!decoded) return std::move(decoded).error();
+        result.last_advance_ms = std::move(decoded).value();
+    }
+    const Json* field_phase = value.find("phase");
+    if (!field_phase) {
+        return make_error(ErrorCode::decode, "missing required field 'phase'");
+    }
+    if (field_phase) {
+        auto decoded = decode_value<std::string>(*field_phase);
+        if (!decoded) return std::move(decoded).error();
+        result.phase = std::move(decoded).value();
+    }
+    const Json* field_total = value.find("total");
+    if (!field_total) {
+        return make_error(ErrorCode::decode, "missing required field 'total'");
+    }
+    if (field_total) {
+        if (field_total->is_null()) {
+            result.total.reset();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_total);
+            if (!decoded) return std::move(decoded).error();
+            result.total = std::move(decoded).value();
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
     (void)value;
     Json::Object object;
@@ -4640,6 +4729,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
     auto encoded_registry_id = encode_value(value.registry_id);
     if (!encoded_registry_id) return std::move(encoded_registry_id).error();
     object.emplace("registry_id", std::move(encoded_registry_id).value());
+    if (value.restore) {
+        auto encoded = encode_value(*value.restore);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("restore", std::move(encoded).value());
+    }
     auto encoded_session = encode_value(value.session);
     if (!encoded_session) return std::move(encoded_session).error();
     object.emplace("session", std::move(encoded_session).value());
@@ -4858,6 +4952,12 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_registry_id);
         if (!decoded) return std::move(decoded).error();
         result.registry_id = std::move(decoded).value();
+    }
+    const Json* field_restore = value.find("restore");
+    if (field_restore) {
+        auto decoded = decode_value<IdentifyRestore>(*field_restore);
+        if (!decoded) return std::move(decoded).error();
+        result.restore = std::move(decoded).value();
     }
     const Json* field_session = value.find("session");
     if (!field_session) {

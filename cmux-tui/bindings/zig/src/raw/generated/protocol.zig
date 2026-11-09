@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2f64fd8595b0c23ce4e6ad169aa7a5a48b6fd548d677b6128eb27abefb81caf8";
+pub const ir_sha256 = "aeadf39add6a73fa8d298962efa4725e3e308c1d0f186269452d0eb60415eef5";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1198,6 +1198,14 @@ pub const IdMapping = struct {
     short_id: []const u8,
 };
 
+pub const IdentifyRestore = struct {
+    done: wire.Nullable(u64),
+    elapsed_ms: u64,
+    last_advance_ms: u64,
+    phase: []const u8,
+    total: wire.Nullable(u64),
+};
+
 pub const IdentifyResult = struct {
     api_revision: wire.Field(u32) = .absent,
     app: []const u8,
@@ -1221,6 +1229,7 @@ pub const IdentifyResult = struct {
     pid: u32,
     protocol: u32,
     registry_id: []const u8,
+    restore: ?IdentifyRestore = null,
     session: []const u8,
     session_id: ?[]const u8 = null,
     terminal_revision: u64,
@@ -1235,6 +1244,7 @@ pub const IdentifyResult = struct {
         "machine_id",
         "machine_name",
         "machine_platform",
+        "restore",
         "session_id",
     };
 };

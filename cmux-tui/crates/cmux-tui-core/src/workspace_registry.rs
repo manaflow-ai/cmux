@@ -2488,6 +2488,7 @@ impl WorkspaceRegistry {
     /// cleanup failed before any full start on it; the previous registry is
     /// put back under this open's locks before the open.
     fn open_inner(root: &Path, session_name: &str, roll_back_first: bool) -> anyhow::Result<Self> {
+        crate::restore_progress::enter(crate::restore_progress::RestorePhase::RegistryOpen);
         let mut timings = crate::startup_timings::StartupTimings::start();
         let root = platform::normalize_filesystem_path(root.to_path_buf());
         // Keep short roots in their existing spelling while giving all
@@ -2669,6 +2670,7 @@ impl WorkspaceRegistry {
         database_path: Option<PathBuf>,
         mut timings: crate::startup_timings::StartupTimings,
     ) -> anyhow::Result<Self> {
+        crate::restore_progress::enter(crate::restore_progress::RestorePhase::Schema);
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         // Before the first write, so every commit of this connection uses it.
         connection.execute_batch(REGISTRY_FULLFSYNC_PRAGMA)?;
@@ -2940,6 +2942,7 @@ impl WorkspaceRegistry {
             tx.commit()?;
         }
         timings.lap("registry.schema");
+        crate::restore_progress::enter(crate::restore_progress::RestorePhase::Migrations);
         {
             let tx = connection.unchecked_transaction()?;
             resource_store::migrate_tab_name_authority(&tx)?;
@@ -3039,6 +3042,7 @@ impl WorkspaceRegistry {
             eprintln!("cmux-tui: sidebar document migration skipped ({error:#})");
         }
         timings.lap("registry.migrations");
+        crate::restore_progress::enter(crate::restore_progress::RestorePhase::Integrity);
         check_registry_integrity(&connection)?;
         timings.lap("registry.integrity_check");
         {

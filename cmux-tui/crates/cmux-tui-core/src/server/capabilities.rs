@@ -126,7 +126,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
 /// platform. The ones that depend on what the daemon installs at startup
 /// (cloud transport, WebSocket listener, search index, agent sessions, the
 /// reaper, build identity, a Chief) are [`identify_capabilities`]'s alone.
-fn always_identified() -> Vec<&'static str> {
+pub(super) fn always_identified() -> Vec<&'static str> {
     let mut capabilities = advertised_capabilities(cfg!(unix));
     capabilities.push("machine-identity-v1");
     // Receipts can outlive the acpmux configuration that prepared them.

@@ -221,6 +221,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.IdentifyResult, "machine_id");
     try expectExplicitNullRejected(protocol.IdentifyResult, "machine_name");
     try expectExplicitNullRejected(protocol.IdentifyResult, "machine_platform");
+    try expectExplicitNullRejected(protocol.IdentifyResult, "restore");
     try expectExplicitNullRejected(protocol.IdentifyResult, "session_id");
     try expectExplicitNullRejected(protocol.LayoutSplit, "split");
     try expectExplicitNullRejected(protocol.LayoutSplit, "split_id");

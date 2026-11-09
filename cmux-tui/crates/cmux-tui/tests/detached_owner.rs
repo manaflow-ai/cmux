@@ -298,18 +298,23 @@ impl SlowRestore {
     }
 }
 
-/// A client connected to the session socket with one identify request sent.
+/// A client connected to the session socket with one request sent.
 struct PendingIdentify(std::io::BufReader<std::os::unix::net::UnixStream>);
 
 impl PendingIdentify {
     fn send(socket: &std::path::Path) -> Option<Self> {
-        use std::io::Write;
-        let mut stream = std::os::unix::net::UnixStream::connect(socket).ok()?;
-        writeln!(stream, "{}", serde_json::json!({"id": 1, "cmd": "identify"})).ok()?;
-        Some(Self(std::io::BufReader::new(stream)))
+        let stream = std::os::unix::net::UnixStream::connect(socket).ok()?;
+        let mut client = Self(std::io::BufReader::new(stream));
+        client.ask(serde_json::json!({"id": 1, "cmd": "identify", "revisions": true}))?;
+        Some(client)
     }
 
-    /// The identify response, or None when none came within `wait`.
+    fn ask(&mut self, request: serde_json::Value) -> Option<()> {
+        use std::io::Write;
+        writeln!(self.0.get_mut(), "{request}").ok()
+    }
+
+    /// The next response, or None when none came within `wait`.
     fn response(&mut self, wait: std::time::Duration) -> Option<serde_json::Value> {
         use std::io::BufRead;
         self.0.get_ref().set_read_timeout(Some(wait)).ok()?;
@@ -320,12 +325,20 @@ impl PendingIdentify {
 }
 
 /// Waits (bounded) until the owner holds its socket while it restores: a
-/// client connects, and its identify is held (no answer yet) instead of
-/// refused. Returns that held client.
+/// client connects, its identify is answered at once with the restore's
+/// progress (`lifecycle_ready: false`), and its next request (a ping) is
+/// held (no answer yet) instead of refused. Returns that held client.
 fn held_while_restoring(fixture: &EnsureFixture) -> Option<PendingIdentify> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     while std::time::Instant::now() < deadline {
         if let Some(mut client) = PendingIdentify::send(&fixture.socket) {
+            let identity = client.response(std::time::Duration::from_secs(1))?;
+            let restoring = identity["data"]["lifecycle_ready"] == false
+                && identity["data"]["restore"]["phase"].is_string();
+            if !restoring {
+                return None;
+            }
+            client.ask(serde_json::json!({"id": 2, "cmd": "ping"}))?;
             return match client.response(std::time::Duration::from_secs(1)) {
                 None => Some(client),
                 Some(_) => None,
@@ -410,9 +423,14 @@ fn ensure_waits_for_a_restoring_owner_and_never_starts_a_second() {
     assert_eq!(second["pid"].as_u64(), Some(pid), "the second ensure found another owner");
 
     let mut held = held.expect("the owner did not hold its socket while it restored");
-    let identity = held
+    let ping = held
         .response(std::time::Duration::from_secs(10))
         .expect("the client held during the restore got no answer after it");
+    assert_eq!(ping["id"], 2, "{ping}");
+    assert_eq!(ping["ok"], true, "{ping}");
+    held.ask(serde_json::json!({"id": 3, "cmd": "identify"})).expect("ask identify");
+    let identity =
+        held.response(std::time::Duration::from_secs(10)).expect("identify after the restore");
     assert_eq!(identity["ok"], true, "{identity}");
     let data = &identity["data"];
     assert_eq!(data["app"], "cmux-tui", "{identity}");
