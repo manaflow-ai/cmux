@@ -2868,7 +2868,7 @@ jobs:
           # CmuxNextApp). The app check cannot vouch for them.
           for target in $SWIFT_CANARY_TARGETS; do
             case "$target" in
-              CmuxNextAppPermissions|CmuxNextServerHelperDaemon|CmuxNextUiLayerPreview)
+              CmuxNextServerHelperDaemon|CmuxNextUiLayerPreview)
                 echo "::notice title=Build fleet compile check::$target is not linked into the app; the Mac canary runs."
                 echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
                 exit 0 ;;
@@ -6818,7 +6818,7 @@ jobs:
           app="$RUNNER_TEMP/crash-gate/cmux DEV ${tag}.app"
           mkdir -p "$RUNNER_TEMP/crash-gate/out"
           /bin/cp -R "$built" "$app"
-          trap 'python3 scripts/cmux-next/tag_teardown.py "$app" || true; rm -rf "$HOME/Library/Application Support/cmux/tags/$tag" "$HOME/Library/Application Support/cmux-next/com.cmuxterm.app.debug.${tag//-/.}" "$HOME/Library/Caches/SentryCrash/cmux DEV $tag" "$HOME/.acpmux/builds/com.cmuxterm.app.debug--$tag" "$HOME/.cmux/mux/tags/$tag" "$app"' EXIT
+          trap 'python3 scripts/cmux-next/tag_teardown.py "$app" || true; rm -rf "$HOME/Library/Application Support/cmux-next/tags/$tag" "$HOME/Library/Application Support/cmux/tags/$tag" "$HOME/Library/Application Support/cmux-next/com.cmuxterm.app.debug.${tag//-/.}" "$HOME/Library/Caches/SentryCrash/cmux DEV $tag" "$HOME/.acpmux/builds/com.cmuxterm.app.debug--$tag" "$HOME/.cmux/mux/tags/$tag" "$app"' EXIT
           python3 scripts/cmux-next/crash-ends-app-gate.py --app "$app" --out "$RUNNER_TEMP/crash-gate/out"
 
       - name: Upload the crash gate samples

@@ -132,6 +132,9 @@ public actor SSHMachineLink {
     private var socket: String?
     /// The running link's admin socket (``SSHLinkAdmin``).
     private var admin: SSHLinkAdmin?
+    /// A person's open or Reconnect that came before the link's admin socket answered (no link
+    /// process yet, or its socket not bound): its deadline, kept until the link's first report.
+    private var personWait: ContinuousClock.Instant?
     private var starting: Task<String, any Error>?
     /// Invalidates in-flight startup work when transport ownership changes.
     private var startGeneration = 0
@@ -176,6 +179,7 @@ public actor SSHMachineLink {
             startGeneration += 1
             starting?.cancel()
             starting = nil
+            personWait = nil
             tearDown()
         }
         if machine.status != before { onStatus(machine.status) }
@@ -261,9 +265,22 @@ public actor SSHMachineLink {
     /// A person opened or reconnected the machine: a link still on its first dial dials now, and
     /// what it answers within `deadline` (the person's) shows. Nothing when no link process runs:
     /// the daemon connection's attempt starts one.
+    /// A cold open comes before the link answers: the request and its original deadline wait for
+    /// the link's first stderr line (it writes one as soon as its admin socket is bound, before
+    /// any dial reports), and go to it with what is left of the deadline.
     public func awaitReady(within deadline: Duration) async {
-        guard let child, child.isRunning, socket == nil, let admin else { return }
+        let until = ContinuousClock.now + deadline
+        guard socket == nil, machine.mayAttempt else { return }
+        guard let child, child.isRunning, let admin else {
+            personWait = max(personWait ?? until, until)
+            return
+        }
         let state = await admin.awaitReady(within: deadline)
+        // Not bound yet: the next report takes the request.
+        guard state != nil else {
+            if self.child === child, socket == nil { personWait = max(personWait ?? until, until) }
+            return
+        }
         reportFirstDial(state, of: child)
     }
 
@@ -397,6 +414,7 @@ public actor SSHMachineLink {
             throw SSHLinkError.stopped
         }
         self.socket = socket
+        personWait = nil
         handle(.linkUp)
         watchExit(child)
         watchSnapshots(child)
@@ -410,8 +428,10 @@ public actor SSHMachineLink {
     /// here retries: the next attempt waits for a person, app activation or an install.
     private func linkExitedBeforeReady(_ child: ChildProcess, _ env: [String: String], generation: Int) async throws -> SSHLinkError {
         exitedOutput = child.stderrText
+        personWait = nil
         // What ended it, without the failed dials it redialed before (`…; redialing`).
-        let stderr = child.stderrText.split(whereSeparator: \.isNewline).filter { !$0.hasSuffix("; redialing") }.joined(separator: "\n")
+        let stderr = child.stderrText.split(whereSeparator: \.isNewline)
+            .filter { !$0.hasSuffix("; redialing") && $0 != Self.socketReadyLine }.joined(separator: "\n")
         logger.error("ssh link for \(self.host.destination.description, privacy: .public) ended before it connected: \(stderr, privacy: .public)")
         if let refusal = RemoteRefusal.parse(stderr) {
             // A typed refusal is an install or update state, not a failure (cx-z3zh).
@@ -436,6 +456,10 @@ public actor SSHMachineLink {
         return .ssh(cause)
     }
 
+    /// The line the link writes once its admin socket answers: `LINK_SOCKET_READY_LINE` in
+    /// cmux-tui/crates/cmux-tui/src/remote_runtime.rs (tests/remote_connect_link_socket_ready.rs).
+    static let socketReadyLine = "remote connect: link socket ready"
+
     /// While the link dials its first connection it says on stderr each time a dial failed and it
     /// redials; each such line reads the link's state, so the machine shows the reason while the
     /// link keeps trying (it stays eligible: no gate closes).
@@ -452,7 +476,15 @@ public actor SSHMachineLink {
     /// Reads the link's state for a failed first dial; false once the link connected or was replaced.
     private func readFirstDial(_ reading: ChildProcess) async -> Bool {
         guard child === reading, socket == nil, let admin else { return false }
-        let state = await admin.linkState()
+        let state: SSHLinkState?
+        if let until = personWait {
+            // A person's request that came before the link answered: what is left of its deadline.
+            personWait = nil
+            let left = until - ContinuousClock.now
+            state = left > .zero ? await admin.awaitReady(within: left) : await admin.linkState()
+        } else {
+            state = await admin.linkState()
+        }
         reportFirstDial(state, of: reading)
         return child === reading && socket == nil
     }
