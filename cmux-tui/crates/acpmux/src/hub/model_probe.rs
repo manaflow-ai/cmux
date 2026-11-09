@@ -72,6 +72,26 @@ impl Hub {
         old.is_none_or(|old| old != list)
     }
 
+    /// Startup's model lists from disk: the live lists, then the ACP probes'. A models read
+    /// waits for them (`wait_model_caches`): answered first it named only "default", and the
+    /// list served after it announced nothing, so a pane with no copy of its own stayed empty.
+    pub(super) async fn load_model_caches(&self) {
+        self.load_live_cache().await;
+        self.load_acp_cache().await;
+        self.model_caches_ready.send_replace(true);
+    }
+
+    #[cfg(test)]
+    pub(super) async fn load_model_caches_from(&self, dir: std::path::PathBuf) {
+        self.load_acp_cache_from(dir).await;
+        self.model_caches_ready.send_replace(true);
+    }
+
+    /// Until startup has served the disk lists (`load_model_caches`), a few file reads at most.
+    pub(crate) async fn wait_model_caches(&self) {
+        let _ = self.model_caches_ready.subscribe().wait_for(|ready| *ready).await;
+    }
+
     /// Reads the ACP lists earlier probes kept (`live_models::AcpCache`) and serves each whose
     /// profile is unchanged. Daemon start, before the login environment and the probes, so the
     /// first `_acpmux/models` names OpenCode's or Gemini's models, not only "default"; the
