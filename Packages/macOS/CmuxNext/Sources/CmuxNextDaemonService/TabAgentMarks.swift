@@ -8,7 +8,8 @@ public struct TabAgentMarks {
     public var tabs: Set<String> = []
     public var surfaces: Set<SurfaceID> = []
     public var extensionOverrides: Set<String> = []
-    private var panes: Set<String> = []
+    /// Marked panes, each with the surfaces it has claimed so far.
+    private var panes: [String: Set<SurfaceID>] = [:]
 
     public init() {}
 
@@ -20,16 +21,26 @@ public struct TabAgentMarks {
     /// A browser split an agent asked for (Insert New at a divider from the CLI, MCP or a script), by
     /// the new pane's client-minted id (`pane_<32 hex>`) on `machine`: the split's stand-in tab and
     /// then the daemon's tab both show in that pane before any reply names a surface, so the mark
-    /// claims both pages before they exist. It ends when the daemon's tab claims it.
-    public mutating func mark(pane: String, machine: String) { panes.insert(Self.paneKey(machine, pane)) }
+    /// claims both pages before they exist. Until the reply (``settle(pane:machine:surface:)``) it marks
+    /// every new tab of the pane, so a tab the person opens there first can only lose saved-password
+    /// fill, never take the mark from the agent's tab (review of #37733).
+    public mutating func mark(pane: String, machine: String) { panes[Self.paneKey(machine, pane)] = [] }
+
+    /// The daemon answered the split marked for `pane`: `surface` is the agent's tab, or nil when the
+    /// split was refused or failed. The pane mark ends; a tab of `surface` that has not claimed it
+    /// yet is marked by its surface.
+    public mutating func settle(pane: String, machine: String, surface: SurfaceID?) {
+        guard let claimed = panes.removeValue(forKey: Self.paneKey(machine, pane)) else { return }
+        if let surface, !claimed.contains(surface) { surfaces.insert(surface) }
+    }
 
     /// Tab `key` (surface `surface`, in pane `pane` of `machine`) is about to get a page: it is an agent's
     /// when an agent opened its surface or asked for its split, and it has no page yet (`hasPage`).
     public mutating func claim(surface: SurfaceID, key: String, pane: String?, machine: String, hasPage: Bool) {
         let paneKey = pane.map { Self.paneKey(machine, $0) }
-        let byPane = paneKey.map { panes.contains($0) } ?? false
-        if byPane, let paneKey, !ProvisionalTab.isProvisional(surface: surface) { panes.remove(paneKey) }
+        let byPane = paneKey.map { panes[$0] != nil } ?? false
         guard surfaces.remove(surface) != nil || byPane, !hasPage else { return }
+        if byPane, let paneKey { panes[paneKey]?.insert(surface) }
         tabs.insert(key)
     }
 

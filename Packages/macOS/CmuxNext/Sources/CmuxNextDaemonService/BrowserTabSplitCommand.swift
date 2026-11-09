@@ -43,10 +43,12 @@ public struct BrowserTabSplitCommand: Sendable {
     /// nil when the person closed the new pane first (its tab closes when it arrives,
     /// CancelledCreation). A refusal takes the split and its sizing away again and rethrows.
     /// `minted` runs with the new pane's client-minted id (`pane_<32 hex>`, which the stand-in's pane and
-    /// the daemon's pane both carry) before the stand-in is in the store, so before either has a page.
+    /// the daemon's pane both carry) before the stand-in is in the store, so before either has a page;
+    /// `settled` runs with that id and the daemon's surface (nil when refused or failed) as its reply comes.
     @MainActor
     public func intendNow(on daemon: DaemonService, layout: LayoutModel?, shown: CmuxNextLayout.PaneID,
-                          minted: (@MainActor (_ paneID: String) -> Void)? = nil)
+                          minted: (@MainActor (_ paneID: String) -> Void)? = nil,
+                          settled: (@MainActor (_ paneID: String, _ surface: SurfaceID?) -> Void)? = nil)
         -> @MainActor (_ create: (ConversationTabSplit) async throws -> SurfaceID) async throws -> SurfaceID? {
         let changes = insertion?.sizing ?? layout?.splitSizingChanges(splitting: shown, axis: direction == .right ? .horizontal : .vertical) ?? []
         let sizing = layout?.showSplitSizing(changes)
@@ -60,10 +62,12 @@ public struct BrowserTabSplitCommand: Sendable {
         return { create in
             let surface: SurfaceID
             do { surface = try await create(request) } catch {
+                settled?(request.paneID, nil)
                 store.rejectIntent(transaction)
                 if let sizing { layout?.cancelSplitSizing(sizing) }
                 throw error
             }
+            settled?(request.paneID, surface)
             ProvisionalTab.created(transaction, surface: surface, in: store)
             // Every event the daemon sent before the reply: the split settles there.
             if let sequence = await daemon.connection?.eventSequence() {

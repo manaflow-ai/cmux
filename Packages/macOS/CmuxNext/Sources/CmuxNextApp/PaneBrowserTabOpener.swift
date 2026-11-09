@@ -219,7 +219,8 @@ extension PaneBrowserTabOpener {
         let cache = controller.services.cache, machine = controller.daemon.machineID
         let marking: (@MainActor (String) -> Void)? = split.agentDriven ? { @MainActor pane in cache.markAgentDriven(pane: pane, machine: machine) } : nil
         let send = BenchSpans.measure("split.intend") {
-            command.intendNow(on: controller.daemon, layout: layout, shown: controller.layoutPaneID, minted: marking)
+            command.intendNow(on: controller.daemon, layout: layout, shown: controller.layoutPaneID, minted: marking,
+                              settled: split.agentDriven ? { @MainActor pane, surface in cache.settleAgentDriven(pane: pane, machine: machine, surface: surface) } : nil)
         }
         BenchSpans.measure("split.layout") { controller.workspace?.applyCurrent() } // the split draws in the click's frame
         controller.services.registry.trackOrRefuse(Task { // a key press nobody awaits still shows a refused open

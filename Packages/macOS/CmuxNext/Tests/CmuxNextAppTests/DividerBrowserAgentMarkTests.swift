@@ -21,12 +21,37 @@ import Testing
         cache.claimAgentDriven(surface: ProvisionalTab().surface, key: "stand-in", pane: pane, machine: "local")
         #expect(cache.agentDrivenTabs.contains("stand-in"))
 
+        // A tab the person opens in the pane before the agent's one mounts is marked too: it cannot take the mark.
+        cache.claimAgentDriven(surface: SurfaceID(rawValue: 40), key: "persons-tab", pane: pane, machine: "local")
         cache.claimAgentDriven(surface: SurfaceID(rawValue: 41), key: "daemon-tab", pane: pane, machine: "local")
-        #expect(cache.agentDrivenTabs.contains("daemon-tab"))
+        #expect(cache.agentDrivenTabs.isSuperset(of: ["persons-tab", "daemon-tab"]))
 
-        // The daemon's tab ended the mark: a tab the person opens in that pane later is theirs.
+        // The reply ended the mark: a tab the person opens in that pane later is theirs.
+        cache.settleAgentDriven(pane: pane, machine: "local", surface: SurfaceID(rawValue: 41))
         cache.claimAgentDriven(surface: SurfaceID(rawValue: 42), key: "later-tab", pane: pane, machine: "local")
         #expect(!cache.agentDrivenTabs.contains("later-tab"))
+        #expect(cache.agentDrivenSurfaces.isEmpty)
+    }
+
+    @Test func aReplyBeforeTheDaemonsTabMountsMarksItsSurface() {
+        let cache = cache(), pane = "pane_" + String(repeating: "d", count: 32)
+        cache.markAgentDriven(pane: pane, machine: "local")
+        cache.settleAgentDriven(pane: pane, machine: "local", surface: SurfaceID(rawValue: 61))
+
+        cache.claimAgentDriven(surface: SurfaceID(rawValue: 62), key: "persons-tab", pane: pane, machine: "local")
+        cache.claimAgentDriven(surface: SurfaceID(rawValue: 61), key: "daemon-tab", pane: pane, machine: "local")
+        #expect(cache.agentDrivenTabs.contains("daemon-tab"))
+        #expect(!cache.agentDrivenTabs.contains("persons-tab"))
+    }
+
+    @Test func aRefusedSplitLeavesNoMark() {
+        let cache = cache(), pane = "pane_" + String(repeating: "e", count: 32)
+        cache.markAgentDriven(pane: pane, machine: "local")
+        cache.settleAgentDriven(pane: pane, machine: "local", surface: nil)
+
+        cache.claimAgentDriven(surface: SurfaceID(rawValue: 71), key: "later-tab", pane: pane, machine: "local")
+        #expect(cache.agentDrivenTabs.isEmpty)
+        #expect(cache.agentDrivenSurfaces.isEmpty)
     }
 
     @Test func aPersonsSplitAndAnotherMachinesPaneAreNotAgentDriven() {

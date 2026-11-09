@@ -42,6 +42,7 @@ extension TabContentCache {
 
     /// A browser split an agent asked for, by its new pane (``TabAgentMarks/mark(pane:machine:)``).
     func markAgentDriven(pane: String, machine: String) { agentMarks.mark(pane: pane, machine: machine) }
+    func settleAgentDriven(pane: String, machine: String, surface: SurfaceID?) { agentMarks.settle(pane: pane, machine: machine, surface: surface) }
 
     func claimAgentDriven(surface: SurfaceID, key: String, pane: String? = nil, machine: String = "") {
         agentMarks.claim(surface: surface, key: key, pane: pane, machine: machine, hasPage: browsers[key] != nil)
