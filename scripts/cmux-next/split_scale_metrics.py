@@ -23,7 +23,8 @@ and gets back:
   partial_frames   frames after the window outside the content landed whose content is still not final: content
                    that paints after its pane stopped moving (a pane grown into an unpainted area)
   retargets        a mover whose motion reversed along an axis, or sped up again after it had started to slow
-                   (a new target mid-flight; the house curve decelerates once, with no overshoot)
+                   (a new target mid-flight; the house curve decelerates once, with no overshoot), read on its edges
+                   (left, top, right, bottom), each on the pixel grid as the window shows it, not on its width and height
 """
 from __future__ import annotations
 
@@ -39,6 +40,9 @@ TOLERANCE = 0.002
 # since the peak: a dropped frame or a rounding step must not read as a new target.
 RETARGET_MIN_SPEED = 0.05
 RETARGET_RATIO = 1.5
+# The window places each edge on the pixel grid (whole points at scale 1), so a step between two shown edges is off its
+# spring's by up to one point: a re-acceleration counts only when the step is more than this over the slowest one.
+RETARGET_SLACK = 1.0
 # The pane frame's width in a trace pane row (one_motion_series PANE_FRAME: fx, fy, fwidth, fheight).
 PANE_FRAME_WIDTH = PANE_FRAME.start + 2
 
@@ -85,9 +89,24 @@ def trace_movers(samples):
     return out
 
 
+def edges(key, points):
+    """`points` with each rect as its edges: a pane's frame or content, a terminal and a divider (x, y, width, height)
+    as (left, top, right, bottom), a page window (x, width, height) as (left, right, height). The window shows edges,
+    each placed on the pixel grid on its own (ScreenContentView.pixelEdges), so a height is the difference of two
+    rounded edges: when both edges of a pane move, at different speeds (the bottom pane of a column that a Split Down
+    or its close resizes: its top follows the divider above it, its bottom the one below), the height's steps differ
+    by up to a point a frame even though each edge decelerates once, and that read as a retarget. Edges are what moves
+    on the spring, so a target change shows on one of them."""
+    if key.startswith("page "):
+        return [(t, (v[0], v[0] + v[1]) + tuple(v[2:]) if len(v) >= 2 else v) for t, v in points]
+    if key.endswith(" frame") or key.endswith(" content") or key.startswith(("terminal ", "divider ")):
+        return [(t, (v[0], v[1], v[0] + v[2], v[1] + v[3]) if len(v) == 4 else v) for t, v in points]
+    return points
+
+
 def retargets(points):
     """The ticks (ms) at which a mover's target changed mid-flight, on any axis: the motion reversed, or it sped up by
-    RETARGET_RATIO over the slowest step since it last started. Values whose length changes (a row that came or went)
+    RETARGET_RATIO (and more than RETARGET_SLACK points) over the slowest step since it last started. Values whose length changes (a row that came or went)
     restart the run there."""
     turned = set()
     if len(points) < 3:
@@ -107,7 +126,8 @@ def retargets(points):
             if sign and step != sign:
                 turned.add(t1)
                 slowest = None
-            elif slowest is not None and speed > RETARGET_MIN_SPEED and speed > slowest * RETARGET_RATIO:
+            elif (slowest is not None and speed > RETARGET_MIN_SPEED and speed > slowest * RETARGET_RATIO
+                  and abs(delta) - slowest * (t1 - t0) > RETARGET_SLACK + 1e-6):
                 turned.add(t1)
                 slowest = None
             elif sign:
@@ -140,7 +160,7 @@ def trace_stats(trace, sent_host_s=None):
                 step = max((abs(a - b) for a, b in zip(v0, v1)), default=None) if len(v0) == len(v1) else None
                 moves = ends.get(key, (0, 0, None, None, 0))[4] + 1
                 ends[key] = (t1, step, list(v0), list(v1), moves)
-        turned = retargets(points)
+        turned = retargets(edges(key, points))
         if turned:
             turns[key] = len(turned)
             ticks |= turned

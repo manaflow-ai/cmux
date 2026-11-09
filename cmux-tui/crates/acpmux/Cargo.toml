@@ -59,6 +59,10 @@ cmux-local-auth.workspace = true
 cmux-local-url.workspace = true
 cmux-mcp-connect.workspace = true
 cmux-link.workspace = true
+# The path selector (RTT with hysteresis) a peer link picks its carrier with (`peer_paths.rs`).
+cmux-transport = { path = "../cmux-transport" }
+# Where the running cmux link registers its socket (`peer_carriers.rs`).
+cmux-tui-platform.workspace = true
 cmux-git.workspace = true
 cmux-worktree-care.workspace = true
 cmux-wg.workspace = true

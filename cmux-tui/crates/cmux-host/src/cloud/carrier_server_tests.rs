@@ -805,14 +805,26 @@ fn a_register_right_after_a_resume_is_noted_does_not_get_the_old_ticket() {
 /// - no ticket asked for in an older generation is handed out;
 /// - one request per want: no more `Wanted` requests than wants, and none
 ///   while a kept or answered ticket already satisfies the want;
-/// - at most one request of the current generation is on its way.
+/// - at most one request of the current generation is on its way;
+/// - no ticket asked for on an older binding's client is handed out;
+/// - a resume acts only on the latest binding's client: one picked before a
+///   bind and acted on after it neither resumes nor asks on the old one.
+///
+/// The fetch thread's own clients (the bound one, the spare a request
+/// leaves behind when the transport can make one, and a resume that waits
+/// for a client) are modelled as `Hands`, with the spare failing at random,
+/// so a resume can find no client and a bind can land before the request
+/// it waits for comes back. A job that acts on a resume (`Job::Resume`, or
+/// a `Job::Done` that a waiting resume takes) is acted on in a later step
+/// than its pick, as the fetch thread acts on it after the lock is
+/// released, so binds and resumes land in between.
 mod model {
     use std::time::{Duration, Instant};
 
     use serde_json::{Value, json};
 
     use super::super::MAX_REFRESHES;
-    use super::super::state::{Asked, Core, Done, Job, Task, View, Warm};
+    use super::super::state::{Asked, Back, Core, Done, Hands, Job, Task, Warm};
 
     const SEEDS: u64 = 3000;
     const STEPS: usize = 250;
@@ -833,6 +845,8 @@ mod model {
 
     struct Request {
         generation: u64,
+        /// The binding whose client the request runs on.
+        binding: u64,
         task: Task,
     }
 
@@ -845,10 +859,13 @@ mod model {
     }
 
     struct Model {
-        core: Core<bool, ()>,
+        core: Core<(u64, bool), u64>,
         now_ms: u64,
-        prefetch: bool,
-        refreshes: u32,
+        /// The fetch thread's clients, the same `Hands` as `Fetcher`'s: each
+        /// client is the binding it was made for.
+        hands: Hands<u64>,
+        /// Binds made so far: the latest is the machine's binding.
+        binds: u64,
         in_flight: Vec<Request>,
         asker: Option<Instant>,
         pending: Option<Pending>,
@@ -860,6 +877,13 @@ mod model {
         refused_stale: u64,
         /// Requests that came back after their generation ended.
         stale_replies: u64,
+        /// Resumes that found no client and acted once one came back.
+        waited_resumes: u64,
+        /// A job that acts on a resume, picked and not yet acted on.
+        picked: Option<Job<(u64, bool), u64>>,
+        /// Resumes picked with a bind or another resume landing before
+        /// they were acted on.
+        overtaken_resumes: u64,
         trace: Vec<String>,
     }
 
@@ -868,8 +892,8 @@ mod model {
             Model {
                 core: Core::default(),
                 now_ms: START_MS,
-                prefetch: false,
-                refreshes: 0,
+                hands: Hands::default(),
+                binds: 0,
                 in_flight: Vec::new(),
                 asker: None,
                 pending: None,
@@ -879,6 +903,9 @@ mod model {
                 handed: 0,
                 refused_stale: 0,
                 stale_replies: 0,
+                waited_resumes: 0,
+                picked: None,
+                overtaken_resumes: 0,
                 trace: Vec::new(),
             }
         }
@@ -913,12 +940,24 @@ mod model {
                 return self.ask(seed, pending.started);
             }
             let ticket = pending.reply["ticket"].as_str().unwrap_or_default().to_owned();
-            let origin: u64 = ticket
-                .trim_start_matches('g')
-                .split('-')
-                .next()
-                .and_then(|g| g.parse().ok())
-                .unwrap_or(u64::MAX);
+            let mut parts = ticket.split('-');
+            let mut field = |prefix: char| {
+                parts
+                    .next()
+                    .and_then(|p| p.strip_prefix(prefix))
+                    .and_then(|n| n.parse::<u64>().ok())
+                    .unwrap_or(u64::MAX)
+            };
+            let (origin, binding) = (field('g'), field('b'));
+            if binding != self.binds {
+                self.fail(
+                    seed,
+                    &format!(
+                        "a ticket asked for on an older binding's client was handed out: {ticket} under binding {}",
+                        self.binds
+                    ),
+                );
+            }
             if origin != self.core.generation {
                 self.fail(
                     seed,
@@ -940,39 +979,87 @@ mod model {
             }
         }
 
-        fn start(&mut self, seed: u64, task: Task, generation: u64) {
+        /// `Fetcher::start`: a request on the free client, leaving a spare
+        /// behind when the transport makes one (only sometimes here).
+        fn start(&mut self, seed: u64, rng: &mut Rng, task: Task, generation: u64) {
+            let Some(binding) = self.hands.take(|b| (rng.below(2) == 0).then_some(*b)) else {
+                return;
+            };
             self.core.starting(generation);
             if generation == self.core.generation
                 && self.in_flight.iter().any(|r| r.generation == self.core.generation)
             {
                 self.fail(seed, "two requests of one generation on their way");
             }
-            self.in_flight.push(Request { generation, task });
+            self.in_flight.push(Request { generation, binding, task });
         }
 
-        fn fetch_step(&mut self, seed: u64) {
-            let view = View {
-                has_client: true,
-                can_resume: true,
-                prefetch: self.prefetch,
-                may_refresh: self.refreshes < MAX_REFRESHES,
+        /// `Fetcher::resume`.
+        fn resume(&mut self, seed: u64, rng: &mut Rng, generation: u64) {
+            if !self.core.resume_holds(generation) {
+                return;
+            }
+            let Some(&binding) = self.hands.for_resume() else {
+                return self.core.defer_resume(generation);
             };
-            match self.core.next_job(view, self.now_ms) {
-                Job::Bind(prefetch, generation) => {
-                    self.prefetch = *prefetch;
-                    self.refreshes = 0;
-                    let ticket = self.prefetch.then_some(("prefetched", false));
-                    self.start(seed, Task { mint: true, ticket }, generation);
+            if binding != self.binds {
+                self.fail(
+                    seed,
+                    &format!(
+                        "a resume of generation {generation} acted on binding {binding}'s client under binding {}",
+                        self.binds
+                    ),
+                );
+            }
+            if self.hands.prefetch {
+                self.start(seed, rng, Task::ticket("prefetched after resume", false), generation);
+            }
+        }
+
+        /// `Fetcher::done`.
+        fn done(&mut self, seed: u64, rng: &mut Rng, client: u64, back: Back, generation: u64) {
+            self.hands.returned(client, back);
+            if !back.current {
+                self.stale_replies += 1;
+            }
+            if back.resume {
+                self.waited_resumes += 1;
+                self.resume(seed, rng, generation);
+            }
+        }
+
+        fn fetch_step(&mut self, seed: u64, rng: &mut Rng) {
+            if let Some(job) = self.picked.take() {
+                return self.act(seed, rng, job);
+            }
+            let job = self.core.next_job(self.hands.view(), self.now_ms);
+            // The fetch thread acts on a job after the lock is released: a
+            // job that acts on a resume waits a step, so a bind or another
+            // resume can land in between.
+            if matches!(job, Job::Resume(_) | Job::Done(_, Back { resume: true, .. }, _)) {
+                self.picked = Some(job);
+                return;
+            }
+            self.act(seed, rng, job);
+        }
+
+        fn act(&mut self, seed: u64, rng: &mut Rng, job: Job<(u64, bool), u64>) {
+            if let Job::Resume(generation) | Job::Done(_, Back { resume: true, .. }, generation) =
+                &job
+                && *generation != self.core.generation
+            {
+                self.overtaken_resumes += 1;
+            }
+            match job {
+                Job::Bind(bind, generation) => {
+                    let (binding, prefetch) = *bind;
+                    self.hands.bound(binding, prefetch);
+                    let ticket = prefetch.then_some(("prefetched", false));
+                    self.start(seed, rng, Task { mint: true, ticket }, generation);
                 }
                 Job::Resume(generation) => {
-                    self.refreshes = 0;
-                    if self.prefetch {
-                        self.start(
-                            seed,
-                            Task::ticket("prefetched after resume", false),
-                            generation,
-                        );
-                    }
+                    self.hands.refreshes = 0;
+                    self.resume(seed, rng, generation);
                 }
                 Job::Wanted(generation) => {
                     self.wanted += 1;
@@ -983,15 +1070,17 @@ mod model {
                     if kept || self.core.answered.is_some() {
                         self.fail(seed, "a ticket request for a want a ticket already satisfies");
                     }
-                    self.start(seed, Task::ticket("fetched for an ask", true), generation);
+                    self.start(seed, rng, Task::ticket("fetched for an ask", true), generation);
                 }
                 Job::Refresh(generation) => {
-                    if self.refreshes < MAX_REFRESHES {
-                        self.refreshes += 1;
-                        self.start(seed, Task::ticket("refreshed", false), generation);
+                    if self.hands.refreshes < MAX_REFRESHES {
+                        self.hands.refreshes += 1;
+                        self.start(seed, rng, Task::ticket("refreshed", false), generation);
                     }
                 }
-                Job::Done(_, current, _) => self.stale_replies += u64::from(!current),
+                Job::Done(done, back, generation) => {
+                    self.done(seed, rng, done.client, back, generation);
+                }
                 Job::Wait(_) | Job::Stop => {}
             }
         }
@@ -1001,35 +1090,43 @@ mod model {
                 return;
             }
             let at = rng.below(self.in_flight.len() as u64) as usize;
-            let Request { generation, task } = self.in_flight.remove(at);
+            let Request { generation, binding, task } = self.in_flight.remove(at);
             let reply = task.ticket.map(|_| {
                 if rng.below(6) == 0 {
                     json!({ "ok": false, "error": { "code": "carrier.unavailable" } })
                 } else {
                     self.issued += 1;
-                    json!({ "ok": true, "ticket": format!("g{generation}-{}", self.issued), "expires_at": self.now_ms / 1000 + 300 })
+                    json!({ "ok": true, "ticket": format!("g{generation}-b{binding}-{}", self.issued), "expires_at": self.now_ms / 1000 + 300 })
                 }
             });
-            self.core.finished(Done { generation, client: (), task, reply, took: Duration::ZERO });
+            self.core.finished(Done {
+                generation,
+                client: binding,
+                task,
+                reply,
+                took: Duration::ZERO,
+            });
         }
     }
 
     #[test]
     fn random_interleavings_keep_one_request_per_want_and_no_older_ticket() {
-        let (mut handed, mut refused, mut wanted, mut stale) = (0, 0, 0, 0);
+        let (mut handed, mut refused, mut wanted, mut stale, mut waited) = (0, 0, 0, 0, 0);
+        let mut overtaken = 0;
         for seed in 0..SEEDS {
             let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
             let mut model = Model::new();
             for _ in 0..STEPS {
                 let step = rng.below(12);
                 model.trace.push(format!(
-                    "step {step}: generation {} want {} fetching {} warm {} answered {} in flight {}",
+                    "step {step}: generation {} want {} fetching {} warm {} answered {} in flight {} picked {}",
                     model.core.generation,
                     model.core.want,
                     model.core.fetching,
                     model.core.warm.is_some(),
                     model.core.answered.is_some(),
-                    model.in_flight.len()
+                    model.in_flight.len(),
+                    model.picked.is_some()
                 ));
                 match step {
                     0 if model.asker.is_none() && model.pending.is_none() => {
@@ -1043,8 +1140,11 @@ mod model {
                     2 => model.hand_out(seed),
                     3 if rng.below(4) == 0 => model.leave(),
                     4 => model.core.note_resume(),
-                    5 if rng.below(3) == 0 => model.core.bind(rng.below(2) == 0),
-                    6..=8 => model.fetch_step(seed),
+                    5 if rng.below(3) == 0 => {
+                        model.binds += 1;
+                        model.core.bind((model.binds, rng.below(2) == 0));
+                    }
+                    6..=8 => model.fetch_step(seed, &mut rng),
                     9 | 10 => model.reply(&mut rng),
                     11 => model.now_ms += rng.below(120_000),
                     _ => {}
@@ -1054,6 +1154,8 @@ mod model {
             refused += model.refused_stale;
             wanted += model.wanted;
             stale += model.stale_replies;
+            waited += model.waited_resumes;
+            overtaken += model.overtaken_resumes;
         }
         // Every path the invariants guard was driven, many times over.
         let reached = [
@@ -1061,6 +1163,8 @@ mod model {
             ("replies refused at the hand-out as stale", refused),
             ("ticket requests for asks", wanted),
             ("requests answered after their generation ended", stale),
+            ("resumes that waited for a client", waited),
+            ("resumes a bind or another resume overtook before they were acted on", overtaken),
         ];
         for (what, count) in reached {
             assert!(count >= SEEDS / 10, "the model reached {what} only {count} times");
