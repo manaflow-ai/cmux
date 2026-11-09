@@ -291,3 +291,23 @@ fn an_sgr_pop_never_reveals() {
     scanner.scan(b"\x1b[#{\x1b[8m\x1b[#}");
     assert!(scanner.is_concealed());
 }
+
+#[test]
+fn each_screen_keeps_its_own_saved_conceal_state() {
+    let mut scanner = TerminalOutputScanner::new();
+    scanner.scan(b"\x1b[8m\x1b[?1049h\x1b[0m\x1b7\x1b8\x1b[?1049l");
+    assert!(scanner.is_concealed());
+    // A save on the primary screen, then one in a full-screen program that
+    // conceals: back on the primary screen, its own save restores revealed.
+    let mut scanner = TerminalOutputScanner::new();
+    scanner.scan(b"\x1b7\x1b[?47h\x1b[8m\x1b7\x1b[?47l\x1b8");
+    assert!(!scanner.is_concealed());
+}
+
+#[test]
+fn modes_in_a_list_apply_one_by_one() {
+    let mut scanner = TerminalOutputScanner::new();
+    scanner.scan(b"\x1b[8m\x1b[?1048;25h\x1b[0m\x1b[?25;1048l");
+    assert!(scanner.is_concealed());
+    assert_eq!(scanner.scan(b"\x1b[?25;1049h"), [AlternateScreen(true)]);
+}

@@ -103,9 +103,13 @@ pub struct TerminalOutputScanner {
     parameters: Vec<u8>,
     parameters_overflowed: bool,
     /// Whether printed text is concealed (SGR 8), read from every SGR whatever
-    /// its length, and the copy a cursor save (`ESC 7`) keeps for its restore.
+    /// its length.
     is_concealed: bool,
-    saved_concealed: bool,
+    /// The conceal state each screen's cursor save holds (primary, alternate):
+    /// the terminal keeps one saved cursor, attributes included, per screen.
+    saved_concealed: [bool; 2],
+    /// Which screen saves and restores act on.
+    is_on_alternate_screen: bool,
     /// XTPUSHSGR's stack, as far as conceal goes (bounded like xterm's).
     pushed_concealed: Vec<bool>,
     sgr: SgrScan,
@@ -216,7 +220,8 @@ impl TerminalOutputScanner {
             parameters: Vec::with_capacity(MAXIMUM_PARAMETER_BYTES),
             parameters_overflowed: false,
             is_concealed: false,
-            saved_concealed: false,
+            saved_concealed: [false; 2],
+            is_on_alternate_screen: false,
             pushed_concealed: Vec::new(),
             sgr: SgrScan::default(),
         }
@@ -234,30 +239,71 @@ impl TerminalOutputScanner {
         Self {
             is_concealed: self.is_concealed,
             saved_concealed: self.saved_concealed,
+            is_on_alternate_screen: self.is_on_alternate_screen,
             pushed_concealed: self.pushed_concealed.clone(),
             ..Self::new()
         }
     }
 
-    /// The other sequences that save or restore the pen: `?1049` and `?1048`
-    /// save the cursor with its attributes on `h` and restore them on `l`, and
-    /// XTPUSHSGR / XTPOPSGR (`CSI # {` / `CSI # }`, or `p` / `q`) keep a stack.
-    /// A pop never reveals: if the terminal ignored the push, it still conceals.
-    /// The sequences themselves stay disruptive, which withdraws what is drawn.
-    fn track_attribute_saves(&mut self, final_byte: u8) {
-        if self.parameters_overflowed {
-            return;
+    fn saved_slot(&self) -> usize {
+        usize::from(self.is_on_alternate_screen)
+    }
+
+    fn save_cursor(&mut self) {
+        let slot = self.saved_slot();
+        if let Some(saved) = self.saved_concealed.get_mut(slot) {
+            *saved = self.is_concealed;
         }
-        let parameters = self.parameters.as_slice();
-        if parameters == b"?1049" || parameters == b"?1048" {
-            match final_byte {
-                b'h' => self.saved_concealed = self.is_concealed,
-                b'l' => self.is_concealed = self.saved_concealed,
-                _ => {}
+    }
+
+    fn restore_cursor(&mut self) -> OutputSignal {
+        let saved = self.saved_concealed.get(self.saved_slot()).copied().unwrap_or(true);
+        self.set_concealed(saved)
+    }
+
+    /// The other sequences that save, restore or switch the pen. In a private
+    /// mode list (`CSI ? a ; b h`) each mode applies in order: `1049` saves the
+    /// cursor and enters the alternate screen on `h`, and leaves it and
+    /// restores on `l`; `1048` saves or restores on the current screen; `47`
+    /// and `1047` switch screens. XTPUSHSGR / XTPOPSGR (`CSI # {` / `CSI # }`,
+    /// or `p` / `q`) keep a stack, and a pop never reveals, in case the
+    /// terminal ignored the push. A list too long to read restores
+    /// conservatively: concealed if any save might be. The sequences stay
+    /// disruptive, which withdraws what is drawn.
+    fn track_attribute_saves(&mut self, final_byte: u8) {
+        if let Some(modes) = self.parameters.strip_prefix(b"?") {
+            if final_byte != b'h' && final_byte != b'l' {
+                return;
+            }
+            if self.parameters_overflowed {
+                if final_byte == b'l' {
+                    self.is_concealed |= self.saved_concealed.iter().any(|&saved| saved);
+                }
+                return;
+            }
+            let set = final_byte == b'h';
+            let modes = modes.to_vec();
+            for mode in modes.split(|&byte| byte == b';') {
+                match (mode, set) {
+                    (b"1049", true) => {
+                        self.save_cursor();
+                        self.is_on_alternate_screen = true;
+                    }
+                    (b"1049", false) => {
+                        self.is_on_alternate_screen = false;
+                        let _ = self.restore_cursor();
+                    }
+                    (b"1048", true) => self.save_cursor(),
+                    (b"1048", false) => {
+                        let _ = self.restore_cursor();
+                    }
+                    (b"47" | b"1047", entered) => self.is_on_alternate_screen = entered,
+                    _ => {}
+                }
             }
             return;
         }
-        if parameters.last() != Some(&b'#') {
+        if self.parameters_overflowed || self.parameters.last() != Some(&b'#') {
             return;
         }
         match final_byte {
@@ -397,13 +443,13 @@ impl TerminalOutputScanner {
                     // DECSC saves the attributes with the cursor, conceal included.
                     self.state = State::Ground;
                     self.detour_bytes = Some(0);
-                    self.saved_concealed = self.is_concealed;
+                    self.save_cursor();
                     None
                 }
                 b'8' => {
                     self.state = State::Ground;
                     self.detour_bytes = None;
-                    Some(self.set_concealed(self.saved_concealed))
+                    Some(self.restore_cursor())
                 }
                 b'c' => {
                     // RIS, a full reset: the terminal clears both screens and
@@ -413,7 +459,8 @@ impl TerminalOutputScanner {
                     self.state = State::Ground;
                     self.detour_bytes = None;
                     self.is_concealed = false;
-                    self.saved_concealed = false;
+                    self.saved_concealed = [false; 2];
+                    self.is_on_alternate_screen = false;
                     self.pushed_concealed.clear();
                     Some(OutputSignal::AlternateScreen(false))
                 }
@@ -475,12 +522,12 @@ impl TerminalOutputScanner {
                 // save and restore the attributes too, conceal included.
                 if self.parameters.is_empty() && byte == b's' {
                     self.detour_bytes = Some(0);
-                    self.saved_concealed = self.is_concealed;
+                    self.save_cursor();
                     return None;
                 }
                 if self.parameters.is_empty() && byte == b'u' {
                     self.detour_bytes = None;
-                    return Some(self.set_concealed(self.saved_concealed));
+                    return Some(self.restore_cursor());
                 }
                 if byte == b'm' {
                     let concealed = std::mem::take(&mut self.sgr).finish(self.is_concealed);
@@ -582,8 +629,13 @@ fn classify_control_sequence(parameters: &[u8], overflowed: bool, final_byte: u8
     }
     // 1049 is the modern alternate screen; 47 and 1047 are the older forms
     // still emitted by some remotes.
-    if [b"?1049".as_slice(), b"?47", b"?1047"].contains(&parameters) {
-        return OutputSignal::AlternateScreen(final_byte == b'h');
+    if let Some(modes) = parameters.strip_prefix(b"?") {
+        let switches_screen = modes
+            .split(|&byte| byte == b';')
+            .any(|mode| [b"1049".as_slice(), b"47", b"1047"].contains(&mode));
+        if switches_screen {
+            return OutputSignal::AlternateScreen(final_byte == b'h');
+        }
     }
     // Any other private mode change (bracketed paste, mouse reporting,
     // application cursor keys) means the remote is switching input

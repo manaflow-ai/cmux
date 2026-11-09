@@ -1492,3 +1492,28 @@ fn a_full_screen_program_that_exits_into_a_concealing_pen_predicts_nothing() {
     session.type_key("e");
     assert_eq!(session.drawn(), "", "status {:?}", session.status());
 }
+
+fn conceals_after(output: &str) -> String {
+    let mut session = armed_session();
+    session.remote(output);
+    session.advance(ms(2_000));
+    for key in ["h", "u", "n", "t"] {
+        session.type_key(key);
+        session.remote(key);
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key("e");
+    format!("drawn {:?}, status {:?}", session.drawn(), session.status())
+}
+
+#[test]
+fn a_save_on_the_alternate_screen_keeps_the_primary_screens_saved_conceal_state() {
+    let result = conceals_after("\x1b[8m\x1b[?1049h\x1b[0m\x1b7\x1b8\x1b[?1049l");
+    assert!(result.starts_with("drawn \"\""), "{result}");
+}
+
+#[test]
+fn a_save_and_restore_inside_a_mode_list_conceal_again() {
+    let result = conceals_after("\x1b[8m\x1b[?1048;25h\x1b[0m\x1b[?1048;25l");
+    assert!(result.starts_with("drawn \"\""), "{result}");
+}
