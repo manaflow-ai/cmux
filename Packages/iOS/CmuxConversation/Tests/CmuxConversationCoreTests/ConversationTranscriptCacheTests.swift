@@ -189,4 +189,21 @@ import Testing
         store.useTranscriptCache(cache, key: "mac:m1")
         #expect(store.messages.isEmpty)
     }
+
+    /// Sign-out while a store still holds the cache: its later saves leave nothing on disk.
+    @Test func aStoreAttachedBeforeRemoveAllKeepsNothingAfterIt() async throws {
+        let directory = Self.directory()
+        let cache = ConversationTranscriptCache(directory: directory)
+        let store = try await Self.loadedStore(ScriptedBackend(total: 40), cache: cache, key: "mac:m1")
+        cache.removeAll()
+        store.saveTranscript()
+        cache.flush()
+        #expect(cache.cached("mac:m1") == nil)
+        #expect(await ConversationTranscriptCache(directory: directory).load("mac:m1") == nil)
+        // Attached again (signed in again), it keeps the transcript once more.
+        store.useTranscriptCache(cache, key: "mac:m1")
+        store.saveTranscript()
+        #expect(cache.cached("mac:m1")?.messages.count == 30)
+        cache.removeAll()
+    }
 }
