@@ -253,6 +253,40 @@ class GalleryPictureTests(HighlightRepo):
         self.assertNotEqual(self.url("after", self.AFTER), self.url("after", self.BEFORE))
 
 
+WEBP = b"RIFF\x00\x00\x00\x00WEBPVP8 " + b"\x00" * 32
+
+
+class RecordedClipTests(HighlightRepo):
+    """A clip the nightly tour recorded from the highlight's spec (whats-new-clips.py publish-auto), and for an
+    improvement its before on the previous nightly's app, win over the gallery pictures, role by role."""
+
+    def clip(self, role):
+        return release_notes.clip_auto_url("group-colors", role)
+
+    def gallery(self, role):
+        return release_notes.gallery_auto_url("group-colors", role)
+
+    def test_a_recorded_clip_and_its_before_are_the_media(self):
+        highlight = self.build("", {self.clip("after"): WEBP, self.clip("before"): WEBP + b"b",
+                                    self.gallery("after"): PNG, self.gallery("before"): PNG})
+        self.assertEqual([(m["url"], m["role"], m["kind"]) for m in highlight["media"]],
+                         [(self.clip("after"), "after", "image"), (self.clip("before"), "before", "image")])
+        self.assertTrue(release_notes.public_pr_media_url(self.clip("after")))
+
+    def test_a_role_with_no_clip_takes_the_gallery_picture(self):
+        highlight = self.build("", {self.clip("after"): WEBP, self.gallery("before"): PNG})
+        self.assertEqual([(m["url"], m["role"]) for m in highlight["media"]],
+                         [(self.clip("after"), "after"), (self.gallery("before"), "before")])
+
+    def test_only_new_and_improved_highlights_without_a_clip_line_look_for_one(self):
+        urls = release_notes.clip_auto_urls
+        auto = lambda role: release_notes.clip_auto_url("h", role)
+        self.assertEqual(urls({}, "h", "new"), {"after": auto("after")})
+        self.assertEqual(urls({}, "h", "improved"), {"after": auto("after"), "before": auto("before")})
+        self.assertEqual(urls({}, "h", "fixed"), {})
+        self.assertEqual(urls({"clip": "x"}, "h", "new"), {})
+
+
 class LatePictureTests(HighlightRepo):
     """A highlight whose pictures were published after its nightly cut rides along with the next build that
     finds them, once (release-notes.py late_pictures)."""
@@ -311,6 +345,45 @@ class LatePictureTests(HighlightRepo):
     def test_once_it_shipped_with_its_pictures_it_rides_no_more(self):
         roles = [{"url": f"https://x/{r}.png", "role": r} for r in ("after", "before")]
         self.assertEqual(self.notes(roles), [])
+
+    def test_a_recorded_clip_published_after_the_cut_rides_along_too(self):
+        clip = lambda role: release_notes.clip_auto_url("group-colors", role)
+        self.pictures = {clip("after"): WEBP, clip("before"): WEBP + b"b"}
+        highlights = self.notes([])
+        self.assertEqual([m["url"] for m in highlights[0]["media"]], [clip("after"), clip("before")])
+
+    def add_spec(self):
+        os.makedirs(os.path.join(self.repo, "release-notes/next/clips"), exist_ok=True)
+        with open(os.path.join(self.repo, "release-notes/next/clips/group-colors.json"), "w") as f:
+            f.write("{}\n")
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-q", "-m", "its clip spec (#125)")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+
+    def test_a_clip_recorded_after_it_shipped_with_its_stills_replaces_them_once(self):
+        clip = lambda role: release_notes.clip_auto_url("group-colors", role)
+        gallery = lambda role: release_notes.gallery_auto_url("group-colors", role)
+        stills = [{"url": gallery(r), "sha256": "0" * 64, "role": r} for r in ("after", "before")]
+        self.add_spec()
+        self.pictures[clip("after")] = WEBP
+        highlights = self.notes(stills)
+        self.assertEqual([h["id"] for h in highlights], ["group-colors"])
+        self.assertEqual([m["url"] for m in highlights[0]["media"]], [clip("after"), gallery("before")])
+        # Once the notes showed it, the same clip re-announces nothing; its before clip, when published, does.
+        shown = [{"url": clip("after"), "sha256": "0" * 64, "role": "after"}, stills[1]]
+        self.assertEqual(self.notes(shown), [])
+        self.pictures[clip("before")] = WEBP + b"b"
+        self.assertEqual([m["url"] for m in self.notes(shown)[0]["media"]], [clip("after"), clip("before")])
+
+    def test_stills_with_no_clip_published_or_no_spec_ride_no_more(self):
+        clip = lambda role: release_notes.clip_auto_url("group-colors", role)
+        stills = [{"url": release_notes.gallery_auto_url("group-colors", r), "sha256": "0" * 64, "role": r}
+                  for r in ("after", "before")]
+        self.pictures[clip("after")] = WEBP
+        self.assertEqual(self.notes(stills), [])  # no spec: a clip at that name is not this highlight's
+        self.add_spec()
+        del self.pictures[clip("after")]
+        self.assertEqual(self.notes(stills), [])
 
     def test_no_pictures_yet_or_no_feed_means_no_ride_along(self):
         self.assertEqual(self.notes([], pictures=False), [])
