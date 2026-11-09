@@ -43,13 +43,13 @@ pub(crate) fn field<'a>(record: &'a Value, path: &str) -> Option<&'a Value> {
 }
 
 /// The record cut down to `fields`, keyed by the path as given (`{"turn.activity": …}`). A
-/// field the record lacks is left out.
+/// field the record lacks is null.
 pub(crate) fn project_fields(record: &Value, fields: &[String]) -> Value {
     let mut row = serde_json::Map::new();
+    // Every selected key, null when the record lacks it (bench round 4 friction 10): a reader
+    // tells "empty" from "not asked for" and every row has the same keys.
     for path in fields {
-        if let Some(value) = field(record, path) {
-            row.insert(path.clone(), value.clone());
-        }
+        row.insert(path.clone(), field(record, path).cloned().unwrap_or(Value::Null));
     }
     Value::Object(row)
 }
