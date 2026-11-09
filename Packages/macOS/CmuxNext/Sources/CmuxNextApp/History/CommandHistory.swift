@@ -123,19 +123,8 @@ final class CommandHistory {
         for daemon in daemons() {
             guard let connection = daemon.connection else { continue }
             let machine = daemon.machineID
-            var mirror = mirrors[machine] ?? TerminalCommandMirror(machine: machine)
             do {
-                // A second read only when appending after the cursor was wrong.
-                for _ in 0..<2 {
-                    let after = mirror.cursor
-                    let page = try await connection.request(ListTerminalCommandsRequest(afterID: after.map(String.init)))
-                    let expired = Date().addingTimeInterval(-TimeInterval(page.retentionDays) * 86_400)
-                    if mirror.apply(page.commands.compactMap { Self.command($0, machine: machine) }, version: page.version,
-                                    truncated: page.truncated, after: after, expiredThrough: expired) {
-                        break
-                    }
-                }
-                mirrors[machine] = mirror
+                try await read(machine) { after in try await connection.request(ListTerminalCommandsRequest(afterID: after.map(String.init))) }
             } catch {
                 logger.info("command history: list on \(machine, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 mirrors[machine]?.reset()
@@ -144,11 +133,16 @@ final class CommandHistory {
         suggestions.replace(mirrors.values.flatMap(\.commands))
     }
 
-    static func command(_ row: TerminalCommandRow, machine: String) -> TerminalCommand? {
-        guard let id = UInt64(row.id), let started = Int64(row.startedAtMs) else { return nil }
-        return TerminalCommand(id: id, machine: machine, terminal: row.terminalID, command: row.command, cwd: row.cwd,
-                               exitCode: row.exitCode, startedAt: Date(timeIntervalSince1970: TimeInterval(started) / 1000),
-                               duration: Double(row.durationMs).map { $0 / 1000 })
+    /// Reads `machine`'s new rows with `list` (after a row id; nil: all). Each page applies to the mirror as it is on arrival.
+    func read(_ machine: String, list: (UInt64?) async throws -> ListTerminalCommandsRequest.Response) async throws {
+        for _ in 0..<2 {  // A second read only when appending after the cursor was wrong.
+            let after = (mirrors[machine] ?? TerminalCommandMirror(machine: machine)).cursor
+            let page = try await list(after)
+            var mirror = mirrors[machine] ?? TerminalCommandMirror(machine: machine)
+            let applied = mirror.apply(page, after: after)
+            mirrors[machine] = mirror
+            if applied { break }
+        }
     }
 
     func entries() -> [HistoryEntry] {
@@ -187,14 +181,20 @@ final class CommandHistory {
         let token = mirror.delete(deletion)
         mirrors[machine] = mirror
         suggestions.replace(mirrors.values.flatMap(\.commands))
-        let settle: @MainActor () -> Void = { [weak self] in self?.mirrors[machine]?.settle(token) }
+        // A write the daemon did not take (refused, or dropped) resets the cursor: the next read is a full one, listing its rows again.
+        let applied = OSAllocatedUnfairLock(initialState: false)
+        let tracked: @Sendable (CommandDeletionRoute, String, Bool) async throws -> Void = { try await write($0, $1, $2); applied.withLock { $0 = true } }
+        let settle: @MainActor () -> Void = { [weak self] in
+            self?.mirrors[machine]?.settle(token)
+            if !applied.withLock({ $0 }) { self?.mirrors[machine]?.reset() }
+        }
         if machine == MachineRegistry.localID {
-            return services.history.writes.enqueueClear(live: deletion.isClear ? services.history.unboundedDaemonHistory : nil, "command clear", { try await write(.history($0), $1, $2) }, done: settle)
+            return services.history.writes.enqueueClear(live: deletion.isClear ? services.history.unboundedDaemonHistory : nil, "command clear", { try await tracked(.history($0), $1, $2) }, done: settle)
         }
         let machines = services.machines, override = route, current: @MainActor @Sendable () -> CommandDeletionRoute? = { override?(machine) ?? Self.route(machine, in: machines) }
         let queue = queues[machine] ?? HistoryWriteQueue(retryable: DaemonHistoryClient.isLinkDrop) { await HistoryService.firstClient(current) }
         queues[machine] = queue
-        queue.enqueueClear(live: deletion.isClear ? current()?.unbounded : nil, "command clear", write, done: settle)
+        queue.enqueueClear(live: deletion.isClear ? current()?.unbounded : nil, "command clear", tracked, done: settle)
     }
 
     /// How a deletion reaches `machine`'s daemon once it is connected; nil while it is away.
