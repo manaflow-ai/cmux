@@ -583,6 +583,7 @@ import {
   nextRetryDelay,
   offersAcpmuxRestart,
 } from "./hostRetry";
+import { pageShowsWhatItIs } from "./firstPaint";
 import { ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { type Subagent } from "./subagents/subagentFold";
 import { restartOwner, restartPrompt, restartReaches } from "./subagents/restart";
@@ -6139,7 +6140,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     openFailed ||
     (clientSnapshot.sessionId === adoptingSession && clientSnapshot.chatRead === true);
   const chatDrawn = (!awaitsChat || clientSnapshot.chatRead === true || openFailed) && adoptionDrawn;
-  const showsWhatItIs = (handshaken && chatDrawn) || hostError !== undefined || newTab !== undefined;
+  const hostErrorSaid = hostError !== undefined && (hostErrorShown || restartingAcpmux);
+  const showsWhatItIs = pageShowsWhatItIs({
+    handshaken,
+    chatDrawn,
+    hostError: hostError !== undefined,
+    hostErrorSaid,
+    newTab: newTab !== undefined,
+  });
   // No chat screen before the page knows it is no New Tab page (`contextKnown`).
   const knowsWhatItIs = contextKnown || newTab !== undefined || handshaken || hostError !== undefined;
   useEffect(() => {
@@ -11365,7 +11373,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // and commands go behind Details (hostLine.ts).
   const hostWords = hostLineText(hostFailure, hostError ?? "", t, machineName);
   const hostErrorCard = (
-    <Notice id="host-error" tier="error" when={hostError !== undefined && (hostErrorShown || restartingAcpmux)}>
+    <Notice id="host-error" tier="error" when={hostErrorSaid}>
       <HostUnavailableLine
         message={hostWords.line}
         detail={hostWords.detail}
