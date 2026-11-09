@@ -126,13 +126,11 @@ public import Foundation
                 }))
     }
 
-    /// Writes the credential where the installer reads it. The file routes write as root. Where exec
-    /// runs as root too (`/api/vm`), the installer chowns a 0600 file before it drops to `cmux`. A
-    /// Worker machine's exec runs as `cmux` and can't read a root 0600 file, so its folder is first
-    /// made `cmux`'s own 0700 one (an exec as `cmux`), and the file goes in 0644: only `cmux` and
-    /// root can reach it, as `deliver-secrets` stages its receiver.
+    /// Writes the credential where the installer reads it. The file routes write as root, and a
+    /// machine's exec runs as `cmux`, which can't read a root 0600 file, so its folder is first made
+    /// `cmux`'s own 0700 one (an exec as `cmux`), and the file goes in 0644: only `cmux` and root can
+    /// reach it, as `deliver-secrets` stages its receiver.
     nonisolated static func stage(_ credential: Data, at path: String, on api: CloudAPIClient, machineID: String) async throws {
-        guard api.execRunsAsWorkUser else { return try await api.writeFile(machineID, path: path, data: credential, mode: 0o600) }
         let folder = CloudCredentialInstaller.quote((path as NSString).deletingLastPathComponent)
         let made = try await api.exec(machineID, command: "umask 077 && mkdir -p -- \(folder) && chmod 700 -- \(folder) && test -O \(folder) && test ! -L \(folder)",
                                       timeoutMs: 20_000)

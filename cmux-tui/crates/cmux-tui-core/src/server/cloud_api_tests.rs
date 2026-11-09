@@ -185,12 +185,14 @@ fn every_call_of_the_library_is_one_of_this_modules_operations() {
 
 #[test]
 fn a_classic_read_sends_the_stack_session_and_answers_its_body() {
-    let (origin, seen) = fake(|_| (200, r#"{"networks":[{"id":"n1"}]}"#.into()));
+    let (origin, seen) =
+        fake(|_| (200, r#"{"run":{"id":"r1","state":"running"},"receipt":null}"#.into()));
     let daemon = Daemon::start("vm");
-    let result = daemon.send("cloud.vm.networks", params(&origin, "stack", json!({})), None);
-    assert_eq!(result, Ok(json!([{"id": "n1"}])));
+    let args = json!({"id": "r1", "timeoutMs": 1});
+    let result = daemon.send("cloud.runs.wait", params(&origin, "stack", args), None);
+    assert_eq!(result, Ok(json!({"run": {"id": "r1", "state": "running"}, "receipt": null})));
     let seen = seen.lock().unwrap();
-    assert!(seen[0].line.starts_with("GET /api/vm/network "));
+    assert!(seen[0].line.starts_with("GET /api/runs/r1/wait?timeoutMs=1 "));
     assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer secret-access"));
     assert_eq!(seen[0].header("x-stack-refresh-token").as_deref(), Some("secret-refresh"));
     assert_eq!(seen[0].header("x-cmux-team-id").as_deref(), Some("team_1"));
@@ -198,19 +200,27 @@ fn a_classic_read_sends_the_stack_session_and_answers_its_body() {
 
 #[test]
 fn a_classic_mutation_answers_a_mutation_result_that_is_never_replayed() {
-    let (origin, seen) = fake(|_| (200, r#"{"ok":true}"#.into()));
+    let (origin, seen) = fake(|_| (200, r#"{"id":"r1","state":"cancelled"}"#.into()));
     let daemon = Daemon::start("vm-mutation");
     let result = daemon
-        .send(
-            "cloud.vm.firewall_delete",
-            params(&origin, "stack", json!({"ruleId": "rule-1"})),
-            Some("firewall-1"),
-        )
+        .send("cloud.runs.cancel", params(&origin, "stack", json!({"id": "r1"})), Some("cancel-1"))
         .unwrap();
     assert_eq!(result["replayed"], false);
     assert_eq!(result["revision"], "0");
-    assert_eq!(result["value"], Value::Null, "a rule delete answers no body");
-    assert!(seen.lock().unwrap()[0].line.starts_with("DELETE /api/vm/firewall?ruleId=rule-1 "));
+    assert_eq!(result["value"], json!({"id": "r1", "state": "cancelled"}));
+    assert!(seen.lock().unwrap()[0].line.starts_with("POST /api/runs/r1/cancel "));
+}
+
+#[test]
+fn a_classic_vm_call_is_refused_at_once_and_sends_nothing() {
+    let (origin, seen) = fake(|_| (200, "{}".into()));
+    let daemon = Daemon::start("vm-gone");
+    let (code, _, details) =
+        daemon.send("cloud.vm.networks", params(&origin, "stack", json!({})), None).unwrap_err();
+    assert_eq!(code, "operation.failed");
+    assert_eq!(details["extra"]["failure"]["status"], 501);
+    assert_eq!(details["extra"]["failure"]["code"], "cloud.not_available");
+    assert!(seen.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -277,10 +287,10 @@ fn a_preview_refresh_goes_through_the_platform_client() {
 }
 
 #[test]
-fn a_machine_exec_runs_on_its_route() {
+fn a_classic_machine_exec_is_refused_before_any_request() {
     let (origin, seen) = fake(|_| (200, r#"{"exitCode":0,"stdout":"ok","stderr":""}"#.into()));
     let daemon = Daemon::start("machine");
-    let result = daemon
+    let (code, _, details) = daemon
         .send(
             "cloud.machine.io",
             params(
@@ -290,9 +300,10 @@ fn a_machine_exec_runs_on_its_route() {
             ),
             Some("exec-1"),
         )
-        .unwrap();
-    assert_eq!(result["value"]["stdout"], "ok");
-    assert!(seen.lock().unwrap()[0].line.starts_with("POST /api/vm/m1/exec "));
+        .unwrap_err();
+    assert_eq!(code, "operation.failed");
+    assert_eq!(details["extra"]["failure"]["status"], 501);
+    assert!(seen.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -301,10 +312,11 @@ fn a_refusal_names_its_kind_and_never_carries_a_credential_back() {
         (409, r#"{"error":"vm_busy","message":"echo secret-access and secret-refresh"}"#.into())
     });
     let daemon = Daemon::start("refusal");
+    let args = json!({"id": "r1", "timeoutMs": 1});
     let (code, message, details) =
-        daemon.send("cloud.vm.networks", params(&origin, "stack", json!({})), None).unwrap_err();
+        daemon.send("cloud.runs.wait", params(&origin, "stack", args), None).unwrap_err();
     assert_eq!(code, "operation.failed");
-    assert_eq!(details["operation"], "cloud.vm.networks");
+    assert_eq!(details["operation"], "cloud.runs.wait");
     assert_eq!(details["reason"], "http");
     let failure = &details["extra"]["failure"];
     assert_eq!(failure["kind"], "http");
@@ -321,13 +333,13 @@ fn a_request_that_is_not_a_call_runs_nothing_and_echoes_nothing() {
     let daemon = Daemon::start("invalid");
     let mut unknown = params(&origin, "stack", json!({}));
     unknown["extra_field"] = json!("secret-extra");
-    let (code, message, details) = daemon.send("cloud.vm.networks", unknown, None).unwrap_err();
+    let (code, message, details) = daemon.send("cloud.runs.wait", unknown, None).unwrap_err();
     assert_eq!(code, "validation.invalid");
     assert!(!format!("{message} {details}").contains("secret-access"));
 
     let mut no_token = params(&origin, "stack", json!({}));
     no_token["access_token"] = json!("   ");
-    let (code, _, _) = daemon.send("cloud.vm.networks", no_token, None).unwrap_err();
+    let (code, _, _) = daemon.send("cloud.runs.wait", no_token, None).unwrap_err();
     assert_eq!(code, "validation.invalid");
 
     let mut bad_key = params(&origin, "owner", json!({}));
@@ -337,9 +349,8 @@ fn a_request_that_is_not_a_call_runs_nothing_and_echoes_nothing() {
     assert_eq!(code, "validation.invalid");
     assert!(!format!("{message} {details}").contains("%%%%"));
 
-    let (code, _, _) = daemon
-        .send("cloud.vm.firewall_delete", params(&origin, "stack", json!({})), None)
-        .unwrap_err();
+    let (code, _, _) =
+        daemon.send("cloud.runs.cancel", params(&origin, "stack", json!({})), None).unwrap_err();
     assert_eq!(code, "validation.invalid", "a mutation needs its idempotency key");
     assert!(seen.lock().unwrap().is_empty());
 }
@@ -366,15 +377,16 @@ fn files(root: &std::path::Path) -> Vec<(PathBuf, Vec<u8>)> {
 fn no_record_or_log_of_the_daemon_holds_a_credential() {
     let (origin, seen) = fake(|seen| {
         if seen.line.starts_with("GET") {
-            (200, r#"{"networks":[]}"#.into())
+            (200, r#"{"run":{"id":"r1","state":"running"},"receipt":null}"#.into())
         } else {
             (409, r#"{"error":"vm_busy","message":"echo secret-access"}"#.into())
         }
     });
     let daemon = Daemon::start("records");
-    assert!(daemon.send("cloud.vm.networks", params(&origin, "stack", json!({})), None).is_ok());
-    let delete = params(&origin, "stack", json!({"ruleId": "rule-1"}));
-    assert!(daemon.send("cloud.vm.firewall_delete", delete, Some("records-1")).is_err());
+    let wait = params(&origin, "stack", json!({"id": "r1", "timeoutMs": 1}));
+    assert!(daemon.send("cloud.runs.wait", wait, None).is_ok());
+    let cancel = params(&origin, "stack", json!({"id": "r1"}));
+    assert!(daemon.send("cloud.runs.cancel", cancel, Some("records-1")).is_err());
     let mut keyed = params(&origin, "owner", json!({"machine": VM, "key_length": 10}));
     keyed["key_base64"] = json!(base64::engine::general_purpose::STANDARD.encode(b"secret-key"));
     let _ = daemon.send("cloud.owner.acpmux_keyed_start", keyed, Some("records-2"));

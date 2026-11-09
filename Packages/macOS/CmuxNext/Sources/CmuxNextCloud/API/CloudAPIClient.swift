@@ -1,10 +1,12 @@
 public import Foundation
 import CmuxNextCompat
 
-/// The `/api/vm` REST client (web/app/api/vm). Native auth is
-/// `Authorization: Bearer <access>` plus `X-Stack-Refresh-Token`; the team
-/// rides `X-Cmux-Team-Id`. Every call has a deadline; a miss is
-/// `CloudAPIError.timedOut`, never a hang. Tokens come from the caller per
+/// The Cloud REST client. A Worker machines client (CloudAPIClient+MachineRoutes.swift) sends a
+/// machine's exec, file, SCP and preview calls to cmux-platform's `/v1/cloud/machines`, the only
+/// machine path. The sign-in client (``init(configuration:tokens:teamID:session:appVersion:)``)
+/// keeps only the sandboxed-Run calls (`Authorization: Bearer <access>`, `X-Stack-Refresh-Token`,
+/// `X-Cmux-Team-Id`); a machine call on it answers 501 at once and sends nothing. Every call has a
+/// deadline; a miss is `CloudAPIError.timedOut`, never a hang. Tokens come from the caller per
 /// request and are never stored here.
 public struct CloudAPIClient: Sendable {
     public typealias Tokens = @Sendable () async throws -> (access: String, refresh: String)
@@ -16,8 +18,10 @@ public struct CloudAPIClient: Sendable {
     private(set) var teamID: TeamID
     let session: URLSession
     let appVersion: String
-    /// `/api/vm`, or the Worker's (CloudAPIClient+MachineRoutes.swift, which says what each sends).
-    let machinePath: String, sendsStackSession: Bool
+    /// cmux-platform's machine routes (CloudAPIClient+MachineRoutes.swift, which says what each sends).
+    let machinePath = "/v1/cloud/machines"
+    /// The sign-in client: Stack refresh token and `X-Cmux-Team-Id`, sandboxed Runs only.
+    let sendsStackSession: Bool
     /// A Worker machines client's exec and file routes through cmux-tui (direct to the provider
     /// with a client session); nil: straight to the cmux API (CloudAPIClient+MachineRoutes.swift).
     var machineIO: CloudMachineIO?
@@ -55,7 +59,6 @@ public struct CloudAPIClient: Sendable {
         self.teamID = teamID
         self.session = session
         self.appVersion = appVersion
-        machinePath = "/api/vm"
         sendsStackSession = true
     }
 
@@ -67,7 +70,6 @@ public struct CloudAPIClient: Sendable {
         self.teamID = teamID
         self.session = session
         self.appVersion = appVersion
-        machinePath = "/v1/cloud/machines"
         sendsStackSession = false
     }
 
@@ -79,68 +81,15 @@ public struct CloudAPIClient: Sendable {
     public func prepareSCP(_ id: String, publicKey: String) async throws -> CloudSCPEndpoint {
         // cmux-cloud-machine reads only a safe route (port 22, user cmux, an ed25519 host key, not
         // expired); any other answer throws ``CloudAPIError/decoding(_:)``.
-        try await send("POST", "\(machinePath)/\(id)/ssh-endpoint", body: ["publicKey": publicKey],
+        try requireWorker()
+        return try await send("POST", "\(machinePath)/\(id)/ssh-endpoint", body: ["publicKey": publicKey],
                        timeout: .seconds(100), as: CloudSCPEndpoint.self)
-    }
-
-    // MARK: Tunnel
-
-    public func attachTunnelNetwork(deviceFingerprint: String, networkID: String, tunnelPurpose: String = "browser") async throws -> CloudTunnelNetworkMutation {
-        try await send("POST", "/api/vm/tunnel/network/attach", body: ["deviceFingerprint": deviceFingerprint, "networkId": networkID, "tunnelPurpose": tunnelPurpose], timeout: .seconds(60), as: CloudTunnelNetworkMutation.self)
-    }
-
-    public func detachTunnelNetwork(deviceFingerprint: String, networkID: String, tunnelPurpose: String = "browser") async throws -> CloudTunnelNetworkMutation {
-        try await send("POST", "/api/vm/tunnel/network/detach", body: ["deviceFingerprint": deviceFingerprint, "networkId": networkID, "tunnelPurpose": tunnelPurpose], timeout: .seconds(60), as: CloudTunnelNetworkMutation.self)
-    }
-
-    public func rotateTunnelKey(deviceFingerprint: String, publicKey: String, tunnelPurpose: String = "browser") async throws -> CloudTunnelNetworkMutation {
-        try await send("POST", "/api/vm/tunnel/network/rotate-key", body: ["deviceFingerprint": deviceFingerprint, "clientPublicKey": publicKey, "tunnelPurpose": tunnelPurpose], timeout: .seconds(60), as: CloudTunnelNetworkMutation.self)
-    }
-
-    public func listFirewallRules(vpcID: String? = nil, vmID: String? = nil, tunnelID: String? = nil) async throws -> [CloudFirewallRule] {
-        var parts: [String] = []
-        if let vpcID { parts.append("vpcId=\(queryComponent(vpcID))") }
-        if let vmID { parts.append("vmId=\(queryComponent(vmID))") }
-        if let tunnelID { parts.append("tunnelId=\(queryComponent(tunnelID))") }
-        struct List: Decodable { var rules: [CloudFirewallRule] }
-        return try await send("GET", "/api/vm/firewall\(parts.isEmpty ? "" : "?\(parts.joined(separator: "&"))")", as: List.self).rules
-    }
-
-    public func listNetworks() async throws -> [CloudNetwork] {
-        struct List: Decodable { var networks: [CloudNetwork] }
-        return try await send("GET", "/api/vm/network", as: List.self).networks
-    }
-
-    public func getFirewallRule(_ ruleID: String) async throws -> CloudFirewallRule {
-        try await send("GET", "/api/vm/firewall?ruleId=\(queryComponent(ruleID))", as: CloudFirewallRule.self)
-    }
-
-    public func createFirewallRule(source: CloudFirewallEndpoint, destination: CloudFirewallEndpoint, description: String? = nil) async throws -> CloudFirewallRule {
-        var body: [String: any Sendable] = ["source": endpointBody(source), "destination": endpointBody(destination)]
-        if let description { body["description"] = description }
-        return try await send("POST", "/api/vm/firewall", body: body, timeout: .seconds(60), as: CloudFirewallRule.self)
-    }
-
-    private func endpointBody(_ endpoint: CloudFirewallEndpoint) -> [String: any Sendable] {
-        var body: [String: any Sendable] = [:]
-        if let value = endpoint.vmId { body["vmId"] = value }
-        if let value = endpoint.vpcId { body["vpcId"] = value }
-        if let value = endpoint.tunnelId { body["tunnelId"] = value }
-        if let value = endpoint.cidr { body["cidr"] = value }
-        if let value = endpoint.isPublic { body["public"] = value }
-        if let value = endpoint.port { body["port"] = value }
-        if let value = endpoint.protocolName { body["protocol"] = value }
-        return body
-    }
-
-    public func deleteFirewallRule(_ ruleID: String) async throws {
-        _ = try await send("DELETE", "/api/vm/firewall?ruleId=\(queryComponent(ruleID))", timeout: .seconds(60), as: Ignored.self)
     }
 
     // MARK: Domains and publications
 
     // cmux-platform's previews (docs/cloud-previews.md) on a preview client (``previewClient(baseURL:)``): a
-    // publication is one machine port's preview, `vm_…:port`. A classic client answers 501 and sends nothing.
+    // publication is one machine port's preview, `vm_…:port`. The sign-in client answers 501 and sends nothing.
 
     /// `GET /v1/cloud/domains`: the domains Cloud publications are served on (the platform's managed one).
     public func listDomains() async throws -> [CloudDomain] {
@@ -187,8 +136,14 @@ public struct CloudAPIClient: Sendable {
 
     private func sendPreviews<T: Decodable>(_ method: String, _ path: String, body: [String: any Sendable]? = nil,
                                             timeout: Duration = .seconds(20), as type: T.Type) async throws -> T {
-        guard !sendsStackSession else { throw CloudAPIError.http(status: 501, code: "machine.previews_unsupported", message: nil) }
+        try requireWorker(code: "machine.previews_unsupported")
         return try await send(method, path, body: body, timeout: timeout, as: type)
+    }
+
+    /// Machine, file, SCP and preview calls are cmux-platform's: the sign-in client refuses them with a
+    /// 501 before any request, never a wait on a route NEXT does not serve.
+    func requireWorker(code: String = "machine.unsupported") throws {
+        guard !sendsStackSession else { throw CloudAPIError.http(status: 501, code: code, message: nil) }
     }
 
     func query(_ value: String) -> String {

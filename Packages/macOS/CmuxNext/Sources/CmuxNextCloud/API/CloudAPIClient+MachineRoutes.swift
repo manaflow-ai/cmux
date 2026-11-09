@@ -1,17 +1,11 @@
 public import Foundation
 
-/// A machine's exec and file routes: `/api/vm/{id}/exec` and `/api/vm/{id}/fs/...` on the classic
-/// client, the same requests and answers under `/v1/cloud/machines/{id}/` on a Worker machines
-/// client (``workerMachines(baseURL:accessToken:teamID:session:appVersion:)``). The classic client
-/// sends the Stack refresh token and `X-Cmux-Team-Id`; a Worker machines client sends the Stack
-/// access token and the cmux team in `x-cmux-team`, never the refresh token.
+/// A machine's exec and file routes: `/v1/cloud/machines/{id}/exec` and `/v1/cloud/machines/{id}/fs/...`
+/// on a Worker machines client (``workerMachines(baseURL:accessToken:teamID:session:appVersion:machineIO:)``),
+/// which sends the Stack access token and the cmux team in `x-cmux-team`, never the refresh token.
+/// The sign-in client refuses them before any request (``requireWorker(code:)``).
 extension CloudAPIClient {
-    /// Exec runs as the machine's work user (`cmux`), not root, while the file routes still
-    /// write as root: true on a Worker machines client (backend cloud-machine-guest.ts).
-    public var execRunsAsWorkUser: Bool { !sendsStackSession }
-
-    /// A Worker machine's (the Cloud app server link's) exec and file routes: the same requests
-    /// and answers as `/api/vm/{id}/exec` and `/api/vm/{id}/fs/...`, under
+    /// A Worker machine's (the Cloud app server link's) exec and file routes, under
     /// `/v1/cloud/machines/{id}/` on the cmux API Worker (`baseURL`:
     /// ``CloudConfiguration/ownerAPIBaseURL(environment:)``), as the person's Stack session
     /// (`accessToken`) in the cmux team `teamID` (`x-cmux-team`; the install token's team claim,
@@ -30,8 +24,8 @@ extension CloudAPIClient {
         return client
     }
 
-    /// `POST /api/vm/{id}/exec`: runs `command` in the machine's shell. The
-    /// route caps `timeoutMs` at 15 minutes (5 on a Worker machine).
+    /// `POST /v1/cloud/machines/{id}/exec`: runs `command` in the machine's shell. The
+    /// route caps `timeoutMs` at 5 minutes.
     public func exec(_ id: String, command: String, timeoutMs: Int = 30_000) async throws -> CloudExecResult {
         try await machine("exec", id, ["command": command, "timeoutMs": timeoutMs], timeout: .milliseconds(timeoutMs) + .seconds(5)) {
             try await send("POST", "\(machinePath)/\(id)/exec", body: ["command": command, "timeoutMs": timeoutMs],
@@ -90,12 +84,13 @@ extension CloudAPIClient {
         }
     }
 
-    /// One exec or file operation: through ``machineIO`` on a Worker machines client that has one,
-    /// decoded exactly as the route's own answer (a refusal throws what ``send`` would), else (no
-    /// cmux-tui, or one that gave no answer) through `http`, the route itself.
+    /// One exec or file operation: refused on the sign-in client, through ``machineIO`` on a Worker
+    /// machines client that has one, decoded exactly as the route's own answer (a refusal throws what
+    /// ``send`` would), else (no cmux-tui, or one that gave no answer) through `http`, the route itself.
     private func machine<T: Decodable>(_ op: String, _ id: String, _ fields: [String: any Sendable], timeout: Duration,
                                        http: () async throws -> T) async throws -> T {
-        guard let machineIO, !sendsStackSession else { return try await http() }
+        try requireWorker()
+        guard let machineIO else { return try await http() }
         let access: String
         do { access = try await tokens().access } catch { throw CloudAPIError.notSignedIn }
         var request = fields

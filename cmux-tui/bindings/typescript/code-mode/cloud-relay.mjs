@@ -2,28 +2,40 @@ import { createServer } from "node:net";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
-const VM = new Set(["vm.list", "vm.get", "vm.create", "vm.update", "vm.start", "vm.resume", "vm.pause", "vm.resize", "vm.delete", "vm.snapshot.list", "vm.snapshot.create", "vm.snapshot.restore", "vm.snapshot.delete", "vm.exec", "vm.fs.list", "vm.fs.read", "vm.fs.write", "vm.fs.mkdir", "vm.fs.remove", "vm.fs.stat"]);
-const PUBLICATION = new Set(["vm.domain.list", "vm.domain.verify", "vm.publication.list", "vm.publication.create", "vm.publication.update", "vm.publication.delete", "vm.publication.verify", "vm.api.provision", "vm.publication.api-key.list", "vm.publication.api-key.create", "vm.publication.api-key.revoke"]);
-const CLOUD = new Set(["network.list", "tunnel.attach", "tunnel.detach", "tunnel.rotate-key", "firewall.list", "firewall.get", "firewall.create", "firewall.delete"]);
-const FS = new Set(["vm.fs.list", "vm.fs.read", "vm.fs.stat", "vm.fs.write", "vm.fs.mkdir", "vm.fs.remove"]);
-const MUTATIONS = new Set(["vm.create", "vm.update", "vm.start", "vm.resume", "vm.pause", "vm.resize", "vm.delete", "vm.snapshot.create", "vm.snapshot.restore", "vm.snapshot.delete", "vm.fs.write", "vm.fs.mkdir", "vm.fs.remove", "tunnel.attach", "tunnel.detach", "tunnel.rotate-key", "firewall.create", "firewall.delete"]);
+// A machine's exec and file routes: cmux-platform's /v1/cloud/machines/{id}/exec and /fs/*.
+const MACHINE_IO = new Set(["vm.exec", "vm.fs.list", "vm.fs.read", "vm.fs.write", "vm.fs.mkdir", "vm.fs.remove", "vm.fs.stat"]);
+// The relay's machine and snapshot names are cmux-platform's cloud.* ops (POST /v1/ops or /v1/read), as the
+// Cloud app server aliases them (first-party-apps/cloud/server/src/ops/mod.rs ALIASES).
+const OP_ALIASES = {
+  "vm.list": "cloud.machine.list", "vm.get": "cloud.machine.get", "vm.create": "cloud.machine.create",
+  "vm.update": "cloud.machine.rename", "vm.start": "cloud.machine.start", "vm.resume": "cloud.machine.start",
+  "vm.pause": "cloud.machine.pause", "vm.resize": "cloud.machine.resize", "vm.delete": "cloud.machine.delete",
+  "vm.snapshot.list": "cloud.snapshot.list", "vm.snapshot.create": "cloud.snapshot.create",
+  "vm.snapshot.restore": "cloud.snapshot.restore", "vm.snapshot.delete": "cloud.snapshot.delete",
+};
+const MUTATIONS = new Set(["tunnel.attach", "tunnel.detach", "tunnel.rotate-key", "firewall.create", "firewall.delete"]);
 const VM_ID = /^[A-Za-z0-9._:-]{1,256}$/;
-const ROUTE_SEGMENT = /^[A-Za-z0-9._*:-]{1,256}$/;
 const MAX_FRAME = 4 * 1024 * 1024;
 
 function vmId(params, operation) {
   if (typeof params.vm_id !== "string" || !VM_ID.test(params.vm_id)) throw new Error(`${operation} requires vm_id`);
   return params.vm_id;
 }
-function routeSegment(params, field, operation) {
-  if (typeof params[field] !== "string" || !ROUTE_SEGMENT.test(params[field])) throw new Error(`${operation} requires a valid ${field}`);
-  return params[field];
-}
 function guestPath(params, operation) {
   if (typeof params.path !== "string" || !params.path.startsWith("/") || params.path.includes("\0") || params.path.split("/").includes("..") || Buffer.byteLength(params.path) > 4096) throw new Error(`${operation} requires an absolute guest path without '..'`);
   return params.path;
 }
 function bodyWithout(params, ...names) { const body = { ...params }; for (const name of names) delete body[name]; return body; }
+/** A relay op's params as its cloud.* op takes them: `vm_id` is `machine`, `snapshot_id` is `snapshot`. */
+function aliasParams(op, params) {
+  const out = {};
+  for (const [name, value] of Object.entries(params)) {
+    const key = name === "vm_id" ? "machine" : name === "snapshot_id" ? "snapshot" : name;
+    if (key === "machine" && (op === "cloud.snapshot.restore" || op === "cloud.snapshot.delete")) continue;
+    out[key] = value;
+  }
+  return out;
+}
 
 /**
  * Host-owned Cloud broker. The bearer is read only here and is never passed to
@@ -38,63 +50,24 @@ export function createCloudBroker({ apiUrl, bearerToken, fetchImpl = fetch, cata
     const requestIdempotencyKey = operation === "vm.snapshot.create"
       ? idempotencyKey ?? randomUUID()
       : idempotencyKey;
-    let method = "GET", path = "/api/vm", query = "", payload;
-    if (VM.has(operation)) {
-      if (operation === "vm.list") { method = "GET"; }
-      else if (operation === "vm.create") { method = "POST"; payload = { ...params }; }
-      else if (operation === "vm.snapshot.restore") {
-        // Restore makes a new machine from an account snapshot: POST /api/vm/restore.
-        routeSegment(params, "snapshot_id", operation);
-        method = "POST"; path = "/api/vm/restore"; payload = bodyWithout(params, "vm_id");
-      }
+    let method = "POST", path, query = "", payload;
+    if (MACHINE_IO.has(operation)) {
+      const base = `/v1/cloud/machines/${encodeURIComponent(vmId(params, operation))}`;
+      if (operation === "vm.exec") { path = `${base}/exec`; payload = bodyWithout(params, "vm_id"); }
       else {
-        const id = vmId(params, operation);
-        if (operation === "vm.get") path = `/api/vm/${encodeURIComponent(id)}`;
-        else if (operation === "vm.update") { method = "PATCH"; path = `/api/vm/${encodeURIComponent(id)}`; payload = bodyWithout(params, "vm_id"); }
-        else if (operation === "vm.delete") { method = "DELETE"; path = `/api/vm/${encodeURIComponent(id)}`; }
-        else if (operation === "vm.start" || operation === "vm.resume") { method = "POST"; path = `/api/vm/${encodeURIComponent(id)}/resume`; payload = {}; }
-        else if (operation === "vm.pause") { method = "POST"; path = `/api/vm/${encodeURIComponent(id)}/pause`; payload = {}; }
-        else if (operation === "vm.resize") { method = "POST"; path = `/api/vm/${encodeURIComponent(id)}/resize`; payload = bodyWithout(params, "vm_id"); }
-        else if (operation === "vm.exec") { method = "POST"; path = `/api/vm/${encodeURIComponent(id)}/exec`; payload = bodyWithout(params, "vm_id"); }
-        else if (operation.startsWith("vm.fs.")) {
-          const fsOp = operation.slice("vm.fs.".length); path = `/api/vm/${encodeURIComponent(id)}/fs/${fsOp === "list" ? "dir" : fsOp}`;
-          if (fsOp === "list" || fsOp === "read" || fsOp === "stat") { query = `?path=${encodeURIComponent(guestPath(params, operation))}`; }
-          else if (fsOp === "write" || fsOp === "mkdir") { method = "POST"; payload = bodyWithout(params, "vm_id"); }
-          else { method = "DELETE"; query = `?path=${encodeURIComponent(guestPath(params, operation))}`; }
-        } else if (operation.startsWith("vm.snapshot.")) {
-          const snap = operation.slice("vm.snapshot.".length);
-          if (snap === "list") path = `/api/vm/${encodeURIComponent(id)}/snapshots`;
-          else if (snap === "create") { method = "POST"; path = `/api/vm/${encodeURIComponent(id)}/snapshot`; payload = bodyWithout(params, "vm_id"); }
-          else { method = "DELETE"; path = `/api/vm/${encodeURIComponent(id)}/snapshots/${encodeURIComponent(String(params.snapshot_id ?? ""))}`; }
-        }
+        const fsOp = operation.slice("vm.fs.".length); path = `${base}/fs/${fsOp === "list" ? "dir" : fsOp}`;
+        if (fsOp === "list" || fsOp === "read" || fsOp === "stat") { method = "GET"; query = `?path=${encodeURIComponent(guestPath(params, operation))}`; }
+        else if (fsOp === "write" || fsOp === "mkdir") { payload = bodyWithout(params, "vm_id"); }
+        else { method = "DELETE"; query = `?path=${encodeURIComponent(guestPath(params, operation))}`; }
       }
-    } else if (PUBLICATION.has(operation)) {
-      if (operation === "vm.domain.list") { method = "GET"; path = "/api/vm/domains"; }
-      else if (operation === "vm.domain.verify") { method = "POST"; path = `/api/vm/domains/${encodeURIComponent(routeSegment(params, "name", operation))}/verify`; payload = {}; }
-      else if (operation === "vm.publication.list") { method = "GET"; path = "/api/vm/publications"; }
-      else if (operation === "vm.publication.create") { method = "POST"; path = "/api/vm/publications"; payload = { ...params }; }
-      else if (operation === "vm.api.provision") { method = "POST"; path = "/api/vm/apis"; payload = { ...params }; }
-      else {
-        const id = routeSegment(params, "id", operation);
-        path = `/api/vm/publications/${encodeURIComponent(id)}`;
-        if (operation === "vm.publication.verify") { method = "POST"; path += "/verify"; payload = {}; }
-        else if (operation === "vm.publication.api-key.list") { method = "GET"; path += "/api-keys"; }
-        else if (operation === "vm.publication.api-key.create") { method = "POST"; path += "/api-keys"; payload = bodyWithout(params, "id"); }
-        else if (operation === "vm.publication.api-key.revoke") { method = "DELETE"; path += `/api-keys/${encodeURIComponent(routeSegment(params, "key_id", operation))}`; }
-        else if (operation === "vm.publication.update") { method = "PATCH"; payload = bodyWithout(params, "id"); }
-        else if (operation === "vm.publication.delete") { method = "DELETE"; }
-        else { method = "POST"; payload = bodyWithout(params, "id"); }
-      }
-    } else if (catalogOps.has(operation)) {
-      const descriptor = catalog.operations[operation];
-      const isMutation = descriptor.class === "mutation";
-      method = isMutation ? "POST" : "POST";
-      path = isMutation ? "/v1/ops" : "/v1/read";
-      payload = isMutation ? { op: operation, params, idempotency_key: requestIdempotencyKey ?? randomUUID(), origin: "script" } : { op: operation, params };
     } else {
-      // Network policy operations are owner-routed through the Cloud API catalog.
-      const isMutation = MUTATIONS.has(operation); method = "POST"; path = isMutation ? "/v1/ops" : "/v1/read";
-      payload = isMutation ? { op: operation, params, idempotency_key: requestIdempotencyKey ?? randomUUID(), origin: "script" } : { op: operation, params };
+      // A protocol op: its catalog class picks /v1/ops (a mutation, with a key and the script origin) or /v1/read.
+      const op = OP_ALIASES[operation] ?? operation;
+      const opParams = OP_ALIASES[operation] ? aliasParams(op, params) : params;
+      const descriptor = catalog.operations?.[operation];
+      const isMutation = descriptor ? descriptor.class === "mutation" : MUTATIONS.has(operation);
+      path = isMutation ? "/v1/ops" : "/v1/read";
+      payload = isMutation ? { op, params: opParams, idempotency_key: requestIdempotencyKey ?? randomUUID(), origin: "script" } : { op, params: opParams };
     }
     const response = await fetchImpl(`${apiUrl.replace(/\/$/, "")}${path}${query}`, {
       method,

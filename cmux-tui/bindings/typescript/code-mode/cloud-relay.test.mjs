@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 const relayCatalog = JSON.parse(readFileSync(fileURLToPath(new URL("../../../../backend/catalog/cloud-relay-operations.json", import.meta.url)), "utf8"));
 const cloudCatalog = JSON.parse(readFileSync(fileURLToPath(new URL("../../../../backend/catalog/cloud-operations.json", import.meta.url)), "utf8"));
 
-test("Cloud broker uses fixed VM routes and keeps bearer out of the request body", async () => {
+test("Cloud broker sends machine ops to cmux-platform's cloud.* ops and keeps bearer out of the request body", async () => {
   const calls = [];
   const broker = createCloudBroker({
     apiUrl: "https://cloud.test",
@@ -23,10 +23,11 @@ test("Cloud broker uses fixed VM routes and keeps bearer out of the request body
   });
   const result = await broker.request("vm.resume", { vm_id: "vm_fixture" }, "resume-key");
   assert.deepEqual(result, { id: "vm_fixture", status: "paused" });
-  assert.equal(calls[0].url, "https://cloud.test/api/vm/vm_fixture/resume");
+  assert.equal(calls[0].url, "https://cloud.test/v1/ops");
   assert.equal(calls[0].init.method, "POST");
   assert.match(calls[0].init.headers.authorization, /^Bearer fixture-secret$/);
-  assert.equal(calls[0].init.body, "{}");
+  assert.deepEqual(JSON.parse(calls[0].init.body), { op: "cloud.machine.start", params: { machine: "vm_fixture" }, idempotency_key: "resume-key", origin: "script" });
+  assert.equal(calls[0].init.body.includes("fixture-secret"), false);
   assert.equal(JSON.stringify(calls[0]), JSON.stringify(calls[0]).replace("fixture-secret", "fixture-secret"));
   assert.equal(calls[0].url.includes("fixture-secret"), false);
 });
@@ -72,7 +73,7 @@ test("catalog mutations use the protocol's script origin", async () => {
   assert.equal(payload.idempotency_key, "attach-key");
 });
 
-test("domain and publication operations use fixed VM routes", async () => {
+test("a machine's exec and file ops go to cmux-platform's machine routes", async () => {
   const calls = [];
   const broker = createCloudBroker({
     catalog: relayCatalog,
@@ -80,47 +81,27 @@ test("domain and publication operations use fixed VM routes", async () => {
     bearerToken: "fixture-secret",
     fetchImpl: async (url, init) => {
       calls.push({ url, init });
-      return new Response(JSON.stringify({ ok: true, publication: { id: "pub_fixture" } }), { status: 200 });
+      return new Response(JSON.stringify({ exitCode: 0 }), { status: 200 });
     },
   });
-  await broker.request("vm.domain.verify", { name: "example.test" }, "domain-key");
-  await broker.request("vm.publication.create", { vmId: "vm_fixture", port: 3000, accessMode: "personal" }, "publication-create-key");
-  await broker.request("vm.publication.update", { id: "pub_fixture", accessMode: "personal" }, "publication-key");
-  assert.equal(calls[0].url, "https://cloud.test/api/vm/domains/example.test/verify");
-  assert.equal(calls[1].url, "https://cloud.test/api/vm/publications");
-  assert.equal(calls[1].init.method, "POST");
-  assert.deepEqual(JSON.parse(calls[1].init.body), { vmId: "vm_fixture", port: 3000, accessMode: "personal" });
-  assert.equal(calls[2].url, "https://cloud.test/api/vm/publications/pub_fixture");
-  assert.equal(calls[2].init.method, "PATCH");
-  assert.deepEqual(JSON.parse(calls[2].init.body), { accessMode: "personal" });
+  await broker.request("vm.exec", { vm_id: "vm_fixture", command: "true", timeoutMs: 1000 }, "exec-key");
+  await broker.request("vm.fs.read", { vm_id: "vm_fixture", path: "/a b" });
+  assert.deepEqual(calls.map((call) => [call.init.method, call.url]), [
+    ["POST", "https://cloud.test/v1/cloud/machines/vm_fixture/exec"],
+    ["GET", "https://cloud.test/v1/cloud/machines/vm_fixture/fs/read?path=%2Fa%20b"],
+  ]);
+  assert.deepEqual(JSON.parse(calls[0].init.body), { command: "true", timeoutMs: 1000 });
+  await assert.rejects(broker.request("vm.fs.read", { vm_id: "vm_fixture", path: "/a/../b" }), /without '\.\.'/);
 });
 
-test("API provisioning and key operations use fixed publication routes", async () => {
-  const calls = [];
-  const broker = createCloudBroker({
-    catalog: relayCatalog,
-    apiUrl: "https://cloud.test",
-    bearerToken: "fixture-secret",
-    fetchImpl: async (url, init) => {
-      calls.push({ url, init });
-      return new Response(JSON.stringify({ ok: true }), { status: 200 });
-    },
-  });
-  await broker.request("vm.api.provision", { vmId: "vm_fixture", port: 8080, name: "agent" }, "provision-key");
-  await broker.request("vm.publication.api-key.list", { id: "pub_fixture" });
-  await broker.request("vm.publication.api-key.create", { id: "pub_fixture", name: "ci" }, "mint-key");
-  await broker.request("vm.publication.api-key.revoke", { id: "pub_fixture", key_id: "key_fixture" }, "revoke-key");
-  assert.deepEqual(calls.map((call) => [call.init.method, call.url]), [
-    ["POST", "https://cloud.test/api/vm/apis"],
-    ["GET", "https://cloud.test/api/vm/publications/pub_fixture/api-keys"],
-    ["POST", "https://cloud.test/api/vm/publications/pub_fixture/api-keys"],
-    ["DELETE", "https://cloud.test/api/vm/publications/pub_fixture/api-keys/key_fixture"],
-  ]);
-  assert.deepEqual(JSON.parse(calls[0].init.body), { vmId: "vm_fixture", port: 8080, name: "agent" });
-  assert.deepEqual(JSON.parse(calls[2].init.body), { name: "ci" });
-  assert.equal(calls[3].init.body, undefined);
-  await assert.rejects(broker.request("vm.publication.api-key.revoke", { id: "pub_fixture" }), /key_id/);
-  await assert.rejects(broker.request("vm.publication.api-key.revoke", { id: "pub_fixture", key_id: "key/../x" }), /key_id/);
+test("classic publication, domain and API key ops are gone from the relay", async () => {
+  const broker = createCloudBroker({ catalog: relayCatalog, apiUrl: "https://cloud.test", bearerToken: "fixture-secret", fetchImpl: async () => { throw new Error("no request"); } });
+  for (const operation of ["vm.domain.list", "vm.publication.create", "vm.api.provision", "vm.publication.api-key.revoke"]) {
+    await assert.rejects(broker.request(operation, {}), /not in the catalog/);
+  }
+  for (const [operation, entry] of Object.entries(relayCatalog.operations)) {
+    assert.equal(entry.transport.http.path.includes("/api/vm"), false, operation);
+  }
 });
 
 test("host relay serves typed requests over a Unix socket", async () => {
@@ -155,7 +136,7 @@ test("host relay serves typed requests over a Unix socket", async () => {
   }
 });
 
-test("snapshot restore posts the snapshot to the account restore route", async () => {
+test("snapshot restore sends cloud.snapshot.restore with only the snapshot", async () => {
   const calls = [];
   const broker = createCloudBroker({
     apiUrl: "https://cloud.test",
@@ -167,9 +148,9 @@ test("snapshot restore posts the snapshot to the account restore route", async (
     },
   });
   await broker.request("vm.snapshot.restore", { snapshot_id: "snap_fixture" }, "restore-key");
-  assert.equal(calls[0].url, "https://cloud.test/api/vm/restore");
+  assert.equal(calls[0].url, "https://cloud.test/v1/ops");
   assert.equal(calls[0].init.method, "POST");
-  assert.deepEqual(JSON.parse(calls[0].init.body), { snapshot_id: "snap_fixture" });
+  assert.deepEqual(JSON.parse(calls[0].init.body), { op: "cloud.snapshot.restore", params: { snapshot: "snap_fixture" }, idempotency_key: "restore-key", origin: "script" });
   assert.equal(calls[0].init.headers["idempotency-key"], "restore-key");
 });
 
@@ -187,10 +168,13 @@ test("snapshot create generates an idempotency key when code mode omits one", as
 
   await broker.request("vm.snapshot.create", { vm_id: "vm_fixture", name: "before-upgrade" });
 
-  assert.equal(calls[0].url, "https://cloud.test/api/vm/vm_fixture/snapshot");
+  assert.equal(calls[0].url, "https://cloud.test/v1/ops");
   assert.equal(calls[0].init.method, "POST");
   assert.match(calls[0].init.headers["idempotency-key"], /^[0-9a-f-]{36}$/);
-  assert.deepEqual(JSON.parse(calls[0].init.body), { name: "before-upgrade" });
+  const body = JSON.parse(calls[0].init.body);
+  assert.equal(body.op, "cloud.snapshot.create");
+  assert.deepEqual(body.params, { machine: "vm_fixture", name: "before-upgrade" });
+  assert.equal(body.idempotency_key, calls[0].init.headers["idempotency-key"]);
 });
 
 test("every relay operation calls the method and path that its catalog binding declares", async () => {

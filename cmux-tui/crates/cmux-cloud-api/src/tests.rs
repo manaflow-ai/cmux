@@ -240,11 +240,12 @@ fn a_worker_refusal_names_its_nested_code_and_the_header_code_wins() {
 
 #[test]
 fn classic_calls_send_the_stack_session_and_the_team() {
-    let (origin, seen) = fake(|_| ok(r#"{"networks":[{"id":"net-1"}]}"#));
-    let answer = go(&request(&origin, Auth::Stack, "vm.networks", json!({}))).unwrap();
-    assert_eq!(answer, json!([{ "id": "net-1" }]));
+    let (origin, seen) = fake(|_| ok(r#"{"id":"run-1","status":"cancelled"}"#));
+    let answer =
+        go(&request(&origin, Auth::Stack, "runs.cancel", json!({ "id": "run-1" }))).unwrap();
+    assert_eq!(answer, json!({ "id": "run-1", "status": "cancelled" }));
     let seen = seen.lock().unwrap();
-    assert_eq!(seen[0].target(), "GET /api/vm/network");
+    assert_eq!(seen[0].target(), "POST /api/runs/run-1/cancel");
     assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer access"));
     assert_eq!(seen[0].header("x-stack-refresh-token").as_deref(), Some("refresh"));
     assert_eq!(seen[0].header("x-cmux-team-id").as_deref(), Some("team-1"));
@@ -322,23 +323,18 @@ fn provision_and_the_api_key_routes_go_to_the_platforms_previews() {
 }
 
 #[test]
-fn firewall_and_tunnel_queries_are_encoded_and_the_purpose_defaults_to_browser() {
-    let (origin, seen) = fake(|_| ok(r#"{"rules":[]}"#));
-    go(&request(&origin, Auth::Stack, "vm.firewall_list", json!({ "vmId": "vm 1&x=y" }))).unwrap();
-    go(&request(
-        &origin,
-        Auth::Stack,
-        "vm.tunnel_attach",
-        json!({ "deviceFingerprint": "fp", "networkId": "net-1" }),
-    ))
-    .unwrap();
-    let seen = seen.lock().unwrap();
-    assert_eq!(seen[0].target(), "GET /api/vm/firewall?vmId=vm+1%26x%3Dy");
-    assert_eq!(seen[1].target(), "POST /api/vm/tunnel/network/attach");
-    assert_eq!(
-        seen[1].json(),
-        json!({ "deviceFingerprint": "fp", "networkId": "net-1", "tunnelPurpose": "browser" })
-    );
+fn classic_vm_calls_refuse_at_once_and_send_nothing() {
+    let (origin, seen) = fake(|_| ok("{}"));
+    for call in NOT_ON_THIS_CLOUD {
+        for auth in [Auth::Stack, Auth::Owner, Auth::Worker] {
+            let failure = go(&request(&origin, auth, call, json!({}))).unwrap_err();
+            assert!(
+                matches!(&failure, Failure::Http { status: 501, code: Some(code), .. } if code == "cloud.not_available"),
+                "{call}: {failure:?}"
+            );
+        }
+    }
+    assert!(seen.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -953,16 +949,26 @@ fn a_base_url_is_https_or_loopback_http_with_no_user_query_or_fragment() {
 
 #[test]
 fn a_base_path_is_kept() {
-    let (origin, seen) = fake(|_| ok(r#"{"networks":[]}"#));
-    go(&request(&format!("{origin}/prefix/"), Auth::Stack, "vm.networks", json!({}))).unwrap();
-    assert_eq!(seen.lock().unwrap()[0].target(), "GET /prefix/api/vm/network");
+    let (origin, seen) = fake(|_| ok("{}"));
+    go(&request(
+        &format!("{origin}/prefix/"),
+        Auth::Stack,
+        "runs.cancel",
+        json!({ "id": "run-1" }),
+    ))
+    .unwrap();
+    assert_eq!(seen.lock().unwrap()[0].target(), "POST /prefix/api/runs/run-1/cancel");
 }
 
 #[test]
 fn a_local_backend_that_is_not_running_is_no_backend() {
     let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
-    let mut call =
-        request(&format!("http://127.0.0.1:{port}"), Auth::Stack, "vm.networks", json!({}));
+    let mut call = request(
+        &format!("http://127.0.0.1:{port}"),
+        Auth::Stack,
+        "runs.cancel",
+        json!({ "id": "run-1" }),
+    );
     call.local_only = true;
     assert_eq!(go(&call), Err(Failure::NoBackend));
     call.local_only = false;
@@ -971,7 +977,7 @@ fn a_local_backend_that_is_not_running_is_no_backend() {
 
 #[test]
 fn a_refusal_never_carries_a_credential_back() {
-    let mut call = request("https://x.invalid", Auth::Stack, "vm.networks", json!({}));
+    let mut call = request("https://x.invalid", Auth::Stack, "runs.cancel", json!({ "id": "r" }));
     call.credential = "secret-access".into();
     call.refresh = Some("secret-refresh".into());
     let line = scrub(
@@ -1015,38 +1021,17 @@ fn an_unknown_call_or_a_request_that_is_not_one_runs_nothing() {
 // MARK: machine routes (CloudWorkerMachineFilesTests, CloudMachineIOTests)
 
 #[test]
-fn a_classic_machine_execs_and_writes_on_its_api_vm_routes() {
-    let (origin, seen) = fake(|s| {
-        if s.line.contains("/exec") {
-            ok(r#"{"exitCode":0,"stdout":"ok","stderr":""}"#)
-        } else {
-            ok("{}")
-        }
-    });
-    let exec = go(&request(
+fn a_classic_machine_call_is_refused_before_any_request() {
+    let (origin, seen) = fake(|_| ok(r#"{"exitCode":0,"stdout":"ok","stderr":""}"#));
+    let failure = go(&request(
         &origin,
         Auth::Stack,
         "machine.io",
         json!({ "op": "exec", "machine": "m1", "command": "true", "timeout_ms": 8000 }),
     ))
-    .unwrap();
-    assert_eq!(exec["stdout"], "ok");
-    go(&request(&origin, Auth::Stack, "machine.io",
-        json!({ "op": "write", "machine": "m1", "path": "/a b", "data_base64": "aGk=", "mode": 384 }))).unwrap();
-    go(&request(
-        &origin,
-        Auth::Stack,
-        "machine.io",
-        json!({ "op": "stat", "machine": "m1", "path": "/a b" }),
-    ))
-    .unwrap();
-    let seen = seen.lock().unwrap();
-    assert_eq!(seen[0].target(), "POST /api/vm/m1/exec");
-    assert_eq!(seen[0].json(), json!({ "command": "true", "timeoutMs": 8000 }));
-    assert_eq!(seen[0].header("x-stack-refresh-token").as_deref(), Some("refresh"));
-    assert_eq!(seen[1].target(), "POST /api/vm/m1/fs/write");
-    assert_eq!(seen[1].json(), json!({ "path": "/a b", "dataBase64": "aGk=", "mode": 384 }));
-    assert_eq!(seen[2].target(), "GET /api/vm/m1/fs/stat?path=%2Fa+b");
+    .unwrap_err();
+    assert!(matches!(failure, Failure::Http { status: 501, .. }), "{failure:?}");
+    assert!(seen.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -1179,8 +1164,8 @@ fn a_sandboxed_runs_longest_wait_is_its_whole_bound() {
     let sandbox =
         request("https://cmux.com", Auth::Stack, "runs.sandbox", json!({ "timeoutMs": 1_000_000 }));
     assert_eq!(longest(&sandbox), Duration::from_millis(1_000_000 + 180_000 + 60_000));
-    let networks = request("https://cmux.com", Auth::Stack, "vm.networks", json!({}));
-    assert_eq!(longest(&networks), Duration::from_secs(960));
+    let cancel = request("https://cmux.com", Auth::Stack, "runs.cancel", json!({ "id": "r" }));
+    assert_eq!(longest(&cancel), Duration::from_secs(960));
 }
 
 #[test]
@@ -1223,7 +1208,8 @@ fn a_keyed_start_refusal_that_echoes_the_key_carries_no_service_text() {
 fn an_answer_over_the_limit_is_refused_while_it_is_read() {
     let big = format!(r#"{{"networks":"{}"}}"#, "x".repeat(MAX_ANSWER_BYTES));
     let (origin, _seen) = fake(move |_| ok(&big));
-    let failure = go(&request(&origin, Auth::Stack, "vm.networks", json!({}))).unwrap_err();
+    let failure =
+        go(&request(&origin, Auth::Stack, "runs.cancel", json!({ "id": "r" }))).unwrap_err();
     assert!(
         matches!(&failure, Failure::Transport(message) if message.contains("larger than")),
         "{failure:?}"
@@ -1232,7 +1218,7 @@ fn an_answer_over_the_limit_is_refused_while_it_is_read() {
 
 #[test]
 fn a_success_is_never_scrubbed_whatever_its_field_order() {
-    let call = request("https://cmux.com", Auth::Stack, "vm.networks", json!({}));
+    let call = request("https://cmux.com", Auth::Stack, "runs.cancel", json!({ "id": "r" }));
     let line = answer_line(&Ok(json!({ "note": "access" })));
     assert_eq!(scrub(line.clone(), &call), line);
     let refusal = answer_line(&Err(Failure::Transport("echo access".into())));
