@@ -53,7 +53,7 @@ public final class FirstRunSetup {
     /// What a launch's first-run steps do: start the card now, leave them to a card that started on an earlier
     /// launch (pending or ended: the old windows never run after it, so Bring your history's flag stays the row's),
     /// or run the first-run windows (no card ever started).
-    public enum Route: Sendable { case startCard, cardOwns, windows }
+    public enum Route: Equatable, Sendable { case startCard, cardOwns, windows }
 
     /// The launch's first-run route; starts the card when ``begin(isFirstRun:replacedKeys:screenReader:)`` does.
     public func route(isFirstRun: Bool, replacedKeys: [String], screenReader: Bool = false) -> Route {
