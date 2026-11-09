@@ -214,6 +214,29 @@ import Testing
             return
         }
     }
+
+    /// CMUX-13: `devices` empty before the first read is not "no devices". The list says it was
+    /// read only after a read succeeds, records why a read failed, and forgets both on sign-out.
+    @Test func theDeviceListSaysWhetherItWasRead() async {
+        let me = self.me, phone = self.phone
+        let failing = Locked(true)
+        let stub = StubHub { request in
+            if request.url.path == "/v1/auth/stack" { return (200, #"{"session":"hub-session","userId":"u","expiresAt":1800003600000}"#) }
+            if failing.value { return (503, #"{"error":{"code":"unavailable","message":"down"}}"#) }
+            return (200, devicesJSON([(me, "Studio"), (phone, "Phone")]))
+        }
+        let hub = makeHub(stub)
+        #expect(!hub.devicesListed && hub.devicesListError == nil)
+        await hub.refreshDevices()
+        #expect(!hub.devicesListed)
+        #expect(hub.devicesListError != nil)
+        failing.set(false)
+        await hub.refreshDevices()
+        #expect(hub.devicesListed && hub.devicesListError == nil)
+        #expect(hub.otherDevices.map(\.id) == [phone.id])
+        hub.stop()
+        #expect(!hub.devicesListed && hub.devicesListError == nil && hub.devices.isEmpty)
+    }
 }
 
 /// `{devices:[…]}` for these identities, online, with their agreement keys.
