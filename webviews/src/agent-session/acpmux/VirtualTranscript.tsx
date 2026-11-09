@@ -3968,8 +3968,9 @@ function TranscriptView({
     if (!node || !first || !canLoadOlder || room <= 0.5 || !didOpenAtLatest.current || node.clientHeight === 0) return;
     if (layoutScrollTop(node) - room >= node.clientHeight * OLDER_LATE_VIEWPORTS) return;
     // A tail shorter than the view keeps its place at the view's foot: the room left is what lies
-    // between the view's top and the rows, so nothing scrolls.
-    const next = Math.max(0, Math.floor(height - (layout.totalHeight - room)));
+    // between the view's top and the rows, so nothing scrolls (read from the scroller itself, whose
+    // height also holds the thread's own padding).
+    const next = Math.max(0, Math.floor(room - Math.max(0, node.scrollHeight - node.clientHeight)));
     if (next >= room - 0.5) return;
     setRoomGone({ sessionId, firstId: first.id, room: next });
   };
@@ -4191,7 +4192,10 @@ function TranscriptView({
     // The room above the loaded rows holds history still to load (conversation/olderReserve.ts):
     // the reader stops at the loaded rows' top, as at the top of the chat, until a page lands into
     // the room. A view inside it showed nothing, and the pages then landed under it unseen.
-    const room = latestLayout.current.layout.origin ?? 0;
+    // Once it went (`roomGone`), what is left is no history to load, only what keeps a short tail at
+    // the view's foot: nothing to hold the reader from.
+    const gone = roomGone !== undefined && roomGone.sessionId === sessionId && rows[0]?.id === roomGone.firstId;
+    const room = gone ? 0 : (latestLayout.current.layout.origin ?? 0);
     if (room > 0 && layoutScrollTop(node) < room) {
       wheelGlide.current?.stop();
       node.scrollTop = physicalScrollTop(node, room);
