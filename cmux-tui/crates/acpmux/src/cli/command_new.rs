@@ -121,4 +121,9 @@ pub struct NewArgs {
     /// NAME` prints them too.
     #[arg(long)]
     pub full: bool,
+    /// Refuse to start unless the session asks before each change: a policy narrower than
+    /// approve-all, no --mode, and a harness the reviewed asking table lists
+    /// (`hub/require_asking.rs`). The acpmux MCP server's guest `new` passes it.
+    #[arg(long, hide = true)]
+    pub require_asking: bool,
 }

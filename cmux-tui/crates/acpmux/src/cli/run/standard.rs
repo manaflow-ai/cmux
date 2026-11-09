@@ -345,6 +345,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some(m) = &args.mode {
                 meta["mode"] = json!(m);
             }
+            if args.require_asking {
+                // A daemon that does not list it would start the session unchecked.
+                if !client.daemon_lists(crate::hub::require_asking::FEATURE) {
+                    anyhow::bail!(
+                        "the running acpmux daemon is older than this CLI and cannot refuse a \
+                         start that would not ask, so nothing started; run `acpmux daemon \
+                         restart`, then try again"
+                    );
+                }
+                meta[crate::hub::require_asking::FIELD] = json!(true);
+            }
             if let Some(e) = &args.effort {
                 meta["effort"] = json!(e);
             }

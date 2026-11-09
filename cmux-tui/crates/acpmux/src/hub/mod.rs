@@ -183,6 +183,7 @@ pub(crate) use queue::approved_prompts_error;
 pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
 mod live_name;
 mod profile_respawn;
+pub(crate) mod require_asking;
 mod resolve;
 mod route_switch;
 mod stale_host_respawn;

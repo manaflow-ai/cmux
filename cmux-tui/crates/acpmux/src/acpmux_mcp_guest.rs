@@ -22,11 +22,14 @@
 //!
 //! Every session a guest starts runs under the `ask` policy ([`POLICY`]), on every machine, so
 //! the hub holds Claude in `default` and Codex in `ask` and each question goes to the person in
-//! cmux NEXT or on the phone. Only Claude and Codex may be started: another harness cannot be
-//! held to asking, so it is refused rather than started.
+//! cmux NEXT or on the phone. Only the harnesses named exactly `claude` or `codex` may be
+//! started, and with `--require-asking` the daemon refuses, before anything exists, a start
+//! whose resolved harness has no reviewed asking mode (`hub/require_asking.rs`), and the CLI
+//! refuses a daemon too old to check. A paired or Cloud machine starts a forwarded session
+//! from the same asking table.
 //!
 //! `machines` and `new` run this binary's own CLI (`acpmux --json machine ls`, `acpmux --json new
-//! --detach --policy ask --prompt-file -`), bounded under the shortest harness tool timeout, so
+//! --detach --policy ask --require-asking --prompt-file -`), bounded under the shortest harness tool timeout, so
 //! they place, name and start a session exactly as the CLI does and can do nothing it cannot.
 
 use super::*;
@@ -99,8 +102,10 @@ fn new_tool() -> Value {
 /// each change (`hub/policy_mode.rs`: Claude `default`, the Codex bridge `ask`). A guest is not
 /// the person, so it never starts a session that acts without asking.
 pub(super) const POLICY: &str = "ask";
-/// The harness families a guest may start: the ones whose asking mode the hub holds. Another
-/// (opencode, pi) cannot keep an asking policy (`web_modes.rs`), so it is refused, not started.
+/// The harness names a guest may start, exactly (a `claude-foo` or `codex-acp` profile is
+/// none of them). The daemon then checks what the name resolves to against the reviewed
+/// asking table (`--require-asking`, `hub/require_asking.rs`) and refuses a start that would
+/// not ask, such as a `codex` the person's config points at the legacy adapter.
 const HARNESSES: &[&str] = &["claude", "codex"];
 
 /// A session name as acpmux keeps it: lowercase, spaces and `/` as `-`.
@@ -130,8 +135,8 @@ pub(super) fn new_argv(app: &str, args: &Value) -> Result<(String, Vec<String>, 
         return Err("name may not start with -".to_owned());
     }
     let harness = arg(args, "harness").unwrap_or("claude");
-    let family = harness.split('/').next().unwrap_or_default();
-    if !HARNESSES.iter().any(|h| family.starts_with(h)) {
+    let head = harness.split('/').next().unwrap_or_default();
+    if !HARNESSES.contains(&head) {
         return Err(format!(
             "{harness} cannot be held to asking before each change; start claude or codex"
         ));
@@ -148,7 +153,7 @@ pub(super) fn new_argv(app: &str, args: &Value) -> Result<(String, Vec<String>, 
             argv.extend([flag.to_owned(), value.to_owned()]);
         }
     }
-    argv.extend(["--policy".to_owned(), POLICY.to_owned()]);
+    argv.extend(["--policy".to_owned(), POLICY.to_owned(), "--require-asking".to_owned()]);
     argv.extend(["--tag".to_owned(), format!("origin={app}")]);
     if args.get("showInCmux").and_then(Value::as_bool) == Some(true) {
         let group = crate::desktop_link::App::parse(app).map_or(app, |a| a.label());

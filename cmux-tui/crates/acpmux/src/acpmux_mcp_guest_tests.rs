@@ -58,6 +58,7 @@ fn new_runs_acpmux_new_detached_with_the_apps_origin() {
             "~/src/app",
             "--policy",
             "ask",
+            "--require-asking",
             "--tag",
             "origin=claude-desktop",
             "--prompt-file",
@@ -95,13 +96,16 @@ fn every_session_a_guest_starts_asks_before_it_acts() {
             }
             let (_, argv, _) = new_argv("claude-code", &args).unwrap();
             assert_eq!(policy(&argv), "ask", "{harness:?} on {machine:?}: {argv:?}");
+            assert!(argv.iter().any(|a| a == "--require-asking"), "{argv:?}");
             assert!(!argv.iter().any(|a| a == "--mode"), "{argv:?}");
             let model = argv.iter().position(|a| a == "--model").unwrap();
             assert_eq!(argv[model + 1], harness.unwrap_or("claude"));
         }
     }
     // A harness the hub cannot hold to asking is refused, not started.
-    for harness in ["opencode", "pi", "gemini/2.5"] {
+    // Exact names only: `codex-acp` (the legacy adapter), `claude-foo` and the like are refused.
+    let refused = ["opencode", "pi", "gemini/2.5", "codex-acp", "claude-foo", "codexx/y"];
+    for harness in refused {
         let e = new_argv("codex", &json!({"prompt": "x", "harness": harness})).unwrap_err();
         assert!(e.contains("cannot be held to asking"), "{harness}: {e}");
     }
