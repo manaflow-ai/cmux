@@ -86,8 +86,10 @@ struct Signals {
     /// Outstanding input, oldest first: `(sent, at)` says input up to count
     /// `sent` was first reported at `at`. A mark leaves once `handled`
     /// reaches it, so the front is the oldest input still waiting. At most
-    /// [`INPUT_MARKS`]; past that the newest mark takes the new count (its
-    /// time only overstates the age of the newest input).
+    /// [`INPUT_MARKS`]; past that the newest mark takes the new count and
+    /// the new time. A folded time is never earlier than any input it
+    /// covers, so it can only understate an age, never start a repair early;
+    /// the marks before it keep their exact times.
     input_marks: VecDeque<(u64, u64)>,
     crashed: bool,
     unresponsive_since: Option<u64>,
@@ -126,7 +128,8 @@ struct Repair {
     next_at: Option<u64>,
     /// The last action sent.
     action: RepairAction,
-    /// Actions sent to this part, never reset (each [`Action::token`]).
+    /// Actions sent to this part, never reset, and counted on from
+    /// `Health::tokens` when it registers again (each [`Action::token`]).
     sent: u64,
     failed: bool,
     /// `holdReplace` was sent for the current daemon process.
@@ -165,6 +168,9 @@ pub struct Health {
     receipts: VecDeque<Receipt>,
     /// Newest first.
     pending: VecDeque<PendingView>,
+    /// The highest token of a part that left: a part registered again
+    /// counts on from it, so its tokens never repeat an earlier one's.
+    tokens: u64,
     /// Heap entries popped by `tick` (the scale test's counter).
     #[cfg(test)]
     pub(crate) visited: u64,
@@ -339,7 +345,7 @@ impl Health {
             label: label.to_string(),
             visible,
             signals: Signals { last_beat: now, ..Signals::default() },
-            repair: Repair::default(),
+            repair: Repair { sent: self.tokens, ..Repair::default() },
             mode: Mode::Wait,
             state: State::Healthy,
             since_ms: now.unwrap_or(0),
@@ -366,7 +372,9 @@ impl Health {
     pub fn unregister(&mut self, id: &str) {
         let Some(slot) = self.ids.remove(id) else { return };
         self.set_deadline(slot, None);
-        self.slots[slot] = None;
+        if let Some(part) = self.slots[slot].take() {
+            self.tokens = self.tokens.max(part.repair.sent);
+        }
         self.free.push(slot);
         self.unhealthy.remove(id);
     }
@@ -412,7 +420,7 @@ impl Health {
                 if marks.len() < INPUT_MARKS {
                     marks.push_back((sent, now));
                 } else if let Some(back) = marks.back_mut() {
-                    back.0 = sent;
+                    *back = (sent, now);
                 }
             }
         });

@@ -287,3 +287,43 @@ fn input_marks_stay_bounded_and_keep_the_oldest_time() {
     h.input(ID, 1_000, 1_000, 2_500);
     assert_eq!(h.next_tick_ms(), Some(2_000 + 5_000));
 }
+
+#[test]
+fn a_folded_mark_partly_handled_is_timed_from_its_newest_input() {
+    let mut h = model();
+    register(&mut h, ID, Kind::Page, "Agent chat", 0);
+    // 40 reports of new input, 100 ms apart, none handled: marks 1..=31 keep
+    // their times and the 32nd covers inputs 32..=40, timed from the last.
+    for n in 1..=40u64 {
+        h.input(ID, n, 0, 1_000 + n * 100);
+        h.beat(ID, 1_000 + n * 100);
+    }
+    // Handled reaches 35, inside the folded mark: what waits was sent at
+    // 5 s at the earliest, so it is not slow before 8 s.
+    h.input(ID, 40, 35, 5_100);
+    h.beat(ID, 5_100);
+    assert_eq!(h.next_tick_ms(), Some(5_000 + 3_000));
+    assert!(run(&mut h, 7_900).is_empty());
+    assert_eq!(part(&h, ID), None);
+}
+
+#[test]
+fn a_part_registered_again_never_repeats_an_earlier_token() {
+    let mut h = model();
+    register(&mut h, ID, Kind::Page, "Agent chat", 0);
+    let first = h.tick(10_000);
+    assert_eq!(first.iter().map(|a| a.token).collect::<Vec<_>>(), vec![1]);
+    // The page closes and opens again under the same id.
+    h.unregister(ID);
+    register(&mut h, ID, Kind::Page, "Agent chat", 10_100);
+    let second = h.tick(20_100);
+    assert_eq!(
+        second.iter().map(|a| (a.action, a.attempt, a.token)).collect::<Vec<_>>(),
+        vec![(ReloadPage, 1, 2)]
+    );
+    // The closed page's result arrives late: ignored.
+    h.repair_result(ID, ReloadPage, Some(1), false, 20_200);
+    assert_eq!(h.next_tick_ms(), Some(22_100));
+    h.repair_result(ID, ReloadPage, Some(2), false, 20_300);
+    assert_eq!(h.next_tick_ms(), Some(20_300));
+}
