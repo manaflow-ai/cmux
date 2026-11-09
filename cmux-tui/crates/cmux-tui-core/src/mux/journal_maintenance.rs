@@ -424,6 +424,7 @@ impl Mux {
     /// an idle daemon would leave the whole backfill in the WAL.
     pub(super) fn backfill_sealed_reducer_records(&self) -> anyhow::Result<bool> {
         let remains = self.backfill_sealed_reducer_records_slice();
+        self.request_registry_flush();
         remains
     }
 
