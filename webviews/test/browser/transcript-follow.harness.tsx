@@ -64,12 +64,14 @@ let mediaMount: { root: ReturnType<typeof createRoot>; host: HTMLElement } | und
 // acpmux's process registry as the pane reads it for an opened background task note
 // (backgroundTaskOutput.ts): `__backgroundOutputs(outputs, delayMs)` sets what each task printed and
 // how long each reply takes, as a busy daemon answers. A task it does not know is not listed.
-const registry = { outputs: {} as Record<string, string>, delayMs: 0, lists: 0, tails: 0 };
+const registry = { outputs: {} as Record<string, string>, delayMs: 0, lists: 0, tails: 0, answered: 0 };
+// fixed-wait: the registry's reply latency is what the test sets; a note must not draw before it answers.
 const later = <T,>(value: T) => new Promise<T>((done) => setTimeout(() => done(value), registry.delayMs));
 const readers = new Map<string, BackgroundTaskOutputReader>();
 const source: BackgroundTaskOutputReader["source"] = {
   listProcesses: () => {
     registry.lists += 1;
+    // fixed-wait: a reply after the set latency (above).
     return later({
       processes: Object.keys(registry.outputs).map((toolCallId) => ({
         id: `p-${toolCallId}`,
@@ -83,7 +85,13 @@ const source: BackgroundTaskOutputReader["source"] = {
   tailProcess: (processId) => {
     registry.tails += 1;
     const bytes = new TextEncoder().encode(registry.outputs[processId.slice(2)] ?? "");
-    return later({ data: btoa(String.fromCharCode(...bytes)), fromByte: 0, nextByte: bytes.length, eof: true });
+    // fixed-wait: a reply after the set latency (above).
+    return later({ data: btoa(String.fromCharCode(...bytes)), fromByte: 0, nextByte: bytes.length, eof: true }).then(
+      (reply) => {
+        registry.answered += 1;
+        return reply;
+      },
+    );
   },
 };
 const readerFor = (id: string) => {
@@ -99,6 +107,7 @@ const readerFor = (id: string) => {
   Object.assign(registry, { outputs, delayMs });
   return registry;
 };
+(window as unknown as { __backgroundReads(): typeof registry }).__backgroundReads = () => ({ ...registry });
 const draw = () =>
   view.render(
     <BackgroundTaskOutputContext.Provider value={readerFor(sessionId)}>

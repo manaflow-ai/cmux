@@ -15,14 +15,15 @@
 // From the click to rest, every painted frame must show either nothing under the note or the whole
 // card (the command, what it printed, "[exited with code 0]", the "stream ended" line and Open in
 // terminal), never the stub; the note's height and the reply under it move in one motion; and the
-// card's height never changes once that motion ends. On Chromium at four times slower script, the
-// open stays in a frame's budget (support/foldFrameReport.ts).
+// card's height never changes once that motion ends. Opened mid-chat, the rows under it ride the
+// fold (conversation/foldRide.ts): one render of each mounted row at most, the same cost at 500 rows
+// as at 50, and on Chromium at four times slower script a frame's budget (support/foldFrameReport.ts).
 //
 // Real Chromium and WebKit from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
-import { costLine, installFoldProbe, measureToggle, SMOOTH_MS } from "./support/foldFrameReport";
+import { costLine, installFoldProbe, measureToggle, SMOOTH_MS, type FoldCost } from "./support/foldFrameReport";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -86,7 +87,25 @@ await requireBrowserLane("background-task-row-one-step-browser.test.ts", async (
       summary: `Monitor "${command}" stream ended`,
     },
   });
-  const rows = () => [
+  /// `turns` earlier and later exchanges of a prompt and a reply, around his shape.
+  const exchange = (index: number) => [
+    {
+      id: `q${index}`,
+      kind: "user",
+      version: 1,
+      at: (at += 1_000),
+      text: `Question ${index}: what does the plan leave per seat?`,
+    },
+    {
+      id: `a${index}`,
+      kind: "assistant",
+      version: 1,
+      at: (at += 1_000),
+      text: `Answer ${index}. The included usage is the worst case for the seat; machine time billed at list leaves more.`,
+    },
+  ];
+  const rows = (turns = 0) => [
+    ...Array.from({ length: Math.floor(turns / 2) }, (_, index) => exchange(index)).flat(),
     { id: "ask", kind: "user", version: 1, at: (at += 1_000), text: "we just pre-approve people sometimes?" },
     task("bg-1", "PR 39920 checks or fresh review finished"),
     task(NOTE, COMMAND),
@@ -98,6 +117,7 @@ await requireBrowserLane("background-task-row-one-step-browser.test.ts", async (
       at: (at += 1_000),
       text: "The handshakes take milliseconds; the approval is what waits.",
     },
+    ...Array.from({ length: Math.ceil(turns / 2) }, (_, index) => exchange(1_000 + index)).flat(),
   ];
 
   const settle = (page: Page) =>
@@ -152,9 +172,60 @@ await requireBrowserLane("background-task-row-one-step-browser.test.ts", async (
     );
     return page;
   };
-  const show = (page: Page) =>
-    page.evaluate((rows) => (window as unknown as { __showRawRows(rows: unknown): void }).__showRawRows(rows), rows());
+  const show = (page: Page, turns = 0) =>
+    page.evaluate(
+      (rows) => (window as unknown as { __showRawRows(rows: unknown): void }).__showRawRows(rows),
+      rows(turns),
+    );
+  /// Scrolls the row `id` to `offset` px under the view's top.
+  const bring = async (page: Page, id: string, offset = 120) => {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await page.evaluate(
+        async ({ id, offset }) => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          for (let step = 0; step < 200 && !document.querySelector(`[data-row-id="${id}"]`); step += 1) {
+            scroller.scrollTop -= scroller.clientHeight / 2;
+            await window.cmuxPaintFrame();
+          }
+          const node = document.querySelector<HTMLElement>(`[data-row-id="${id}"]`)!;
+          scroller.scrollTop += node.getBoundingClientRect().top - scroller.getBoundingClientRect().top - offset;
+        },
+        { id, offset },
+      );
+      await settle(page);
+    }
+  };
   const header = `[data-row-id="${NOTE}"] button.cv-bgtask`;
+  /// The note as the reader finds it after it sat on screen: every read the page started has
+  /// answered. A build that reads only on open starts none, so this gives up after a few seconds.
+  const readsAnswered = (page: Page) =>
+    page
+      .waitForFunction(
+        () => {
+          const reads = (
+            window as unknown as { __backgroundReads(): { tails: number; answered: number; lists: number } }
+          ).__backgroundReads();
+          return reads.lists > 0 && reads.tails === reads.answered && reads.tails >= reads.lists;
+        },
+        undefined,
+        { timeout: 3_000 },
+      )
+      .then(
+        () => true,
+        () => false,
+      );
+  /// Until the note shows its whole card, then the view's rest.
+  const whole = async (page: Page) => {
+    await page.waitForFunction(
+      (note) =>
+        (document.querySelector(`[data-row-id="${note}"] .cv-shell`)?.textContent ?? "").includes(
+          "[exited with code 0]",
+        ) && Boolean(document.querySelector(`[data-row-id="${note}"] .cv-shell .cv-bgtask__open`)),
+      NOTE,
+      { timeout: 10_000 },
+    );
+    await settle(page);
+  };
   const click = async (page: Page) => {
     const box = (await page.locator(header).boundingBox())!;
     await page.mouse.click(box.x + 24, box.y + box.height / 2);
@@ -174,8 +245,9 @@ await requireBrowserLane("background-task-row-one-step-browser.test.ts", async (
           },
           { capture: true },
         );
-        const tick = (now: number) => {
-          if (!state.on) return;
+        // Read after each frame paints: what the reader saw in that frame.
+        window.cmuxAfterPaint((now) => {
+          if (!state.on) return false;
           const row = document.querySelector<HTMLElement>(`[data-row-id="${note}"]`);
           const next = document.querySelector<HTMLElement>(`[data-row-id="${below}"]`);
           const head = row?.querySelector<HTMLElement>("button.cv-bgtask");
@@ -195,9 +267,7 @@ await requireBrowserLane("background-task-row-one-step-browser.test.ts", async (
               height: row.getBoundingClientRect().height,
               below: next.getBoundingClientRect().top - head.getBoundingClientRect().top,
             });
-          requestAnimationFrame(tick);
-        };
-        requestAnimationFrame(tick);
+        });
       },
       { note: NOTE, below: BELOW, command: COMMAND, summary: SUMMARY },
     );
@@ -229,16 +299,14 @@ await requireBrowserLane("background-task-row-one-step-browser.test.ts", async (
     belowMotions: number;
     lastChangeAfterFinal: number;
   };
-  const measure = async (page: Page, wait: number): Promise<Result> => {
+  const measure = async (page: Page, sat: boolean): Promise<Result> => {
     await show(page);
     await settle(page);
-    // The note as the reader finds it: on screen for `wait` ms (0: clicked as it arrives).
-    if (wait) await page.waitForTimeout(wait);
+    // The note as the reader finds it: on screen a while, or clicked as it arrives.
+    if (sat) await readsAnswered(page);
     await record(page);
     await click(page);
-    // Twice the registry's two replies and the fold, then rest.
-    await page.waitForTimeout(REPLY_MS * 4 + 600);
-    await settle(page);
+    await whole(page);
     const { frames, clickAt } = await collect(page);
     const after = frames.filter((frame) => frame.t >= clickAt);
     const final = after.find((frame) => frame.full);
@@ -279,13 +347,13 @@ await requireBrowserLane("background-task-row-one-step-browser.test.ts", async (
       const out: string[] = [];
       // On screen a moment first: the card is drawn whole from the click's first frames.
       let page = await open(browsers[name]!);
-      const seen = await measure(page, 1_000);
+      const seen = await measure(page, true);
       await page.close();
-      console.log(line(name, "after a second on screen", seen));
-      out.push(...failures(`${name} after a second on screen`, seen, 120));
+      console.log(line(name, "after it sat on screen", seen));
+      out.push(...failures(`${name} after it sat on screen`, seen, 120));
       // Clicked as it arrives: nothing opens until the read answers, then the whole card at once.
       page = await open(browsers[name]!);
-      const fresh = await measure(page, 0);
+      const fresh = await measure(page, false);
       await page.close();
       console.log(line(name, "clicked as it arrives", fresh));
       out.push(...failures(`${name} clicked as it arrives`, fresh, REPLY_MS * 2 + 250));
@@ -293,32 +361,47 @@ await requireBrowserLane("background-task-row-one-step-browser.test.ts", async (
     });
   }
 
-  test("chromium: opening the note stays in a frame's budget at four times slower script", async () => {
-    if (!browsers.chromium) return;
-    const page = await open(browsers.chromium);
-    await show(page);
-    await settle(page);
-    await page.waitForTimeout(1_000);
-    const cdp = await page.context().newCDPSession(page);
-    await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
-    const cost = await measureToggle(
-      page,
-      "open a background command",
-      () => click(page),
-      async () => {
-        await page.waitForTimeout(REPLY_MS * 4 + 600);
+  // Mid-chat, as the fold-lag fix measures a fold (chat-fold-frame-budget-browser.test.ts): the rows
+  // under the note ride its fold, and the open costs the same at 500 rows as at 50.
+  for (const name of Object.keys(engines) as (keyof typeof engines)[]) {
+    test(`${name}: opening the note mid-chat costs the same at 500 rows as at 50, inside a frame's budget`, async () => {
+      if (!browsers[name]) return;
+      const costs: FoldCost[] = [];
+      for (const turns of [50, 500]) {
+        const page = await open(browsers[name]!);
+        await show(page, turns);
         await settle(page);
-      },
-      cdp,
-    );
-    await page.close();
-    console.log(costLine("chromium", cost));
-    const out: string[] = [];
-    const commits = Math.max(4, Math.ceil(cost.frames / 2));
-    if (cost.commits > commits) out.push(`${cost.commits} React commits in ${cost.frames} frames (at most ${commits})`);
-    if (cost.rowRenders > cost.mounted) out.push(`${cost.rowRenders} row renders for ${cost.mounted} mounted rows`);
-    if (cost.smooth < 0.6)
-      out.push(`${Math.round(cost.smooth * 100)}% of frames within ${SMOOTH_MS} ms (at least 60%)`);
-    expect(out).toEqual([]);
-  });
+        await bring(page, NOTE);
+        await readsAnswered(page);
+        const cdp = name === "chromium" ? await page.context().newCDPSession(page) : undefined;
+        if (cdp) await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
+        costs.push(
+          await measureToggle(
+            page,
+            `open a background command at ${turns} rows`,
+            () => click(page),
+            () => whole(page),
+            cdp,
+          ),
+        );
+        await page.close();
+      }
+      for (const cost of costs) console.log(costLine(name, cost));
+      const [short, long] = costs as [FoldCost, FoldCost];
+      const out: string[] = [];
+      for (const cost of costs) {
+        const commits = Math.max(4, Math.ceil(cost.frames / 2));
+        if (cost.commits > commits)
+          out.push(`${cost.step}: ${cost.commits} React commits in ${cost.frames} frames (at most ${commits})`);
+        if (cost.rowRenders > cost.mounted)
+          out.push(`${cost.step}: ${cost.rowRenders} row renders for ${cost.mounted} mounted rows`);
+        if (name === "chromium" && cost.smooth < 0.6)
+          out.push(`${cost.step}: ${Math.round(cost.smooth * 100)}% of frames within ${SMOOTH_MS} ms (at least 60%)`);
+      }
+      if (long.mounted > short.mounted + 8)
+        out.push(`${long.mounted} rows mounted at 500 rows, ${short.mounted} at 50`);
+      if (long.commits > short.commits + 3) out.push(`${long.commits} commits at 500 rows, ${short.commits} at 50`);
+      expect(out).toEqual([]);
+    });
+  }
 });
