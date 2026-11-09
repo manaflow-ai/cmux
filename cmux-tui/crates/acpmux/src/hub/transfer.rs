@@ -234,6 +234,7 @@ impl Hub {
                 )
             }
         });
+        // timeout: a slow git read is inconclusive; the bundle's record is kept.
         meta.worktree = match tokio::time::timeout(std::time::Duration::from_secs(2), read).await {
             Ok(Ok(Some(found))) => found,
             _ => meta.worktree.take().filter(|w| w.cwd == meta.cwd),
