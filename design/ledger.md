@@ -18,11 +18,23 @@ companies/projects should typically just stay internal. We should defo build ALL
 ## Layout
 
 - The controls row: the range (24h, 7d, 30d, All) as a segmented control, then Group by
-  (Session, Workspace, Repository, Pull request, Day, Person, Provider, Model) as a select.
-- The strip: six tiles on one tonal fill (Cost, Tokens in, Tokens out, Turns, Tool calls, Agent
-  time). Numbers are compact and tabular, and the labels are captions.
-- The note line: the price table's version (small, tertiary ink), how many turns had no price,
-  and a legend for the cost-source marks.
+  (Session, Workspace, Repository, Pull request, Day, Person, Provider, Model, Account) as a
+  select, with Copy CSV before it. Account is the sign-in a chat ran on (its profile or preset),
+  so spend on an API key reads apart from a subscription's.
+- The strip: seven tiles on one tonal fill (Cost, Tokens in, Tokens out, Cache saved, Turns, Tool
+  calls, Agent time). Numbers are compact and tabular, and the labels are captions. Cache saved is
+  what cache reads saved against the input price, at the price table, whoever priced the turn.
+- The note line: the price table's version (small, tertiary ink), the share of all input read
+  from cache, how many turns had no price, what the last Copy CSV did, and a legend for the
+  cost-source marks.
+
+## Audit export
+
+Copy CSV puts the rows shown (the range and the grouping) on the clipboard with a header row:
+the group's key and label (a session adds its harness, repository, branch and models), then
+every total under the name acpmux gives it. `acpmux ledger --by DIM --csv` prints the same
+columns for scripts. A field that starts with `=`, `+`, `-` or `@` gets a `'`, so a spreadsheet
+never reads a chat title as a formula. A host without a clipboard path shows no button.
 - Rows: label and detail on the left, cost on the right with its source mark. The share against
   the largest row is a tonal fill behind the row (`transform: scaleX`, so it never causes layout).
 - There are no borders anywhere: tonal fills only.

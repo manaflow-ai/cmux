@@ -303,9 +303,11 @@ class Run:
         return {s.get("sessionId"): s for s in found if isinstance(s, dict)}
 
     def launch(self):
-        tag_state = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")
-        if os.path.isdir(tag_state) and not os.path.islink(tag_state):
-            os.rename(tag_state, f"{tag_state}.old-{int(time.time())}")
+        # NEXT's own folder and the one in classic's that a build from before it used (a new build adopts that).
+        for tag_state in (os.path.expanduser(f"~/Library/Application Support/cmux-next/tags/{TAG}"),
+                          os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")):
+            if os.path.isdir(tag_state) and not os.path.islink(tag_state):
+                os.rename(tag_state, f"{tag_state}.old-{int(time.time())}")
         if os.path.exists(SOCKET):
             os.unlink(SOCKET)
         os.makedirs(self.acp_home, exist_ok=True)

@@ -153,7 +153,7 @@ function TurnEndFoldGallery({ variant }: { variant: Variant }) {
       timers.current.push(window.setTimeout(() => setSteps(step), step * 140));
     if (variant === "live") return;
     timers.current.push(window.setTimeout(() => setEnded(true), (STEPS + 2) * 140));
-    // The fold plays on the house settle (265 ms); the line reads done once it has.
+    // The fold plays on the house settle (180 ms); the line reads done once it has.
     timers.current.push(window.setTimeout(() => setState("folded"), (STEPS + 2) * 140 + 600));
   };
   return (
