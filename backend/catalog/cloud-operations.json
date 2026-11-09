@@ -5575,7 +5575,8 @@
         "automation.invocations",
         "automation.dynamic_workers",
         "egress.requests",
-        "model.spend_usd"
+        "model.spend_usd",
+        "cloud.machine_usd"
       ]
     },
     "MovedAutomation": {
@@ -77667,7 +77668,8 @@
               "automation.invocations",
               "automation.dynamic_workers",
               "egress.requests",
-              "model.spend_usd"
+              "model.spend_usd",
+              "cloud.machine_usd"
             ]
           },
           "UsageMeterLine": {
