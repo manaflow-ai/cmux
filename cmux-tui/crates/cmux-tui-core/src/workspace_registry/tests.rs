@@ -4072,10 +4072,10 @@ fn startup_repairs_legacy_terminal_close_dangling_resource_rows() {
 
     let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
     let topology = reopened.resource_topology_snapshot().unwrap();
-    // Revision 2 is the repair; revision 3 restates the repaired pane's screen.
-    assert_eq!(topology.revision, 3);
+    // One atomic repair batch: the deletes and the restated screen.
+    assert_eq!(topology.revision, 2);
     let events = reopened.resource_events_after(1).unwrap();
-    assert_eq!(events.batches.len(), 2);
+    assert_eq!(events.batches.len(), 1);
     assert_eq!(events.batches[0].revision, 2);
     assert_eq!(events.batches[0].changes[0]["resource"], "terminal");
     // The tab that still showed the closed terminal is retired with it, so the
@@ -4085,15 +4085,15 @@ fn startup_repairs_legacy_terminal_close_dangling_resource_rows() {
     assert_eq!(events.batches[0].changes[1]["id"], tab_id(1).as_str());
     assert!(topology.tabs.is_empty(), "tab of the closed terminal remained live: {topology:?}");
     assert!(topology.panes.iter().all(|pane| pane.active_tab.is_none()));
-    // The pane lost its only tab, so its screen is restated with an empty leaf.
-    let restated = &events.batches[1];
-    assert_eq!(restated.revision, 3);
-    assert_eq!(restated.previous_revision, 2);
-    assert_eq!(restated.changes.as_array().unwrap().len(), 1, "{restated:?}");
-    assert_eq!(restated.changes[0]["kind"], "upsert");
-    assert_eq!(restated.changes[0]["resource"], "screen");
-    assert_eq!(restated.changes[0]["id"], topology.panes[0].screen_id.as_str());
-    let leaf = &restated.changes[0]["value"]["layout"]["root"];
+    // The pane lost its only tab, so the same batch restates its screen with
+    // an empty leaf.
+    let changes = events.batches[0].changes.as_array().unwrap();
+    assert_eq!(changes.len(), 3, "{changes:?}");
+    assert_eq!(changes[2]["kind"], "upsert");
+    assert_eq!(changes[2]["resource"], "screen");
+    assert_eq!(changes[2]["id"], topology.panes[0].screen_id.as_str());
+    assert_eq!(changes[2]["sequence"], 2);
+    let leaf = &changes[2]["value"]["layout"]["root"];
     assert_eq!(leaf["kind"], "leaf");
     assert_eq!(leaf["tab_ids"], json!([]));
     assert!(leaf.get("active_tab_id").is_none(), "{leaf}");
@@ -4181,15 +4181,14 @@ fn startup_repair_retires_a_dangling_terminal_tab_and_selects_its_sibling() {
     assert_eq!(changes[1]["resource"], "tab");
     assert_eq!(changes[1]["id"], tab_id(1).as_str());
 
-    // An attached event-feed client holds the pre-restart graph. After the
-    // repair commits, the registry restates the surviving sibling (its index
-    // and focus moved) and the screen whose layout lists the pane's tabs, so
-    // the client shows the repaired layout without waiting for another update.
+    // An attached event-feed client holds the pre-restart graph. The repair
+    // batch itself restates the surviving sibling (its index and focus moved)
+    // and the screen whose layout lists the pane's tabs, so the client shows
+    // the repaired layout without waiting for another update, and no state
+    // between the deletes and the restatement is ever published.
     let page = reopened.resource_events_after(1).unwrap();
-    let restated = page.batches[1..]
-        .iter()
-        .flat_map(|batch| batch.changes.as_array().unwrap().iter())
-        .collect::<Vec<_>>();
+    assert_eq!(page.batches.len(), 1, "{:?}", page.batches);
+    let restated = page.batches[0].changes.as_array().unwrap().iter().collect::<Vec<_>>();
     let upsert = |resource: &str, id: &str| {
         restated
             .iter()
