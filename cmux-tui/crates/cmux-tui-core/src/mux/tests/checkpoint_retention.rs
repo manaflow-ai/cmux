@@ -10,6 +10,7 @@
 
 use super::*;
 use crate::workspace_registry::{JOURNAL_CHECKPOINTS_KEPT, new_uuid_v4};
+use std::path::PathBuf;
 
 const ROUNDS: usize = 40;
 
