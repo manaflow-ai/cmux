@@ -86,7 +86,8 @@ impl StartupTimings {
         let Some((_, started)) = marks.first().copied() else { return Self::start() };
         let mut timings = Self { started, mark: started, steps: Vec::new() };
         for (step, at) in marks.into_iter().skip(1) {
-            timings.steps.push((step, at.saturating_duration_since(timings.mark)));
+            let took = at.saturating_duration_since(timings.mark);
+            timings.steps.push(Step { name: Cow::Borrowed(step), took, rows: None });
             timings.mark = at;
         }
         timings.lap(rest);
