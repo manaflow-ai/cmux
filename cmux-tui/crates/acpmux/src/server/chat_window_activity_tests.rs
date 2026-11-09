@@ -1,6 +1,7 @@
 //! A window recomputes for an activity change of a chat it shows, and for the changes no row of
 //! it names: a session that moved to another chat (the chat it left changes too), and a session
-//! whose tag expires (a lapsed `archived` folds its children again) (review of the window skip).
+//! whose tag expires (a lapsed `archived` folds its children again), and a chat past the page
+//! whose fold decides `hasMore` (review of the window skip).
 
 use crate::chats::ChatSources;
 use crate::config::{Config, StoreMode};
@@ -146,5 +147,54 @@ async fn a_parents_archive_that_lapses_folds_its_child_on_the_next_record_of_any
     hub.append(&other, "mux", "status", json!({"status": "idle"}));
     let diff = next_window(&mut out).await;
     assert!(!keys(&diff).contains(&chat(0)), "the child folds under its parent again: {diff}");
+    drop(input);
+}
+
+/// The next window message whose `hasMore` is `more` (one record's recompute may come later).
+async fn has_more_becomes(out: &mut mpsc::Receiver<String>, more: bool) -> Value {
+    loop {
+        let message = next_window(out).await;
+        if message["hasMore"] == more {
+            return message;
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_chat_past_the_page_that_folds_or_unfolds_moves_has_more() {
+    let Setup { _home, hub, input, mut out } = setup().await;
+    // Chat 1 has two sessions: a child of chat 0's session, and one of its own. The newest of
+    // them (each record makes it so) decides whether chat 1 folds; the child is, at first.
+    let parent = session(&hub, "s-parent", 0, false);
+    let child = session(&hub, "s-child", 1, false);
+    let own = session(&hub, "s-own", 1, false);
+    hub.edit_test_meta(&child, |m| {
+        let tag = crate::store::Tag { value: "s-parent".into(), expires_at: None };
+        m.tags.insert("spawnedBy".into(), tag);
+        m.updated_at = 2;
+    });
+    // One row: chat 2. Chat 1 comes after it, folded; chat 0 is open elsewhere.
+    let open = json!({"window": "w", "limit": 1, "topLevel": true, "exclude": [chat(0)]});
+    input.send(Message::request(2, "_acpmux/chats_window", open).to_line()).await.unwrap();
+    let full = next_window(&mut out).await;
+    assert_eq!(keys(&full), vec![chat(2)], "{full}");
+    assert_eq!(full["hasMore"], false, "{full}");
+
+    // A record of each session (a first one recomputes); the child stays newest.
+    hub.append(&parent, "mux", "status", json!({"status": "idle"}));
+    hub.append(&child, "mux", "status", json!({"status": "idle"}));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    hub.append(&own, "mux", "status", json!({"status": "idle"}));
+    has_more_becomes(&mut out, true).await;
+
+    // Every session is known now. The first chat past the page folds: nothing more to show.
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    hub.append(&child, "mux", "status", json!({"status": "idle"}));
+    has_more_becomes(&mut out, false).await;
+    // And chat 1, folded past the page, unfolds: more again.
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    hub.append(&own, "mux", "status", json!({"status": "idle"}));
+    let diff = has_more_becomes(&mut out, true).await;
+    assert_eq!(keys(&diff), vec![chat(2)], "{diff}");
     drop(input);
 }

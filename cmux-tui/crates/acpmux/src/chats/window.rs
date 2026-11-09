@@ -170,9 +170,10 @@ pub struct WindowRows {
     /// A query window that searches what was said, before every chat was read once: more chats may
     /// match as they are read, so a client keeps the query open until this goes false.
     pub filling: bool,
-    /// The chats a `topLevel` walk left out for their `parent` before the window filled: one
-    /// whose parent goes would take a row ([`WindowState::shows_activity_of`]). Not shown, so
-    /// not compared.
+    /// The chats a walk read but shows no row of: those a `topLevel` walk left out for their
+    /// `parent` (one whose parent goes would take a row, or past the page make `hasMore` true)
+    /// and the first chat past the page (folded, it may make `hasMore` false). Their activity
+    /// recomputes the window ([`WindowState::shows_activity_of`]). Not shown, so not compared.
     pub folded: HashSet<String>,
 }
 
@@ -279,14 +280,15 @@ pub fn rows(
             continue;
         }
         if spec.top_level && activity.has_parent(&key) {
-            if window.rows.len() < spec.filter.limit {
-                window.folded.insert(key);
-            }
+            // Past the page too: one that unfolds there makes `hasMore` true.
+            window.folded.insert(key);
             continue;
         }
         if window.rows.len() == spec.filter.limit {
             window.has_more = true;
             if !spec.count {
+                // The first chat past the page: folding it may make `hasMore` false.
+                window.folded.insert(key);
                 break;
             }
             // Counted only: no value is built for a chat past the page.
@@ -413,9 +415,10 @@ impl WindowState {
     /// windows are recomputed (`server/chat_windows.rs`). A chat's activity changes its own row
     /// (its `attention`, `preview`, `parent`) and, in a `topLevel` window, whether it is folded
     /// under its parent; never the index order or the filter. So a window recomputes for a chat
-    /// it shows, names as a row's parent or folded within its page, and for a `tags` or `purged`
-    /// record (a parent's tags or its going decide whether its children fold). A `topLevel`
-    /// window that ranks a query or counts its total reads every chat's fold, so any chat counts.
+    /// it shows, names as a row's parent, folded or read past its page, and for a `tags` or
+    /// `purged` record (a parent's tags or its going decide whether its children fold). A
+    /// `topLevel` window that ranks a query or counts its total reads every chat's fold, so any
+    /// chat counts.
     /// Before, every status, turn and permission record of any session recomputed every window
     /// of every connection: with ~3,000 chats, each read the whole index.
     pub fn shows_activity_of(&self, chat: Option<&str>, kind: &str) -> bool {
@@ -641,7 +644,7 @@ mod tests {
         });
         assert!(state.shows_activity_of(Some("a:1"), "status"), "a row it shows");
         assert!(state.shows_activity_of(Some("a:7"), "turn_end"), "a row's parent");
-        assert!(state.shows_activity_of(Some("a:5"), "status"), "folded within the page");
+        assert!(state.shows_activity_of(Some("a:5"), "status"), "folded or read past the page");
         assert!(!state.shows_activity_of(Some("a:9"), "status"), "a chat past the window");
         assert!(!state.shows_activity_of(None, "status"), "a session with no chat");
         assert!(state.shows_activity_of(Some("a:9"), "tags"), "tags may fold or unfold rows");
