@@ -104,8 +104,10 @@ public final class AppHealthIndicatorView: NSView {
         }
     }
 
+    /// The whole line takes the click, its label included. `point` is in the superview's coordinates
+    /// (`NSView.hitTest(_:)`), which AppKit's own test converts; a hidden line takes none.
     override public func hitTest(_ point: NSPoint) -> NSView? {
-        !isHidden && frame.contains(point) ? self : nil
+        super.hitTest(point) == nil ? nil : self
     }
 
     override public func mouseDown(with event: NSEvent) {}

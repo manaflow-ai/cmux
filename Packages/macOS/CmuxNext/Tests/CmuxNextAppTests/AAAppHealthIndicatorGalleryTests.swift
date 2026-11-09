@@ -57,6 +57,22 @@ import Testing
         #expect(view.accessibilityPerformPress() && pressed)
     }
 
+    /// Codex's review of #39247 at 39099ce: the line sits after the avatar, at a nonzero origin in the
+    /// footer, and a click there must reach it (AppKit hit-tests in the superview's coordinates).
+    @Test func aClickOnTheLineAfterTheAvatarReachesIt() {
+        let footer = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 30))
+        let view = AppHealthIndicatorView()
+        footer.addSubview(view)
+        view.show(Self.states[2].1)
+        view.frame = NSRect(x: 40, y: 6, width: 150, height: 18)
+        view.layoutSubtreeIfNeeded()
+        #expect(footer.hitTest(NSPoint(x: 60, y: 15)) === view, "a click on the label")
+        #expect(footer.hitTest(NSPoint(x: 42, y: 15)) === view, "a click on the dot")
+        #expect(footer.hitTest(NSPoint(x: 20, y: 15)) !== view, "a click on the avatar's place")
+        view.show(Self.states[0].1)
+        #expect(footer.hitTest(NSPoint(x: 60, y: 15)) !== view, "a hidden line takes no click")
+    }
+
     @Test func theRestoringCardsDetailsIsOptIn() {
         #expect(SidebarNoticeCard.restoring("Restoring sessions… 4m 12s").actions.isEmpty)
         let card = SidebarNoticeCard.restoring("Restoring sessions… 4m 12s", withDetails: true)
