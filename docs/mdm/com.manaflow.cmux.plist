@@ -613,7 +613,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>previousNeighbor</string>
+			<string>mostRecent</string>
 			<key>pfm_description</key>
 			<string>Which pane gets focus when the focused pane closes.</string>
 			<key>pfm_name</key>
@@ -960,6 +960,18 @@
 			<string>Keep Mac Awake While Agents Work</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work.</string>
+			<key>pfm_name</key>
+			<string>sessions.keepAwakeForCommands</string>
+			<key>pfm_title</key>
+			<string>Also While Terminal Commands Run</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -2920,9 +2932,9 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>compact</string>
+			<string>cozy</string>
 			<key>pfm_description</key>
-			<string>Row height, padding, corners, icons and text size together. Compact is the default.</string>
+			<string>Row height, padding, corners, icons and text size together.</string>
 			<key>pfm_name</key>
 			<string>appearance.density</string>
 			<key>pfm_range_list</key>
@@ -2959,6 +2971,8 @@
 		<dict>
 			<key>pfm_default</key>
 			<integer>1</integer>
+			<key>pfm_description</key>
+			<string>Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app.</string>
 			<key>pfm_name</key>
 			<string>app.uiScale</string>
 			<key>pfm_range_max</key>
@@ -2966,13 +2980,13 @@
 			<key>pfm_range_min</key>
 			<real>0.84999999999999998</real>
 			<key>pfm_title</key>
-			<string>Interface Scale</string>
+			<string>App Zoom</string>
 			<key>pfm_type</key>
 			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_description</key>
-			<string>Text size of tabs, the sidebar and other controls. Terminal text has its own size.</string>
+			<string>Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size.</string>
 			<key>pfm_name</key>
 			<string>appearance.metrics.chromeFontSize</string>
 			<key>pfm_range_max</key>
@@ -2980,7 +2994,7 @@
 			<key>pfm_range_min</key>
 			<real>10</real>
 			<key>pfm_title</key>
-			<string>Interface Size</string>
+			<string>Text Size</string>
 			<key>pfm_type</key>
 			<string>real</string>
 		</dict>

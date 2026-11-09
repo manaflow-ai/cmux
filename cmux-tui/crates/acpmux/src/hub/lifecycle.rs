@@ -382,6 +382,11 @@ impl Hub {
             // Read before the session is published: a stop from then on ends its first start.
             let stops = session.stops.load(Ordering::SeqCst);
             sessions.insert(id.clone(), session.clone());
+            // A purge this run fenced the id (a trigger's fixed id, recreated): the new chat's
+            // answers and spend are recorded again. Sent under the insert lock, so before any of
+            // its records.
+            self.audit.reopen(&id);
+            self.ledger.reopen(&id);
             super::admission::claim(&id);
             (session, stops)
         };
@@ -1297,6 +1302,8 @@ impl Hub {
         }
         // A new harness runs none of the background subagents of one it replaced.
         self.end_background_subagents(session);
+        // Nor has its sandbox refused anything yet (`harness_sandbox.rs`).
+        self.harness_sandbox_recovered(session, "respawn");
         self.wake_idle_reaper();
 
         // Start the inbound loop for this session once.

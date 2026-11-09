@@ -111,6 +111,23 @@ fn a_worktree_is_still_made_only_with_its_folder_and_branch() {
     // Another stamp in its registration: not the worktree made.
     let other = crate::store::MadeWorktree { stamp: Some("abcdef".to_owned()), ..made.clone() };
     assert!(still_made(&other).is_err());
+    // Where the file system records no creation time, the stamp alone decides.
+    let no_time = crate::store::MadeWorktree { born: None, ..made.clone() };
+    assert_eq!(still_made(&no_time), Ok(()));
+    assert!(still_made(&crate::store::MadeWorktree { born: None, ..other.clone() }).is_err());
+    // With neither, nothing tells it from a worktree made again at its path: it stays.
+    let neither = crate::store::MadeWorktree { stamp: None, ..no_time.clone() };
+    assert!(still_made(&neither).unwrap_err().contains("nothing recorded"));
+    // An agent's FIFO in the stamp's place never hangs the check, and is no stamp.
+    let stamp_file = admin.join(crate::subsession_worktree::MADE_STAMP);
+    std::fs::remove_file(&stamp_file).unwrap();
+    let c = std::ffi::CString::new(stamp_file.to_str().unwrap()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+    let started = std::time::Instant::now();
+    assert!(still_made(&made).is_err());
+    assert!(started.elapsed() < std::time::Duration::from_secs(2), "a FIFO blocked the check");
+    std::fs::remove_file(&stamp_file).unwrap();
+    std::fs::write(&stamp_file, "0f1e2d").unwrap();
     // Its agent moved it to another branch: no longer the worktree made for the run.
     std::fs::write(admin.join("HEAD"), "ref: refs/heads/main\n").unwrap();
     assert!(still_made(&made).is_err());
@@ -138,9 +155,9 @@ fn a_worktree_is_still_made_only_with_its_folder_and_branch() {
         ..made.clone()
     };
     assert!(still_made(&same_inode).is_err());
-    // A record from before stamps were written is still checked by its folder and branch alone.
+    // A record from before stamps were written, with no creation time either, is refused too.
     let unstamped = crate::store::MadeWorktree { stamp: None, ..same_inode.clone() };
-    assert_eq!(still_made(&unstamped), Ok(()));
+    assert!(still_made(&unstamped).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -176,13 +193,15 @@ fn a_fifo_at_its_git_files_never_hangs_the_identity_check() {
     std::fs::create_dir_all(&admin).unwrap();
     std::fs::write(root.join(".git"), format!("gitdir: {}\n", admin.display())).unwrap();
     fifo(&admin.join("HEAD"));
+    // Stamped, so the check reads on past the stamp to HEAD and `.git`.
+    std::fs::write(admin.join(crate::subsession_worktree::MADE_STAMP), "0f1e2d").unwrap();
     let made = crate::store::MadeWorktree {
         root: root.clone(),
         pin: crate::cwd_pin::CwdPin::of(&root),
         born: crate::store::MadeWorktree::born_of(&std::fs::File::open(&root).unwrap()),
         branch: "cmux/run-1".to_owned(),
         base: None,
-        stamp: None,
+        stamp: Some("0f1e2d".to_owned()),
     };
     let started = std::time::Instant::now();
     assert!(still_made(&made).is_err(), "a FIFO at HEAD is no branch");

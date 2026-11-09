@@ -39,7 +39,7 @@ pub(crate) fn subagent_line(name: &str, label: &str) -> String {
     format!(
         "From another agent ({name}'s {label}), not the person. End your turn with your answer: \
 acpmux gives it to that subagent, or to {name} once the subagent has ended. Do not send it to \
-{name} yourself (acpmux send, SendMessage):"
+{name} yourself (send, acpmux send, SendMessage):"
     )
 }
 

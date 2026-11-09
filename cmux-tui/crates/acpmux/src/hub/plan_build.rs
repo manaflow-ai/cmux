@@ -838,6 +838,13 @@ pub(crate) fn still_made_at(
     {
         return Err("the folder at its path is no longer the worktree it was made in");
     }
+    // With neither a stamp nor a creation time, its device and inode are all that is left, and a
+    // file system hands a freed inode out again: a worktree made again at its path would pass.
+    if made.stamp.is_none() && made.born.is_none() {
+        return Err(
+            "nothing recorded tells this worktree from one made again at its path; it stays",
+        );
+    }
     // An agent writes these: read bounded, so a FIFO or a link to `/dev/zero` there never
     // hangs or grows the daemon.
     use cmux_worktree_care::bounded::{GIT_FILE_BYTES, read_text};

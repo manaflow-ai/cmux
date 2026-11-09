@@ -77,7 +77,7 @@ import Testing
             #expect(Typography.body.pointSize == 16)
             #expect(TypeScale.body > nativeDefault)
             let script = DesignSettings.shared.interfaceScaleScript(pageZoom: 1.5625)
-            #expect(script.contains("--cmux-interface-scale', '\(Typography.userScale)'"))
+            #expect(script.contains("--cmux-interface-scale', '\(Typography.pageScale)'"))
             #expect(script.contains("--cmux-ui-scale', '1.5625'"))
             #expect(script.contains("cmux-ui-scale-change"))
             let descriptor = try #require(SettingsSchema.descriptor(for: ["appearance", "metrics", "chromeFontSize"]))

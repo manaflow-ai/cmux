@@ -134,6 +134,14 @@ pub struct ForkRequest {
     pub child_id: String,
 }
 
+/// A person's return to a chat that kept working (`hub/seen.rs`): the log seq they had seen when
+/// they left, and how many turns ended while nobody showed it.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+pub struct LastReturn {
+    pub since: u64,
+    pub turns: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
@@ -324,6 +332,19 @@ pub struct SessionMeta {
     /// A turn ended while no client was attached.
     #[serde(default)]
     pub unread: bool,
+    /// The log seq the person had seen when they last stopped showing the chat (`hub/seen.rs`):
+    /// where "New since you looked" goes when they come back. Set once per hide, never per
+    /// record; None until a person has shown and left it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seen_seq: Option<u64>,
+    /// Turns that ended unseen since the person last showed the chat (the sidebar's count).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub unread_turns: u64,
+    /// The person's return to the chat after turns ended unseen, kept while they stay on it: a
+    /// client that opens it then draws "New since you looked" at `since`, however its attach and
+    /// its list read race. Cleared when the last client showing it stops.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_return: Option<LastReturn>,
     /// The Claude conversation acpmux started with a fresh id has not
     /// finished a turn, so Claude may never have stored it (a launcher that
     /// died before the prompt reached Claude stores nothing). A respawn (a
@@ -369,6 +390,10 @@ pub struct SessionMeta {
     /// Classified harness attempts, projected from turn results; old stores default empty.
     #[serde(default)]
     pub harness_failures: crate::session_liveness::HarnessFailures,
+    /// Its harness's own command sandbox: first refusal and whether it refuses now
+    /// (`hub/harness_sandbox.rs`); old stores default to none.
+    #[serde(default, skip_serializing_if = "crate::session_liveness::HarnessSandbox::is_none")]
+    pub harness_sandbox: crate::session_liveness::HarnessSandbox,
     /// Created over a remote-origin connection (the WebSocket listener):
     /// its harness never spawns with a preset's args or system prompt.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -1412,6 +1437,32 @@ struct StatusOnly {
     status: SessionStatus,
 }
 
+/// The event logs' write budget per kind (`cmux_tui_platform::write_budget`): a kind past 8 MiB
+/// or 20,000 records an hour, or one whose records mostly repeat, is a writer to fix.
+static EVENT_LOG_BUDGET: std::sync::LazyLock<cmux_tui_platform::write_budget::WriteBudget> =
+    std::sync::LazyLock::new(|| {
+        cmux_tui_platform::write_budget::WriteBudget::new(
+            "acpmux event log",
+            cmux_tui_platform::write_budget::WriteLimits {
+                bytes: 8 << 20,
+                records: 20_000,
+                repeat_percent: 50,
+                repeat_floor: 200,
+            },
+        )
+    });
+
+/// Counts `record`, `bytes` on disk, against [`EVENT_LOG_BUDGET`] where budgets count (debug
+/// builds, tests, `CMUX_WRITE_BUDGET=1`), and warns once a kind is over.
+fn note_write_budget(record: &EventRecord, bytes: usize) {
+    if !cmux_tui_platform::write_budget::WriteBudget::enabled() {
+        return;
+    }
+    if let Some(warning) = EVENT_LOG_BUDGET.note(&record.kind, bytes, &record.msg, now_ms()) {
+        tracing::warn!("{warning}");
+    }
+}
+
 impl LocalStore {
     /// One whole serialized record (`line` ends with its newline) at the end of `id`'s log: the
     /// body of [`Store::append`], and the journal store's write of a journaled line
@@ -1585,6 +1636,7 @@ impl Store for LocalStore {
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         let mut line = serde_json::to_string(record)?;
         line.push('\n');
+        note_write_budget(record, line.len());
         self.append_line(id, line.as_bytes())
     }
 
