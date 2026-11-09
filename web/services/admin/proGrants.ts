@@ -45,6 +45,26 @@ export type AdminGrantablePlanId = (typeof ADMIN_GRANTABLE_PLAN_IDS)[number];
 
 export const ADMIN_USER_SEARCH_LIMIT = 25;
 export const ADMIN_USER_SEARCH_MIN_QUERY_LENGTH = 2;
+/** Stack teams read per call while skipping test teams. */
+export const ADMIN_TEAM_SEARCH_PAGE_SIZE = 100;
+/** Stack pages one team search reads before it hands back a cursor. */
+export const ADMIN_TEAM_SEARCH_MAX_PAGES = 5;
+const ADMIN_TEAM_MEMBER_COUNT_CONCURRENCY = 8;
+
+/**
+ * The personal team Stack gives each probe account at sign-up is named after
+ * the account: `cmux <env> smoke` (web/scripts/cloud-vm/smoke-vm-api.mjs),
+ * `cmux <env> stress <n>` (stress-vm-api.mjs), `cmux <env> startup bench`
+ * (bench-vm-startup.mjs), `cmux dogfood` (dogfood-journey.mjs), `cmux Iroh
+ * production gate` (scripts/lib/temporary-stack-user.mjs), and the retired
+ * `team check` and `freestyle rpc smoke` probes.
+ */
+const PROBE_TEAM_NAME =
+  /^cmux (?:(?:prod|production|staging|dev) (?:smoke|team check|freestyle rpc smoke|stress \d+|startup bench)|dogfood|Iroh production gate)'s Team$/;
+
+export function isProbeTeamName(displayName: string): boolean {
+  return PROBE_TEAM_NAME.test(displayName);
+}
 
 export type AdminStackUser = {
   readonly id: string;
@@ -83,7 +103,11 @@ export type AdminStackApp = {
     includeRestricted?: boolean;
   }): Promise<readonly AdminStackUser[]>;
   getTeam(teamId: string): Promise<AdminStackTeam | null>;
-  listTeams(options: { query?: string; limit?: number }): Promise<readonly AdminStackTeam[]>;
+  listTeams(options: {
+    query?: string;
+    limit?: number;
+    cursor?: string;
+  }): Promise<readonly AdminStackTeam[] & { readonly nextCursor?: string | null }>;
 };
 
 export type AdminTeamRow = {
@@ -92,6 +116,8 @@ export type AdminTeamRow = {
   readonly createdAt: string | null;
   /** Null when member listing failed. */
   readonly memberCount: number | null;
+  /** An empty personal team left by a probe account (isProbeTeamName). */
+  readonly isTestTeam: boolean;
   /** Effective Team access: Stripe team subscription or a paid manual grant. */
   readonly isTeam: boolean;
   readonly manualPlanId: string | null;
@@ -407,21 +433,81 @@ function defaultWithFreshUser(app: AdminStackApp): FreshAdminUserMutation {
 // ---------------------------------------------------------------------------
 // Teams
 
+export type AdminTeamSearchPage = {
+  readonly teams: AdminTeamRow[];
+  /** Pass back as `cursor` for the next page; null when Stack has no more. */
+  readonly nextCursor: string | null;
+  /** Empty probe teams skipped on this page (0 with includeTestTeams). */
+  readonly hiddenTestTeams: number;
+};
+
+/**
+ * One page of teams matching `query` (display name, or an exact Stack id).
+ * Stack lists oldest first, so a common word like "cmux" can fill a page
+ * with empty probe teams. By default those are skipped and the search keeps
+ * reading Stack pages until it has a full page of other teams, reaching the
+ * end, or ADMIN_TEAM_SEARCH_MAX_PAGES; `nextCursor` resumes from there.
+ */
 export async function searchAdminTeams(
   query: string,
   options: {
     readonly app?: AdminStackApp;
     readonly stripeBillingStatus?: (teamId: string) => Promise<StripeBillingStatus>;
+    readonly cursor?: string | null;
+    readonly includeTestTeams?: boolean;
   } = {},
-): Promise<AdminTeamRow[]> {
+): Promise<AdminTeamSearchPage> {
   const trimmed = query.trim();
-  if (trimmed.length < ADMIN_USER_SEARCH_MIN_QUERY_LENGTH) return [];
+  if (trimmed.length < ADMIN_USER_SEARCH_MIN_QUERY_LENGTH) return { teams: [], nextCursor: null, hiddenTestTeams: 0 };
   const app = options.app ?? defaultAdminStackApp();
-  const teams = await app.listTeams({ query: trimmed, limit: ADMIN_USER_SEARCH_LIMIT });
   const billing = options.stripeBillingStatus ?? stripeBillingStatusForTeam;
-  return await Promise.all(
-    teams.map(async (team) => adminTeamRow(team, await billing(team.id), await memberCount(team))),
+  const includeTestTeams = options.includeTestTeams === true;
+  const kept: Array<{ team: AdminStackTeam; members: number | null }> = [];
+  let hiddenTestTeams = 0;
+  let cursor = options.cursor ?? null;
+  for (let page = 0; page < (includeTestTeams ? 1 : ADMIN_TEAM_SEARCH_MAX_PAGES); page += 1) {
+    const teams = await app.listTeams({
+      query: trimmed,
+      limit: includeTestTeams ? ADMIN_USER_SEARCH_LIMIT : ADMIN_TEAM_SEARCH_PAGE_SIZE,
+      ...(cursor ? { cursor } : {}),
+    });
+    const counted = await mapLimited(teams, ADMIN_TEAM_MEMBER_COUNT_CONCURRENCY, async (team) => ({
+      team,
+      members: await memberCount(team),
+    }));
+    for (const row of counted) {
+      if (!includeTestTeams && isTestTeam(row.team, row.members)) hiddenTestTeams += 1;
+      else kept.push(row);
+    }
+    cursor = teams.nextCursor ?? null;
+    if (!cursor || kept.length >= ADMIN_USER_SEARCH_LIMIT) break;
+  }
+  const rows = await Promise.all(
+    kept.map(async ({ team, members }) => adminTeamRow(team, await billing(team.id), members)),
   );
+  return { teams: rows, nextCursor: cursor, hiddenTestTeams };
+}
+
+function isTestTeam(team: AdminStackTeam, members: number | null): boolean {
+  return members === 0 && isProbeTeamName(team.displayName);
+}
+
+async function mapLimited<Item, Result>(
+  items: readonly Item[],
+  limit: number,
+  work: (item: Item) => Promise<Result>,
+): Promise<Result[]> {
+  const results = new Array<Result>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await work(items[index]!);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 /** Null when the provider could not list members; the UI then blocks a Team grant. */
@@ -444,6 +530,7 @@ export function adminTeamRow(
     displayName: team.displayName,
     createdAt: team.createdAt ? team.createdAt.toISOString() : null,
     memberCount: members,
+    isTestTeam: isTestTeam(team, members),
     isTeam: stripe.hasActiveSubscription || isPaidPlanId(manualPlanId),
     manualPlanId,
     metadataPlanId: metadataPlanId(team.clientReadOnlyMetadata),

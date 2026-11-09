@@ -13,6 +13,7 @@ import {
   setManualPlanGrant,
 } from "../../../../services/admin/proGrants";
 import { auditRequestId, withAdminAudit } from "../../../../services/admin/auditLog";
+import { isValidScanCursor } from "../../../../services/admin/proList";
 import {
   adminJsonResponse,
   readJsonBody,
@@ -22,21 +23,38 @@ import { enforceBrowserMutationProtection } from "../../../../services/vms/route
 
 const MAX_QUERY_LENGTH = 200;
 
-/** GET /api/admin/users?q=<email, name, or id> — users, teams, and pending email grants. */
+/**
+ * GET /api/admin/users?q=<email, name, or id>[&teamsCursor=<cursor>][&showTestTeams=1]
+ * — users, one page of teams, and pending email grants. Empty probe teams are
+ * left out of `teams` unless showTestTeams=1; `hiddenTestTeams` counts them,
+ * and `teamsNextCursor` (when set) fetches the next page of teams.
+ */
 export async function GET(request: NextRequest) {
   const gate = await requireAdmin(request);
   if (!gate.ok) return gate.response;
 
-  const query = (request.nextUrl.searchParams.get("q") ?? "").trim();
+  const params = request.nextUrl.searchParams;
+  const query = (params.get("q") ?? "").trim();
   if (query.length < ADMIN_USER_SEARCH_MIN_QUERY_LENGTH || query.length > MAX_QUERY_LENGTH) {
     return adminJsonResponse({ error: "invalid_query" }, 400);
   }
-  const [users, teams, pendingGrants] = await Promise.all([
+  const teamsCursor = params.get("teamsCursor");
+  if (teamsCursor !== null && !isValidScanCursor(teamsCursor)) {
+    return adminJsonResponse({ error: "invalid_cursor" }, 400);
+  }
+  const includeTestTeams = params.get("showTestTeams") === "1";
+  const [users, teamPage, pendingGrants] = await Promise.all([
     searchAdminUsers(query),
-    searchAdminTeams(query),
+    searchAdminTeams(query, { cursor: teamsCursor, includeTestTeams }),
     listPendingEmailGrantsSafely(query),
   ]);
-  return adminJsonResponse({ users, teams, pendingGrants });
+  return adminJsonResponse({
+    users,
+    teams: teamPage.teams,
+    teamsNextCursor: teamPage.nextCursor,
+    hiddenTestTeams: teamPage.hiddenTestTeams,
+    pendingGrants,
+  });
 }
 
 /** POST /api/admin/users { userId, plan: "pro" | "max" | "founders" | null } */
