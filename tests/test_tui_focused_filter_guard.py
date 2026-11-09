@@ -66,8 +66,18 @@ def test_macos_job_runs_the_focused_filter() -> None:
 
 def _run_focused(listing: str, ignored: str, extra_env: dict[str, str] | None = None) -> tuple[int, str]:
     """Run the focused script against a fake cargo that prints LISTING / IGNORED for --list."""
+    code, calls, _ = _run_focused_with_output(listing, ignored, extra_env)
+    return code, calls
+
+
+def _run_focused_with_output(
+    listing: str, ignored: str, extra_env: dict[str, str] | None = None
+) -> tuple[int, str, str]:
+    """Like _run_focused, and also return what the script wrote to $GITHUB_OUTPUT."""
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
+        github_output = root / "github-output"
+        github_output.write_text("", encoding="utf-8")
         log = root / "cargo.log"
         cargo = root / "cargo"
         cargo.write_text(
@@ -85,10 +95,16 @@ def _run_focused(listing: str, ignored: str, extra_env: dict[str, str] | None = 
             check=False,
             capture_output=True,
             text=True,
-            env={"PATH": f"{root}:/usr/bin:/bin", "RUNNER_TEMP": str(root), **(extra_env or {})},
+            env={
+                "PATH": f"{root}:/usr/bin:/bin",
+                "RUNNER_TEMP": str(root),
+                "GITHUB_OUTPUT": str(github_output),
+                **(extra_env or {}),
+            },
         )
         calls = log.read_text(encoding="utf-8") if log.exists() else ""
-    return result.returncode, calls
+        outputs = github_output.read_text(encoding="utf-8")
+    return result.returncode, calls, outputs
 
 
 def test_focused_script_fails_when_the_filter_selects_nothing() -> None:
@@ -98,23 +114,78 @@ def test_focused_script_fails_when_the_filter_selects_nothing() -> None:
 
 
 def test_a_host_that_compiles_none_of_the_filtered_tests_passes_when_allowed() -> None:
-    """Linux-only test files (#![cfg(target_os = "linux")]) compile to nothing on macOS.
+    """Host-only test files (#![cfg(target_os = "linux")], macOS-only tests) compile to nothing elsewhere.
 
     A focused dispatch for bring_back_journey or cloud_move_journey ran them on Linux
-    and then failed macOS with "selected no Rust tests". The macOS job allows a host
-    with no matching test; Linux stays strict, so a typo still fails the dispatch.
+    and then failed macOS with "selected no Rust tests". A macOS-only filter
+    (macos_app_support_loads_after_xdg, run 42626993043, 2026-11-09) failed Linux the
+    same way. Both jobs allow a host with no matching test and report the count;
+    hosted verification fails the run when neither host ran one, so a typo still fails.
     """
     code, calls = _run_focused("", "", {"CMUX_TUI_FOCUSED_ALLOW_NONE_ON_HOST": "1"})
     assert code == 0
     assert "some_filter -- --test-threads=2" not in calls
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    for job_name, allowed in (("macos", "1"), ("test", None)):
+    for job_name, allowed in (("macos", "1"), ("test", "1")):
         step = next(
             step
             for step in workflow["jobs"][job_name]["steps"]
             if "cmux-tui-focused-test.sh" in str(step.get("run", ""))
         )
         assert step["env"].get("CMUX_TUI_FOCUSED_ALLOW_NONE_ON_HOST") == allowed, job_name
+
+
+def test_focused_script_reports_how_many_tests_it_selected() -> None:
+    """Each host writes its runnable count to $GITHUB_OUTPUT (selected=N) for hosted verification."""
+    code, _, outputs = _run_focused_with_output("tui::a: test\\ntui::b: test\\n", "")
+    assert code == 0 and "selected=2" in outputs.splitlines(), outputs
+    code, _, outputs = _run_focused_with_output("tui::a: test\\ntui::b: test\\n", "tui::b: test\\n")
+    assert code == 0 and "selected=1" in outputs.splitlines(), outputs
+    code, _, outputs = _run_focused_with_output("", "", {"CMUX_TUI_FOCUSED_ALLOW_NONE_ON_HOST": "1"})
+    assert code == 0 and "selected=0" in outputs.splitlines(), outputs
+
+
+def _focused_count_step(job: dict) -> dict:
+    [step] = [step for step in job["steps"] if "cmux-tui-focused-test.sh" in str(step.get("run", ""))]
+    return step
+
+
+def _run_gate(**env_overrides: str) -> tuple[int, str]:
+    """Run hosted verification's gate step with every selected job green, then ENV_OVERRIDES."""
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    gate = workflow["jobs"]["hosted-verification"]
+    step = next(s for s in gate["steps"] if s.get("name") == "Require selected verification jobs")
+    env = {key: "success" for key, value in gate["env"].items() if key.endswith("_RESULT")}
+    env.update({"MODE": "focused", "TEST_FILTER": "some_test", "PATH": "/usr/bin:/bin", **env_overrides})
+    with tempfile.TemporaryDirectory() as tmp:
+        script = Path(tmp) / "gate.sh"
+        script.write_text(step["run"], encoding="utf-8")
+        run = subprocess.run(["bash", "-e", str(script)], env=env, capture_output=True, text=True)
+    return run.returncode, run.stdout + run.stderr
+
+
+def test_a_filter_that_one_host_runs_passes_and_one_that_no_host_runs_fails() -> None:
+    """A macOS-only or Linux-only filter passes; the run fails only when both hosts selected 0 tests.
+
+    The Linux and macOS jobs run in parallel and each reports its count as a job
+    output; hosted verification, which needs both, gives the verdict.
+    """
+    for linux, macos, want in (("0", "3", 0), ("2", "0", 0), ("1", "1", 0), ("", "0", 0), ("0", "0", 1)):
+        code, output = _run_gate(LINUX_FOCUSED_SELECTED=linux, MACOS_FOCUSED_SELECTED=macos)
+        assert code == want, (linux, macos, output)
+        if want:
+            assert "selected no Rust tests on Linux or macOS" in output, output
+    # Full mode has no filter: the counts do not apply.
+    code, output = _run_gate(MODE="full", TEST_FILTER="", LINUX_FOCUSED_SELECTED="0", MACOS_FOCUSED_SELECTED="0")
+    assert code == 0, output
+
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    gate_env = workflow["jobs"]["hosted-verification"]["env"]
+    for job_name, variable in (("test", "LINUX_FOCUSED_SELECTED"), ("macos", "MACOS_FOCUSED_SELECTED")):
+        job = workflow["jobs"][job_name]
+        step = _focused_count_step(job)
+        assert job["outputs"]["focused_selected"] == "${{ steps.%s.outputs.selected }}" % step["id"], job_name
+        assert gate_env[variable] == "${{ needs.%s.outputs.focused_selected }}" % job_name, variable
 
 
 def test_focused_script_runs_the_selected_tests_with_extra_args() -> None:
