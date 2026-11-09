@@ -37,7 +37,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cv-notice__end,
+/* The end's text starts with its space, kept (`pre`), so the title reads and finds as one line. */
+.cv-notice__end {
+  flex: none;
+  white-space: pre;
+}
 .cv-notice__more {
   flex: none;
   margin-inline-start: 0.3em;

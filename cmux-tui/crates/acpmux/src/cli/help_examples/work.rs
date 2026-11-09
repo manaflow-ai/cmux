@@ -127,6 +127,27 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ("Merge same-named groups", "acpmux group tidy --apply"),
         ],
     ),
+    (
+        "race",
+        &[
+            (
+                "Race two models on a task and let a third review",
+                "acpmux race new -m claude -m codex --reviewer claude 'Fix the flaky test'",
+            ),
+            ("List this chat's races", "acpmux race ls"),
+        ],
+    ),
+    (
+        "race new",
+        &[(
+            "Race two models on a task in a file",
+            "acpmux race new -m claude -m codex --reviewer claude --prompt-file task.md",
+        )],
+    ),
+    ("race show", &[("Read a race and the reviewer's pick", "acpmux race show RACE_ID")]),
+    ("race stop", &[("Stop a race's agents, keeping its results", "acpmux race stop RACE_ID")]),
+    ("race ls", &[("List this chat's races", "acpmux race ls")]),
+    ("race stats", &[("Wins per model in this chat", "acpmux race stats")]),
     ("group ls", &[("List sidebar groups as JSON", "acpmux group ls --json")]),
     ("group move", &[("Put a session in the Leads group", "acpmux group move coord Leads")]),
     (
@@ -244,6 +265,34 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     ("inbox list", &[("List the team messages the hub holds", "acpmux inbox list")]),
     ("inbox read", &[("Read one team message by id", "acpmux inbox read msg-8f2a")]),
     ("inbox ack", &[("Acknowledge a team message you handled", "acpmux inbox ack msg-8f2a")]),
+    (
+        "bridge",
+        &[
+            ("Connect Claude Desktop and Codex Desktop to cmux", "acpmux bridge connect"),
+            ("Message Codex Desktop", "acpmux bridge send codex-desktop \"Review PR 812 please\""),
+        ],
+    ),
+    (
+        "bridge connect",
+        &[
+            ("Connect both desktop apps; restart them after", "acpmux bridge connect"),
+            (
+                "See what connecting Codex Desktop would change",
+                "acpmux bridge connect codex --dry-run",
+            ),
+        ],
+    ),
+    (
+        "bridge send",
+        &[(
+            "Answer Claude Desktop from a cmux session",
+            "acpmux bridge send claude-desktop \"Done: the fix is on lane/x\"",
+        )],
+    ),
+    (
+        "bridge inbox",
+        &[("Read what was left for Codex Desktop", "acpmux bridge inbox codex-desktop --peek")],
+    ),
     (
         "forum",
         &[

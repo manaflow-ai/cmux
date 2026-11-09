@@ -906,3 +906,141 @@ fn a_caller_sends_to_a_restored_chat_no_tab_has_shown() {
         "the resumed agent answered the send: {later:?}"
     );
 }
+
+/// The files acpmux saved for chat `session`'s inline attachments named `name`
+/// (`<ACPMUX_HOME>/uploads/<session>/<id>/<name>`), waiting up to twenty seconds for one.
+fn saved_upload(daemon: &Daemon, session: &str, name: &str) -> PathBuf {
+    let folder = daemon.dir.join("acpmux/uploads").join(session);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let found = fs::read_dir(&folder)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path().join(name))
+            .find(|path| path.is_file());
+        if let Some(path) = found {
+            return path;
+        }
+        assert!(Instant::now() < deadline, "acpmux never saved {name} in {}", folder.display());
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+#[test]
+fn an_agent_starts_a_chat_with_files_and_a_bad_file_starts_nothing() {
+    let daemon = machine("chat-attach");
+    let workspace = workspace(&daemon);
+    let caller = chat(&daemon, Some(&workspace));
+    let work = fs::canonicalize(daemon.dir.join("work")).unwrap();
+    let note = work.join("note.txt");
+    fs::write(&note, "the build log says ok\n").unwrap();
+    let no_app = daemon.dir.join("no-app.sock");
+    let as_caller = || {
+        let mut command = cmux(&daemon, Some(&caller));
+        command.arg("--app-socket").arg(&no_app);
+        command
+    };
+    let new_with = |attach: &str| {
+        chat_json(
+            as_caller(),
+            &[
+                "new",
+                "--workspace",
+                &workspace.to_lowercase(),
+                "--cwd",
+                work.to_str().unwrap(),
+                "--attach",
+                attach,
+                "--",
+                "read the note",
+            ],
+        )
+    };
+
+    // A file that is not there, or a folder, starts no chat and sends nothing.
+    let missing = work.join("missing.txt");
+    let (code, refused) = new_with(missing.to_str().unwrap());
+    assert_eq!(code, Some(3), "{refused}");
+    assert_eq!(error_of(&refused)["code"], "attach.not_found", "{refused}");
+    assert!(error_of(&refused)["message"].as_str().unwrap().contains("nothing was sent"));
+    let (code, folder) = new_with(work.to_str().unwrap());
+    assert_eq!(code, Some(3), "{folder}");
+    assert_eq!(error_of(&folder)["code"], "attach.not_a_file", "{folder}");
+    // Files go with a first prompt.
+    let (code, alone) = chat_json(as_caller(), &["new", "--attach", note.to_str().unwrap()]);
+    assert_eq!(code, Some(2), "{alone}");
+
+    // The first prompt carries the file, as `acpmux send --attach` sends it: acpmux saves it
+    // for the chat's agent.
+    let (code, created) = new_with(note.to_str().unwrap());
+    assert_eq!(code, Some(0), "{created}");
+    let started = created["result"]["chat"].as_str().unwrap_or_else(|| panic!("{created}"));
+    assert_eq!(created["result"]["prompt"]["state"], "accepted", "{created}");
+    assert_eq!(created["result"]["prompt"]["attachments"], 1, "{created}");
+    let saved = saved_upload(&daemon, started, "note.txt");
+    assert_eq!(fs::read_to_string(saved).unwrap(), "the build log says ok\n");
+
+    // A message to a running chat carries text only: refused, never sent without its files.
+    let (code, send) = agents_chat(
+        &daemon,
+        Some(&caller),
+        &["send", started, "--attach", note.to_str().unwrap(), "--", "and this one"],
+    );
+    assert_eq!(code, Some(3), "{send}");
+    assert_eq!(error_of(&send)["code"], "chat.attach_send_unsupported", "{send}");
+
+    // The MCP tools take absolute paths in `attachments`, and refuse as the CLI does.
+    let (tools, results) = mcp(
+        &daemon,
+        &caller,
+        &[
+            (
+                "agents_chat_send",
+                json!({"target": started, "text": "and this", "attachments": [note]}),
+            ),
+            (
+                "agents_chat_new",
+                json!({"workspace": workspace.to_lowercase(), "prompt": "hi",
+                       "attachments": ["note.txt"]}),
+            ),
+            (
+                "agents_chat_new",
+                json!({"workspace": workspace.to_lowercase(), "prompt": "hi",
+                       "attachments": [missing]}),
+            ),
+        ],
+    );
+    let tool = |name: &str| {
+        tools.iter().find(|tool| tool["name"] == name).cloned().unwrap_or_else(|| panic!("{name}"))
+    };
+    for name in ["agents_chat_new", "agents_chat_send"] {
+        let schema = &tool(name)["inputSchema"]["properties"]["attachments"];
+        assert_eq!(schema["type"], "array", "{name}: {schema}");
+    }
+    assert_eq!(results[0]["isError"], true, "{}", results[0]);
+    assert!(results[0].to_string().contains("chat.attach_send_unsupported"), "{}", results[0]);
+    assert_eq!(results[1]["isError"], true, "{}", results[1]);
+    assert!(results[1].to_string().contains("absolute"), "{}", results[1]);
+    assert_eq!(results[2]["isError"], true, "{}", results[2]);
+    assert!(results[2].to_string().contains("attach.not_found"), "{}", results[2]);
+}
+
+#[test]
+fn cmux_chat_here_checks_its_files_before_it_starts_a_chat() {
+    let daemon = machine("chat-start-attach");
+    let missing = daemon.dir.join("work/missing.png");
+    let output = cmux(&daemon, None)
+        .arg("--app-socket")
+        .arg(daemon.dir.join("no-app.sock"))
+        .args(["--json", "chat", "--on", "here", "--attach"])
+        .arg(&missing)
+        .arg("look at this")
+        .output()
+        .unwrap();
+    let text = if output.stdout.is_empty() { &output.stderr } else { &output.stdout };
+    let answer: Value = serde_json::from_slice(text)
+        .unwrap_or_else(|_| panic!("{}", String::from_utf8_lossy(text)));
+    assert_ne!(output.status.code(), Some(0), "{answer}");
+    assert_eq!(error_of(&answer)["code"], "attach.not_found", "{answer}");
+}

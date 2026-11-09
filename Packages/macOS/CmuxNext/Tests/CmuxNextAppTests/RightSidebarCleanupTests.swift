@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextFeed
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -26,7 +27,7 @@ struct RightSidebarCleanupTests {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let suite = "cmux-right-sidebar-cleanup-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         services.rightSidebarDefaults = defaults
         services.windows.ordersWindowsIn = false
         AppActions.bind(services)
@@ -49,15 +50,13 @@ struct RightSidebarCleanupTests {
         #expect((feed.layer?.backgroundColor?.alpha ?? 0) == 0)
     }
 
-    /// The Feed's own panel and page tab keep their grounds.
-    @Test func theFeedPanelAndPageKeepTheirGround() {
+    /// The Feed's page tab keeps its ground.
+    @Test func theFeedPageKeepsItsGround() {
         _ = NSApplication.shared
-        for surface in [FeedHostView.Surface.page, .panel] {
-            let feed = FeedHostView(model: FeedModel(source: MockFeedSource()), surface: surface)
-            feed.updateLayer()
-            let ground = NSColor(feed.appearanceState.colors.background).alphaComponent
-            #expect(ground > 0, "\(surface) lost its ground")
-        }
+        let feed = FeedHostView(model: FeedModel(source: MockFeedSource()), surface: .page)
+        feed.updateLayer()
+        let ground = NSColor(feed.appearanceState.colors.background).alphaComponent
+        #expect(ground > 0, "the page lost its ground")
     }
 
     /// No section draws a ground: rendered alone, an empty corner of each stays transparent, so the
@@ -124,7 +123,7 @@ struct RightSidebarCleanupTests {
     /// A first launch: no sidebar, and when it opens, a narrow one.
     @Test func itStartsHiddenAndNarrow() throws {
         let suite = "cmux-right-sidebar-fresh-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let model = RightSidebarModel(defaults: defaults)
         #expect(!model.isVisible)

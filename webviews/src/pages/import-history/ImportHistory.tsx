@@ -80,7 +80,6 @@ export function ImportHistory({ store, strings, layout = "groups", defaultOpen =
               )}
             </div>
           )}
-          {snapshot.notice && <p className="history-note">{snapshot.notice}</p>}
           <p className="history-safety">{t("history.safety")}</p>
         </div>
       </div>

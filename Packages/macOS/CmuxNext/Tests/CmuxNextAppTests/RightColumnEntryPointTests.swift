@@ -106,11 +106,11 @@ import Testing
         let tabs = AgentTabStore(build: nil, registry: ActionRegistry(), environment: [:], showcase: true)
         let source = LayoutPaneID("agent-turn-chat")
         let turns = RightColumnTurns()
-        tabs.serially = { _, turn in turns.serially(beside: source, turn) }
-        tabs.rightColumn = { _ in .init(sourceWidth: 1400) }
+        tabs.seriallyScoped = { _, turn in turns.serially(beside: source, turn) }
+        tabs.rightColumnScoped = { _ in .init(sourceWidth: 1400) }
         var mainPane: [String] = []
         // Main pane layout is asked first (nothing on the right) and refuses, so the turn ends at once.
-        tabs.openInMainPane = { chat, _, _, _, _ in mainPane.append(chat); return false }
+        tabs.openInMainPaneScoped = { chat, _, _, _, _ in mainPane.append(chat.key); return false }
         var underWay: (@MainActor () -> Void)?
         turns.serially(beside: source) { done in underWay = done }
         let answered = tabs.openOnRight(of: "chat-tab", open: { _, _, _ in throw CancellationError() })
@@ -127,11 +127,11 @@ import Testing
     @Test func slashSidesOpenIsASplitRightOfTheChatWhateverTheRightColumnHolds() {
         let tabs = AgentTabStore(build: nil, registry: ActionRegistry(), environment: [:], showcase: true)
         let turns = RightColumnTurns()
-        tabs.serially = { _, turn in turns.serially(beside: LayoutPaneID("side-split-chat"), turn) }
+        tabs.seriallyScoped = { _, turn in turns.serially(beside: LayoutPaneID("side-split-chat"), turn) }
         var columnReads = 0, mainPane: [String] = []
         // A chat too narrow to halve: the right column's rule asks main pane layout for a place.
-        tabs.rightColumn = { _ in columnReads += 1; return .init(sourceWidth: 600) }
-        tabs.openInMainPane = { chat, _, _, _, _ in mainPane.append(chat); return false }
+        tabs.rightColumnScoped = { _ in columnReads += 1; return .init(sourceWidth: 600) }
+        tabs.openInMainPaneScoped = { chat, _, _, _, _ in mainPane.append(chat.key); return false }
 
         _ = tabs.openOnRight(of: "chat-tab", open: { _, _, _ in throw CancellationError() })
         #expect(columnReads == 1 && mainPane == ["chat-tab"], "fixture: the right column's rule reads the column and asks main pane layout")

@@ -6,6 +6,13 @@ import Foundation
 public struct FFIMacLinkDialer: MacLinkDialer {
     public init() {}
 
+    /// Settings → Transport → Ultra Mode on Cellular (`CmuxMobilePreferences.Key.ultraOnCellular`,
+    /// the same `UserDefaults` key; this module does not link CmuxMobileDesign). Rust decides the
+    /// mode from it and the network (`set_cellular_path`).
+    static func ultraOnCellular(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: "cmuxMobile.settings.ultraOnCellular")
+    }
+
     public func dial(_ endpoint: LinkEndpoint, transport: TransportKind, accessToken: String) async throws -> any MacLink {
         let observer = StateObserver()
         do {
@@ -17,7 +24,8 @@ public struct FFIMacLinkDialer: MacLinkDialer {
                 macDeviceId: endpoint.macDeviceID,
                 transport: transport.ffi,
                 options: ConnectOptions(relayOnly: endpoint.relayOnly, blockUdp: endpoint.blockUDP,
-                                        noVideoLane: endpoint.browserVideoOnChannel),
+                                        noVideoLane: endpoint.browserVideoOnChannel,
+                                        ultraOnCellular: Self.ultraOnCellular()),
                 observer: observer
             )
             return FFIMacLink(handle: handle, transport: transport, observer: observer)

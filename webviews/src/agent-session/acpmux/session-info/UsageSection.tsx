@@ -7,9 +7,8 @@
 // when the list or the sort changes.
 import { memo, useMemo, useState } from "react";
 import { useT, type Translate } from "../i18n";
-import { AgentMark } from "../../shared/AgentMark";
 import { agentTone } from "../subagents/agentTones";
-import { TonedIcon } from "../subagents/TonedIcon";
+import { SenderIcon } from "../subagents/SenderIcon";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { UsageEntry } from "./usageEntries";
@@ -23,6 +22,8 @@ import {
   usageTokens,
 } from "../usageStats";
 import type { AcpmuxUsageLimits } from "../model";
+import type { AcpmuxTimeBreakdown } from "../model";
+import { TimeBreakdown } from "./TimeBreakdown";
 import { planLimitRows } from "../usageLimits";
 import "./UsageSection.css";
 import { USAGE_SHOWN } from "./usageSectionModel";
@@ -119,6 +120,8 @@ export const UsageSection = memo(function UsageSection({
   ownRowLayout = "flush",
   cacheLayout = "rows",
   planLimits,
+  timeBreakdown,
+  onShowTurn,
   now,
 }: {
   /// This chat's (`summary.usageStats`).
@@ -145,6 +148,8 @@ export const UsageSection = memo(function UsageSection({
   /// The account's plan usage limits this chat's harness reported (acpmux `usageLimits`): the
   /// Plan limits rows, the same the composer ring's plan usage popover shows. None: no rows.
   planLimits?: AcpmuxUsageLimits;
+  timeBreakdown?: AcpmuxTimeBreakdown;
+  onShowTurn?: (turnId: string) => void;
   /// The clock the reset times read (the gallery pins it).
   now?: () => number;
 }) {
@@ -190,6 +195,7 @@ export const UsageSection = memo(function UsageSection({
           ))}
         </ul>
       )}
+      {timeBreakdown && <TimeBreakdown breakdown={timeBreakdown} onShowTurn={onShowTurn} />}
       {planRows.length > 0 && (
         <>
           <div className="acpmux-session-info-usage__head" data-usage-head="plan">
@@ -241,15 +247,12 @@ export const UsageSection = memo(function UsageSection({
                   entry.peer && named.startsWith(`${entry.peer}/`) ? named.slice(entry.peer.length + 1) : named;
                 const mark = (
                   <span className="acpmux-lineage__icon">
-                    {entry.harness ? (
-                      <AgentMark
-                        agent={entry.harness}
-                        size={ROW_ICON}
-                        fallback={<TonedIcon name="agent.chat" size={ROW_ICON} tone={agentTone(entry.sessionId)} row />}
-                      />
-                    ) : (
-                      <TonedIcon name="agent.chat" size={ROW_ICON} tone={agentTone(entry.sessionId)} row />
-                    )}
+                    <SenderIcon
+                      harness={entry.harness}
+                      tone={agentTone(entry.sessionId)}
+                      size={ROW_ICON}
+                      fallback="agent.chat"
+                    />
                   </span>
                 );
                 const body = (

@@ -46,22 +46,10 @@ export default componentEntry<OnboardingGalleryProps>({
     },
     "agents-install-cards": { props: { step: "agents", agents: "install", look: "cards" } },
     "agents-install-compact": { props: { step: "agents", agents: "install", look: "compact" } },
-    // The import step, four looks (the variant switch) on the worst list: grouped ships.
-    "import-grouped": {
-      note: "Recommended (default): the browsers in one card with hairlines, the kinds in a second card, three to a line; other sources in the footer. Matches Settings and the agents step.",
-      props: { step: "importData", importer: "crowded", importLook: "grouped" },
-    },
-    "import-plain": {
-      note: "The first cut: rows on the glass, WebKit checkboxes, the kinds on one line, links under the list.",
-      props: { step: "importData", importer: "crowded", importLook: "plain" },
-    },
-    "import-chips": {
-      note: "Compact rows on the glass with hairlines; the kinds are toggle pills. Lightest, but pills read less like settings.",
-      props: { step: "importData", importer: "crowded", importLook: "chips" },
-    },
-    "import-tiles": {
-      note: "A tile per browser, two to a line. Friendly for two or three browsers; long names and many profiles crowd it.",
-      props: { step: "importData", importer: "crowded", importLook: "tiles" },
+    // The import step, Express (docs/design/onboarding-import-express.md) on the worst list.
+    "import-crowded": {
+      note: "Express: the checked browsers' icons, one sentence, the kinds, the grant asks; Choose Browsers and Data… opens the full list.",
+      props: { step: "importData", importer: "crowded" },
     },
     "import-idle": { props: { step: "importData", importer: "idle" } },
     "import-detecting": { props: { step: "importData", importer: "detecting" } },

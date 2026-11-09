@@ -159,6 +159,8 @@ public final class SidebarView: NSView {
         buildHierarchy()
         list.hoverOccluded = { [weak self] point in self?.updatedCardView.covers(windowPoint: point) == true }
         newButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace")
+        // The tab row's New Tab + (Leo 2026-11-07: one size class for both, in the middle of the two).
+        newButton.drawsAddGlyph = true
         newWorkspaceOptionsButton.setAccessibilityLabel(Strings.newWorkspaceOptions)
         newWorkspaceOptionsButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace.options")
         list.reload(animated: false)
@@ -263,6 +265,18 @@ public final class SidebarView: NSView {
         }
     }
 
+    /// Makes a row of a workspace row's drive indicator menu: Go to the agent's tab, or Stop what it
+    /// drives, titled `title`. The App fills this from the action registry, so the row runs the same
+    /// action as the palette, the File menu and the CLI; the sidebar never runs its own handler. Nil,
+    /// or nil for a row, leaves the row out.
+    public var driveMenuItem: ((WorkspaceID, SidebarDriveCommand, _ title: String) -> NSMenuItem?)? {
+        get { list.driveMenuItem }
+        set {
+            list.driveMenuItem = newValue
+            for (key, view) in list.rowViews { list.wire(view, key: key) }
+        }
+    }
+
     /// Starts inline rename of a workspace (the "rename workspace" action's sidebar entrypoint).
     public func beginRename(workspace id: WorkspaceID) { list.inlineRename.begin(.workspace(id)) }
 
@@ -311,6 +325,8 @@ public final class SidebarView: NSView {
 
         addSubview(footer)
         footer.addSubview(profileBar)
+        // A switcher menu keeps the strip revealed while it is open, as the + menu does.
+        profileBar.onMenuOpenChange = { [weak self] open in self?.chromeMenuOpenChanged(open) }
         searchButton.setAccessibilityIdentifier("cmux.sidebar.search")
         searchButton.onPress = { [weak self] in
             guard let self else { return }

@@ -105,6 +105,8 @@ impl Hub {
         if let Err(e) = self.store.flush() {
             tracing::warn!("store flush failed: {e}");
         }
+        // The cost ledger's last lines too: its writer drains its queue and ends (`hub/ledger`).
+        self.ledger.close(LEDGER_DRAIN);
     }
 
     async fn shutdown_sessions(&self, preserve_auto_resume: bool) -> usize {
@@ -317,8 +319,16 @@ impl Hub {
         // What peers' sessions streamed in the last seconds (`peer_snapshot.rs`): the shutdown's
         // is its last step, after the teardown, and a shutdown past its budget calls it too.
         self.peer_snapshots.flush_now();
+        // The approvals audit trail's writer: what was answered before now is on disk.
+        self.audit.close(AUDIT_DRAIN);
     }
 }
+
+/// How long the shutdown waits for the audit writer (`audit_log.rs`) to finish.
+const AUDIT_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// How long the shutdown waits for the cost ledger's writer to drain.
+const LEDGER_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// The refusal of a spawn once the shutdown has begun (`recovery.rs` types it).
 pub const SHUTTING_DOWN: &str = "acpmux is shutting down; no agent starts now";
@@ -326,6 +336,15 @@ pub const SHUTTING_DOWN: &str = "acpmux is shutting down; no agent starts now";
 /// The refusal of a spawn once the shutdown has begun.
 pub(crate) fn shutting_down_error() -> RpcError {
     RpcError::internal(SHUTTING_DOWN)
+}
+
+/// The key a refusal sets to false when nothing was made: a create refused before its session
+/// was inserted, so the caller may send it again to the next daemon without making a second one.
+pub const CREATED: &str = "created";
+
+/// [`shutting_down_error`] for a create refused before anything was made (`created: false`).
+pub(crate) fn shutting_down_before_create() -> RpcError {
+    shutting_down_error().with_data(serde_json::json!({ CREATED: false }))
 }
 
 /// How long an explicit shutdown spends stopping provider retries before it ends agents

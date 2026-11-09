@@ -302,7 +302,7 @@ class WorkflowTests(unittest.TestCase):
         # The Sparkle and notary secrets come from release-next on nightly-next.
         self.assertEqual(jobs["recover-nightly-next-notarization"]["environment"], "${{ needs.decide.outputs.environment }}")
         # The finder only reads the routing App key for its owned pick (ci-routing-agent), no release secret.
-        self.assertEqual(jobs["find-nightly-next-recovery"]["environment"], "ci-routing-agent")
+        self.assertEqual(jobs["find-nightly-next-recovery"]["environment"], {"name": "ci-routing-agent", "deployment": False})
         self.assertEqual(set(re.findall(r"secrets\.(\w+)", json.dumps(jobs["find-nightly-next-recovery"]))),
                          {"GLAEDA_ROUTE_APP_KEY"})
         recover_text = json.dumps(jobs["recover-nightly-next-notarization"])
@@ -488,6 +488,8 @@ class FailureIssueTests(unittest.TestCase):
         publish_outputs = {f"publish_{key}": value for key, value in published.items()}
         # The loop run: published-build passes its own jobs through (run_tail false), and the rest of the tail skips.
         push = {name: outcome[name] for name in self.PUSH_JOBS}
+        # The run that signs and publishes (a sign run, or a run that signs in-run) dispatches no sign run.
+        push["dispatch-nightly-next-sign"] = "skipped"
         push.update(dict.fromkeys(self.TAIL_JOBS, "skipped"))
         if decide.get("should_publish") == "true" and push["publish-nightly"] == "success":
             push["published-build"] = outcome["published-build"]
@@ -505,7 +507,7 @@ class FailureIssueTests(unittest.TestCase):
             record = dict(decide, cross_run="true", run_tail="true", publish_result=push["publish-nightly"],
                           push_clean="false" if any(push[n] in ("failure", "cancelled") for n in dispatch_needs) else "true",
                           **publish_outputs)
-            tail = dict.fromkeys(self.PUSH_JOBS, "skipped")
+            tail = dict.fromkeys((*self.PUSH_JOBS, "dispatch-nightly-next-sign"), "skipped")
             tail.update({name: outcome[name] for name in self.TAIL_JOBS})
             reports |= job_runs("report-nightly-failure", tail, {"published-build": record})
             closes |= job_runs("close-nightly-failure-issue", tail, {"published-build": record})

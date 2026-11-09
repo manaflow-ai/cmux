@@ -1,5 +1,7 @@
 // The thread minimap's model: one tick per user message at the pane's left edge
 // (the Codex desktop app's prompt rail). Pure functions, so geometry and previews need no DOM.
+import { withoutRelayLabelOfMessage } from "../conversation/relayEnvelope";
+import { senderName } from "../conversation/senderIdentity";
 import { transcriptColumn, type AcpmuxRow } from "../model";
 import { opensTurn } from "../turnStart";
 import { inboxCounts } from "../conversation/inboxNotice";
@@ -64,8 +66,13 @@ export function railPlacement(
   paneWidth: number,
   textInset = transcriptColumn(paneWidth).inset,
   spacing: { min: number; max: number; compact: number; narrowest?: number } = { min: 8, max: 16, compact: 12 },
+  /// The `inset-first` arm (restTick.experiment.ts): the inset follows the text's own gutter too, so it
+  /// shrinks before the hit width where the text comes near (and moves the rail when Session Info pushes).
+  insetFirst = false,
 ): { left: number; width: number; overlapsText: boolean; gutter: number } {
-  const paneInset = transcriptColumn(paneWidth).inset;
+  const paneInset = insetFirst
+    ? Math.min(transcriptColumn(paneWidth).inset, textInset)
+    : transcriptColumn(paneWidth).inset;
   // The narrowest hit width: the compact step for the tight gutter (gutter.experiment.ts), so the
   // resting rail fits the page edge; the inset plus that step for the edge strip.
   const minimumWidth = spacing.narrowest ?? spacing.min + spacing.compact;
@@ -614,9 +621,16 @@ export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt" | "from" | "
 /// sort of thing?").
 export function promptSender(row: AcpmuxRow): string | undefined {
   const incoming = row.incoming;
-  if (incoming?.kind === "message") return incoming.message.name || undefined;
+  if (incoming?.kind === "message") return senderName(incoming.message.name) || undefined;
   if (incoming?.kind === "inbox") return inboxCounts(incoming.notice).senders.join(", ") || undefined;
   return undefined;
+}
+
+/// A turn's prompt as its tick shows it: another agent's message without the broker's label around
+/// it (conversation/relayEnvelope.ts), the person's as written.
+function promptText(row: AcpmuxRow): string {
+  const text = (row.text ?? "").trim();
+  return row.incoming?.kind === "message" ? withoutRelayLabelOfMessage(text).trim() : text;
 }
 
 /// The turns of `rows`, the ticks they draw, and the rows they were read from.
@@ -725,7 +739,7 @@ export function minimapTurns(
         key: turnKey(sessionId, user),
         // Keep explicit prompt line breaks for the hover card; its CSS clamps the title without
         // changing what the person wrote. Spaces are normalized by white-space: pre-line there.
-        prompt: (user.text ?? "").trim(),
+        prompt: promptText(user),
         ...withSender(user),
         reply: sameReply ? kept.turn.reply : reply?.text ? replyPreview(reply.text) : [],
         metadata: nextMetadata,
@@ -808,7 +822,7 @@ export function minimapTurns(
           index: -1,
           id: row.id,
           key: turnKey(sessionId, row),
-          prompt: (row.text ?? "").trim(),
+          prompt: promptText(row),
           ...withSender(row),
           reply: [],
         }));

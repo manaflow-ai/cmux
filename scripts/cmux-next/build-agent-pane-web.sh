@@ -61,6 +61,10 @@ bun scripts/agent-pane/bundle.mjs node_modules/@pierre/diffs/dist/worker/worker.
 # An attached image's decode, scale and encode run in a worker beside the page too
 # (composer/imagePool.ts), so pasting large screenshots never blocks typing.
 bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/composer/imageWorker.ts" - "$WORK/image-worker.js"
+# The chat's drawn copy (acpmux/chatSnapshot/boot.ts): a classic script the document runs before
+# pane.js; it draws the chat's last frame once the host's `__snapshot/chat.js` (async: the document
+# never waits on the host) set the chat's snapshot. Small and with no imports of the pane's.
+bun build "$SRC/acpmux/chatSnapshot/boot.ts" --format=iife --target=browser --minify --outfile "$WORK/chat-snapshot.js" >/dev/null
 
 # The page's sheets, derived, never a hand-kept list here (a sheet missing from one shipped its
 # component unstyled in the app only, and five times this month failed every app build at the check
@@ -113,9 +117,13 @@ CSP="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'unsafe
   # pane.js has loaded and parsed, and fetches and parses them after it, one round behind.
   while IFS= read -r chunk; do printf '<link rel="modulepreload" href="%s" />\n' "$chunk"; done < "$WORK/preload-chunks"
   printf '%s\n' "$LOADER"
-  printf '<style>\n'
+  # The id names the page's sheet for the chat's drawn copy, which draws under the same rules.
+  printf '<style id="cmux-pane-styles">\n'
   cat "$WORK/styles.css"
-  printf '\n</style>\n</head>\n<body>\n<main id="root"></main>\n<script type="module" src="pane.js"></script>\n</body>\n</html>\n'
+  # After the root, before the module: the host's snapshot of this page's chat (a dynamic path the
+  # page host answers per page, AgentPageResources.swift; async, as a busy main thread answers it
+  # late and the page must not wait), then the script that draws it.
+  printf '\n</style>\n</head>\n<body>\n<main id="root"></main>\n<script async src="__snapshot/chat.js"></script>\n<script src="chat-snapshot.js"></script>\n<script type="module" src="pane.js"></script>\n</body>\n</html>\n'
 } | perl -pe 's/[ \t]+$//' > "$WORK/index.html"
 
 # KaTeX's rules and fonts load with KaTeX, only when a reply draws math (conversation/Math.tsx,
@@ -141,6 +149,7 @@ rm -rf "$OUT/chunks"
 cp -R "$WORK/pane/chunks" "$OUT/chunks"
 cp "$WORK/highlight-worker.js" "$OUT/highlight-worker.js"
 cp "$WORK/image-worker.js" "$OUT/image-worker.js"
+cp "$WORK/chat-snapshot.js" "$OUT/chat-snapshot.js"
 rm -rf "$OUT/locales"
 cp -R "$WORK/locales" "$OUT/locales"
 echo "wrote $OUT/index.html ($(wc -c < "$OUT/index.html" | tr -d ' ') bytes) pane.js ($(wc -c < "$OUT/pane.js" | tr -d ' ') bytes) and $(ls "$OUT/chunks" | wc -l | tr -d ' ') chunks"

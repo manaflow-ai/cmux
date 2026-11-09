@@ -41,6 +41,7 @@ import {
 } from "./sessionInfoState";
 import { outputArtifacts, outputLinks, type OutputArtifact, type OutputLink } from "./outputsSectionModel";
 import { chatOutputs, type OutputFile } from "./chatOutputs";
+import { producedLinks, type ProducedLink } from "./producedLinks";
 import { type ProcessRegistry, type SessionInfoProcess } from "./processes";
 import { currentPlan, type SessionInfoPlan } from "./progressSectionModel";
 import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
@@ -228,6 +229,7 @@ export function useSessionInfo({
   onOpenChanges,
   onSaveEnvironment,
   onShowCall,
+  onShowTurn,
   subagent,
   split = false,
   covered = false,
@@ -309,6 +311,7 @@ export function useSessionInfo({
   onSaveEnvironment?: () => Promise<unknown>;
   /// Shows the Bash call that started a background command in the transcript (App.tsx `showToolRow`).
   onShowCall?: (toolCallId: string) => boolean;
+  onShowTurn?: (turnId: string) => void;
   /// The subagent whose own view the pane shows: Session Info lists its things, not the chat's.
   subagent?: SubagentScope;
   /// The pane was opened beside another chat (a subagent's pane, a chat its agent started): its
@@ -431,6 +434,7 @@ export function useSessionInfo({
   const stableOnOpenChat = useStableCallback(onOpenChat);
   const stableOnShowUsage = useStableCallback(onShowUsage);
   const stableOnShowCall = useStableCallback(onShowCall);
+  const stableOnShowTurn = useStableCallback(onShowTurn);
   const stableOnStopProcess = useStableCallback(onStopProcess);
   const openOutput = useMemo(
     () =>
@@ -561,6 +565,7 @@ export function useSessionInfo({
         onRender={onRender}
         onOpenDocument={stableOnOpenDocument}
         onShowCall={stableOnShowCall}
+        onShowTurn={stableOnShowTurn}
         scope={subagent}
       />
     ),
@@ -576,6 +581,8 @@ export type SessionInfoLists = {
   readonly summary: AcpmuxSnapshot["summary"];
   readonly made: SessionSummary | undefined;
   readonly links: readonly OutputLink[];
+  /// The pull requests, issues and commits the chat produced (producedLinks.ts).
+  readonly produced: readonly ProducedLink[];
   readonly outputFiles: OutputFile[];
   readonly scopedPlan: SessionInfoPlan | undefined;
   readonly artifacts: number;
@@ -622,6 +629,11 @@ function useSessionInfoLists({
     ),
   );
   const links = useSameValue(useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]));
+  // The pull requests, issues and commits the chat produced (producedLinks.ts), kept while they are the
+  // same, so a streamed token draws no section for them.
+  const produced = useSameValue(
+    useMemo(() => (drawn ? producedLinks(rows, repository) : NO_PRODUCED), [drawn, rows, repository]),
+  );
   // What the chat made for the person (chatOutputs.ts), read here beside `made` and kept while it is the
   // same files, so the sections need not read the rows for it.
   const outputFiles = useSameValue(
@@ -699,6 +711,7 @@ function useSessionInfoLists({
       summary,
       made,
       links,
+      produced,
       outputFiles,
       scopedPlan,
       artifacts,
@@ -714,6 +727,7 @@ function useSessionInfoLists({
       summary,
       made,
       links,
+      produced,
       outputFiles,
       scopedPlan,
       artifacts,
@@ -780,6 +794,8 @@ const closeSessionInfo = () => {
 const NO_OUTPUT_FILES: ReturnType<typeof chatOutputs> = [];
 /// No gallery items (a stable value, so the gallery rows hold while the panel is hidden).
 const NO_GALLERY: readonly GalleryItem[] = [];
+/// Nothing produced (a stable value, so the sections' memo holds).
+const NO_PRODUCED: readonly ProducedLink[] = [];
 
 /// Session Info while it is drawn: its presence, its width and folds, whether it floats or pushes,
 /// and what it lists. Its own component, so its enter and exit phases, a drag step and a fold draw the panel
@@ -829,6 +845,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onRender,
   onOpenDocument,
   onShowCall,
+  onShowTurn,
   scope,
 }: {
   /// The chat whose width and folds it draws (sessionInfoState.ts `useSessionInfoState`).
@@ -900,6 +917,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onRender?: () => void;
   onOpenDocument?: (artifact: Artifact) => void;
   onShowCall?: (toolCallId: string) => boolean;
+  onShowTurn?: (turnId: string) => void;
   /// The subagent it lists, while the pane shows one's own view.
   scope?: SubagentScope;
 }) {
@@ -1086,6 +1104,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     summary,
     made,
     links,
+    produced,
     outputFiles,
     scopedPlan,
     artifacts,
@@ -1296,6 +1315,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           cloudRepositoryAvailable={cloudRepositoryAvailable}
           made={made}
           links={links}
+          produced={produced}
           artifacts={artifacts}
           documents={documents}
           rows={sectionRows}
@@ -1328,6 +1348,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           onViewPrompt={scope ? undefined : onViewPrompt}
           onOpenFolder={openFolder}
           onShowCall={onShowCall}
+          onShowTurn={onShowTurn}
           revealed={revealed}
           onRevealed={onRevealed}
         />
@@ -1378,6 +1399,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         documents={documents}
         rows={sectionRows}
         outputFiles={outputFiles}
+        produced={produced}
         plan={plan}
         toolCalls={toolCalls}
         agents={agents}
@@ -1421,6 +1443,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         onViewPrompt={scope ? undefined : onViewPrompt}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
+        onShowTurn={onShowTurn}
       />
     </MemoSessionInfoPanel>
   );

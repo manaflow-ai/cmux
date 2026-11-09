@@ -117,6 +117,10 @@ public final class SidebarModel {
     }
     /// `itemOrder` and the inputs it was made from.
     @ObservationIgnored var itemOrderCache: (inputs: SidebarItemOrderInputs, order: SidebarItemOrder)?
+    /// The "Done (N)" rows the person opened (`SidebarLayout+DoneFold`), kept here so `itemOrder` numbers what they show.
+    @ObservationIgnored var openDoneFolds: Set<SidebarDoneFoldID> = []
+    /// The lists whose "Show N more" row the person opened, kept here for the same reason.
+    @ObservationIgnored var openShowMore: Set<SidebarDoneFoldID> = []
     /// Told the workspaces `patchWorkspaces` changed in place (the list reconfigures their rows).
     @ObservationIgnored public var onRowsPatched: (([SidebarWorkspace]) -> Void)?
     /// The same row patches with their previous values, for projections that only need to react
@@ -224,6 +228,10 @@ public final class SidebarModel {
     public var style: SidebarLayoutStyle = .standard
     /// The rail's full sidebar is open over the content (`SidebarRailPeek`); window view state.
     public var isRailOpen = false
+    /// The hidden sidebar floats over the content at ``width`` (`sidebar.floatOnHover`: the pointer
+    /// rested on the window's sidebar edge). Window view state, never saved: the content keeps
+    /// its place (``contentInset`` stays 0), and showing the sidebar ends it.
+    public var isFloating = false
     /// Expanded rows (`sidebar.density`), unless minimal.
     public var expanded = false
     /// Row badges draw each state apart (`sidebar.detailedStatusIcons`), not Working or Ready only.
@@ -250,7 +258,11 @@ public final class SidebarModel {
     /// synchronously, before any animation, so focus can leave a hiding
     /// sidebar in the same turn.
     public var presentation: SidebarPresentation = .shown {
-        didSet { if presentation != oldValue { onPresentationChange?(presentation) } }
+        didSet {
+            // Shown, the sidebar has its place beside the content: nothing floats.
+            if presentation == .shown, isFloating { isFloating = false }
+            if presentation != oldValue { onPresentationChange?(presentation) }
+        }
     }
     /// Width when shown, clamped to `widthRange`. Hiding keeps it, so the
     /// sidebar comes back at the user's width.
@@ -305,7 +317,7 @@ public final class SidebarModel {
     public var displayWidth: CGFloat {
         switch presentation {
         case .shown: style == .rail && !isRailOpen ? SidebarRailLayout.Metrics().railWidth : width
-        case .hidden: 0
+        case .hidden: isFloating ? width : 0
         }
     }
 
@@ -336,12 +348,17 @@ public final class SidebarModel {
     @ObservationIgnored private var arrangedSorts: [String: SidebarGroupSort] = [:]
     /// The document's archived items the last `setSections` marked its rows by.
     @ObservationIgnored private var arrangedArchived: Set<String> = []
-    /// Whether the document lists each group in the sort, and marks the rows archived, as the sections were arranged:
-    /// a sort-only or archive-only change (Archive Workspaces Below archives the last rows) leaves the App's live rows
-    /// as they were, so a pass that would skip them sets them again when this is false.
+    /// The document's sections the last `setSections` arranged by: one added with no rows of its own (an app section
+    /// the daemon placed) changes no live row, so it makes the arrangement stale by itself.
+    @ObservationIgnored private var arrangedSectionIDs: [LayoutSectionID] = []
+    /// Whether the document lists the same sections, each group in the sort, and marks the rows archived, as the
+    /// sections were arranged: a section-only, sort-only or archive-only change (an app section placed, Archive
+    /// Workspaces Below archives the last rows) leaves the App's live rows as they were, so a pass that would skip
+    /// them sets them again when this is false.
     public var arrangementIsCurrent: Bool {
         let shown = docDrag?.document?.shown
         return (shown?.groupSorts ?? [:]) == arrangedSorts && (shown?.archived ?? []) == arrangedArchived
+            && (shown?.layout.sections.map(\.id) ?? []) == arrangedSectionIDs
     }
     /// The favicon at a page icon address, when the App has it (it fetches a missing one); link rows draw it. Set by
     /// the App's bridge from its own favicon store.
@@ -450,6 +467,7 @@ public final class SidebarModel {
         let shown = docDrag.flatMap { drag in drag.document?.shown.map { $0.arrange(new, drag: drag) } } ?? new
         arrangedSorts = docDrag?.document?.shown?.groupSorts ?? [:]
         arrangedArchived = docDrag?.document?.shown?.archived ?? []
+        arrangedSectionIDs = docDrag?.document?.shown?.layout.sections.map(\.id) ?? []
         let next = Self.folding(Self.hidingItems(hiddenItemRefs, in: shown), collapsedSections).map { $0.resolvingGroupDepths() }
         if writesRowsInPlace(next) { return }
         // A set that only adds one loose workspace row (Cmd-N's stand-in, a scripted create): the list splices that row
@@ -626,11 +644,7 @@ public final class SidebarModel {
 
     /// The list layout's options that come from the model.
     func listOptions() -> SidebarLayoutOptions {
-        var o = SidebarLayoutOptions()
-        o.filterMatches = filterMatches
-        (o.workspacesAsTabs, o.foldsDone, o.rowLimit) = (SidebarTunables.workspacesAsTabsOn, true, SidebarTunables.rowLimit)
-        // Projects and Recents lists a group's first rows and "Show N more", as ChatGPT lists a project's chats.
-        if grouping.groupsByRecents && o.rowLimit == 0 { o.rowLimit = SidebarLayout.projectLimit }
+        var o = rowOptions()
         o.activeWorkspaceID = activeWorkspaceID
         // A group opened by a structural set (another client) forgets its revealed members.
         revealedMembers = revealedMembers.filter { group($0.key)?.isCollapsed == true }
@@ -655,6 +669,18 @@ public final class SidebarModel {
         }
         o.now = Calendar.current.startOfDay(for: Date())
         o.hidesWorkspaces = hidesWorkspaces
+        return o
+    }
+
+    /// The options that decide which rows the list draws and in what order, without the selection: the list's
+    /// layout (`listOptions`) and the Cmd-1…9 order (`itemOrder`) both start from these, so a digit counts the rows drawn.
+    func rowOptions() -> SidebarLayoutOptions {
+        var o = SidebarLayoutOptions()
+        o.filterMatches = filterMatches
+        (o.workspacesAsTabs, o.foldsDone, o.rowLimit) = (SidebarTunables.workspacesAsTabsOn, true, SidebarTunables.rowLimit)
+        // Projects and Recents lists a group's first rows and "Show N more", as ChatGPT lists a project's chats.
+        if grouping.groupsByRecents && o.rowLimit == 0 { o.rowLimit = SidebarLayout.projectLimit }
+        (o.openDoneFolds, o.openShowMore) = (openDoneFolds, openShowMore)
         o.grouping = settledGrouping()
         return o
     }
@@ -670,7 +696,8 @@ public final class SidebarModel {
         return true
     }
 
-    /// Toggle Sidebar: fully shown at `width`, or fully hidden.
+    /// Toggle Sidebar: fully shown at `width`, or fully hidden. A floating sidebar is hidden, so
+    /// the toggle shows it where it is (it stops floating and takes its place beside the content).
     public func toggle() {
         // The rail (`sidebar.style` = rail): the toggle opens the full sidebar over the content and
         // closes it back to the rail (Lawrence 2026-10-21: the full sidebar opens from the toggle, not on hover).

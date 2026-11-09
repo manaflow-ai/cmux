@@ -11,6 +11,7 @@ import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { classicField } from "./support/classicNewTabField";
+import { until } from "./support/until";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -146,13 +147,38 @@ test("a terminal from the New Tab page opens before the handshake, and a refusal
       { method: "tab.open", params: { kind: "terminal", text: "echo held", cwd: "/Users/you/src/app" } },
     ]);
     expect(waiting).toHaveLength(0);
-    expect(host.querySelector('[role="alert"]')?.textContent).toBe("The tab didn't open. Press Return to try again.");
+    // Plain words for what did not happen, Retry, and the host's own words under Details (2026-11-08).
+    const alert = host.querySelector('[role="alert"]')!;
+    expect(alert.querySelector(".acpmux-newtab-failed-message")?.textContent).toBe("The terminal didn't open.");
+    expect(alert.querySelector("details")?.textContent).toContain("transport.gesture_required");
     expect(field.value()).toBe("echo held");
+    const retry = [...alert.querySelectorAll("button")].find((b) => b.textContent === "Retry")!;
+    expect(retry).toBeDefined();
+    await act(async () => retry.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
+    await until(
+      () => calls.length >= 2,
+      () => act(async () => {}),
+    );
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toEqual(calls[0]!);
     // The suggestions that float under the field close, so they never cover the note.
     expect(host.querySelector('[role="listbox"]')).toBeNull();
     // Editing the field clears the note.
     await type("echo held again");
     expect(host.querySelector('[role="alert"]')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a refused browser tab says the page did not open; an empty refusal has no Details", async () => {
+  const { root, type, submit } = await renderPage(() => Promise.reject(new Error("")), "browser");
+  try {
+    await type("example.com");
+    await submit();
+    const alert = host.querySelector('[role="alert"]')!;
+    expect(alert.querySelector(".acpmux-newtab-failed-message")?.textContent).toBe("The page didn't open.");
+    expect(alert.querySelector("details")).toBeNull();
   } finally {
     await act(async () => root.unmount());
   }

@@ -299,8 +299,10 @@ if Path(sys.argv[0]).name == "git":
     if args[0] == "rev-parse": print(("d" if ":" in args[-1] else "a") * 40)
     elif args[0] == "hash-object": print("e" * 40)
     elif args[0] == "ls-remote":
+        # The runner's git cache: reads of origin may serve a stale snapshot.
+        refs = state["refs"] if state["cache"] is None else state["cache"]
         ref = args[-1].removeprefix("refs/heads/")
-        if ref in state["refs"]: print(state["refs"][ref] + "\trefs/heads/" + ref)
+        if ref in refs: print(refs[ref] + "\trefs/heads/" + ref)
     elif args[0] == "fetch": pass
     elif args[0] == "push":
         if "--delete" in args: state["refs"].pop(args[-1], None)
@@ -336,7 +338,14 @@ elif args[0] == "api":
             emit({"commit": {"sha": "b" * 40}})
         else: emit({"sha": "e" * 40 if state["write_mode"] != "fail" else "d" * 40})
     elif "/git/ref/heads/" in endpoint:
-        emit({"object": {"sha": state["refs"][endpoint.split("/heads/")[1]]}})
+        ref = endpoint.split("/heads/")[1]
+        if state["ref_read"] == "fail":
+            print("gh: Server Error (HTTP 502)", file=sys.stderr); sys.exit(1)
+        if ref not in state["refs"]:
+            # Real gh prints the error body on stdout, --jq or not (run 42536967661).
+            print(json.dumps({"message": "Not Found", "status": "404"}))
+            print("gh: Not Found (HTTP 404)", file=sys.stderr); sys.exit(1)
+        emit({"object": {"sha": state["refs"][ref]}})
     elif "/pulls?" in endpoint: emit([{"number": 1}])  # stale even after auto-close
     elif "/pulls/" in endpoint:
         number = endpoint.rsplit("/", 1)[1]
@@ -351,7 +360,8 @@ else: raise AssertionError(args)
 class RePinPublication(unittest.TestCase):
     """Execute the workflow step; model GitHub auto-closing a head reset to base."""
 
-    def run_repin(self, *, closed=False, write_mode="ok", push_mode="ok", wrong_head=False, close_on_edit=False):
+    def run_repin(self, *, closed=False, write_mode="ok", push_mode="ok", wrong_head=False, close_on_edit=False,
+                  refs=None, cache=None, ref_read="ok"):
         step = yaml.safe_load(WORKFLOW.read_text())["jobs"]["repin"]["steps"][-1]
         with tempfile.TemporaryDirectory() as temp:
             work = Path(temp)
@@ -373,7 +383,8 @@ class RePinPublication(unittest.TestCase):
             helper = ROOT / "scripts/cmux-next/publish-app-ffi-repin.sh"
             if helper.exists(): executable(scripts / helper.name, helper.read_text())
             state_path = work / "state.json"
-            state_path.write_text(json.dumps({"refs": {"app-ffi-repin": "c" * 40},
+            state_path.write_text(json.dumps({"refs": {"app-ffi-repin": "c" * 40} if refs is None else refs,
+                "cache": cache, "ref_read": ref_read,
                 "prs": {"1": "closed" if closed else "open"}, "published": [],
                 "writes": 0, "write_mode": write_mode, "push_mode": push_mode,
                 "wrong_head": wrong_head, "close_on_edit": close_on_edit}))
@@ -423,6 +434,30 @@ class RePinPublication(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(state["refs"], {"app-ffi-repin": "b" * 40})
         self.assertIn("verified open", result.stdout)
+
+    def test_heads_are_read_from_github_not_the_runners_git_cache(self):
+        # Run 42493097381: the merge of the last re-pin PR deleted app-ffi-repin;
+        # the push recreated it on GitHub, but `git ls-remote origin` went through
+        # the runner's git cache, still saw the old head, and failed "the re-pin
+        # head moved". The cache may also lag an existing head (wrong lease).
+        # Run 42536967661: gh printed the 404 body on stdout, and that JSON became
+        # the push lease ("cannot parse expected object name").
+        cases = {
+            "deleted, cache shows nothing": ({}, {}),
+            "deleted, cache shows the merged head": ({}, {"app-ffi-repin": "c" * 40}),
+            "existing, cache shows an older head": ({"app-ffi-repin": "c" * 40}, {"app-ffi-repin": "9" * 40}),
+        }
+        for name, (refs, cache) in cases.items():
+            with self.subTest(name):
+                result, state = self.run_repin(refs=refs, cache=cache, closed=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(state["refs"].get("app-ffi-repin"), "b" * 40)
+                self.assertIn("verified open", result.stdout)
+
+    def test_a_failed_head_read_fails_loud(self):
+        result, state = self.run_repin(ref_read="fail")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(state["published"], [])
 
     def test_final_pr_must_be_open_at_the_published_commit(self):
         for options in ({"wrong_head": True}, {"close_on_edit": True}):
@@ -563,11 +598,17 @@ class NewestPublishedRelease(unittest.TestCase):
 
 
 class BuildSpeedAndSupersede(unittest.TestCase):
-    """A newer FFI push supersedes an older build, and the build clones treeless.
+    """A newer FFI push queues behind a running build, never cancels it, and the build clones treeless.
 
     The run-level group (cancel-in-progress: false) made a newer push wait for
-    the whole older run, whose pin could no longer land (#36262). The full
-    clone of every ref was 5 to 10 minutes of each build.
+    the whole older run, publish and re-pin included (#36262). The build job's
+    group then cancelled the running build on each newer FFI push (#36346):
+    on 2026-11-08 FFI pushes at 18:19, 18:39, 19:01 and 19:04Z cancelled every
+    build, a dispatch (run 42511706663) too, so nothing newer than fcf8221e
+    published and the pin stayed red. A build is never cancelled: the group
+    keeps one running and only the newest pending, and the re-pin pins the
+    newest published release (latest wins). The full clone of every ref was 5
+    to 10 minutes of each build.
     """
 
     def setUp(self):
@@ -578,10 +619,10 @@ class BuildSpeedAndSupersede(unittest.TestCase):
     def test_no_run_level_group_queues_a_newer_push(self):
         self.assertNotIn("concurrency", self.workflow)
 
-    def test_a_newer_build_cancels_the_older_build(self):
+    def test_a_newer_push_never_cancels_a_running_build(self):
         concurrency = self.jobs["build"]["concurrency"]
         self.assertIn("${{ github.ref }}", concurrency["group"])
-        self.assertIs(concurrency["cancel-in-progress"], True)
+        self.assertIs(concurrency["cancel-in-progress"], False)
 
     def test_publish_is_never_cancelled_and_repins_run_one_at_a_time(self):
         publish = self.jobs["publish"]["concurrency"]

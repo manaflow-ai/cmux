@@ -165,6 +165,10 @@ export function OverlayDialog({ dialog, onEdit, onPress, onLayout, onPainted }: 
         className="overlay-dialog"
         data-layout={dialog.layout}
         data-identifier={dialog.identifier}
+        // The card takes the keyboard when no text field does (Return, Escape), as an open popover does,
+        // and like one it draws no ring around itself: the clear card's ring was a dark second edge around
+        // the native glass (Lawrence 2026-11-07, "weird border"). Its buttons keep their rings.
+        data-focus-ring="none"
         tabIndex={-1}
       >
         {dialog.icon && <img className="overlay-dialog-icon" src={dialog.icon} alt="" />}

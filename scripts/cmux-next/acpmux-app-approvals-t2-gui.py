@@ -122,9 +122,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown
 
 # This tag's own daemon state of earlier runs is moved aside, so each run starts clean.
-TAG_STATE = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{opts.tag}")
-if os.path.isdir(TAG_STATE) and not os.path.islink(TAG_STATE):
-    os.rename(TAG_STATE, TAG_STATE + ".old-" + str(int(time.time())))
+# NEXT's own folder and the one in classic's that a build from before it used (a new build adopts that at launch).
+for TAG_STATE in (os.path.expanduser(f"~/Library/Application Support/cmux-next/tags/{opts.tag}"),
+                  os.path.expanduser(f"~/Library/Application Support/cmux/tags/{opts.tag}")):
+    if os.path.isdir(TAG_STATE) and not os.path.islink(TAG_STATE):
+        os.rename(TAG_STATE, TAG_STATE + ".old-" + str(int(time.time())))
 # Short: acpmux puts unix sockets under its home, and a socket path over 104 bytes traps NWConnection.
 HOME_ACP = f"/tmp/kvmz-acp-home-{os.getpid()}"
 ACP_SOCKET = f"/tmp/kvmz-acp-{os.getpid()}.sock"

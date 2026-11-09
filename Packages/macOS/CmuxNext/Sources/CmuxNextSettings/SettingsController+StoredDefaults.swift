@@ -59,11 +59,20 @@ extension SettingsController {
     /// entries takes its own key, so this one never runs again).
     static let storedDefaultsForgottenKey = "storedDefaultsForgotten.1"
 
+    /// The record the pass keeps beside the file (`cmux-next.json.defaults-forgotten.json`). It is
+    /// also the per-file mark that the pass ran: the file is shared by every build on the Mac.
+    static let storedDefaultsForgottenRecordSuffix = "defaults-forgotten.json"
+
     /// Removes each stored value that is a copy of its key's default, current or former, in one
-    /// atomic write, once (`marker` records it). Keys Reset All keeps (the theme, the terminal font),
-    /// managed keys and keys a layer below the file fills stay. Before the write it keeps the old
-    /// text and both lists beside the file (`cmux-next.json.defaults-forgotten.json`). Returns the
-    /// report, or nil when the pass already ran.
+    /// atomic write, once per file: `marker` records it for this build and the record beside the
+    /// file (`cmux-next.json.defaults-forgotten.json`, written whether or not anything went) for
+    /// every other build on the same file. cmux-next.json is shared by NIGHTLY, RC and every tagged
+    /// DEV build, each with its own UserDefaults; with only `marker`, each fresh DEV build dropped
+    /// the person's later picks of a former default again (`updates.downloadAutomatically: true`,
+    /// which flipped the running NIGHTLY's automatic downloads to deferred). Keys Reset All keeps
+    /// (the theme, the terminal font), managed keys and keys a layer below the file fills stay.
+    /// Before the write it keeps the old text and both lists in the record. Returns the report, or
+    /// nil when the pass already ran for this build or this file.
     @discardableResult
     public func forgetStoredDefaults(marker: UserDefaults) async throws -> StoredDefaultsReport? {
         try await forgetStoredDefaults(marker: marker, formerDefaults: SettingsSchema.formerDefaults)
@@ -73,6 +82,10 @@ extension SettingsController {
     @discardableResult
     func forgetStoredDefaults(marker: UserDefaults, formerDefaults: [String: [JSONValue]]) async throws -> StoredDefaultsReport? {
         guard !marker.bool(forKey: Self.storedDefaultsForgottenKey) else { return nil }
+        if await file.hasRecordBeside(suffix: Self.storedDefaultsForgottenRecordSuffix) {
+            marker.set(true, forKey: Self.storedDefaultsForgottenKey)
+            return nil
+        }
         let root = try await file.document()
         var report = StoredDefaultsReport()
         for descriptor in SettingsSchema.all {
@@ -92,25 +105,34 @@ extension SettingsController {
             let candidates = SettingsSchema.all.compactMap { descriptor in report.dropped[descriptor.id].map { (descriptor, $0) } }
             let read = report
             let (removed, before) = try await removeUnchanged(
-                candidates.map { (path: $0.0.path, value: $0.1) }, recordBeside: "defaults-forgotten.json"
+                candidates.map { (path: $0.0.path, value: $0.1) }, recordBeside: Self.storedDefaultsForgottenRecordSuffix
             ) { removed, before in
-                let settled = Self.settled(read, candidates: candidates, removed: removed, before: before)
-                let record: JSONValue = .object([
-                    "note": .string("cmux dropped these stored copies of defaults once, so each key follows its default again. "
-                        + "To keep one, set it again in Settings or copy it back from `before`."),
-                    "dropped": .object(settled.dropped),
-                    "kept": .object(settled.kept),
-                    "before": .string(before),
-                ])
-                return record.prettyText() + "\n"
+                Self.storedDefaultsRecord(Self.settled(read, candidates: candidates, removed: removed, before: before), before: before)
             }
             report = Self.settled(report, candidates: candidates, removed: removed, before: before)
+        }
+        if !(await file.hasRecordBeside(suffix: Self.storedDefaultsForgottenRecordSuffix)) {
+            // Nothing went (or the removal found every value changed): the record still marks the file.
+            try await file.writeBeside(suffix: Self.storedDefaultsForgottenRecordSuffix,
+                                       text: Self.storedDefaultsRecord(report, before: try await file.source()))
         }
         let dropped = report.dropped.keys.sorted().joined(separator: ", "), kept = report.kept.keys.sorted().joined(separator: ", ")
         Logger(subsystem: "com.cmuxterm.app.next", category: "settings").info(
             "stored defaults: dropped [\(dropped, privacy: .public)]; kept [\(kept, privacy: .public)]")
         marker.set(true, forKey: Self.storedDefaultsForgottenKey)
         return report
+    }
+
+    /// The record's text: what went, what stayed and the file's text before the pass.
+    nonisolated static func storedDefaultsRecord(_ report: StoredDefaultsReport, before: String) -> String {
+        let record: JSONValue = .object([
+            "note": .string("cmux dropped these stored copies of defaults once, so each key follows its default again. "
+                + "To keep one, set it again in Settings or copy it back from `before`."),
+            "dropped": .object(report.dropped),
+            "kept": .object(report.kept),
+            "before": .string(before),
+        ])
+        return record.prettyText() + "\n"
     }
 
     /// `report` once the write removed only `removed`: each other candidate is kept, with its value

@@ -56,6 +56,11 @@ struct ChiefPanelWindowTests {
         return f
     }
 
+    /// Whether two frames match to a point (a place kept as a share of the window rounds to whole points).
+    static func near(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(a.minX - b.minX) <= 1 && abs(a.minY - b.minY) <= 1 && abs(a.width - b.width) <= 1 && abs(a.height - b.height) <= 1
+    }
+
     static func chiefView() -> (NSView, ChiefState) {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 400))
         return (view, ChiefState(in: view))
@@ -272,15 +277,18 @@ struct ChiefPanelWindowTests {
         f.services.windows.show(workspaceID: "k1", in: f.state)
         f.frame()
         let view = try #require(f.controller.chiefPanelView)
+        view.style = .panel // a style that never rests as a bar, so its frame is its place
         let moved = NSRect(x: 40, y: 60, width: 360, height: 300)
-        view.actions.moved(moved)
+        let size = try #require(view.superview).bounds.size
+        // The panel keeps its place as a share of the window (`ChiefPanelFrame`, y down); the drop is in its host's points, y up.
+        view.actions.moved(.fitting(CGRect(x: moved.minX, y: size.height - moved.maxY, width: moved.width, height: moved.height), in: size))
         f.frame()
-        #expect(view.frame == moved, "the panel did not stay where it was dropped: \(view.frame)")
+        #expect(Self.near(view.frame, moved), "the panel did not stay where it was dropped: \(view.frame)")
         f.controller.dockChiefPanel(at: .right)
         f.frame()
         #expect(f.controller.floatChiefPanel())
         f.frame()
-        #expect(view.frame == moved, "a dock and float lost the floating place: \(view.frame)")
+        #expect(Self.near(view.frame, moved), "a dock and float lost the floating place: \(view.frame)")
         let saved = try #require(f.state.chiefPanel.record)
         let data = try JSONEncoder().encode(saved)
         let restored = ChiefPanel(record: try JSONDecoder().decode(WindowChiefPanelRecord.self, from: data))

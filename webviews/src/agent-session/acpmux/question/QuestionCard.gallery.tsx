@@ -13,9 +13,12 @@ import pendingMulti from "../../../../../Packages/Shared/CmuxAgentQuestion/Sourc
 import pendingOther from "../../../../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/pending-other-typing.json";
 import pendingSingle from "../../../../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/pending-single.json";
 import pendingPreview from "../../../../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/pending-with-preview.json";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
+import type { ChatUiFont } from "../chatUiFont";
+import type { AcpmuxPermission } from "../model";
+import { CardFontCaption, fontMeasured, PAIRED_UI_FONTS, useCardFont } from "../permissions/cardFontGallery";
 import type { AgentQuestion, QuestionReply } from "./model";
 import { questionPreviewLayout } from "./previewLayout.experiment";
 import { QuestionCard } from "./QuestionCard";
@@ -27,13 +30,18 @@ type Props = {
   look?: "compact" | "inset" | "quiet" | "capsule" | "outline" | "bare";
   /// The answered card's look (QuestionCard.gallery.css): `stacked` ships.
   answeredLook?: AnsweredLook;
+  /// The chat's Interface Font, with the row estimator's first height under the card (cardFontGallery.tsx).
+  uiFont?: ChatUiFont;
 };
 type AnsweredLook = "stacked" | "inline" | "check";
 
 /// The card sits where the agent pane puts it: inside .acpmux-shell (which defines the card tokens,
 /// the amber input color among them) and the bottom ask stack.
-function QuestionCardInPane({ otherText, look, answeredLook, ...props }: Props) {
+function QuestionCardInPane({ otherText, look, answeredLook, uiFont, ...props }: Props) {
   const pane = useRef<HTMLDivElement>(null);
+  const stack = useRef<HTMLDivElement>(null);
+  const asked = useMemo(() => ({ question: props.question }) as unknown as AcpmuxPermission, [props.question]);
+  const font = useCardFont(uiFont, asked, stack);
   // A variant with `otherText` picks Other on the first question and types it, as a person does.
   useEffect(() => {
     const root = pane.current;
@@ -57,13 +65,14 @@ function QuestionCardInPane({ otherText, look, answeredLook, ...props }: Props) 
       className="acpmux-shell acpmux-question-visual-gallery"
       data-question-look={look}
       data-answered-look={answeredLook}
-      style={{ flexDirection: "column", justifyContent: "flex-end", paddingTop: 16 }}
+      style={{ flexDirection: "column", justifyContent: "flex-end", paddingTop: 16, ...font.style }}
     >
       <div className="acpmux-permission">
-        <div className="acpmux-asks-stack">
+        <div className="acpmux-asks-stack" ref={stack}>
           <QuestionCard {...props} />
         </div>
       </div>
+      <CardFontCaption caption={font.caption} />
     </div>
   );
 }
@@ -271,6 +280,20 @@ export default componentEntry({
     ],
   },
   variants: {
+    // cmux#38886 review: the pending card's first estimate in each Interface Font of a shared stack.
+    ...Object.fromEntries(
+      PAIRED_UI_FONTS.map((font) => [
+        `font-${font}`,
+        {
+          ...variant(
+            pendingSingle,
+            `The pending card in the ${font} Interface Font, with the row estimator's first height beside the drawn one.`,
+          ),
+          props: { ...variant(pendingSingle, "").props, uiFont: font },
+          play: fontMeasured,
+        },
+      ]),
+    ),
     // Leo 2026-11-05, of the Needs your input pill, the option rows and the custom answer: "kind of
     // ugly". Three restyles on the card he showed (two options, a typed custom answer); capsule ships.
     "restyle-capsule": {

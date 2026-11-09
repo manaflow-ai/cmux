@@ -349,6 +349,24 @@ final class PaneHostView: NSView, RestingPlacement {
         area.drawAheadOfHold(sizeChange: sizeChange, keyPress: keyPress)
     }
 
+    /// The held snap showed (``ScreenContentView`` `presentHeldSnap`): a size drawn ahead for it that its placement did
+    /// not take goes (RESIZE P0 14).
+    func snapDidShow() {
+        (content as? PaneMotionHolding)?.paneMotionHoldArea?.aheadOfHoldShown()
+    }
+
+    /// The held snap shows in this turn (``ScreenContentView`` `presentHeldSnap`, RESIZE P0 21): the pane's content shows
+    /// at its new size in the snap's commit (``PaneContentAreaView/aheadOfHoldWillShow()``).
+    func snapWillShow() {
+        (content as? PaneMotionHolding)?.paneMotionHoldArea?.aheadOfHoldWillShow()
+    }
+
+    /// Whether a key press's held snap must keep waiting for this pane's content drawn ahead for it (RESIZE P0 20,
+    /// ``PaneContentAreaView/aheadOfHoldAwaitsContent(refreshesWaited:)``).
+    func snapAwaitsContent(refreshesWaited: Int) -> Bool {
+        (content as? PaneMotionHolding)?.paneMotionHoldArea?.aheadOfHoldAwaitsContent(refreshesWaited: refreshesWaited) ?? false
+    }
+
     /// The held area rides the key hold's edges in each frame, and lets go when the hold ends, before the content hears
     /// the landing (its terminal then sizes its surface from its final frame).
     private func syncHeldArea() {

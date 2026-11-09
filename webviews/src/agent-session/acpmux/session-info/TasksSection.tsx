@@ -4,17 +4,21 @@
 // then "N finished", folded, which opens into the ended commands and the wakeups and cron jobs whose
 // time has passed (session-info/scheduled.ts), latest first, with how each ended.
 // The commands are the registry's and the ones only the transcript knows (processes.ts
-// `backgroundCommands`: Claude's background Bash, Ctrl-B's included). A row opens the command's
-// terminal beside the chat (processTerminal.ts); a peer's (SSH) or Cloud chat has none, so there
+// `backgroundCommands`: Claude's background Bash, Ctrl-B's included). On this Mac a row opens the
+// chat's Background tasks panel on that command's card, open with its command and output, Open in
+// terminal inside it (backgroundTasks/openBackgroundTasks.ts); a host with no panel (Quick Chat, the
+// gallery) opens the command's terminal beside the chat (processTerminal.ts). A peer's (SSH) or Cloud
+// chat has neither, so there
 // it shows the Bash call that started it in the transcript, and a row with neither is no button
 // and says why. A command the registry lists also has Stop.
 // Dev servers head the section in rows of their own (ServersSection.tsx). A running row's time ends
 // it, and on the row's hover or focus Stop takes the time's place (sessionInfo.css). The panel's body
 // scrolls, not the section; nothing is cut to a few rows. A command that starts while the list is drawn
 // drops in at the top (ui/presence.ts `useArrivals`); the ones the list is drawn with are simply there.
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { useArrivals } from "../../../ui/presence";
-import { formatDuration } from "../conversation/turns";
+import { OpenBackgroundTasks } from "../backgroundTasks/openBackgroundTasks";
+import { formatDuration, spanDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -28,6 +32,7 @@ import { TASK_ICONS } from "./taskIcons";
 import { useFoldMotion } from "./foldMotion";
 import { COMMAND_STATE } from "./tasksSectionModel";
 import { WindowedRows } from "./WindowedRows";
+import { Clock } from "../../../ui/Typography";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -55,6 +60,7 @@ export function TasksSection({
 }) {
   const t = useT();
   const language = usePaneLanguage();
+  const openTasks = useContext(OpenBackgroundTasks);
   const [showFinished, setShowFinished] = useState(false);
   // The finished row opens its list as one motion with the sections under it (foldMotion.ts).
   const finishedFold = useFoldMotion<HTMLDivElement>(showFinished, () => 0);
@@ -94,12 +100,13 @@ export function TasksSection({
           className="acpmux-session-info-task__open"
           disabled={why !== undefined}
           onClick={() => {
-            void openCommand(toolCallId, { local, showCall: onShowCall });
+            if (local && openTasks && toolCallId) openTasks(toolCallId);
+            else void openCommand(toolCallId, { local, showCall: onShowCall });
           }}
         >
           <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
           <span className="acpmux-session-info-task__command">{sendLabel(t, command) ?? command.command}</span>
-          {time !== undefined && <span className="acpmux-session-info-task__time">{time}</span>}
+          {time !== undefined && <Clock className="acpmux-session-info-task__time" text={time} />}
           {state !== undefined && <span className="acpmux-session-info-task__state">{state}</span>}
         </button>
         {command.state === "running" && command.processId && onStop && (
@@ -187,7 +194,7 @@ export function TasksSection({
                       ? row(
                           entry.command,
                           entry.command.endedAt !== undefined && entry.command.startedAt !== undefined
-                            ? formatDuration(Math.max(0, entry.command.endedAt - entry.command.startedAt))
+                            ? spanDuration(t, entry.command.endedAt - entry.command.startedAt)
                             : undefined,
                           t(COMMAND_STATE[entry.command.state]),
                         )
