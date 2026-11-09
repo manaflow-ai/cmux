@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42539303214",
+  "recorded_at": "2026-11-09T00:29:53Z",
+  "reason": "cmux-tui 2bba96629af4 changes the image's cmux-tui (pinned 1c566c9abcaf)",
+  "dry_run": false,
+  "cmux_tui": "2bba96629af400f7388942dd35ea8b088a179a3f",
+  "fixes": [
+    {
+      "sha": "2bba96629af400f7388942dd35ea8b088a179a3f",
+      "mergedAt": "2026-11-08T23:57:38Z",
+      "subject": "carrier: a resume recorded before a bind is dropped, not acted on (follow-up to #38775) (#38948)"
+    },
+    {
+      "sha": "d0b132df7ddbf5caf77c3ce5758518419e18144d",
+      "mergedAt": "2026-11-08T15:52:52-08:00",
+      "subject": "acpmux: reach a machine over every path at once, pick the fastest, and remember it (one-link slice 3a) (#38357)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T00:29:53Z",
+    "snapshot_id": "sh-cfb4f77be0b04ec7a0abaf46c4750716",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42539303214): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "45fa908e89732870e010b68aacf1e1f5b2d54973",
+    "image": "cloud-native-auto-2bba9662-42539303214-1",
+    "revision": "ci-42539303214-1",
+    "at": "2026-11-09T00:29:53Z"
+  },
+  "rolled_back": false
+}
