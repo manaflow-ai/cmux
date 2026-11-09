@@ -275,7 +275,10 @@ fn w5q_tui_never_types_a_late_host_color_reply_into_a_pane() {
 /// W5-Q review (PR B finding 3): keys typed right after Alt+], in the same
 /// read, reach the pane: `cat -v` in the pane shows each one. The client once
 /// waited for an OSC reply's end after `ESC ]` and then dropped the rest of
-/// the read (`a`, the Up key, a repeated Alt+], a typed `12`).
+/// the read (`a`, the Up key, a repeated Alt+], a typed `12`). Alt+] is the
+/// default `next-screen` key, so the client takes each Alt+] itself (one
+/// screen here: nothing moves) and the pane gets only the keys after it; a
+/// repeated Alt+] read as Alt+] and a plain `]` would show a `]`.
 #[test]
 fn w5q_tui_types_every_key_after_alt_right_bracket() {
     let fixture = Fixture::new("alt-right-bracket");
@@ -301,10 +304,10 @@ fn w5q_tui_types_every_key_after_alt_right_bracket() {
     );
     // Each case is one write, so the client reads it in one read.
     let cases: [(&[u8], &str); 4] = [
-        (b"k1:\x1b]a\r", "k1:^[]a"),
-        (b"k2:\x1b]\x1b[A\r", "k2:^[]^[[A"),
-        (b"k3:\x1b]\x1b]\x1b]\r", "k3:^[]^[]^[]"),
-        (b"k4:\x1b]12x\r", "k4:^[]12x"),
+        (b"k1:\x1b]a\r", "k1:a"),
+        (b"k2:\x1b]\x1b[A\r", "k2:^[[A"),
+        (b"k3:\x1b]\x1b]\x1b]\r", "k3:"),
+        (b"k4:\x1b]12x\r", "k4:12x"),
     ];
     for (typed, _) in cases {
         client.host_writes(typed);
@@ -340,7 +343,7 @@ fn open_pty() -> (File, OwnedFd) {
             &mut slave,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
-            &mut size,
+            &raw mut size,
         )
     };
     assert_eq!(opened, 0, "openpty: {}", std::io::Error::last_os_error());
