@@ -64,7 +64,7 @@ await requireBrowserLane("background-transcript-runs.test.ts", async () => {
       const shown = await lines(page);
       console.log("LINES", JSON.stringify(shown));
       // The eleven steps before the reply: one line naming them, their failures counted.
-      const runs = shown.filter((text) => /^Ran 11 commands/.test(text));
+      const runs = shown.filter((text) => text.startsWith("Ran 11 commands"));
       expect(runs).toHaveLength(1);
       expect(runs[0]).toContain("2 failed");
       // Their thoughts fold with them: none draws a line while the run is folded.

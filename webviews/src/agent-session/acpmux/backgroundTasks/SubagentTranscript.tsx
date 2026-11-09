@@ -132,9 +132,9 @@ export function SubagentTranscript({
   const placed = useRef(false);
   const first = Math.min(range.start, Math.max(0, rows.length - 1));
   const last = range.end === undefined || range.end >= rows.length ? undefined : range.end;
-  const shown = rows.slice(first, last);
   const blocks = useMemo(() => transcriptBlocks(rows.slice(first, last), runFold(look)), [rows, first, last, look]);
-  const lastRun = blocks.at(-1)?.type === "run" ? blocks.at(-1)!.id : undefined;
+  const tail = blocks.at(-1);
+  const lastRun = tail?.type === "run" ? tail.id : undefined;
   const loadOlder = onLoadOlder;
 
   // Before the first paint: at the bottom, or the opened task's row in view.
