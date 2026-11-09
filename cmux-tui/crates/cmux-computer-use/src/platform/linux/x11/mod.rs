@@ -53,6 +53,7 @@ pub(crate) struct Atoms {
     pub wm_protocols: Atom,
     pub wm_take_focus: Atom,
     pub net_wm_ping: Atom,
+    pub xim_servers: Atom,
     pub utf8_string: Atom,
     pub overlay: Atom,
 }
@@ -88,6 +89,7 @@ impl Atoms {
             wm_protocols: get("WM_PROTOCOLS")?,
             wm_take_focus: get("WM_TAKE_FOCUS")?,
             net_wm_ping: get("_NET_WM_PING")?,
+            xim_servers: get("XIM_SERVERS")?,
             utf8_string: get("UTF8_STRING")?,
             overlay: get(OVERLAY_ATOM)?,
         })
@@ -103,6 +105,21 @@ impl Atoms {
 /// GTK moves the input method), so they never get one.
 pub(crate) fn tracks_focus_from_events(protocols: &[Atom], take_focus: Atom, ping: Atom) -> bool {
     !protocols.iter().any(|p| *p == take_focus || *p == ping)
+}
+
+/// A window's `WM_PROTOCOLS`: `Some` (possibly empty) when the read worked
+/// and the property is absent or a list of atoms, `None` when it failed.
+pub(crate) fn read_protocols(
+    conn: &RustConnection,
+    win: XWindow,
+    wm_protocols: Atom,
+) -> Option<Vec<Atom>> {
+    let r =
+        conn.get_property(false, win, wm_protocols, AtomEnum::ATOM, 0, 256).ok()?.reply().ok()?;
+    if r.format == 0 {
+        return Some(Vec::new());
+    }
+    Some(r.value32()?.collect())
 }
 
 /// One client window as X11 describes it.
