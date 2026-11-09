@@ -272,20 +272,25 @@ fn a_harness_folder_kept_as_a_submodule_is_never_marked() {
         let commit = git(&lib, &["rev-parse", "HEAD"]);
         // A gitlink in the Mac's index and its folder not initialized, as a clone leaves a
         // submodule (no `.gitmodules`, so the seed never reaches for it over the network).
-        git(&world.mac, &["update-index", "--add", "--cacheinfo", &format!("160000,{commit},{at}")]);
+        git(
+            &world.mac,
+            &["update-index", "--add", "--cacheinfo", &format!("160000,{commit},{at}")],
+        );
         std::fs::create_dir_all(world.mac.join(at)).unwrap();
         let snapshot = world.snapshot("one", &[&world.base]);
         let folder = world.home.join("project");
         let params = head_params(&world, &folder, &snapshot, None);
         let (service, job, release) = held_at_head(&world, &params, &folder);
-        let probed = probe(&folder).unwrap();
-        if marked {
-            assert_eq!(status(&service, &job)["head_ready"], true, "{label}");
-            assert!(matches!(probed, Probe::HeadReady), "{label}");
-        } else {
-            assert!(status(&service, &job)["head_ready"].is_null(), "{label}");
-            assert!(matches!(probed, Probe::Syncing), "{label}: a start waits");
-        }
+        let probed = match probe(&folder).unwrap() {
+            Probe::Ready(_) => "ready",
+            Probe::HeadReady => "head",
+            Probe::Syncing => "syncing",
+            Probe::Incomplete => "incomplete",
+        };
+        let reported = status(&service, &job);
+        let expected = if marked { "head" } else { "syncing" };
+        assert_eq!(probed, expected, "{label}: {reported}");
+        assert_eq!(reported["head_ready"].as_bool().unwrap_or(false), marked, "{label}: {reported}");
         drop(release);
         let done = wait(&service, &job);
         // No `.gitmodules`, so the seed skips submodule update and finishes.

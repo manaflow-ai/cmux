@@ -665,7 +665,8 @@ impl Seed {
         };
         listing.split(|byte| *byte == 0).any(|entry| {
             let entry = String::from_utf8_lossy(entry);
-            entry.starts_with("160000 ") && entry.split_once('\t').is_some_and(|(_, path)| in_head(path))
+            entry.starts_with("160000 ")
+                && entry.split_once('\t').is_some_and(|(_, path)| in_head(path))
         })
     }
 
