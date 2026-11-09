@@ -25,6 +25,9 @@ When we change the fork, update this document and the parent submodule SHA.
 - Why: Leo's dependency fork trawl (2026-11-07). `ghostty-bench`, 10 interleaved runs per binary, median ms:
   terminal-stream 120x80 links 122.5 -> 81.8 (1.50x), styled-heavy 80.8 -> 49.9 (1.62x); screen-clone styled-heavy
   render-locked 191.1 -> 147.6 (1.30x) at 120x80 and 135.9 -> 106.2 (1.28x) at 160x50. No row slower beyond noise.
+- Review: fork PR #90 got a different-family SHIP at `8352952d0` and merged to fork `main` as `e23cc1c36`. The release
+  branch commits are the same patches (`git patch-id --stable`: #15111 `e175f06dacd8` on `5083bc441` and `77fe41a73`,
+  #15121 `5557340f3480` on `8352952d0` and `8379ecc8a`), and `git diff 8352952d0 8379ecc8a` is exactly #86's diff.
 - Conflict notes: none; the next upstream sync brings both, so drop these picks then.
 
 ### An update draws at once while a host size's frame waits for the embedder's present (ghostty-next)
