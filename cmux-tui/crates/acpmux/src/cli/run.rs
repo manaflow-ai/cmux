@@ -26,6 +26,7 @@ pub use ls::LsArgs;
 mod parent;
 mod send_async;
 mod session_move;
+mod sleep_handoff;
 mod standard;
 pub(crate) mod transfer;
 

@@ -60,11 +60,23 @@ pub(crate) struct MoveArgs {
     /// `session resume`'s move: once moved, the held queue runs on the target, asked over the
     /// move's own connection (the route `HOST/ID` through this daemon may not know it yet).
     pub resume_there: bool,
+    /// `session sleep-handoff`'s move (`sleep_handoff.rs`): once moved, these tags are set on the
+    /// chat there and its stopped turn goes on with a prompt, asked over the move's own
+    /// connection.
+    pub continue_there: Option<ContinueThere>,
     /// `--from MACHINE`: the chats live on that machine (one of this machine's ssh peers), and
     /// this machine drives their move over ssh to it and to the target. Neither of the two needs
     /// to reach the other: a Mac mini and a cloud VM that only this laptop reaches still trade
     /// chats, and `--machine local` brings one back here.
     pub from: Option<String>,
+}
+
+/// What a move does on the target once the chat is there (`MoveArgs::continue_there`).
+pub(crate) struct ContinueThere {
+    /// Why it moved, recorded in its `movedTo` here (`"sleep"`).
+    pub why: &'static str,
+    pub tags: Value,
+    pub text: String,
 }
 
 /// Where the chats being moved live: this machine, or (`--from`) a peer this machine reaches
@@ -100,6 +112,7 @@ struct Outcome {
     /// The chat's id on the target, once moved.
     there: Option<String>,
     /// With `resume_there`: whether a held queue ran there, or why it did not (the chat moved).
+    /// With `continue_there`: whether its prompt was queued there.
     resumed: Result<bool, String>,
     /// With `--carry-changes`: what was carried (`Carry::record`).
     carried: Option<Value>,
@@ -229,6 +242,7 @@ pub(crate) async fn move_off_interactive(src: &Client, id: &str) -> Result<Moved
         cwd: None,
         dry_run: false,
         resume_there: true,
+        continue_there: None,
         from: None,
     };
     let peers = src.request("_acpmux/peers", json!({})).await?;
@@ -242,6 +256,60 @@ pub(crate) async fn move_off_interactive(src: &Client, id: &str) -> Result<Moved
         bail!("the move gave no host and id for the chat there");
     };
     Ok(MovedOff { routed: format!("{host}/{there}"), host, resumed: o.resumed })
+}
+
+/// `sleep_handoff.rs`'s move of the running chat `id` to `host` (a machine or `auto`): the
+/// turn is stopped, uncommitted work carried, and once there `then` runs. `Err`: it did not
+/// move, and why; the chat is here, its turn stopped only when the move got past its freeze.
+pub(crate) async fn move_running(
+    src: &Client,
+    id: &str,
+    host: &str,
+    then: ContinueThere,
+) -> Result<MovedOff> {
+    let args = MoveArgs {
+        sessions: vec![id.to_owned()],
+        host: host.to_owned(),
+        all_idle: false,
+        interrupt: true,
+        leave_dirty: false,
+        carry_changes: true,
+        cwd: None,
+        dry_run: false,
+        resume_there: false,
+        continue_there: Some(then),
+        from: None,
+    };
+    let peers = src.request("_acpmux/peers", json!({})).await?;
+    let mut targets = Targets::new(&args.host, &peers)?;
+    let home = dirs::home_dir().ok_or_else(|| anyhow!("this machine has no home folder"))?;
+    let o = move_one(src, id, &args, &home, &mut targets).await;
+    if let Some(e) = o.error {
+        bail!("{e}");
+    }
+    let (Some(host), Some(there)) = (o.host, o.there) else {
+        bail!("the move gave no host and id for the chat there");
+    };
+    Ok(MovedOff { routed: format!("{host}/{there}"), host, resumed: o.resumed })
+}
+
+/// Tags the moved chat `there` on the target, then queues the prompt that continues it.
+async fn continue_there(
+    dst: &std::sync::Arc<Client>,
+    there: &str,
+    then: &ContinueThere,
+) -> Result<()> {
+    dst.request(method::MUX_TAG, json!({"sessionId": there, "set": then.tags})).await?;
+    crate::cli::output::queue_prompt(
+        dst.clone(),
+        there,
+        &then.text,
+        false,
+        None,
+        &crate::cli::output::PromptId::new(None),
+    )
+    .await?;
+    Ok(())
 }
 
 /// Every chat here that is open and between turns: not closed, not running, not being moved.
@@ -415,6 +483,11 @@ async fn move_steps(
         };
         o.resumed = resumed.map_err(|e| format!("{e:#}"));
     }
+    if let (Some(then), Some(there)) = (&args.continue_there, o.there.clone()) {
+        // Moved whatever this says: a chat whose prompt was not queued waits there for one.
+        o.resumed =
+            continue_there(&dst, &there, then).await.map(|()| true).map_err(|e| format!("{e:#}"));
+    }
     drop(forward);
     if let Some(name) = moved.get("name").and_then(Value::as_str) {
         o.name = name.to_owned();
@@ -446,6 +519,9 @@ async fn prepare(
     )
     .map_err(|e| anyhow!(e))?;
     let mut record = json!({"host": target.name});
+    if let Some(then) = &args.continue_there {
+        record.set("why", json!(then.why));
+    }
     let mut carry = None;
     if let (Folder::Worktree { branch, dirty, .. }, Some(c)) = (&folder, &checkout) {
         let commit = tokio::task::spawn_blocking({
@@ -676,7 +752,7 @@ fn git(dir: &Path, args: &[&str]) -> Option<String> {
 }
 
 /// The git checkout `cwd` is in, if any.
-fn checkout_of(cwd: &Path) -> Result<Option<Checkout>> {
+pub(super) fn checkout_of(cwd: &Path) -> Result<Option<Checkout>> {
     let Some(top) = git(cwd, &["rev-parse", "--show-toplevel"]).filter(|t| !t.is_empty()) else {
         return Ok(None);
     };
@@ -792,7 +868,7 @@ fn prepare_folder(host: &str, folder: &Folder) -> Result<String> {
 }
 
 /// Runs one of the fixed scripts on this machine, `input` on its stdin.
-fn run_here(script: &str, input: &[u8]) -> Result<crate::cli::hosts::RemoteOut> {
+pub(super) fn run_here(script: &str, input: &[u8]) -> Result<crate::cli::hosts::RemoteOut> {
     use std::io::Write as _;
     let mut child = StdCommand::new("/bin/sh")
         .arg("-c")

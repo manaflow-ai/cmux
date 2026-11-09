@@ -277,6 +277,7 @@ export interface AcpmuxRequests {
   "_acpmux/vm_host": { params: unknown; result: unknown };
   "_acpmux/host_notice": { params: unknown; result: unknown };
   "_acpmux/place": { params: unknown; result: unknown };
+  "_acpmux/sleep_handoff": { params: unknown; result: unknown };
   "_acpmux/peer_add": { params: unknown; result: unknown };
   "_acpmux/peer_lease": { params: unknown; result: unknown };
   "_acpmux/peer_reconnect": { params: PeerReconnectParams; result: unknown };
@@ -625,6 +626,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/vm_host", kind: "request", acp: false, typed: false },
   { name: "_acpmux/host_notice", kind: "request", acp: false, typed: false },
   { name: "_acpmux/place", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/sleep_handoff", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_add", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_lease", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_reconnect", kind: "request", acp: false, typed: true },
