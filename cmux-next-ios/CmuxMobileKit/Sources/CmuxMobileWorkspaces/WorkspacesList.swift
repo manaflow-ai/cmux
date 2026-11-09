@@ -411,19 +411,28 @@ public struct WorkspacesList: View {
         var typeSize: DynamicTypeSize
         var canReconnect: Bool
         var sameNames: MacNameDisambiguation
-        /// The Mac groups (`emptyGroups(on:)` reads them).
+        /// The Mac groups (`emptyGroups(on:)` reads them): the phone's own changes, and each
+        /// listed Mac's groups as it lists them (a group made or deleted on the Mac), in Mac order only.
         var groupsRevision: Int
+        var macGroups: [String: [MacWorkspaceGroup]]
     }
 
     /// Sections and items for the collection, built once per change of their input.
     private func listModel(_ inbox: WorkspaceInbox) -> WorkspacesListModel {
         var rights: [String: WorkspaceCreator.MacRights] = [:]
         for mac in macs { rights[mac.id] = creator.rights(onMac: mac.id) }
+        // The Macs whose empty groups the model lists (one per Mac group run, not per row).
+        var macGroups: [String: [MacWorkspaceGroup]] = [:]
+        if inbox.isMacOrder {
+            for section in inbox.recentSections where macGroups[section.macID] == nil {
+                macGroups[section.macID] = creator.listedGroups(on: section.macID)
+            }
+        }
         let input = ListModelInput(inboxBuild: inboxMemo.builds, names: macNames(), rights: rights,
                                    pending: store.pendingWorkspaceIDs, tracks: store.tracksMacData, compact: compactList,
                                    grouping: grouping, unfolded: unfolded, searching: !query.isEmpty, scopeMacID: scope.macID,
                                    typeSize: typeSize, canReconnect: reconnect != nil, sameNames: sameNames,
-                                   groupsRevision: creator.groupsRevision)
+                                   groupsRevision: creator.groupsRevision, macGroups: macGroups)
         return listMemo.value(input) { buildListModel(inbox, input) }
     }
 
