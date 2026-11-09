@@ -102,7 +102,7 @@ fn a_folder_swapped_for_a_symlink_is_never_walked_through() {
             git: false,
         };
         // As the walk descends into a name it listed as a folder.
-        let _ = walk_plain(&mut set, Rules::Copy, &top, &dir);
+        let _ = walk_plain(&mut set, Rules::Copy, &|_| true, &top, &dir);
         assert!(
             set.files.keys().all(|relative| !relative.ends_with("secret.txt")),
             "walked outside through {}: {:?}",

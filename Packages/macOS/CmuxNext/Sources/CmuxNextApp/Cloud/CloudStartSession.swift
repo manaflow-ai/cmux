@@ -4,6 +4,7 @@ import CmuxNextCloud
 import CmuxNextCloudCredentials
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextRemote
 import CmuxNextSettings
 import Foundation
 
@@ -237,11 +238,11 @@ struct CloudStartSession {
         try still(name)
         let copy = try await copiedIfAsked(request, to: session, account: account), cwd = copy?.chat ?? request.cwd // before the session starts in it
         try still(name)
-        // Remote approvals turn on beside the login (an idle daemon only), so the chat's first start carries its key.
-        let approvals = Task { await services.cloud.restartWithApprovalsIfIdle(session, .checkStatus) } // task-owner: awaited before the chat starts
-        try await passHarnessLogin(session, agent: agent, login: request.login) { try still(name) }
-        steps.done("login")
-        _ = await approvals.value
+        // Remote approvals turn on beside the login (an idle daemon only), awaited on every exit: the gate is never released under them.
+        try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(session, .checkStatus) { account == services.cloud.account } }) {
+            try await passHarnessLogin(session, agent: agent, login: request.login) { try still(name) }
+            steps.done("login")
+        }
         steps.done("approvals")
         if let refusal = session.harnessLogin?.refusal { throw ActionFailure(message: CloudStartSessionStrings.loginRefused(Self.loginRefusal(refusal), request.asked(machine: name))) }
         guard let host = AgentTabStore.registryHost(of: session.daemon) else {

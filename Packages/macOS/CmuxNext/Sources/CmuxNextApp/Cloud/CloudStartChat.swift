@@ -6,6 +6,7 @@ import CmuxNextCloudCredentials
 @_exported import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextRemote
 import CmuxNextTabs
 import Foundation
 
@@ -132,32 +133,32 @@ struct CloudStartChat {
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
         // The account may have changed while the machine connected: copy nothing then.
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
-        // The chat's harness login (DEV and dogfood builds, +Login): it runs alongside the copy and is
-        // awaited before the chat opens, so its first prompt starts signed in. It never fails the start.
-        async let loginPassed = passHarnessLogin(harness: start.harness, machine: machine)
-        let approvals = Task { await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) } // task-owner: awaited before the chat opens, as the login is
+        // The chat's harness login (DEV and dogfood builds, +Login) and remote approvals run beside the copy, awaited before the chat opens.
         let size = AgentPaneCloudStart.sizeText(machine.machine.size)
-        report(.init(name: "folder", folder: folderName, machine: name, size: size))
-        // Each copy goes to a new folder of the send's own, under its account as its pin; a retry whose
-        // copy finished opens its chat without copying again, which would overwrite what it changed.
-        let copy: Copied
-        do {
-            copy = try await copyFolder(folder, key: start.key, account: account, to: machine, cli: cli) {
-                report(AgentPaneCloudStart.copying($0, folder: folderName, machine: name, size: size))
+        let copy: Copied = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account } }) {
+            async let loginPassed = passHarnessLogin(harness: start.harness, machine: machine)
+            report(.init(name: "folder", folder: folderName, machine: name, size: size))
+            // Each copy goes to a new folder of the send's own, under its account as its pin; a retry whose
+            // copy finished opens its chat without copying again, which would overwrite what it changed.
+            let copy: Copied
+            do {
+                copy = try await copyFolder(folder, key: start.key, account: account, to: machine, cli: cli) {
+                    report(AgentPaneCloudStart.copying($0, folder: folderName, machine: name, size: size))
+                }
+            } catch {
+                // Timed out or didn't launch: Retry copies again on this machine, into a new folder.
+                throw CloudMove.Failure(message: CloudMoveStrings.syncFailed(name, CloudStrings.errorText(error)), retry: again)
             }
-        } catch {
-            // Timed out or didn't launch: Retry copies again on this machine, into a new folder.
-            throw CloudMove.Failure(message: CloudMoveStrings.syncFailed(name, CloudStrings.errorText(error)), retry: again)
+            report(.init(name: "folder", folder: folderName, machine: name, size: size,
+                         cloneState: copy.0.seedState, clonePhase: copy.0.seedPhase,
+                         cloneStartedAt: copy.0.seedStartedAt, cloneFinishedAt: copy.0.seedFinishedAt,
+                         start: .init(environmentId: plan.environmentId, setup: plan.setup)))
+            guard copy.0.ok else { throw CloudMove.failure(syncing: copy.0, machine: name, retry: again) }
+            // The copy may take long: a chat whose account changed meanwhile opens nowhere, and this Mac's tab stays.
+            try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
+            _ = await loginPassed
+            return copy
         }
-        report(.init(name: "folder", folder: folderName, machine: name, size: size,
-                     cloneState: copy.0.seedState, clonePhase: copy.0.seedPhase,
-                     cloneStartedAt: copy.0.seedStartedAt, cloneFinishedAt: copy.0.seedFinishedAt,
-                     start: .init(environmentId: plan.environmentId, setup: plan.setup)))
-        guard copy.0.ok else { throw CloudMove.failure(syncing: copy.0, machine: name, retry: again) }
-        // The copy may take long: a chat whose account changed meanwhile opens nowhere, and this Mac's tab stays.
-        try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
-        _ = await loginPassed
-        _ = await approvals.value
         // The login may have waited on a confirm and a sign-in: check the account again after it.
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         report(.init(name: "opening", folder: folderName, machine: name, size: size,
@@ -260,9 +261,7 @@ struct CloudStartChat {
                                                      cli: CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout), invocation: invocation) { await CloudChatPick(services: services).read(folder: nil, tab: tab) }
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         // The harness login before the first prompt, as for a chat with a project (+Login), and remote approvals meanwhile.
-        let approvals = Task { await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) } // task-owner: awaited before the chat opens
-        _ = await passHarnessLogin(harness: start.harness, machine: machine)
-        _ = await approvals.value
+        _ = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account } }) { await passHarnessLogin(harness: start.harness, machine: machine) }
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         report(.init(name: "opening", machine: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size),
                      start: .init(environmentId: plan.environmentId, setup: plan.setup)))
