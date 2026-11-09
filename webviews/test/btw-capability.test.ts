@@ -1,11 +1,26 @@
 import { expect, test } from "bun:test";
-import { askBtwQuestion, BTW_INLINE, supportsBtwInline } from "../src/agent-session/acpmux/btwCapability";
+import {
+  askBtwQuestion,
+  BTW_GUEST,
+  BTW_INLINE,
+  supportsBtwGuest,
+  supportsBtwInline,
+} from "../src/agent-session/acpmux/btwCapability";
 
 test("inline btw capability gates the new reply shape", () => {
   expect(BTW_INLINE).toBe("btw-inline-v1");
   expect(supportsBtwInline(new Set([BTW_INLINE]))).toBe(true);
   expect(supportsBtwInline(new Set(["acpmux-v1"]))).toBe(false);
   expect(supportsBtwInline(undefined)).toBe(false);
+});
+
+test("a guest from another harness needs a daemon that serves guests inline", () => {
+  expect(BTW_GUEST).toBe("btw-guest-v1");
+  expect(supportsBtwGuest(new Set([BTW_INLINE, BTW_GUEST]))).toBe(true);
+  // An older daemon ignores targetHarness and would answer from the chat's own harness.
+  expect(supportsBtwGuest(new Set([BTW_INLINE]))).toBe(false);
+  expect(supportsBtwGuest(new Set([BTW_GUEST]))).toBe(false);
+  expect(supportsBtwGuest(undefined)).toBe(false);
 });
 
 function fixture(capabilities?: ReadonlySet<string>) {

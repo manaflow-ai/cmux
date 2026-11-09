@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextAgentPane
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// A toast host that counts the times the window's avoidance link moves its toasts (the web toast
@@ -19,7 +20,7 @@ private actor NoHost: AgentPaneHostProviding {
 /// "The composer should never ever rise up because there's some sort of ... tooltip type thing").
 /// The page reports its bottom stack; the toast host lifts the toasts above it (the floor it sends
 /// the overlay toast page, `CmuxToastAvoidance.floor`), and the pane tells the page nothing about toasts.
-@MainActor
+@MainActor @Suite(.closesItsWindows)
 struct AgentPaneToastAvoidanceTests {
     /// The page's report decodes to one box or none; more than one, or a bad one, is refused.
     @Test func reportsDecodeAndBadOnesAreRefused() {
