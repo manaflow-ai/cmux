@@ -181,7 +181,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // A Home with no pane yet is still being made (its dock, then the Chief conversation, over
         // several daemon replies): it stays clear until its conversation is in, never in pieces.
         if workspace.kind == "home", layoutModel.screens.allSatisfy({ $0.layout.panes.isEmpty }) {
-            services.launchReveal.hold(contentView, until: .home)
+            services.launchReveal.hold(contentView, until: .home); DaemonLaunchTimings.shared.mark("home.held")
         }
     }
 

@@ -38,7 +38,7 @@ extension HomeService {
         // task-owner: one ensure_home, then at most one conversation create and one tab create
         homeWorkspaceTask = Task { [weak self] in
             do {
-                let home = try await HomeWorkspaceClient(connection).ensureHome()
+                DaemonLaunchTimings.shared.mark("home.ws.ensure_start"); let home = try await HomeWorkspaceClient(connection).ensureHome(); DaemonLaunchTimings.shared.mark("home.ws.ensured")
                 // Cancelled: the newer ensure_home owns the in-flight flag.
                 guard let self, !Task.isCancelled else { return }
                 homeWorkspaceID = home
@@ -48,7 +48,7 @@ extension HomeService {
                                              completion: $4) })
                 // Each window's own Home is docked on every connect too (cmux#27880); before the
                 // Chief's tab, which can wait long for the Chief's owner.
-                if !HomeDock.classic { await services.windowHomes.ensureDocks(connection) }
+                DaemonLaunchTimings.shared.mark("home.ws.dock_ensured"); if !HomeDock.classic { await services.windowHomes.ensureDocks(connection) }; DaemonLaunchTimings.shared.mark("home.ws.window_docks")
                 try await ensureChiefTab(connection, home: home)
             } catch is CancellationError {
             } catch {
@@ -132,12 +132,12 @@ extension HomeService {
         // Chief has no history to hide (G6, one history).
         // The same sign-in also reads the Home list's Chiefs: the list hides an archived Chief's rows by them
         // (the page's own read can come before sign-in, and a docked Home never makes the page).
-        if let read = await readCloudChiefs() { setCloudChiefs(read); await directory.refreshChiefs() }
+        if let read = await readCloudChiefs() { setCloudChiefs(read); await directory.refreshChiefs() }; DaemonLaunchTimings.shared.mark("home.chief.cloud_read")
         guard !Task.isCancelled else { return }
         // The local Chief keeps the tab until its history is in the Hosted Chief (``HostedChiefMigration/pending``).
         hostedChief.start(cloudChiefs.hosted)
         // The default Chief is this Mac's while its optchat-chief runs (HomeService+ChiefDefault).
-        await refreshLocalChiefRunning()
+        await refreshLocalChiefRunning(); DaemonLaunchTimings.shared.mark("home.chief.local_running_read")
         let cloud = tabChiefs
         let shown = cloudChief
         // Local conversations live in the Chief home's owner, not this build's
@@ -147,17 +147,17 @@ extension HomeService {
         let owner: DaemonConnection?
         if shown == nil {
             homeWorkspaceStep = "waiting for the chief owner \(self.chief.home.session)"
-            owner = await chiefConnection()
+            owner = await chiefConnection(); DaemonLaunchTimings.shared.mark("home.chief.owner_connection")
             guard owner != nil, !Task.isCancelled else { return }
         } else {
             owner = chief.supports(DaemonCapability.localConversations.rawValue) ? chief.connection : nil
         }
         var listedAll: [ConversationSummary] = []
-        if let owner { listedAll = try await ConversationClient(owner).list() }
+        if let owner { listedAll = try await ConversationClient(owner).list() }; DaemonLaunchTimings.shared.mark("home.chief.listed")
         let known = Set(listedAll.map(\.id))
         let listed = HomeChiefName.select(from: listedAll)
         // The local Chief is looked up (never created) while a cloud Chief has the tab.
-        let localChief = if shown == nil, let owner { try await chiefConversation(owner) } else { listed?.id }
+        let localChief = if shown == nil, let owner { try await chiefConversation(owner) } else { listed?.id }; DaemonLaunchTimings.shared.mark("home.chief.conversation")
         let localHasHistory = shown == nil || (listed?.lastSeq ?? 0) > 0
         // A teleported Chief's tab is the conversation where it answers now (HomeService+ChiefRoster).
         let followed = chiefFollow.conversation

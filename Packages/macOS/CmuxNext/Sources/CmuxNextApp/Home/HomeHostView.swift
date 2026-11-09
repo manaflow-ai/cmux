@@ -352,7 +352,7 @@ final class HomeHostView: PaneMotionFollowingView {
         }
         // The first-run panel waits for the first page, so a conversation
         // with history never flashes it (at once when the page is cached).
-        transcript.holdsFirstRun = true
+        transcript.holdsFirstRun = true; DaemonLaunchTimings.shared.mark("home.host_view_made")
         let binding = transcript.binding
         let reveal = services.launchReveal
         // task-owner: lives as long as this view; ends when the first page is in
