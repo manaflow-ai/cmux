@@ -3,7 +3,7 @@ public import CmuxNextCloud
 import CmuxNextDaemonService
 public import CmuxNextPages
 public import CmuxNextSettings
-import Foundation
+public import Foundation
 
 /// Settings > Accounts and Devices > Connectors: relays the page's `cmux.settings.connectors.list`,
 /// `.connect` and `.disconnect` to cmux-platform's connectors API (`/v1/connectors`, cmux-platform
