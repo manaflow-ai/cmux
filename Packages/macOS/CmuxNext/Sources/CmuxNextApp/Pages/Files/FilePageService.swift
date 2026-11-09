@@ -216,8 +216,7 @@ final class FilePageService: InternalPageProvider {
         }
         if tabs[key]?.stopFlush == nil, let page = tabs[key]?.page {
             page.holdsUnsavedEdits = { [weak document] in document?.hasUnsavedChanges ?? false }
-            let op = kind.op("flush")
-            tabs[key]?.stopFlush = document.addFlusher { [weak page] in
+            tabs[key]?.stopFlush = document.addFlusher { [weak page, op = kind.op("flush")] in
                 guard let page, let answer = try? await page.router.callPage(op, params: .object([:])) else { return true }
                 return answer["dirty"]?.boolValue ?? true
             }
