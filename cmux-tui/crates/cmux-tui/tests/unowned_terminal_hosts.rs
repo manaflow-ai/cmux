@@ -39,6 +39,8 @@ const SLOW_TO_END: [&str; 3] = ["/bin/sh", "-c", "trap '' HUP; exec /bin/cat"];
 /// A headless owner of `session` on its own socket in `dir`.
 struct Owner<'a> {
     dir: &'a FaultDir,
+    /// Its `CMUX_TUI_STATE_DIR`.
+    state_root: PathBuf,
     session: String,
     socket: PathBuf,
     child: Option<Child>,
@@ -47,6 +49,15 @@ struct Owner<'a> {
 
 impl<'a> Owner<'a> {
     fn spawn(dir: &'a FaultDir, session: &str, env: &[(&str, &str)]) -> Self {
+        Self::spawn_in(dir, dir.state_root(), session, env)
+    }
+
+    fn spawn_in(
+        dir: &'a FaultDir,
+        state_root: PathBuf,
+        session: &str,
+        env: &[(&str, &str)],
+    ) -> Self {
         let socket = dir.root.join(format!("{session}.sock"));
         let _ = fs::remove_file(&socket);
         let log = dir.root.join(format!("{session}-{}.log", std::process::id()));
@@ -55,6 +66,7 @@ impl<'a> Owner<'a> {
             .env_remove("CMUX_BUNDLE_ID")
             .env("CMUX_TUI_HOST_EXE_DIR", dir.root.join("host-exe"))
             .env("SHELL", "/bin/sh")
+            .env("CMUX_TUI_STATE_DIR", &state_root)
             .args(["--headless", "--session", session, "--socket"])
             .arg(&socket)
             .envs(env.iter().copied())
@@ -62,14 +74,23 @@ impl<'a> Owner<'a> {
             .stderr(fs::OpenOptions::new().create(true).append(true).open(&log).unwrap())
             .spawn()
             .unwrap();
-        Self { dir, session: session.into(), socket, child: Some(child), log }
+        Self { dir, state_root, session: session.into(), socket, child: Some(child), log }
     }
 
     /// Spawns the owner and returns it once `identify` says ready, with the
     /// time that took.
     fn start(dir: &'a FaultDir, session: &str, env: &[(&str, &str)]) -> (Self, Duration) {
+        Self::start_in(dir, dir.state_root(), session, env)
+    }
+
+    fn start_in(
+        dir: &'a FaultDir,
+        state_root: PathBuf,
+        session: &str,
+        env: &[(&str, &str)],
+    ) -> (Self, Duration) {
         let started = Instant::now();
-        let mut owner = Self::spawn(dir, session, env);
+        let mut owner = Self::spawn_in(dir, state_root, session, env);
         let deadline = started + BOUND;
         loop {
             if let Some(status) = owner.child.as_mut().unwrap().try_wait().unwrap() {
@@ -98,7 +119,7 @@ impl<'a> Owner<'a> {
     }
 
     fn host_root(&self) -> PathBuf {
-        terminal_host_root(&self.dir.state_root(), &self.session)
+        terminal_host_root(&self.state_root, &self.session)
     }
 
     /// `count` terminals running `argv`, each in a workspace of its own;
@@ -253,6 +274,61 @@ fn unowned_hosts_leave_a_rowless_live_host_of_this_session_to_recovery() {
     assert_eq!(resolved["lifecycle"], "running", "{resolved}");
     let after = wait_for_live_hosts(&own.host_root(), 1).remove(0).1;
     assert_eq!(after.host_pid, host.host_pid, "the recovered terminal got a new host");
+}
+
+/// The app's per-build layout below `dir`: `<base>/cmux/tags/<tag>/tui`,
+/// private as the app makes it.
+fn tag_state_root(dir: &FaultDir, tag: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt as _;
+    let base = dir.root.join("as");
+    let root = base.join("cmux").join("tags").join(tag).join("tui");
+    fs::create_dir_all(&root).unwrap();
+    for folder in [base.clone(), base.join("cmux"), root.clone()] {
+        fs::set_permissions(&folder, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    root
+}
+
+#[test]
+fn unowned_hosts_of_other_builds_state_roots_end_unless_their_owner_runs() {
+    let dir = FaultDir::new("unowned-builds");
+    // A build whose owner still runs: its guard is held.
+    let running =
+        Owner::start_in(&dir, tag_state_root(&dir, "running"), "cmux-app-running", &[NIGHTLY]).0;
+    running.run_terminals(2, &["/bin/cat"]);
+    let running_before = wait_for_live_hosts(&running.host_root(), 2);
+    // A build that is never launched again: its owner quit, its hosts stay.
+    let mut gone =
+        Owner::start_in(&dir, tag_state_root(&dir, "gone"), "cmux-app-gone", &[NIGHTLY]).0;
+    gone.run_terminals(3, &["/bin/cat"]);
+    gone.stop_keeping_hosts();
+    let gone_root = gone.host_root();
+    // One of them dies without its cleanup: its record is stale.
+    let (_, killed) = wait_for_live_hosts(&gone_root, 3).remove(0);
+    // SAFETY: the test's own host process.
+    unsafe { libc::kill(killed.host_pid as libc::pid_t, libc::SIGKILL) };
+    wait_for_live_hosts(&gone_root, 2);
+
+    let (current, _) =
+        Owner::start_in(&dir, tag_state_root(&dir, "current"), "cmux-app-current", &FAST_REAP);
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !load_terminal_host_records(&gone_root).unwrap_or_default().is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "another build's root still has {} records ({} live) 30 s after a 1.5 s grace: {}",
+            load_terminal_host_records(&gone_root).unwrap_or_default().len(),
+            live_hosts(&gone_root).len(),
+            current.log_text()
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let running_after = wait_for_live_hosts(&running.host_root(), 2);
+    let pids = |hosts: &[(PathBuf, TerminalHostRecord)]| {
+        let mut pids = hosts.iter().map(|(_, record)| record.host_pid).collect::<Vec<_>>();
+        pids.sort_unstable();
+        pids
+    };
+    assert_eq!(pids(&running_before), pids(&running_after), "a running build's host was ended");
 }
 
 /// Makes every host under `root` one its session cannot place on its next
