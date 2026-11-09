@@ -51,7 +51,7 @@ describe("faults", () => {
     expect(restart.command).toContain("systemctl show -p ControlGroup --value cmux-host.service");
     // The only kill is of the pid read from the unit's cgroup.
     expect(restart.command.match(/\bkill\b/g)).toEqual(["kill"]);
-    expect(restart.command).toContain("/cgroup.procs");
+    expect(restart.command).toContain("-name cgroup.procs");
   });
 
   test("a relay cut says ok only when ss -K exits 0 and closed a socket", () => {
