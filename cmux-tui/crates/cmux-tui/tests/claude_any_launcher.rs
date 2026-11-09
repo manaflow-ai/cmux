@@ -130,19 +130,34 @@ turn = [
 ]
 record["outputs"] = run_round(session, [("SessionStart", {"source": "startup"})] + turn)
 write_record(os.environ["OB_TAG"], record)
+def wait_for(path):
+    deadline = time.time() + 120
+    while not os.path.exists(path) and time.time() < deadline:
+        time.sleep(0.05)
+
+# The rounds below wait for the test's go when it names one.
+round_go = os.environ.get("FAKE_ROUND_GO")
 # `/clear`: the same Claude process ends the session and starts another.
 cleared = os.environ.get("FAKE_CLEAR_SESSION_ID")
 if cleared:
+    if round_go:
+        wait_for(round_go)
     run_round(session, [("SessionEnd", {"reason": "clear"})])
     outputs = run_round(cleared, [("SessionStart", {"source": "clear"})] + turn)
     write_record(os.environ["OB_TAG"] + "-clear", {"session_id": cleared, "outputs": outputs})
+# An in-process `/resume`: the same Claude process takes an older session,
+# with no `SessionEnd` for the one it leaves.
+resumed = os.environ.get("FAKE_RESUME_SESSION_ID")
+if resumed:
+    if round_go:
+        wait_for(round_go)
+    outputs = run_round(resumed, [("SessionStart", {"source": "resume"})] + turn)
+    write_record(os.environ["OB_TAG"] + "-resume", {"session_id": resumed, "outputs": outputs})
 # A tool call that starts another Claude (`claude -p`) once the test says go:
 # it inherits the plugin folder and this Claude's tool environment.
 go = os.environ.get("FAKE_NESTED_GO")
 if go:
-    deadline = time.time() + 120
-    while not os.path.exists(go) and time.time() < deadline:
-        time.sleep(0.05)
+    wait_for(go)
     nested = dict(os.environ, OB_TAG=os.environ["OB_TAG"] + "-nested",
                   FAKE_SESSION_ID=os.environ["FAKE_NESTED_SESSION_ID"], FAKE_REPLY="nested reply",
                   FAKE_EXIT="1", CLAUDECODE="1", CLAUDE_PID=str(os.getpid()),
@@ -561,7 +576,11 @@ fn any_launcher_claude_reports_to_the_pane_session() {
         ),
     );
     let record = launch_record(&root, &daemon, "no-user-settings");
-    assert!(session_start_outputs_with(&record, "systemMessage") <= 1, "{record}");
+    assert_eq!(
+        session_start_outputs_with(&record, "systemMessage"),
+        0,
+        "no-user-settings: the plugin copy must stand down: {record}"
+    );
     // The guard is not empty: a cmux copy of each hook ran (and stood down).
     for event in ["SessionStart", "UserPromptSubmit", "Stop"] {
         let ran = record["outputs"][event].as_array().map_or(0, Vec::len);
@@ -702,6 +721,11 @@ fn any_launcher_nested_claude_leaves_the_pane_session_and_its_messages_to_the_ou
         assert!(listed && inbox.contains(&note), "{tag}: the message is no longer queued: {inbox}");
         let row = daemon.agent_row(&daemon_exe, &cli_env, terminal);
         assert_eq!(row["extra"]["agent_session_id"], outer.as_str(), "{tag}: {row}");
+        // Nor does its reply become the pane's last reply.
+        assert_eq!(
+            row["extra"]["last_reply"], "outer reply",
+            "{tag}: the nested Claude's reply took the pane agent's place: {row}"
+        );
     }
     // What the check adds to a Claude hook that hands over messages, a banner
     // or context: one `agent.list` read of its terminal.
@@ -789,6 +813,78 @@ fn any_launcher_w5n3_clear_keeps_reporting_when_hooks_see_the_env_file() {
             "after /clear the Claude's new session never reported: {row}"
         );
         std::thread::sleep(Duration::from_millis(100));
+    }
+    drop(daemon);
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn any_launcher_w5n3_the_pane_agent_keeps_its_messages_after_clear_and_resume() {
+    let root = unique_root();
+    let home = root.join("home");
+    let data = root.join("data");
+    let realbin = root.join("realbin");
+    let build = root.join("build");
+    let config = root.join("config-empty");
+    for dir in [&home, &data, &realbin, &build, &config] {
+        fs::create_dir_all(dir).unwrap();
+    }
+    let claude = realbin.join("claude");
+    write_executable(&claude, FAKE_CLAUDE);
+    let daemon_exe = build.join("cmux-tui");
+    if fs::hard_link(env!("CARGO_BIN_EXE_cmux-tui"), &daemon_exe).is_err() {
+        fs::copy(env!("CARGO_BIN_EXE_cmux-tui"), &daemon_exe).unwrap();
+    }
+    let path = format!("{}:/usr/bin:/bin", realbin.display());
+    let mut daemon = Daemon::start(&root, &daemon_exe, "again", &home, &data, &path);
+    let cli_env = [("HOME", home.as_path()), ("XDG_DATA_HOME", data.as_path())];
+    // The pane's agent goes on in a new session of the same process: after
+    // `/clear` (its old session ended) or an in-process `/resume` (its old
+    // session still live in the roster). The messages for the pane are its.
+    let cases = [
+        ("clear", "FAKE_CLEAR_SESSION_ID", "00000000-0000-4000-8000-000000000072", 7),
+        ("resume", "FAKE_RESUME_SESSION_ID", "00000000-0000-4000-8000-000000000082", 8),
+    ];
+    let mut terminals = Vec::new();
+    for (tag, variable, next, n) in &cases {
+        let first = format!("00000000-0000-4000-8000-0000000000{n}1");
+        let script = format!(
+            "OB_TAG={tag} FAKE_RECORD_DIR='{root}' FAKE_SESSION_ID={first} {variable}={next} \
+             FAKE_ROUND_GO='{root}/go-{tag}' CLAUDE_CONFIG_DIR='{config}' \
+             SR2_CLAUDE2_HOOK_SOCKET=/nonexistent/sr2.sock; \
+             export OB_TAG FAKE_RECORD_DIR FAKE_SESSION_ID {variable} FAKE_ROUND_GO \
+             CLAUDE_CONFIG_DIR SR2_CLAUDE2_HOOK_SOCKET; '{claude}'; sleep 600",
+            root = root.display(),
+            config = config.display(),
+            claude = claude.display(),
+        );
+        terminals.push((*tag, daemon.run(tag, &script), first));
+    }
+    for (tag, terminal, first) in &terminals {
+        launch_record(&root, &daemon, tag);
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let row = daemon.agent_row(&daemon_exe, &cli_env, terminal);
+            if row["source"] == "hook" && row["extra"]["agent_session_id"] == first.as_str() {
+                break;
+            }
+            assert!(Instant::now() < deadline, "{tag}: the first session never reported: {row}");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let note = format!("note for the {tag} pane agent 41c9");
+        let (sent, text) =
+            cli(&daemon, &daemon_exe, &cli_env, &["agent", "message", terminal, &note]);
+        assert!(sent, "{tag}: agent message failed: {text}");
+        fs::write(root.join(format!("go-{tag}")), b"go").unwrap();
+    }
+    for (tag, _, _) in &terminals {
+        let next = launch_record(&root, &daemon, &format!("{tag}-{tag}"));
+        let note = format!("note for the {tag} pane agent 41c9");
+        let prompt = next["outputs"]["UserPromptSubmit"].to_string();
+        assert!(
+            prompt.contains(&note),
+            "{tag}: the pane agent's next session did not get its message: {next}"
+        );
     }
     drop(daemon);
     let _ = fs::remove_dir_all(&root);
