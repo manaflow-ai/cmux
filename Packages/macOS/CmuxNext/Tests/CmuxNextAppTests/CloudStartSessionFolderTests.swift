@@ -99,11 +99,26 @@ struct CloudStartSessionFolderTests {
 
     @Test func theFolderIsAnAbsolutePathOfThisMacWrittenPlain() throws {
         #expect(try Self.fromFolder("/Users/me/code/app/") == "/Users/me/code/app")
-        #expect(try Self.fromFolder("/Users/me/code/./app/../web") == "/Users/me/code/web")
+        // As written: `..` resolves only after the symlinks before it, and a trailing space is part of the name.
+        #expect(try Self.fromFolder("/Users/me/code/./app/../web") == "/Users/me/code/./app/../web")
+        #expect(try Self.fromFolder("/tmp/project ") == "/tmp/project ")
         let request = try Self.request(["fromFolder": .string("/tmp/probe small")])
         #expect(request.fromFolder == "/tmp/probe small" && request.cwd == nil)
         #expect(request.command == "cmux cloud start-session --target machine:vm-a --agent claude --from-folder '/tmp/probe small'")
         #expect(try Self.request(["fromFolder": .string(" ")]).fromFolder == nil)
+    }
+
+    /// `/a/link/../project` with `link -> /b/child` is `/b/project`, as `start-chat` (which resolves the path first) copies.
+    @Test func dotDotResolvesAfterTheSymlinkBeforeIt() async throws {
+        let made = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: made, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: made) }
+        let root = URL(fileURLWithPath: try #require(realpath(made.path, nil).map { defer { free($0) }; return String(cString: $0) }))
+        for dir in ["a", "b/child", "b/project", "a/project"] { try FileManager.default.createDirectory(at: root.appendingPathComponent(dir), withIntermediateDirectories: true) }
+        try FileManager.default.createSymbolicLink(atPath: root.appendingPathComponent("a/link").path, withDestinationPath: root.appendingPathComponent("b/child").path)
+        let folder = try #require(try Self.fromFolder(root.path + "/a/link/../project"))
+        guard case .success(let checked) = await AgentPaneCloudStart.checkedFolder(folder, home: Self.home) else { Issue.record("refused \(folder)"); return }
+        #expect(checked.folder == root.appendingPathComponent("b/project").path)
     }
 
     @Test(arguments: ["code/app", "~/code/app", "/a\u{7}b", "/.."])
