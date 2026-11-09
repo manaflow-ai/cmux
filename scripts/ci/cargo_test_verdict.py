@@ -41,7 +41,8 @@ WORKSPACE = "cmux-tui"
 ALWAYS = (
     f"{WORKSPACE}/Cargo.toml", f"{WORKSPACE}/Cargo.lock", f"{WORKSPACE}/rust-toolchain.toml",
     f"{WORKSPACE}/rust-toolchain", f"{WORKSPACE}/.cargo/", ".github/workflows/cmux-tui-spec.yml",
-    ".github/actions/setup-cmux-tui-rust/", "scripts/ci/cargo_test_verdict.py", "scripts/ci/test_reds.py",
+    ".github/actions/setup-cmux-tui-rust/", ".github/actions/runner-cargo-home/",
+    "scripts/ci/cargo_test_verdict.py", "scripts/ci/test_reds.py",
     "tests/test_cargo_test_verdict.py",
 )
 INCLUDE = re.compile(r'include_(?:str|bytes)!\(\s*"([^"]+)"')

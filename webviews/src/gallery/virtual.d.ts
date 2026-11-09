@@ -9,6 +9,8 @@ declare module "virtual:cmux-gallery/web-theme" {
   export default script;
 }
 declare module "virtual:cmux-gallery/agent-pane.css";
+/** The guest page's rest of the pane sheet (vite.config.guest-page.mjs). */
+declare module "virtual:cmux-guest/transcript.css";
 declare module "virtual:cmux-gallery/fixtures" {
   /** Every shared fixture JSON (schemas/gallery/fixtures.json roots), by repo-relative path. */
   const fixtures: Record<string, unknown>;

@@ -2,22 +2,18 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextPages
 
-/// A small glass card at the bottom of the page that offers to bring the
-/// person's cookies over from another browser. Its lines and answers are a
-/// React page (webviews/src/pages/cookie-import, `BrowserChromeWebHost`):
-/// the browser's icon, one title, one line of detail, then one aligned row of
-/// answers: Don't Show Again as a quiet link, Not Now and Import at the same
-/// height (Leo 2026-11-07: "this looks kind of ugly, to be honest. Like this
-/// isn't styled well." of the native labels and mismatched buttons). This
-/// view is the host only: the theme's glass, the popups' shadow, the card's
-/// size from the page's reports, and the answers back to the chrome. It never
-/// takes focus (its window is never key; the page takes the first click) and
-/// every answer closes it. It keeps the dialog radius and no veil of its own
-/// (Lawrence 2026-10-31: "border here looks bad"), and its material is the
-/// frosted blur of what is behind its window, never Liquid Glass, whose lens
-/// has nothing to bend in the clear overlay window and drew a dark 1 px
-/// outline (`prefersBlurToLiquidGlass`). Under Reduce Transparency it is
-/// opaque (`OverlaySurfaceView`).
+/// A toast at the bottom of the page that offers to bring the person's
+/// cookies over from another browser. Its line and answers are a React page
+/// (webviews/src/browser-chrome/cookie-import, `BrowserChromeWebHost`): the
+/// browser's icon, one line, Don't Show Again and Import as the toast's text
+/// answers and its close button as Not Now (Leo 2026-11-08: "i dont like
+/// this. 1. looks bad. 2. not glass. 3. talks about too much irrelevant
+/// shit"). This view is the host only: the window's glass of the toast surface
+/// (``SurfaceRole/toast``, the material the window's toasts draw on this same
+/// overlay host), the popups' shadow, the card's size from the page's reports,
+/// and the answers back to the chrome. It never takes focus (its window is
+/// never key; the page takes the first click) and every answer closes it.
+/// Under Reduce Transparency it is opaque (`OverlaySurfaceView`).
 final class BrowserCookieImportCard: NSView {
     var onChoice: ((BrowserCookieImportChoice) -> Void)?
     /// The page measured a new height: the chrome places the card again.
@@ -27,6 +23,10 @@ final class BrowserCookieImportCard: NSView {
     var onReady: (() -> Void)?
     /// Hidden while another tab of the pane shows; it shows again when this tab binds (`BrowserChromeTabSwitch`).
     weak var heldFor: BrowserChromeTabState?
+    /// Off screen while its tab does not have the keyboard (``BrowserChromeTabState/hasKeyboard``): it
+    /// floats on the window's overlay host, above every pane, so it must not show over the terminal,
+    /// chat or Home the person is in (Lawrence 2026-11-07). Kept apart from `isHidden`, the pane's tab switch.
+    var waitsForFocus = false
     /// Set while the close animation runs; a new offer then gets a new card.
     var isDismissing = false
     private(set) var offer: BrowserCookieImportOffer
@@ -50,16 +50,16 @@ final class BrowserCookieImportCard: NSView {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         let body = NSView()
-        let glass = Glass.makeOverlayPanel(content: body, cornerRadius: Self.style.cornerRadius)
-        // It floats on the overlay host, a clear window over the page's own window: the blur
-        // samples the page behind it; Liquid Glass there drew a dark 1 px outline.
+        let glass = Glass.makeSurface(.toast, content: body, cornerRadius: Self.cornerRadius)
+        // It floats on the overlay host, a clear window over the page's own window: where this Mac
+        // draws the blur (macOS 14 and 15), it blurs the page behind that window, not the clear
+        // panel. Liquid Glass ignores it.
         glass.samplesBehindWindow = true
-        glass.prefersBlurToLiquidGlass = true
         glass.translatesAutoresizingMaskIntoConstraints = false
         addSubview(glass)
         castShadow()
         self.glass = glass
-        // Until the page measures itself: about two lines and a row of buttons.
+        // Until the page measures itself: one row.
         let height = heightAnchor.constraint(equalToConstant: Self.provisionalHeight)
         self.height = height
         NSLayoutConstraint.activate([
@@ -68,9 +68,9 @@ final class BrowserCookieImportCard: NSView {
             glass.topAnchor.constraint(equalTo: topAnchor),
             glass.bottomAnchor.constraint(equalTo: bottomAnchor),
             height,
-            density.bind(widthAnchor.constraint(lessThanOrEqualToConstant: 0)) { BrowserMetrics.promptMaxWidth },
+            density.bind(widthAnchor.constraint(lessThanOrEqualToConstant: 0)) { Self.maxWidth },
             // Preferred width: a pane narrower than it narrows the card.
-            density.bind(widthAnchor.constraint(equalToConstant: 0).prioritized(.init(450))) { BrowserMetrics.promptMaxWidth },
+            density.bind(widthAnchor.constraint(equalToConstant: 0).prioritized(.init(450))) { Self.maxWidth },
         ])
         density.start()
         if let made = makeContent() {
@@ -94,17 +94,20 @@ final class BrowserCookieImportCard: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// The dialog style: the card's radius.
-    static let style = FloatingGlassStyle.dialog
+    /// The toast surface's radius.
+    static var cornerRadius: CGFloat { SurfaceRole.toast.cornerRadius }
+    /// Room for the line and the answers on one row in English (`toast` in the gallery): wider than
+    /// the browser's prompts (`BrowserMetrics.promptMaxWidth`), whose text wraps.
+    static var maxWidth: CGFloat { Metrics.paletteWidth * 7 / 8 }
     /// The height before the page's first report.
-    static let provisionalHeight: CGFloat = 96
+    static let provisionalHeight: CGFloat = 48
     /// The icon's side in pixels: the page draws it at 32 pt, so 2x stays sharp.
     static let iconPixels: CGFloat = 64
 
     /// The state the page draws (webviews/src/browser-chrome/cookie-import/model.ts).
     static func wireState(_ offer: BrowserCookieImportOffer, revision: Int, language: String) -> [String: Any] {
         var state: [String: Any] = [
-            "title": offer.title, "detail": offer.detail, "importTitle": offer.importTitle, "notNowTitle": offer.notNowTitle,
+            "title": offer.title, "importTitle": offer.importTitle, "notNowTitle": offer.notNowTitle,
             "revision": revision, "language": language,
         ]
         if let never = offer.neverTitle { state["neverTitle"] = never }
@@ -178,7 +181,7 @@ final class BrowserCookieImportCard: NSView {
     override func layout() {
         super.layout()
         // CoreGraphics refuses a corner wider than half the rect.
-        let radius = min(Self.style.cornerRadius, min(bounds.width, bounds.height) / 2)
+        let radius = min(Self.cornerRadius, min(bounds.width, bounds.height) / 2)
         layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
     }
 
@@ -200,7 +203,7 @@ final class BrowserCookieImportCard: NSView {
 
     /// The card's lines and buttons as shown (tests, diagnostics).
     var shownText: [String] {
-        [offer.title, offer.detail] + (offer.neverTitle.map { [$0] } ?? []) + [offer.notNowTitle, offer.importTitle]
+        [offer.title] + (offer.neverTitle.map { [$0] } ?? []) + [offer.notNowTitle, offer.importTitle]
     }
 }
 

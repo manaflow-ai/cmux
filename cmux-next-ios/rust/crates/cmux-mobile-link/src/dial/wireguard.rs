@@ -19,6 +19,7 @@
 use std::collections::HashSet;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -26,7 +27,7 @@ use std::time::Duration;
 use base64::Engine;
 use bytes::Bytes;
 use cmux_transport::PathId;
-use cmux_wg::{InterfaceAddress, IpNetwork, Origin, Received, Underlay, WgConfig, WgNet};
+use cmux_wg::{InterfaceAddress, IpNetwork, Origin, Received, UltraMode, Underlay, WgConfig, WgNet};
 use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -328,10 +329,11 @@ fn turn_targets(endpoints: &[String], options: &DialOptions) -> Vec<SocketAddr> 
 
 /// The class of a datagram the tunnel's pacer sent in `priority`.
 /// Handshake messages, keepalives and anything not WireGuard data keep the
-/// class their shape gives (control).
+/// class their shape gives (control). Ultra-mode parity repairs the data it
+/// follows, so it takes that data's class.
 fn send_class_of(datagram: &[u8], priority: cmux_wg::Priority) -> SendClass {
     match send_class(datagram) {
-        SendClass::Control => SendClass::Control,
+        SendClass::Control if !cmux_wg::is_ultra_parity(datagram) => SendClass::Control,
         _ => match priority {
             cmux_wg::Priority::Interactive => SendClass::Input,
             cmux_wg::Priority::Bulk => SendClass::Bulk,
@@ -1416,6 +1418,33 @@ struct TunnelSpec<'a> {
     stun: Vec<SocketAddr>,
 }
 
+/// Whether the device's network is cellular now, as the app last said
+/// ([`set_cellular_path`]). False until it says: an unknown path is not
+/// cellular, so ultra mode stays off.
+static CELLULAR_PATH: AtomicBool = AtomicBool::new(false);
+
+/// The device's network changed: `cellular` when its preferred route is a
+/// cellular interface (iOS `NWPath.usesInterfaceType(.cellular)`). Tunnels
+/// dialed from now on pick their ultra mode with it ([`ultra_for_dial`]);
+/// a live tunnel keeps the mode it started with until its next dial.
+pub fn set_cellular_path(cellular: bool) {
+    CELLULAR_PATH.store(cellular, Ordering::Relaxed);
+}
+
+/// The last value [`set_cellular_path`] stored.
+pub fn cellular_path() -> bool {
+    CELLULAR_PATH.load(Ordering::Relaxed)
+}
+
+/// The ultra mode a tunnel dialed now asks for: [`UltraMode::SETTING`] when
+/// the person turned on "Ultra mode on cellular" and the network is
+/// cellular, else none (off, unless `CMUX_WG_ULTRA` says otherwise). Wi-Fi
+/// stays off: the setting spends cellular data, where loss is common, and
+/// keeps a home network's bytes as they are.
+pub fn ultra_for_dial(ultra_on_cellular: bool, cellular: bool) -> Option<UltraMode> {
+    (ultra_on_cellular && cellular).then_some(UltraMode::SETTING)
+}
+
 fn start_tunnel(
     signaling: &SignalingClient,
     spec: TunnelSpec<'_>,
@@ -1452,6 +1481,7 @@ fn start_tunnel(
         endpoint: None,
         persistent_keepalive: Some(KEEPALIVE_SECONDS),
         peer_addresses: vec![IpAddr::V4(spec.peer_ip)],
+        ultra: ultra_for_dial(options.ultra_on_cellular, cellular_path()),
     };
     let net = WgNet::start_with_underlay(config, underlay).map_err(transport_error)?;
     let session = Session::register(roam::SessionParts {
@@ -1799,6 +1829,25 @@ impl Dialer for WireGuardDialer {
 mod tests {
     use super::*;
 
+    /// "Ultra mode on cellular" turns ultra on only for a dial over cellular.
+    #[test]
+    fn ultra_is_on_only_for_the_setting_over_cellular() {
+        assert_eq!(ultra_for_dial(true, true), Some(UltraMode::SETTING));
+        assert_eq!(ultra_for_dial(true, false), None, "Wi-Fi keeps its bytes");
+        assert_eq!(ultra_for_dial(false, true), None, "off by default");
+        assert_eq!(ultra_for_dial(false, false), None);
+        assert!(!DialOptions::default().ultra_on_cellular);
+    }
+
+    /// The app's last path report is what the next dial reads.
+    #[test]
+    fn the_cellular_path_is_the_last_one_reported() {
+        set_cellular_path(true);
+        assert!(cellular_path());
+        set_cellular_path(false);
+        assert!(!cellular_path());
+    }
+
     /// The Mac reaches a relay-only phone by plain UDP to the phone's TURN
     /// relayed address: that path is TURN (or TURN over TLS when the phone's
     /// allocation rides TLS), not direct.
@@ -1843,6 +1892,11 @@ mod tests {
         let mut initiation = vec![0u8; 148];
         initiation[0] = 1;
         assert_eq!(send_class_of(&initiation, Priority::Bulk), SendClass::Control);
+        let mut parity = vec![0u8; 400];
+        parity[0] = 0xCF;
+        assert!(cmux_wg::is_ultra_parity(&parity));
+        assert_eq!(send_class_of(&parity, Priority::Bulk), SendClass::Bulk, "parity is not control");
+        assert_eq!(send_class_of(&parity, Priority::Interactive), SendClass::Input);
     }
 
     /// The phone roams from one TURN allocation to another and announces its

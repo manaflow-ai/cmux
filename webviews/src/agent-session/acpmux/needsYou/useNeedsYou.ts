@@ -1,7 +1,7 @@
 // The pane's Needs you wiring (App.tsx): the list from the snapshot, the header badge's actions,
 // and the transcript's Needs your input pill, which share one list and one way to answer.
 import { useMemo, useRef } from "react";
-import { answerFromHome } from "../HomeInbox";
+import { answerFromHome } from "../homeInboxModel";
 import { revealTurnWhenShown } from "../links";
 import type { AcpmuxSnapshot } from "../model";
 import { reply, replyParams, selection, type QuestionReply } from "../question/model";
@@ -11,8 +11,7 @@ import { askContext } from "./context";
 import { type TranscriptNeedsYou } from "./JumpPill";
 import { nextAsk, needsYouPillOn, pillAsks } from "./jumpPillModel";
 import { needsYouItems, type NeedsYouAnswer, type NeedsYouItem } from "./model";
-import { type NeedsYouActions, type NeedsYouPlace } from "./NeedsYou";
-import { needsYouMode, type NeedsYouMode } from "./needsYouModel";
+import { needsYouMode, type NeedsYouActions, type NeedsYouMode, type NeedsYouPlace } from "./needsYouModel";
 
 type CallNative = <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
 

@@ -39,10 +39,10 @@ import Testing
         // Not Now on the invitation: asked, no record.
         defaults.set(true, forKey: HangReportsController.askedKey)
         #expect(HangReportsController.decision(defaults: defaults, settingOn: false) == .off)
-        try await settings.setSetting(at: HangReportsSetting.path, to: .bool(true), by: .user)
+        try await settings.setSetting(at: HangReportsSetting.configPath, to: .bool(true), by: .user)
         #expect(consented(defaults))
         #expect(HangReportsController.decision(defaults: defaults, settingOn: true) == .send)
-        try await settings.setSetting(at: HangReportsSetting.path, to: .bool(false), by: .user)
+        try await settings.setSetting(at: HangReportsSetting.configPath, to: .bool(false), by: .user)
         #expect(!consented(defaults))
     }
 
@@ -52,7 +52,7 @@ import Testing
         let home = FileManager.default.temporaryDirectory.appending(path: suite)
         defer { try? FileManager.default.removeItem(at: home) }
         let settings = try await settings(home: home, defaults: defaults)
-        _ = try? await settings.setSetting(at: HangReportsSetting.path, to: .bool(true), by: .caller("cli"))
+        _ = try? await settings.setSetting(at: HangReportsSetting.configPath, to: .bool(true), by: .caller("cli"))
         try await settings.setSetting(at: ["terminal", "fontSize"], to: .number(15), by: .user)
         #expect(!consented(defaults))
     }
@@ -69,7 +69,7 @@ import Testing
         try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: home.appending(path: "cmux-next.json").path)
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: home.path)
         await #expect(throws: (any Error).self) {
-            try await settings.setSetting(at: HangReportsSetting.path, to: .bool(true), by: .user)
+            try await settings.setSetting(at: HangReportsSetting.configPath, to: .bool(true), by: .user)
         }
         #expect(!consented(defaults))
         #expect(HangReportsController.decision(defaults: defaults, settingOn: false) != .send)

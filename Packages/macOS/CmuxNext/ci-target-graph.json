@@ -314,6 +314,7 @@
         "CmuxNextHibernation",
         "CmuxNextHistory",
         "CmuxNextHistoryDaemon",
+        "CmuxNextHistoryPages",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
         "CmuxNextHomeModel",
@@ -447,6 +448,7 @@
         "CmuxNextHibernation",
         "CmuxNextHistory",
         "CmuxNextHistoryDaemon",
+        "CmuxNextHistoryPages",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
         "CmuxNextHomeModel",
@@ -502,7 +504,6 @@
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/",
         "Packages/macOS/CmuxNext/Sources/CmuxNextApp/",
         "Packages/macOS/CmuxNext/Sources/CmuxNextWebUpdates/",
-        "Resources/bin/",
         "Resources/cmux-themes/",
         "Resources/ghostty/themes/",
         "Resources/markdown-viewer/ondine.min.js",
@@ -510,6 +511,7 @@
         "cmux-tui/crates/cmux-layout-reducer/tests/data/closing_panes_corpus.txt",
         "cmux-tui/crates/cmux-layout-reducer/tests/data/shown_resize_corpus.txt",
         "cmux-tui/crates/cmux-tui/src/cli/app.rs",
+        "cmux-tui/spec/",
         "plans/cmux-next/",
         "schemas/agent-cursor-visibility/vectors.json",
         "schemas/agent-pane/wake-state.json",
@@ -553,8 +555,13 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks",
       "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
         "CmuxNextDesign",
-        "CmuxNextIcons"
+        "CmuxNextIcons",
+        "CmuxNextPages",
+        "CmuxNextSettings"
       ],
       "packages": []
     },
@@ -657,6 +664,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextWakeups"
       ],
@@ -840,7 +848,9 @@
         "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
-      "reads": []
+      "reads": [
+        "cmux-tui/spec/"
+      ]
     },
     "CmuxNextCloudUI": {
       "kind": "regular",
@@ -1303,12 +1313,28 @@
       ],
       "packages": []
     },
+    "CmuxNextHistoryPages": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHistoryPages",
+      "targets": [
+        "CmuxNextBrowserAutomation",
+        "CmuxNextDaemonService",
+        "CmuxNextDesign",
+        "CmuxNextHistory",
+        "CmuxNextPages",
+        "CmuxNextSettings",
+        "CmuxNextStash",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
     "CmuxNextHome": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHome",
       "targets": [
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextDesignTokens",
         "CmuxNextDictation",
         "CmuxNextHomeModel",
         "CmuxNextIcons",
@@ -1420,9 +1446,7 @@
         "CmuxNextDesign",
         "CmuxNextImportSuggestions",
         "CmuxNextOnboarding",
-        "CmuxNextSettings",
-        "CmuxNextSidebar",
-        "CmuxNextWakeups"
+        "CmuxNextSettings"
       ],
       "packages": []
     },
@@ -1973,6 +1997,7 @@
       "packages": [],
       "reads": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
+        "Resources/theme-files/",
         "cmux-tui/crates/cmux-tui-core/tests/fixtures/browser_site_engines.json",
         "docs/configuration.md",
         "docs/mdm/",
@@ -2065,6 +2090,7 @@
       "targets": [
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextDesignTokens",
         "CmuxNextIcons",
         "CmuxNextResources",
         "CmuxNextWakeups"
@@ -2077,6 +2103,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextCopyMode",
         "CmuxNextDesign",

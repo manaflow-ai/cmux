@@ -3,11 +3,23 @@
 
 public import CmuxNextDesign
 
-/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
-nonisolated enum SidebarSettingsSchema {
-    static var sidebar: [SettingDescriptor] {
+extension SidebarSettingsSchema {
+    static var sidebarPart1: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.sidebar", "Sidebar")
         return [
+            SettingDescriptor(
+                SidebarSurfaceSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.surface", "Sidebar Background"),
+                help: SettingsText.keyed("settings.sidebar.surface.help", "Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker than the main pane."),
+                kind: .choice([
+                    SettingChoice(SidebarSurface.same.rawValue, SettingsText.keyed("settings.choice.sidebarSurface.same", "Same as Main Pane")),
+                    SettingChoice(SidebarSurface.separate.rawValue, SettingsText.keyed("settings.choice.sidebarSurface.separate", "Separate")),
+                ]),
+                default: .string(SidebarSurfaceSetting.fallback.rawValue),
+                keywords: ["sidebar", "background", "surface", "shade", "color", "colour", "panel", "separate", "main pane"]
+            ),
             SettingDescriptor(
                 SidebarBorderSetting.borderPath,
                 section: .appearance,
@@ -285,6 +297,82 @@ nonisolated enum SidebarSettingsSchema {
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.showColorsDefault),
                 keywords: ["sidebar", "color", "colors", "colour", "tint", "swatch", "group", "workspace", "hide", "plain"]
+            ),
+            SettingDescriptor(
+                WorkspaceColorsSetting.indicatorStylePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.workspaceColors.indicatorStyle", "Workspace Color Style"),
+                help: SettingsText.keyed("settings.workspaceColors.indicatorStyle.help", "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color."),
+                kind: .choice([
+                    SettingChoice(WorkspaceColorIndicatorStyle.dot.rawValue, SettingsText.keyed("settings.choice.workspaceColorDot", "Dot")),
+                    SettingChoice(WorkspaceColorIndicatorStyle.leftRail.rawValue, SettingsText.keyed("settings.choice.workspaceColorLeftRail", "Left Rail")),
+                    SettingChoice(WorkspaceColorIndicatorStyle.fill.rawValue, SettingsText.keyed("settings.choice.workspaceColorFill", "Fill Row")),
+                ]),
+                default: .string(WorkspaceColorsSetting.indicatorStyleDefault.rawValue),
+                keywords: ["sidebar", "workspace", "color", "colour", "tint", "fill", "row", "background", "rail", "bar", "dot", "highlight", "indicator", "review", "ready"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.showLocalMachinePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.showLocalMachine", "Mark This Mac's Workspaces"),
+                help: SettingsText.keyed("settings.sidebar.showLocalMachine.help", "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.showLocalMachineDefault),
+                keywords: ["sidebar", "machine", "computer", "this mac", "local", "icon", "color", "remote", "identity"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.groupHeaderMemberCountPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupHeader.memberCount", "Show Group Member Count"),
+                help: SettingsText.keyed("settings.sidebar.groupHeader.memberCount.help", "A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.groupHeaderMemberCountDefault),
+                keywords: ["sidebar", "group", "groups", "count", "members", "workspaces", "number", "header"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.groupHeaderUnreadCountPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount", "Show Group Unread Count"),
+                help: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount.help", "A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.groupHeaderUnreadCountDefault),
+                keywords: ["sidebar", "group", "groups", "unread", "badge", "notifications", "count", "header"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.groupHeaderBackgroundPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupHeader.background", "Group Background"),
+                help: SettingsText.keyed("settings.sidebar.groupHeader.background.help", "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color."),
+                kind: .choice([
+                    SettingChoice(SidebarGroupBackgroundStyle.auto.rawValue, SettingsText.keyed("settings.choice.groupBackgroundAuto", "Automatic")),
+                    SettingChoice(SidebarGroupBackgroundStyle.glass.rawValue, SettingsText.keyed("settings.choice.groupBackgroundGlass", "Glass")),
+                    SettingChoice(SidebarGroupBackgroundStyle.solid.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSolid", "Solid")),
+                ]),
+                default: .string(SidebarSectionsSetting.groupHeaderBackgroundDefault.rawValue),
+                keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.groupPalettePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupPalette", "Group Colors"),
+                help: SettingsText.keyed("settings.sidebar.groupPalette.help", "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient. Pictorial colors each group from the desktop picture at its place in the list."),
+                kind: .choice([
+                    SettingChoice(GroupPalette.glass.rawValue, SettingsText.keyed("settings.choice.groupPaletteGlass", "Glass")),
+                    SettingChoice(GroupPalette.theme.rawValue, SettingsText.keyed("settings.choice.groupPaletteTheme", "App Theme")),
+                    SettingChoice(GroupPalette.wallpaper.rawValue, SettingsText.keyed("settings.choice.groupPaletteWallpaper", "Wallpaper")),
+                    SettingChoice(GroupPalette.grayscale.rawValue, SettingsText.keyed("settings.choice.groupPaletteGrayscale", "Grayscale")),
+                    SettingChoice(GroupPalette.vibrant.rawValue, SettingsText.keyed("settings.choice.groupPaletteVibrant", "Vibrant")),
+                    SettingChoice(GroupPalette.gradient.rawValue, SettingsText.keyed("settings.choice.groupPaletteGradient", "Gradient")),
+                    SettingChoice(GroupPalette.pictorial.rawValue, SettingsText.keyed("settings.choice.groupPalettePictorial", "Pictorial")),
+                ]),
+                default: .string(SidebarSectionsSetting.groupPaletteDefault.rawValue),
+                keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic", "gradient", "pictorial", "picture"]
             ),
         ]
     }

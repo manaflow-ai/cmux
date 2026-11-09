@@ -1,12 +1,13 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Markdown } from "./conversation/Markdown";
-import { toolIcon } from "./conversation/ToolRow";
+import { toolIcon } from "./conversation/toolRowModel";
 import { useT } from "./i18n";
 import { Keycap } from "./Keycap";
 import type { AcpmuxPermission } from "./model";
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
 import "./permissions/externalAccess.css";
+import { takePermissionFocus } from "./permissions/focusRequest";
 import { ProposedEdits } from "./permissions/ProposedEdits";
 import {
   alwaysAllowScope,
@@ -23,8 +24,6 @@ import {
 } from "./permissions/prompt";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 
-export { permissionOptionKind } from "./permissions/prompt";
-
 type PermissionOption = AcpmuxPermission["options"][number];
 
 /** The single card frame used by legacy ACP asks and grouped tool permissions. */
@@ -34,10 +33,12 @@ type PermissionCardFrameProps = {
   leading?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
+  /// The card takes focus from code (``permissionFocus``), so its keys answer.
+  focusable?: boolean;
 };
 
 export const PermissionCardFrame = React.forwardRef<HTMLFieldSetElement, PermissionCardFrameProps>(
-  function PermissionCardFrame({ title, ariaLabel, leading, children, className }, ref) {
+  function PermissionCardFrame({ title, ariaLabel, leading, children, className, focusable }, ref) {
     const titleId = React.useId();
     return (
       <fieldset
@@ -45,6 +46,7 @@ export const PermissionCardFrame = React.forwardRef<HTMLFieldSetElement, Permiss
         className={`acpmux-permission-card${className ? ` ${className}` : ""}`}
         aria-labelledby={title ? titleId : undefined}
         aria-label={!title ? ariaLabel : undefined}
+        tabIndex={focusable ? -1 : undefined}
       >
         {title && (
           <div className="acpmux-permission-card-heading">
@@ -75,9 +77,9 @@ function KeyHint({ shortcut }: { shortcut: string }) {
   );
 }
 
-/// A key the card itself answers (Esc, ⌘↩), drawn as a keycap in its button: `label` as shown,
-/// `aria` in `aria-keyshortcuts` form.
-export type CardKey = { keys: string[]; aria: string };
+/// A key the card itself answers (Esc, ⌘↩), drawn as a keycap in its button: `keys` as shown,
+/// `aria` in `aria-keyshortcuts` form. `letter` is the answer's letter (y, a, n), drawn first.
+export type CardKey = { letter?: string; keys: string[]; aria: string };
 
 /** Shared action button so grouped and legacy cards present the same localized label and key hint.
  * Only the short label and the key: what an answer covers is the card's one scope line, never the
@@ -106,9 +108,15 @@ export function PermissionActionButton({
       <span className="acpmux-permission-action-label">{label}</span>
       {cardKey ? (
         <span className="acpmux-permission-keys">
-          {cardKey.keys.map((key) => (
-            <Keycap key={key}>{key}</Keycap>
-          ))}
+          {cardKey.letter && <Keycap>{cardKey.letter.toUpperCase()}</Keycap>}
+          {cardKey.letter && (cardKey.keys.length > 0 || shortcut) && (
+            <span className="acpmux-permission-keys-or" aria-hidden="true">
+              /
+            </span>
+          )}
+          {cardKey.keys.length > 0
+            ? cardKey.keys.map((key) => <Keycap key={key}>{key}</Keycap>)
+            : shortcut && <KeyHint shortcut={shortcut} />}
         </span>
       ) : (
         shortcut && <KeyHint shortcut={shortcut} />
@@ -117,9 +125,11 @@ export function PermissionActionButton({
   );
 }
 
-// One keycap per key, as Claude desktop draws "Esc" and "⌘ ↩".
-const DENY_KEY: CardKey = { keys: ["Esc"], aria: "Escape" };
-const ALLOW_KEY: CardKey = { keys: ["⌘", "↩"], aria: "Meta+Enter" };
+// One keycap per key, as Claude desktop draws "Esc" and "⌘ ↩", after the answer's letter
+// (permissions/prompt.ts PERMISSION_LETTERS): "Y / ⌘ ↩", "A / ⌥⌘2", "N / Esc".
+const DENY_KEY: CardKey = { letter: "n", keys: ["Esc"], aria: "n Escape" };
+const ALLOW_KEY: CardKey = { letter: "y", keys: ["⌘", "↩"], aria: "y Meta+Enter" };
+const ALWAYS_KEY: CardKey = { letter: "a", keys: [], aria: "a" };
 
 /// A permission ask as Claude desktop draws its "Allow Claude to use …?" card (Leo, 2026-11-05: "The
 /// whole, like, allow whatever to use, allow for this session, or deny. And then it shows the
@@ -130,8 +140,9 @@ const ALLOW_KEY: CardKey = { keys: ["⌘", "↩"], aria: "Meta+Enter" };
 /// their labels: any other option the agent offered and Deny with its Esc keycap at the leading
 /// edge, Always allow and the filled Allow once with its ⌘ ↩ keycaps at the trailing edge, each shown only when the
 /// agent offered that kind (permissions/prompt.ts). Deny opens a field for what the agent should do instead, sent with the
-/// deny through `onDenyWithFeedback`. Keys 1, 2 and 3, Return and ⌘↩ (Allow once) and Esc (Deny, or close
-/// the field) answer while this card is the prompt and nothing else has the keyboard. In a chat
+/// deny through `onDenyWithFeedback`. Keys y, a and n (drawn on the answers), 1, 2 and 3, Return and ⌘↩
+/// (Allow once) and Esc (Deny, or close the field) answer while this card is the prompt and nothing
+/// else has the keyboard; an empty composer gives it the letters, Return and Esc. In a chat
 /// running its highest mode (`fullAccessMode`), an ask still here is one the mode does not answer
 /// (acpmux hub/permissions.rs `full_access_allow`: an ask Claude Code marks as needing the person,
 /// one with no one-time allow), and one line under the title says so: Allow once lets it through
@@ -382,6 +393,19 @@ export function PermissionCard({
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
   }, [active, fieldOpen]);
+  // A click on the ask's notification opens the chat with the card focused (`permissionFocus`), not
+  // the composer: the next 1, 2, 3, Return or Esc answers it.
+  useEffect(() => {
+    if (!active) return;
+    const focus = () => {
+      takePermissionFocus();
+      group.current?.focus();
+    };
+    // Asked just before this card mounted: the chat opened first.
+    if (takePermissionFocus()) group.current?.focus();
+    window.addEventListener("cmux-acpmux-permissionFocus", focus);
+    return () => window.removeEventListener("cmux-acpmux-permissionFocus", focus);
+  }, [active]);
   // The app's permission shortcuts (⌥⌘1, ⌥⌘2, ⌥⌘3) arrive as page events.
   useEffect(() => {
     if (!active) return;
@@ -459,7 +483,7 @@ export function PermissionCard({
   );
 
   return (
-    <PermissionCardFrame ref={group} className="acpmux-permission-ask ui-glass" ariaLabel={title}>
+    <PermissionCardFrame ref={group} className="acpmux-permission-ask ui-glass" ariaLabel={title} focusable>
       <div className="acpmux-permission-request" data-harness={harness || undefined}>
         <div className="acpmux-permission-request-head">
           <span className="acpmux-permission-request-icon" aria-hidden="true">
@@ -562,6 +586,7 @@ export function PermissionCard({
                 <PermissionActionButton
                   label={allowAlwaysLabel}
                   shortcut={shortcuts && !alwaysAtSource ? allowChatShortcut : undefined}
+                  cardKey={shortcuts && !alwaysAtSource ? ALWAYS_KEY : undefined}
                   title={alwaysAtSource ? t("permission.alwaysAtSource") : alwaysScope}
                   aria-describedby={
                     [scopeText && targetId, alwaysScope && ruleId].filter(Boolean).join(" ") || undefined

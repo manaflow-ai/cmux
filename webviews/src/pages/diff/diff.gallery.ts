@@ -34,11 +34,14 @@ const retry = `export async function withRetry<T>(task: () => Promise<T>, attemp
 }
 `;
 
+// In path order, as `git diff` writes a patch: the tree's first batch (25 files) then holds whole
+// folders, and the last folder lands below them. Round-robin order put later files into folders
+// already on screen, rewriting the visible rows after the first paint (a load shift).
 const many = Array.from({ length: 30 }, (_, index) => ({
   path: `src/area${String(index % 6).padStart(2, "0")}/module${index}.ts`,
   before: `export const value${index} = ${index};\nexport const keep${index} = true;\n`,
   after: `export const value${index} = ${index * 2};\nexport const keep${index} = true;\nexport const added${index} = "new";\n`,
-}));
+})).sort((a, b) => (a.path < b.path ? -1 : 1));
 
 // Small edits inside lines: the word-level marks (word-alt joins words split by a space).
 const config = `export const config = {

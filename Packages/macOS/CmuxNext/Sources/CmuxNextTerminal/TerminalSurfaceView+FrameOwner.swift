@@ -20,8 +20,8 @@ struct TerminalFrameOwnership {
     /// ``TerminalSurfaceView/holdsScale(_:)``); until then the layer keeps the scale of the frame it shows.
     var scale: CGFloat?
     /// Draw ahead (cmux-ad m18 and m26): the size its pane's spring gives it at the next refresh, asked of Ghostty after
-    /// this refresh's commit (render only: no grid report), so the renderer draws it during the refresh and the next pass
-    /// presents it with its bounds. Nil when nothing is drawn ahead.
+    /// this refresh's commit with its grid to the PTY (RESIZE P0 11), so the renderer and the program draw it during the
+    /// refresh and the next pass presents it with its bounds. Nil when nothing is drawn ahead.
     var ahead: CGSize?
     /// The draw-ahead size the presenter gives Ghostty after this turn's pass (``TerminalFramePresenter/drawAhead(_:)``).
     var pendingAhead: CGSize?
@@ -114,19 +114,22 @@ extension TerminalSurfaceView {
         presenter.drawAhead(self)
     }
 
-    /// After this turn's pass (``TerminalFramePresenter``): the draw-ahead size goes to Ghostty, render only (its reflow
-    /// preview re-wraps the text at it; the PTY's grid follows through the coalescer when the size shows). Not while a size
-    /// still waits for its frame: the newer size would drop it, and the next refresh asks for its own size then.
+    /// After this turn's pass (``TerminalFramePresenter``): the draw-ahead size goes to Ghostty (its reflow preview
+    /// re-wraps the text at it) and its grid to the PTY through the coalescer, so the program redraws at it before the
+    /// next pass presents its frame (RESIZE P0 11, `updateSurfaceSize`). Not while a size still waits for its frame: the
+    /// newer size would drop it, and the next refresh asks for its own size then.
     func applyAhead() { // perf-hot: 1ms motion-frame (each frame of a key resize, after the pass)
         guard let size = frameOwnership.pendingAhead else { return }
         frameOwnership.pendingAhead = nil
-        guard let surface, isShown, frameOwnership.inFlight == nil, size != bounds.size,
+        guard surface != nil, isShown, frameOwnership.inFlight == nil, size != bounds.size,
               size != frameOwnership.wanted?.size else { return }
         let pixels = convertToBacking(size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
+        // A size drawn ahead that no frame showed yet: a key press retargeted the spring (its turn draws the next refresh
+        // ahead again), and that size's frame will not show.
+        let replacing = frameOwnership.ahead != nil
         frameOwnership.ahead = size
-        setSurfacePixels(pixels, on: surface)
-        updateReflowPreview()
+        updateSurfaceSize(drawingAhead: true, replacingAhead: replacing)
     }
 
     /// A frame just landed short of the wanted size and its spring gave it the next refresh's size this turn: that size
@@ -239,8 +242,8 @@ extension TerminalSurfaceView {
 
     /// After the presenter landed this terminal's frame, outside the Core Animation lock: the copy-mode cursor box
     /// follows the new size (it reads Ghostty under the terminal's lock, so never inside the lock span), the grid that size
-    /// fits goes to the PTY owner (`updateSurfaceSize`: a key spring's coalesced; a size drawn ahead reported nothing when
-    /// it went to Ghostty), and a drag's grid that waited for this size to show goes (``TerminalGridReporter/shown(_:live:)``).
+    /// fits goes to the PTY owner unless it has it (`updateSurfaceSize`: a key spring's size drawn ahead reported its grid
+    /// when it went to Ghostty), and a drag's grid that waited for this size to show goes (``TerminalGridReporter/shown(_:live:)``).
     func frameDidLand() {
         copyMode.syncCursor()
         updateSurfaceSize()

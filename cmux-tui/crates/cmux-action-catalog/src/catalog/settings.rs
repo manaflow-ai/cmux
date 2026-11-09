@@ -224,6 +224,7 @@ pub static ACTIONS: &[Action] = &[
         id: "liveWeb.start",
         group: GROUP,
         title: t("ActionCatalog", "action.liveWeb.start", "Edit cmux Live…"),
+        hint: Some(t("ActionCatalog", "action.liveWeb.start.hint", "Change cmux's own UI and see it here at once, or let your agent do it. No build.")),
         keywords: &["live web reload", "hot reload", "dev server", "edit", "web ui", "webviews", "vite", "checkout", "develop"],
         category: "settings",
         symbol: "bolt.horizontal.circle",

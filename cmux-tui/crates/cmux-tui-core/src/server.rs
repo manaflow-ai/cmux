@@ -141,7 +141,7 @@ pub use agent_session_attach::{
     AGENT_SESSION_START_NO_CWD_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
     AGENT_SESSION_START_VM_KIND_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY,
     AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
-    start_link_share_bridge,
+    set_link_share_app_scheme, start_link_share_bridge,
 };
 #[cfg(unix)]
 pub(crate) use agent_session_attach::{
@@ -426,6 +426,10 @@ pub const BROWSER_PROVIDER_NATIVE_HOSTING_CAPABILITY: &str = "browser-provider-n
 pub const SERVER_STATS_CAPABILITY: &str = "server-stats-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
 pub const DAEMON_SHUTDOWN_EVENT: &str = "daemon-shutdown";
+/// A client that sends this in `set-client-info` gets `restart` on the
+/// [`DAEMON_SHUTDOWN_EVENT`] (whether a replacement daemon follows). Others
+/// get the bare event, which strict older SDK decoders accept.
+pub const DAEMON_SHUTDOWN_RESTART_CAPABILITY: &str = "daemon-shutdown-restart-v1";
 /// `error_code` of a request refused while the daemon's shutdown handoff is
 /// reserved and not yet announced. The [`DAEMON_SHUTDOWN_EVENT`] follows
 /// unless the shutdown is cancelled.
@@ -528,6 +532,16 @@ pub const WORKSPACE_SIDEBAR_PLACEMENT_CAPABILITY: &str = "workspace-sidebar-plac
 /// creator `workspace`, the agent `session`): an agent or script workspace
 /// goes below its creator; workspaces carry it as `extra.created_by`.
 pub const WORKSPACE_CREATED_BY_CAPABILITY: &str = "workspace-created-by-v1";
+/// `terminal.screen.read` takes `unwrap` (soft wraps joined into logical
+/// lines) and `lines` (the last N lines of scrollback and screen), and
+/// `terminal.copy` takes `unwrap`.
+pub const TERMINAL_READ_UNWRAP_CAPABILITY: &str = "terminal-read-unwrap-v1";
+/// `terminal.wait` takes `new`: only text printed below the cursor's line as
+/// the wait starts can match, so a typed command's echo and older output never do.
+pub const TERMINAL_WAIT_NEW_CAPABILITY: &str = "terminal-wait-new-v1";
+/// Terminal records carry `extra.last_command` (`exit_code`, `finished_at_ms`,
+/// `started_at_ms`): the last command the shell finished (OSC 133 `D`).
+pub const TERMINAL_EXIT_STATUS_CAPABILITY: &str = "terminal-exit-status-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
@@ -856,6 +870,7 @@ enum Command {
         upload_id: String,
         op: String,
         mime: Option<String>,
+        filename: Option<String>,
         size: Option<usize>,
         offset: Option<usize>,
         data: Option<String>,
@@ -886,6 +901,12 @@ enum Command {
         /// next owner shows the same layout (`end-terminals-keep-layout-v1`).
         #[serde(default)]
         keep_layout: bool,
+        /// Whether a replacement daemon follows (`server restart`: true) or
+        /// the session stops (`server stop`: false). Repeated as `restart`
+        /// on the [`DAEMON_SHUTDOWN_EVENT`] so an attached TUI reconnects or
+        /// exits. Absent from older callers, which leave it unknown.
+        #[serde(default)]
+        restart: Option<bool>,
     },
     Ping,
     SetClientInfo {
@@ -2749,11 +2770,13 @@ mod client_registry_views;
 mod listen;
 pub use listen::{
     BoundSocket, PendingServer, START_LOCK_DEADLINE, SocketStartLock, bind_session_socket,
-    connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,
-    verify_session_socket_directory,
+    connect_session_socket, prepare_socket_parent, remove_socket_start_lock, serve, serve_bound,
+    serve_paused, socket_start_lock_path, verify_session_socket_directory,
 };
 mod restoring;
 mod terminal_sessions;
+#[cfg(all(test, unix))]
+use listen::still_at_path;
 #[cfg(test)]
 use listen::{prepare_runtime_socket_directory, socket_start_lock_retry_delay};
 pub use restoring::RestoringServer;
@@ -3033,6 +3056,9 @@ mod column_left_tests;
 #[cfg(test)]
 #[path = "server/column_move_tests.rs"]
 mod column_move_tests;
+#[cfg(test)]
+#[path = "server/split_before_tests.rs"]
+mod split_before_tests;
 
 #[cfg(test)]
 #[path = "server/pane_browser_kind_tests.rs"]

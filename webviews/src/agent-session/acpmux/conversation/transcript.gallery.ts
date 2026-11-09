@@ -1024,7 +1024,10 @@ const loneToolCalls = () =>
 /// Opens the turn's Worked for and its folded run ("Searched the web"). At rest the finished
 /// call's check and time are hidden and keep their room; the failure's red word shows.
 const loneToolMetaAtRest = async (ctx: PlayContext) => {
-  await openGroupedRun(ctx);
+  await openWorked(ctx);
+  // Each call between the agent's asides is its own run, so a lone call draws as its own row; a
+  // folded run line, when there is one, opens too.
+  if (ctx.document.querySelector(".cv-tools > .cv-tool.is-toggle")) await openFoldedRun(ctx);
   await ctx.waitFor(() => ctx.document.querySelector(".cv-tool .cv-command__ok"));
   const view = ctx.document.defaultView!;
   for (const node of ctx.document.querySelectorAll(".cv-tool .cv-command__ok, .cv-tool .cv-command__time"))

@@ -167,8 +167,7 @@ html[data-cmux-page="machines"] body {
   flex-direction: column;
   gap: var(--ds-space-2);
   padding: var(--ds-space-4);
-  border-radius: var(--ds-radius-control);
-  /* The glass rim is its edge: no border of its own over it. */
+  /* The glass rim is its edge: no border of its own over it; the sheet role's veil, radius and depth (ui/popupSurface.css .ui-dialog.ui-glass). */
   border: var(--cmux-hairline) solid transparent;
   color: var(--page-text);
 }

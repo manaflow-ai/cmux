@@ -78,7 +78,9 @@ export function toolLabel(
   if (tool.kind === "execute" && command) {
     const look = commandLook();
     const said = saysWhatItDid ? commandSaid(translatorFor(currentLanguage()), tool, look) : undefined;
-    return said ?? commandLabel(commandLine(command, look));
+    // Cleaning is for a finished row's label; a running row and the live line keep the line as written.
+    const finished = saysWhatItDid && tool.status !== "pending" && tool.status !== "in_progress";
+    return said ?? commandLabel(commandLine(command, look, finished));
   }
   if (unnamedCommand && isBareShellName(tool, title || fallbackName)) return unnamedCommand;
   // An MCP call reads as Claude Code words it, "Using repo: repo grep" (mcpUsing), never as

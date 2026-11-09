@@ -601,6 +601,36 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "home.undockChief",
+        group: GROUP,
+        title: t("LayoutActions", "action.home.undockChief", "Undock Chief"),
+        keywords: &["chief", "dock", "undock", "unpin", "float", "panel", "window", "home", "chat", "side", "left"],
+        category: "window",
+        symbol: "sidebar.left",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        targets: &["window"],
+        cli_name: "home undock-chief",
+        ..Action::DEFAULT
+    },
+    // Show/Hide Chief's system-wide key, its own action so it has its own recorder in Settings > Keyboard
+    // Shortcuts. Show/Hide Chief is the palette row and the CLI verb; only a person presses it, since it pulls
+    // cmux in front of the person's app.
+    Action {
+        id: "home.showHideChiefFromAnyApp",
+        group: GROUP,
+        title: t("LayoutActions", "action.home.showHideChiefFromAnyApp", "Show/Hide Chief from Any App"),
+        keywords: &["chief", "float", "panel", "show", "hide", "toggle", "global", "hotkey", "hot key", "any app", "summon"],
+        default_shortcut: Some(Shortcut { key: " ", modifiers: OPT | SHIFT }),
+        category: "window",
+        symbol: "bubble.left",
+        surfaces: KEYBOARD,
+        surface_plan: SurfacePlan { palette: Decision::Exempt("familyMember"), cli: Some(Decision::Exempt("familyMember")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action home-show-hide-chief-from-any-app",
+        is_global_hot_key: true,
+        is_person_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
         id: "window.movePaneToDock",
         group: GROUP,
         title: t("LayoutActions", "action.window.movePaneToDock", "Move Pane to Dock"),

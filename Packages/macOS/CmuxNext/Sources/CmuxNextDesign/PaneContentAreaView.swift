@@ -118,13 +118,20 @@ public final class PaneContentAreaView: NSView {
 
     /// Draw ahead of a key hold's first frame (T-KEYS 3): the area will be `sizeChange` larger (negative: smaller) at the
     /// first refresh of its pane's spring, whose layout begins the hold. Each follower that hold will hand hears its size
-    /// then, in the key's turn, as ``drawAhead(sizeChange:)`` tells it each later refresh's.
-    public func drawAheadOfHold(sizeChange: CGSize) {
+    /// then, in the key's turn, as ``drawAhead(sizeChange:)`` tells it each later refresh's. `keyPress`: false for a
+    /// snapped structural change (``PaneMotionHoldFollowing/drawAheadOfFollow(nextHostSize:keyPress:)``).
+    public func drawAheadOfHold(sizeChange: CGSize, keyPress: Bool) {
         guard hold == nil, sizeChange != .zero else { return }
         let next = CGSize(width: max(0, bounds.width + sizeChange.width), height: max(0, bounds.height + sizeChange.height))
         for case let follower as any PaneMotionHoldFollowing in subviews where follows(follower) {
-            follower.drawAheadOfFollow(nextHostSize: next)
+            follower.drawAheadOfFollow(nextHostSize: next, keyPress: keyPress)
         }
+    }
+
+    /// A snapped change that drew its followers' sizes ahead (``drawAheadOfHold(sizeChange:keyPress:)``) showed: each
+    /// follower lets a size its placement did not take go (``PaneMotionHoldFollowing/aheadOfFollowShown()``).
+    public func aheadOfHoldShown() {
+        for case let follower as any PaneMotionHoldFollowing in subviews { follower.aheadOfFollowShown() }
     }
 
     /// A container in it was shown again during a following hold (a parked tab): it joins in this frame's layout pass.

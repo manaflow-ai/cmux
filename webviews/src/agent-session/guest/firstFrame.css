@@ -1,0 +1,8 @@
+/* The guest page's first frame (main.tsx): the page base and type scale, glass and the pane's
+   palette, in the order the pane's stylesheet has them. The rest of the pane's sheet loads beside the
+   transcript (transcriptSheet.ts; vite.config.guest-page.mjs FIRST_FRAME_SHEETS names these files so
+   it leaves them out). */
+@import "../../pages/shared/desktop.css";
+@import "../../ui/glass/glass.css";
+@import "../../ui/wave.css";
+@import "../shared/styles.css";

@@ -32,11 +32,6 @@ extension MachineRegistry: RemoteLocalhostMachines {
         WindowProfiles.qualified(id, machines: self).map { ($0.session, $0.key) }
     }
 
-    /// A Cloud machine's private address on its Cloud network (the app's WireGuard tunnel reaches it).
-    func cloudTunnelAddress(machine machineID: String) -> String? {
-        cloudSession(machineID)?.machine.address?.ipv4
-    }
-
     func cloudMachineBadge(machine machineID: String) -> String? {
         cloudSession(machineID)?.machine.title
     }

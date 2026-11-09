@@ -122,19 +122,12 @@ pub fn from_selection(inputs: &Inputs) -> Configuration {
         (!trimmed.is_empty()).then(|| trimmed.to_owned())
     };
     let bundle_id = inputs.bundle_id.clone().unwrap_or_else(|| selection.bundle_id.clone());
-    let tag = value("CMUX_TAG").and_then(|tag| sanitized_scheme_tag(&tag));
-    // A scheme that cannot form `<scheme>://auth-callback` is ignored (it trapped at sign-in).
-    let callback_scheme = value("CMUX_AUTH_CALLBACK_SCHEME")
-        .filter(|scheme| origin::parse(&format!("{scheme}://auth-callback")).is_some())
-        .unwrap_or_else(|| {
-            if bundle_id == NEXT_DEV_BUNDLE_ID {
-                "cmux-next-dev".to_owned()
-            } else if inputs.is_debug_build {
-                tag.map_or_else(|| "cmux-dev".to_owned(), |tag| format!("cmux-dev-{tag}"))
-            } else {
-                default_scheme(Some(&bundle_id)).to_owned()
-            }
-        });
+    let callback_scheme = callback_scheme(
+        value("CMUX_AUTH_CALLBACK_SCHEME").as_deref(),
+        &bundle_id,
+        value("CMUX_TAG").as_deref(),
+        inputs.is_debug_build,
+    );
     let production = selection.name == "prod";
     // A selected local backend (`name: local`, a loopback origin) is development, never `LocalOnly`:
     // the person chose it, so it is reachable (the app's CloudRuntimeSelectionTests before this move:
@@ -259,6 +252,31 @@ pub fn vm_api_base_url(backend: &Backend) -> &'static str {
 }
 
 /// The release channel's sign-in callback scheme.
+/// The URL scheme a build registers and signs in through (its Info.plist `CMUX_AUTH_CALLBACK_SCHEME`): the
+/// bundle's override when it can form `<scheme>://auth-callback` (a bad one trapped at sign-in), else NEXT
+/// DEV's `cmux-next-dev`, a Debug build's `cmux-dev` (`cmux-dev-<tag>` when tagged), or the channel's own.
+pub fn callback_scheme(
+    configured: Option<&str>,
+    bundle_id: &str,
+    tag: Option<&str>,
+    is_debug_build: bool,
+) -> String {
+    if let Some(scheme) = configured
+        .map(str::trim)
+        .filter(|scheme| origin::parse(&format!("{scheme}://auth-callback")).is_some())
+    {
+        return scheme.to_owned();
+    }
+    if bundle_id == NEXT_DEV_BUNDLE_ID {
+        "cmux-next-dev".to_owned()
+    } else if is_debug_build {
+        let tag = tag.and_then(sanitized_scheme_tag);
+        tag.map_or_else(|| "cmux-dev".to_owned(), |tag| format!("cmux-dev-{tag}"))
+    } else {
+        default_scheme(Some(bundle_id)).to_owned()
+    }
+}
+
 pub fn default_scheme(bundle_id: Option<&str>) -> &'static str {
     match bundle_id {
         Some(NIGHTLY_BUNDLE_ID) => "cmux-nightly",

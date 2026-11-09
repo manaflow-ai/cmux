@@ -8,7 +8,7 @@ import { describe, expect, test } from "bun:test";
 import { agentCall } from "../src/agent-session/acpmux/conversation/agentCalls";
 import { toolGroupKind, toolGroups } from "../src/agent-session/acpmux/conversation/toolGroups";
 import { toolRunSummary } from "../src/agent-session/acpmux/conversation/toolRunSummary";
-import { writeCall } from "../src/agent-session/acpmux/conversation/WriteLabel";
+import { writeCall } from "../src/agent-session/acpmux/conversation/writeLabelModel";
 import { THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";

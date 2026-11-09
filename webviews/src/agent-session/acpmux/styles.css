@@ -257,7 +257,7 @@
 /* New tab page (NewTabPage.tsx, #16620): one field with a Terminal | Browser | Agent switch
    that Tab cycles, each option with its shortcut, over the recent sessions. Same surfaces
    as the composer, so it takes every theme the same way. */
-.acpmux-newtab{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;--acpmux-newtab-top:clamp(48px,16vh,168px);--acpmux-newtab-inset:var(--cv-inset,max(var(--cv-edge,16px),round(down,(100% - var(--cv-column,720px))/2,4px)));padding:var(--acpmux-newtab-top) var(--acpmux-newtab-inset) 32px;box-sizing:border-box;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;container-type:inline-size}
+.acpmux-newtab{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;--acpmux-newtab-top:clamp(48px,16vh,168px);--acpmux-newtab-inset:var(--cv-inset,max(var(--cv-edge,16px),round(nearest,(100% - var(--cv-column,720px))/2,1px)));padding:var(--acpmux-newtab-top) var(--acpmux-newtab-inset) 32px;box-sizing:border-box;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;container-type:inline-size}
 .acpmux-newtab>*{width:100%}
 /* The page's one left line (leo-workspace design/grid.md rules 2 and 6): the field row's leading glyph
    box sits 18 in and a 16 px stroke glyph's ink starts about 2 px inside it, so ink starts 20 in from
@@ -766,6 +766,21 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-chief-card-copy strong{font-size:var(--text-heading);line-height:var(--text-heading--line-height);font-weight:650;letter-spacing:var(--text-heading--letter-spacing)}
 .acpmux-chief-card-copy small{color:color-mix(in srgb,var(--agent-text) 68%,var(--agent-muted));font-size:var(--text-control);line-height:var(--text-control--line-height);letter-spacing:var(--text-control--letter-spacing)}
 .acpmux-chief-card-queue{flex:none;min-width:17px;height:17px;padding:0 4px;border-radius:6px;background:color-mix(in srgb,var(--agent-accent) 18%,transparent);color:var(--agent-text);font-size:var(--text-caption);line-height:17px;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-stuck-banner{display:flex;align-items:center;gap:var(--ds-space-2);box-sizing:border-box;min-height:var(--ds-space-40);margin:0 var(--ds-space-3) var(--ds-space-2);padding:var(--ds-space-2) var(--ds-space-3);border:1px solid color-mix(in srgb,var(--agent-warning) 42%,transparent);border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-warning) 8%,var(--agent-page-bg));color:var(--agent-text)}
+/* The attention appears over the transcript, outside the measured bottom stack. The composer and
+   its draft stay at the same position when an episode starts or clears. */
+.acpmux-main > .acpmux-dock > .acpmux-stuck-banner{position:absolute;z-index:var(--layer-raised,1);right:var(--cv-inset-end,var(--cv-inset));bottom:calc(100% + 8px);left:var(--cv-inset);margin:0}
+.acpmux-main:not([data-dock=float]) > .acpmux-dock > .acpmux-stuck-banner{top:calc(var(--ds-space-48) + var(--ds-space-1));bottom:auto}
+.acpmux-main[data-stuck]::after,.acpmux-shell[data-surface=quick][data-stuck]::after{content:"";position:absolute;inset:var(--cmux-hairline);z-index:var(--layer-raised,1);pointer-events:none;border:2px solid color-mix(in srgb,var(--agent-warning) 76%,transparent);border-radius:var(--ds-radius-control)}
+.acpmux-dock > .acpmux-stuck-banner{animation:none}
+.acpmux-quick > .acpmux-stuck-banner{position:absolute;z-index:var(--layer-raised,1);top:var(--ds-space-48);right:8px;left:8px;margin:0}
+.acpmux-stuck-ring{width:var(--ds-icon-12);height:var(--ds-icon-12);flex:none;border:2px solid var(--agent-warning);border-radius:50%;box-shadow:0 0 0 3px color-mix(in srgb,var(--agent-warning) 16%,transparent)}
+.acpmux-stuck-copy{display:flex;flex:1;min-width:0;flex-direction:column;gap:0;overflow:hidden}
+.acpmux-stuck-copy strong{font-size:var(--text-control);line-height:var(--text-control--line-height)}
+.acpmux-stuck-copy span{overflow:hidden;color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);text-overflow:ellipsis;white-space:nowrap}
+.acpmux-stuck-nudge{flex:none;padding:var(--ds-space-1) var(--ds-space-2);border:1px solid color-mix(in srgb,var(--agent-warning) 54%,transparent);border-radius:var(--ds-radius-control);background:transparent;color:var(--agent-text);font:inherit;font-size:var(--text-caption);cursor:default}
+.acpmux-stuck-nudge:hover{background:color-mix(in srgb,var(--agent-warning) 16%,transparent)}
+@media (prefers-reduced-motion:reduce){.acpmux-stuck-ring{box-shadow:none}}
 .acpmux-chief-dock-status{flex:none;display:inline-flex;align-items:center;justify-content:center;width:21px;height:21px;color:var(--agent-muted)}
 .acpmux-chief-dock-status[data-status=streaming]{color:var(--agent-accent)}
 .acpmux-chief-dock-status[data-status=attention]{color:var(--acpmux-needs-you-mark)}
@@ -804,25 +819,26 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-switch-notice{display:block;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;color:var(--agent-muted);font-size:12px;line-height:16px}
 .acpmux-newtab-folder-ask{position:relative;z-index:var(--layer-raised,2);padding-top:8px}
 .acpmux-folder-choice-button{padding:0;border:0;background:none;color:var(--agent-accent,inherit);font:inherit;text-decoration:underline;cursor:default}
-/* Agent question card (question/QuestionCard.tsx), after the Claude app's (Leo 2026-10-19): an amber "Needs your input" pill over a rounded card whose header strip is the question; radio (or checkbox) rows with a bold label and a muted description, divided by hairlines; Other types inline; Skip and Submit (⌘↩) at the bottom right. The app's gray language otherwise: the highlighted row is a soft fill, Submit is the text color inverted. Previews sit beside the list and wrap under it when narrow. appearance.borders none drops the edge (--acpmux-question-edge). */
+/* Agent question card (question/QuestionCard.tsx), after the Claude app's (Leo 2026-10-19; restyled 2026-11-05 after "kind of ugly"): a "Needs your input" small-radius rect (no capsule: agent-pane-no-capsules) tinted with the mark, holding the Needs you dot over a rounded card whose header strip is the question in regular weight; radio (or checkbox) rows with a regular label and a muted description; Other types inline in a quiet field; Skip and Submit with outlined keycaps (esc, ⌘ ↩) at the bottom right, as the permission card's. The app's gray language otherwise: the highlighted row is a soft fill, Submit is the text color inverted. Previews sit beside the list and wrap under it when narrow. appearance.borders none drops the edge (--acpmux-question-edge). */
 /* Needs your input: one mark for a chat that waits on the user, on every surface (the question card's pill, the Needs you dot, badge and pill, the sidebar and Chief dock marks, the status lines). It is the theme's attention colour, which the app sends as --agent-warning (AgentPaneTheme.swift, tokens.attention), the same Palette.attention the native sidebar, tabs and priority rows draw; never the accent, which a grey-accent theme turns into the idle grey. test/needs-input-mark-color.test.ts reads every surface. */
 :root,.acpmux-shell,.ui-positioner{--acpmux-needs-you-mark:var(--agent-warning,var(--agent-accent,var(--agent-text)))}
 .acpmux-shell,.ui-positioner{--acpmux-question-bg:color-mix(in srgb,var(--agent-text) 5%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-question-strip:color-mix(in srgb,var(--agent-text) 8%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-question-edge:color-mix(in srgb,var(--agent-text) 12%,transparent);--acpmux-question-hover:color-mix(in srgb,var(--agent-text) 5%,transparent);--acpmux-question-highlight:color-mix(in srgb,var(--agent-text) 8%,transparent);--acpmux-question-input:var(--acpmux-needs-you-mark)}
 :root[data-borders=none] .acpmux-shell{--acpmux-question-edge:transparent}
 .acpmux-question-ask{display:flex;flex-direction:column;align-items:flex-start;gap:var(--ds-space-2);min-width:0}
-.acpmux-question-status{display:inline-flex;align-items:center;gap:var(--ds-space-2);height:var(--ds-control-compact);padding:0 var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--acpmux-question-input) 14%,transparent);color:var(--acpmux-question-input);font:inherit;font-size:var(--text-detail);font-weight:var(--weight-emphasis);letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-question-status:hover{background:color-mix(in srgb,var(--acpmux-question-input) 20%,transparent)}
-.acpmux-question-status:focus-visible{outline:2px solid color-mix(in srgb,var(--acpmux-question-input) 55%,transparent);outline-offset:1px}
-.acpmux-question-status-dot{width:6px;height:6px;border-radius:50%;background:currentColor}
-.acpmux-question-status-chevron{opacity:.8}
+.acpmux-question-status{display:inline-flex;align-items:center;min-height:var(--ds-control-compact);padding:0;border:0;background:none;color:var(--acpmux-question-input);font:inherit;font-size:var(--text-detail);font-weight:var(--weight-regular);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-question-status-pill{display:inline-flex;align-items:center;gap:var(--ds-space-2);height:var(--ds-control-icon);padding:0 var(--ds-space-1) 0 var(--ds-space-2);box-sizing:border-box;border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--acpmux-question-input) 16%,transparent);line-height:var(--ds-control-icon)}
+.acpmux-question-status:hover .acpmux-question-status-pill{background:color-mix(in srgb,var(--acpmux-question-input) 24%,transparent)}
+.acpmux-question-status:focus-visible{outline:none}
+.acpmux-question-status:focus-visible .acpmux-question-status-pill{outline:2px solid color-mix(in srgb,var(--acpmux-question-input) 55%,transparent);outline-offset:1px}
+.acpmux-question-status-chevron{opacity:.7}
 .acpmux-question-status[aria-expanded=false] .acpmux-question-status-chevron{transform:rotate(-90deg)}
 fieldset.acpmux-question{align-self:stretch;display:flex;flex-direction:column;margin:0;min-inline-size:0;padding:0;overflow:hidden;border:var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);border-radius:var(--grid-cards-radius);background:var(--acpmux-question-bg);color:var(--agent-text);font:inherit}
 fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question[aria-busy=true]{opacity:.65}
 .acpmux-question-head{display:flex;align-items:flex-start;gap:var(--ds-space-2);float:left;width:100%;box-sizing:border-box;padding:var(--ds-space-3);border-bottom:var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);background:var(--acpmux-question-strip)}
 .acpmux-question-head+*{clear:both}
-.acpmux-question-prompt{flex:1;min-width:0;font-size:var(--text-body);line-height:var(--text-body--line-height);font-weight:var(--weight-emphasis);overflow-wrap:anywhere;letter-spacing:var(--text-body--letter-spacing)}
-.acpmux-question-chip{flex:none;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px;padding:0 var(--ds-space-2);border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-text) 10%,transparent);color:var(--agent-soft,var(--agent-text));font-size:var(--text-caption);line-height:var(--text-caption--line-height);font-weight:var(--weight-emphasis);letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-question-prompt{flex:1;min-width:0;font-size:var(--text-body);line-height:var(--text-body--line-height);font-weight:var(--weight-regular);overflow-wrap:anywhere;letter-spacing:var(--text-body--letter-spacing)}
+.acpmux-question-chip{flex:none;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px;padding:0 var(--ds-space-2);border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-text) 10%,transparent);color:var(--agent-soft,var(--agent-text));font-size:var(--text-caption);line-height:var(--text-caption--line-height);font-weight:var(--weight-regular);letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-question-tabs{display:flex;flex-wrap:wrap;gap:var(--ds-space-1);padding:var(--ds-space-2) var(--ds-space-3) 0}
 .acpmux-question-tab{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:calc(var(--ds-space-1) / 2) var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);background:transparent;color:var(--agent-muted);font:inherit;font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-question-tab[data-answered]::before{content:"";display:inline-block;width:5px;height:5px;margin:0 5px 1px 0;border-radius:50%;background:currentColor;vertical-align:middle}
@@ -832,7 +848,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question[data-preview] .acpmux-question-body{padding-right:var(--ds-space-3)}
 .acpmux-question-tab:focus-visible,.acpmux-question-actions button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:-2px}
 .acpmux-question-text{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
-.acpmux-question-label{line-height:19px;font-weight:var(--weight-emphasis);overflow-wrap:anywhere}
+.acpmux-question-label{line-height:19px;font-weight:var(--weight-regular);overflow-wrap:anywhere}
 .acpmux-question-detail{color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);overflow-wrap:anywhere;letter-spacing:var(--text-detail--letter-spacing)}
 /* Inline marks in a question, an option or its description (question/inlineText.tsx): code as the transcript's inline code, a tint behind the mono face at the line's own size. */
 .acpmux-question-code{padding:0.5px 4px;border-radius:4px;background:color-mix(in srgb,var(--agent-text) 10%,transparent);font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace));font-size:0.92em;overflow-wrap:anywhere}
@@ -860,10 +876,13 @@ fieldset.acpmux-question[hidden]{display:none}
 /* A refused reply: why, above Skip and Submit, which work again for a retry. */
 .acpmux-question-error{margin:0;padding:var(--ds-space-2) var(--ds-space-3) 0;color:var(--agent-status-failure);font-size:var(--text-detail);line-height:var(--text-detail--line-height);overflow-wrap:anywhere;user-select:text;-webkit-user-select:text;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-question-error-reason{color:var(--agent-muted)}
-.acpmux-question-skip{min-height:var(--ds-control-row);padding:0 var(--ds-space-3);border:0;border-radius:var(--ds-radius-popup);background:transparent;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-question-skip:hover:not(:disabled){background:var(--acpmux-question-hover);color:var(--agent-text)}
-.acpmux-question-submit{display:inline-flex;align-items:center;gap:var(--ds-space-2);min-height:var(--ds-control-row);padding:0 var(--ds-space-2) 0 var(--ds-space-3);border:0;border-radius:var(--ds-radius-popup);background:var(--agent-text);color:var(--acpmux-base,var(--agent-accent-text,Canvas));font:inherit;font-size:var(--text-detail);font-weight:var(--weight-emphasis);letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-question-submit .acpmux-keycap{margin:0;min-width:14px;padding:0 4px;color:inherit;opacity:.7;letter-spacing:.04em}
+.acpmux-question-skip{min-height:var(--ds-control-row);padding:0 var(--ds-space-1) 0 var(--ds-space-3);border:0;border-radius:var(--ds-radius-popup);background:color-mix(in srgb,var(--agent-text) 10%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-body);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-question-skip:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
+.acpmux-question-submit{display:inline-flex;align-items:center;gap:var(--ds-space-2);min-height:var(--ds-control-row);padding:0 var(--ds-space-1) 0 var(--ds-space-3);border:0;border-radius:var(--ds-radius-popup);background:var(--agent-text);color:var(--acpmux-base,var(--agent-accent-text,Canvas));font:inherit;font-size:var(--text-body);font-weight:var(--weight-regular);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-question-submit:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 88%,var(--acpmux-base,Canvas))}
+/* The card's keys as outlined keycaps, one per key, after the label: the permission card's (Esc, ⌘ ↩). */
+.acpmux-question-keys{display:inline-flex;align-items:center;gap:var(--grid-half-step)}
+.acpmux-question-actions .acpmux-keycap{display:inline-flex;align-items:center;justify-content:center;min-width:var(--ds-control-icon);height:var(--ds-control-icon);margin:0;padding:0 4px;box-sizing:border-box;border-radius:4px;background:none;box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 35%,transparent);color:color-mix(in srgb,currentColor 75%,transparent);font-family:var(--font-ui);font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:normal}
 .acpmux-question-submit:disabled{opacity:.35}
 .acpmux-question-submit[data-action=next]{padding-right:var(--ds-space-3)}
 .acpmux-question-hint{margin-right:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
@@ -970,6 +989,9 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-ask .acpmux-permission-keys{display:inline-flex;align-items:center;gap:var(--grid-half-step);margin-inline-start:var(--ds-space-2)}
 .acpmux-permission-ask .acpmux-permission-keys .acpmux-keycap{display:inline-flex;align-items:center;justify-content:center;min-width:var(--ds-control-icon);height:var(--ds-control-icon);margin:0;padding:0 4px;border-radius:4px;background:none;box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 35%,transparent);color:color-mix(in srgb,currentColor 75%,transparent);font-family:var(--font-ui);font-size:var(--text-caption);line-height:var(--text-caption--line-height)}
 .acpmux-permission-ask .acpmux-permission-buttons button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+/* The answer's letter, then its other keys: a faint slash between them reads as "or", never as a chord. */
+.acpmux-permission-ask .acpmux-permission-keys-or{color:color-mix(in srgb,currentColor 45%,transparent);font:var(--text-caption)/1 var(--font-ui)}
+.acpmux-permission-ask .acpmux-permission-keys .acpmux-permission-action-shortcut{margin:0}
 /* The key hint (KeyHint): smaller and fainter than the label, on its baseline, a fixed step after it;
    the modifiers fainter still so the digit leads. No box: a keycap crowds a 24px button. */
 .acpmux-permission-ask .acpmux-permission-action-shortcut{flex-shrink:0;align-self:center;margin:0 0 0 var(--ds-space-2);padding:0;border-radius:0;background:none;color:color-mix(in srgb,currentColor 62%,transparent);font:var(--text-caption)/1 var(--font-ui);font-variant-numeric:tabular-nums;letter-spacing:.02em;opacity:1}

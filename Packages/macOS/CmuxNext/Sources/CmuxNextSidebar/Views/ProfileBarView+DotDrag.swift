@@ -83,6 +83,8 @@ extension ProfileBarView {
                         NSBezierPath(roundedRect: chip, xRadius: SidebarStyle.rowCornerRadius, yRadius: SidebarStyle.rowCornerRadius).fill()
                     }
                     draw(profile: profile, in: rect, active: active, hovered: false, compact: strip.compact && !active)
+                    // Its window mark rides with it: a ringed space keeps its ring while the dots move.
+                    drawWindowMark(for: profile, in: rect, compact: strip.compact && !active)
                 }
             }
             let dot = CALayer()

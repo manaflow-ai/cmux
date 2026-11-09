@@ -20,7 +20,7 @@ import {
   tailLines,
   type BackgroundTaskOutputReader,
 } from "./backgroundTaskOutput";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { CommandRow } from "./CommandRow";
 import { ToolRow } from "./ToolRow";
 

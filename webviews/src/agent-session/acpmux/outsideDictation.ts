@@ -1,8 +1,11 @@
 // Dictation in another app, seen from the composer (design/composer-dictation.md): while some other
 // app holds the microphone (ChatGPT's dictation, Wispr Flow, a call) and a composer has the
 // keyboard, the mic shows a small drawn wave in its own place (DictationButton), and its tooltip
-// names the app. The host reads only whether input runs and which app runs it (CoreAudio, Swift
-// MicrophoneActivity): cmux never opens the microphone for this, so the wave is drawn, not heard.
+// names the app. The host reads whether input runs and which app runs it (CoreAudio, Swift
+// MicrophoneActivity). When cmux already has microphone permission, the host also opens a meter-only
+// input tap (`metered: true`) and sends the input level as `micLevel` about 12 times a second, so
+// the wave follows the real level; it keeps no audio. Without permission it never asks, and the
+// wave stays drawn.
 // Leo, 2026-11-07: "some sort of indicator that it's like, oh yeah, hey, we recognize that you're
 // using your microphone right now ... But of course ... the benefit of having nothing there is just
 // that, okay, you can still use the composer normally while you are dictating your other thing."
@@ -11,11 +14,12 @@
 // The page asks the host to watch (`dictation.watchMicrophone {on}`) only while one of its
 // composers has the keyboard and the window has focus; the host's listeners stop with the last
 // watcher, so nothing runs while no composer is focused. The host's answers come as the
-// `micActivity` event (pageHost.ts).
+// `micActivity` and `micLevel` events (pageHost.ts).
 import { useEffect, useState, useSyncExternalStore, type RefObject } from "react";
 import { callHost } from "./composer/attachmentSources";
 
-export type OutsideDictation = { active: boolean; bundleId?: string; name?: string };
+/// `metered`: the host measures the input level (`micLevel`); absent, the wave is drawn.
+export type OutsideDictation = { active: boolean; bundleId?: string; name?: string; metered?: boolean };
 
 const IDLE: OutsideDictation = { active: false };
 let current: OutsideDictation = IDLE;
@@ -30,12 +34,45 @@ export function setOutsideDictation(value: unknown): void {
           active: true,
           bundleId: typeof raw.bundleId === "string" ? raw.bundleId : undefined,
           name: typeof raw.name === "string" && raw.name ? raw.name : undefined,
+          metered: raw.metered === true || undefined,
         }
       : IDLE;
-  if (next.active === current.active && next.bundleId === current.bundleId && next.name === current.name) return;
+  if (!next.metered) clearOutsideLevel();
+  if (
+    next.active === current.active &&
+    next.bundleId === current.bundleId &&
+    next.name === current.name &&
+    next.metered === current.metered
+  )
+    return;
   current = next;
   for (const listener of listeners) listener();
 }
+
+/// The last few outside input levels, oldest first, apart from cmux's own (dictation.ts): only the
+/// mark's bars read them (OutsideLevelBars), so a level re-renders the bars, not the composer.
+export const OUTSIDE_BARS = 4;
+const quiet: readonly number[] = Array(OUTSIDE_BARS).fill(0);
+const level = { samples: quiet, listeners: new Set<() => void>() };
+function clearOutsideLevel(): void {
+  if (level.samples === quiet) return;
+  level.samples = quiet;
+  for (const listener of level.listeners) listener();
+}
+/// The host's `micLevel` value, `{level}` in 0...1; kept only while the host meters.
+export function setOutsideLevel(value: unknown): void {
+  const raw = value && typeof value === "object" ? (value as Record<string, unknown>).level : undefined;
+  if (!current.active || !current.metered || typeof raw !== "number" || !Number.isFinite(raw)) return;
+  level.samples = [...level.samples.slice(1), Math.min(1, Math.max(0, raw))];
+  for (const listener of level.listeners) listener();
+}
+export const subscribeOutsideLevel = (listener: () => void) => {
+  level.listeners.add(listener);
+  return () => {
+    level.listeners.delete(listener);
+  };
+};
+export const readOutsideLevel = () => level.samples;
 
 const subscribe = (listener: () => void) => {
   listeners.add(listener);

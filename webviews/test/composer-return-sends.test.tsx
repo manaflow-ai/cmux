@@ -275,7 +275,7 @@ test("an unavailable side command keeps its draft and shows a side-specific refu
   await dispatch(field, key({ key: "Enter", keyCode: 13 }));
   expect(sent).toEqual([]);
   expect(field.textContent).toContain("/side");
-  expect(host.querySelector(".acpmux-attachment-note")?.textContent).toContain("Use /side without arguments");
+  expect(host.querySelector(".acpmux-attachment-note")?.textContent).toContain("Use /side in a chat on this Mac");
 });
 
 test("a synchronous import exception is visible in the existing chat composer", async () => {

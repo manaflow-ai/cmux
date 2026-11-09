@@ -90,4 +90,4 @@ final class HomeDockView: HomeDockSwitchView, PageWebViewContainer {
         channels?.close()
     }
 }
-extension HomeDockView: ChiefPanelContent { var chiefIsAnswering: Bool { mode == .messages && messages?.host?.chiefIsAnswering == true } }
+extension HomeDockView: ChiefPanelContent { var chiefIsAnswering: Bool { mode == .messages && messages?.host?.chiefIsAnswering == true }; var chiefShowsThrough: Bool { get { messages?.host?.chiefShowsThrough == true } set { messages?.host?.chiefShowsThrough = newValue } } }

@@ -2,16 +2,17 @@
 // started draw as one card of rows at the end of that turn, after its reply, each row the chat's
 // title over its status (Claude Code's Changes card), and their names in a reply draw as chips
 // that open them.
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../model";
 import { sessionEntry } from "../sessionList";
-import { renderInline } from "../conversation/Markdown";
+import { renderInline } from "../conversation/inlineMarkdown";
 import { turnView } from "../conversation/turns";
 import { StartedSessionCards } from "./StartedSessionCard";
 import { AgentMark } from "../../shared/AgentMark";
 import { rowIconSize } from "../icons/iconSize";
 import { agentTone } from "../subagents/agentTones";
+import { configureSenderIconLook, SENDER_ICON_BADGE_KEY } from "../subagents/senderIconLook";
 import {
   STARTED_SESSIONS,
   type StartedSession,
@@ -287,6 +288,10 @@ describe("name chips", () => {
 });
 
 describe("StartedSessionCards", () => {
+  // Sender Badge: None draws each row's icon as before the sender badge (SenderIcon.tsx); these
+  // tests pin that look.
+  beforeAll(() => configureSenderIconLook({ [SENDER_ICON_BADGE_KEY]: "none" }));
+  afterAll(() => configureSenderIconLook({}));
   const draw = (...started: StartedSession[]) =>
     renderToStaticMarkup(<StartedSessionCards started={started} onOpen={() => undefined} />);
 

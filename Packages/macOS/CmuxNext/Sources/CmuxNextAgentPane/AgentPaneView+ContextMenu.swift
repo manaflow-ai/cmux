@@ -286,7 +286,8 @@ extension AgentPaneView {
     private func fillContextMenu(_ menu: NSMenu, target: AgentPaneMessageTarget?, selection: String?) {
         lastContextMenu = (NSEvent.mouseLocation, ProcessInfo.processInfo.systemUptime)
         let chatMenu = target == nil && selection == nil ? model.chatMenuItems?() ?? [] : []
-        AgentPaneContextMenu.rebuild(menu, target: target, selection: selection, devTools: DevTools.isEnabled, chatMenu: chatMenu,
+        let developerTools = PageDeveloperTools()
+        AgentPaneContextMenu.rebuild(menu, target: target, selection: selection, devTools: developerTools.isEnabled(), chatMenu: chatMenu,
                                      scope: themeScope.fullStrength, actions: .init(
             copy: { [weak self] text in
                 guard let self else { return }
@@ -298,6 +299,7 @@ extension AgentPaneView {
             retry: { [weak self] row in self?.runMessageAction("chat.retryPrompt", ["rowId": row]) },
             edit: { [weak self] text in self?.runMessageAction("chat.editPrompt", ["text": text]) },
             quoteReply: { [weak self] markdown in self?.runMessageAction("chat.quoteReply", ["markdown": markdown]) },
+            attachSelection: { [weak self] text in self?.runMessageAction("chat.attachSelection", ["text": text]) },
             open: { [weak self] url in self?.openLink(url) },
             linkItems: { [weak self] url in
                 // A pull request link's row opens the GitHub page or github.com beside this chat.
@@ -322,11 +324,18 @@ extension AgentPaneView {
             },
             sessionItems: { [weak self] session in self?.model.sessionMenuItems?(session) ?? [] },
             search: { [weak self] text in self?.model.onSearchWeb?(text) },
+            pinChapter: { [weak self] rowId, sessionId in
+                self?.runMessageAction("chat.pinChapter", ["rowId": rowId, "sessionId": sessionId])
+            },
             page: { [weak self] name, params in self?.runMessageAction(name, params) },
             pasteTarget: webView,
             inspectElement: AgentPaneTunables.pointerInspector.value ? {
                 NotificationCenter.default.post(name: .cmuxNextInspectUIElement, object: self)
-            } : nil))
+            } : nil,
+            inspectWithDevTools: { [weak self] in
+                guard let self else { return }
+                developerTools.inspect(self.page ?? self.webView)
+            }))
     }
 
     /// Retry, Edit and Resend, Open Image and a path's Open: the page's own actions, with the menu choice as the gesture.

@@ -15,7 +15,7 @@ import { createContext, type ReactNode } from "react";
 import type { HunkReview } from "../changes/hunkReview";
 import type { AccessOffer } from "../accessOffer";
 import type { ChatAccount } from "../chatAccounts";
-import type { HarnessHealth } from "../HarnessHealthNotice";
+import type { HarnessHealth } from "../harnessHealthNoticeModel";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import type { Subagent } from "../subagents/subagentFold";
 import type { RetryNote, RetryTarget } from "../subagents/retryState";
@@ -53,8 +53,10 @@ export type TurnActions = {
   /// The image `id` a prompt of this chat sent (its `images`), as a data URL; undefined when acpmux
   /// has none.
   promptImage?: (id: string) => Promise<string | undefined>;
-  /// Send a turn's prompt again (the last turn's Retry), preserving its attachments.
-  retry?: (rowId: string, prompt: string) => void;
+  /// Send a turn's prompt again (the last turn's Retry), preserving its attachments. It may settle
+  /// with whether the send went (never rejecting): a failed turn's card says Retry could not run
+  /// only for `false` (errorRecovery.ts); any other answer counts as sent.
+  retry?: (rowId: string, prompt: string) => unknown;
   /// A failed last turn's Retry (turnRetry.ts): acpmux's turn retry of the chat the row was drawn
   /// for, else `retry` where the turn has a prompt to send (`rowId`, `prompt`). Settles with the
   /// note a refusal leaves on the failure's card.

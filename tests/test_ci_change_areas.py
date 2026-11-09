@@ -642,7 +642,6 @@ def test_every_web_bundle_input_outside_webviews_runs_the_web_checks() -> None:
         "schemas/settings/settings-schema.json",
         "web/data/model-catalog/snapshot.json",
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
     ):
         assert want in outside, want
     assert any(path.startswith("release-notes/next/highlights/") for path in outside)

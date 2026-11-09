@@ -62,6 +62,8 @@ public final class AgentPaneView: NSView {
     let crashRetry = AgentPageCrashRetry()
     /// The rect the window's toasts last heard this pane avoids, window coordinates (AgentPaneView+ToastAvoidance.swift).
     var lastToastAvoidance: NSRect = .zero
+    /// The window that rect was in: a move to another window at the same frame is a move too.
+    weak var lastToastAvoidanceWindow: NSWindow?
     /// The page ends of the app's agent panes, grouped by the termination that ended them.
     let terminations: AgentPageTerminations
     /// The app's flicker ring file (``AgentPageFlickerLog``, made by the composition root); nil writes nothing (tests).
@@ -506,17 +508,21 @@ public final class AgentPaneView: NSView {
     /// The app's microphone watcher (``AgentPaneShared/microphone``); nil: no outside-dictation mark.
     var microphoneActivity: MicrophoneActivity?
 
-    /// While `on`, tells the page whenever another app takes or releases the microphone; off (the
-    /// page's composers lost the keyboard) or a closed pane stops watching.
+    /// While `on`, tells the page whenever another app takes or releases the microphone, and its
+    /// level while metered; off (the page's composers lost the keyboard) or a closed pane stops watching.
     func watchMicrophone(_ on: Bool) {
         guard let microphoneActivity else { return }
         guard on, let pageEvents else {
             microphoneActivity.unwatch(self)
             return
         }
-        microphoneActivity.watch(self) { [weak pageEvents] state in
+        microphoneActivity.watch(self, onLevel: { [weak pageEvents] level in
+            // A level is stale at once: with no page subscribed, none is buffered for later.
+            guard let pageEvents, pageEvents.hasSubscribers else { return }
+            _ = pageEvents.publish(.micLevel(level))
+        }, onChange: { [weak pageEvents] state in
             _ = pageEvents?.publish(.micActivity(state))
-        }
+        })
     }
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.

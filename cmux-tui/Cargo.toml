@@ -45,6 +45,7 @@ members = [
     "crates/cmux-tui-hooks",
     "crates/cmux-tui-util",
     "crates/cmux-json",
+    "crates/cmux-local-url",
     "crates/cmux-journal",
     "crates/cmux-kitty-media",
     "crates/cmux-api-compat",
@@ -107,6 +108,7 @@ members = [
     "crates/cmux-daemon-conn-core",
     "crates/cmux-daemon-launch-core",
     "crates/cmux-cookie-sync",
+    "crates/cmux-terminal-prediction",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
     "crates/cmux-app-host",
@@ -147,6 +149,7 @@ default-members = [
     "crates/cmux-tui-hooks",
     "crates/cmux-tui-util",
     "crates/cmux-json",
+    "crates/cmux-local-url",
     "crates/cmux-journal",
     "crates/cmux-api-compat",
     "crates/cmux-tui-remote-access",
@@ -200,6 +203,7 @@ default-members = [
     "crates/cmux-local-auth",
     "crates/cmux-daemon-launch-core",
     "crates/cmux-cookie-sync",
+    "crates/cmux-terminal-prediction",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
     "crates/cmux-app-host",
@@ -267,6 +271,7 @@ cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
+cmux-focus-core = { path = "crates/cmux-focus-core" }
 cmux-bookmarks-core = { path = "crates/cmux-bookmarks-core" }
 cmux-bookmarks-ops = { path = "crates/cmux-bookmarks-ops" }
 cmux-cloud-start-core = { path = "crates/cmux-cloud-start-core" }
@@ -310,6 +315,7 @@ cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
 cmux-tui-hooks = { path = "crates/cmux-tui-hooks" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
 cmux-json = { path = "crates/cmux-json" }
+cmux-local-url = { path = "crates/cmux-local-url" }
 cmux-journal = { path = "crates/cmux-journal" }
 cmux-kitty-media = { path = "crates/cmux-kitty-media" }
 cmux-api-compat = { path = "crates/cmux-api-compat" }

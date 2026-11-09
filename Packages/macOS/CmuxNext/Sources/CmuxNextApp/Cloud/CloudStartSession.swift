@@ -405,10 +405,10 @@ struct CloudStartSession {
             if session.machine.status == .paused { session.attach(origin: origin) } else { session.connect(origin: origin) }
         }
         // An update of this machine already running when the start came (one that begins later finds the start in ``CloudStartGate``)
-        // restarts the daemon: the agent starts once it ended and the link is back. The one more dial may resume it: the asking account's only.
-        let up = await CloudWait.linkedAgain({ await CloudWait.linked(within: Self.connectWait, { await session.linkUp(within: Self.connectWait) }) {
+        // restarts the daemon: the agent starts once it ended and the link is back, and holds.
+        let up = await CloudWait.linked(within: Self.connectWait, { await session.linkUp(within: Self.connectWait) }) {
             [policy = services.daemonUpdates.policy, id = CloudMachineUpdateTarget.id(session.machineID)] in await policy.turnRunning(id)
-        } }, held: session.linkHeld, redialable: { account == services.cloud.account && session.resumeFailure == nil && session.linkEnded != nil && session.dropRedial.lastEndRedialable }, again: session.retryNow)
+        } && session.linkHeld()
         // A sign-out, team switch or cancellation during the wait is that, not a machine that didn't connect.
         try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
         guard up else { throw failure() }

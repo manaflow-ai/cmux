@@ -7,7 +7,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ComposerQueue } from "./ComposerQueue";
-import { queuedTiles } from "./QueuedImages";
+import { queuedTiles } from "./queuedImagesModel";
 import type { QueueEdit, QueuedPromptImage } from "./model";
 import { framesNote } from "./composer/videoPrompt";
 

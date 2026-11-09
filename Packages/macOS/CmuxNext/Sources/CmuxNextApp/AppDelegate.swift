@@ -248,9 +248,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // Once the first terminal frame is drawn, the palette panel is made at the next idle moment, so the first
         // open costs what later opens cost (a launcher panel opens in one frame), without delaying that frame.
-        // Then the icon picker (its panel, page and symbol catalog) and the dialogs' page, so the first Set Icon and dialog open warm.
+        // Then the icon picker (its panel, page and symbol catalog) and the dialogs' and toasts' pages, so the first Set Icon, dialog and toast open warm.
         launchSettle.whenSettled { [palette = services.palette, weak services] in
-            Self.preparePalette(palette, step: 0) { IdleOnce.schedule { services?.iconPicker.prepare(); services?.groupEditor.prepare(); services?.dialogs.prewarm() } }
+            Self.preparePalette(palette, step: 0) { IdleOnce.schedule { services?.iconPicker.prepare(); services?.groupEditor.prepare(); services?.dialogs.prewarm(); services?.toasts.prewarm() } }
         }
         // Temporary download files a crash left in an earlier run (only the
         // recorded ones; the record is read and the files deleted off the
@@ -377,15 +377,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 services?.feed.configureGitHub(enabled: github.enabled, pollIntervalSeconds: github.pollIntervalSeconds)
             }
         }
-        // macOS posts no notification when an MDM profile changes; activation
-        // is the event-driven backstop next to the managed-file watchers. A full-screen window an
-        // update relaunch kept back enters once the user is in cmux (`enterRestoredFullScreens`).
+        // macOS posts no notification when an MDM profile changes; activation is the event-driven backstop next to the
+        // managed-file watchers. A full-screen window an update relaunch kept back enters once the user is in cmux (`enterRestoredFullScreens`).
         Task { [weak settings, weak services] in
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
                 settings?.managedPreferencesMayHaveChanged()
                 services?.windows.enterRestoredFullScreens()
                 await services?.paidPlanReturned() // an upgrade's payment page sends the person back here
                 await services?.joinConsent.refresh() // a consent refusal acpmux recorded meanwhile; reads nothing with Labs off
+                if let services { CloudStartChat.warmSpare(services) } // intent, never awaited: the next activation runs at once
             }
         }
         services.configActions.start(settings: settings)
@@ -414,22 +414,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.themes.start()
         services.themes.followChromeTheme(settings)
         services.remoteLocalhost.follow(settings)
-        // A Cloud machine's localhost (Open Desktop, or a machine whose cmux-tui has no loopback
-        // forward) goes over the app's own WireGuard tunnel, as in cmux Classic.
-        services.remoteLocalhost.cloudTunnelSocket = services.cloud.tunnelSocket
         services.bookmarks.follow(settings)
         services.apps.start()
         Task {
             await settings.waitForLoad(atLeast: 1); await launchSettle.settled(within: .seconds(4)) // control socket: after the first frames (cx-z9kz0)
-            // `app.quitBehavior: "end"` (first release) is now "end-keep-layout"; "ask" (the removed quit alert) goes.
-            _ = try? await settings.migrateLegacyQuitBehavior()
-            _ = try? await settings.migrateLegacyWorkspaceRowKeys() // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`
-            _ = try? await settings.migrateLegacyPaneToolbarButtons() // `tabs.hiddenButtons` becomes `tabs.toolbarButtons`
-            // Classic cmux keys next reads under another name (`ClassicSettingRename`).
-            _ = try? await settings.migrateClassicSettings()
-            // Shortcuts and settings classic cmux's Settings kept in its preferences (`ClassicShortcutImport`, `ClassicPreferenceImport`).
-            _ = try? await settings.importClassicShortcuts(marker: .standard)
-            _ = try? await settings.importClassicPreferences(marker: .standard)
+            await settings.runLaunchMigrations(marker: .standard) // legacy keys, classic imports, stored defaults
             do {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)
@@ -544,7 +533,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Something the user opened with cmux: an update relaunch's startup ends, so it can come forward.
         services.input.endRelaunchBehind("external open")
         let auth = services.cloud.auth
-        let destination = OpenedURLRouting.route(url, isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) })
+        let destination = OpenedURLRouting(isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) }).route(url)
         guard destination == .auth else { return }
         Task {
             guard await !auth.handleCallback(url) else { return }
