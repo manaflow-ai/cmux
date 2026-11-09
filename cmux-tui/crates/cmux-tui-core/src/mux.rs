@@ -7,6 +7,8 @@ mod public_projections;
 mod resource_content;
 mod resource_topology;
 mod terminal_directory;
+#[cfg(all(test, unix))]
+mod terminal_event_lock_order_tests;
 mod terminal_last_command;
 mod terminal_reap;
 
@@ -272,6 +274,16 @@ type WorkspaceRenameHook = Arc<dyn Fn(&WorkspacePublicId) + Send + Sync>;
 type WorkspaceDeltaBeforeEmitHook = Arc<dyn Fn(u64) + Send + Sync>;
 #[cfg(test)]
 type TerminalReservationHook = Arc<dyn Fn(&str) + Send + Sync>;
+#[cfg(test)]
+type TerminalEventPublishHook = Arc<dyn Fn(TerminalEventPublication, SurfaceId) + Send + Sync>;
+
+/// The terminal event a [`TerminalEventPublishHook`] observes.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TerminalEventPublication {
+    Title,
+    Bell,
+}
 type RestoredViewport = (std::collections::BTreeMap<SplitId, f32>, Option<f32>, Vec<LayoutColumn>);
 
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
@@ -2636,6 +2648,10 @@ pub struct Mux {
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_cleanup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs when a terminal title or bell publication starts, before it
+    /// resolves placements under `state`.
+    #[cfg(test)]
+    terminal_event_publish_hook: Mutex<Option<TerminalEventPublishHook>>,
     browser_providers: Arc<BrowserProviderRegistry>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     active_render_attachments: Arc<AtomicUsize>,
@@ -3070,6 +3086,8 @@ impl Mux {
             resource_close_after_commit: Mutex::new(None),
             #[cfg(test)]
             resource_close_cleanup: Mutex::new(None),
+            #[cfg(test)]
+            terminal_event_publish_hook: Mutex::new(None),
             browser_providers: Arc::new(BrowserProviderRegistry::default()),
             browser_runtime: Mutex::new(None),
             active_render_attachments: Arc::new(AtomicUsize::new(0)),
@@ -7644,12 +7662,16 @@ impl Mux {
     }
 
     pub(crate) fn emit_terminal_title(&self, surface: SurfaceId, title: Arc<str>) {
+        #[cfg(test)]
+        self.run_terminal_event_publish_hook(TerminalEventPublication::Title, surface);
         for placement in self.terminal_event_placements(surface) {
             self.emit(MuxEvent::TitleChanged { surface: placement, title: title.clone() });
         }
     }
 
     pub(crate) fn emit_terminal_bell(&self, surface: SurfaceId) {
+        #[cfg(test)]
+        self.run_terminal_event_publish_hook(TerminalEventPublication::Bell, surface);
         for placement in self.terminal_event_placements(surface) {
             self.emit(MuxEvent::Bell(placement));
         }
@@ -10195,6 +10217,20 @@ impl Mux {
             );
         }
         clients
+    }
+
+    #[cfg(test)]
+    fn set_terminal_event_publish_hook(&self, hook: Option<TerminalEventPublishHook>) {
+        *self.terminal_event_publish_hook.lock().unwrap_or_else(PoisonError::into_inner) = hook;
+    }
+
+    #[cfg(test)]
+    fn run_terminal_event_publish_hook(&self, kind: TerminalEventPublication, surface: SurfaceId) {
+        let hook =
+            self.terminal_event_publish_hook.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if let Some(hook) = hook {
+            hook(kind, surface);
+        }
     }
 
     #[cfg(test)]
