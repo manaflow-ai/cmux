@@ -1464,3 +1464,31 @@ fn a_cursor_restore_after_missed_output_conceals_again() {
     session.type_key("e");
     assert_eq!(session.drawn(), "", "status {:?}", session.status());
 }
+
+#[test]
+fn a_csi_cursor_restore_conceals_again() {
+    let mut session = armed_session();
+    session.remote("\x1b[8m\x1b[s\x1b[0m\x1b[u");
+    session.advance(ms(2_000));
+    for key in ["h", "u", "n", "t"] {
+        session.type_key(key);
+        session.remote(key);
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key("e");
+    assert_eq!(session.drawn(), "", "status {:?}", session.status());
+}
+
+#[test]
+fn a_full_screen_program_that_exits_into_a_concealing_pen_predicts_nothing() {
+    let mut session = armed_session();
+    session.remote("\x1b[8m\x1b[?1049h\x1b[0m\x1b[H\x1b[2Jmenu\x1b[?1049l");
+    session.advance(ms(2_000));
+    for key in ["h", "u", "n", "t"] {
+        session.type_key(key);
+        session.remote(key);
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key("e");
+    assert_eq!(session.drawn(), "", "status {:?}", session.status());
+}

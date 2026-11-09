@@ -259,3 +259,35 @@ fn a_restart_keeps_the_conceal_state_a_cursor_save_holds() {
     let mut scanner = scanner.restarted();
     assert_eq!(scanner.scan(b"\x1b8"), [Concealed(true)]);
 }
+
+#[test]
+fn a_csi_cursor_restore_brings_back_the_saved_conceal_state() {
+    let mut scanner = TerminalOutputScanner::new();
+    assert_eq!(
+        scanner.scan(b"\x1b[8m\x1b[s\x1b[0m\x1b[u"),
+        [Concealed(true), Concealed(false), Concealed(true)]
+    );
+    assert!(scanner.is_concealed());
+    scanner.scan(b"\x1b[0m\x1b[sX\x1b[8m\x1b[u");
+    assert!(!scanner.is_concealed());
+}
+
+#[test]
+fn leaving_the_alternate_screen_restores_the_saved_conceal_state() {
+    let mut scanner = TerminalOutputScanner::new();
+    scanner.scan(b"\x1b[8m\x1b[?1049h\x1b[0m");
+    assert!(!scanner.is_concealed());
+    scanner.scan(b"\x1b[?1049l");
+    assert!(scanner.is_concealed());
+}
+
+#[test]
+fn an_sgr_pop_never_reveals() {
+    let mut scanner = TerminalOutputScanner::new();
+    scanner.scan(b"\x1b[8m\x1b[#{\x1b[0m\x1b[#}");
+    assert!(scanner.is_concealed());
+    // A pop of an unconcealed pen while concealed keeps concealing.
+    let mut scanner = TerminalOutputScanner::new();
+    scanner.scan(b"\x1b[#{\x1b[8m\x1b[#}");
+    assert!(scanner.is_concealed());
+}

@@ -106,8 +106,12 @@ pub struct TerminalOutputScanner {
     /// its length, and the copy a cursor save (`ESC 7`) keeps for its restore.
     is_concealed: bool,
     saved_concealed: bool,
+    /// XTPUSHSGR's stack, as far as conceal goes (bounded like xterm's).
+    pushed_concealed: Vec<bool>,
     sgr: SgrScan,
 }
+
+const MAXIMUM_PUSHED_SGR: usize = 10;
 
 /// Reads an SGR's parameters as they arrive for what they do to concealment,
 /// so a long one (a truecolour prompt) is never cut off by the parameter cap.
@@ -213,6 +217,7 @@ impl TerminalOutputScanner {
             parameters_overflowed: false,
             is_concealed: false,
             saved_concealed: false,
+            pushed_concealed: Vec::new(),
             sgr: SgrScan::default(),
         }
     }
@@ -229,7 +234,45 @@ impl TerminalOutputScanner {
         Self {
             is_concealed: self.is_concealed,
             saved_concealed: self.saved_concealed,
+            pushed_concealed: self.pushed_concealed.clone(),
             ..Self::new()
+        }
+    }
+
+    /// The other sequences that save or restore the pen: `?1049` and `?1048`
+    /// save the cursor with its attributes on `h` and restore them on `l`, and
+    /// XTPUSHSGR / XTPOPSGR (`CSI # {` / `CSI # }`, or `p` / `q`) keep a stack.
+    /// A pop never reveals: if the terminal ignored the push, it still conceals.
+    /// The sequences themselves stay disruptive, which withdraws what is drawn.
+    fn track_attribute_saves(&mut self, final_byte: u8) {
+        if self.parameters_overflowed {
+            return;
+        }
+        let parameters = self.parameters.as_slice();
+        if parameters == b"?1049" || parameters == b"?1048" {
+            match final_byte {
+                b'h' => self.saved_concealed = self.is_concealed,
+                b'l' => self.is_concealed = self.saved_concealed,
+                _ => {}
+            }
+            return;
+        }
+        if parameters.last() != Some(&b'#') {
+            return;
+        }
+        match final_byte {
+            b'{' | b'p' => {
+                if self.pushed_concealed.len() == MAXIMUM_PUSHED_SGR {
+                    self.pushed_concealed.remove(0);
+                }
+                self.pushed_concealed.push(self.is_concealed);
+            }
+            b'}' | b'q' => {
+                if let Some(pushed) = self.pushed_concealed.pop() {
+                    self.is_concealed |= pushed;
+                }
+            }
+            _ => {}
         }
     }
 
@@ -371,6 +414,7 @@ impl TerminalOutputScanner {
                     self.detour_bytes = None;
                     self.is_concealed = false;
                     self.saved_concealed = false;
+                    self.pushed_concealed.clear();
                     Some(OutputSignal::AlternateScreen(false))
                 }
                 // Another ESC restarts the escape, as it does in ghostty.
@@ -427,18 +471,22 @@ impl TerminalOutputScanner {
                 if !(0x40..=0x7E).contains(&byte) {
                     return Some(OutputSignal::Disruptive);
                 }
+                // Ghostty reads a bare `CSI s` / `CSI u` as DECSC / DECRC, which
+                // save and restore the attributes too, conceal included.
                 if self.parameters.is_empty() && byte == b's' {
                     self.detour_bytes = Some(0);
+                    self.saved_concealed = self.is_concealed;
                     return None;
                 }
                 if self.parameters.is_empty() && byte == b'u' {
                     self.detour_bytes = None;
-                    return Some(OutputSignal::Ignorable);
+                    return Some(self.set_concealed(self.saved_concealed));
                 }
                 if byte == b'm' {
                     let concealed = std::mem::take(&mut self.sgr).finish(self.is_concealed);
                     return Some(self.set_concealed(concealed));
                 }
+                self.track_attribute_saves(byte);
                 Some(classify_control_sequence(&self.parameters, self.parameters_overflowed, byte))
             }
             State::ControlString(kind) => match byte {
