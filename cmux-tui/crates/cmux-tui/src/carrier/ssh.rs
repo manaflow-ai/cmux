@@ -308,10 +308,10 @@ pub(super) fn openssh_private_key(seed: &[u8; 32], check: u32) -> Option<Zeroizi
     private.extend_from_slice(&check.to_be_bytes());
     put_string(&mut private, b"ssh-ed25519");
     put_string(&mut private, &public);
-    let mut secret = Zeroizing::new([0_u8; 64]);
-    secret[..32].copy_from_slice(seed);
-    secret[32..].copy_from_slice(&public);
-    put_string(&mut private, secret.as_ref());
+    let mut secret = Zeroizing::new(Vec::with_capacity(64));
+    secret.extend_from_slice(seed);
+    secret.extend_from_slice(&public);
+    put_string(&mut private, &secret);
     put_string(&mut private, b"cmux-carrier");
     let mut pad = 1_u8;
     while private.len() % 8 != 0 {

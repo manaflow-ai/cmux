@@ -108,12 +108,11 @@ pub(super) fn ed25519_host_key(text: &str) -> Option<String> {
     let mut words = text.split_whitespace();
     let (Some("ssh-ed25519"), Some(blob)) = (words.next(), words.next()) else { return None };
     let bytes = STANDARD.decode(blob).ok()?;
-    let prefix = [0, 0, 0, 11];
-    (bytes.len() == 51
-        && bytes[..4] == prefix
-        && &bytes[4..15] == b"ssh-ed25519"
-        && bytes[15..19] == [0, 0, 0, 32])
-    .then(|| format!("ssh-ed25519 {blob}"))
+    let key = bytes
+        .strip_prefix(&[0, 0, 0, 11])
+        .and_then(|rest| rest.strip_prefix(b"ssh-ed25519"))
+        .and_then(|rest| rest.strip_prefix(&[0, 0, 0, 32]))?;
+    (key.len() == 32).then(|| format!("ssh-ed25519 {blob}"))
 }
 
 /// `ssh: {host, port, user, hostKey}`; anything malformed is no candidate.
