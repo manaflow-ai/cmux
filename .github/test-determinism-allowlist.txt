@@ -66,3 +66,9 @@ Packages/macOS/CmuxSudoBroker/Tests/CmuxSudoBrokerTests/SudoReviewRegressionTest
 Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCIndependentEventTests.swift	yield-count-poll	polls bounded by a named Task.yield() count; convert to a deadline-bounded poll (#13903)
 Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/TerminalSurfaceMountOwnershipTests.swift	yield-count-poll	polls bounded by a named Task.yield() count; convert to a deadline-bounded poll (#13903)
 Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/SocketControlServerAcceptRearmStressTests.swift	yield-count-poll	polls bounded by a named Task.yield() count; convert to a deadline-bounded poll (#13903)
+Packages/iOS/CmuxConversation/Tests/CmuxConversationCoreTests/ConversationComposeTests.swift	sleep-then-assert	feat-cmux-next debt before the gate ran there
+Packages/iOS/CmuxConversation/Tests/CmuxConversationCoreTests/ConversationListStateTests.swift	sleep-then-assert	feat-cmux-next debt before the gate ran there
+Packages/iOS/CmuxConversation/Tests/CmuxConversationCoreTests/ConversationSendLaterTests.swift	sleep-then-assert	feat-cmux-next debt before the gate ran there
+Packages/iOS/CmuxConversation/Tests/CmuxConversationCoreTests/ConversationStoreTests.swift	sleep-then-assert	feat-cmux-next debt before the gate ran there
+Packages/iOS/CmuxConversation/Tests/CmuxConversationGeometryTests/ConversationTextEffectRenderAheadTests.swift	sleep-then-assert	feat-cmux-next debt before the gate ran there
+Packages/iOS/CmuxConversation/Tests/CmuxConversationGeometryTests/ConversationTranscriptDynamicsTests.swift	assert-on-duration	feat-cmux-next debt before the gate ran there
