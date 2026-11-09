@@ -65,6 +65,10 @@
  * Either way the team is put in gateway mode before the chat machine is made (its edge route is picked when it is
  * made) and set back to its earlier mode at the end.
  *
+ * --machines lists the agent test account's machines (one JSON line each, with `eligible` by the leaked journey
+ * machine rule; --also-team T lists a second team too), and --delete-ids vm_a,vm_b deletes exactly those, each only
+ * when the live list has it and the rule allows it, logged first (cmux-vm.yml action journey-machines-staging).
+ *
  * --probe-out FILE writes the run as one synthetic-probe result row (cmuxterm-hq probes.py: probe, at,
  * outcome ok|fail, ms = send to first reply, error), --probe NAME naming it.
  *
@@ -966,6 +970,211 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
 }
 
 /**
+ * --machines: the agent test account's machines, one JSON line each, with whether a leaked journey machine may be
+ * deleted by the operator's rule (cmux-vm.yml action journey-machines-staging). A journey whose cleanup delete got
+ * mutation.indeterminate leaves its `cloud journey jr-*` machine behind, and five of them fill the account's quota.
+ * The rule: delete only `cloud journey jr-*` machines (the run's own, or its `gateway`) that are paused or failed, or
+ * older than 24 h and not in use; never `cloud journey kept jr-*` (a --keep run's) and never anything else. When the
+ * row leaves any doubt, the answer is no, with the reason.
+ */
+export const JOURNEY_MACHINE_NAME = /^cloud journey jr-[a-z0-9]+( gateway)?$/;
+/** A strict machine id (cloud-machine-ops.ts MachineId). */
+export const MACHINE_ID = /^vm_[a-z0-9]{20}$/;
+const HOUR_MS = 3_600_000;
+/** A journey runs well under this (its jobs time out at 45 min), so a younger paused machine may be one in flight. */
+const JOURNEY_IN_FLIGHT_MS = HOUR_MS;
+/** Activity this recent means the machine is in use. */
+const IN_USE_MS = 45 * 60_000;
+const OLD_MS = 24 * HOUR_MS;
+
+export function journeyMachineEligible(m: any, now = Date.now()): { eligible: boolean; reason: string } {
+  const no = (reason: string) => ({ eligible: false, reason });
+  const name = typeof m?.name === "string" ? m.name : "";
+  if (!MACHINE_ID.test(String(m?.id ?? ""))) return no("not a machine id");
+  if (!JOURNEY_MACHINE_NAME.test(name)) return no(name.startsWith("cloud journey kept ") ? "a kept journey machine" : "not a leaked journey machine's name");
+  const created = m?.created_at;
+  if (!Number.isSafeInteger(created) || created <= 0 || created > now) return no("no creation time");
+  const age = now - created;
+  const status = String(m?.status ?? "");
+  if (status === "paused" || status === "failed") {
+    return age > JOURNEY_IN_FLIGHT_MS ? { eligible: true, reason: status } : no(`${status} but made under 1 h ago: a journey may still be running`);
+  }
+  if (status !== "running" && status !== "provisioning") return no(`status ${status || "missing"}`);
+  if (age <= OLD_MS) return no(`${status} and made under 24 h ago`);
+  const last = m?.last_active_at;
+  if (last !== null && last !== undefined) {
+    if (!Number.isSafeInteger(last) || last <= 0) return no("an unreadable last activity");
+    if (now - last <= IN_USE_MS) return no("active in the last 45 min");
+  }
+  return { eligible: true, reason: `${status}, older than 24 h, ${last ? "idle over 45 min" : "no activity recorded"}` };
+}
+
+/** --delete-ids: strict `vm_` ids, comma or space separated, checked before anything signs in. */
+export function parseMachineIds(text: string): string[] {
+  const ids = [...new Set(text.split(/[\s,]+/).filter(Boolean))];
+  if (!ids.length) throw new Error("--delete-ids: no machine ids");
+  const bad = ids.filter((id) => !MACHINE_ID.test(id));
+  if (bad.length) throw new Error(`--delete-ids: not a machine id (vm_ and 20 lowercase letters or digits): ${bad.map((b) => JSON.stringify(b.slice(0, 40))).join(", ")}`);
+  if (ids.length > 25) throw new Error(`--delete-ids: ${ids.length} ids; at most 25 in one run`);
+  return ids;
+}
+
+const iso = (ms: unknown) => (Number.isSafeInteger(ms) && (ms as number) > 0 ? new Date(ms as number).toISOString() : null);
+
+/** One --machines line: what the list gives, and the rule's answer. */
+export function machineLine(m: any, scope: string, now = Date.now()): Record<string, unknown> {
+  const { eligible, reason } = journeyMachineEligible(m, now);
+  const created = Number.isSafeInteger(m?.created_at) ? m.created_at : null;
+  return {
+    scope,
+    id: m?.id ?? null,
+    name: m?.name ?? null,
+    status: m?.status ?? null,
+    created: iso(m?.created_at),
+    age_h: created ? Math.round(((now - created) / HOUR_MS) * 10) / 10 : null,
+    last_active: iso(m?.last_active_at),
+    pause_reason: m?.pause_reason ?? null,
+    error: m?.error?.code ?? null,
+    eligible,
+    reason,
+  };
+}
+
+/** A team (null: the account's own) and its API, as the journey calls it. */
+export type MachineScope = { scope: string; list(): Promise<any[]>; get(id: string): Promise<any | null>; remove(id: string, key: string): Promise<Answer> };
+export type DeleteDeps = { now(): number; sleep(ms: number): Promise<void>; log(line: string): void; retryMs?: number; readBackMs?: number };
+
+/**
+ * Delete each id only when a scope's live list has it and the rule allows it. Every id is checked first and one
+ * refusal deletes nothing; right before each delete the machine is read again and checked again. Each delete is
+ * logged before it is sent, retried under the same idempotency key while the API answers mutation.indeterminate
+ * (bounded), then read back until it is gone or deleting (bounded). Returns the ids it could not delete, with why.
+ */
+export async function deleteJourneyMachines(ids: string[], scopes: MachineScope[], runTag: string, deps: DeleteDeps): Promise<{ deleted: string[]; failed: Array<{ id: string; reason: string }> }> {
+  const retryMs = deps.retryMs ?? 180_000;
+  const readBackMs = deps.readBackMs ?? 120_000;
+  const where = new Map<string, MachineScope>();
+  const refused: Array<{ id: string; reason: string }> = [];
+  const rows = new Map<string, any>();
+  for (const s of scopes) for (const m of await s.list()) if (m?.id && !where.has(m.id)) { where.set(m.id, s); rows.set(m.id, m); }
+  for (const id of ids) {
+    const m = rows.get(id);
+    if (!m) { refused.push({ id, reason: "not in the account's machine list" }); continue; }
+    const e = journeyMachineEligible(m, deps.now());
+    if (!e.eligible) refused.push({ id, reason: `not eligible: ${e.reason} (${m.name ?? "no name"}, ${m.status})` });
+  }
+  for (const r of refused) deps.log(JSON.stringify({ refused: r.id, reason: r.reason }));
+  if (refused.length) return { deleted: [], failed: refused };
+  const deleted: string[] = [];
+  const failed: Array<{ id: string; reason: string }> = [];
+  for (const id of ids) {
+    const s = where.get(id)!;
+    const fail = (reason: string) => { failed.push({ id, reason }); deps.log(JSON.stringify({ failed: id, reason })); };
+    let m: any;
+    try { m = await s.get(id); } catch (e) { fail(`read before delete: ${(e as Error).message}`); continue; }
+    const e = m ? journeyMachineEligible(m, deps.now()) : { eligible: false, reason: "gone from the account" };
+    if (!m || !e.eligible) { fail(`not eligible at delete time: ${e.reason}`); continue; }
+    deps.log(JSON.stringify({ before_delete: id, scope: s.scope, name: m.name, status: m.status, created: iso(m.created_at), last_active: iso(m.last_active_at) }));
+    const key = `${runTag}-delete-${id}`;
+    const t0 = deps.now();
+    let answer: Answer | null = null;
+    for (let attempt = 1; ; attempt++) {
+      try { answer = await s.remove(id, key); } catch (e) { answer = { status: 0, body: { ok: false, error: { code: "transport", message: (e as Error).message, retryable: true } } }; }
+      const again = opRetryable(answer.body) || answer.status === 0;
+      if (!again || deps.now() - t0 >= retryMs) break;
+      deps.log(JSON.stringify({ retry_delete: id, attempt, error: answer.body?.error?.code ?? null }));
+      await deps.sleep(Math.min(5_000 * attempt, 30_000));
+    }
+    if (answer!.status !== 200 || answer!.body?.ok !== true) {
+      fail(`delete: HTTP ${answer!.status} ${short(answer!.body?.error ?? answer!.body)}`);
+      continue;
+    }
+    let gone = "";
+    for (const r0 = deps.now(); deps.now() - r0 < readBackMs; await deps.sleep(3_000)) {
+      try {
+        const back = await s.get(id);
+        if (!back || back.status === "deleting" || back.status === "deleted") { gone = back ? back.status : "gone"; break; }
+      } catch { /* read again */ }
+    }
+    if (!gone) { fail(`deleted, but read back still not gone or deleting after ${readBackMs / 1000} s`); continue; }
+    deleted.push(id);
+    deps.log(JSON.stringify({ deleted: id, read_back: gone }));
+  }
+  return { deleted, failed };
+}
+
+/** Every page of cloud.machine.list (bounded). */
+async function listAllMachines(api: Api): Promise<any[]> {
+  const rows: any[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < 50; page++) {
+    const v: any = await api.read("cloud.machine.list", { limit: 100, ...(cursor ? { cursor } : {}) });
+    rows.push(...(v?.machines ?? v?.items ?? (Array.isArray(v) ? v : [])));
+    cursor = typeof v?.next_cursor === "string" && v.next_cursor ? v.next_cursor : null;
+    if (!cursor) return rows;
+  }
+  throw new Error("cloud.machine.list: more than 50 pages");
+}
+
+/** The Stack password sign-in the journey uses: the agent test account's access token. */
+async function passwordSignIn(stack: (typeof STACK)[StackName], email: string, password: string): Promise<{ access: string; refresh: string }> {
+  const r = await http("POST", `${STACK_API}/api/v1/auth/password/sign-in`, { email, password }, {
+    "x-stack-access-type": "client",
+    "x-stack-project-id": stack.project,
+    ...(stack.clientKey ? { "x-stack-publishable-client-key": stack.clientKey } : {}),
+  });
+  if (r.status !== 200 || typeof r.body.access_token !== "string") throw new Error(`Stack sign-in HTTP ${r.status} ${String(r.body.code ?? "")}`);
+  return { access: r.body.access_token, refresh: String(r.body.refresh_token ?? "") };
+}
+
+async function machinesMode(argv: string[], backend: Backend, email: string | undefined, password: string | undefined, team: string | undefined): Promise<number> {
+  const idsArg = argv.includes("--delete-ids") ? argValue("--delete-ids", argv) ?? "" : null;
+  // The ids are checked before anything signs in.
+  const ids = idsArg === null ? null : parseMachineIds(idsArg);
+  const alsoTeams = (argValue("--also-team", argv) ?? "").split(/[\s,]+/).filter(Boolean);
+  const secrets: string[] = password ? [password] : [];
+  const say = (line: string) => console.log(scrub(line, secrets));
+  const signIn = argValue("--sign-in", argv) ?? "password";
+  let bearer: string;
+  if (signIn === "oidc") bearer = (await oidcSignIn(backend.api, process.env, secrets)).token;
+  else {
+    if (!email || !password) throw new Error("no agent test account: set CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD, or --credentials FILE");
+    const s = await passwordSignIn(STACK[backend.stack], email, password);
+    secrets.push(s.access, s.refresh);
+    bearer = s.access;
+  }
+  const scopes: MachineScope[] = [...new Set([team ?? "", ...alsoTeams])].map((t) => {
+    const api = new Api(backend.api, t || undefined);
+    api.bearer = bearer;
+    return {
+      scope: t || "personal",
+      list: () => listAllMachines(api),
+      get: async (id) => {
+        try { return await api.read("cloud.machine.get", { machine: id }); } catch (e) {
+          if (/HTTP 404|not[ _.-]?found/i.test(String((e as Error).message))) return null;
+          throw e;
+        }
+      },
+      remove: (id, key) => api.raw("POST", "/v1/ops", { op: "cloud.machine.delete", params: { machine: id }, idempotency_key: key }),
+    };
+  });
+  const now = Date.now();
+  let count = 0;
+  for (const s of scopes) {
+    for (const m of await s.list()) {
+      if (m?.status === "deleted") continue;
+      count++;
+      say(JSON.stringify(machineLine(m, s.scope, now)));
+    }
+  }
+  say(JSON.stringify({ backend: backend.name, scopes: scopes.map((s) => s.scope), machines: count }));
+  if (!ids) return 0;
+  const result = await deleteJourneyMachines(ids, scopes, `journey-machines-${Date.now().toString(36)}`, { now: Date.now, sleep, log: say });
+  say(JSON.stringify({ deleted: result.deleted.length, not_deleted: result.failed.length }));
+  return result.failed.length ? 1 : 0;
+}
+
+/**
  * Steps that passed on the version before a deploy and fail after it: the deploy's own reds. A step that
  * was already red before (a known backend bug) is not the deploy's fault and never triggers a rollback.
  * With no baseline (the first run, or it could not sign in), every failed step counts.
@@ -1009,6 +1218,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const team = argValue("--team", argv) ?? process.env.CMUX_JOURNEY_TEAM ?? undefined;
   const signIn = argValue("--sign-in", argv) ?? "password";
   if (signIn !== "password" && signIn !== "oidc") throw new Error(`--sign-in ${signIn}: password or oidc`);
+  // --machines (list) and --delete-ids (delete exact ids): the operator's leaked-machine cleanup, no journey.
+  if (argv.includes("--machines") || argv.includes("--delete-ids")) return machinesMode(argv, backend, email, password, team);
   const agent = argValue("--agent", argv) ?? "claude";
   const prompt = argValue("--prompt", argv) ?? "Reply with one short sentence that names the planet you are on.";
   const chatBudget = Number(argValue("--chat-timeout", argv) ?? 300) * 1000;
@@ -1153,14 +1364,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     const stack = STACK[backend.stack];
     if (signIn === "password") api.bearer = await J.step("sign in (agent test account)", async () => {
-      const r = await http("POST", `${STACK_API}/api/v1/auth/password/sign-in`, { email, password }, {
-        "x-stack-access-type": "client",
-        "x-stack-project-id": stack.project,
-        ...(stack.clientKey ? { "x-stack-publishable-client-key": stack.clientKey } : {}),
-      });
-      if (r.status !== 200 || typeof r.body.access_token !== "string") throw new Error(`Stack sign-in HTTP ${r.status} ${String(r.body.code ?? "")}`);
-      J.secrets.push(r.body.access_token, r.body.refresh_token ?? "");
-      return { value: r.body.access_token as string, detail: `Stack project ${stack.project.slice(0, 8)}` };
+      const s = await passwordSignIn(stack, email!, password!);
+      J.secrets.push(s.access, s.refresh);
+      return { value: s.access, detail: `Stack project ${stack.project.slice(0, 8)}` };
     });
     const user = await J.step("user.ensure", async () => {
       const v = await api.op("user.ensure", {}, `${tag}-ensure`);

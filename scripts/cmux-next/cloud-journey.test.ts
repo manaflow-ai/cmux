@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
+import { deleteJourneyMachines, journeyMachineEligible, machineLine, parseMachineIds, type MachineScope } from "./cloud-journey";
 import { canonicalKey, carrierDial, carrierTicketProblem, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable } from "./cloud-journey";
 
 describe("cloud journey", () => {
@@ -422,5 +423,139 @@ describe("cloud journey: carrier ticket without a cmux binary", () => {
     expect(Buffer.from(noncanonical, "base64url").length).toBe(32);
     for (const daemon_key of [undefined, "k", `${key}=`, noncanonical, key.replace(/.$/, "+")])
       expect(carrierTicketProblem(200, answer({ daemon_key }), 1_000)).toContain("daemon_key");
+  });
+});
+
+describe("cloud journey: leaked machines (--machines, --delete-ids)", () => {
+  const now = Date.UTC(2026, 10, 9, 12, 0, 0);
+  const H = 3_600_000;
+  const id = (n: number) => `vm_${String(n).padStart(20, "0")}`;
+  const machine = (over: Record<string, unknown> = {}) => ({ id: id(1), name: "cloud journey jr-mw7vl1n7", status: "paused", created_at: now - 20 * H, last_active_at: now - 19 * H, ...over });
+
+  test("ids are strict vm_ ids, checked before sign-in", () => {
+    expect(parseMachineIds(`${id(1)}, ${id(2)} ${id(1)}`)).toEqual([id(1), id(2)]);
+    expect(() => parseMachineIds("")).toThrow("no machine ids");
+    expect(() => parseMachineIds(" , ")).toThrow("no machine ids");
+    expect(() => parseMachineIds("vm_4817ee90a93468c689d")).toThrow("not a machine id");
+    expect(() => parseMachineIds(`${id(1)},VM_4817EE90A93468C689D3`)).toThrow("not a machine id");
+    expect(() => parseMachineIds(`${id(1)};rm -rf /`)).toThrow("not a machine id");
+    expect(() => parseMachineIds("$(id)")).toThrow("not a machine id");
+    expect(() => parseMachineIds(Array.from({ length: 26 }, (_, i) => id(i)).join(","))).toThrow("at most 25");
+  });
+
+  test("the rule: only cloud journey jr-* machines, paused or failed, or old and idle", () => {
+    const ok = (m: Record<string, unknown>) => journeyMachineEligible(machine(m), now).eligible;
+    // A paused or failed jr- machine (and its gateway) goes.
+    expect(ok({})).toBe(true);
+    expect(ok({ status: "failed" })).toBe(true);
+    expect(ok({ name: "cloud journey jr-mw7vl1n7 gateway" })).toBe(true);
+    // An old, idle one goes, running or never active.
+    expect(ok({ status: "running", created_at: now - 30 * H, last_active_at: now - 2 * H })).toBe(true);
+    expect(ok({ status: "running", created_at: now - 30 * H, last_active_at: null })).toBe(true);
+    // Kept never, other names never, whatever their state.
+    expect(journeyMachineEligible(machine({ name: "cloud journey kept jr-mw7vl1n7" }), now)).toEqual({ eligible: false, reason: "a kept journey machine" });
+    for (const name of ["cloud journey auto jr-mw7vl1n7", "my dev box", "cloud journey jr-", "cloud journey jr-ABC", "x cloud journey jr-abc", "cloud journey jr-abc gateway2", null]) expect(ok({ name })).toBe(false);
+    // Running and recent never: made under 24 h ago, or active in the last 45 min.
+    expect(ok({ status: "running", created_at: now - 2 * H, last_active_at: null })).toBe(false);
+    expect(ok({ status: "running", created_at: now - 30 * H, last_active_at: now - 10 * 60_000 })).toBe(false);
+    // A paused machine made under an hour ago may be a journey between its pause and resume.
+    expect(ok({ status: "paused", created_at: now - 20 * 60_000 })).toBe(false);
+    // In doubt: no.
+    for (const status of ["starting", "pausing", "deleting", "deleted", undefined]) expect(ok({ status, created_at: now - 30 * H, last_active_at: null })).toBe(false);
+    expect(ok({ created_at: undefined })).toBe(false);
+    expect(ok({ created_at: now + H })).toBe(false);
+    expect(ok({ status: "running", created_at: now - 30 * H, last_active_at: "yesterday" })).toBe(false);
+    expect(ok({ id: "vm_x" })).toBe(false);
+  });
+
+  test("a list line carries what the list gives and the rule's answer", () => {
+    const line = machineLine(machine({ id: "vm_4817ee90a93468c689d3", error: { code: "e", message: "m", at: 1 } }), "personal", now);
+    expect(line).toEqual({ scope: "personal", id: "vm_4817ee90a93468c689d3", name: "cloud journey jr-mw7vl1n7", status: "paused", created: new Date(now - 20 * H).toISOString(), age_h: 20, last_active: new Date(now - 19 * H).toISOString(), pause_reason: null, error: "e", eligible: true, reason: "paused" });
+  });
+
+  type Fake = { scope: MachineScope; deletes: string[]; keys: string[] };
+  const fake = (rows: any[], answers: Array<{ status: number; body: any }> = [{ status: 200, body: { ok: true, value: {} } }]): Fake => {
+    const live = new Map(rows.map((r) => [r.id, { ...r }]));
+    const deletes: string[] = [];
+    const keys: string[] = [];
+    return {
+      deletes,
+      keys,
+      scope: {
+        scope: "personal",
+        list: async () => [...live.values()],
+        get: async (m) => live.get(m) ?? null,
+        remove: async (m, key) => {
+          deletes.push(m);
+          keys.push(key);
+          const a = answers.length > 1 ? answers.shift()! : answers[0]!;
+          if (a.status === 200 && a.body?.ok) live.get(m)!.status = "deleting";
+          return a;
+        },
+      },
+    };
+  };
+  const deps = (log: string[]) => {
+    let t = now;
+    return { now: () => t, sleep: async (ms: number) => { t += ms; }, log: (l: string) => log.push(l), retryMs: 180_000, readBackMs: 60_000 };
+  };
+
+  test("delete refuses an id the live list lacks, or one the rule does not allow, and then deletes nothing", async () => {
+    const f = fake([machine(), machine({ id: id(2), name: "cloud journey kept jr-abc" }), machine({ id: id(3), status: "running", created_at: now - 2 * H })]);
+    const log: string[] = [];
+    for (const ids of [[id(1), id(9)], [id(1), id(2)], [id(3)]]) {
+      const r = await deleteJourneyMachines(ids, [f.scope], "t", deps(log));
+      expect(r.deleted).toEqual([]);
+      expect(r.failed.length).toBe(1);
+    }
+    expect(f.deletes).toEqual([]);
+    expect(log.some((l) => l.includes("not in the account's machine list"))).toBe(true);
+    expect(log.some((l) => l.includes("a kept journey machine"))).toBe(true);
+  });
+
+  test("each delete is logged before it is sent, then read back until deleting", async () => {
+    const f = fake([machine(), machine({ id: id(2), status: "failed" })]);
+    const log: string[] = [];
+    const sent: string[] = [];
+    const scope = { ...f.scope, remove: async (m: string, k: string) => { sent.push(`delete ${m} after ${log.length} lines`); return f.scope.remove(m, k); } };
+    const r = await deleteJourneyMachines([id(1), id(2)], [scope], "t", deps(log));
+    expect(r).toEqual({ deleted: [id(1), id(2)], failed: [] });
+    expect(JSON.parse(log[0]!)).toEqual({ before_delete: id(1), scope: "personal", name: "cloud journey jr-mw7vl1n7", status: "paused", created: new Date(now - 20 * H).toISOString(), last_active: new Date(now - 19 * H).toISOString() });
+    expect(sent[0]).toBe(`delete ${id(1)} after 1 lines`);
+    expect(JSON.parse(log[1]!)).toEqual({ deleted: id(1), read_back: "deleting" });
+    expect(JSON.parse(log[2]!).before_delete).toBe(id(2));
+  });
+
+  test("mutation.indeterminate is retried under the same key, bounded", async () => {
+    const indeterminate = { status: 409, body: { ok: false, error: { code: "mutation.indeterminate", retryable: true } } };
+    const f = fake([machine()], [indeterminate, indeterminate, { status: 200, body: { ok: true, value: {} } }]);
+    const r = await deleteJourneyMachines([id(1)], [f.scope], "t", deps([]));
+    expect(r.deleted).toEqual([id(1)]);
+    expect(f.keys.length).toBe(3);
+    expect(new Set(f.keys).size).toBe(1);
+    // Indeterminate for good: it stops at the bound and fails.
+    const stuck = fake([machine()], [indeterminate]);
+    const s = await deleteJourneyMachines([id(1)], [stuck.scope], "t", deps([]));
+    expect(s.deleted).toEqual([]);
+    expect(s.failed[0]!.reason).toContain("mutation.indeterminate");
+    expect(stuck.deletes.length).toBeGreaterThan(3);
+    expect(stuck.deletes.length).toBeLessThan(20);
+  });
+
+  test("a machine that changed since the list is checked again right before its delete", async () => {
+    const f = fake([machine()]);
+    let reads = 0;
+    const scope = { ...f.scope, get: async (m: string) => (++reads === 1 ? { ...machine(), status: "running", last_active_at: now } : f.scope.get(m)) };
+    const r = await deleteJourneyMachines([id(1)], [scope], "t", deps([]));
+    expect(r.deleted).toEqual([]);
+    expect(r.failed[0]!.reason).toContain("not eligible at delete time");
+    expect(f.deletes).toEqual([]);
+  });
+
+  test("a delete that never reads back gone fails", async () => {
+    const f = fake([machine()]);
+    const scope = { ...f.scope, get: async () => machine() };
+    const r = await deleteJourneyMachines([id(1)], [scope], "t", deps([]));
+    expect(r.failed[0]!.reason).toContain("read back");
   });
 });

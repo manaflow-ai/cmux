@@ -83,6 +83,10 @@
 #   sweep-orphans-production  list provider VMs of production that no cmux_vm ownership row records, older than
 #                         15 minutes, with our exact slug and metadata (cmux#35013); dry_run=false then deletes them
 #                         and logs each id. The Worker's 5-minute cron runs the same sweep (src/upstream/orphan-sweep.ts).
+#   journey-machines-staging  list the staging agent test account's Cloud machines (its own team and
+#                         CMUX_JOURNEY_PRODUCT_TEAM), one JSON line each with `eligible` by the leaked journey machine
+#                         rule (cloud-journey.ts journeyMachineEligible); machine_ids (vm_ ids, comma separated) then
+#                         deletes exactly those, each only when listed and eligible, logged before the delete.
 
 name: cmux VM
 
@@ -113,7 +117,7 @@ on:
       action:
         description: Manual action
         type: choice
-        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production, migrate-production, tail-production, sweep-orphans-production]
+        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production, migrate-production, tail-production, sweep-orphans-production, journey-machines-staging]
         default: cloudflare-preflight
       environment:
         description: Environment for hyperdrive-ensure
@@ -132,6 +136,10 @@ on:
         description: migrate-production with dry_run=false only, apply without the point-in-time rehearsal copy (push and deploy-production always skip it); every other check still runs
         type: boolean
         default: false
+      machine_ids:
+        description: journey-machines-staging only, the vm_ ids to delete (comma separated); empty lists only
+        type: string
+        default: ""
       tail_minutes:
         description: tail-production only, minutes to stream the production Worker's events (at most 25)
         type: string
@@ -1175,6 +1183,40 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$DRY_RUN" = false ]; then bun scripts/sweep-orphans.ts --delete; else bun scripts/sweep-orphans.ts; fi
+
+  journey-machines-staging:
+    # A staging Cloud journey whose cleanup delete got mutation.indeterminate leaves its `cloud journey jr-*` machine
+    # behind; five of them fill the agent test account's quota and every later journey fails at create with
+    # cloud.quota.exceeded. This lists the account's machines and, with machine_ids, deletes exactly those ids, each
+    # only when the live list has it and the rule allows it (paused or failed, or older than 24 h and idle; never a
+    # kept or any other machine). Never scheduled. feat-cmux-next only: checked-out code with the staging account.
+    name: journey machines (staging agent test account)
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'journey-machines-staging' && github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 20
+    environment: cmux-vm-staging
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: List (and with machine_ids delete) the journey's machines
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+          MACHINE_IDS: ${{ inputs.machine_ids }}
+        run: |
+          set -euo pipefail
+          args=(--backend staging --machines)
+          if [ -n "$PRODUCT_TEAM" ]; then args+=(--also-team "$PRODUCT_TEAM"); fi
+          # cloud-journey.ts refuses anything but strict vm_ ids before it signs in.
+          if [ -n "$MACHINE_IDS" ]; then args+=(--delete-ids "$MACHINE_IDS"); fi
+          bun scripts/cmux-next/cloud-journey.ts "${args[@]}"
 
   migrate-production:
     # Production cmux_vm migrations (release-rails.md, "Production migrations from CI"): every push to
