@@ -30,7 +30,7 @@ public struct SSHPaths: Sendable {
     /// fetches older than a day. Each build is ~97 MB and every nightly or DEV build fetches its
     /// own, so the never-pruned cache grew ~1.9 GB a day (11.9 GB, 198 builds on one Mac).
     public func pruneDownloads(using file: URL, kept: Int = SSHPaths.downloadsKept, now: Date = Date()) {
-        let fm = FileManager.default
+        let fm = FileManager.checked
         try? fm.setAttributes([.modificationDate: now], ofItemAtPath: file.path)
         let name = file.lastPathComponent
         guard let dash = name.lastIndex(of: "-"), Self.isCommitPrefix(name[name.index(after: dash)...]) else { return }
@@ -40,7 +40,7 @@ public struct SSHPaths: Sendable {
         var builds: [(url: URL, used: Date)] = []
         for entry in entries where entry.lastPathComponent != name && entry.lastPathComponent.hasPrefix(artifact) {
             let rest = entry.lastPathComponent.dropFirst(artifact.count)
-            let used = (try? entry.resourceValues(forKeys: Set(keys)).contentModificationDate) ?? .distantPast
+            let used = (try? entry.blockingResourceValues(forKeys: Set(keys)).contentModificationDate) ?? .distantPast
             if rest.hasSuffix(".partial"), Self.isCommitPrefix(rest.dropLast(".partial".count)) {
                 if now.timeIntervalSince(used) > 86_400 { try? fm.removeItem(at: entry) }
             } else if Self.isCommitPrefix(rest) {
