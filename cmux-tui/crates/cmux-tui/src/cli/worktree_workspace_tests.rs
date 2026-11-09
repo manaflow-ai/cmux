@@ -442,7 +442,7 @@ fn w5q_worktree_close_counts_only_terminals_whose_lifecycle_says_they_run() {
         ],
     });
     assert_eq!(
-        super::running_terminals_with_a_tab_in(&snapshot, WORKSPACE),
+        running_terminals_with_a_tab_in(&snapshot, WORKSPACE),
         ["term_running", "term_launching"]
     );
 }
