@@ -2578,9 +2578,10 @@ export class AcpmuxDirectClient {
   private reactionOrigins = new Map<string, string>();
   /// Each background shell's command and helper, by its call (`background_task_update`), so a
   /// background turn can cite one whose call is not in the chat's transcript (a helper's); and the
-  /// line of each background turn by the call that started its task (`backgroundSource`).
+  /// lines of the background turns by the call that started their task (`backgroundSource`): a
+  /// task that ends more than once (a monitor's ticks) starts several.
   private backgroundSources = new Map<string, AcpmuxBackgroundSource>();
-  private sourceLines = new Map<string, string>();
+  private sourceLines = new Map<string, string[]>();
   private freshReactions = new Set<string>();
   /// TodoWrite calls a drawn checklist stands for (cx-ncc.80): acpmux sends each one's plan just
   /// before it, so the call and its updates draw no tool row. Plumbing calls (hiddenTools.ts)
@@ -6843,7 +6844,9 @@ export class AcpmuxDirectClient {
   private backgroundSource(turn: AcpmuxBackgroundTurn, line: string): AcpmuxBackgroundSource | undefined {
     const origin = turn.cause?.origin;
     if (!origin) return undefined;
-    this.sourceLines.set(origin, line);
+    const lines = this.sourceLines.get(origin);
+    if (!lines) this.sourceLines.set(origin, [line]);
+    else if (!lines.includes(line)) lines.push(line);
     const id = this.toolRows.get(origin) ?? this.callRow(origin);
     const tool =
       id === undefined ? undefined : this.rows.get(id)?.items?.find((item) => item.tool?.id === origin)?.tool;
@@ -6866,14 +6869,24 @@ export class AcpmuxDirectClient {
       ...(task.ownerTitle && { ownerTitle: task.ownerTitle }),
     };
     if (Object.keys(heard).length === 0) return;
-    const source = { ...this.backgroundSources.get(task.toolCallId), ...heard };
+    const prior = this.backgroundSources.get(task.toolCallId);
+    // An adapter that numbers calls per process reuses a call id (cx-jzhka): a shell that starts
+    // under a used id with another command is another task, and inherits nothing of the last one,
+    // nor do the lines that cited it.
+    const reused = task.state === "running" && !!prior?.command && !!task.command && prior.command !== task.command;
+    const source = reused ? heard : { ...prior, ...heard };
     this.backgroundSources.set(task.toolCallId, source);
-    const id = this.sourceLines.get(task.toolCallId);
-    const row = id === undefined ? undefined : this.rows.get(id);
-    if (!row?.background) return;
-    const cited = { ...source, ...row.background.source };
-    if (row.background.source && Object.keys(cited).length === Object.keys(row.background.source).length) return;
-    this.rows.set(row.id, { ...row, version: row.version + 1, background: { ...row.background, source: cited } });
+    if (reused) {
+      this.sourceLines.delete(task.toolCallId);
+      return;
+    }
+    for (const id of this.sourceLines.get(task.toolCallId) ?? []) {
+      const row = this.rows.get(id);
+      if (!row?.background) continue;
+      const cited = { ...source, ...row.background.source };
+      if (row.background.source && Object.keys(cited).length === Object.keys(row.background.source).length) continue;
+      this.rows.set(row.id, { ...row, version: row.version + 1, background: { ...row.background, source: cited } });
+    }
   }
 
   /// A background turn whose task acpmux weighed (Leo, 2026-11-03: "there's like... background
