@@ -36,12 +36,12 @@ class FakeApi:
                  mergeables=("MERGEABLE",)):
         self.statuses, self.tips, self.compares, self.text = list(statuses), list(tips), compares or {}, check_paths
         self.run_ids, self.mergeables, self.mergeable_reads = run_ids, list(mergeables), 0
+        self.dispatched, self.reads = [], 0
 
     def mergeable(self, number):
         """GitHub's mergeable state at the 1st, 2nd... read (the last one repeats)."""
         self.mergeable_reads += 1
         return self.mergeables[min(self.mergeable_reads, len(self.mergeables)) - 1]
-        self.dispatched, self.reads = [], 0
 
     def check_paths(self, branch):
         if isinstance(self.text, Exception):
