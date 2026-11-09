@@ -163,7 +163,12 @@ elif [[ "$release_status" -ne 0 ]] && cmux_next_runtime_cas_failed "$RUNNER_TEMP
 fi
 if [[ -n "$release_retry" ]]; then
   echo "::warning::$release_retry (status $release_status); retrying the Release build once with the local cache"
+  # The one retry. Its failure ends the step red; there is no third build.
+  set +e
   run_release_build 1 2>&1 | tee "$RUNNER_TEMP/nightly-release-build-retry.log"
+  retry_status=${PIPESTATUS[0]}
+  set -e
+  [[ "$retry_status" -eq 0 ]] || exit "$retry_status"
   summarize_release_build "$RUNNER_TEMP/nightly-release-build-retry.log" "$([[ $build_cache == fleet ]] && echo fallback || echo "$build_cache")"
   finish_host_build
 elif [[ "$release_status" -eq 0 ]]; then
