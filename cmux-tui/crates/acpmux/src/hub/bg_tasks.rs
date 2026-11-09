@@ -36,6 +36,13 @@ const LIST_TAIL: u64 = 1 << 10;
 /// How long a start waits for its runner's answer.
 const START_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// Who a background task starts as: a workflow's stable id, or the Claude Code subagent
+/// (`TYPE:ID`) whose MCP call starts it.
+struct BgSpawn<'a> {
+    fixed_id: Option<&'a str>,
+    subagent: Option<String>,
+}
+
 impl Hub {
     fn bg_dir(&self, session: &Session) -> PathBuf {
         crate::config::home().join("bg").join(&session.id)
@@ -49,7 +56,9 @@ impl Hub {
 
     /// `_acpmux/bg/start`: runs `command` in `cwd` (the chat's folder by default), in the
     /// environment the chat's agent runs with ([`Hub::bg_env`]). With `notify`, the chat gets
-    /// one message when it ends ([`Hub::bg_notify`]).
+    /// one message when it ends ([`Hub::bg_notify`]). With `subagent` (`TYPE:ID`, the Claude Code
+    /// subagent whose MCP call starts it, `subagent_call.rs`), it runs as that subagent's Bash
+    /// would (`cli::sender::SUBAGENT_ENV`), so an `acpmux send` in it names that subagent.
     pub async fn bg_start(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -58,8 +67,10 @@ impl Hub {
         description: Option<String>,
         notify: bool,
         result_line: bool,
+        subagent: Option<String>,
     ) -> Result<Value, RpcError> {
-        self.bg_start_with_id(session, command, cwd, None, description, notify, result_line).await
+        let spawn = BgSpawn { fixed_id: None, subagent };
+        self.bg_start_as(session, command, cwd, spawn, description, notify, result_line).await
     }
 
     /// Workflow-only stable identity. The durable claim is written before spawning, so an
@@ -75,6 +86,21 @@ impl Hub {
         notify: bool,
         result_line: bool,
     ) -> Result<Value, RpcError> {
+        let spawn = BgSpawn { fixed_id, subagent: None };
+        self.bg_start_as(session, command, cwd, spawn, description, notify, result_line).await
+    }
+
+    async fn bg_start_as(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        command: &str,
+        cwd: Option<PathBuf>,
+        spawn: BgSpawn<'_>,
+        description: Option<String>,
+        notify: bool,
+        result_line: bool,
+    ) -> Result<Value, RpcError> {
+        let BgSpawn { fixed_id, subagent } = spawn;
         if command.trim().is_empty() {
             return Err(RpcError::invalid_params("command is empty"));
         }
@@ -116,7 +142,10 @@ impl Hub {
                 "{MAX_RUNNING} background tasks already run in this chat; stop one first"
             )));
         }
-        let env = self.bg_env(session, &meta).await?;
+        let mut env = self.bg_env(session, &meta).await?;
+        if let Some(mark) = subagent {
+            env.insert(crate::cli::sender::SUBAGENT_ENV.to_owned(), mark);
+        }
         std::fs::create_dir_all(&dir).map_err(internal)?;
         let generation = bg_generation(&dir, true).map_err(internal)?;
         let uuid = uuid::Uuid::now_v7().simple().to_string();

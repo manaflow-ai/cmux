@@ -32792,6 +32792,11 @@ Result<SnapshotRequestRequest> Codec<SnapshotRequestRequest>::decode(const Json&
 Result<Json> Codec<SplitRequest>::encode(const SplitRequest& value) {
     (void)value;
     Json::Object object;
+    if (value.before) {
+        auto encoded = encode_value(*value.before);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("before", std::move(encoded).value());
+    }
     if (!value.cols.is_absent()) {
         auto encoded = encode_value(value.cols);
         if (!encoded) return std::move(encoded).error();
@@ -32865,6 +32870,12 @@ Result<SplitRequest> Codec<SplitRequest>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     SplitRequest result{};
+    const Json* field_before = value.find("before");
+    if (field_before) {
+        auto decoded = decode_value<bool>(*field_before);
+        if (!decoded) return std::move(decoded).error();
+        result.before = std::move(decoded).value();
+    }
     const Json* field_cols = value.find("cols");
     if (field_cols) {
         if (field_cols->is_null()) {
@@ -43825,7 +43836,8 @@ constexpr std::array<CommandFieldRequirement, 4> kCommand255FieldRequirements{{
     {"keep_layout", 12U, "end-terminals-keep-layout-v1"},
     {"restart", 12U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 10> kCommand258FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 11> kCommand258FieldRequirements{{
+    {"before", 12U, "split-before-v1"},
     {"cwd", 12U, "terminal-env-v1"},
     {"env", 12U, "terminal-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},

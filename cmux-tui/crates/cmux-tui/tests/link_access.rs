@@ -437,6 +437,215 @@ fn upload(world: &World, tmp: &Path, files: &[&Path]) -> (bool, Value) {
     (output.status.success(), answer)
 }
 
+/// A folder the person dropped on a new Cloud chat's first message goes
+/// whole, as a shared folder's files do: never a secret file, a credential
+/// or dot folder's files, or a symlink. A folder no grant could share stays
+/// refused, and nothing of the call goes.
+#[test]
+fn an_upload_sends_a_dropped_folder_without_its_secrets() {
+    let world = World::new();
+    let home = &world.home;
+    let base = home.parent().unwrap().to_path_buf();
+    let tmp = base.join("tmp");
+    let app = home.join("projects/app");
+    for dir in [
+        "src/deep",
+        "gcloud",
+        "nested/.ssh",
+        "empty",
+        ".hidden",
+        "Library/Keychains",
+        "docs/.config",
+    ] {
+        std::fs::create_dir_all(app.join(dir)).unwrap();
+    }
+    for dir in [".ssh", "Library/Preferences", "Keychains", "backup/keychains"] {
+        std::fs::create_dir_all(home.join(dir)).unwrap();
+    }
+    std::fs::write(home.join("Keychains/login.plist"), "fake-folder-keychain-root\n").unwrap();
+    std::fs::write(home.join("backup/keychains/meta.db"), "fake-folder-keychain-file\n").unwrap();
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::create_dir_all(base.join("elsewhere")).unwrap();
+    std::fs::write(app.join("README.md"), "the app\n").unwrap();
+    std::fs::write(app.join("src/deep/main.rs"), "fn main() {}\n").unwrap();
+    std::fs::write(app.join(".env"), "TOKEN=fake-folder-env\n").unwrap();
+    std::fs::write(app.join("server.pem"), "fake-folder-pem\n").unwrap();
+    std::fs::write(app.join("gcloud/adc.json"), "fake-folder-gcloud\n").unwrap();
+    std::fs::write(app.join("nested/.ssh/config"), "fake-folder-ssh\n").unwrap();
+    std::fs::write(app.join(".hidden/token"), "fake-folder-hidden\n").unwrap();
+    std::fs::write(app.join("Library/Keychains/login.plist"), "fake-folder-keychain\n").unwrap();
+    std::fs::write(app.join("docs/.config/app.toml"), "fake-folder-config\n").unwrap();
+    std::fs::write(app.join(".bash_history"), "fake-folder-history\n").unwrap();
+    std::fs::write(base.join("elsewhere/other.txt"), "fake-folder-outside\n").unwrap();
+    std::os::unix::fs::symlink(base.join("elsewhere/other.txt"), app.join("link.txt")).unwrap();
+    let dropped = home.join("projects/shot.png");
+    std::fs::write(&dropped, b"\x89PNG fake image").unwrap();
+
+    let (ok, sent) = upload(&world, &tmp, &[&app, &dropped]);
+    assert!(ok, "{sent}");
+    let folder = &sent["uploads"][0];
+    assert_eq!(folder["folder"], true, "{sent}");
+    let at = PathBuf::from(folder["path"].as_str().unwrap());
+    assert!(at.starts_with(world.work().join("local/uploads")), "{sent}");
+    assert_eq!(at.file_name().unwrap(), "app", "{sent}");
+    assert_eq!(std::fs::read_to_string(at.join("README.md")).unwrap(), "the app\n");
+    assert_eq!(std::fs::read_to_string(at.join("src/deep/main.rs")).unwrap(), "fn main() {}\n");
+    assert_eq!(folder["files"], 2, "{sent}");
+    for name in [
+        ".env",
+        "server.pem",
+        "gcloud/adc.json",
+        "nested/.ssh/config",
+        ".hidden/token",
+        "Library/Keychains/login.plist",
+        "docs/.config/app.toml",
+        ".bash_history",
+        "link.txt",
+        ".cmux-sync.json",
+    ] {
+        assert!(std::fs::symlink_metadata(at.join(name)).is_err(), "{name} went: {sent}");
+    }
+    assert!(sent["uploads"][1]["path"].as_str().unwrap().ends_with("/shot.png"), "{sent}");
+    for bytes in files_below(&world.machine_home) {
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(!text.contains("fake-folder"), "a secret reached the machine: {text}");
+    }
+
+    // The home folder, a dot folder, ~/Library, a folder outside the home
+    // and a keychain folder or a file in one: refused, and the file beside
+    // them does not go either.
+    for refused in [
+        home.clone(),
+        home.join(".ssh"),
+        home.join("Library/Preferences"),
+        base.join("elsewhere"),
+        home.join("Keychains"),
+        home.join("backup/keychains/meta.db"),
+    ] {
+        let before = files_below(&world.machine_home).len();
+        let (ok, answer) = upload(&world, &tmp, &[&dropped, &refused]);
+        assert!(!ok, "{} was uploaded: {answer}", refused.display());
+        assert_eq!(answer["error_code"], "upload_refused", "{answer}");
+        assert_eq!(files_below(&world.machine_home).len(), before, "{answer}");
+    }
+}
+
+/// A folder in a git working copy goes by git's ignore rules, its top or any
+/// folder inside it, and listing it never runs what the repository's own
+/// config names (here an fsmonitor that would leave a mark).
+#[test]
+fn an_upload_of_a_folder_in_git_keeps_its_ignore_rules_and_runs_none_of_its_config() {
+    let world = World::new();
+    let home = &world.home;
+    let base = home.parent().unwrap().to_path_buf();
+    let tmp = base.join("tmp");
+    std::fs::create_dir_all(&tmp).unwrap();
+    let repo = home.join("projects/repo");
+    std::fs::create_dir_all(repo.join("docs")).unwrap();
+    git(&repo, &["init", "-q"]);
+    std::fs::write(repo.join(".gitignore"), "*.log\n").unwrap();
+    std::fs::write(repo.join("docs/guide.md"), "the guide\n").unwrap();
+    std::fs::write(repo.join("docs/build.log"), "fake-git-ignored\n").unwrap();
+    std::fs::write(repo.join("top.txt"), "the top\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-qm", "first"]);
+    let mark = base.join("fsmonitor-ran");
+    let hook = repo.join(".git/watch");
+    std::fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\n", mark.display())).unwrap();
+    std::fs::set_permissions(&hook, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    git(&repo, &["config", "core.fsmonitor", hook.to_str().unwrap()]);
+
+    for (folder, kept, files) in [
+        (repo.join("docs"), vec!["guide.md"], 1),
+        (repo.clone(), vec!["top.txt", "docs/guide.md"], 2),
+    ] {
+        let (ok, sent) = upload(&world, &tmp, &[&folder]);
+        assert!(ok, "{} was refused: {sent}", folder.display());
+        let entry = &sent["uploads"][0];
+        assert_eq!(entry["folder"], true, "{sent}");
+        assert_eq!(entry["files"], files, "{sent}");
+        let at = PathBuf::from(entry["path"].as_str().unwrap());
+        for name in kept {
+            assert!(at.join(name).is_file(), "{name} did not go: {sent}");
+        }
+        for name in ["build.log", "docs/build.log", ".git", ".gitignore"] {
+            assert!(std::fs::symlink_metadata(at.join(name)).is_err(), "{name} went: {sent}");
+        }
+    }
+    assert!(!mark.exists(), "listing the folder ran the repository's fsmonitor");
+
+    // A bare repository, in a plain folder or in a working copy, sends none
+    // of its state; a bare repository dropped by itself is refused.
+    let plain = home.join("projects/plain");
+    std::fs::create_dir_all(&plain).unwrap();
+    std::fs::write(plain.join("notes.txt"), "notes\n").unwrap();
+    for holder in [&plain, &repo] {
+        let bare = holder.join("mirror");
+        git(holder, &["init", "-q", "--bare", "mirror"]);
+        git(&bare, &["config", "remote.origin.url", "https://fake-git-token@example.com/r"]);
+        let (ok, sent) = upload(&world, &tmp, &[holder]);
+        assert!(ok, "{sent}");
+        let at = PathBuf::from(sent["uploads"][0]["path"].as_str().unwrap());
+        assert!(
+            std::fs::symlink_metadata(at.join("mirror")).is_err(),
+            "the bare repo went: {sent}"
+        );
+        for inside in [bare.clone(), bare.join("objects"), bare.join("refs")] {
+            let (ok, answer) = upload(&world, &tmp, &[&inside]);
+            assert!(!ok, "{} was uploaded: {answer}", inside.display());
+        }
+    }
+    // A bare repository's shape counts with its objects a symlink, too.
+    let linked = plain.join("linked");
+    std::fs::create_dir_all(linked.join("refs")).unwrap();
+    std::fs::create_dir_all(base.join("elsewhere-objects")).unwrap();
+    std::os::unix::fs::symlink(base.join("elsewhere-objects"), linked.join("objects")).unwrap();
+    std::fs::write(linked.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+    std::fs::write(linked.join("config"), "[remote \"o\"]\nurl = https://fake-git-linked@x/r\n")
+        .unwrap();
+    let (ok, sent) = upload(&world, &tmp, &[&plain]);
+    assert!(ok, "{sent}");
+    assert_eq!(sent["uploads"][0]["files"], 1, "{sent}");
+
+    // Another repository inside a dropped folder stays whole, its ignored
+    // files with it.
+    let bundle = home.join("projects/bundle");
+    std::fs::create_dir_all(bundle.join("inner")).unwrap();
+    git(&bundle.join("inner"), &["init", "-q"]);
+    std::fs::write(bundle.join("inner/.gitignore"), "private.json\n").unwrap();
+    std::fs::write(bundle.join("inner/private.json"), "fake-git-nested\n").unwrap();
+    std::fs::write(bundle.join("readme.md"), "bundle\n").unwrap();
+    let (ok, sent) = upload(&world, &tmp, &[&bundle]);
+    assert!(ok, "{sent}");
+    assert_eq!(sent["uploads"][0]["files"], 1, "{sent}");
+
+    // A `.git` pointing nowhere is refused, never walked plainly.
+    let broken = home.join("projects/broken");
+    std::fs::create_dir_all(&broken).unwrap();
+    std::fs::write(broken.join(".git"), "gitdir: /nowhere/at/all\n").unwrap();
+    std::fs::write(broken.join(".gitignore"), "private.json\n").unwrap();
+    std::fs::write(broken.join("private.json"), "fake-git-broken\n").unwrap();
+    let (ok, answer) = upload(&world, &tmp, &[&broken]);
+    assert!(!ok, "a broken working copy was walked: {answer}");
+
+    // A working copy git will not read (an extension it does not know) is
+    // refused, never walked plainly past its ignore rules.
+    let odd = home.join("projects/odd");
+    std::fs::create_dir_all(&odd).unwrap();
+    git(&odd, &["init", "-q"]);
+    std::fs::write(odd.join(".gitignore"), "private.json\n").unwrap();
+    std::fs::write(odd.join("private.json"), "fake-git-private\n").unwrap();
+    git(&odd, &["config", "core.repositoryformatversion", "1"]);
+    git(&odd, &["config", "extensions.cmuxUnknown", "true"]);
+    let before = files_below(&world.machine_home).len();
+    let (ok, answer) = upload(&world, &tmp, &[&odd]);
+    assert!(!ok, "a repository git cannot read was walked: {answer}");
+    assert_eq!(files_below(&world.machine_home).len(), before, "{answer}");
+    for bytes in files_below(&world.machine_home) {
+        assert!(!String::from_utf8_lossy(&bytes).contains("fake-git"), "an ignored file went");
+    }
+}
+
 #[test]
 fn an_upload_sends_the_files_the_person_dropped_and_refuses_secret_files() {
     let world = World::new();
@@ -486,7 +695,7 @@ fn an_upload_sends_the_files_the_person_dropped_and_refuses_secret_files() {
         tmp.join("loose.txt"),
         tmp.join("cmux-pastes/.hidden/x.txt"),
         home.join("Desktop/missing.png"),
-        home.join("Desktop"),
+        home.join(".ssh"),
     ] {
         let before = files_below(&world.machine_home).len();
         let (ok, answer) = upload(&world, &tmp, &[&dropped, &refused]);

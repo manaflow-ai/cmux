@@ -3,6 +3,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHibernation
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -135,7 +136,7 @@ import Testing
         let host = Host([WorkspaceHibernationResident(workspace: "hidden", inHiddenSpace: true),
                          WorkspaceHibernationResident(workspace: "shown-space")])
         let suite = "HiddenSpaceHibernationCoordinatorTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = UserDefaults(testSuiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let hibernation = WorkspaceHibernation(host: host, keepAwake: WorkspaceKeepAwakeStore(defaults: defaults), deadline: Deadline(),
                                                now: { clock.now })
@@ -155,7 +156,7 @@ import Testing
         let clock = Clock()
         let host = Host([WorkspaceHibernationResident(workspace: "a"), WorkspaceHibernationResident(workspace: "b")])
         let suite = "HiddenSpaceHibernationCoordinatorTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = UserDefaults(testSuiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let deadline = Deadline()
         let hibernation = WorkspaceHibernation(host: host, keepAwake: WorkspaceKeepAwakeStore(defaults: defaults), deadline: deadline,
@@ -176,7 +177,7 @@ import Testing
         let clock = Clock()
         let host = Host([WorkspaceHibernationResident(workspace: "a"), WorkspaceHibernationResident(workspace: "b")])
         let suite = "HiddenSpaceHibernationCoordinatorTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = UserDefaults(testSuiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let deadline = Deadline()
         let hibernation = WorkspaceHibernation(host: host, keepAwake: WorkspaceKeepAwakeStore(defaults: defaults), deadline: deadline,
@@ -201,7 +202,7 @@ import Testing
         let clock = Clock()
         let host = Host([WorkspaceHibernationResident(workspace: "a"), WorkspaceHibernationResident(workspace: "b")])
         let suite = "HiddenSpaceHibernationCoordinatorTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = UserDefaults(testSuiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let deadline = Deadline()
         let hibernation = WorkspaceHibernation(host: host, keepAwake: WorkspaceKeepAwakeStore(defaults: defaults), deadline: deadline,
@@ -229,7 +230,7 @@ import Testing
         let clock = Clock()
         let host = Host([WorkspaceHibernationResident(workspace: "a")])
         let suite = "HiddenSpaceHibernationCoordinatorTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = UserDefaults(testSuiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let deadline = Deadline()
         let hibernation = WorkspaceHibernation(host: host, keepAwake: WorkspaceKeepAwakeStore(defaults: defaults), deadline: deadline,

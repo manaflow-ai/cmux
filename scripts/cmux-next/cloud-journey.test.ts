@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, dialDetail, dialPhases, guestTimeline, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("--sign-in oidc trades the job's OIDC token for the API's session and keeps both out of the output", async () => {
@@ -368,8 +368,28 @@ describe("guest carrier timeline", () => {
       + "bound.json +4319 ms; carrier.json +40000 ms");
   });
 
+  test("a machine bound before create answered reads as a claimed spare", () => {
+    // Booted 8.8 days ago from its snapshot base and bound 231.5 s before create answered.
+    const out = ["guest_now 1000000000 760954248", "wall bound.json 999768500"].join("\n");
+    expect(guestTimeline(out, 1_000_000_000, 999_999_900, 1_000_000_100)).toBe(
+      "after create's answer (±100 ms; a claimed spare: bound 231500 ms before create answered): guest boot -760954248 ms; bound.json -231500 ms");
+  });
+
+  test("a cold machine that binds while create's answer is on its way back is not a spare", () => {
+    // Create was sent at 997_000 and answered at 1_000_000; the guest bound at 999_000, between the two.
+    const out = ["guest_now 1000000000 60000", "wall bound.json 999999000"].join("\n");
+    expect(guestTimeline(out, 1_000_000_000, 999_999_900, 1_000_000_100, 999_997_000)).toBe(
+      "after create's answer (±100 ms): guest boot -60000 ms; bound.json -1000 ms");
+  });
+
   test("says so when the guest showed nothing", () => {
     expect(guestTimeline("", 10_000, 20_000, 20_100)).toBe("after create's answer (±50 ms): no guest clock read");
+  });
+
+  test("the journal field reader reads a message past its escaped quotes", () => {
+    const line = '{"__MONOTONIC_TIMESTAMP":"5900000","MESSAGE":"carrier \\"relay:0\\" registered","X":"y"}';
+    const r = spawnSync("awk", [`${JOURNAL_FIELD} { print field("MESSAGE") "|" field("__MONOTONIC_TIMESTAMP") "|" field("missing") }`], { input: `${line}\n`, encoding: "utf8" });
+    expect(r.stdout).toBe('carrier "relay:0" registered|5900000|\n');
   });
 });
 

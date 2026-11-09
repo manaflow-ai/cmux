@@ -5,7 +5,7 @@ extension SettingsPageLayout {
     /// The sidebar's sections: what a person looks for together sits together under one small header.
     public static let sidebarSections: [SidebarSection] = [
         SidebarSection(id: "app", title: nil, categories: [generalCategory, updatesCategory]),
-        SidebarSection(id: "look", title: SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), categories: [themeCategory, appearanceCategory]),
+        SidebarSection(id: "look", title: SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), categories: [personalizationCategory, themeCategory, appearanceCategory]),
         SidebarSection(id: "tools", title: SettingsText.keyed("settings.sidebarSection.tools", "Tools"), categories: [terminalCategory, editorCategory, browserCategory]),
         SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [agentsCategory, chiefCategory]),
         SidebarSection(id: "interaction", title: SettingsText.keyed("settings.sidebarSection.interaction", "Interaction"), categories: [notificationsCategory, keyboardCategory, menusCategory]),
@@ -54,6 +54,13 @@ extension SettingsPageLayout {
             GroupSpec(keys: ["updates.idleInstallMaxWaitSeconds", "updates.idleInstallQuietSeconds"], title: SettingsText.keyed("settings.pageGroup.updatesAdvanced", "Updates: Advanced")),
         ],
         lead: [.appUpdate], trail: [.webUpdates, .channels]
+    )
+
+    /// Leo 2026-11-07: the profile menu's Personalization is a fast jump into the look of the app. Its one card draws rows whose homes stay in Theme, Appearance, Chief and Notifications, so it holds no group and claims no key.
+    private static let personalizationCategory = CategorySpec(
+        id: "personalization", title: SettingsText.keyed("settings.category.personalization", "Personalization"), symbol: "wand.and.stars",
+        groups: [],
+        lead: [.personalization]
     )
 
     /// appearance.theme and appearance.appTheme are drawn by the theme studio (search still shows them as rows).
