@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -166,3 +167,33 @@ def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
         assert len(clippy_steps) == 1
         assert clippy_steps[0]["working-directory"] == "cmux-tui"
         assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in clippy_steps[0]["run"]
+
+
+def main() -> int:
+    """Run every test_ function in this file; CI calls the file with plain python3 (no pytest).
+
+    Before this, the file had no entry point, so `python3 tests/test_tui_focused_filter_guard.py`
+    (ci-guards.yml) defined the tests, ran none of them, and passed.
+    """
+    import traceback
+
+    tests = [(name, value) for name, value in globals().items() if name.startswith("test_") and callable(value)]
+    failed: list[str] = []
+    for name, test in tests:
+        try:
+            test()
+        except Exception:  # noqa: BLE001 - report every failure, then exit non-zero once
+            failed.append(name)
+            print(f"FAIL: {name}", file=sys.stderr)
+            traceback.print_exc()
+        else:
+            print(f"ok: {name}")
+    print(f"{len(tests) - len(failed)} of {len(tests)} tests passed")
+    if not tests:
+        print("error: no tests found", file=sys.stderr)
+        return 1
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
