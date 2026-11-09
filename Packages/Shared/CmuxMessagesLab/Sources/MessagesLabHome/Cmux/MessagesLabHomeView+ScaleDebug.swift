@@ -42,6 +42,10 @@ extension MessagesLabHomeView {
                 "viewInactive": demo.inactive ? 1 : 0, "cellsOffInactive": Double(cellsOffInactive),
                 "typingOffInactive": Double(typingOffInactive), "windowKey": (controller.host.window?.isKeyWindow ?? false) ? 1 : 0,
                 "appActive": NSApp.isActive ? 1 : 0, "lightAppearance": Fixture.lightAppearance ? 1 : 0,
-                "colorSpaceIsScreen": controller.host.window?.screen?.colorSpace?.cgColorSpace.map { $0 == DisplayScale.colorSpace } == true ? 1 : 0]
+                "colorSpaceIsScreen": controller.host.window?.screen?.colorSpace?.cgColorSpace.map { $0 == DisplayScale.colorSpace } == true ? 1 : 0,
+                // The field's hairline (cmux#39302): its width and colour alpha, and whether the field is system glass.
+                "fieldBorderWidth": Double(controller.host.fieldChrome.field.layer?.borderWidth ?? 0),
+                "fieldBorderAlpha": Double(controller.host.fieldChrome.field.layer?.borderColor?.alpha ?? 0),
+                "fieldSystemGlass": controller.host.fieldChrome.hasSystemGlass ? 1 : 0]
     }
 }
