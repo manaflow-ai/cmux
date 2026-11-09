@@ -11022,20 +11022,22 @@ mod test {
         let mut s = socket_sacking();
         s.set_tail_loss_probe(Some(Duration::from_millis(10)));
         send!(s, time 50, sack_ack(6, [None, None, None]));
-        send!(s, time 400, sack_ack(6, [sack_block(12, 36), None, None]));
-        recv!(s, time 400, sack_resent(6));
+        // The blocks arrive before the probe armed at 50 is due, so the
+        // resend below is the SACK repair, not the probe.
+        send!(s, time 100, sack_ack(6, [sack_block(12, 36), None, None]));
+        recv!(s, time 100, sack_resent(6));
         let probe = s.probe_timeout().unwrap();
         let rto = s.rtte.retransmission_timeout();
         assert!(probe < rto);
         assert_eq!(
             s.timer,
             Timer::TailLossProbe {
-                expires_at: Instant::from_millis(400) + probe,
-                rto_at: Instant::from_millis(400) + rto,
+                expires_at: Instant::from_millis(100) + probe,
+                rto_at: Instant::from_millis(100) + rto,
             }
         );
         // The repair was lost: the probe resends it, well before the RTO.
-        let at = (Instant::from_millis(400) + probe).total_millis();
+        let at = (Instant::from_millis(100) + probe).total_millis();
         recv_nothing!(s, time at - 1);
         recv!(s, time at, sack_resent(6));
     }

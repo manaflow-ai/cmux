@@ -606,7 +606,7 @@ import { FolderChoice } from "./FolderChoice";
 import { showsFolderChoice } from "./folderChoiceModel";
 import { ownMachineFolders, type ExtraFolderDraft } from "./extraFolders";
 import { WorktreeFailure } from "./startFolder";
-import { type FolderAsk, confirmFolder, newWorktree, pickFolder } from "./startFolderModel";
+import { type FolderAsk, confirmFolder, newChatInWorktree, newWorktree, pickFolder } from "./startFolderModel";
 import { NewTabFolderAsk } from "./NewTabFolderAsk";
 import { MissingFolder } from "./missingFolder";
 import { chooseChatFolder } from "./missingFolderModel";
@@ -5511,6 +5511,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The started chat's folder: the session's, else the one picked before the first send.
   // A peer's (SSH, Cloud) folder is a path on that machine: the host's workspace gets none.
   const remoteChat = Boolean(snapshot.summary?.peer) || snapshot.summary?.hostKind === "cloud";
+  const remoteRef = useRef(remoteChat);
+  remoteRef.current = remoteChat;
   // The repo tour's offer and Start (repoTour/) only for a chat on this Mac: not a peer's or Cloud
   // chat, and not one whose page talks to another machine's acpmux (chatMachine.ts `elsewhere`).
   const tourHere = !remoteChat && snapshot.origin !== "remote" && snapshot.origin !== "peer";
@@ -6550,6 +6552,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setFolderConfirming(false);
       const sessionId = shownSession.current;
       const visit = trustVisit();
+      // The machine the worktree is made on, as the click saw it.
+      const remote = remoteRef.current;
       setFolderAsk(undefined);
       // The worktree lands only in the chat it was made for: a chat switched to meanwhile gets nothing.
       const asked = { sessionId, ...visitOf(visit) };
@@ -6561,7 +6565,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         pickedProject.current = folder;
         // A chat that started meanwhile keeps its folder: the worktree gets a new chat of its own.
         if (freshRef.current) setProjectDraft(folder);
-        else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
+        else void newChatInWorktree(callNative, folder, remote).catch(() => undefined);
       };
       void newWorktree(callNative, cwd, (folder) => {
         if (pick === folderPick.current && stillHere()) use(folder);
@@ -11034,7 +11038,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             {...(snapshot.summary?.hostKind === "cloud" && !quick
               ? { onRepick: (machine: RepickMachine) => repickCloudChat(callNative, machine) }
               : {})}
-            onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
+            // A Cloud or SSH chat's worktree is made on its machine, beside its repository there
+            // (cmuxterm-hq#7856: whatever works on a local chat works on a Cloud chat).
+            onNewWorktree={freshChat && !quick ? startInWorktree : undefined}
             onConnect={connectMachine}
             // The floating chat has no tab to move.
             {...(quick ? {} : { onOffload: offloadChat, offloads })}

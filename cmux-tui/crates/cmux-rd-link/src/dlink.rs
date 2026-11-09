@@ -24,8 +24,12 @@
 //!   and reordering (FEC, NACK, sequence numbers), so a switch either way needs
 //!   no coordination. A link that fails ends; the session goes on on the
 //!   stream, as it does today.
+//! - Past a direct path and a STUN-discovered one, the viewer's TURN relays
+//!   (the platform's, over UDP) are the last path before the stream. The viewer
+//!   alone allocates: its relay address reaches the host as a `link_candidate`,
+//!   and cmux-rd-link prefers any live direct path to every relay.
 
-use crate::net::{Candidate, Net, NetConfig, NetEvent};
+use crate::net::{Candidate, Net, NetConfig, NetEvent, TurnServer};
 use crate::{EndpointEvent, Event, KeyPair, Role};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::os::fd::RawFd;
@@ -38,8 +42,10 @@ pub const LINK_MAX_DATAGRAM: usize = 1152 - crate::SEAL_OVERHEAD;
 const MAX_STUN: usize = 4;
 /// Most routes taken from the peer (a session needs a handful).
 const MAX_REMOTE_CANDIDATES: usize = 32;
-/// Longest STUN server name resolved.
+/// Longest STUN or TURN server name resolved.
 const MAX_STUN_NAME: usize = 255;
+/// Most TURN relays a viewer resolves.
+const MAX_TURN: usize = 4;
 
 /// Something the link produced for its owner.
 #[derive(Debug, PartialEq, Eq)]
@@ -97,33 +103,74 @@ fn stun_servers(names: &[String]) -> Vec<SocketAddr> {
         .collect()
 }
 
+/// A TURN relay as the platform names it: `host:port` (UDP) and its credentials.
+#[derive(Clone, PartialEq, Eq)]
+pub struct TurnName {
+    pub addr: String,
+    pub username: String,
+    pub password: String,
+}
+
+impl std::fmt::Debug for TurnName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TurnName").field("addr", &self.addr).finish_non_exhaustive()
+    }
+}
+
+/// The TURN relays that resolve to IPv4, with their credentials.
+fn turn_servers(names: &[TurnName]) -> Vec<TurnServer> {
+    names
+        .iter()
+        .take(MAX_TURN)
+        .filter(|t| t.addr.len() <= MAX_STUN_NAME)
+        .filter_map(|t| {
+            let addr = t.addr.to_socket_addrs().ok()?.find(SocketAddr::is_ipv4)?;
+            Some(TurnServer { addr, username: t.username.clone(), password: t.password.clone() })
+        })
+        .collect()
+}
+
+/// `resolve` on its own thread, so a slow resolver never holds the stream or
+/// the other list; an empty `names` answers at once.
+fn resolved<N: Send + 'static, T: Send + 'static>(
+    thread: &str,
+    names: Vec<N>,
+    resolve: fn(&[N]) -> Vec<T>,
+) -> Result<mpsc::Receiver<Vec<T>>, String> {
+    let (tx, rx) = mpsc::channel();
+    if names.is_empty() {
+        let _ = tx.send(Vec::new());
+    } else {
+        std::thread::Builder::new()
+            .name(thread.into())
+            .spawn(move || {
+                let _ = tx.send(resolve(&names));
+            })
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(rx)
+}
+
 /// A viewer's side before the link starts: its keys and session id.
 pub struct ViewerOffer {
     keys: KeyPair,
     session: String,
-    /// The STUN servers, resolved on their own thread so a slow resolver never
-    /// holds the stream; a link that starts first goes without them.
+    /// The STUN servers and the TURN relays, each resolved on its own thread so a
+    /// slow resolver never holds the stream or the other list; a link that starts
+    /// before a list resolves goes without it.
     stun: mpsc::Receiver<Vec<SocketAddr>>,
+    turn: mpsc::Receiver<Vec<TurnServer>>,
 }
 
 impl ViewerOffer {
-    /// A fresh key and session id for one session; `stun` are the platform's servers.
-    pub fn new(stun: Vec<String>) -> Result<Self, String> {
+    /// A fresh key and session id for one session; `stun` and `turn` are the platform's servers.
+    pub fn new(stun: Vec<String>, turn: Vec<TurnName>) -> Result<Self, String> {
         let keys = KeyPair::generate().map_err(|e| e.to_string())?;
         let id_seed = KeyPair::generate().map_err(|e| e.to_string())?.public;
         let session = hex(&id_seed[..16]);
-        let (tx, rx) = mpsc::channel();
-        if stun.is_empty() {
-            let _ = tx.send(Vec::new());
-        } else {
-            std::thread::Builder::new()
-                .name("rd-link-stun".into())
-                .spawn(move || {
-                    let _ = tx.send(stun_servers(&stun));
-                })
-                .map_err(|e| e.to_string())?;
-        }
-        Ok(Self { keys, session, stun: rx })
+        let stun = resolved("rd-link-stun", stun, stun_servers)?;
+        let turn = resolved("rd-link-turn", turn, turn_servers)?;
+        Ok(Self { keys, session, stun, turn })
     }
 
     /// The Noise prologue, for `link_offer`'s `session`.
@@ -140,14 +187,16 @@ impl ViewerOffer {
     /// initiates the handshake.
     pub fn start(self, host_key: &str, bind: SocketAddr) -> Result<DatagramLink, String> {
         let remote = unhex::<32>(host_key).ok_or("the host's link key is not 64 hex")?;
+        let stun = self.stun.try_recv().unwrap_or_default();
+        let turn = self.turn.try_recv().unwrap_or_default();
         let net = Net::start(NetConfig {
             role: Role::Initiator,
             session: self.session.into_bytes(),
             local: self.keys,
             expected_remote: remote,
-            stun: self.stun.try_recv().unwrap_or_default(),
+            stun,
             bind,
-            turn: Vec::new(),
+            turn,
             relay_only: false,
         })
         .map_err(|e| e.to_string())?;
@@ -301,7 +350,7 @@ mod tests {
 
     #[test]
     fn an_offer_and_answer_bring_up_a_link_that_carries_datagrams_both_ways() {
-        let offer = ViewerOffer::new(Vec::new()).unwrap();
+        let offer = ViewerOffer::new(Vec::new(), Vec::new()).unwrap();
         let (mut host, host_key) =
             DatagramLink::respond(offer.session(), &offer.key(), any()).unwrap();
         let mut viewer = offer.start(&host_key, any()).unwrap();
@@ -320,7 +369,7 @@ mod tests {
 
     #[test]
     fn a_viewer_given_another_hosts_key_never_comes_up() {
-        let offer = ViewerOffer::new(Vec::new()).unwrap();
+        let offer = ViewerOffer::new(Vec::new(), Vec::new()).unwrap();
         let (mut host, _) = DatagramLink::respond(offer.session(), &offer.key(), any()).unwrap();
         // A key the stream did not vouch for (a different host).
         let other = hex(&KeyPair::generate().unwrap().public);
@@ -333,14 +382,14 @@ mod tests {
 
     #[test]
     fn a_key_that_is_not_64_hex_is_refused_on_both_sides() {
-        let offer = ViewerOffer::new(Vec::new()).unwrap();
+        let offer = ViewerOffer::new(Vec::new(), Vec::new()).unwrap();
         assert!(DatagramLink::respond(offer.session(), "zz", any()).is_err());
-        assert!(ViewerOffer::new(Vec::new()).unwrap().start("00", any()).is_err());
+        assert!(ViewerOffer::new(Vec::new(), Vec::new()).unwrap().start("00", any()).is_err());
     }
 
     #[test]
     fn a_stun_name_that_does_not_resolve_leaves_the_link_without_it() {
-        let offer = ViewerOffer::new(vec!["stun.invalid:3478".into()]).unwrap();
+        let offer = ViewerOffer::new(vec!["stun.invalid:3478".into()], Vec::new()).unwrap();
         let (_host, host_key) =
             DatagramLink::respond(offer.session(), &offer.key(), any()).unwrap();
         // Starting never waits for the resolver.
@@ -348,8 +397,46 @@ mod tests {
     }
 
     #[test]
+    fn a_slow_turn_lookup_never_holds_the_stun_servers() {
+        fn slow(_: &[TurnName]) -> Vec<TurnServer> {
+            std::thread::sleep(Duration::from_secs(5));
+            Vec::new()
+        }
+        let turn = resolved("rd-link-turn", vec![turn_name("turn.example:3478")], slow).unwrap();
+        let stun =
+            resolved("rd-link-stun", vec!["127.0.0.1:3478".to_owned()], stun_servers).unwrap();
+        let found = stun.recv_timeout(Duration::from_secs(2)).expect("STUN resolves on its own");
+        assert_eq!(found, vec!["127.0.0.1:3478".parse::<SocketAddr>().unwrap()]);
+        assert!(turn.try_recv().is_err(), "the TURN lookup is still running");
+    }
+
+    fn turn_name(addr: &str) -> TurnName {
+        TurnName { addr: addr.into(), username: "alice".into(), password: "correct horse".into() }
+    }
+
+    #[test]
+    fn turn_relays_resolve_to_ipv4_with_their_credentials_and_are_bounded() {
+        let names: Vec<TurnName> =
+            (0..6).map(|i| turn_name(&format!("127.0.0.1:{}", 3478 + i))).collect();
+        let mut all = vec![turn_name("turn.invalid:3478")];
+        all.extend(names);
+        let servers = turn_servers(&all);
+        // The bound applies to names, before resolving: the unresolvable one takes a slot.
+        assert_eq!(servers.len(), MAX_TURN - 1);
+        assert!(
+            servers.iter().all(|s| s.addr.is_ipv4()
+                && s.username == "alice"
+                && s.password == "correct horse")
+        );
+        assert!(
+            !format!("{:?}", all[1]).contains("correct horse"),
+            "the password stays out of Debug"
+        );
+    }
+
+    #[test]
     fn the_peers_routes_are_bounded_and_malformed_ones_dropped() {
-        let offer = ViewerOffer::new(Vec::new()).unwrap();
+        let offer = ViewerOffer::new(Vec::new(), Vec::new()).unwrap();
         let (mut host, _) = DatagramLink::respond(offer.session(), &offer.key(), any()).unwrap();
         host.add_remote_candidate("not a candidate");
         assert_eq!(host.remote_candidates, 0);

@@ -19,6 +19,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use cmux_rd_link::dlink::TurnName;
 use serde_json::{Value, json};
 use url::Url;
 use zeroize::Zeroizing;
@@ -61,13 +62,57 @@ pub(super) struct CarrierAnswer {
 pub(super) struct RdLink {
     /// STUN servers, `host:port`.
     pub stun: Vec<String>,
+    /// TURN relays over UDP with credentials minted for this answer: the link's
+    /// last path before the stream (cmux-rd-link prefers any direct path).
+    pub turn: Vec<TurnName>,
 }
 
 /// Most STUN servers read from an answer.
 const MAX_RD_LINK_STUN: usize = 4;
+/// Most TURN relays read from an answer.
+const MAX_RD_LINK_TURN: usize = 4;
+/// Longest TURN username or password taken.
+const MAX_TURN_CREDENTIAL: usize = 512;
 
-/// `rd_link: {stun: ["host:port", ..]}`; a malformed entry is skipped, and
-/// anything but an object leaves the link off.
+/// `host:port` with a nonzero port and only host-name characters.
+fn is_server(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 255
+        && s.rsplit_once(':').is_some_and(|(host, port)| {
+            !host.is_empty() && port.parse::<u16>().is_ok_and(|p| p > 0)
+        })
+        && s.bytes().all(|b| b.is_ascii_alphanumeric() || b".-:[]".contains(&b))
+}
+
+/// `turn: [{addr, username, password}, ..]`; a malformed entry is skipped.
+fn turn_relays(object: &serde_json::Map<String, Value>) -> Vec<TurnName> {
+    fn credential<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
+        v.get(key)
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty() && s.len() <= MAX_TURN_CREDENTIAL)
+    }
+    object
+        .get("turn")
+        .and_then(Value::as_array)
+        .map(|relays| {
+            relays
+                .iter()
+                .filter_map(|r| {
+                    let addr = r.get("addr").and_then(Value::as_str).filter(|a| is_server(a))?;
+                    Some(TurnName {
+                        addr: addr.to_owned(),
+                        username: credential(r, "username")?.to_owned(),
+                        password: credential(r, "password")?.to_owned(),
+                    })
+                })
+                .take(MAX_RD_LINK_TURN)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// `rd_link: {stun: ["host:port", ..], turn: [..]}`; a malformed entry is
+/// skipped, and anything but an object leaves the link off.
 fn rd_link(value: &Value) -> Option<RdLink> {
     let object = value.get("rd_link")?.as_object()?;
     let stun = object
@@ -77,20 +122,13 @@ fn rd_link(value: &Value) -> Option<RdLink> {
             servers
                 .iter()
                 .filter_map(Value::as_str)
-                .filter(|s| {
-                    !s.is_empty()
-                        && s.len() <= 255
-                        && s.rsplit_once(':').is_some_and(|(host, port)| {
-                            !host.is_empty() && port.parse::<u16>().is_ok_and(|p| p > 0)
-                        })
-                        && s.bytes().all(|b| b.is_ascii_alphanumeric() || b".-:[]".contains(&b))
-                })
+                .filter(|s| is_server(s))
                 .take(MAX_RD_LINK_STUN)
                 .map(str::to_owned)
                 .collect()
         })
         .unwrap_or_default();
-    Some(RdLink { stun })
+    Some(RdLink { stun, turn: turn_relays(object) })
 }
 
 impl std::fmt::Debug for CarrierAnswer {

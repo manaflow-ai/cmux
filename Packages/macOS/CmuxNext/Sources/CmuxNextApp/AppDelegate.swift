@@ -361,7 +361,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         settings.start(announcingDiagnostics: true, rotatingFavoriteThemes: true)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, isFirstLaunch: OnboardingWindowPresenter.isFirstLaunch(), firstWindow: { [firstFrame] in await firstFrame.opened() })
-        KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
+        KeepAwakeService.shared.start(settings: settings, store: services.daemon.store, menuBar: services.menuBarExtra)
         services.mobile.follow(settings, launch: services.environment.launch, configureAdmission: services.iphone.followPhoneAccess)
         let acpmux = QuitAgents.environment(services)
         AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
