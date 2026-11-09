@@ -409,8 +409,14 @@ export class MockSettingsProvider {
           ],
         },
       }),
-      "cmux.chief.backend.add": (params) => this.agents.addEndpoint(params),
-      "cmux.chief.backend.doctor": () => this.agents.endpoint.doctor,
+      "cmux.chief.backend.add": async (params) => {
+        await this.agents.endpoint.holdAdd;
+        return this.agents.addEndpoint(params);
+      },
+      "cmux.chief.backend.doctor": async () => {
+        await this.agents.endpoint.holdDoctor;
+        return this.agents.endpoint.doctor;
+      },
       "cmux.settings.theme.set": (params) => {
         const { level, spec } = params as { level: string; spec: string | null };
         const theme = this.host.theme!;

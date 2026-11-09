@@ -62,6 +62,9 @@ const REGISTRY: AgentRegistryAgent[] = [
 export type MockEndpoint = {
   served: string[];
   doctor: { ok: boolean; steps: { name: string; ok: boolean; detail?: string; fix?: string }[] };
+  /** Set by a test: the add (or the check) answers only when this settles. */
+  holdAdd?: Promise<void>;
+  holdDoctor?: Promise<void>;
 };
 
 export class MockAgents {

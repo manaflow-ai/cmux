@@ -281,6 +281,7 @@ export async function bringEndpoint(
   service: Pick<EndpointService, "addBackend" | "checkBackend">,
   backend: { kind: string; name: string; id?: string; replace?: string },
   report: (status: EndpointStatus) => void,
+  added: (harness: string) => void = () => {},
 ): Promise<EndpointStatus> {
   report({ state: "adding" });
   let harness: string;
@@ -291,6 +292,8 @@ export async function bringEndpoint(
     report(failed);
     return failed;
   }
+  // The harness exists from here on, before the check: a form closed meanwhile still removes it.
+  added(harness);
   report({ state: "checking", harness });
   const checked = await checkEndpoint(service, harness);
   report(checked);
@@ -315,9 +318,11 @@ export async function fetchEndpointModels(
   service: Pick<EndpointService, "addBackend" | "backends">,
   draft: EndpointDraft,
   target: AddTarget,
+  added: (harness: string) => void = () => {},
 ): Promise<{ models: string[]; target: AddTarget }> {
   const backend = endpointBackend(draft, target, [ALL_MODELS]);
   const harness = await service.addBackend(backend);
+  added(harness);
   const listed = (await service.backends()).find((entry) => entry.id === harness);
   return {
     models: endpointModelIds(draft.kind, listed?.models ?? []),

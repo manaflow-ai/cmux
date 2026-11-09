@@ -315,3 +315,46 @@ test("Endpoint: closing the form after Fetch Models without a passing check remo
   expect(harness(page.container, "local-models")).toBeNull();
   page.unmount();
 });
+
+test("Endpoint: Cancel while the check is held removes the endpoint the add just wrote", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  let release = () => {};
+  page.provider.agents.endpoint.holdDoctor = new Promise<void>((resolve) => (release = resolve));
+  await changeValue(endpointInput(form(), "models")!, "m");
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  // The add answered and the check is running: the profile exists.
+  expect(form().querySelector('[data-endpoint-status="checking"]')).not.toBeNull();
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeDefined();
+  await act(async () => button(card(page.container), "Cancel").click());
+  await settle();
+  expect(ops(page.provider, "cmux.settings.agents.run")).toContainEqual({ action: "remove", id: "local-models" });
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeUndefined();
+  // The check answering afterwards (even passing) brings nothing back.
+  await act(async () => release());
+  await settle();
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeUndefined();
+  expect(harness(page.container, "local-models")).toBeNull();
+  page.unmount();
+});
+
+test("Endpoint: an add that answers after the form closed is removed when it answers", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  let release = () => {};
+  page.provider.agents.endpoint.holdAdd = new Promise<void>((resolve) => (release = resolve));
+  await changeValue(endpointInput(form(), "models")!, "m");
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  await act(async () => button(card(page.container), "Cancel").click());
+  await settle();
+  // Nothing was added yet, so nothing to remove yet.
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeUndefined();
+  await act(async () => release());
+  await settle();
+  expect(ops(page.provider, "cmux.settings.agents.run")).toContainEqual({ action: "remove", id: "local-models" });
+  expect(page.provider.agents.endpointHarnesses()["local-models"]).toBeUndefined();
+  expect(harness(page.container, "local-models")).toBeNull();
+  page.unmount();
+});

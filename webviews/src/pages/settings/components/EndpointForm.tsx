@@ -85,15 +85,23 @@ export function EndpointForm({ done }: { done: () => void }) {
   const [status, setStatus] = useState<EndpointStatus>({ state: "editing" });
   const [fetched, setFetched] = useState<{ count: number } | { error: string } | null>(null);
   // The harness this form added (Fetch Models, or a Check and Add whose check failed): every later
-  // add writes it again, never another one; closed without a passing check, it is removed.
+  // add writes it again, never another one; closed without a passing check, it is removed. Owned
+  // the moment an add answers (before its check), and an add that answers after the form closed
+  // (Cancel stays live during the add and the check) is removed then.
   const [target, setTarget] = useState<AddTarget | null>(null);
-  const own = useRef<{ id: string | null; saved: boolean }>({ id: null, saved: false });
+  const own = useRef<{ id: string | null; saved: boolean; closed: boolean }>({ id: null, saved: false, closed: false });
   useEffect(() => {
     const mine = own.current;
+    mine.closed = false;
     return () => {
+      mine.closed = true;
       if (mine.id && !mine.saved) void store.runAgents({ action: "remove", id: mine.id });
     };
   }, [store]);
+  const claim = (id: string) => {
+    own.current.id = id;
+    if (own.current.closed) void store.runAgents({ action: "remove", id });
+  };
   const preset = endpointPreset(presetId);
   const busy = endpointBusy(status);
   const problem = endpointProblemAt(draft, preset.key, target);
@@ -119,7 +127,7 @@ export function EndpointForm({ done }: { done: () => void }) {
     setStatus({ state: "fetching" });
     setFetched(null);
     try {
-      const answer = await fetchEndpointModels(service, draft, await targetFor());
+      const answer = await fetchEndpointModels(service, draft, await targetFor(), claim);
       owned(answer.target);
       // The key is stored now: the field empties, and a save keeps what was stored.
       change({ apiKey: "" });
@@ -143,9 +151,9 @@ export function EndpointForm({ done }: { done: () => void }) {
     const backend = endpointBackend(draft, at);
     // The key leaves the page's state now: only the host's add call carries it.
     change({ apiKey: "" });
-    const result = await bringEndpoint(service, backend, setStatus);
+    const result = await bringEndpoint(service, backend, setStatus, claim);
     if (result.state !== "failed" || result.harness) owned(addedTarget(at, backend));
-    if (result.state === "passed") {
+    if (result.state === "passed" && !own.current.closed) {
       own.current.saved = true;
       done();
     }
