@@ -141,6 +141,33 @@ test("a rename alone sends only the name, and Cancel sends nothing", async () =>
   page.unmount();
 });
 
+test("a refresh while Edit is open never sends a teammate's newer fields back", async () => {
+  const page = await open();
+  const row = () =>
+    card(page.container).querySelector<HTMLElement>('[data-environment="env_00000000000000000001"]')!;
+  await click(row().querySelector<HTMLButtonElement>('[data-environment-action="edit"]')!);
+  // A teammate changes the script; the list reads it again under the open form.
+  page.provider.environments = {
+    ...page.provider.environments,
+    environments: page.provider.environments.environments.map((entry) =>
+      entry.id === "env_00000000000000000001" ? { ...entry, setup_script: "pnpm install" } : entry,
+    ),
+  };
+  await click(card(page.container).querySelector<HTMLButtonElement>('[data-environments="refresh"]')!);
+  await settle();
+  const runs = page.provider.environmentRuns.length;
+  const form = row().querySelector<HTMLElement>("[data-environments-form]")!;
+  await changeValue(form.querySelector<HTMLInputElement>('[data-environment-field="name"]')!, "web app");
+  await click(form.querySelector<HTMLButtonElement>('[data-environments="save"]')!);
+  await settle();
+  expect(page.provider.environmentRuns.slice(runs)[0]).toEqual({
+    action: "save",
+    id: "env_00000000000000000001",
+    name: "web app",
+  });
+  page.unmount();
+});
+
 test("off the cmux-next Cloud path the card explains and lists nothing", async () => {
   const page = await open((provider) => {
     provider.environments = { available: false, loading: false, environments: [], error: null };

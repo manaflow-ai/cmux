@@ -96,7 +96,9 @@ type Run = (gesture: CloudEnvironmentsRun) => Promise<boolean>;
 
 function EnvironmentRow({ row, busy, run }: { row: CloudEnvironmentRow; busy: boolean; run: Run }) {
   const status = STATUS[row.status];
-  const [editing, setEditing] = useState(false);
+  // The row as Edit opened it: Save sends only what the person changed from this, so a refresh
+  // that brings a teammate's edit in while the form is open never sends the old values back.
+  const [editing, setEditing] = useState<CloudEnvironmentRow | null>(null);
   return (
     <div className="row" data-environment={row.id}>
       <div className="row-main">
@@ -120,8 +122,8 @@ function EnvironmentRow({ row, busy, run }: { row: CloudEnvironmentRow; busy: bo
             type="button"
             className="button"
             data-environment-action="edit"
-            disabled={busy || editing}
-            onClick={() => setEditing(true)}
+            disabled={busy || editing !== null}
+            onClick={() => setEditing(row)}
           >
             {t("settingsPage.cloudEnvironments.edit")}
           </Button>
@@ -145,14 +147,14 @@ function EnvironmentRow({ row, busy, run }: { row: CloudEnvironmentRow; busy: bo
           </Button>
         </span>
       </div>
-      {editing && (
+      {editing !== null && (
         <EnvironmentForm
-          row={row}
+          row={editing}
           busy={busy}
           onSave={async (draft) => {
-            if (await run(editRun(row, draft))) setEditing(false);
+            if (await run(editRun(editing, draft))) setEditing(null);
           }}
-          onCancel={() => setEditing(false)}
+          onCancel={() => setEditing(null)}
         />
       )}
     </div>
