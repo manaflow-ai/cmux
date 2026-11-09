@@ -654,11 +654,13 @@ export class HarnessSwitch {
     // What was picked while acpmux started the harness, one request at a time, in pick order of kind.
     // A pick the opened session already has is not sent: the first prompt waits on every pick, and
     // each is a round trip to the agent, seconds apiece on a busy Mac (Leo, 2026-11-05, on a new
-    // chat: "it thinks so so long...").
+    // chat: "it thinks so so long..."). A model switch can reset the options the session reported,
+    // so with one in flight every option pick still goes.
     const { model, mode, options } = intent.config;
     const live = port.shown();
+    const switchesModel = model !== undefined && model !== live?.model;
     const applied: Promise<void>[] = [];
-    if (model && model !== live?.model) applied.push(port.setModel(model).catch((error) => this.refused(model, error)));
+    if (model && switchesModel) applied.push(port.setModel(model).catch((error) => this.refused(model, error)));
     // A pick the host refuses (a transport refusal) says so; any other refusal stays quiet, as before.
     const pickRefused = (error: unknown) => {
       if (isHostRefusal(error)) this.handlers.notice?.(errorMessage(error));
@@ -681,7 +683,8 @@ export class HarnessSwitch {
     for (const [configId, value] of Object.entries(options)) {
       const pick = offered ? heldOptionPick(configId, value, offered) : { configId, value };
       if (!pick) continue;
-      if (offered?.find((option) => option.id === pick.configId)?.currentValue === pick.value) continue;
+      if (!switchesModel && offered?.find((option) => option.id === pick.configId)?.currentValue === pick.value)
+        continue;
       // The ticket is bound to this config pick. `heldOptionPick` may rename an effort or Fast
       // option to the id the opened harness reports; the native relay accepts those aliases.
       applied.push(

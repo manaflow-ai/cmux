@@ -154,6 +154,7 @@ test("a new chat's first prompt waits only on the picks its session does not alr
 });
 
 test("a new chat still sends every pick its session differs on before the first prompt", async () => {
+  // A model switch can reset effort, so the effort the old model reported is sent again too.
   const calls: string[] = [];
   let open = false;
   const port: SwitchPort = {
@@ -167,7 +168,7 @@ test("a new chat still sends every pick its session differs on before the first 
             modeId: "default",
             empty: true,
             configOptions: [
-              { id: "effort", category: "thought_level", currentValue: "medium", options: [{ value: "high" }] },
+              { id: "effort", category: "thought_level", currentValue: "high", options: [{ value: "high" }] },
             ],
           }
         : undefined,
