@@ -179,7 +179,7 @@ fn with_places(rows: Value, snapshot: &Value) -> Value {
 /// The snapshot's open terminals, or `None` when the snapshot read failed
 /// (no `terminals` list): then nothing is known to be closed.
 fn open_terminals(snapshot: &Value) -> Option<&[Value]> {
-    Some(list(snapshot, "terminals"))
+    snapshot.get("terminals").and_then(Value::as_array).map(Vec::as_slice)
 }
 
 /// The terminals with an unread notification: a turn finished there that
@@ -198,8 +198,8 @@ fn unseen_terminals(notifications: &[Value]) -> HashSet<&str> {
 /// `unseen` when it has an unread notification), and its `state` becomes
 /// the same word. With `wanted`, only the rows with that status word stay.
 /// Without it, an ended agent of a terminal not in `terminals` (the
-/// snapshot's) is left out and counted; with no terminals read (a refused
-/// snapshot) nothing is left out. Anything but an array prints as it came.
+/// snapshot's open terminals, maybe none) is left out and counted; with
+/// `None` (a failed snapshot read) nothing is left out. Anything but an array prints as it came.
 fn shape(
     rows: Value,
     unseen: &HashSet<&str>,
@@ -223,7 +223,7 @@ fn shape(
         agents.retain(|agent| status_word(agent) == wanted);
         return (Value::Array(agents), 0);
     }
-    if let Some(terminals) = terminals.filter(|terminals| !terminals.is_empty()) {
+    if let Some(terminals) = terminals {
         // An ended agent of a closed terminal is history, not an agent:
         // `--state ended` still lists it.
         let open: HashSet<&str> =

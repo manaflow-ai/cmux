@@ -6,8 +6,9 @@
 //! last. An agent started in a cmux terminal runs this daemon build's own
 //! helper instead (`CMUX_TUI_HOOK`, own_build_helpers.rs). In a cmux pane the
 //! status names that one as `helper`, and the shared one as
-//! `installed_helper`; outside a pane it is unchanged. Unix only, as the
-//! own-build helpers are.
+//! `installed_helper`; outside a pane it is unchanged. When the pane's
+//! helper is missing or cannot run (its build folder was deleted), the
+//! status fails and says so. Unix only, as the own-build helpers are.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -36,27 +37,55 @@ pub(super) fn pane_helper() -> PaneHelper {
 /// [`pane_helper`] for the `CMUX_TUI_HOOK` value `inherited`. It only reads:
 /// a status call never writes a launcher file.
 fn pane_helper_from(inherited: Option<OsString>) -> PaneHelper {
-    match crate::own_build_helpers::inherited_hook_helper(inherited) {
-        Some(path) => PaneHelper::Runs(path),
-        None => PaneHelper::Outside,
+    // An empty value is no pane helper: the hook command then runs the
+    // shared helper (`${CMUX_TUI_HOOK:-...}`).
+    let Some(inherited) = inherited.filter(|value| !value.is_empty()) else {
+        return PaneHelper::Outside;
+    };
+    if let Some(path) = crate::own_build_helpers::inherited_hook_helper(Some(inherited.clone())) {
+        return PaneHelper::Runs(path);
+    }
+    let path = PathBuf::from(inherited);
+    if path.is_absolute() && crate::agent_hook_install::is_executable_file(&path) {
+        // It runs: it is the shared helper itself.
+        PaneHelper::Outside
+    } else {
+        PaneHelper::Broken(path)
     }
 }
 
 /// The status `value` for `pane`, and whether it is a fault. With a pane
 /// helper, `helper` names it and the shared helper `agent hook install`
-/// writes is `installed_helper`.
+/// writes is `installed_helper`. A broken pane helper also adds the
+/// reason, in `catalog`'s language, to `errors`, and is a fault.
 pub(super) fn with_pane_helper(
     mut value: Value,
     pane: PaneHelper,
-    _catalog: &crate::localization::Catalog,
+    catalog: &crate::localization::Catalog,
 ) -> (Value, bool) {
-    let PaneHelper::Runs(pane) = pane else { return (value, false) };
+    let (path, broken) = match pane {
+        PaneHelper::Outside => return (value, false),
+        PaneHelper::Runs(path) => (path, false),
+        PaneHelper::Broken(path) => (path, true),
+    };
     if let Some(object) = value.as_object_mut() {
         let installed = object.remove("helper").unwrap_or(Value::Null);
-        object.insert("helper".into(), json!(pane));
+        object.insert("helper".into(), json!(path));
         object.insert("installed_helper".into(), installed);
+        if broken {
+            let reason = catalog
+                .pane_cli
+                .agent_hook_pane_helper_missing
+                .replace("{path}", &path.display().to_string());
+            match object.get_mut("errors").and_then(Value::as_array_mut) {
+                Some(errors) => errors.push(json!(reason)),
+                None => {
+                    object.insert("errors".into(), json!([reason]));
+                }
+            }
+        }
     }
-    (value, false)
+    (value, broken)
 }
 
 #[cfg(test)]

@@ -679,6 +679,7 @@ GLOBAL OPTIONS
 PROCESS HELP
   cmux help start
   cmux help shorthands
+  cmux help keys
   cmux attach --help
   cmux relay --help
   cmux wg hub --help

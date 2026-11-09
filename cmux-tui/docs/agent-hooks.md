@@ -18,7 +18,9 @@ be read gets `state: unavailable`, `reason: unreadable` and the cause in
 install or uninstall names each cause in its message. In a cmux-tui terminal, `helper` is the
 helper that terminal's agents run (`CMUX_TUI_HOOK`, the session's own build)
 and `installed_helper` is the shared one that `install` writes; outside a
-terminal, `helper` is the shared one.
+terminal, `helper` is the shared one. If the terminal's helper is missing (its
+build folder was deleted), `status` fails and says so: that terminal's agents
+send no hook events until the session restarts.
 
 Hook reports outrank the screen-detection plugin for 30 s, with one
 exception: a blocked state ends when the screen proves the dialog gone, after

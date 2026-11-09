@@ -1297,6 +1297,9 @@ pub(crate) struct PaneCliMessages {
     /// The line after `agent list` for the ended agents of closed terminals
     /// it left out; `{count}` is how many.
     pub agent_list_hidden_ended: &'static str,
+    /// `agent hook status` in a pane whose `CMUX_TUI_HOOK` is missing or
+    /// cannot run; `{path}` is that helper.
+    pub agent_hook_pane_helper_missing: &'static str,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1388,6 +1391,7 @@ Pass --json for {name, version, markdown}.
 ",
         no_plugins_installed: "No plugins are installed. {command} install <git-url> installs one.",
         agent_list_hidden_ended: "ended agents of closed terminals not shown: {count} (--state ended shows them)",
+        agent_hook_pane_helper_missing: "this terminal's hook helper {path} is missing or cannot run, so its agents send no hook events; restart the session (cmux server stop, then start it) to make a new one",
     },
     startup: StartupMessages {
         schema_too_new: "cannot open session \"{session}\" with cmux {version}: its saved state is incompatible with this build",
@@ -2185,6 +2189,7 @@ cmux-tui ターミナルの外では caller.found が false になります。--
 ",
         no_plugins_installed: "インストール済みのプラグインはありません。{command} install <git-url> でインストールできます。",
         agent_list_hidden_ended: "表示していない、閉じたターミナルの終了したエージェント: {count} 件 (--state ended で表示します)",
+        agent_hook_pane_helper_missing: "このターミナルのフックヘルパー {path} が見つからないか実行できません。このターミナルのエージェントはフックイベントを送りません。セッションを再起動すると (cmux server stop の後に起動)、新しいヘルパーができます",
     },
     startup: StartupMessages {
         schema_too_new: "cmux {version} ではセッション \"{session}\" を開けません。保存状態はこのビルドと互換性がありません",

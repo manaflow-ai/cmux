@@ -507,13 +507,16 @@ row's terminal: `tab_id`, `tab_name` and `pane_id` of the tab that shows it,
 and `name`, the tab's name when it is an agent name (`cmux agent start NAME`),
 else `null`. A terminal the snapshot does not show, or a refused snapshot
 read, gives `null` for all four. A refused snapshot read leaves no ended row
-out.
+out; a snapshot with no open terminal leaves every ended row out.
 
 `agent hook status` reports each provider on its own row. In a cmux pane
 (`CMUX_TUI_HOOK` names this daemon build's own helper), `helper` is that
 pane helper, the one the pane's agents run, and `installed_helper` is the
 shared per-user helper `agent hook install` writes; outside a pane `helper`
-is the shared one, as before. A provider whose
+is the shared one, as before. When the pane's `CMUX_TUI_HOOK` is missing or
+cannot run (its build folder was deleted), `helper` names it, `errors` says
+so and the command fails: that pane's agents send no hook events until the
+session restarts. A provider whose
 config cannot be read is `state: unavailable`, `reason: unreadable`, with the
 cause in `detail`; the other providers still answer and the command exits 0.
 A failed `agent hook install|uninstall` names each cause in its message

@@ -729,7 +729,11 @@ fn any_launcher_nested_claude_leaves_the_pane_session_to_the_outer_claude() {
         let row = daemon.agent_row(&daemon_exe, &cli_env, terminal);
         assert_eq!(row["source"], "hook", "{tag}: {row}");
         assert_eq!(row["extra"]["agent_session_id"], outer.as_str(), "{tag}: {row}");
-        assert_eq!(row["state"], "idle", "{tag}: {row}");
+        // `agent list` says one word per agent: `state` is an alias of
+        // `status`. The Stop leaves the finished turn unread, which the list
+        // calls `done` (`idle` once somebody viewed it).
+        assert!(matches!(row["status"].as_str(), Some("idle" | "done")), "{tag}: {row}");
+        assert_eq!(row["state"], row["status"], "{tag}: {row}");
     }
     drop(daemon);
     let _ = fs::remove_dir_all(&root);
