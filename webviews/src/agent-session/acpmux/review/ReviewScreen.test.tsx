@@ -2,7 +2,8 @@
 // The Review queue's keys. `a` accepts the selected row and moves on, and acts only on the row the
 // person chose: a refresh that hides it leaves `a` waiting. A comment whose send fails is never lost:
 // the person may open another row's comment while the first send is in flight, and `r` on the first
-// row still gives its words back with the same prompt id, so acpmux delivers it once.
+// row still gives its words back with the same prompt id, so acpmux delivers it once. A draft
+// stays with its row too, sent or not.
 import { afterEach, expect, test } from "bun:test";
 import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -173,4 +174,21 @@ test("a failed send keeps its words and prompt id while another row's comment is
   expect(sent).toHaveLength(2);
   expect(sent[1]!.sessionId).toBe(sent[0]!.sessionId);
   expect(sent[1]!.promptId).toBe(sent[0]!.promptId);
+});
+
+test("a comment not sent yet stays with its row when the person opens another row's comment", async () => {
+  const { doc, list, key, type } = mount(sessions);
+  await flush();
+  key(list(), "r");
+  type("half a thought");
+  // Back to the list without sending, on to B, and a comment there.
+  key(list(), "j");
+  key(list(), "r");
+  type("rename the flag");
+  key(list(), "k");
+  key(list(), "r");
+  expect(doc.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("half a thought");
+  key(list(), "j");
+  key(list(), "r");
+  expect(doc.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("rename the flag");
 });
