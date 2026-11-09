@@ -105,6 +105,15 @@ fn restore_stall() -> Duration {
     RESTORE_DEADLINE
 }
 
+/// The window and read interval for a stall bound: [`WINDOW`] and
+/// [`READ_INTERVAL`], or shorter for a short bound (a debug build's), so a
+/// working owner shows progress within a third of the bound and is read at
+/// least four times per window.
+fn window_for(stall: Duration) -> (Duration, Duration) {
+    let window = WINDOW.min(stall / 3).max(Duration::from_millis(100));
+    (window, READ_INTERVAL.min(window / 4))
+}
+
 /// Debug seams for behavior tests of a long restore, run by the owner after
 /// it binds its socket and before it restores: `CMUX_TUI_DEBUG_SLOW_RESTORE_MS`
 /// keeps a core busy that long (an owner that works, as one scanning a large
@@ -150,7 +159,9 @@ pub(crate) struct RestoreBound {
 
 impl RestoreBound {
     pub(crate) fn new(deadline: Instant) -> Self {
-        Self::with(deadline, restore_stall(), WINDOW, READ_INTERVAL, process_work)
+        let stall = restore_stall();
+        let (window, read_interval) = window_for(stall);
+        Self::with(deadline, stall, window, read_interval, process_work)
     }
 
     pub(crate) fn with(
@@ -298,6 +309,15 @@ mod tests {
         });
         let at = expired_at.get().expect("a trickling owner kept the wait");
         assert!(at < STALL + TEST_READ * 3, "the trickle moved the deadline: {at:?}");
+    }
+
+    #[test]
+    fn the_window_scales_with_a_short_stall_bound() {
+        assert_eq!(window_for(RESTORE_DEADLINE), (WINDOW, READ_INTERVAL));
+        let (window, read) = window_for(STALL);
+        assert_eq!(window, Duration::from_millis(1_000));
+        assert_eq!(read, Duration::from_millis(250));
+        assert!(window * 3 <= STALL);
     }
 
     #[test]
