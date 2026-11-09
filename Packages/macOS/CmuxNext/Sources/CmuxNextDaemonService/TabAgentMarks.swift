@@ -26,9 +26,10 @@ public struct TabAgentMarks {
     /// fill, never take the mark from the agent's tab (review of #37733).
     public mutating func mark(pane: String, machine: String) { panes[Self.paneKey(machine, pane)] = [] }
 
-    /// The daemon answered the split marked for `pane`: `surface` is the agent's tab, or nil when the
-    /// split was refused or failed. The pane mark ends; a tab of `surface` that has not claimed it
-    /// yet is marked by its surface.
+    /// The daemon answered the split marked for `pane`: `surface` is the agent's tab (nil ends the mark with
+    /// no tab). The pane mark ends; a tab of `surface` that has not claimed it yet is marked by its surface.
+    /// A split that failed with no answer keeps its pane mark: the daemon may have made the pane anyway, and
+    /// a pane id is minted once, so the mark costs one set entry and only ever marks that pane's tabs.
     public mutating func settle(pane: String, machine: String, surface: SurfaceID?) {
         guard let claimed = panes.removeValue(forKey: Self.paneKey(machine, pane)) else { return }
         if let surface, !claimed.contains(surface) { surfaces.insert(surface) }

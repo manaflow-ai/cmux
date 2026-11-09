@@ -44,7 +44,8 @@ public struct BrowserTabSplitCommand: Sendable {
     /// CancelledCreation). A refusal takes the split and its sizing away again and rethrows.
     /// `minted` runs with the new pane's client-minted id (`pane_<32 hex>`, which the stand-in's pane and
     /// the daemon's pane both carry) before the stand-in is in the store, so before either has a page;
-    /// `settled` runs with that id and the daemon's surface (nil when refused or failed) as its reply comes.
+    /// `settled` runs with that id and the daemon's surface once a reply names it. Not on an error: a timeout or a
+    /// lost connection can follow a commit whose reply is dropped, and its pane must still mount marked (review of #37733).
     @MainActor
     public func intendNow(on daemon: DaemonService, layout: LayoutModel?, shown: CmuxNextLayout.PaneID,
                           minted: (@MainActor (_ paneID: String) -> Void)? = nil,
@@ -62,7 +63,6 @@ public struct BrowserTabSplitCommand: Sendable {
         return { create in
             let surface: SurfaceID
             do { surface = try await create(request) } catch {
-                settled?(request.paneID, nil)
                 store.rejectIntent(transaction)
                 if let sizing { layout?.cancelSplitSizing(sizing) }
                 throw error

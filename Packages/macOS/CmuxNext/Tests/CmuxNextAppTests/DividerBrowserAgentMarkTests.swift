@@ -44,14 +44,13 @@ import Testing
         #expect(!cache.agentDrivenTabs.contains("persons-tab"))
     }
 
-    @Test func aRefusedSplitLeavesNoMark() {
+    @Test func aSplitThatFailedWithNoAnswerKeepsItsPaneMarked() {
+        // A timeout or a lost connection can follow the daemon's commit: the pane may still arrive, and is the agent's.
         let cache = cache(), pane = "pane_" + String(repeating: "e", count: 32)
         cache.markAgentDriven(pane: pane, machine: "local")
-        cache.settleAgentDriven(pane: pane, machine: "local", surface: nil)
 
-        cache.claimAgentDriven(surface: SurfaceID(rawValue: 71), key: "later-tab", pane: pane, machine: "local")
-        #expect(cache.agentDrivenTabs.isEmpty)
-        #expect(cache.agentDrivenSurfaces.isEmpty)
+        cache.claimAgentDriven(surface: SurfaceID(rawValue: 71), key: "late-daemon-tab", pane: pane, machine: "local")
+        #expect(cache.agentDrivenTabs.contains("late-daemon-tab"))
     }
 
     @Test func aPersonsSplitAndAnotherMachinesPaneAreNotAgentDriven() {
