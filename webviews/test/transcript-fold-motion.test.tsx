@@ -199,6 +199,34 @@ for (const { name, node, body } of collapsibles) {
   });
 }
 
+// Review of #39658: a running command row's ref is an inline callback that reattaches at every render,
+// so a streamed output update between the press and the release must keep the press, and a drag
+// across the line still opens nothing.
+test("a command row keeps the press across an output update: a 12 px drag across it opens nothing", () => {
+  const running = (output: string) => (
+    <CommandRow
+      item={tool("cmd", { kind: "execute", command: "bun test", title: "bun test", status: "in_progress", output })}
+    />
+  );
+  render(running("line 1"));
+  const line = toggle();
+  const view = line.ownerDocument.defaultView!;
+  const at = { clientX: 10, clientY: 10, button: 0, bubbles: true, cancelable: true };
+  const Pointer = (view as unknown as { PointerEvent?: typeof MouseEvent }).PointerEvent ?? view.MouseEvent;
+  act(() => {
+    line.dispatchEvent(new Pointer("pointerdown", at));
+  });
+  render(running("line 1\nline 2"));
+  expect(toggle()).toBe(line);
+  act(() => {
+    toggle().dispatchEvent(new view.MouseEvent("click", { ...at, clientX: 22, detail: 1 }));
+  });
+  expect(toggle().getAttribute("aria-expanded")).toBe("false");
+  expect(container.querySelector(".cv-shell")).toBeNull();
+  dragClick(2);
+  expect(toggle().getAttribute("aria-expanded")).toBe("true");
+});
+
 for (const { name, node, body } of collapsibles) {
   test(`${name} opens and closes with the fold's height and opacity, over the shared token`, () => {
     render(node());

@@ -175,13 +175,14 @@ export function useAnchoredCollapse(options: AnchoredCollapseOptions = {}): Anch
   const fold = useFold(open, options.animates ?? foldPlays, options.fadeIn ?? true);
   const header = useRef<HTMLElement | null>(null);
   // Where the pointer last pressed the header, for `deliberateClick`; the listener lives as long as
-  // the header is mounted.
+  // the header is mounted. A ref reattach keeps the press: a caller's inline ref (CommandRow's) detaches
+  // and reattaches at every render, and a streamed render between a press and its release must not
+  // turn a drag into a click. The next press replaces it, and the toggle clears it.
   const press = useRef<Press | undefined>(undefined);
   const unlisten = useRef<(() => void) | undefined>(undefined);
   const headerRef = useCallback((node: HTMLElement | null) => {
     unlisten.current?.();
     unlisten.current = undefined;
-    press.current = undefined;
     header.current = node;
     if (!node) return;
     const note = (event: PointerEvent) => {
