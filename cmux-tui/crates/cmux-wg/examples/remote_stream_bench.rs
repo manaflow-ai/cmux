@@ -33,6 +33,9 @@
 //!   on the other (any labels; `--seed` must match). The viewer dials every
 //!   peer address as a path and reports which one carried the stream. Only
 //!   viewer-clock numbers (input to photon, frame gaps, bulk) are reported.
+//!   `--drop-at 4:0` on the viewer cuts its path to the first `--peer` 4 s in:
+//!   the viewer drops that path's datagrams both ways, the host's
+//!   interfaces stay as they are.
 //!
 //! `longest_frame_gap_ms` is the longest wait between two frames at the
 //! viewer: a path that dropped shows up there as a stall.
@@ -687,6 +690,52 @@ async fn run_remote_host(args: &Args, clock: Arc<Clock>, record: Shared) -> io::
     Ok(())
 }
 
+/// A viewer socket `--drop-at` can cut: once cut, it drops what it would send
+/// and discards what arrives, as a pulled cable does to both directions, with
+/// no change to the machine's interfaces.
+struct CutSocket {
+    socket: UdpSocket,
+    cut: Arc<AtomicBool>,
+}
+
+impl cmux_wg::DatagramSocket for CutSocket {
+    fn poll_recv_from(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+        buffer: &mut [u8],
+    ) -> std::task::Poll<io::Result<(usize, SocketAddr)>> {
+        loop {
+            let ready = cmux_wg::DatagramSocket::poll_recv_from(&mut self.socket, cx, buffer);
+            if !self.cut.load(Ordering::Relaxed) || !matches!(ready, std::task::Poll::Ready(Ok(_)))
+            {
+                return ready;
+            }
+        }
+    }
+
+    fn poll_send_ready(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        cmux_wg::DatagramSocket::poll_send_ready(&mut self.socket, cx)
+    }
+
+    fn try_send_to(&mut self, datagram: &[u8], target: SocketAddr) -> io::Result<usize> {
+        if self.cut.load(Ordering::Relaxed) {
+            return Ok(datagram.len());
+        }
+        cmux_wg::DatagramSocket::try_send_to(&mut self.socket, datagram, target)
+    }
+
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.socket.local_addr()
+    }
+
+    fn grow_receive_buffer(&self) {
+        cmux_wg::DatagramSocket::grow_receive_buffer(&self.socket);
+    }
+}
+
 /// The viewer end of a two-host run: a path per `--peer`, chosen by the
 /// selector.
 async fn run_remote_viewer(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Result<()> {
@@ -696,9 +745,18 @@ async fn run_remote_viewer(args: &Args, clock: Arc<Clock>, record: Shared) -> io
     let (underlay, control) =
         Multipath::with_probes(cmux_transport::SelectorConfig::default(), ProbeConfig::default());
     let mut labels = Vec::new();
-    for (label, address) in &args.peers {
+    for (index, (label, address)) in args.peers.iter().enumerate() {
         let bind = if address.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" };
-        let socket = UdpSocket::bind(bind).await?;
+        let socket = CutSocket { socket: UdpSocket::bind(bind).await?, cut: Arc::default() };
+        if let Some((at, cut_index)) = args.drop_at
+            && cut_index == index
+        {
+            let cut = socket.cut.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(at)).await;
+                cut.store(true, Ordering::Relaxed);
+            });
+        }
         let kind = if label.starts_with("lan") || label.starts_with("tb") {
             PathKind::DirectLan
         } else {

@@ -132,6 +132,9 @@ struct Shared {
     fixed_paths: bool,
     /// This machine's interfaces, for each new path's medium.
     networks: Vec<LocalNetwork>,
+    /// The path that carried the session went quiet (datagrams now go on
+    /// every path) or died since the last `take_path_change`.
+    left_path: bool,
 }
 
 impl Shared {
@@ -145,11 +148,19 @@ impl Shared {
         if current.is_some() {
             self.last_path = current;
         }
-        let switched =
-            self.current.send_if_modified(|seen| std::mem::replace(seen, current) != current);
+        let mut sprayed = false;
+        let switched = self.current.send_if_modified(|seen| {
+            let previous = std::mem::replace(seen, current);
+            sprayed = previous.is_some() && current.is_none();
+            previous != current
+        });
         let held = self.selector.chosen();
         let held_died = self.held.is_some() && held.is_none();
         self.held = held;
+        // Only a path that went quiet or died can have lost what was in
+        // flight; a move to a better path while the old one still answers
+        // loses nothing and needs no resend.
+        self.left_path |= sprayed || held_died;
         if switched || held_died {
             self.emit(Instant::now());
         }
@@ -286,6 +297,7 @@ impl Multipath {
             held: None,
             fixed_paths: false,
             networks: local_networks(),
+            left_path: false,
         }));
         (Self { shared: Arc::clone(&shared) }, MultipathControl { shared })
     }
@@ -599,6 +611,17 @@ impl Underlay for Multipath {
 
     fn has_peer(&self) -> bool {
         lock(&self.shared).slots.iter().any(|slot| !slot.failed && slot.carrier.has_peer())
+    }
+
+    fn take_path_change(&mut self) -> bool {
+        let mut shared = lock(&self.shared);
+        // A path's own carrier roaming (the peer's address on it moved)
+        // counts too.
+        let mut roamed = false;
+        for slot in &mut shared.slots {
+            roamed |= slot.carrier.take_path_change();
+        }
+        std::mem::take(&mut shared.left_path) || roamed
     }
 
     fn peer_hint(&self) -> Option<SocketAddr> {
