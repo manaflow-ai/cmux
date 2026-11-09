@@ -271,7 +271,7 @@ fn w4j_pane_move_to_another_pane_appends_every_tab_in_order_and_keeps_the_focus(
 }
 
 #[test]
-fn w4j_pane_move_with_split_moves_into_the_new_pane_and_closes_its_shell() {
+fn w4j_pane_move_with_split_moves_into_the_new_pane_and_ends_its_shell() {
     let daemon = FakeDaemon::new();
     let result = move_pane(
         &daemon,
@@ -285,11 +285,15 @@ fn w4j_pane_move_with_split_moves_into_the_new_pane_and_closes_its_shell() {
     let indexes =
         moves(&daemon).iter().map(|(_, pane, index)| (pane.clone(), *index)).collect::<Vec<_>>();
     assert_eq!(indexes, vec![(PANE_NEW.into(), 1), (PANE_NEW.into(), 2), (PANE_NEW.into(), 3)]);
-    // The shell tab closes only after the moved tabs are in.
+    // The split's shell ends (its terminal closes, which takes the tab) only
+    // after the moved tabs are in; closing only its tab left the shell
+    // running with no tab (W5-O).
     let steps = daemon.steps();
-    let close = steps.iter().position(|step| *step == format!("tab.close {TAB_NEW}"));
+    let close = steps.iter().position(|step| step == "terminal.close");
     let last_move = steps.iter().rposition(|step| step.starts_with("tab.move"));
     assert!(close > last_move, "{steps:?}");
+    assert_eq!(daemon.params("terminal.close")[0]["terminal"], format!("term_{}", "e".repeat(32)));
+    assert!(daemon.params("tab.close").is_empty(), "{steps:?}");
     // The new pane keeps the moved pane's name; --focus focuses it.
     let rename = &daemon.params("pane.rename")[0];
     assert_eq!(rename["pane"], PANE_NEW);
@@ -326,7 +330,12 @@ fn w4j_pane_move_to_a_workspace_or_a_new_screen_makes_a_screen_without_focus() {
         assert_eq!(create["name"], "moved");
         assert_eq!(create.get("focus"), None, "screen create keeps the focus");
         assert!(moves(&daemon).iter().all(|(_, pane, _)| pane == PANE_NEW));
-        assert_eq!(daemon.params("tab.close")[0]["tab"], TAB_NEW);
+        assert_eq!(
+            daemon.params("terminal.close")[0]["terminal"],
+            format!("term_{}", "e".repeat(32)),
+            "the new screen's shell ends with its tab"
+        );
+        assert!(daemon.params("tab.close").is_empty(), "{flags:?}");
         assert_eq!(result["created"], json!({"screen": SCREEN_NEW, "pane": PANE_NEW}));
         assert_eq!(result["focused_pane"], PANE_F, "{flags:?}");
         daemon.assert_ids_only();
