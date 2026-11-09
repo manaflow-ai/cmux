@@ -496,7 +496,7 @@ fn a_revoked_or_unconsented_share_is_never_recreated_on_the_platform() {
 fn an_expired_share_is_never_recreated_on_the_platform() {
     let api = Platform::default();
     let old = Share { generation: "boot-0".into(), ..local(ANA, "s-1") };
-    let outcome = moved(with_shares(vec![old.clone()]), &api);
+    let outcome = moved(with_shares(vec![old]), &api);
     assert_eq!(outcome.kept[0].reason, "expired");
     // A boot that cannot be read moves nothing either.
     let unknown = move_local(with_shares(vec![local(ANA, "s-1")]), &api, VM, "now", None).unwrap();
