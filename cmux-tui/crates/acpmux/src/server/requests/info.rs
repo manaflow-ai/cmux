@@ -23,6 +23,11 @@ pub(super) async fn info(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
         obj.insert("logsLoading".into(), json!(!hub.session_log_loaded(&s)));
         obj.insert("transferBlocked".into(), json!(s.transfer_blocked()));
         obj.insert("ownershipEpoch".into(), json!(s.ownership_epoch()));
+        // A daemon start's hold for a person (`hub/protected_hold.rs`): `session resume` names
+        // it, and NOW's queue rows say why a queue does not drain. Absent when none.
+        if let Some(hold) = hub.person_hold(&s) {
+            obj.insert("personHold".into(), hold);
+        }
     }
     // The session env reaches the unix socket only: no summary or
     // event carries it, so a key added to the allowlist later never
