@@ -88,6 +88,8 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
     public var shapeCornerRadius: CGFloat { body.layer?.cornerRadius ?? 0 }
     /// The Chief view this panel shows now; nil while it is in Home's pane.
     public private(set) weak var chief: NSView?
+    /// The panel's own window while it floats (``ChiefLauncherPanel``); nil keeps a floating panel in the window.
+    public let launcher: ChiefLauncherPanel?
 
     private enum Chrome { case bar, strip, rest }
     private let backdrop = Glass.makeOverlayPanel(cornerRadius: Metrics.surfaceCornerRadius, interactive: true)
@@ -117,9 +119,11 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
 
     /// - Parameters:
     ///   - title: The bar's name of the Chief.
+    ///   - launcher: The window the panel floats in, over every app; nil floats it inside the window.
     ///   - actions: The bar's buttons and the hand moves.
-    public init(title: String, actions: Actions) {
+    public init(title: String, launcher: ChiefLauncherPanel? = nil, actions: Actions) {
         self.title = NSTextField(labelWithString: title)
+        self.launcher = launcher
         self.actions = actions
         super.init(frame: .zero)
         wantsLayer = true
@@ -214,6 +218,19 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         super.viewDidMoveToSuperview()
         if superview != nil { actions.opened() }
     }
+
+    /// Puts the panel on screen for the window whose content is `host`.
+    public func mount(in host: NSView) {
+        if superview !== host { host.addSubview(self) }
+    }
+
+    /// Takes the panel off screen.
+    public func unmount() {
+        removeFromSuperview()
+    }
+
+    /// Whether the panel shows for the window whose content is `host`.
+    public func isShown(in host: NSView) -> Bool { superview === host }
 
     /// Floating or docked: the corners, the shadow and the Dock/Float button follow.
     public func setFloating(_ floating: Bool) {
