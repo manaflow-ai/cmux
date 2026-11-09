@@ -425,4 +425,94 @@ struct AgentPaneRemoteChatPathTests {
             if let connection = opened.connection { rig.model.transport.close(connection: connection) }
         }
     }
+
+    /// The ranges a stand-in remote media reader was asked for, as `offset:length:handle`.
+    private actor Ranges {
+        var asked: [String] = []
+        func add(_ range: String) { asked.append(range) }
+    }
+
+    /// A stand-in for the daemon's `agent-session-media` ranges (cmux-tui agent_session_media.rs):
+    /// the open answers the type and a handle, each range its bytes, and no handle once a range
+    /// reaches the end.
+    private static func remoteVideo(_ movie: Data, ranges: Ranges) -> @Sendable (String, Int, Int, String?) async throws -> Data {
+        { path, offset, length, handle in
+            await ranges.add("\(path):\(offset):\(length):\(handle ?? "-")")
+            let end = min(movie.count, offset + length)
+            var answer: [String: Any] = ["offset": offset, "size": movie.count, "identity": "id_1",
+                                         "data": movie.subdata(in: offset ..< end).base64EncodedString()]
+            if handle == nil { answer["mimeType"] = "video/mp4" }
+            if end < movie.count { answer["handle"] = "h_1" }
+            return try JSONSerialization.data(withJSONObject: answer)
+        }
+    }
+
+    /// A chat on another machine plays its video (Leo, 2026-11-04: "i can neither preview a vid in
+    /// place nor have it pop up anymore :("): `media.load` of the path its agent named, or of a
+    /// composer chip's upload there, grants a URL whose byte ranges are read on that machine, never
+    /// from a same-named file here. A chat whose wire alone is remote still gets nothing.
+    @Test func aRemoteChatsVideoStreamsFromItsOwnMachine() async throws {
+        var movie = Data([0, 0, 0, 0x18]) + Data("ftypmp42".utf8)
+        movie += Data((0 ..< 200).map { UInt8($0) })
+        for wireOnly in [false, true] {
+            let rig = try Self.rig()
+            defer { try? FileManager.default.removeItem(at: rig.folder) }
+            let opened = Opened()
+            if wireOnly {
+                await Self.turnRemote(rig.model, wireOnly: true, into: opened)
+            } else {
+                rig.model.remoteChat = true
+            }
+            rig.model.mediaOrigin = AgentPaneMediaGrants.pageOrigin
+            let ranges = Ranges()
+            rig.model.transport.remoteMediaRange = Self.remoteVideo(movie, ranges: ranges)
+            // A same-named file here is not the chat's video.
+            let clip = rig.project.appendingPathComponent("clip.mp4")
+            try Data("not this one".utf8).write(to: clip)
+            let reply = await Self.ask(rig.model, "media.load", ["src": clip.path])
+            if wireOnly {
+                #expect(Self.errorCode(reply) == AgentPaneReplyError.pathOutsideRoots.rawValue, "\(reply)")
+                #expect(await ranges.asked.isEmpty)
+            } else {
+                let src = try #require((reply["value"] as? [String: Any])?["src"] as? String, "\(reply)")
+                #expect(src.hasPrefix(AgentPaneMediaGrants.pageOrigin + "/__media/"), "\(src)")
+                #expect(src.hasSuffix(".mp4"), "\(src)")
+                let url = try #require(URL(string: src))
+                let request = PageResourceRequest(prefix: AgentPageMediaResource.prefix, path: [url.lastPathComponent], url: url)
+                let slice = try #require(await AgentPageMediaResource.shared.rangedResource(for: request, range: "bytes=100-149"))
+                #expect(slice.status == 206)
+                #expect(slice.headers["Content-Type"] == "video/mp4")
+                #expect(slice.headers["Content-Range"] == "bytes 100-149/\(movie.count)")
+                #expect(slice.data == movie.subdata(in: 100 ..< 150))
+                let tail = try #require(await AgentPageMediaResource.shared.rangedResource(for: request, range: "bytes=200-"))
+                #expect(tail.data == movie.subdata(in: 200 ..< movie.count))
+                let past = try #require(await AgentPageMediaResource.shared.rangedResource(for: request, range: "bytes=9999-"))
+                #expect(past.status == 416)
+                let asked = await ranges.asked
+                #expect(asked.allSatisfy { $0.hasPrefix(clip.path + ":") }, "\(asked)")
+                // Only the first read opens the file; the next ranges read the same open file.
+                #expect(asked.first?.hasSuffix(":-") == true, "\(asked)")
+                #expect(asked.dropFirst().contains { $0.hasSuffix(":h_1") }, "\(asked)")
+            }
+            #expect(rig.lookups.count == 0, "\(wireOnly): the host looked up a remote chat's path here")
+            if let connection = opened.connection { rig.model.transport.close(connection: connection) }
+        }
+    }
+
+    /// A remote chat's path that is not a video, and a reader that refuses, play nothing.
+    @Test func aRemoteChatsRefusedVideoPlaysNothing() async throws {
+        let rig = try Self.rig()
+        defer { try? FileManager.default.removeItem(at: rig.folder) }
+        rig.model.remoteChat = true
+        let ranges = Ranges()
+        rig.model.transport.remoteMediaRange = { path, offset, length, handle in
+            await ranges.add(path)
+            throw CocoaError(.fileReadNoPermission)
+        }
+        let refused = await Self.ask(rig.model, "media.load", ["src": "/remote/out/clip.mp4"])
+        #expect(Self.errorCode(refused) != nil, "\(refused)")
+        let notVideo = await Self.ask(rig.model, "media.load", ["src": "/remote/out/notes.txt"])
+        #expect(Self.errorCode(notVideo) != nil, "\(notVideo)")
+        #expect(await ranges.asked == ["/remote/out/clip.mp4"])
+    }
 }
