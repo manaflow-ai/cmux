@@ -122,6 +122,8 @@
 
 pub(crate) mod filter;
 mod host_reply;
+#[cfg(unix)]
+mod input_parser;
 pub(crate) mod read;
 pub(crate) mod source;
 #[cfg(feature = "event-stream")]
@@ -258,6 +260,9 @@ pub fn read() -> std::io::Result<Event> {
 
 #[doc(hidden)]
 pub use host_reply::{scan_host_reply, HostReply};
+#[doc(hidden)]
+#[cfg(unix)]
+pub use input_parser::InputParser;
 
 /// Parse one buffered terminal event without reading from the process input stream.
 ///

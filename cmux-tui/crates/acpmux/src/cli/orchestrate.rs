@@ -719,24 +719,50 @@ pub(crate) async fn history(
         println!("no turns yet");
         return Ok(());
     }
-    println!("{:<5} {:<10} {:>7} {:>5} {:>8} PROMPT", "SEQ", "STATUS", "WALL", "TOOLS", "TOKENS");
-    for t in turns {
-        let g = |k: &str| t.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-        let wall = t
-            .get("wallMs")
+    let secs = |t: &Value, k: &str| {
+        t.get(k)
             .and_then(Value::as_u64)
             .map(|ms| format!("{:.1}s", ms as f64 / 1000.0))
-            .unwrap_or_else(|| "-".into());
+            .unwrap_or_else(|| "-".into())
+    };
+    // The chat's own start, when its first turn is listed: what a slow first answer waited on
+    // before its prompt reached the agent (`hub/history_timing.rs`).
+    if let Some(start) = turns.iter().find_map(|t| t.get("agentStart")) {
+        let steps: Vec<String> = start
+            .get("steps")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|s| format!("{} {}", s["method"].as_str().unwrap_or("?"), secs(s, "ms")))
+            .collect();
+        println!(
+            "agent start: first prompt {} after the chat was created, agent ready at {}{}",
+            secs(start, "firstPromptMs"),
+            secs(start, "readyMs"),
+            if steps.is_empty() { String::new() } else { format!(" ({})", steps.join(", ")) }
+        );
+    }
+    // START: the prompt accepted to the prompt written to the agent (an agent start inside it).
+    // MODEL: the prompt written to the model's first output (the route and the API).
+    println!(
+        "{:<5} {:<10} {:>7} {:>7} {:>7} {:>5} {:>8} PROMPT",
+        "SEQ", "STATUS", "WALL", "START", "MODEL", "TOOLS", "TOKENS"
+    );
+    for t in turns {
+        let g = |k: &str| t.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+        let wall = secs(&t, "wallMs");
         let tokens = t
             .get("tokens")
             .and_then(Value::as_u64)
             .map(|n| n.to_string())
             .unwrap_or_else(|| "-".into());
         println!(
-            "{:<5} {:<10} {:>7} {:>5} {:>8} {}",
+            "{:<5} {:<10} {:>7} {:>7} {:>7} {:>5} {:>8} {}",
             t.get("seq").and_then(Value::as_u64).unwrap_or(0),
             g("status"),
             wall,
+            secs(&t, "toAgentMs"),
+            secs(&t, "firstModelMs"),
             t.get("toolCalls").and_then(Value::as_u64).unwrap_or(0),
             tokens,
             short(&g("prompt"), 60)

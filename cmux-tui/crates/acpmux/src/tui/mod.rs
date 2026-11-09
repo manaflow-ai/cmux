@@ -641,17 +641,24 @@ impl App {
         }
     }
 
+    /// The selected session has a turn open: running, or waiting on a permission (the turn still
+    /// takes a steer), by its list row or by its transcript, whichever is newer.
+    pub(super) fn turn_open(&self) -> bool {
+        self.selected_session()
+            .and_then(|s| s.get("status"))
+            .and_then(Value::as_str)
+            .is_some_and(turn_open_status)
+            || self
+                .selected_id()
+                .and_then(|id| self.transcripts.get(&id))
+                .is_some_and(|t| turn_open_status(&t.status))
+    }
+
     /// Enter steers a prompt into the running turn when the agent steers, as the app's composer does
     /// (Leo, 2026-11-05: "wt* like no these default enters became queues?"); Ctrl-s queues it. A
     /// slash command still waits for the turn, so it runs as its own turn, never as a steer.
     pub(super) fn enter_steers(&self) -> bool {
-        let running = self.selected_session().and_then(|s| s.get("status")).and_then(Value::as_str)
-            == Some("running")
-            || self
-                .selected_id()
-                .and_then(|id| self.transcripts.get(&id))
-                .is_some_and(|t| t.status == "running");
-        running
+        self.turn_open()
             && !self.on_draft()
             && self.selected_supports_steer()
             && !self.editor().text().trim_start().starts_with('/')
@@ -697,7 +704,7 @@ impl App {
         }
         // Show the message at once; the daemon's echo is matched, not added.
         if let Some(t) = self.transcripts.get_mut(&id) {
-            let queued = t.status == "running" && !steer;
+            let queued = turn_open_status(&t.status) && !steer;
             let shown = if images.is_empty() {
                 text.clone()
             } else if text.is_empty() {
@@ -772,6 +779,11 @@ impl App {
 
 fn session_route_id(session: &Value) -> Option<String> {
     crate::cli::resolve::routed_id(session).ok()
+}
+
+/// A session or transcript status with a turn still open: running, or waiting on a permission.
+fn turn_open_status(status: &str) -> bool {
+    matches!(status, "running" | "waiting")
 }
 
 #[cfg(test)]
@@ -918,6 +930,18 @@ pub(super) mod interaction_tests {
             !sent(&mut app, &mut requests, 2, "hello", enter).await,
             "steered with no turn running"
         );
+        // A turn waiting on a permission is still open and takes a steer (#39568 F1).
+        app.sessions[2]["status"] = json!("waiting");
+        assert!(
+            sent(&mut app, &mut requests, 2, "also this", enter).await,
+            "a turn waiting on a permission queued"
+        );
+        // Help and the palette name Enter for Send and Steer, which no keymap binding runs (F3).
+        let steer = actions::def(actions::Action::Steer);
+        assert_eq!(steer.shown_keys(&app.keymap), steer.keys);
+        let queue = actions::def(actions::Action::Queue);
+        assert_eq!(queue.shown_keys(&app.keymap), app.keymap.hints("queue"));
+        assert!(!queue.shown_keys(&app.keymap).is_empty());
     }
 
     #[tokio::test]

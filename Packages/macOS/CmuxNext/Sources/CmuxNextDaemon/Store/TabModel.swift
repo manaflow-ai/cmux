@@ -85,6 +85,9 @@ public final class TabModel: Identifiable {
         publishMarkedUnread()
     }
 
+    /// Whether this client's write of `marked` still waits for the record's echo (``TabReads``).
+    public func expectsMarkedUnread(_ marked: Bool) -> Bool { pendingMarkedUnread == marked }
+
     /// Rolls back ``expectMarkedUnread(_:)`` when the write of `marked`
     /// failed. A newer pending value (a second toggle) stays.
     public func dropExpectedMarkedUnread(_ marked: Bool) {
@@ -110,6 +113,9 @@ public final class TabModel: Identifiable {
         self.attention = nil
         return attention
     }
+
+    /// Whether this client's clear of `request` still waits for the record (``TabReads``).
+    public func expectsAttentionClear(_ request: TabAttention) -> Bool { pendingAttentionClear == request }
 
     /// A failed old clear never restores over a newer request or a newer clear.
     public func dropExpectedAttentionClear(_ request: TabAttention) {

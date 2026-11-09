@@ -484,7 +484,11 @@ pub(crate) fn header(p: &Value, style: Style) -> String {
     // "$ hold": "what are you even holding for?"). No end time: `startedAt`
     // is when it reached the background, which may be after its launch.
     if let Some(secs) = timer_secs(command) {
-        row(&mut s, "waits", &format!("{}, then wakes the agent; it runs nothing else", span(secs)));
+        row(
+            &mut s,
+            "waits",
+            &format!("{}, then wakes the agent; it runs nothing else", span(secs)),
+        );
     }
     row(&mut s, "folder", &tilde(text(p, "cwd")));
     let started = p.get("startedAt").and_then(Value::as_u64).map(local_time).unwrap_or_default();

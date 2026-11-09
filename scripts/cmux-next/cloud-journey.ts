@@ -28,6 +28,8 @@
  *   session) -> daemon restart keeps the session (the guest's agent daemon killed, then a turn) -> connect_info
  *   -> carrier dial (an identify answered over the machine's relay slot) -> handoff record -> pause -> resume
  *   -> carrier dial after resume -> turn after resume -> delete. `--skip lifecycle` leaves out the later turns and the daemon restart.
+ *   --chaos adds the chaos leg after the carrier dial: a relay cut, 5 s and 60 s network drops, a session host and an
+ *   agent daemon restart, each mid-turn and timed to recovery (cloud-chaos.ts).
  *
  * Each step prints PASS/FAIL/SKIP with its latency; --out DIR also gets journey.json (the steps) and
  * summary.md (a table for a PR comment or job summary). The machine this run made is deleted at the
@@ -98,6 +100,7 @@ import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writ
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { chaosProbeRow, runChaos } from "./cloud-chaos.ts";
 
 export const STACK_API = "https://api.stack-auth.com";
 export const STACK = {
@@ -352,17 +355,32 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
   return async (command, timeoutMs = 60_000) => {
     const env = { ...process.env, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer };
     const args = ["--json", "machine", "access", "exec", "--target", `machine:${machine}`, "--timeout-ms", String(Math.min(timeoutMs, 300_000)), ...(api.team ? ["--team", api.team] : []), "--", command];
-    const done = spawnSync(cmux, args, { env, encoding: "utf8", timeout: timeoutMs + 30_000 });
-    if (done.error) throw new Error(`${cmux}: ${done.error.message}`);
+    // Asynchronous, so a carrier dial this process holds (the chaos leg's) keeps being read while a command runs.
+    const done = await new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve, reject) => {
+      const child = spawn(cmux, args, { env, stdio: ["ignore", "pipe", "pipe"] });
+      let stdout = "";
+      let stderr = "";
+      child.stdout!.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk));
+      child.stderr!.setEncoding("utf8").on("data", (chunk: string) => (stderr += chunk));
+      const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs + 30_000);
+      child.on("error", (error) => {
+        clearTimeout(timer);
+        reject(new Error(`${cmux}: ${error.message}`));
+      });
+      child.on("close", (status) => {
+        clearTimeout(timer);
+        resolve({ status, stdout, stderr });
+      });
+    });
     try {
-      const result = JSON.parse(done.stdout ?? "");
+      const result = JSON.parse(done.stdout);
       if (Number.isInteger(result?.exit_code)) {
         return { code: Number(result.exit_code), stdout: String(result.stdout ?? ""), stderr: String(result.stderr ?? "") };
       }
     } catch {
       // Preserve the raw CLI answer below when it did not produce its JSON contract.
     }
-    return { code: done.status ?? 1, stdout: done.stdout ?? "", stderr: done.stderr ?? "" };
+    return { code: done.status ?? 1, stdout: done.stdout, stderr: done.stderr };
   };
 }
 
@@ -1641,6 +1659,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const desktopLink = argv.includes("--desktop-link");
   if (desktopLink && !cmux) throw new Error("--desktop-link needs --cmux PATH: the readback is the CLI's own dial");
   const keep = argv.includes("--keep") || Boolean(reuse);
+  // --chaos: after the carrier dial, the chaos leg (cloud-chaos.ts) on this machine; --chaos-probe-out FILE writes it
+  // as one synthetic-probe row (--chaos-probe NAME, default cloud-carrier-chaos-<backend>).
+  const chaos = argv.includes("--chaos");
   const only = new Set((argValue("--skip", argv) ?? "").split(",").filter(Boolean));
   if (reuse) only.add("pause");
   // --model stub: the model endpoint is the only stand-in (the shared model stub on the machine). The login the
@@ -2368,6 +2389,25 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (r.code !== 0) throw new Error(`exit ${r.code} ${r.stderr.slice(-200)}`);
         return { value: null, detail: guestTimeline(r.stdout, createAnsweredAt!, before, after, createSentAt ?? createAnsweredAt!) };
       });
+    }
+
+    // --chaos: faults injected into this machine's carrier mid-turn, each a step (cloud-chaos.ts).
+    if (chaos) {
+      if (!cmux || !lifecycle) J.skip("chaos", !cmux ? "--cmux is required for the chaos leg" : "the chaos leg needs a chat session");
+      else {
+        const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
+        const results = await runChaos({
+          cmux, machine: created.id, team: api.team, exec, guest: GUEST, session, tag,
+          env: { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer },
+          log: (line) => console.log(scrub(line, J.secrets)),
+        }).catch((e: Error) => [{ fault: "chaos leg", outcome: "fail" as const, recover_ms: null, carrier: "", turn: "", detail: e.message }]);
+        for (const r of results) {
+          J.record({ step: `chaos: ${r.fault}`, status: r.outcome === "ok" ? "pass" : r.outcome === "fail" ? "fail" : "skip", ms: r.recover_ms ?? 0, detail: r.detail });
+        }
+        if (outDir) writeFileSync(path.join(outDir, "chaos.json"), `${JSON.stringify({ backend: backend.name, machine: created.id, results }, null, 2)}\n`);
+        const chaosOut = argValue("--chaos-probe-out", argv);
+        if (chaosOut) writeFileSync(chaosOut, `${JSON.stringify(chaosProbeRow(argValue("--chaos-probe", argv) ?? `cloud-carrier-chaos-${backend.name}`, results, process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined))}\n`);
+      }
     }
 
     // POST /v1/handoffs {sessionId, machine} (backend/apps/api/src/handoffs/routes.ts). Production leaves the

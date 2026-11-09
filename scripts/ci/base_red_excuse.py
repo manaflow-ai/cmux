@@ -520,15 +520,24 @@ def suite_jobs(run: dict) -> frozenset[str] | None:
 SUITE_JOBS = frozenset().union(*SUITES.values())
 
 
-# A cancelled base tier run is one the base tier kick found superseded before any of its Mac jobs started
-# (cmux_next_base_tier.py cancel_superseded): it has no verdict, and read here it would only spend the
-# lookup limits that reach the run that has one.
+# A cancelled base tier run is one the base tier kick found superseded with no Mac job in progress
+# (cmux_next_base_tier.py cancel_superseded): read here it mostly spends the lookup limits that reach the run
+# with a verdict. But since 2026-11-09 (cmux#39631) the kick also cancels a run whose daemon tests or generated
+# files finished while its scheme compile still queued, so for those jobs (CANCELLED_TIER_VERDICT_JOBS) such a run
+# can hold the newest verdict: a green there must stand over an older red. For them a cancelled base tier run is
+# read only when its check suite shows a verdict for the job (or cannot be read), and one with none is passed
+# over without spending a job-list read (cancelled_tier_without_verdict). For every other job it has none.
 BASE_TIER_TITLE = "cmux-next base tier · "
+CANCELLED_TIER_VERDICT_JOBS = frozenset({"cmux-next daemon tests", "cmux-next generated files"})
+
+
+def cancelled_base_tier(run: dict) -> bool:
+    return run.get("conclusion") == "cancelled" and (run.get("display_title") or "").startswith(BASE_TIER_TITLE)
 
 
 def never_carries(run: dict, name: str) -> bool:
     """Whether RUN's suite never runs job NAME, so it has no verdict for it to read."""
-    if run.get("conclusion") == "cancelled" and (run.get("display_title") or "").startswith(BASE_TIER_TITLE):
+    if cancelled_base_tier(run) and name not in CANCELLED_TIER_VERDICT_JOBS:
         return True
     jobs = suite_jobs(run)
     return name in SUITE_JOBS and jobs is not None and name not in jobs
@@ -938,6 +947,10 @@ def compile_pass_at(repo: str, sha: str, github) -> str | None:
 # its merge-base's. Every other receipt state (no verdict, unread, another commit) stays the head's.
 COMPILE_RECEIPTS = os.environ.get("BASE_RED_EXCUSE_COMPILE_RECEIPTS", "https://gh-events.cmux.com/compile-checks/v1")
 COMPILE_RECEIPT_SECONDS = 20
+# The receipts host sits behind a proxy that answers Python's default User-Agent ("Python-urllib/3.x") with HTTP 403
+# (error code 1010, a refused client signature), so every read was refused and no compile red could be judged
+# (cmux#39582, 2026-11-09). Name the client.
+COMPILE_RECEIPT_USER_AGENT = "cmux-base-red-excuse"
 COMPILE_RECEIPT_RECIPE = (2, "release-onone")
 FLEET_COMPILE_JOB = "cmux-next fleet Release compile"
 FLEET_COMPILE_FAIL = re.compile(r"^##\[error\]\s*cmux-next/compile is not a pass for [0-9a-f]{40} \(fail\)")
@@ -950,7 +963,8 @@ def compile_receipt(repo: str, sha: str) -> dict | None:
     import urllib.request
     url = f"{COMPILE_RECEIPTS}/{sha}?repo={urllib.parse.quote(repo, safe='')}&wait=0"
     try:
-        with urllib.request.urlopen(url, timeout=COMPILE_RECEIPT_SECONDS) as answer:
+        request = urllib.request.Request(url, headers={"User-Agent": COMPILE_RECEIPT_USER_AGENT})
+        with urllib.request.urlopen(request, timeout=COMPILE_RECEIPT_SECONDS) as answer:
             receipt = json.loads(answer.read(1 << 16))
     except urllib.error.HTTPError as error:
         if error.code == 404:
@@ -1559,6 +1573,12 @@ def may_hold(suites: SuiteChecks, runs: list[dict], index: int, name: str, verdi
     return found is None or bool(found & VERDICTS if verdict else found)
 
 
+def cancelled_tier_without_verdict(suites: SuiteChecks, runs: list[dict], index: int, name: str) -> bool:
+    """Whether RUNS[INDEX] is a cancelled base tier run whose check suite shows no verdict for job NAME: passed over
+    before it counts toward a job-list limit (never_carries' note)."""
+    return cancelled_base_tier(runs[index]) and not may_hold(suites, runs, index, name, verdict=True)
+
+
 # A completed base run's job list, kept on disk so the next merge check on the same base reads none of them again.
 # Keyed by run, attempt and updated_at: a re-run changes both, so a kept list is the one GitHub would serve.
 JOBS_CACHE_ENV = "BASE_RED_EXCUSE_JOBS_CACHE"  # a directory, or "off"
@@ -1815,10 +1835,11 @@ def tip_suite_verdicts(repo: str, base: str, workflow, name: str, github, base_j
                          f"&per_page={BASE_RUNS_PAGE}")
     runs = listed.get("workflow_runs") or []
     deferred = deferred_first_runs(runs) if name in TREE_JOBS else set()
-    candidates = [run for run in runs
-                  if run.get("status") == "completed" and run.get("conclusion") != "skipped"
-                  and not never_carries(run, name) and run["id"] not in deferred]
     suites = suites or SuiteChecks(github)
+    candidates = [run for index, run in enumerate(runs)
+                  if run.get("status") == "completed" and run.get("conclusion") != "skipped"
+                  and not never_carries(run, name) and run["id"] not in deferred
+                  and not cancelled_tier_without_verdict(suites, runs, index, name)]
     candidates = candidates[:TIP_SUITE_JOB_READS]
     for index, run in enumerate(candidates):
         if base_jobs.get(run["id"]) is None:
@@ -1841,7 +1862,7 @@ def base_verdicts(repo: str, base: str, workflow, name: str, github, base_runs: 
     suites = suites or SuiteChecks(github)
     runs = base_runs[workflow]
     for index, candidate_run in enumerate(runs):
-        if never_carries(candidate_run, name):
+        if never_carries(candidate_run, name) or cancelled_tier_without_verdict(suites, runs, index, name):
             continue
         if candidate_run["id"] not in base_jobs:
             if job_reads.get(workflow, 0) >= BASE_JOB_READS:
