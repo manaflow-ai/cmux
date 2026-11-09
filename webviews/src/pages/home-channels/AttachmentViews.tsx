@@ -355,6 +355,7 @@ function Lightbox({
   const part = items[index];
   const isVideo = attachmentClass(part.mimeType) === "video";
   const step = (by: number) => onIndex((index + by + items.length) % items.length);
+  const canStep = items.length > 1;
   const closeButton = useRef<HTMLButtonElement | null>(null);
   return (
     <Dialog
@@ -368,7 +369,7 @@ function Lightbox({
       <KeyboardScope
         className="hc-lightbox-body"
         handleKeyDown={(event) => {
-          if (items.length < 2 || (event.key !== "ArrowRight" && event.key !== "ArrowLeft")) return;
+          if (!canStep || (event.key !== "ArrowRight" && event.key !== "ArrowLeft")) return;
           event.preventDefault();
           step(event.key === "ArrowRight" ? 1 : -1);
         }}
@@ -376,7 +377,7 @@ function Lightbox({
         <header className="hc-lightbox-bar">
           <span className="hc-att-name">{part.name}</span>
           <span className="hc-att-meta">
-            {items.length > 1 ? `${index + 1} / ${items.length} · ` : ""}
+            {canStep ? `${index + 1} / ${items.length} · ` : ""}
             {formatBytes(part.byteCount)}
           </span>
           <span className="lg-spacer" />
@@ -385,7 +386,7 @@ function Lightbox({
           </DialogButton>
         </header>
         <div className="hc-lightbox-stage">
-          {items.length > 1 && (
+          {canStep && (
             <button
               type="button"
               className="hc-lightbox-step prev"
@@ -406,7 +407,7 @@ function Lightbox({
           ) : (
             <LightboxImage key={`${part.hash}:${index}`} conversation={conversation} part={part} />
           )}
-          {items.length > 1 && (
+          {canStep && (
             <button
               type="button"
               className="hc-lightbox-step next"
