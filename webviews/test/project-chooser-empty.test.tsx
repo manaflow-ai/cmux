@@ -156,3 +156,34 @@ test("a folder picked while Add folder… is open is not replaced by the panel's
   await act(async () => answer("/work/late"));
   expect(picks).toEqual(["/work/relay"]);
 });
+
+// Review of cmux#36964 (F3): a second Add folder… while the host's folder panel is open opens no
+// second panel; once the open one answers, the next Add folder… asks the host again.
+test("a second Add folder… while the folder panel is open opens no second panel", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ProjectChooser } = await import("../src/agent-session/acpmux/ProjectChooser");
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const answers: ((cwd: string) => void)[] = [];
+  const picks: string[] = [];
+  const onBrowse = () => new Promise<string>((resolve) => answers.push(resolve));
+  await act(async () =>
+    root!.render(
+      <ProjectChooser projects={[]} icon={null} onPick={(cwd) => picks.push(cwd)} onBrowse={onBrowse} side="bottom" />,
+    ),
+  );
+  const addFolder = async () => {
+    await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
+    const add = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) =>
+      option.textContent?.includes("Add folder…"),
+    )!;
+    await act(async () => add.click());
+  };
+  await addFolder();
+  await addFolder();
+  expect(answers.length).toBe(1);
+  await act(async () => answers[0]!("/work/picked"));
+  expect(picks).toEqual(["/work/picked"]);
+  await addFolder();
+  expect(answers.length).toBe(2);
+});
