@@ -110,6 +110,10 @@ struct Writer {
     floor: u64,
     /// Lines up to this seq are already in a compacted file.
     written_upto: u64,
+    /// The first seed's rewrite failed: nothing is appended (a line in the file would read as a
+    /// ledger and skip the seed for good) and every step tries the rewrite again. A restart
+    /// before one lands finds no ledger and seeds again.
+    seed_pending: bool,
     state: Arc<Mutex<State>>,
 }
 
@@ -132,6 +136,10 @@ impl Writer {
     }
 
     fn write(&mut self, text: &str) {
+        if self.seed_pending || text.is_empty() {
+            // Held in the state: the seed's rewrite carries it.
+            return;
+        }
         let Some(file) = self.file() else { return };
         match file.write_all(text.as_bytes()) {
             Ok(()) => self.size += text.len() as u64,
@@ -177,19 +185,22 @@ impl Writer {
     }
 
     /// The first start's seed ([`super::Ledger::seed`]): written as one compaction, so a crash
-    /// while seeding leaves no ledger file and the next start seeds again. Appended line by line
-    /// only when that rewrite failed (the rows would otherwise live in memory only).
+    /// while seeding leaves no ledger file and the next start seeds again. A rewrite that fails
+    /// is tried again at every step ([`Writer::seed_pending`]), never replaced by appends.
     fn seed(&mut self) {
-        if self.compact() {
-            return;
+        self.seed_pending = !self.compact();
+    }
+
+    /// Ends a step: a pending seed's rewrite again, else a compaction when one is due (`now`:
+    /// at once, for a purge).
+    fn settle(&mut self, now: bool) {
+        if self.seed_pending {
+            self.seed_pending = !self.compact();
+        } else if now {
+            let _ = self.compact();
+        } else {
+            self.maybe_compact();
         }
-        let (lines, seq) = {
-            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-            (snapshot(&state), state.seq)
-        };
-        let text: String = lines.iter().filter_map(encode).collect();
-        self.write(&text);
-        self.written_upto = seq;
     }
 
     fn repo(&mut self, sid: String, cwd: &Path) {
@@ -243,22 +254,14 @@ impl Writer {
                     #[cfg(test)]
                     Work::Flush(done) => {
                         self.write(&std::mem::take(&mut text));
-                        if std::mem::take(&mut purged) {
-                            let _ = self.compact();
-                        } else {
-                            self.maybe_compact();
-                        }
+                        self.settle(std::mem::take(&mut purged));
                         let _ = done.send(());
                     }
                 }
             }
             self.write(&text);
-            if purged {
-                // A purged session's lines leave the file now, not at the next size bound.
-                let _ = self.compact();
-            } else {
-                self.maybe_compact();
-            }
+            // A purged session's lines leave the file now, not at the next size bound.
+            self.settle(purged);
         }
     }
 }
@@ -296,8 +299,17 @@ pub(crate) fn spawn_writer(
 ) -> Option<(Sender<Work>, WriterThread)> {
     let (tx, rx) = std::sync::mpsc::channel();
     let (end_tx, ended) = std::sync::mpsc::sync_channel::<()>(0);
-    let writer =
-        Writer { dir, path, file: None, size, compact_bytes, floor: 0, written_upto: 0, state };
+    let writer = Writer {
+        dir,
+        path,
+        file: None,
+        size,
+        compact_bytes,
+        floor: 0,
+        written_upto: 0,
+        seed_pending: false,
+        state,
+    };
     let spawned = std::thread::Builder::new().name("acpmux-ledger".into()).spawn(move || {
         let _end = end_tx;
         writer.run(rx);

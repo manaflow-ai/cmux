@@ -90,7 +90,7 @@ impl Hub {
                 let Some(ask) = self.review_index.take_ask(&session.id, id) else { return };
                 if let Some(entry) = self.decision_entry(session, id, &ask, &record.msg, record.at)
                 {
-                    self.audit.record(entry);
+                    self.audit.record_of(entry, Some(session.purged.clone()));
                 }
             }
             _ => {}
@@ -168,7 +168,7 @@ impl Hub {
                 None => json!({"person": false}),
             },
         );
-        self.audit.record(entry);
+        self.audit.record_of(entry, Some(session.purged.clone()));
     }
 
     /// `_acpmux/review_verdict` from the person's connection: the pull request at `url`, one
@@ -213,7 +213,7 @@ impl Hub {
             json!({"person": true, "via": if from_app { "app" } else { "local" }}),
         );
         self.audit
-            .record_durable(entry)
+            .record_durable_of(entry, Some(session.purged.clone()))
             .map_err(|e| RpcError::internal(format!("audit: the verdict was not recorded: {e}")))
     }
 }

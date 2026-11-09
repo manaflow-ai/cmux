@@ -731,3 +731,41 @@ fn a_cut_session_list_keeps_the_biggest_spenders() {
     // The totals still count every chat.
     assert_eq!(reply.totals.sessions, 3);
 }
+
+/// A first seed whose rewrite fails writes nothing rather than a part: a line in the file would
+/// read as a ledger and skip the seed for good. The rewrite is tried again at the next step, and a
+/// restart before one lands seeds again.
+#[test]
+fn a_failed_seed_rewrite_leaves_no_partial_ledger() {
+    let dir = scratch("seed-fails");
+    let path = dir.join(store::FILE);
+    let tmp = dir.join(format!("{}.tmp", store::FILE));
+    let seed = |id: &str| Seed {
+        id: id.into(),
+        at: D0 + 5,
+        turns: 1,
+        totals: TurnUsage { cost_usd: Some(1.0), ..Default::default() },
+        ctx: TurnContext { model: Some("claude-opus-5-5".into()), ..ctx("claude", "claude") },
+    };
+    // A directory where the rewrite's temporary file goes: the rewrite fails.
+    std::fs::create_dir_all(&tmp).unwrap();
+    let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    assert!(l.wants_seed());
+    l.seed(vec![seed("a"), seed("b")]);
+    l.flush();
+    // A turn while the seed waits appends nothing either.
+    turn(&l, "a", D0 + 100, 0, json!({"costUsd": 0.5}), "claude", "claude");
+    l.flush();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    assert!(text.is_empty(), "{text}");
+    assert!(Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into()).wants_seed());
+    // Once the rewrite can land, the next step writes the whole state.
+    std::fs::remove_dir_all(&tmp).unwrap();
+    turn(&l, "b", D0 + 200, 0, json!({"costUsd": 0.25}), "claude", "claude");
+    l.flush();
+    drop(l);
+    let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    assert!(!l.wants_seed());
+    assert_eq!(l.query(&all(D0, D0)).totals.turns, 4);
+    let _ = std::fs::remove_dir_all(&dir);
+}

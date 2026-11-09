@@ -90,8 +90,10 @@ const STARTED: u8 = 1;
 const CANCELLED: u8 = 2;
 
 enum Msg {
-    /// An entry, and where to answer once it is written (the entry as written) or failed.
-    Entry(Value, Option<Durable>),
+    /// An entry, where to answer once it is written (the entry as written) or failed, and its
+    /// chat's purged flag: set by the time the writer takes it, the entry is that chat's late
+    /// line and is dropped, even after a new chat took the id ([`Msg::Reopen`]).
+    Entry(Value, Option<Durable>, Option<Arc<AtomicBool>>),
     /// Answered once every entry sent before it is written.
     Flush(mpsc::Sender<()>),
     /// Removes a purged session's entries: answered with how many, unless its caller withdrew
@@ -183,7 +185,12 @@ impl AuditLog {
     /// Sends `entry` (without `v`, `seq`, `prevHash` and `hash`) to the writer: never blocks. A
     /// line the writer cannot write counts in [`AuditLog::write_errors`].
     pub(crate) fn record(&self, entry: Value) {
-        if self.send(Msg::Entry(entry, None)).is_err() {
+        self.record_of(entry, None);
+    }
+
+    /// [`AuditLog::record`] for a chat whose purged flag is `gone`.
+    pub(crate) fn record_of(&self, entry: Value, gone: Option<Arc<AtomicBool>>) {
+        if self.send(Msg::Entry(entry, None, gone)).is_err() {
             self.lost("the writer is gone");
         }
     }
@@ -191,9 +198,19 @@ impl AuditLog {
     /// Writes `entry` and waits until its line is on disk: the entry as written, or why not.
     /// Blocking.
     pub(crate) fn record_durable(&self, entry: Value) -> Result<Value, String> {
+        self.record_durable_of(entry, None)
+    }
+
+    /// [`AuditLog::record_durable`] for a chat whose purged flag is `gone`.
+    pub(crate) fn record_durable_of(
+        &self,
+        entry: Value,
+        gone: Option<Arc<AtomicBool>>,
+    ) -> Result<Value, String> {
         let (done, rx) = mpsc::channel();
         let state = Arc::new(AtomicU8::new(QUEUED));
-        if self.send(Msg::Entry(entry, Some(Durable { done, state: state.clone() }))).is_err() {
+        let durable = Some(Durable { done, state: state.clone() });
+        if self.send(Msg::Entry(entry, durable, gone)).is_err() {
             self.lost("the writer is gone");
             return Err("the audit writer is gone".into());
         }
@@ -421,7 +438,7 @@ impl Writer {
     fn run(mut self, rx: mpsc::Receiver<Msg>) {
         while let Ok(msg) = rx.recv() {
             match msg {
-                Msg::Entry(entry, durable) => {
+                Msg::Entry(entry, durable, gone) => {
                     let taken = durable.as_ref().is_none_or(|d| {
                         d.state
                             .compare_exchange(QUEUED, STARTED, Ordering::AcqRel, Ordering::Acquire)
@@ -433,7 +450,8 @@ impl Writer {
                     }
                     let done = durable.map(|d| d.done);
                     let sid = entry.get("sessionId").and_then(Value::as_str);
-                    if sid.is_some_and(|s| self.purged.contains(s)) {
+                    let late = gone.is_some_and(|g| g.load(Ordering::SeqCst));
+                    if late || sid.is_some_and(|s| self.purged.contains(s)) {
                         // A purged chat leaves no history: not an error to count.
                         if let Some(done) = done {
                             let _ = done.send(Err("the session was purged".into()));
@@ -998,8 +1016,19 @@ mod tests {
         log.record(entry("same", 1));
         assert_eq!(log.purge("same").unwrap().await.unwrap(), Ok(1));
         log.record(entry("same", 2));
+        // The purged chat's verdict, built before the purge and sent after the new chat took
+        // the id: its own flag says it is the old chat's, so the lifted fence does not admit it.
+        let old_chat = Arc::new(AtomicBool::new(true));
         log.reopen("same");
-        log.record(entry("same", 3));
+        let late = log.record_durable_of(
+            json!({"at": 2, "sessionId": "same", "kind": "review",
+                   "prUrl": "https://github.com/o/r/pull/5", "ask": "Review",
+                   "decision": {"kind": "accept"}, "answeredBy": {"person": true}}),
+            Some(old_chat),
+        );
+        assert!(late.is_err(), "{late:?}");
+        assert!(!log.reviewed("same", "https://github.com/o/r/pull/5"));
+        log.record_of(entry("same", 3), Some(Arc::new(AtomicBool::new(false))));
         let written = log.record_durable(json!({"at": 4, "sessionId": "same", "kind": "review",
                                                 "prUrl": "https://github.com/o/r/pull/6",
                                                 "ask": "Review", "decision": {"kind": "accept"},
@@ -1165,7 +1194,7 @@ mod tests {
         let log = AuditLog::open(Some(d.clone()));
         let (done, rx) = mpsc::channel();
         let state = Arc::new(AtomicU8::new(CANCELLED));
-        log.send(Msg::Entry(entry("s1", 1), Some(Durable { done, state }))).unwrap();
+        log.send(Msg::Entry(entry("s1", 1), Some(Durable { done, state }), None)).unwrap();
         log.record(entry("s1", 2));
         log.flush();
         assert!(rx.try_recv().is_err(), "a withdrawn entry gets no answer");
