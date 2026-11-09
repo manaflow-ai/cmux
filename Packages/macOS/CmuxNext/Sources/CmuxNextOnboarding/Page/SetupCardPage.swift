@@ -70,7 +70,11 @@ public final class SetupCardHost {
         // The card floats on the chat's backdrop: a Chromium page cannot be transparent.
         guard let page = PageWebView(descriptor: .setupCard, routes: [PageRoute(prefix: SetupCardPageProvider.prefix, provider: provider)],
                                      options: PageEngineOptions(requiresWebKit: .transparentOverlay, acceptsFirstMouse: true),
-                                     overlayProcess: overlayProcess) else { return nil }
+                                     overlayProcess: overlayProcess) else {
+            // No page, no card: its provider stops, so a classic import asking on the row goes to the dialog.
+            provider.stop()
+            return nil
+        }
         self.page = page
         self.provider = provider
         provider.onSize = { [weak self] height in
