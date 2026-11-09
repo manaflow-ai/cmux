@@ -231,25 +231,56 @@ fn suggested_name(disposition: Option<&str>) -> String {
         .map_or_else(|| DEFAULT_CSV_NAME.to_owned(), str::to_owned)
 }
 
-/// `name` in `dir`, or `name` with ` 2`, ` 3`, ... before `.csv` when that file exists: a download
-/// never replaces one.
-fn unused_path(dir: &Path, name: &str) -> PathBuf {
+/// How many names one download tries: `name`, then `name 2` to `name 999`.
+const CSV_NAMES: usize = 999;
+
+/// `name` in `dir`, then `name` with ` 2`, ` 3`, ... before `.csv`, `limit` names in all.
+fn candidates(dir: &Path, name: &str, limit: usize) -> impl Iterator<Item = PathBuf> {
+    let stem = name.strip_suffix(".csv").unwrap_or(name).to_owned();
+    let dir = dir.to_owned();
     let first = dir.join(name);
-    if !first.exists() {
-        return first;
+    std::iter::once(first)
+        .chain((2..).map(move |n| dir.join(format!("{stem} {n}.csv"))))
+        .take(limit)
+}
+
+/// Writes `body` to the first of `name`'s candidates in `dir` that does not exist yet. Each file
+/// is opened with `create_new`, so the check and the create are one step: two downloads at once
+/// get two files, and a download never replaces or truncates a file. When every name is taken it
+/// fails and touches nothing.
+async fn write_new(dir: &Path, name: &str, body: &[u8], limit: usize) -> Result<PathBuf, String> {
+    use tokio::io::AsyncWriteExt;
+    for path in candidates(dir, name, limit) {
+        let opened = tokio::fs::OpenOptions::new().write(true).create_new(true).open(&path).await;
+        let mut file = match opened {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("could not write {}: {e}", path.display())),
+        };
+        let written = match file.write_all(body).await {
+            Ok(()) => file.flush().await,
+            Err(e) => Err(e),
+        };
+        return match written {
+            Ok(()) => Ok(path),
+            Err(e) => {
+                // This download made the file, so a half-written one goes with it.
+                drop(file);
+                let _ = tokio::fs::remove_file(&path).await;
+                Err(format!("could not write {}: {e}", path.display()))
+            }
+        };
     }
-    let stem = name.strip_suffix(".csv").unwrap_or(name);
-    (2..1000).map(|n| dir.join(format!("{stem} {n}.csv"))).find(|p| !p.exists()).unwrap_or(first)
+    Err(format!("{name} and {} numbered copies already exist in {}", limit - 1, dir.display()))
 }
 
 async fn save_csv(body: &[u8], disposition: Option<&str>) -> Value {
     let Some(dir) = dirs::download_dir().or_else(dirs::home_dir) else {
         return failed("no Downloads folder");
     };
-    let path = unused_path(&dir, &suggested_name(disposition));
-    match tokio::fs::write(&path, body).await {
-        Ok(()) => json!({"status": "saved", "path": path.to_string_lossy()}),
-        Err(e) => failed(format!("could not write {}: {e}", path.display())),
+    match write_new(&dir, &suggested_name(disposition), body, CSV_NAMES).await {
+        Ok(path) => json!({"status": "saved", "path": path.to_string_lossy()}),
+        Err(message) => failed(message),
     }
 }
 
@@ -297,7 +328,7 @@ mod tests {
     }
 
     #[test]
-    fn a_csv_keeps_a_plain_suggested_name_and_never_replaces_a_file() {
+    fn a_csv_keeps_a_plain_suggested_name() {
         assert_eq!(
             suggested_name(Some(
                 r#"attachment; filename="cmux-agent-spend-2026-11-01-2026-11-09-model.csv""#
@@ -312,11 +343,52 @@ mod tests {
         ] {
             assert_eq!(suggested_name(odd), DEFAULT_CSV_NAME, "{odd:?}");
         }
+    }
+
+    #[tokio::test]
+    async fn a_csv_never_replaces_a_file_and_concurrent_downloads_get_their_own() {
         let dir = tempfile::tempdir().unwrap();
-        let first = unused_path(dir.path(), "a.csv");
-        assert_eq!(first, dir.path().join("a.csv"));
-        std::fs::write(&first, "x").unwrap();
-        assert_eq!(unused_path(dir.path(), "a.csv"), dir.path().join("a 2.csv"));
+        std::fs::write(dir.path().join("a.csv"), "theirs").unwrap();
+        let saved = write_new(dir.path(), "a.csv", b"mine", CSV_NAMES).await.unwrap();
+        assert_eq!(saved, dir.path().join("a 2.csv"));
+        assert_eq!(std::fs::read_to_string(dir.path().join("a.csv")).unwrap(), "theirs");
+        assert_eq!(std::fs::read_to_string(&saved).unwrap(), "mine");
+
+        let both = tempfile::tempdir().unwrap();
+        let downloads = (0..16).map(|i| {
+            let dir = both.path().to_owned();
+            tokio::spawn(async move {
+                let body = format!("download {i}");
+                let path = write_new(&dir, "b.csv", body.as_bytes(), CSV_NAMES).await.unwrap();
+                (path, body)
+            })
+        });
+        let mut paths = std::collections::BTreeSet::new();
+        for download in downloads.collect::<Vec<_>>() {
+            let (path, body) = download.await.unwrap();
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), body);
+            assert!(paths.insert(path));
+        }
+        assert_eq!(paths.len(), 16);
+    }
+
+    #[tokio::test]
+    async fn a_csv_fails_when_every_name_is_taken_and_touches_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let taken: Vec<_> = candidates(dir.path(), "c.csv", 3).collect();
+        assert_eq!(
+            taken,
+            ["c.csv", "c 2.csv", "c 3.csv"].map(|name| dir.path().join(name)).to_vec()
+        );
+        for path in &taken {
+            std::fs::write(path, "theirs").unwrap();
+        }
+        let err = write_new(dir.path(), "c.csv", b"mine", 3).await.unwrap_err();
+        assert!(err.contains("already exist"), "{err}");
+        for path in &taken {
+            assert_eq!(std::fs::read_to_string(path).unwrap(), "theirs");
+        }
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 3);
     }
 
     #[test]
