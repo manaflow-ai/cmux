@@ -20,17 +20,7 @@ import CmuxNextWakeups
 /// exists while the new tab page is likely: a person's Cmd-T always opens it.
 @MainActor
 final class NewTabSparePool {
-    /// One adoption, for `debug.new_tab` (timing test, section 2.3).
-    struct Opening {
-        var spare: Bool
-        /// The spare was parked in another window than the one it opened in.
-        var crossWindow: Bool
-        /// Main-thread time from the open action to the page in its pane.
-        var milliseconds: Double
-        /// The spare waited at another size than its pane's: the adoption resized it, and WebKit
-        /// showed it at the old size until it laid it out again (the hqacp-v2 flash).
-        var refit = false
-    }
+    typealias Opening = AgentPaneSpareOpening
 
     static let idleInput: Duration = .milliseconds(750)
     /// A focus or selected-tab change settles this long before the parked spare draws the context a Cmd-T there gives.
