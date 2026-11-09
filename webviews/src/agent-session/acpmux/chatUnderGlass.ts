@@ -25,8 +25,10 @@ export const summaryGlass: SeeThroughOptions = { owner: "summary", keepUnderlayO
 // page's chat, and keeps its underlay over the composer. Leo, 2026-11-05: "this awkward wannabe glass
 // but kind of just opaque thing": Chromium's backdrop left the transcript's text reading through the
 // card's tint, so the card blurs what it covers in place, as the Summary popover does.
+// Session Info sits beside the stage, not in it: a menu opened over its card (the header's ... menu)
+// blurs the card's rows too, instead of letting them read through its glass (cmux next, 2026-11-09).
 export const chatUnderHoverCard: CoveredCandidates = (surface) =>
-  surface.ownerDocument.querySelectorAll(".acpmux-stage > *");
+  surface.ownerDocument.querySelectorAll(".acpmux-stage > *, .acpmux-session-info");
 
 /** A hover card's in-place blur: its blocks carry data-glass-under="hover-card" (glass.css). */
 export const hoverCardGlass: SeeThroughOptions = {
