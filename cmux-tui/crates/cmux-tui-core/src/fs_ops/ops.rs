@@ -291,8 +291,11 @@ impl FsService {
         path: &str,
         no_follow: bool,
     ) -> Result<(File, Meta), FsError> {
-        let resolved =
-            if no_follow { self.roots.resolve_no_follow(path)? } else { self.roots.resolve(path, true)? };
+        let resolved = if no_follow {
+            self.roots.resolve_no_follow(path)?
+        } else {
+            self.roots.resolve(path, true)?
+        };
         let Some(name) = &resolved.name else { return Err(FsError::NotAFile) };
         let kind = Meta::of(&sys::lstat_at(resolved.dir(), name)?).kind;
         if no_follow && kind == EntryKind::Symlink {
