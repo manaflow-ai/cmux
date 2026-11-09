@@ -47,8 +47,8 @@ struct AcpmuxCloudTunnelTests {
         #expect(line.calls.allSatisfy { $0.params["token"] as? String == "person-token" })
         #expect(line.calls[0].params["networkId"] as? String == "team_1")
         #expect(line.calls[1].params["networkId"] as? String == "team_1")
-        // A rekey takes no key and no network: the daemon makes the key.
-        #expect(Set(line.calls[2].params.keys) == ["token"])
+        // A rekey takes no key and no network: the daemon makes the key. Each names the app's origin.
+        #expect(Set(line.calls[2].params.keys) == ["token", "platformOrigin"])
         #expect(line.closed)
     }
 
