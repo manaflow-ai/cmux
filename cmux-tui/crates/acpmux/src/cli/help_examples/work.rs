@@ -294,6 +294,34 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[("Read what was left for Codex Desktop", "acpmux bridge inbox codex-desktop --peek")],
     ),
     (
+        "desktop",
+        &[
+            ("Give every desktop app here the cmux tools", "acpmux desktop link"),
+            ("See which apps have the cmux tools", "acpmux desktop status"),
+        ],
+    ),
+    (
+        "desktop link",
+        &[
+            ("Give Claude desktop, Claude Code and Codex the cmux tools", "acpmux desktop link"),
+            ("See what linking Codex would change", "acpmux desktop link --app codex --dry-run"),
+        ],
+    ),
+    (
+        "desktop unlink",
+        &[
+            ("Take the cmux tools back from every app", "acpmux desktop unlink"),
+            ("Take them back from Claude desktop", "acpmux desktop unlink --app claude-desktop"),
+        ],
+    ),
+    (
+        "desktop status",
+        &[
+            ("See which apps are here and which have the cmux tools", "acpmux desktop status"),
+            ("The same as JSON for a script", "acpmux desktop status --json"),
+        ],
+    ),
+    (
         "forum",
         &[
             ("List the current forum rules", "acpmux forum rules"),

@@ -117,6 +117,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // Inline `/btw` answers: the pane may send `inline: true` and receive `{text}`;
     // older daemons treat that field as legacy side-session input, so this id gates the shape.
     Capability { id: "btw-inline-v1", wire: &[method::MUX_BTW] },
+    // A guest from another harness: `_acpmux/btw` with `targetHarness` answers from that
+    // harness, gated on its own folder trust. Older daemons ignore the field and ask the chat's own.
+    Capability { id: "btw-guest-v1", wire: &[method::MUX_BTW] },
     // Owner-VM Codex app-server bridge: access-only external tokens are read
     // from the private broker file and never exposed through ACP frames.
     Capability {
