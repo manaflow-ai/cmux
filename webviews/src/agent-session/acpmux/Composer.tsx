@@ -2788,8 +2788,7 @@ function ComposerFrame({
                   extensions: plusExtensions,
                   canCapture: Boolean(capture && allowImages),
                   canChooseProject: locationVisible && Boolean(projectChoices || onBrowseProject),
-                  canRunOnAgents:
-                    Boolean(runOnAgents) && !shell && attachments.length === 0 && pending.length === 0,
+                  canRunOnAgents: Boolean(runOnAgents) && !shell && attachments.length === 0 && pending.length === 0,
                   ...(planChoice && plan
                     ? { planMode: { id: plan.id, name: planChoice.name, description: t("picker.planHint") } }
                     : {}),

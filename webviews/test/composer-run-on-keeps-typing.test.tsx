@@ -191,7 +191,10 @@ test("the runs get the prompt as typed, not the field's escaped markdown", async
 test("with a file staged, ⌘⌥Return opens no run: a run carries text alone and the file would be left out", async () => {
   const ran: string[] = [];
   let composer: import("../src/agent-session/acpmux/Composer").ComposerHandle | null = null;
-  await render(async (text) => void ran.push(text), (value) => void (composer = value));
+  await render(
+    async (text) => void ran.push(text),
+    (value) => void (composer = value),
+  );
   const file = { id: "f1", kind: "text", name: "notes.txt", mimeType: "text/plain", size: 5, text: "notes" } as const;
   await act(async () => composer!.restore("Add a NOTICE", [file]));
   await settle();
