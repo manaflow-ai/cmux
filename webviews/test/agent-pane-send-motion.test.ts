@@ -17,6 +17,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { MOTION_SEND_MS } from "../src/motion/scale.generated";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -175,7 +176,7 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
       for (const target of ["thread", "morph", "thinking"]) {
         const clock = clocks.find((entry) => entry.target === target);
         expect(clock, `${target}: no animation started with the send (${JSON.stringify(clocks)})`).toBeDefined();
-        expect(clock!.duration, `${target}'s duration`).toBe(265);
+        expect(clock!.duration, `${target}'s duration`).toBe(MOTION_SEND_MS);
         expect(clock!.easing.replace(/\s/g, ""), `${target}'s curve`).toBe("cubic-bezier(0.16,1,0.3,1)");
       }
       expect(
@@ -206,7 +207,7 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
       for (const target of ["thread", "bubble", "thinking"]) {
         const clock = clocks.find((entry) => entry.target === target);
         expect(clock, `${target}: no animation started with the send (${JSON.stringify(clocks)})`).toBeDefined();
-        expect(clock!.duration, `${target}'s duration`).toBe(180);
+        expect(clock!.duration, `${target}'s duration`).toBe(MOTION_SEND_MS);
         expect(clock!.easing.replace(/\s/g, ""), `${target}'s curve`).toBe("cubic-bezier(0.16,1,0.3,1)");
       }
 

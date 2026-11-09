@@ -216,8 +216,8 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
     what: "a followed reply eases into each new line",
   },
   "src/agent-session/acpmux/conversation/sendMorph.ts": {
-    count: 1,
-    what: "a prompt sent from the latest row moves from the composer into its message (the move's clock)",
+    count: 2,
+    what: "a prompt sent from the latest row moves from the composer into its message (the move's clock), or fades where it is when it was queued",
   },
   "src/agent-session/acpmux/conversation/sendTuck.ts": {
     count: 2,

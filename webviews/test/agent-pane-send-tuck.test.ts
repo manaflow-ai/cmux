@@ -14,6 +14,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { MOTION_SEND_MS } from "../src/motion/scale.generated";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -220,7 +221,7 @@ await requireBrowserLane("agent-pane-send-tuck.test.ts", async () => {
     page.evaluate(() => {
       const value = getComputedStyle(document.documentElement).getPropertyValue("--agent-motion-send").trim();
       const amount = Number.parseFloat(value);
-      return value.endsWith("ms") ? amount : value.endsWith("s") ? amount * 1000 : 265;
+      return value.endsWith("ms") ? amount : value.endsWith("s") ? amount * 1000 : MOTION_SEND_MS;
     });
 
   /// The reader's "Scroll to bottom when I send" choice, as the composer's menu sets it.

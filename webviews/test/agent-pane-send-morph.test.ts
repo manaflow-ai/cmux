@@ -3,7 +3,7 @@
 // Leo, 2026-11-08 (ask-157340f908): "if you're at the bottom or something, then the transformation
 // applies whatever's in your composer into your depicted message." A prompt sent from the latest row:
 // what is in the composer (its words and its attachments) becomes the sent message in place, on the
-// send motion (265 ms): a copy drawn over the pane starts where the composer drew it, in the frame the
+// send motion (MOTION_SEND_MS): a copy drawn over the pane starts where the composer drew it, in the frame the
 // composer empties, and lands on the sent bubble and thumbnail as the thread rises to them; the real
 // bubble and thumbnail are hidden while it flies and drawn in the frame it lands, never both and never
 // neither. Sent while scrolled up, or with Reduce Motion, nothing flies: the prompt fades in place
@@ -14,6 +14,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { MOTION_SEND_MS } from "../src/motion/scale.generated";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -225,15 +226,15 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
         }
       }
 
-      // One clock: the copies land on the send motion (265 ms from the row's first frame) and then
+      // One clock: the copies land on the send motion (MOTION_SEND_MS from the row's first frame) and then
       // only the sent message is drawn, whole, with no entrance of its own after it.
       const mounted = seen.findIndex((frame) => frame.bubble);
       const landed = seen.findIndex((frame, index) => index > mounted && frame.ghosts.length === 0);
       expect(mounted, "the sent row never drew").toBeGreaterThanOrEqual(0);
       expect(landed, "the copies never landed").toBeGreaterThan(mounted);
       const flight = seen[landed]!.at - seen[mounted]!.at;
-      expect(flight, "the flight's length").toBeGreaterThanOrEqual(250);
-      expect(flight, "the flight's length").toBeLessThan(265 + 70);
+      expect(flight, "the flight's length").toBeGreaterThanOrEqual(MOTION_SEND_MS - 15);
+      expect(flight, "the flight's length").toBeLessThan(MOTION_SEND_MS + 70);
       const last = seen[landed - 1]!;
       near(ghost(last, "bubble"), last.bubble, "the bubble's copy lands on the bubble");
       near(ghost(last, "attachment"), last.preview, "the screenshot's copy lands on its thumbnail");
@@ -277,8 +278,10 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
             preview.replaceWith(fresh);
             return;
           }
+          // raf-read: the remount lands a few frames into the flight (above).
           requestAnimationFrame(swap);
         };
+        // raf-read: the remount lands a few frames into the flight (above).
         requestAnimationFrame(swap);
       });
       await page.keyboard.press("Enter");
@@ -317,7 +320,7 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
       ).toBe(false);
       const gone = seen.findIndex((frame) => frame.ghosts.length === 0);
       expect(gone, "the copies never went").toBeGreaterThan(0);
-      expect(seen[gone]!.at - seen[0]!.at, "the copies go on the send's clock").toBeLessThan(265 + 120);
+      expect(seen[gone]!.at - seen[0]!.at, "the copies go on the send's clock").toBeLessThan(MOTION_SEND_MS + 120);
     } finally {
       await page.close();
     }
