@@ -334,7 +334,7 @@ mod tests {
     /// and fails with "command not found".
     #[test]
     fn w5q_the_context_says_cmux_without_cmux_tui_cli() {
-        let alone = super::text(&Place { terminal: "term_1".into(), ..Place::default() });
+        let alone = text(&Place { terminal: "term_1".into(), ..Place::default() });
         assert!(!alone.contains("CMUX_TUI_CLI"), "{alone}");
         assert!(alone.contains("`cmux skill show`"), "{alone}");
         assert!(alone.contains("`cmux terminal NAME send"), "{alone}");
