@@ -4,6 +4,7 @@ import copy
 import io
 from datetime import datetime, timedelta, timezone
 import json
+import re
 import importlib.util
 from pathlib import Path
 import unittest
@@ -397,7 +398,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None, terminate_after=None, rate_limit=None, check_paths=None, fast_gates_base=None, fast_gates_after=None, tip_sha=None, compare=None, reviews=None, reviews_final=None, fast_gates_runs=None, tip_shas=None, tip_reads=None, dispatch_run_ids=True):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None, terminate_after=None, rate_limit=None, check_paths=None, fast_gates_base=None, fast_gates_after=None, tip_sha=None, compare=None, reviews=None, reviews_final=None, fast_gates_runs=None, tip_shas=None, tip_reads=None, dispatch_run_ids=True, status_reads=None):
         """full=True keeps a feat-cmux-next merge on the full gate (--full) these
         tests were written for; full=False runs the default fast gate, whose
         `gh pr view --json statusCheckRollup` read returns rollup. excuse=(status, output)
@@ -439,9 +440,9 @@ class InstalledHelperRegression(unittest.TestCase):
         check_paths_route = ("printf '%s' " + shlex.quote(check_paths) + "; exit 0" if check_paths is not None
                              else "echo 'gh: Not Found (HTTP 404)' >&2; exit 1")
 
-        def fast_status(base_sha, state="success", at="2026-10-21T13:00:00Z"):
+        def fast_status(base_sha, state="success", at="2026-10-21T13:00:00Z", description=None):
             return json.dumps({"statuses": [{"context": "cmux-next/fast-gates", "state": state, "updated_at": at,
-                                             "description": f"base {base_sha}",
+                                             "description": description or f"base {base_sha}",
                                              "target_url": "https://example.test/runs/7"}] if base_sha else []})
         # The head's cmux-next/fast-gates status: fast_gates_base before a dispatch, then fast_gates_after
         # (base, state) once the check-path gate dispatched the workflow.
@@ -452,12 +453,22 @@ class InstalledHelperRegression(unittest.TestCase):
                             for index, run in enumerate(fast_gates_runs or ()))
         tips_case = "".join(f"{index}) printf '%s\\n' {tip};; " for index, tip in enumerate(tip_shas or ()))
         dispatches = "n=$(grep -c '^dispatch$' \"$EVENT_LOG\" 2>/dev/null); n=${n:-0}; "
+        # status_reads: the status at the 1st, 2nd... read before any dispatch, as (base, state, description or
+        # None); the last one repeats. A test can then turn the status red after the check-path gate passed.
+        undispatched = "printf '%s\\n' " + shlex.quote(fast_status(fast_gates_base))
+        if status_reads:
+            undispatched = (
+                "printf '%s\\n' read >> \"$MERGE_MARKER.statusreads\"; "
+                "r=$(grep -c '^read$' \"$MERGE_MARKER.statusreads\"); case \"$r\" in "
+                + "".join(f"{index + 1}) printf '%s\\n' " + shlex.quote(fast_status(base_sha, state, f"2026-10-21T13:0{index}:00Z", description)) + ";; "
+                          for index, (base_sha, state, description) in enumerate(status_reads))
+                + "*) printf '%s\\n' " + shlex.quote(fast_status(status_reads[-1][0], status_reads[-1][1], f"2026-10-21T13:0{len(status_reads) - 1}:00Z", status_reads[-1][2])) + ";; esac")
         status_route = (
-            dispatches + "case \"$n\" in 0) printf '%s\\n' " + shlex.quote(fast_status(fast_gates_base)) + ";; "
+            dispatches + "case \"$n\" in 0) " + undispatched + ";; "
             + runs_case + "*) printf '%s\\n' " + shlex.quote(fast_status(*fast_gates_runs[-1], at=f"2026-10-21T14:{len(fast_gates_runs) + 9}:00Z")) + ";; esac"
             if fast_gates_runs else
             "if [ -e \"$MERGE_MARKER.dispatched\" ]; then printf '%s\\n' " + shlex.quote(after) + "; "
-            "else printf '%s\\n' " + shlex.quote(fast_status(fast_gates_base)) + "; fi")
+            "else " + undispatched + "; fi")
         tip_route = (dispatches + "case \"$n\" in " + tips_case + "*) printf '%s\\n' " + tip_shas[-1] + ";; esac"
                      if tip_shas else "printf '%s\\n' " + shlex.quote(tip_sha or BASE))
         # tip_reads: the tip at the 1st, 2nd, 3rd... read of it (the last one repeats), so a test can move the tip
@@ -478,6 +489,8 @@ class InstalledHelperRegression(unittest.TestCase):
             # reads in progress, so only its status decides.
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'cmux-next-fast-gates.yml/dispatches'; then "
             "printf '%s\\n' dispatch >> \"$EVENT_LOG\"; touch \"$MERGE_MARKER.dispatched\"; "
+            # GH_DISPATCH_HOOK: a test's command that lands on the base while the run runs.
+            "[ -z \"${GH_DISPATCH_HOOK:-}\" ] || sh -c \"$GH_DISPATCH_HOOK\" >/dev/null 2>&1; "
             + ("n=$(grep -c '^dispatch$' \"$EVENT_LOG\"); printf '{\"workflow_run_id\": %s, \"run_url\": \"https://api.github.com/repos/manaflow-ai/cmux/actions/runs/%s\", \"html_url\": \"https://github.com/manaflow-ai/cmux/actions/runs/%s\"}\\n' \"$n\" \"$n\" \"$n\"; "
                if dispatch_run_ids else "") + "exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -qE 'actions/runs/[0-9]+( |$)'; then "
@@ -1022,6 +1035,60 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(events.read_text().splitlines(), ["dispatch"])
             self.assertIn("workflow_run_id", result.stderr)
             self.assertIn("check-path gate", result.stderr)
+
+    # Review of #39764 (basecur-1): the freshness check read only the status's base, never its state, so a red
+    # or "no verdict" fast-gates status at a fresh base passed as "check paths fresh", with no run dispatched.
+    def test_a_red_or_stopped_status_at_a_fresh_base_reruns_the_fast_gates(self):
+        stopped = f"base {MERGED_SHA}; stopped (gates cancelled, ratchet skipped), no verdict"
+        for state, description in (("failure", None), ("error", None), ("pending", stopped)):
+            with self.subTest(state), tempfile.TemporaryDirectory() as directory:
+                marker, events = Path(directory) / "merged", Path(directory) / "events"
+                result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                         event_log=events, check_paths=self.CHECK_PATHS,
+                                         status_reads=[(MERGED_SHA, state, description)],
+                                         fast_gates_runs=[(MERGED_SHA, "success")], tip_sha=MERGED_SHA)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(events.read_text().splitlines(), ["dispatch", "merge"])
+                self.assertIn(f"cmux-next/fast-gates is {state}", result.stderr)
+
+    def test_a_red_status_at_a_fresh_base_refuses_when_the_rerun_is_red_too(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     event_log=events, check_paths=self.CHECK_PATHS,
+                                     status_reads=[(MERGED_SHA, "failure", None)],
+                                     fast_gates_runs=[(MERGED_SHA, "failure")], tip_sha=MERGED_SHA)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertEqual(events.read_text().splitlines(), ["dispatch"])
+
+    def test_a_status_that_turned_red_or_stopped_after_the_gate_reruns_before_the_merge(self):
+        # Another merger's run on the same tip posts a red (or a stopped run's "no verdict") after our gate passed:
+        # the final check must not read that as fresh.
+        stopped = f"base {MERGED_SHA}; stopped (gates cancelled, ratchet skipped), no verdict"
+        for state, description in (("failure", None), ("pending", stopped)):
+            with self.subTest(state), tempfile.TemporaryDirectory() as directory:
+                marker, events = Path(directory) / "merged", Path(directory) / "events"
+                result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                         event_log=events, check_paths=self.CHECK_PATHS,
+                                         status_reads=[(MERGED_SHA, "success", None), (MERGED_SHA, state, description)],
+                                         fast_gates_runs=[(MERGED_SHA, "success")], tip_sha=MERGED_SHA)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(events.read_text().splitlines(), ["dispatch", "merge"])
+                self.assertIn("check paths fresh", result.stderr)
+                self.assertIn(f"cmux-next/fast-gates is {state}", result.stderr)
+
+    def test_a_status_that_turned_red_after_the_gate_refuses_when_the_rerun_is_red(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     event_log=events, check_paths=self.CHECK_PATHS,
+                                     status_reads=[(MERGED_SHA, "success", None), (MERGED_SHA, "failure", None)],
+                                     fast_gates_runs=[(MERGED_SHA, "failure")], tip_sha=MERGED_SHA)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertEqual(events.read_text().splitlines(), ["dispatch"])
+            self.assertIn("final check-path gate", result.stderr)
 
     def test_override_waives_the_check_path_gates_red(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -2347,16 +2414,44 @@ class MergedHeadChecksRegression(unittest.TestCase):
         # The final race (#39725): the merged-tree checks ran on the old tip too, so after the final check-path
         # rerun they run again on the new one before gh pr merge.
         with tempfile.TemporaryDirectory() as directory:
-            result, marker, log = self.run_merge(
-                directory, {"Packages/macOS/CmuxNext/Sources/A.swift": "struct A {}\n"},
-                helper_kwargs={"check_paths": InstalledHelperRegression.CHECK_PATHS, "fast_gates_base": ANCESTOR,
-                               "fast_gates_runs": [(MERGED_SHA, "success")], "tip_reads": [ANCESTOR, MERGED_SHA],
-                               "compare": InstalledHelperRegression.LANDED})
+            work = Path(directory) / "work"
+            os.environ["GH_DISPATCH_HOOK"] = (f"git -C {shlex.quote(str(work))} commit -q --allow-empty -m moved && "
+                                              f"git -C {shlex.quote(str(work))} push -q origin feat-cmux-next")
+            try:
+                result, marker, log = self.run_merge(
+                    directory, {"Packages/macOS/CmuxNext/Sources/A.swift": "struct A {}\n"},
+                    helper_kwargs={"check_paths": InstalledHelperRegression.CHECK_PATHS, "fast_gates_base": ANCESTOR,
+                                   "fast_gates_runs": [(MERGED_SHA, "success")], "tip_reads": [ANCESTOR, MERGED_SHA],
+                                   "compare": InstalledHelperRegression.LANDED})
+            finally:
+                os.environ.pop("GH_DISPATCH_HOOK", None)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists())
-            self.assertEqual(log.count("--only swift --base"), 2, log)
             events = (Path(directory) / "events").read_text().splitlines()
             self.assertEqual(events, ["dispatch", "merge"])
+            # The dispatch hook landed a commit on the base: the second merged-tree check ran on it.
+            bases = re.findall(r"--only swift --base ([0-9a-f]{40})", log)
+            moved = self.git("rev-parse", "feat-cmux-next", cwd=Path(directory) / "work")
+            self.assertEqual(len(bases), 2, log)
+            self.assertNotEqual(bases[0], bases[1])
+            self.assertEqual(bases[1], moved)
+
+    def test_the_merged_tree_checks_time_counts_against_wait(self):
+        # The gate's run 1 dispatches and passes; the merged-tree checks then take 8s; the base changes a check
+        # path. --wait 375 left at least 370s (one run) only if those 8s are not counted: they are, so no rerun.
+        slow = self.GODFILES.replace("#!/usr/bin/env bash\n", "#!/usr/bin/env bash\nsleep 8\n", 1)
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(
+                directory, {"Packages/macOS/CmuxNext/Sources/A.swift": "struct A {}\n"}, base_script=slow,
+                extra_args=("--wait", "375"),
+                helper_kwargs={"check_paths": InstalledHelperRegression.CHECK_PATHS, "fast_gates_base": ANCESTOR,
+                               "fast_gates_runs": [(MERGED_SHA, "success"), ("e" * 40, "success")],
+                               "tip_reads": [MERGED_SHA, MERGED_SHA, "e" * 40],
+                               "compare": InstalledHelperRegression.LANDED})
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertEqual((Path(directory) / "events").read_text().splitlines(), ["dispatch"])
+            self.assertIn("less than one run", result.stderr)
 
     def test_a_clean_swift_change_merges_after_the_god_file_check(self):
         with tempfile.TemporaryDirectory() as directory:
