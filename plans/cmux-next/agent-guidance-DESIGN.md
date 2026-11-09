@@ -68,7 +68,8 @@ person's prompt instead of trailing it:
   message. A Codex whose config (`config.toml`, its profile, the project's) or profile command line
   sets `developer_instructions` keeps it, and the rules stay in the first message.
 - **Every other harness**, folder instructions, and a chat made before this: the first message
-  (`user-context`, `<cmux-…-context>` blocks), now ahead of the person's words. `cmuxContextDelivered`
+  (`user-context`, `<cmux-…-context>` blocks after the person's words; a client's display parts
+  name those words' blocks by index, so nothing goes before them). `cmuxContextDelivered`
   still marks it sent once; the system-level channels are not in the transcript, so a resumed chat
   takes them again as its system prompt, never as a second copy.
 

@@ -867,11 +867,12 @@ impl Hub {
                 m.delegator = Some(from);
             }
             // One shared turn path applies the creation snapshot exactly once, including
-            // queued/CLI prompts, ahead of the person's words. A settings edit never changes an
-            // already-created chat. The rules on a system-level channel are not in it: the
-            // spawn gives them (`context_inventory::launch_args`).
+            // queued/CLI prompts. A settings edit never changes an already-created chat. The
+            // rules on a system-level channel are not in it: the spawn gives them
+            // (`context_inventory::launch_args`). Appended, never put first: a client's display
+            // parts name the person's blocks by index.
             if !m.cmux_context_delivered && control != Control::Web {
-                crate::context_inventory::prepend_snapshot(m.cmux_context.as_deref(), &mut blocks);
+                crate::context_inventory::append_snapshot(m.cmux_context.as_deref(), &mut blocks);
             }
             m.turn_count += 1;
         }

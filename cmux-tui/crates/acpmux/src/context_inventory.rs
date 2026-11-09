@@ -421,14 +421,6 @@ pub fn launch_args(
     Vec::new()
 }
 
-/// [`append_snapshot`] put ahead of the person's words, so the context frames the prompt
-/// instead of trailing it. The turn path delivers the snapshot with this.
-pub fn prepend_snapshot(parts: Option<&[ContextPart]>, blocks: &mut Vec<Value>) {
-    let mut head = Vec::new();
-    append_snapshot(parts, &mut head);
-    blocks.splice(0..0, head);
-}
-
 /// The captured parts on the first-message channel ([`USER_CONTEXT`]), as hidden blocks.
 /// Preset text and the rules on a system-level channel are given by the harness's launch
 /// arguments instead (`--system-prompt-file`, [`launch_args`]).
@@ -762,7 +754,7 @@ mod tests {
         let parts = rules_on(APPEND_SYSTEM_PROMPT);
         assert!(parts.iter().all(|p| p.label.ends_with("(system prompt)")), "{parts:?}");
         let mut blocks = vec![json!({"type":"text","text":"my words"})];
-        prepend_snapshot(Some(&parts), &mut blocks);
+        append_snapshot(Some(&parts), &mut blocks);
         assert_eq!(blocks, vec![json!({"type":"text","text":"my words"})]);
         let want = format!(
             "{}\n\n{}",
@@ -811,16 +803,16 @@ mod tests {
         std::fs::write(home.path().join("config.toml"), "developer_instructions = \"mine\"\n")
             .unwrap();
         assert_eq!(rules_channel(&cfg, home.path(), "codex"), USER_CONTEXT);
-        // Any other ACP agent: the first message, ahead of the person's words.
+        // Any other ACP agent: the first message.
         cfg.harnesses.insert("fake".into(), profile(json!({"argv":["python3","agent.py"]})));
         assert_eq!(rules_channel(&cfg, Path::new("/repo"), "fake"), USER_CONTEXT);
         let parts = rules_on(USER_CONTEXT);
         assert!(parts.iter().all(|p| p.label.ends_with("(first-turn context)")), "{parts:?}");
         let mut blocks = vec![json!({"type":"text","text":"my words"})];
-        prepend_snapshot(Some(&parts), &mut blocks);
+        append_snapshot(Some(&parts), &mut blocks);
         assert_eq!(blocks.len(), 3);
-        assert_eq!(blocks[2]["text"], "my words");
-        assert!(blocks[0]["text"].as_str().unwrap().starts_with("<cmux-default-context>"));
+        assert_eq!(blocks[0]["text"], "my words");
+        assert!(blocks[1]["text"].as_str().unwrap().starts_with("<cmux-default-context>"));
         assert!(launch_args(Some(&parts), &codex).is_empty());
     }
 
