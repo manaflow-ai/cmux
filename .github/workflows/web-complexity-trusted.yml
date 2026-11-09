@@ -70,19 +70,6 @@ jobs:
           # enough history to reach an arbitrarily large pushed commit range.
           fetch-depth: ${{ github.event_name != 'push' && 1 || 0 }}
           persist-credentials: false
-      # Bun waits on a registry connection that stops answering with no limit of its own; scripts/ci/bun-install.sh
-      # bounds it. This job's checkout may predate the script, so it comes from this workflow's own commit.
-      - name: Check out the bounded bun install
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.sha }}
-          path: .bun-install-tools
-          persist-credentials: false
-          sparse-checkout: scripts/ci/bun-install.sh
-          sparse-checkout-cone-mode: false
-      - name: Keep the bounded bun install outside the checkout
-        working-directory: .
-        run: mv .bun-install-tools/scripts/ci/bun-install.sh "$RUNNER_TEMP/bun-install.sh" && rm -rf .bun-install-tools
 
       - name: Require an ephemeral runner
         # Blacksmith VMs report self-hosted; their runner names identify them.
@@ -258,7 +245,17 @@ jobs:
       - name: Install trusted web tooling
         if: github.event_name == 'push' || steps.scope.outputs.run == 'true'
         working-directory: trusted/web
-        run: bash "$RUNNER_TEMP/bun-install.sh" --frozen-lockfile
+        # Only trusted code runs here: the bounded installer comes from the trusted checkout, never from github.sha
+        # (on merge_group that is the candidate). Bun waits on a registry connection that stops answering with no
+        # limit of its own; the installer bounds it. A trusted base older than the installer (the merge that brings it
+        # to main) gets the same bounds inline.
+        run: |
+          set -euo pipefail
+          if [ -f "$GITHUB_WORKSPACE/trusted/scripts/ci/bun-install.sh" ]; then
+            bash "$GITHUB_WORKSPACE/trusted/scripts/ci/bun-install.sh" --frozen-lockfile
+          else
+            BUN_CONFIG_HTTP_IDLE_TIMEOUT=30 BUN_CONFIG_HTTP_RETRY_COUNT=5 timeout --kill-after=15 600 bun install --frozen-lockfile
+          fi
 
       # Bun reads bunfig.toml and .env from its working directory. Every check
       # below runs from the trusted checkout with this empty config and no env

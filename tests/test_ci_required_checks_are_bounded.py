@@ -100,10 +100,11 @@ def bare_bun_installs(workflow: dict) -> list[str]:
                 continue
             for line in run.splitlines():
                 stripped = line.strip()
-                if stripped.startswith(("echo ", "printf ")):
-                    continue
-                if BARE_BUN_INSTALL.search(unquoted(stripped)):
-                    found.append(f"{job_id}: {stripped}")
+                for command in re.split(r"&&|\|\||[;|&()]", unquoted(stripped)):
+                    # `timeout N bun install` is bounded too (a trusted job whose base predates the script).
+                    if BARE_BUN_INSTALL.search(command) and not re.match(r"\s*(?:\w+=\S*\s+)*timeout\b", command):
+                        found.append(f"{job_id}: {stripped}")
+                        break
     return found
 
 
@@ -256,12 +257,15 @@ def self_test() -> None:
     def hits(run: str) -> list[str]:
         return bare_bun_installs({"jobs": {"j": {"steps": [{"run": run}]}}})
     for bare in ("bun install --frozen-lockfile", "cd web && bun install", "(cd x && bun i)",
-                 "bun install -g some-tool || true", "[ -d node_modules ] || bun install --frozen-lockfile"):
+                 "bun install -g some-tool || true", "[ -d node_modules ] || bun install --frozen-lockfile",
+                 'echo "Installing dependencies"; bun install --frozen-lockfile', 'printf "Installing\\n" && bun i',
+                 "echo bun install", "timeout 600 echo x; bun install"):
         assert hits(bare), bare
     for bounded in ('bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile',
                     'bash ../scripts/ci/bun-install.sh --', 'echo "bun install --frozen-lockfile in x"',
                     '(cd x && bash "$RUNNER_TEMP/bun-install.sh") || fail "bun install"',
-                    "# bun install runs below", "bun run install-hooks", "bun index.ts"):
+                    "# bun install runs below", "bun run install-hooks", "bun index.ts",
+                    "X=1 timeout --kill-after=15 600 bun install --frozen-lockfile"):
         assert not hits(bounded), bounded
 
 
