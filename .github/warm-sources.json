@@ -127,6 +127,7 @@
     "cmux-tui-spec.yml:acpmux-tests": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cmux-tui-spec.yml:acpmux-sim": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cmux-tui-spec.yml:api-compat": {"class": "linux-rust", "warm": [], "exempt": "cold: cargo from an empty target directory; no warm source wired yet"},
+    "cmux-tui-spec.yml:carrier-sim": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cmux-tui-spec.yml:clippy": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cmux-tui-testbox-warmup.yml:cmux-tui-rust": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cmux-tui-windows-check.yml:windows-gnu-check": {"class": "linux-rust", "warm": ["actions-cache"]},

@@ -986,6 +986,10 @@ pub(super) async fn handle_request(
             if m == method::MUX_SEND_QUEUE { params.get_mut("request") } else { Some(&mut params) };
         if let Some(prompt) = prompt {
             crate::sender_harness::stamp_checked(prompt, pid, carried).await;
+            // A Claude desktop session's own send, bound to its bridged chat by the same pid
+            // (`hub/desktop_bridge.rs`), so an answer reaches it.
+            let outbox = conn.socket_peer == crate::sender_harness::SocketPeer::Outbox;
+            hub.stamp_bridged_sender(prompt, pid, outbox, conn.caller().is_some()).await;
         }
     }
     let key = super::session_key(&params).ok().map(str::to_owned);
@@ -1732,7 +1736,11 @@ async fn dispatch_request_with_identity(
             let person_message = crate::author::of_provenance(provenance.as_ref()).is_some();
             // Sent from inside another session (its proven caller token) with none of its own:
             // that session's message, so the receiver's transcript does not show it as the person's.
-            let provenance = match (provenance, conn.caller()) {
+            // A desktop chat's send the daemon bound to its bridged chat by the socket peer's
+            // process tree (`hub/desktop_bridge.rs`) is that chat's, as a caller token's is.
+            let bridged = crate::hub::desktop_bridge::bridged_sender(&params).map(str::to_owned);
+            let caller = conn.caller().map(str::to_owned).or(bridged);
+            let provenance = match (provenance, caller.as_deref()) {
                 (None, Some(caller)) if !conn.is_person() && caller != s.id => {
                     hub.resolve(caller).ok().map(|from| {
                         let name = from.meta().name;
@@ -2352,6 +2360,8 @@ async fn dispatch_request_with_identity(
             Ok(result)
         }
         "_acpmux/models" => {
+            // A starting daemon answers once its disk lists are served (`wait_model_caches`).
+            hub.wait_model_caches().await;
             // `probe`: harnesses a client now uses (the Chief's engine set),
             // probed now even when the start-time list left them out.
             if let Some(names) = params.get("probe").and_then(Value::as_array) {
@@ -3427,7 +3437,11 @@ fn stamp_bound_sender(
     if person_message {
         return Some(provenance);
     }
-    let bound = match conn.caller() {
+    // The session this connection proved, else the bridged chat a Claude desktop session's send
+    // was bound to by its process tree (`hub/desktop_bridge.rs`).
+    let bridged = crate::hub::desktop_bridge::bridged_sender(params);
+    let caller = conn.caller().or(bridged);
+    let bound = match caller {
         Some(caller) if !conn.is_person() && caller != to => hub
             .resolve(caller)
             .ok()
@@ -3440,7 +3454,7 @@ fn stamp_bound_sender(
         }
         _ => None,
     };
-    let caller_bound = conn.caller().is_some_and(|caller| !conn.is_person() && caller != to)
+    let caller_bound = caller.is_some_and(|caller| !conn.is_person() && caller != to)
         && bound.as_ref().is_some_and(|b| b.session_id.is_some());
     let mut provenance = crate::prompt_provenance::stamp_sender(provenance, bound.as_ref());
     // A caller token proved the sending session: the daemon bound who sent it, whatever name it

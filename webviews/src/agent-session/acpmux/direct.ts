@@ -34,6 +34,7 @@ import type {
   AcpmuxRow,
   AcpmuxSessionStart,
   AcpmuxSnapshot,
+  ClaimCheck,
   MissingSessionReason,
   PromptImage,
   PromptContentPart,
@@ -181,6 +182,7 @@ import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIco
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
 import { STALL_CHECK_MS, stallLine, stallTiming } from "./stallLog";
 import { hostTurn, hostTurnState } from "./hostTurnState";
+import { bridgedWatch } from "./watchBannerModel";
 import type { PlanBuildReply, PlanBuildTarget, PlanCompareReply } from "./permissions/planBuild";
 import {
   MEMORY_OFFER,
@@ -1460,6 +1462,28 @@ export function shellCommand(rawInput: any): string | undefined {
     .join(" ");
 }
 
+const CLAIM_KINDS = new Set(["tests", "build", "lint", "typecheck", "ran"]);
+const CLAIM_VERDICTS = new Set(["backed", "failed", "none"]);
+
+/// The claims of a `claim_checks` record a page can draw; one of a kind or verdict this page does
+/// not know draws nothing.
+export function readClaims(raw: unknown[]): ClaimCheck[] {
+  return raw.flatMap((item): ClaimCheck[] => {
+    const claim = item as Record<string, unknown> | null;
+    if (!claim || typeof claim.text !== "string" || !claim.text.trim()) return [];
+    if (!CLAIM_KINDS.has(String(claim.kind)) || !CLAIM_VERDICTS.has(String(claim.verdict))) return [];
+    return [
+      {
+        text: claim.text,
+        kind: claim.kind as ClaimCheck["kind"],
+        verdict: claim.verdict as ClaimCheck["verdict"],
+        ...(typeof claim.toolCallId === "string" ? { toolCallId: claim.toolCallId } : {}),
+        ...(typeof claim.command === "string" ? { command: claim.command } : {}),
+      },
+    ];
+  });
+}
+
 /// A finished shell call's exit status: `rawOutput.exit_code` (Codex; acpmux puts the others'
 /// there too, hub/tool_shell.rs), else where an agent reported it in a record logged before acpmux
 /// did: pi's `_meta.terminal_exit.exit_code`, OpenCode's `rawOutput.metadata.exit`.
@@ -2547,6 +2571,8 @@ export class AcpmuxDirectClient {
   /// hub/fork_cancel.rs).
   private forkCancelToken?: string;
   private streamingAssistant?: string;
+  /// The newest reply row: a turn's `claim_checks` mark its phrases (hub/claim_check.rs).
+  private lastReplyRow?: string;
   private streamingAssistantMessageId?: string;
   /// A prompt, steer or notice came while the streaming row's message was still being written: only
   /// that message's own chunks go on in the row, above what came (the same `messageId`, or any text
@@ -3433,6 +3459,7 @@ export class AcpmuxDirectClient {
     this.turnOpen = false;
     this.turnStartedAtMs = undefined;
     this.turnPromptAtMs = undefined;
+    this.lastReplyRow = undefined;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
     this.assistantCut = false;
@@ -6526,6 +6553,7 @@ export class AcpmuxDirectClient {
     this.turnPrompt = undefined;
     this.turnTokens = undefined;
     this.turnTokenSplit = undefined;
+    this.lastReplyRow = undefined;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
     this.assistantCut = false;
@@ -7525,6 +7553,8 @@ export class AcpmuxDirectClient {
       if (left && this.subagents.stopRunning(left, event.at)) this.takeSubagentRows();
       if (event.kind === "race" && msg.parent === this.selectedSessionId && typeof msg.id === "string") {
         for (const listener of this.raceListeners) listener(msg as RaceRecord);
+      } else if (event.kind === "claim_checks") {
+        this.markClaims(msg);
       } else if (event.kind === BOOKMARKS_KIND) {
         // Another pane (or the TUI) marked a prompt: the minimap shows acpmux's marks.
         bookmarksHeard(event.sessionId ?? this.selectedSessionId, event.msg?.bookmarks);
@@ -8158,6 +8188,7 @@ export class AcpmuxDirectClient {
         streaming: true,
       });
       this.streamingAssistant = id;
+      this.lastReplyRow = id;
       this.streamingAssistantMessageId = messageId;
       if (messageId) {
         const ids = this.messageRows.get(messageId) ?? [];
@@ -8642,6 +8673,16 @@ export class AcpmuxDirectClient {
     else this.endAssistantSegment();
   }
 
+  /// A turn's checked claims mark its last reply: only claims whose phrase the reply holds, so a
+  /// reply the page cut or replaced draws none rather than a mark in the wrong place.
+  private markClaims(msg: Record<string, unknown>): void {
+    const row = this.lastReplyRow ? this.rows.get(this.lastReplyRow) : undefined;
+    if (!row || row.kind !== "assistant" || !Array.isArray(msg.claims)) return;
+    const text = row.text ?? "";
+    const claims = readClaims(msg.claims).filter((claim) => text.includes(claim.text));
+    if (claims.length) this.rows.set(row.id, { ...row, version: row.version + 1, claims });
+  }
+
   private endAssistantSegment(): void {
     this.assistantCut = false;
     if (!this.streamingAssistant) return;
@@ -8777,6 +8818,7 @@ export class AcpmuxDirectClient {
           backgroundsWork: summary.backgroundsWork === true,
           queuePaused: summary.queuePaused === true,
           ...(text(summary.watching) ? { watching: text(summary.watching) } : {}),
+          ...(bridgedWatch(summary) ? { bridged: true } : {}),
           ...(Array.isArray(summary.mcpServers) ? { mcpServers: summary.mcpServers } : {}),
           ...(limits ? { subsessionLimits: limits } : {}),
           status: summary.status,
@@ -11863,11 +11905,14 @@ export class AcpmuxDirectClient {
    *  falls back to the list without it, so the catalog never empties over a folder. */
   async harnesses(cwd?: string): Promise<AcpmuxSnapshot["catalog"]> {
     // The harness list carries no models; acpmux serves the probed ones apart (modelCatalog.ts).
+    // Only this machine's: mergeModelCatalog drops peer rows, and asking the peers waited up to
+    // their 10 s budget before the picker had a list (Leo 2026-11-08: "this shouldn't be so slow
+    // to load in"). An acpmux without `localOnly` ignores it and answers as before.
     const [names, probed] = await Promise.all([
       cwd
         ? this.request("_acpmux/harnesses", { cwd }).catch(() => this.request("_acpmux/harnesses", {}))
         : this.request("_acpmux/harnesses", {}),
-      this.request("_acpmux/models", {}).catch(() => undefined),
+      this.request("_acpmux/models", { localOnly: true }).catch(() => undefined),
     ]);
     const catalog = mergeModelCatalog(names, probed);
     const profiles = normalizeFolderProfiles(names);
@@ -12402,6 +12447,7 @@ export class AcpmuxDirectClient {
     this.turnPrompt = undefined;
     this.turnTokens = undefined;
     this.turnTokenSplit = undefined;
+    this.lastReplyRow = undefined;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
     this.assistantCut = false;

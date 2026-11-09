@@ -143,6 +143,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 
 | Mac action (wording) | Phone | State | Notes |
 | --- | --- | --- | --- |
+| Claim checks: a reply's "tests pass", "the build succeeds", "lint is clean", "typecheck passes" or "I ran `X`" gets a colored underline (green when the turn's newest matching run exited 0, red when it failed or none ran); a click shows that run's row (`conversation/ClaimMark.tsx`, acpmux `claim_checks`, `hub/claim_check.rs`; 2026-11-09) | none: read-only, from the turn's `claim_checks` record | — | missing | The record reaches the phone over the link with the rest of the transcript, so drawing the marks needs no new trust or policy: the phone's reply renderer reads `claims` from it. Follow-up: draw the underline there and jump to the run's row on tap. |
 | Connect iMessage (Session Info > Connectors): Connect, permission walkthrough, contacts and group chats, Disconnect | — | not from a phone | `chat.db` and Full Disk Access belong to the Mac. The phone’s own Messages app is not readable by cmux; connection and conversation reading stay on the Mac. Every outgoing send still needs the person’s click. |
 | Stop | page menu Stop Agent, composer stop | works | `session/cancel`. |
 | Retry / Send this prompt again | Retry on a failed turn | works | |

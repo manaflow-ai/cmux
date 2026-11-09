@@ -749,6 +749,7 @@ export type MessageSender = {
 
 export interface ModelsParams {
   _meta?: RequestMeta;
+  localOnly?: unknown;
   probe?: unknown;
   refresh?: unknown;
 }

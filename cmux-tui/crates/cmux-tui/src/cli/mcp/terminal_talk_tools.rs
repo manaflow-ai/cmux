@@ -25,8 +25,8 @@ const LIST_DESCRIPTION: &str = "The terminals in cmux that run a coding agent (C
     {items: [{terminal, name, harness, status, state, title, workspace_id, workspace, cwd, \
     updated_at_ms, age_ms, source, tab_id, tab_name, pane_id, last_reply}]}. status is blocked \
     (a permission dialog, a question or an error waits), done (a turn finished and nobody has \
-    viewed the terminal yet), working, idle or unknown, and null for an ended session. state \
-    is a deprecated alias of status (ended for an ended session). Blocked first, then done, \
+    viewed the terminal yet), working, idle or unknown, and ended for an ended session. state \
+    is a deprecated alias of status. Blocked first, then done, \
     working, idle, unknown, ended; \
     newest first. A shell without an agent is not listed. Changes nothing: reading does not \
     clear done.";

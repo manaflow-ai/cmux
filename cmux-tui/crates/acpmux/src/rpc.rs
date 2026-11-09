@@ -775,6 +775,13 @@ pub mod method {
     pub const MUX_MACHINE_CONSENT_SET: &str = "_acpmux/machine_consent_set";
     pub const MUX_MACHINE_CONSENT_REFUSED: &str = "_acpmux/machine_consent_refused";
     pub const MUX_MACHINE_CONSENT_GET: &str = "_acpmux/machine_consent_get";
+    // This Mac's Cloud tunnel on the team mesh (`crate::machine_tunnel`,
+    // `server/machine_tunnel.rs`): the app's person-proved connection only, with the person's
+    // cmux access token in `token`. `attach|detach {token, networkId?}` -> the platform's
+    // answer; `rekey {token}` -> `{machineId, wgPublicKey, restarted}`.
+    pub const MUX_MACHINE_TUNNEL_ATTACH: &str = "_acpmux/machine.tunnel.attach";
+    pub const MUX_MACHINE_TUNNEL_DETACH: &str = "_acpmux/machine.tunnel.detach";
+    pub const MUX_MACHINE_TUNNEL_REKEY: &str = "_acpmux/machine.tunnel.rekey";
     pub const MUX_PAIR_SET: &str = "_acpmux/pair_set";
     pub const MUX_PAIR_REDEEM: &str = "_acpmux/pair_redeem";
     // The person's vault on this machine (`crate::vault`, `server/vault.rs`).
