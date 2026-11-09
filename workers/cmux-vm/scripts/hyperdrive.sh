@@ -78,7 +78,14 @@ case "$command" in
       [ "$code" = 200 ] || fail "creating Hyperdrive config $config_name" "$code"
       action=created
     else
-      code="$(call PUT "$api/$id" "$work/request.json")"
+      # Cloudflare connects to the origin before it takes an update, and refuses with error 2015 while the
+      # database is out of connection slots (cmux-vm.yml staging, 2026-11-09): try again twice, 20 s apart.
+      for attempt in 1 2 3; do
+        code="$(call PUT "$api/$id" "$work/request.json")"
+        [ "$code" != 200 ] && [ "$attempt" -lt 3 ] && jq -e '[.errors[]?.code] | index(2015)' "$work/body" >/dev/null 2>&1 || break
+        echo "::warning::updating Hyperdrive config $config_name: Cloudflare could not reach the database (2015); trying again in 20 s" >&2
+        sleep 20
+      done
       [ "$code" = 200 ] || fail "updating Hyperdrive config $config_name" "$code"
       action=updated
     fi

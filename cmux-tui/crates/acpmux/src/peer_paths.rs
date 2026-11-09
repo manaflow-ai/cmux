@@ -207,6 +207,31 @@ impl Paths {
         Self { selector, paths, remembered: None }
     }
 
+    /// Add path `via` to a live set (a backup path found after the first dial,
+    /// `peer_overlay.rs`). It starts unprobed, like every path of [`Paths::new`]. False when
+    /// it is already one of these or the selector has no room for it.
+    pub fn add(&mut self, via: Via) -> bool {
+        if self.find(via).is_some() {
+            return false;
+        }
+        let next =
+            self.paths.iter().map(|path| path.id.0).max().map_or(Some(0), |id| id.checked_add(1));
+        let Some(next) = next else { return false };
+        let id = PathId(next);
+        if self.selector.add_path(id, via.kind()).is_err() {
+            return false;
+        }
+        self.paths.push(Path {
+            via,
+            id,
+            last_pong: None,
+            dead_at: None,
+            recoveries: 0,
+            recover_at: None,
+        });
+        true
+    }
+
     /// The path that carried the session last time (`peer_last_good.rs`), if it is still one
     /// of these.
     pub fn remember(&mut self, via: Option<Via>) {

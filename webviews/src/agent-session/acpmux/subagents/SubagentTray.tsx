@@ -112,7 +112,7 @@ import { SubagentHarnessContext, ticking } from "./subagentGroupModel";
 import { Elapsed } from "./Elapsed";
 import { commandStatus, itemStart, trayItemKey, type TrayItem } from "./runningTray";
 import { attentionFirst, type TrayCard } from "./trayAttention";
-import { latestLine, toolDetail } from "./trayDetail";
+import { actionDetail, latestLine, namedAction } from "./trayDetail";
 import { trayPanelLook, trayRowLook, trayStopLook } from "./trayPanel.experiment";
 import { trayMotionLook } from "./trayMotion.experiment";
 import { trayHeadLook } from "./trayHead.experiment";
@@ -1070,7 +1070,11 @@ const quietAgent = (agent: Subagent, waiting: ReadonlySet<string>) => {
 /// what it does now.
 function agentTooltip(t: Translate, agent: Subagent): string | undefined {
   const doing =
-    agent.state !== "running" ? undefined : agent.actionShell ? toolDetail(t, agent.action, true) : agent.action;
+    agent.state !== "running"
+      ? undefined
+      : agent.actionShell
+        ? actionDetail(t, agent.action, true)
+        : namedAction(t, agent.action);
   const label = subagentTaskLabel(t, agent);
   const name = subagentDisplayName(t, agent);
   const lines = [

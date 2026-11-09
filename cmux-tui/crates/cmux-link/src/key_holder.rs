@@ -42,6 +42,9 @@ pub enum KeyFile {
     Link,
     /// acpmux's node key, 32 raw bytes, in the acpmux home.
     Node,
+    /// A node key a rekey sent the platform and has not put in place yet, 32 raw bytes, next
+    /// to [`Self::Node`]. It stays until the platform's answer settles it.
+    NodePending,
 }
 
 impl KeyFile {
@@ -49,6 +52,7 @@ impl KeyFile {
         match self {
             Self::Link => "private.key",
             Self::Node => "node.wg.key",
+            Self::NodePending => "node.wg.pending",
         }
     }
 
