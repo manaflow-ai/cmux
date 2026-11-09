@@ -502,7 +502,10 @@ fn a_held_copy_answers_at_its_head_and_the_rest_follows_under_the_barrier() {
     assert_eq!(copied["copy"]["written"], json!(4), "{copied}");
     // The rest lands while every tool waits, then the folder reads ready, whole.
     cmux_git::sync_barrier::wait_ready(&remote, std::time::Duration::from_secs(60)).unwrap();
-    assert_eq!(files(&remote).len(), 7, "{:?}", files(&remote));
+    let landed = files(&remote);
+    // The project's seven files, and the copy's own record of them.
+    assert_eq!(landed.len(), 8, "{:?}", landed.keys());
+    assert!(landed.contains_key(".cmux-sync.json"));
     assert_eq!(std::fs::read_to_string(remote.join("app/src/c.rs")).unwrap(), "fn c() {}\n");
     // A --since-last waits for the hold's job, then re-pushes only what changed.
     write(&plain.join("src/d.rs"), "fn d() {}\n");
@@ -522,7 +525,9 @@ fn a_held_head_that_would_start_mcp_servers_is_copied_whole_before_the_answer() 
     let (ok, copied) = w.push_head_first(&plain, &remote, "");
     assert!(ok, "{copied}");
     assert!(copied.get("filling").is_none(), "{copied}");
-    assert_eq!(copied["copy"]["written"], json!(8), "{copied}");
+    // The head went first, so the whole copy after it finds those four unchanged.
+    assert_eq!(copied["copy"]["written"], json!(4), "{copied}");
+    assert_eq!(copied["copy"]["unchanged"], json!(4), "{copied}");
     // Ready already; a wait only rides out another test's fork holding a copy of a lock.
     cmux_git::sync_barrier::wait_ready(&remote, std::time::Duration::from_secs(10)).unwrap();
 }
