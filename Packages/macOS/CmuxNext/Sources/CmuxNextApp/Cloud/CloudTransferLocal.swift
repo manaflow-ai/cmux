@@ -45,7 +45,7 @@ struct CloudTransferLocal {
     func start(_ invocation: ActionInvocation, context: AppActionContext) throws {
         guard let (tab, _) = context.daemonTab(invocation) else { return }
         guard let record = tab.agentSession, record.host.hasPrefix(MachineRegistry.registryHostPrefix),
-              let session = record.session ?? services.agentTabs.sessions[services.agentTabs.resolve(tab.id)] else {
+              let session = record.session ?? services.agentTabs.sessions[services.agentTabs.tabKey(of: tab)] else {
             throw ActionFailure(message: CloudTransferLocalStrings.notAMachineChat)
         }
         if services.cloud.movedChats.entry(host: record.host, session: session) != nil {

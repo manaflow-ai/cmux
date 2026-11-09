@@ -185,6 +185,7 @@ final class CloudService {
         hands = HandsService(
             apiBaseURL: configuration.ownerAPIBaseURL(), accessToken: { [auth] in try await auth.tokens().access }, identity: installIdentity,
             presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)), cli: .cli(resources: Bundle.main.resourceURL, work: work))
+        let build = LaunchIdentity.current().build
         let relay = CloudCredentialRelay.live(identity: identity, baseURL: configuration.ownerAPIBaseURL(),
             signedIn: { [auth] in await MainActor.run { auth.isSignedIn } }, allowedOps: { await CloudCredentialRelay.bundledServedOps() },
             carrierSocket: { @MainActor [weak machines] id in await CloudLinkSession.carrierAnswer(machines?.session(id)?.appLink, machine: id) })

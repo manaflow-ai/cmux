@@ -190,9 +190,6 @@ mod tests {
         fn fresh_name(&mut self) -> String {
             String::new()
         }
-        fn prompt_id(&mut self) -> String {
-            String::new()
-        }
     }
 
     fn fake(code: i32, stdout: Value) -> Fake {

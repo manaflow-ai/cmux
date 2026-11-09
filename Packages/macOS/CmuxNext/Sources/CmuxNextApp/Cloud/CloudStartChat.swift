@@ -332,13 +332,16 @@ extension CloudStartSession {
         guard start.uploads(folder) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderMissing(local)) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         try Self.checked(account, now: services.cloud.account, request.asked(machine: name))
-        let copy: CloudStartChat.Copied
-        do {
-            copy = try await CloudStartChat(services: services).copyFolder(folder, key: key, account: account, to: session,
-                                                                          cli: CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)) { _ in }
-        } catch {
-            try Self.failed(account, now: services.cloud.account, request.asked(machine: name), CloudMoveStrings.syncFailed(name, CloudStrings.errorText(error)))
-        }
+        // A refused git seed asks "Copy the folder to <machine>?" in the active window as the composer's start does
+        // (CloudSeedRefusal); Cancel, a dismissal or no window refuses the start with cmux-tui's reason.
+        let asked = request.asked(machine: name)
+        let copy = try await CloudStartChat(services: services).copyFolder(
+            folder, key: key, account: account, to: session, cli: CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout),
+            declined: { ActionFailure(message: $0) },
+            failed: { error in
+                do { try Self.checked(account, now: services.cloud.account, asked) } catch { return error }
+                return ActionFailure(message: CloudMoveStrings.syncFailed(name, CloudStrings.errorText(error)))
+            }) { _ in }
         guard copy.0.ok else { throw ActionFailure(message: CloudMove.failure(syncing: copy.0, machine: name, retry: .move(machineID: session.machineID)).message) }
         return (copy.1.chat, copy.1.sourceTrusted)
     }

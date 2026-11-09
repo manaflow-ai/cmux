@@ -111,7 +111,14 @@ fn partial(socket: &Path, local: &Path, remote: &str, url: Option<String>, adopt
         if !checkout.0 {
             return failed("fetch.clone_failed", format!("cannot check out {head}: {}", checkout.1));
         }
-        let base = SeedBase { head: head.clone(), index: head.clone(), work: head.clone() };
+        // A fresh clone: no stash ref before the pull, and that is known.
+        let base = SeedBase {
+            head: head.clone(),
+            index: head.clone(),
+            work: head.clone(),
+            stash: None,
+            stash_known: true,
+        };
         match sync_cli::seed_pull(socket, local, remote, &base) {
             Ok(SeedPulled::Done(mut summary)) => {
                 if adopt {
