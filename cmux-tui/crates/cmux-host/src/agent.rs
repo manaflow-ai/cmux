@@ -106,6 +106,15 @@ pub fn paused_for(before_ns: i128, after_ns: i128) -> Option<Duration> {
 /// that has one of them the other never fires.
 pub const SAME_RESUME_NS: i128 = 10_000_000_000;
 
+/// The detector a resume signal came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResumeSource {
+    /// A clock set that moved realtime against the boot clock.
+    ClockSet,
+    /// The pause watch's gap on the boot clock.
+    PauseWatch,
+}
+
 /// One resume can reach the agent both as a clock set and as a pause-watch
 /// gap (a provider whose boot clock runs through a pause and whose realtime
 /// is set late). Only the first is a resume; the other is a clock sync.
@@ -115,8 +124,10 @@ pub struct ResumeOnce {
 }
 
 impl ResumeOnce {
-    /// Whether a resume signal at wall time `wall_ns` is a new resume.
-    pub fn first(&mut self, wall_ns: i128) -> bool {
+    /// Whether a resume signal from `source` at wall time `wall_ns` is a new
+    /// resume.
+    pub fn first(&mut self, source: ResumeSource, wall_ns: i128) -> bool {
+        let _ = source;
         let same = self.last_wall_ns.is_some_and(|last| (wall_ns - last).abs() < SAME_RESUME_NS);
         if !same {
             self.last_wall_ns = Some(wall_ns);
@@ -670,15 +681,34 @@ mod identity_tests {
 
     #[test]
     fn one_resume_seen_by_both_detectors_is_one_resume() {
+        use ResumeSource::{ClockSet, PauseWatch};
         let wall = 1_793_780_000_000_000_000_i128;
         let mut once = ResumeOnce::default();
-        assert!(once.first(wall));
+        assert!(once.first(ClockSet, wall));
         // The other detector a second later: the same resume.
-        assert!(!once.first(wall + 1_000_000_000));
-        // A second pause, 5 min of wall time later: a new resume.
-        assert!(once.first(wall + 300_000_000_000));
-        assert!(!once.first(wall + 300_000_000_000 + SAME_RESUME_NS - 1));
-        assert!(once.first(wall + 300_000_000_000 + 2 * SAME_RESUME_NS));
+        assert!(!once.first(PauseWatch, wall + 1_000_000_000));
+        // A second pause, 5 min of wall time later: a new resume, and the
+        // other detector just inside the window is the same one.
+        assert!(once.first(PauseWatch, wall + 300_000_000_000));
+        assert!(!once.first(ClockSet, wall + 300_000_000_000 + SAME_RESUME_NS - 1));
+        assert!(once.first(ClockSet, wall + 300_000_000_000 + 2 * SAME_RESUME_NS));
+    }
+
+    #[test]
+    fn consecutive_resumes_from_one_detector_are_each_a_resume() {
+        use ResumeSource::{ClockSet, PauseWatch};
+        let wall = 1_793_780_000_000_000_000_i128;
+        let mut once = ResumeOnce::default();
+        // Two real resumes 5 s apart, each a clock set: each gets its own
+        // Resumed (transport reset, report).
+        assert!(once.first(ClockSet, wall));
+        assert!(once.first(ClockSet, wall + 5_000_000_000));
+        // The pause watch's view of the second one is the same resume.
+        assert!(!once.first(PauseWatch, wall + 5_500_000_000));
+        // A third resume 2 s later is new, from either detector.
+        assert!(once.first(ClockSet, wall + 7_500_000_000));
+        assert!(!once.first(PauseWatch, wall + 8_000_000_000));
+        assert!(once.first(PauseWatch, wall + 9_000_000_000));
     }
 
     /// The session host (adopted, so `Running`) under a fake spawner: the
