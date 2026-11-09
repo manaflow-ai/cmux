@@ -1001,9 +1001,10 @@ fn a_base_url_is_https_or_loopback_http_with_no_user_query_or_fragment() {
 
 #[test]
 fn a_base_path_is_kept() {
-    let (origin, seen) = fake(|_| ok(r#"{"networks":[]}"#));
-    go(&request(&format!("{origin}/prefix/"), Auth::Stack, "vm.networks", json!({}))).unwrap();
-    assert_eq!(seen.lock().unwrap()[0].target(), "GET /prefix/api/vm/network");
+    let (origin, seen) = fake(|_| ok(r#"{"rules":[]}"#));
+    go(&request(&format!("{origin}/prefix/"), Auth::Stack, "vm.firewall_list", json!({})))
+        .unwrap();
+    assert_eq!(seen.lock().unwrap()[0].target(), "GET /prefix/api/vm/firewall");
 }
 
 #[test]
