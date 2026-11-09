@@ -242,7 +242,7 @@ import { movedOn, sentIn as sentInHeld, useTrustHeldPrompts, whereHeldGoes, type
 import { routeCurrentTrustRefusal, routeOwnedTrustRefusal, type TrustRefusalOwner } from "./trustRefusalRoute";
 import { heldPrompts, type SendGesture } from "./heldPrompt";
 import { bindsHeldSendNow } from "./heldSendBinding";
-import { StartingSends, type StartingSend } from "./startingSends";
+import { queuedStartingSends, StartingSends, withStartingPrompt, type StartingSend } from "./startingSends";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
@@ -1705,16 +1705,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // For the host actions, which read it when they run (`chat.new`'s remembered model).
   const catalogRef = useRef(catalog);
   catalogRef.current = catalog;
+  /// Prompts sent while a new chat starts, until acpmux takes each, in order (startingSends.ts): the
+  /// first is the chat's first row from the send, those after it queued rows. One refused comes back
+  /// to the composer with those behind it.
+  const [startingRows, setStartingRows] = useState<readonly StartingSend[]>([]);
   // The client's own snapshot never carries the catalog: every view of the pane (the Harnesses
   // page, the picker catalog, the composer) reads the fetched one from here.
   const snapshot = useMemo(
     () =>
-      applySwitch(
-        catalog === clientSnapshot.catalog ? clientSnapshot : { ...clientSnapshot, catalog },
-        switchView,
-        catalog,
+      withStartingPrompt(
+        applySwitch(
+          catalog === clientSnapshot.catalog ? clientSnapshot : { ...clientSnapshot, catalog },
+          switchView,
+          catalog,
+        ),
+        startingRows,
       ),
-    [clientSnapshot, switchView, catalog],
+    [clientSnapshot, switchView, catalog, startingRows],
   );
   // The dialog belongs to the chat it opened on: switching chats closes it.
   const [shareChat, setShareChat] = useState(snapshot.sessionId);
@@ -5752,9 +5759,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// Quote in Reply picks made while no composer is mounted (a Sandboxed receipt or a handoff review
   /// in its place): they go in after the draft, in order, when it mounts (composerRestore.ts).
   const heldQuotes = useRef<string[] | undefined>(undefined);
-  /// Prompts sent while a new chat starts, shown as queued rows until acpmux takes each, in order
-  /// (startingSends.ts). One refused comes back to the composer with those behind it.
-  const [startingRows, setStartingRows] = useState<readonly StartingSend[]>([]);
   const [startingSends] = useState(
     () =>
       new StartingSends(setStartingRows, (text, attachments, error) => {
@@ -6462,11 +6466,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...(quick && { canHandoff: false }),
     };
     // Prompts still waiting for a new chat to take them follow acpmux's queue, then the prompts the
-    // folder's trust holds (trustHeld.ts).
-    if (startingRows.length || heldRows.length)
+    // folder's trust holds (trustHeld.ts). The first is the transcript's row (`withStartingPrompt`).
+    const startingQueued = queuedStartingSends(startingRows, snapshot.rows);
+    if (startingQueued.length || heldRows.length)
       withCommands.queue = [
         ...snapshot.queue,
-        ...startingRows.map((row) => ({ id: row.id, prompt: row.text, sending: true })),
+        ...startingQueued.map((row) => ({ id: row.id, prompt: row.text, sending: true })),
         ...heldRows,
       ];
     return withDraftFolder(withCommands, projectDraft);
@@ -7493,6 +7498,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // Called once acpmux took the prompt (queued too), with no hold on it: a failed turn's
           // Retry settles there, not when its turn ends (conversation/turnRetry.ts `sendUntilTaken`).
           taken?: () => void,
+          // The id its row was drawn under before the chat started (startingSends.ts), when no other names it.
+          drawnAs?: string,
         ) => {
           if (expectedSessionId && (directClient.current !== client || client.selectedSession !== expectedSessionId))
             throw startCancelled();
@@ -7522,6 +7529,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               fromTrust,
               gesture,
               taken,
+              drawnAs,
             );
           } finally {
             handedOn();
@@ -7576,6 +7584,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           fromTrust?: HeldSend,
           gesture?: SendGesture,
           taken?: () => void,
+          drawnAs?: string,
         ) => {
           // The chat it is sent in; once a start made the chat's session, that session (trustHeld.ts).
           let sentFrom = shownFrom.current();
@@ -7636,7 +7645,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           if (!ownsSession()) throw startCancelled();
           // A harness switch holds the prompt in its own row until its session is ready, and
           // hands it back to the composer when the switch fails.
-          const switchPromptId = promptId ?? gesture?.promptId ?? crypto.randomUUID();
+          const switchPromptId = promptId ?? gesture?.promptId ?? drawnAs ?? crypto.randomUUID();
           // Only the person's own send, not one with a seeded prompt's own id (its host ticket is bound
           // to it), keeps its gesture for a prompt held behind a slow start (#23031).
           // A prompt the folder's trust held keeps its id and its send's ticket there too, and is
@@ -7735,7 +7744,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // `gesture` (in-page only): the gesture the composer bound at the Enter of a send it held.
           // `taken` (in-page only): called once acpmux took the prompt; unlike `accepted` it holds
           // nothing, so a refusal still fails or restores the prompt as any send's does.
-          "chat.send": ({ text, attachments, accepted, steer, expectedSessionId, fromTrust, gesture, taken }) =>
+          // `drawnAs` (in-page only): the prompt id a new chat's first prompt was drawn under from its
+          // send (startingSends.ts `withStartingPrompt`), so the chat's row for it is that same row.
+          "chat.send": ({ text, attachments, accepted, steer, expectedSessionId, fromTrust, gesture, taken, drawnAs }) =>
             send(
               String(text ?? ""),
               Array.isArray(attachments) ? attachments : [],
@@ -7747,6 +7758,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               heldPromptParams(fromTrust),
               sendGestureParam(gesture),
               typeof taken === "function" ? (taken as () => void) : undefined,
+              typeof drawnAs === "string" ? drawnAs : undefined,
             ),
           "chat.cancel": () => client.cancel(),
           "chat.planScopeDrift": ({ action, sessionId, path, area }) => {
@@ -11193,6 +11205,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               }
               let accept: (taken: true) => void = () => undefined;
               const taken = new Promise<true>((resolve) => (accept = resolve));
+              // The id its row is drawn under from the send (`withStartingPrompt`) and the chat's
+              // client draws it under once it goes, so it is one row throughout: the one its Enter's
+              // gesture is bound to, if any (`sendThrough` sends it under that).
+              const promptId = gesture?.promptId ?? crypto.randomUUID();
               const send = async () => {
                 // Replying to a View Only chat takes it over first (`takeOver`); while the app that
                 // runs it still does, the pane asks how, and the composer keeps the message.
@@ -11238,6 +11254,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                         text,
                         attachments,
                         accepted: () => accept(true),
+                        drawnAs: promptId,
                         steer,
                         ...(gesture ? { gesture } : {}),
                       }),
@@ -11279,7 +11296,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 throw error;
               });
               if (queues) {
-                startingSends.add(text, attachments, () => held);
+                startingSends.add(text, attachments, () => held, undefined, promptId);
                 return true;
               }
               held.catch(() => {

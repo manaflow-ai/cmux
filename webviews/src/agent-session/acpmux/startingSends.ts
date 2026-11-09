@@ -6,9 +6,12 @@
 // the order they were sent, each once acpmux took the one before. A refused one comes back to the
 // composer with every prompt behind it, so nothing is lost and nothing goes out of order.
 import type { ComposerAttachment } from "./attachments";
+import { attachedImages } from "./direct";
 import type { SendGesture } from "./heldPrompt";
+import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 
-export type StartingSend = { id: string; text: string; attachments: ComposerAttachment[] };
+/// `at`: when it was sent (Date.now()).
+export type StartingSend = { id: string; text: string; attachments: ComposerAttachment[]; at: number };
 /// `lost`: an edit saved while the prompt was going, which comes back only once it went.
 /// `gesture`: the Enter or click the composer bound to it while it held it for its files.
 type Item = StartingSend & { going: boolean; lost?: string; gesture?: SendGesture };
@@ -33,7 +36,7 @@ export class StartingSends {
 
   /** The prompts waiting or going, oldest first. */
   get rows(): readonly StartingSend[] {
-    return this.items.map(({ id, text, attachments }) => ({ id, text, attachments }));
+    return this.items.map(({ id, text, attachments, at }) => ({ id, text, attachments, at }));
   }
   /** Some prompt has not been taken yet: a prompt sent now waits behind it. */
   get busy(): boolean {
@@ -60,11 +63,14 @@ export class StartingSends {
    * `gesture`: the Enter or click the composer bound to a send it held for its files (a pasted
    * image's upload may have spent the host's grant since); `go` gets it with the prompt.
    */
-  add(text: string, attachments: ComposerAttachment[], go: Go, gesture?: SendGesture) {
+  /// `id`: the prompt id its send goes with, so the chat's own row for it keeps the row drawn here
+  /// (`withStartingPrompt`).
+  add(text: string, attachments: ComposerAttachment[], go: Go, gesture?: SendGesture, id?: string) {
     const item: Item = {
-      id: `starting-${crypto.randomUUID()}`,
+      id: id ?? `starting-${crypto.randomUUID()}`,
       text,
       attachments,
+      at: Date.now(),
       going: false,
       ...(gesture ? { gesture } : {}),
     };
@@ -114,4 +120,42 @@ export class StartingSends {
   private emit() {
     this.changed(this.rows);
   }
+}
+
+/// The row a starting prompt draws as: the one the chat's client draws for it once it went
+/// (direct.ts `sendNow`, `local-<promptId>`), so it stays the same row, and pending, so the
+/// Thinking line draws under it in its start look (conversation/turns.ts `waiting`).
+const startingRow = (send: StartingSend): AcpmuxRow => ({
+  id: `local-${send.id}`,
+  version: 0,
+  at: send.at,
+  kind: "user",
+  text: send.text,
+  ...(send.attachments.length ? { images: attachedImages(send.attachments) } : {}),
+  pending: true,
+  queued: send.id,
+});
+
+/**
+ * A new chat's first prompt is its first row from the send, while the chat still starts: it
+ * leaves the composer for the transcript in one move, with its Thinking line, instead of waiting
+ * as a queued row that jumps into the transcript once the agent is up (Leo, 2026-11-09: "there's
+ * the gap between when you send off a message versus otherwise, like it's like there's a one-two
+ * discontinuity"). Prompts sent after it wait in the queue, as they do behind any running turn.
+ * Once the chat's client draws that prompt's row (the same id) it is the client's.
+ */
+export function withStartingPrompt(raw: AcpmuxSnapshot, starting: readonly StartingSend[]): AcpmuxSnapshot {
+  const first = starting[0];
+  if (!first || raw.rows.some((row) => row.kind === "user")) return raw;
+  return { ...raw, rows: [...raw.rows, startingRow(first)] };
+}
+
+/// The starting prompts the composer's queue still draws: not one the transcript draws.
+export function queuedStartingSends(
+  starting: readonly StartingSend[],
+  rows: readonly AcpmuxRow[],
+): readonly StartingSend[] {
+  if (!starting.length) return starting;
+  const drawn = new Set(rows.map((row) => row.id));
+  return starting.filter((send) => !drawn.has(`local-${send.id}`));
 }
