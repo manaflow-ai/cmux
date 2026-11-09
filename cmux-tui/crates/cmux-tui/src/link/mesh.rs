@@ -80,6 +80,7 @@ impl Overlay for MeshOverlay {
                 preshared_key: None,
                 allowed_ips: shape.0.clone(),
                 route: shape.1.map(PeerRoute::from),
+                candidates: Vec::new(),
                 persistent_keepalive: Some(KEEPALIVE_SECONDS),
             };
             self.mesh.add_peer(peer).await.map_err(io::Error::other)?;

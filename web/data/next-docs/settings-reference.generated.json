@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 617,
+  "count": 618,
   "sections": [
     {
       "id": "general",
@@ -743,7 +743,7 @@
           "title": "Focus After Closing a Pane",
           "help": "Which pane gets focus when the focused pane closes.",
           "kind": "choice",
-          "default": "previousNeighbor",
+          "default": "mostRecent",
           "group": "Columns",
           "values": [
             "previousNeighbor",
@@ -1228,6 +1228,14 @@
             "pluggedIn",
             "always"
           ]
+        },
+        {
+          "key": "sessions.keepAwakeForCommands",
+          "title": "Also While Terminal Commands Run",
+          "help": "A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Sessions"
         },
         {
           "key": "sessions.promptSuggestions",
@@ -5923,7 +5931,7 @@
         {
           "key": "home.chiefPanel.seesScreen",
           "title": "Chief Sees Your Screen When It Opens",
-          "help": "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off.",
+          "help": "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off. It looks only while Computer Use is on.",
           "kind": "toggle",
           "default": true,
           "group": "Chief Dock"

@@ -1320,6 +1320,7 @@
             "key" : "settings.group.sessions",
             "rows" : [
               "sessions.keepAwake",
+              "sessions.keepAwakeForCommands",
               "sessions.resumeAgents",
               "sessions.allowFullAccess",
               "sessions.promptSuggestions",
@@ -8020,7 +8021,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "previousNeighbor",
+      "default" : "mostRecent",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.columns",
@@ -11501,6 +11502,139 @@
       "title" : {
         "key" : "settings.sessions.keepAwake",
         "text" : "Keep Mac Awake While Agents Work"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.keepAwakeForCommands.help",
+        "text" : "A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.keepAwakeForCommands",
+      "keywords" : [
+        "sleep",
+        "awake",
+        "caffeinate",
+        "terminal",
+        "command",
+        "build"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "keepAwakeForCommands"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:sessions.keepAwakeForCommands"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sessions.keepAwakeForCommands",
+        "text" : "Also While Terminal Commands Run"
       },
       "validation" : "portable"
     },
@@ -89533,7 +89667,7 @@
       },
       "help" : {
         "key" : "settings.home.chiefPanelSeesScreen.help",
-        "text" : "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off."
+        "text" : "Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off. It looks only while Computer Use is on."
       },
       "kept_on_reset_all" : false,
       "key" : "home.chiefPanel.seesScreen",

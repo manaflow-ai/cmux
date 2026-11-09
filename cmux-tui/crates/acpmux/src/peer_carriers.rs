@@ -417,7 +417,8 @@ impl Peer {
     }
 
     /// The cmux link socket to dial, ahead of the link's registration (tests).
-    #[cfg(test)]
+    // Only the Linux link tests in peer_carriers_tests.rs call it.
+    #[cfg(all(test, target_os = "linux"))]
     pub(super) fn set_link_socket(&self, socket: PathBuf) {
         let _ = self.link_socket.set(socket);
     }
