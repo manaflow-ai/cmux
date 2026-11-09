@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42717204659",
+  "recorded_at": "2026-11-09T23:11:34Z",
+  "reason": "cmux-tui 63f0bcde1c1e changes the image's cmux-tui (pinned b73582810c39)",
+  "dry_run": false,
+  "cmux_tui": "63f0bcde1c1e00e295b25c9ed7b1c2b736617613",
+  "fixes": [
+    {
+      "sha": "3894ad7ab7d132207d825e7bea903c59e4b35985",
+      "mergedAt": "2026-11-09T14:43:31-08:00",
+      "subject": "rustfmt: format base files the fmt check flags (#39901)"
+    },
+    {
+      "sha": "db0136569ffb5d2131aef5927028db147a9fd291",
+      "mergedAt": "2026-11-09T22:42:43Z",
+      "subject": "acpmux: unattended preset runs and approvals are logged, owner-only (#39884)"
+    },
+    {
+      "sha": "8b9d66b27e1411c91c142ba31804c18f5e7b2efb",
+      "mergedAt": "2026-11-09T14:41:42-08:00",
+      "subject": "cmux-tui output cleanup: a refusal memo is keyed to its registry; live puts sealed after the read are counted once (#39861)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T23:11:34Z",
+    "snapshot_id": "sh-03792809d78e40beb5081b0f971e01ba",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42717204659): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c572a05b07015704a2236cddb543ace3860ae83f",
+    "image": "cloud-native-auto-63f0bcde-42717204659-1",
+    "revision": "ci-42717204659-1",
+    "at": "2026-11-09T23:11:34Z"
+  },
+  "rolled_back": false
+}
