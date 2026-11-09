@@ -80,7 +80,6 @@ import { experimentArm } from "../../../experiments/experiment";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { foldMotion, useFold } from "../conversation/fold";
 import { entranceAllowed } from "../../shared/pageReveal";
-import { formatDuration } from "../conversation/turns";
 import { type PaneLanguage, usePaneLanguage, useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -100,6 +99,7 @@ import { AgentMark } from "../../shared/AgentMark";
 import { AgentLine } from "./AgentLine";
 import { AgentIdentity } from "./AgentIdentity";
 import { foreignHarness, SUBAGENT_FALLBACK } from "./agentIdentityModel";
+import { useSenderIconLook, type SenderIconBadge } from "./senderIconLook";
 import { harnessFamily } from "./agentRuns";
 import { agentTone } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
@@ -108,7 +108,8 @@ import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { TrayAgentDetail, TrayLineFold } from "./TrayLineDetail";
 import { StopButton } from "./SubagentGroup";
-import { elapsed, SubagentHarnessContext, useNow } from "./subagentGroupModel";
+import { SubagentHarnessContext, ticking } from "./subagentGroupModel";
+import { Elapsed } from "./Elapsed";
 import { commandStatus, itemStart, trayItemKey, type TrayItem } from "./runningTray";
 import { attentionFirst, type TrayCard } from "./trayAttention";
 import { latestLine, toolDetail } from "./trayDetail";
@@ -123,10 +124,12 @@ import { COMMAND_KIND_ICON, commandKind } from "./trayCommandKinds";
 import { KIND_LINE_SEPARATOR, trayKindLineLook } from "./trayKindLine.experiment";
 import { traySurfaceLook } from "./traySurface.experiment";
 import { trayLatestLook } from "./trayLatest.experiment";
-import { hatChevronLook, hatDoneLook, hatRowMotionLook } from "./hatParts.experiment";
-import { DoneMark } from "./DoneMark";
-import { Tick } from "./trayMotion";
+import { hatChevronLook, hatDoneCheckPlace, hatDoneLook, hatRowMotionLook } from "./hatParts.experiment";
+import { DoneCheck, DoneMark } from "./DoneMark";
+import { Tick, useGlide } from "./trayMotion";
+import { useCountedRender } from "../perfRender";
 import { useTrayMotion } from "./trayMotionModel";
+import { useTraySeen } from "./traySeen";
 import type { StartedSession } from "../started/startedSessions";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
@@ -177,6 +180,7 @@ export const SubagentTray = memo(function SubagentTray({
   onTuck,
   tuckSide = "middle",
   onHold,
+  onSeen,
 }: {
   /// What runs or waits on the person (runningTray.ts `trayItems`): the lines the header counts.
   items: readonly TrayItem[];
@@ -233,13 +237,23 @@ export const SubagentTray = memo(function SubagentTray({
   /// (trayLinger.ts) expires no finished line while it is, and resumes when it lets go. Reported on
   /// a change only (never per pointer move), and false when the hat unmounts.
   onHold?: (held: boolean) => void;
+  /// The hat could be seen: on screen, in a page that shows, in a focused window (traySeen.ts).
+  /// App.tsx's linger counts a finished line's grace only while it could. Reported on a change only,
+  /// and false when the hat stops drawing.
+  onSeen?: (seen: boolean) => void;
 }) {
+  // Its committed renders while measuring (loadDebug.ts `loadTick` `still`): the hat over the composer
+  // draws again on an event, never on the clock's tick.
+  useCountedRender("tray");
   const t = useT();
   const language = usePaneLanguage();
   // The chat's harness, for a subagent that names none (SubagentGroup.tsx `Avatar`).
   const chatHarness = useContext(SubagentHarnessContext);
   const listId = useId();
-  const now = useNow(items.length > 0);
+  // No clock here: each running time is its own leaf (Elapsed.tsx), so the clock's second draws one
+  // text node per time, never the hat, its header or its lines (Leo, 2026-11-09: "im still sometimes
+  // seeing a flicker on the composer/composer hat when scrolling and things are running in background
+  // aka time is ticking").
   const trayNode = useRef<HTMLElement | null>(null);
   const [narrow, setNarrow] = useState(false);
   // Room for one name in the folded header, not two: a measured narrow tray (an unmeasured one, 0px,
@@ -276,6 +290,7 @@ export const SubagentTray = memo(function SubagentTray({
   const [latestAt] = useState(() => experimentArm(trayLatestLook));
   const [chevronAt] = useState(() => experimentArm(hatChevronLook));
   const [doneLook] = useState(() => experimentArm(hatDoneLook));
+  const [checkPlace] = useState(() => experimentArm(hatDoneCheckPlace));
   const [rowMotion] = useState(() => experimentArm(hatRowMotionLook));
   const showLatest = latestAt !== "tooltip";
   const latestPlacement = latestAt === "tooltip" ? undefined : latestAt;
@@ -345,6 +360,9 @@ export const SubagentTray = memo(function SubagentTray({
   // motion the fold leaves in the same commit and takes the focused line with it, so whether focus
   // was in the list is kept as it moves (onFocus/onBlur below), not read after the commit.
   const headButton = useRef<HTMLButtonElement | null>(null);
+  // "+N more" and the time move as one trailing segment: a width change before them glides them to
+  // their new place instead of jumping (trayMotion.tsx `useGlide`).
+  useGlide(headButton, ":scope > .acpmux-running-tray__more, :scope > .acpmux-running-tray__time");
   const focusInList = useRef(false);
   useLayoutEffect(() => {
     if (open || !focusInList.current) return;
@@ -380,6 +398,7 @@ export const SubagentTray = memo(function SubagentTray({
     },
     [],
   );
+  useTraySeen(trayNode, headed, onSeen);
   // A line that joins the open list grows in from 0 height and a line that leaves keeps its node and
   // folds to 0 height (`TrayRow`, on the shared fold), so the lines around it move with it, never a
   // pop or a jump (Leo, 2026-11-07: "the things coming, they shouldn't just, like, pop in, burst in,
@@ -476,10 +495,13 @@ export const SubagentTray = memo(function SubagentTray({
   }, []);
   const newest = useMemo(() => newestNames(t, items), [t, items]);
   const ordered = useMemo(() => attentionFirst(items, finished, waiting), [items, finished, waiting]);
+  // The badge look picks which subagents show their family mark (foreignHarness): read here, so a
+  // change of the setting draws them again.
+  const senderBadge = useSenderIconLook().badge;
   // A lone item's header draws its own mark, as its line does.
   const headMarks = useMemo(
-    () => (head === "stack" || lone ? stackMarks(t, items, finished, chatHarness) : NO_MARKS),
-    [t, head, lone, items, finished, chatHarness],
+    () => (head === "stack" || lone ? stackMarks(t, items, finished, chatHarness, senderBadge) : NO_MARKS),
+    [t, head, lone, items, finished, chatHarness, senderBadge],
   );
   const headCounts = useMemo(
     () =>
@@ -523,7 +545,7 @@ export const SubagentTray = memo(function SubagentTray({
   // row's end, open or folded, over the line's own time; its words slide over to the counts and its
   // muted step narrows away on the same clock, never popping out or in; the line grows in under it on
   // the shared fold.
-  const loneEnd = lone ? loneHeadOf(t, language, lone, waiting, now, showLatest) : undefined;
+  const loneEnd = lone ? loneHeadOf(t, language, lone, waiting, showLatest) : undefined;
   const loneHead = loneEnd && !open ? loneEnd : undefined;
   const named = !open && !loneHead && foldHead !== "counts" && newest.length > 0;
   const shownNames = named ? newest.slice(0, foldHead === "one" || oneName ? 1 : 2) : [];
@@ -577,6 +599,9 @@ export const SubagentTray = memo(function SubagentTray({
     <section
       ref={setTrayRef}
       className="acpmux-running-tray"
+      // It holds still while the chat streams, ticks and scrolls: only its times tick, in their own
+      // text (Elapsed.tsx). The dev budgets warn otherwise (devkit/perfBudgets.ts `still-surface`).
+      data-perf-still="hat"
       aria-label={t("summary.subagents")}
       data-open={open || undefined}
       data-placement={placement}
@@ -630,7 +655,13 @@ export const SubagentTray = memo(function SubagentTray({
           aria-controls={open && opensPanel !== "header" ? listId : undefined}
           onClick={toggle}
         >
-          {(head === "stack" || lone) && drawnMarks.length > 0 ? (
+          {loneEnd?.status === "done" && doneLook === "check" && checkPlace === "leading" ? (
+            // The `leading` arm (hatParts.experiment.ts `hatDoneCheckPlace`): a lone finished item's check
+            // in the lines' glyph column; its time ends the row alone.
+            <span className="acpmux-lineage__icon" data-state="done" style={{ width: ROW_ICON }} aria-hidden="true">
+              <DoneCheck />
+            </span>
+          ) : (head === "stack" || lone) && drawnMarks.length > 0 ? (
             // The lines' own marks side by side, each subagent's in its tone (trayHead.experiment.ts),
             // as the sidebar's status row stacks them before "8 done".
             <span className="acpmux-running-tray__stack" data-tray-stack aria-hidden="true">
@@ -687,8 +718,14 @@ export const SubagentTray = memo(function SubagentTray({
               ))}
             </span>
           )}
+          {/* The rest of the names, one word space after them (subagents.css); its count rolls in place
+              and its "+" sits on the figures' centre (Typography.tsx `Sign`). */}
           {named && moreCount > 0 && (
-            <span className="acpmux-summary-meta acpmux-running-tray__more">{t("tools.more", { n: moreCount })}</span>
+            <Tick
+              className="acpmux-summary-meta acpmux-running-tray__more"
+              text={t("tools.more", { n: moreCount })}
+              steadyCounts
+            />
           )}
           {/* Quiet meta right after the counts, never a column of its own far from them. */}
           {loneEnd ? (
@@ -697,20 +734,26 @@ export const SubagentTray = memo(function SubagentTray({
             // header is all that says so.
             <span className="acpmux-summary-meta acpmux-running-tray__time" data-lone data-status={loneEnd.status}>
               {loneEnd.status === "done" ? (
-                <DoneMark state={loneEnd.state} time={loneEnd.time} look={doneLook} checkInSlot />
+                <DoneMark state={loneEnd.state} time={loneEnd.time} look={doneLook} checkInSlot place={checkPlace} />
               ) : loneEnd.status === "running" && !loneEnd.retry && loneEnd.time !== undefined ? (
                 loneEnd.time
               ) : (
                 <>
                   <span className="acpmux-running-tray__lone-state">{loneEnd.state}</span>
-                  {loneEnd.time !== undefined && ` · ${loneEnd.time}`}
+                  {loneEnd.time !== undefined && (
+                    <>
+                      {" · "}
+                      {loneEnd.time}
+                    </>
+                  )}
                 </>
               )}
             </span>
+          ) : // The clock is the time element itself, so a range over it holds only its text.
+          starts.length > 0 ? (
+            <Elapsed clock="acpmux-summary-meta acpmux-running-tray__time" since={Math.min(...starts)} />
           ) : (
-            <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
-              {starts.length > 0 ? formatDuration(Math.max(0, now - Math.min(...starts))) : undefined}
-            </span>
+            <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden />
           )}
           {/* The panel button's room, in the lines' Stop column: the button lies over it, outside the
               header's own button (a button holds no button). */}
@@ -849,14 +892,14 @@ export const SubagentTray = memo(function SubagentTray({
               progress={subagentProgress(t, language, item.agent, { usage: false }).join(" · ") || undefined}
               progressAgent={item.agent}
               icon={SUBAGENT_FALLBACK}
-              mark={foreignHarness(item.agent.harness, chatHarness)}
+              mark={foreignHarness(item.agent.harness, chatHarness, senderBadge)}
               tone={agentTone(item.agent.id)}
               doneLook={doneLook}
               status={subagentStatus(item.agent, waiting)}
               working={subagentStatus(item.agent, waiting) === "running"}
               state={subagentStateText(t, item.agent, waiting)}
               quiet={quietAgent(item.agent, waiting)}
-              time={formatDuration(elapsed(item.agent, now))}
+              time={agentTime(item.agent)}
               depth={item.depth}
               // Its kind and what it does now are off the line (Leo, 2026-10-31: "a lot of these
               // subtitles are bad"); the tooltip keeps them under its task.
@@ -906,7 +949,7 @@ export const SubagentTray = memo(function SubagentTray({
       const status = commandStatus(item.command);
       const runs = status === "running";
       const processId = runs ? item.command.processId : undefined;
-      const commandElapsed = commandTime(item.command, now);
+      const commandElapsed = commandTime(item.command);
       const ownerParent =
         item.owner?.parent === null || item.owner?.parent === undefined ? undefined : agentsById.get(item.owner.parent);
       // Named in words (session-info/commandRules.ts); the command as typed is its tooltip and the
@@ -1047,7 +1090,8 @@ type LoneHead = {
   latestCode?: boolean;
   status: SubagentStatus;
   state: string;
-  time?: string;
+  /// Its time, ticking in its own leaf while it runs (Elapsed.tsx).
+  time?: ReactNode;
   /// A retry is in progress: its words ("Retrying (2/4) ...") stay on the row, as its line says them.
   retry?: boolean;
   /// A subagent's workflow progress ("1/3 agents"), live from the progress store (AgentLine.tsx).
@@ -1066,7 +1110,6 @@ function loneHeadOf(
   language: PaneLanguage,
   item: TrayItem,
   waiting: ReadonlySet<string>,
-  now: number,
   showLatest: boolean,
 ): LoneHead {
   if (item.kind === "agent") {
@@ -1078,7 +1121,7 @@ function loneHeadOf(
         showLatest && status === "running" && !retry ? latestLine(t, item.agent, awaitsOwnWork(item.agent)) : undefined,
       status,
       state: subagentStateText(t, item.agent, waiting),
-      time: formatDuration(elapsed(item.agent, now)),
+      time: agentTime(item.agent),
       retry,
       agent: item.agent,
       progress: subagentProgress(t, language, item.agent, { usage: false }).join(" · ") || undefined,
@@ -1092,7 +1135,7 @@ function loneHeadOf(
       latestCode: true,
       status,
       state: t(STATUS_LABEL[status]),
-      time: commandTime(item.command, now),
+      time: commandTime(item.command),
     };
   }
   // The chat's retry, as its line reads it (retryState.ts `sessionRetry`): a failed turn that acpmux
@@ -1141,6 +1184,7 @@ function stackMarks(
   items: readonly TrayItem[],
   finished: readonly TrayItem[],
   chatHarness: string | undefined,
+  senderBadge: SenderIconBadge,
 ): readonly HeadMark[] {
   const marks: HeadMark[] = [];
   for (const item of [...items.slice(0, STACK_MARKS), ...finished.slice(0, STACK_MARKS)]) {
@@ -1149,7 +1193,7 @@ function stackMarks(
       item.kind === "agent"
         ? {
             key: itemKey(item),
-            harness: foreignHarness(item.agent.harness, chatHarness),
+            harness: foreignHarness(item.agent.harness, chatHarness, senderBadge),
             tone: agentTone(item.agent.id),
             icon: SUBAGENT_FALLBACK,
           }
@@ -1268,11 +1312,24 @@ const ARRIVALS_PER_UPDATE = 3;
 /// the host's motion is on (shared/pageReveal.ts).
 const entranceMayRun = () => entranceAllowed();
 
-/// How long a command has run, or ran: to its end once it ended.
-function commandTime(command: BackgroundCommand, now: number): string | undefined {
+/// How long a command has run, or ran: to its end once it ended. A running one ticks in its own leaf
+/// (Elapsed.tsx), never in the line or the header that shows it.
+function commandTime(command: BackgroundCommand): ReactNode {
   if (command.startedAt === undefined) return undefined;
-  const end = command.state === "running" ? now : (command.endedAt ?? now);
-  return formatDuration(Math.max(0, end - command.startedAt));
+  return <Elapsed since={command.startedAt} until={command.state === "running" ? undefined : command.endedAt} />;
+}
+
+/// How long a subagent has run, or ran (subagentGroupModel.ts `elapsed`): one waiting on background work
+/// of its own has not ended, so its time keeps going. Ticking in its own leaf (Elapsed.tsx).
+function agentTime(agent: Subagent): ReactNode {
+  const live = ticking(agent);
+  return (
+    <Elapsed
+      since={agent.startedAt}
+      until={live ? undefined : agent.endedAt}
+      ended={!live && agent.endedAt === undefined}
+    />
+  );
 }
 
 /// A started chat's line: its turn runs, it waits on the person, its turn failed, or it is done.

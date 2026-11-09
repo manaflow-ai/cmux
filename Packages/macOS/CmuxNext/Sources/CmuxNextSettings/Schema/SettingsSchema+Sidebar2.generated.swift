@@ -217,6 +217,16 @@ extension SidebarSettingsSchema {
                 keywords: ["sidebar", "minimal", "hover", "hide", "show", "controls", "buttons", "search", "profile", "spaces", "footer", "clean"]
             ),
             SettingDescriptor(
+                SidebarSectionsSetting.floatOnHoverPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.floatOnHover", "Float Hidden Sidebar on Hover"),
+                help: SettingsText.keyed("settings.sidebar.floatOnHover.help", "With the sidebar hidden, rest the pointer on the window's sidebar edge to show the sidebar over your content. It hides again when the pointer leaves it. Off, the sidebar shows only when you show it."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.floatOnHoverDefault),
+                keywords: ["sidebar", "float", "floating", "hover", "peek", "edge", "overlay", "reveal", "hidden", "auto hide"]
+            ),
+            SettingDescriptor(
                 SidebarSectionsSetting.minimalPath,
                 section: .appearance,
                 group: group,
@@ -361,7 +371,7 @@ extension SidebarSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.groupPalette", "Group Colors"),
-                help: SettingsText.keyed("settings.sidebar.groupPalette.help", "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient."),
+                help: SettingsText.keyed("settings.sidebar.groupPalette.help", "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient. Pictorial colors each group from the desktop picture at its place in the list."),
                 kind: .choice([
                     SettingChoice(GroupPalette.glass.rawValue, SettingsText.keyed("settings.choice.groupPaletteGlass", "Glass")),
                     SettingChoice(GroupPalette.theme.rawValue, SettingsText.keyed("settings.choice.groupPaletteTheme", "App Theme")),
@@ -369,9 +379,10 @@ extension SidebarSettingsSchema {
                     SettingChoice(GroupPalette.grayscale.rawValue, SettingsText.keyed("settings.choice.groupPaletteGrayscale", "Grayscale")),
                     SettingChoice(GroupPalette.vibrant.rawValue, SettingsText.keyed("settings.choice.groupPaletteVibrant", "Vibrant")),
                     SettingChoice(GroupPalette.gradient.rawValue, SettingsText.keyed("settings.choice.groupPaletteGradient", "Gradient")),
+                    SettingChoice(GroupPalette.pictorial.rawValue, SettingsText.keyed("settings.choice.groupPalettePictorial", "Pictorial")),
                 ]),
                 default: .string(SidebarSectionsSetting.groupPaletteDefault.rawValue),
-                keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic", "gradient"]
+                keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic", "gradient", "pictorial", "picture"]
             ),
         ]
     }

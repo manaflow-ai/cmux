@@ -178,6 +178,7 @@ pub(super) fn draw_new_session(
         "approve-reads" => "reads auto, writes ask",
         "approve-edits" => "reads and edits auto, shell asks",
         "approve-all" => "nothing asks",
+        "review" => "reads and read-only shell auto, the rest denied",
         _ => "everything denied",
     };
     let val = |i: usize, v: &str, hint: &str| -> Vec<(String, Style)> {

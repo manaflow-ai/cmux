@@ -30,6 +30,8 @@
 2 Packages/macOS/CmuxNext/Sources/CmuxNextFloating/ChiefPet/ChiefPetPanel.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/TitlebarHistoryMenu.swift
 # 2026-11-03 (base red): 894d34f2eff's Chief Teleport menu (a destination row per place, Roll Back) has no registered action yet.
+# 2026-11-08 (base red): 849fa219b8f added the queued pill's Start now row as a target object; it has no registered action yet.
+1 Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeAgentPillAction.swift
 2 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefTeleport/ChiefTeleportMenuBuilder.swift
 2 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeChiefSettingsView.swift
 1 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomePageMenus.swift

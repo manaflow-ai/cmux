@@ -12,6 +12,7 @@ import { type Subagent } from "./subagentFold";
 import { agentTone, AgentTonesContext } from "./agentTones";
 import { AgentIdentity } from "./AgentIdentity";
 import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "./agentIdentityModel";
+import { useSenderIconLook } from "./senderIconLook";
 import { subagentProgress } from "./subagentProgress";
 import { subagentDisplayName } from "./subsessions";
 import { waveProps } from "../../../ui/wave";
@@ -28,6 +29,7 @@ import {
   useNow,
   STACK,
 } from "./subagentGroupModel";
+import { Clock } from "../../../ui/Typography";
 
 /// A subagent's avatar: the subagent mark in the agent's tone (another family's harness mark,
 /// AgentIdentity.tsx `foreignHarness`), and its place in the running wave
@@ -37,7 +39,7 @@ export function Avatar({ agent, wave }: { agent: Subagent; wave?: number }) {
   // An agent a shell call started (`codex exec`) runs on its own harness, not the chat's: its mark
   // shows; one of the chat's own family keeps the toned subagent mark.
   const chat = useContext(SubagentHarnessContext);
-  const harness = foreignHarness(agent.harness, chat);
+  const harness = foreignHarness(agent.harness, chat, useSenderIconLook().badge);
   const { className, style } = waveProps(wave);
   return (
     <span
@@ -99,7 +101,7 @@ export function SubagentGroupHeader({
       <span className="cv-subagents__text">
         <span className="cv-subagents__title">{groupLabel(t, language, agents)}</span>
       </span>
-      <span className="cv-subagents__time">{formatDuration(groupElapsed(agents, now))}</span>
+      <Clock className="cv-subagents__time" text={formatDuration(groupElapsed(agents, now))} />
       <Icon name={expanded ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
     </button>
   );
@@ -133,7 +135,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
         <span className="cv-subagent__name">{subagentDisplayName(t, agent)}</span>
         <span className="cv-subagent__state">{state}</span>
       </span>
-      <span className="cv-subagent__time">{formatDuration(elapsed(agent, now))}</span>
+      <Clock className="cv-subagent__time" text={formatDuration(elapsed(agent, now))} />
     </>
   );
   const kind = agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined;

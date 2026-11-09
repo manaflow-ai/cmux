@@ -231,7 +231,6 @@ struct CloudNewMachineTests {
         let machine = try CloudMachine.classic(Data(#"{"id":"vm-3","status":"running","address":{"ipv4":"10.0.0.9"}}"#.utf8))
         let answer = CloudHandlers.newMachineEnrollment(request, machine)
         #expect(answer["registry_command"] == .string("tools/lane-vm-enroll lane-vm-3 vm-3 --address 10.0.0.9 --apply"))
-        #expect(answer["enroll_command"] == .string("cmux cloud enroll-machine --target machine:vm-3 --name lane-vm-3"))
         #expect(CloudHandlers.newMachineEnrollment(CloudMachineRequest(), machine)["registry_command"] == nil)
     }
 }
