@@ -51,6 +51,9 @@ struct RecoveryHarness {
     adoption_insert_failures: Option<u64>,
     template_completion_failures: Option<u64>,
     adopt_template_terminal: bool,
+    /// `false` launches shells without Ghostty shell integration, so they
+    /// emit no OSC 7 or OSC 133 reports that commit registry revisions.
+    shell_integration: bool,
 }
 
 impl RecoveryHarness {
@@ -69,6 +72,7 @@ impl RecoveryHarness {
             adoption_insert_failures: None,
             template_completion_failures: None,
             adopt_template_terminal: false,
+            shell_integration: true,
             dir,
         };
         harness.restart();
@@ -129,6 +133,7 @@ impl RecoveryHarness {
             adoption_insert_failures: None,
             template_completion_failures: None,
             adopt_template_terminal: false,
+            shell_integration: true,
             dir,
         }
     }
@@ -161,6 +166,14 @@ impl RecoveryHarness {
         }
         if let Some(failures) = self.template_completion_failures {
             command.env("CMUX_TUI_TEST_TEMPLATE_COMPLETION_FAILURES", failures.to_string());
+        }
+        if !self.shell_integration {
+            command.env("CMUX_TUI_SHELL_INTEGRATION", "none");
+            // The host user's own shell startup files can report a cwd too
+            // (zsh precmd hooks on the macOS build hosts add an OSC 7 commit
+            // that these exact revision counts do not expect): run a plain
+            // POSIX sh that reads no startup file.
+            command.env("SHELL", "/bin/sh").env_remove("ENV").env_remove("BASH_ENV");
         }
         if self.adopt_template_terminal {
             command.env("CMUX_TUI_ADOPT_TEMPLATE_TERMINAL", "1");
@@ -3519,7 +3532,12 @@ fn interrupted_creation_waits_for_transient_host_adoption_before_serving() {
 
 #[test]
 fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_restarts() {
-    let mut harness = RecoveryHarness::start_with_host_ready_delay("public-create-recovery", 2_000);
+    // The exact revision assertions below count creation commits only; a
+    // shell's cwd report would add its own revision.
+    let mut harness = RecoveryHarness::start_unstarted("public-create-recovery");
+    harness.host_ready_delay_ms = Some(2_000);
+    harness.shell_integration = false;
+    harness.restart();
     let create = serde_json::json!({
         "protocol":"cmux.protocol/2",
         "type":"request",
@@ -4968,6 +4986,98 @@ fn adopted_template_terminal_is_restored_in_place_after_a_daemon_restart() {
     );
     let surface = resolved["data"]["surface"].as_u64().unwrap();
     assert!(wait_for_screen(&harness.socket, surface, &parked.marker).contains(&parked.marker));
+}
+
+/// A Cloud template terminal whose tab was closed keeps running detached, like
+/// any other terminal after `tab.close`. A daemon restart must restore it
+/// detached, not treat it as a first adoption: a fresh placement made from
+/// a runtime that already has a public terminal id has no tab identity, every
+/// later resource projection fails, and the session can no longer create a
+/// terminal (pane.run and tab.create_terminal report indeterminate).
+#[test]
+fn detached_template_terminal_survives_a_daemon_restart_without_wedging_mutations() {
+    let mut harness = RecoveryHarness::start("template-detached");
+    let parked = park_template_host(&mut harness);
+    harness.adopt_template_terminal = true;
+    harness.restart();
+    assert_template_bound_and_listed(&harness, &parked);
+
+    resource_request(
+        &harness.socket,
+        "template-detached-second-tab",
+        "tab.create_terminal",
+        serde_json::json!({"machine":"current","session":"current"}),
+        Some("template-detached-second-tab"),
+    );
+    let listed = resource_request(
+        &harness.socket,
+        "template-detached-list",
+        "terminal.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let template_terminal = fs::read_to_string(harness.dir.join("bound"))
+        .unwrap()
+        .lines()
+        .find_map(|line| line.strip_prefix("CMUX_TUI_TERMINAL_ID="))
+        .unwrap()
+        .to_string();
+    let template_tab = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|terminal| terminal["id"] == template_terminal.as_str())
+        .and_then(|terminal| terminal["tab_id"].as_str())
+        .unwrap_or_else(|| panic!("template terminal has no tab: {listed}"))
+        .to_string();
+    resource_request(
+        &harness.socket,
+        "template-detached-close-tab",
+        "tab.close",
+        serde_json::json!({"machine":"current","session":"current","tab":template_tab}),
+        Some("template-detached-close-tab"),
+    );
+
+    harness.signal_daemon(libc::SIGTERM);
+    let mut daemon = harness.child.take().unwrap();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(5));
+    while daemon.try_wait().unwrap().is_none() {
+        if Instant::now() >= deadline {
+            let _ = daemon.kill();
+            let _ = daemon.wait();
+            panic!("daemon did not exit after SIGTERM");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let _ = fs::remove_file(&harness.socket);
+    harness.restart();
+
+    let created = resource_request(
+        &harness.socket,
+        "template-detached-create",
+        "tab.create_terminal",
+        serde_json::json!({"machine":"current","session":"current"}),
+        Some("template-detached-create"),
+    );
+    assert!(created["value"]["terminal_id"].is_string(), "{created}");
+    let after = resource_request(
+        &harness.socket,
+        "template-detached-list-after",
+        "terminal.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let template = after
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|terminal| terminal["id"] == template_terminal.as_str())
+        .unwrap_or_else(|| panic!("detached template terminal was lost: {after}"));
+    assert!(
+        template["tab_ids"].as_array().is_none_or(Vec::is_empty),
+        "detached template terminal was placed again: {template}"
+    );
+    assert_eq!(template["running"], true, "{template}");
 }
 
 #[path = "terminal_host_recovery/idle_template.rs"]

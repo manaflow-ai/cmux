@@ -4072,11 +4072,31 @@ fn startup_repairs_legacy_terminal_close_dangling_resource_rows() {
 
     let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
     let topology = reopened.resource_topology_snapshot().unwrap();
+    // One atomic repair batch: the deletes and the restated screen.
     assert_eq!(topology.revision, 2);
     let events = reopened.resource_events_after(1).unwrap();
     assert_eq!(events.batches.len(), 1);
     assert_eq!(events.batches[0].revision, 2);
     assert_eq!(events.batches[0].changes[0]["resource"], "terminal");
+    // The tab that still showed the closed terminal is retired with it, so the
+    // registry satisfies the live-content invariant and opens.
+    assert_eq!(events.batches[0].changes[1]["kind"], "delete");
+    assert_eq!(events.batches[0].changes[1]["resource"], "tab");
+    assert_eq!(events.batches[0].changes[1]["id"], tab_id(1).as_str());
+    assert!(topology.tabs.is_empty(), "tab of the closed terminal remained live: {topology:?}");
+    assert!(topology.panes.iter().all(|pane| pane.active_tab.is_none()));
+    // The pane lost its only tab, so the same batch restates its screen with
+    // an empty leaf.
+    let changes = events.batches[0].changes.as_array().unwrap();
+    assert_eq!(changes.len(), 3, "{changes:?}");
+    assert_eq!(changes[2]["kind"], "upsert");
+    assert_eq!(changes[2]["resource"], "screen");
+    assert_eq!(changes[2]["id"], topology.panes[0].screen_id.as_str());
+    assert_eq!(changes[2]["sequence"], 2);
+    let leaf = &changes[2]["value"]["layout"]["root"];
+    assert_eq!(leaf["kind"], "leaf");
+    assert_eq!(leaf["tab_ids"], json!([]));
+    assert!(leaf.get("active_tab_id").is_none(), "{leaf}");
     let live_terminals: i64 = reopened
         .connection
         .query_row(
@@ -4101,6 +4121,107 @@ fn startup_repairs_legacy_terminal_close_dangling_resource_rows() {
     assert!(resource_deleted.is_some());
     assert_eq!(identity_deleted, resource_deleted);
     drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn startup_repair_retires_a_dangling_terminal_tab_and_selects_its_sibling() {
+    let root = temp_root("terminal-close-dangling-sibling");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        let pane = pane_id(1);
+        let second_terminal = terminal_resource(TERMINAL_TWO);
+        let mut patch = terminal_topology_patch();
+        patch.changes.retain(|change| !matches!(change, ResourceChange::SetTabOrder { .. }));
+        patch.changes.push(ResourceChange::UpsertTerminal {
+            public_id: second_terminal.clone(),
+            terminal: terminal(TERMINAL_TWO, "one"),
+        });
+        patch.changes.push(ResourceChange::UpsertTab(RegistryTab {
+            name_source: Default::default(),
+            name_revision: 0,
+            public_id: tab_id(2),
+            pane_id: pane.clone(),
+            position: 1,
+            content_id: ContentPublicId::Terminal(second_terminal),
+            name: Some("zsh".into()),
+            browser_url: None,
+            terminal_id: Some(TERMINAL_TWO.into()),
+        }));
+        patch.changes.push(ResourceChange::SetTabOrder {
+            pane_id: pane,
+            tab_ids: vec![tab_id(1), tab_id(2)],
+        });
+        registry
+            .commit_resource_patch(
+                &WorkspaceMutation::new("seed-two-tabs", "test").unwrap(),
+                "workspace.create",
+                &json!({"operation":"workspace.create","name":"One"}),
+                None,
+                Some(0),
+                &patch,
+                &json!({"workspace_id":workspace(1, "one", "One").public_id}),
+                &json!([{"kind":"workspace.created"}]),
+            )
+            .unwrap();
+        let mutation = WorkspaceMutation::new("legacy-host-only-close", "legacy-client").unwrap();
+        registry.close_terminal(&mutation, None, Some(0), TERMINAL_ONE, None).unwrap();
+    }
+
+    // The retired tab's sibling moves to its place and becomes the active tab.
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let topology = reopened.resource_topology_snapshot().unwrap();
+    assert_eq!(topology.tabs.len(), 1, "{topology:?}");
+    assert_eq!(topology.tabs[0].public_id, tab_id(2));
+    assert_eq!(topology.tabs[0].position, 0);
+    assert_eq!(topology.panes[0].active_tab, Some(tab_id(2)));
+    let changes = &reopened.resource_events_after(1).unwrap().batches[0].changes;
+    assert_eq!(changes[0]["resource"], "terminal");
+    assert_eq!(changes[0]["id"], terminal_resource(TERMINAL_ONE).as_str());
+    assert_eq!(changes[1]["resource"], "tab");
+    assert_eq!(changes[1]["id"], tab_id(1).as_str());
+
+    // An attached event-feed client holds the pre-restart graph. The repair
+    // batch itself restates the surviving sibling (its index and focus moved)
+    // and the screen whose layout lists the pane's tabs, so the client shows
+    // the repaired layout without waiting for another update, and no state
+    // between the deletes and the restatement is ever published.
+    let page = reopened.resource_events_after(1).unwrap();
+    assert_eq!(page.batches.len(), 1, "{:?}", page.batches);
+    let restated = page.batches[0].changes.as_array().unwrap().iter().collect::<Vec<_>>();
+    let upsert = |resource: &str, id: &str| {
+        restated
+            .iter()
+            .find(|change| {
+                change["kind"] == "upsert" && change["resource"] == resource && change["id"] == id
+            })
+            .unwrap_or_else(|| panic!("no restatement of {resource} {id}: {:?}", page.batches))
+    };
+    let sibling = upsert("tab", tab_id(2).as_str());
+    assert_eq!(sibling["value"]["index"], 0);
+    assert_eq!(sibling["value"]["focused"], true);
+    assert_eq!(sibling["value"]["pane_id"], pane_id(1).as_str());
+    let screen_id = topology.panes[0].screen_id.as_str();
+    let screen = upsert("screen", screen_id);
+    let leaf = &screen["value"]["layout"]["root"];
+    assert_eq!(leaf["kind"], "leaf");
+    assert_eq!(leaf["tab_ids"], json!([tab_id(2).as_str()]));
+    assert_eq!(leaf["active_tab_id"], tab_id(2).as_str());
+    assert_eq!(page.head_revision, page.batches.last().unwrap().revision);
+    for pair in page.batches.windows(2) {
+        assert_eq!(pair[1].previous_revision, pair[0].revision);
+    }
+    for batch in &page.batches {
+        for (sequence, change) in batch.changes.as_array().unwrap().iter().enumerate() {
+            assert_eq!(change["sequence"], sequence);
+        }
+    }
+    drop(reopened);
+
+    // The restatement is published once: a later open adds no batch.
+    let again = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(again.resource_events_after(1).unwrap().batches.len(), page.batches.len());
+    drop(again);
     fs::remove_dir_all(root).unwrap();
 }
 

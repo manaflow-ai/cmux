@@ -194,7 +194,8 @@ class DriftReportingOverVariables(unittest.TestCase):
 HEALTH_REPORT_WORKFLOW = ROOT / ".github" / "workflows" / "ci-health-report.yml"
 # RUNNER_POOLS is a JSON map of pool -> label, read as fromJSON(vars.RUNNER_POOLS).<pool>; its labels are
 # checked by scripts/ci/runner_pools.py --check (ci-repo-variables.yml), not by the label policy.
-NON_LABEL_RUNNER_VARIABLES = {"CI_SEED_KEEP_LOCAL_RUNNERS", "RUNNER_POOLS"}
+# CI_RUNNER_STATE is compressed discovery metadata, not a runs-on label.
+NON_LABEL_RUNNER_VARIABLES = {"CI_RUNNER_STATE", "CI_SEED_KEEP_LOCAL_RUNNERS", "RUNNER_POOLS"}
 
 
 def reported_runner_variables() -> set[str]:
@@ -291,6 +292,33 @@ class NightlyRunnerVariable(unittest.TestCase):
         self.assertIn("fromJSON(format('[\"{0}\", \"{1}\"]', vars.CI_SEED_TRUSTED_POOL, "
                       "vars.CI_NIGHTLY_TRUSTED_RUNNER))", text)
         self.assertIn("vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != ''", text)
+
+
+class NightlySlotVariable(unittest.TestCase):
+    def test_only_a_nightly_slot_label_is_allowed(self) -> None:
+        # nightly.yml's decide and the scheduled nightly-next canary and launch smoke take
+        # CI_NIGHTLY_NEXT_BUILD_RUNNER whole as runs-on, with write tokens in their failure jobs.
+        self.assertEqual(drifted_runner_variables({"CI_NIGHTLY_NEXT_BUILD_RUNNER": "glaeda-nightly-std-xcode-26.6"}), [])
+        self.assertEqual(drifted_runner_variables({"CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}), [])
+        for label in ("self-hosted-nightly-prod", "glaeda-nightly-", "glaeda-nightly-only-m4pro", "glaeda-std-xcode-26.6",
+                      "glaeda-side-std-xcode-26.6", "glaeda-trusted-std-xcode-26.6", "blacksmith-6vcpu-macos-26"):
+            with self.subTest(label=label):
+                self.assertEqual(
+                    [name for name, _, _ in drifted_runner_variables({"CI_NIGHTLY_NEXT_BUILD_RUNNER": label})],
+                    ["CI_NIGHTLY_NEXT_BUILD_RUNNER"],
+                )
+
+    def test_the_scheduled_gate_bounds_it_to_the_slot_prefix(self) -> None:
+        # Every runs-on that reads the variable checks the prefix first (the variable check runs on a schedule).
+        for workflow in ("nightly-next-canary.yml", "nightly-next-launch-smoke.yml"):
+            text = (ROOT / ".github" / "workflows" / workflow).read_text(encoding="utf-8")
+            reads = [line for line in text.splitlines()
+                     if "runs-on:" in line and "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER" in line]
+            self.assertEqual(len(reads), 4, workflow)
+            for line in reads:
+                self.assertEqual(line.count("vars.CI_NIGHTLY_NEXT_BUILD_RUNNER"), 2, line)
+                self.assertIn("github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, "
+                              "'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER", line)
 
 
 class NextNightlyTrustedLabels(unittest.TestCase):
