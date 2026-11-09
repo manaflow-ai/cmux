@@ -231,10 +231,12 @@ describe("mesh device intents", () => {
   });
 
   it("clears a commit revoked during its rollback whichever confirms the delete: the rollback, or a later revoke's reconcile", async () => {
-    const meshId = newMeshId();
+    // Two meshes: each case commits a device with the same WireGuard key, which is unique per mesh.
+    const meshOf: Record<string, string> = { "i-18": newMeshId(), "i-19": newMeshId() };
     const stateOf = async (intentId: string) =>
-      (await run(store.findDeviceIntent(A, meshId, intentId))).pipe(Option.map((row) => [row.committedAt === null, row.deviceId === null, row.revokedAt === null]));
+      (await run(store.findDeviceIntent(A, meshOf[intentId] ?? "", intentId))).pipe(Option.map((row) => [row.committedAt === null, row.deviceId === null, row.revokedAt === null]));
     // The rollback confirms the delete: it resolves the attempt, then gives the claim back.
+    let meshId = meshOf["i-18"] ?? "";
     const rolled = newDeviceId();
     await claim(meshId, "i-18", rolled, at);
     await run(store.commitDeviceIntent(A, "i-18", deviceRow(meshId, rolled), later(1)));
@@ -245,6 +247,7 @@ describe("mesh device intents", () => {
     await run(store.releaseDeviceIntent(keyOf(meshId, "i-18", rolled)));
     expect(await stateOf("i-18")).toEqual(Option.some([true, true, false]));
     // The rollback's delete failed: the attempt stays open, and the revoke's reconcile releases it once it deletes the tunnel.
+    meshId = meshOf["i-19"] ?? "";
     const stuck = newDeviceId();
     await claim(meshId, "i-19", stuck, at);
     await run(store.commitDeviceIntent(A, "i-19", deviceRow(meshId, stuck), later(1)));
@@ -256,6 +259,7 @@ describe("mesh device intents", () => {
     expect(await openOf(meshId, "i-19")).toEqual([]);
     // Either way the tombstone alone decides when the intent is usable again.
     for (const intentId of ["i-18", "i-19"]) {
+      meshId = meshOf[intentId] ?? "";
       expect(await claim(meshId, intentId, newDeviceId(), later(INTENT_TOMBSTONE_MS))).toBe(false);
       expect(await claim(meshId, intentId, newDeviceId(), later(INTENT_TOMBSTONE_MS + 3))).toBe(true);
     }
