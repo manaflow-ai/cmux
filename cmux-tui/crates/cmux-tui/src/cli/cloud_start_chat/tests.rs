@@ -944,8 +944,7 @@ fn an_unanswered_read_past_the_deadline_fails() {
     let mut fake = Fake::new(vec![signed_in(), started(), exec_out(SENT), unanswered()]);
     // The read takes the rest of the 60 s.
     fake.slow.push((3, Duration::from_secs(60)));
-    let asked =
-        request(&["--prompt", "x", "--target", "machine:vm-1", "--wait", "--timeout", "60"]);
+    let asked = request(&["--prompt", "x", "--wait", "--timeout", "60"]);
     let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
     assert_eq!(error["code"], "chat.unreachable", "{error}");
     assert_eq!(fake.ran.len(), 4, "{:?}", fake.ran);
