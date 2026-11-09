@@ -102,6 +102,43 @@ uses its own build's helper. When it cannot write that helper, its hooks call
 helper in that case, the installed hooks run as well and each event is
 delivered twice.
 
+### Claude started by full path or by a launcher
+
+The shim only covers a `claude` found on `PATH`. A launcher that runs Claude
+by its full path (`sr2 claude` when a login shell has put `~/.local/bin`
+ahead of the shim, a version manager's shim, an alias to the full path, or a
+typed `/path/to/claude`) skips it. For those launches each terminal also
+names this build's Claude Code plugin in `CLAUDE_CODE_PLUGIN_DIRS`, which
+Claude Code 2.1 reads under any config directory and beside any
+`--settings`:
+
+- The server writes the plugin to
+  `$XDG_DATA_HOME/cmux-tui/builds/<key>/claude-plugin` and appends that
+  folder to the `CLAUDE_CODE_PLUGIN_DIRS` the server inherited. Folders of
+  other cmux-tui plugins are dropped, so a server started in another
+  build's terminal does not load two.
+- The plugin's hooks are the installed hooks plus the `SessionStart` session
+  context. They run `CMUX_TUI_HOOK`, or this build's helper when a launcher
+  removed that variable.
+- Claude Code does not merge plugin hooks with settings hooks. When the user
+  settings of the config directory Claude runs with already hold the hooks
+  from `agent hook install claude`, the plugin's copy of each such event does
+  nothing.
+- The wrapper removes the plugin from the folders it passes on, because its
+  `--settings` already carries the same hooks. Other plugin folders stay.
+- `CMUX_TUI_CLAUDE_HOOKS_DISABLED=1` turns the plugin's hooks off. Set in the
+  server's environment, it also keeps the folder out of new terminals.
+- Claude Code refuses to start while `CLAUDE_CODE_PLUGIN_DIRS` names a folder
+  under an organization policy with `disableSideloadFlags`. The server adds no
+  folder when this machine's managed settings, managed preferences, or the
+  cached remote settings of the server's Claude config directory set that
+  policy. A policy that only Anthropic's server delivers, and that is not
+  cached there, is not seen; Claude then names `CLAUDE_CODE_PLUGIN_DIRS` in
+  its error, and unsetting it in the terminal starts Claude without the
+  plugin.
+- Claude Code versions without `CLAUDE_CODE_PLUGIN_DIRS` ignore it; for them
+  only the shim adds hooks.
+
 ## Codex without an install
 
 Codex started through the `codex` shim gets the same journal hooks without a
@@ -131,11 +168,12 @@ agent badges; the cmux-tui wrapper itself does not provide those badges.
 
 ## Session context
 
-Claude Code and Codex started through the shims learn where they run when
-their session starts: that they run in a cmux-tui terminal, the ids of the
-session, workspace, screen, pane, tab and terminal, that `current` names the
-session's focused object rather than their own pane, and that `skill show`
-prints the agent guide. The text names the cmux-tui binary that spawned the
+Claude Code and Codex started through the shims, and Claude Code started any
+other way in a terminal that carries the Claude Code plugin, learn where they
+run when their session starts: that they run in a cmux-tui terminal, the
+ids of the session, workspace, screen, pane, tab and terminal, that `current`
+names the session's focused object rather than their own pane, and that
+`skill show` prints the agent guide. The text names the cmux-tui binary that spawned the
 pane by its absolute path (for example `/opt/cmux/cmux-tui skill show`),
 because the `cmux` on PATH can be another program, such as the cmux app's CLI
 when cmux-tui runs in a cmux app terminal. The text reaches the model as the
@@ -144,7 +182,10 @@ when cmux-tui runs in a cmux app terminal. The text reaches the model as the
 - The Claude wrapper adds one more `SessionStart` hook after the session's
   hook groups, `cmux-tui agent session-context`, run by the cmux-tui binary
   that spawned the pane. A binary path that is not UTF-8 drops only this
-  hook; the session's other hooks stay.
+  hook; the session's other hooks stay. A Claude that skipped the shim gets
+  the same hook from the terminal's Claude Code plugin (see
+  [Claude started by full path or by a
+  launcher](#claude-started-by-full-path-or-by-a-launcher)).
 - The Codex wrapper's own `SessionStart` hook (the one that carries
   `CMUX_TUI_HOOK_ROUTE=launch`) prints the context after it hands the event
   to the journal, and prints `{}` only when the helper fails, so Codex reads
@@ -168,9 +209,10 @@ and the wrappers still start the first `claude` or `codex` after the shim.
 Shells started without the integration (`CMUX_TUI_SHELL_INTEGRATION=none`,
 Apple's `/bin/bash`, or a nested shell typed at the prompt) keep the old
 behavior, and an alias or function named `codex` or `claude` still runs
-instead of the shim. For Claude, `cmux agent hook install claude` covers
-those cases too. `CMUX_TUI_CODEX_HOOKS_DISABLED=1` and
-`CMUX_TUI_CLAUDE_HOOKS_DISABLED=1` leave the agents unchanged.
+instead of the shim. For Claude, the terminal's Claude Code plugin and
+`cmux agent hook install claude` cover those cases too.
+`CMUX_TUI_CODEX_HOOKS_DISABLED=1` and `CMUX_TUI_CLAUDE_HOOKS_DISABLED=1`
+leave the agents unchanged.
 
 Codex needs the shim. Codex 0.162 runs hooks in a shared app-server daemon
 that keeps the environment of whichever shell started it, so an installed

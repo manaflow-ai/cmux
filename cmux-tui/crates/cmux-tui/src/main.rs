@@ -15,6 +15,8 @@ mod app;
 mod attention;
 mod browser_input;
 #[cfg(unix)]
+mod claude_plugin;
+#[cfg(unix)]
 mod claude_wrapper;
 mod cli;
 mod client_log;

@@ -1,5 +1,6 @@
 //! `cmux-tui agent session-context`: the `SessionStart` hook the `claude`
-//! shim adds to every Claude Code it starts in a cmux terminal. It prints
+//! shim adds to every Claude Code it starts in a cmux terminal, and the
+//! pane's Claude Code plugin to every other one (claude_plugin.rs). It prints
 //! the session context (cmux-tui-hook session_context.rs) as the hook's
 //! `additionalContext`, so the model knows it runs in cmux, its ids and
 //! where the guide is. It runs this binary, the build that spawned the pane,
@@ -32,6 +33,12 @@ pub(crate) fn run() -> i32 {
     // Drain the payload so Claude Code's write never fails on a closed pipe.
     let _ = std::io::stdin().lock().take(MAX_PAYLOAD_BYTES).read_to_end(&mut Vec::new());
     let env = |key: &str| std::env::var(key).ok().filter(|value| !value.trim().is_empty());
+    // The plugin's copy of this hook (claude_plugin.rs) runs without the
+    // wrapper, which is what otherwise honors the switch.
+    if env("CMUX_TUI_CLAUDE_HOOKS_DISABLED").as_deref() == Some("1") {
+        println!("{{}}");
+        return 0;
+    }
     let cli = std::env::current_exe().ok().map(|path| path.canonicalize().unwrap_or(path));
     match env("CMUX_TUI_SOCKET").or_else(|| env("CMUX_MUX_SOCKET")) {
         Some(socket) => crate::hook_helper::session_context::print(
