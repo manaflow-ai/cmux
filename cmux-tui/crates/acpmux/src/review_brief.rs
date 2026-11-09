@@ -557,8 +557,11 @@ fn own_params(rec: &EventRecord) -> Option<&Value> {
 /// (`file_path` with `old_string`/`new_string`, or `content` for a whole write). A path is the
 /// canonical one the hub added (`_meta.acpmux.canonicalPath`) when there is one, so a relative or
 /// linked path still falls under the diff's root.
+fn canonical(v: &Value) -> Option<&str> {
+    v.pointer("/_meta/acpmux/canonicalPath").and_then(Value::as_str)
+}
+
 fn changes_of(update: &Value) -> Vec<Change> {
-    let canonical = |v: &Value| v.pointer("/_meta/acpmux/canonicalPath").and_then(Value::as_str);
     let line_of = |path: &str| {
         update.get("locations").and_then(Value::as_array).into_iter().flatten().find_map(|l| {
             let named = canonical(l).or_else(|| l.get("path").and_then(Value::as_str));
