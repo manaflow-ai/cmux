@@ -53,25 +53,39 @@ class FakeApi:
 
     def dispatch(self, number, branch):
         self.dispatched.append((number, branch))
+        return None
+
+    def run(self, run_id):
+        raise AssertionError("no run id was handed out")
 
 
 class MovingTipApi(FakeApi):
     """feat-cmux-next lands a check path change during each dispatched run, `moves` times.
 
-    A dispatched run posts its result after `run_polls` status reads, at the tip it was dispatched on; the tip then
-    reads one commit newer, which changes scripts/check-pbxproj.sh. `results` are the runs' states in order (the
-    last one repeats).
+    Dispatched run k (run id k) ends after `run_polls` status reads (an int, or one per run, the last repeating),
+    at the tip it was dispatched on; the tip then reads one commit newer, which changes `moved` (by default
+    scripts/check-pbxproj.sh). `results` are the runs' outcomes in order (the last one repeats): "success" or
+    "failure" post that status; "stopped" posts the pending "stopped ..., no verdict" a cancelled gates job
+    leaves; "cancelled" ends the whole run with no status (the post job skipped); "silent" never ends. `lists`
+    are the base's check-paths.txt after 0, 1, 2... ended runs (the last one repeats).
     """
 
-    def __init__(self, moves, run_polls=3, results=("success",)):
+    def __init__(self, moves, run_polls=3, results=("success",), moved="scripts/check-pbxproj.sh", lists=None):
         tips = [format(index + 1, "040x") for index in range(moves + 1)]
         compares = {(OLD, tips[0]): {"status": "ahead", "ahead_by": 1, "files": FILES_23365}}
         for older, newer in zip(tips, tips[1:]):
-            compares[(older, newer)] = {"status": "ahead", "ahead_by": 1, "files": ["scripts/check-pbxproj.sh"]}
+            compares[(older, newer)] = {"status": "ahead", "ahead_by": 1, "files": [moved]}
         super().__init__([status(OLD)], compares=compares)
         self.tips = tips  # after FakeApi's own, which this fake's tip() replaces
-        self.moves, self.run_polls, self.results = moves, run_polls, list(results)
-        self.index, self.pending, self.current = 0, None, status(OLD)
+        self.moves, self.results, self.lists = moves, list(results), list(lists or [CHECK_PATHS])
+        self.run_polls = list(run_polls) if isinstance(run_polls, (list, tuple)) else [run_polls]
+        self.index, self.pending, self.current, self.ended, self.runs = 0, None, status(OLD), 0, {}
+
+    def _pick(self, values, run):
+        return values[min(run, len(values)) - 1]
+
+    def check_paths(self, branch):
+        return self.lists[min(self.ended, len(self.lists) - 1)]
 
     def status(self, sha):
         self.reads += 1
@@ -79,9 +93,19 @@ class MovingTipApi(FakeApi):
             self.pending -= 1
             if self.pending == 0:
                 run = len(self.dispatched)
-                state = self.results[min(run, len(self.results)) - 1]
-                self.current = status(self.tips[self.index], state=state, at=f"run {run}")
+                outcome = self._pick(self.results, run)
+                base = self.tips[self.index]
+                if outcome in ("success", "failure"):
+                    self.current = {**status(base, state=outcome, at=f"run {run}"),
+                                    "target_url": f"https://github.com/manaflow-ai/cmux/actions/runs/{run}"}
+                elif outcome == "stopped":
+                    self.current = {**status(base, state="pending", at=f"run {run}"),
+                                    "description": f"base {base}; stopped (gates cancelled, ratchet skipped), no verdict",
+                                    "target_url": f"https://github.com/manaflow-ai/cmux/actions/runs/{run}"}
+                self.runs[run] = {"status": "completed", "conclusion": "cancelled" if outcome != "success" else
+                                  "success"}
                 self.pending = None
+                self.ended += 1
                 self.index = min(self.index + 1, self.moves)
         return self.current
 
@@ -90,7 +114,14 @@ class MovingTipApi(FakeApi):
 
     def dispatch(self, number, branch):
         super().dispatch(number, branch)
-        self.pending = self.run_polls
+        run = len(self.dispatched)
+        self.runs[run] = {"status": "in_progress", "conclusion": None}
+        polls = self._pick(self.run_polls, run)
+        self.pending = None if self._pick(self.results, run) == "silent" else polls
+        return run
+
+    def run(self, run_id):
+        return self.runs[run_id]
 
 
 class Clock:
@@ -188,19 +219,20 @@ class CheckPathGate(unittest.TestCase):
                       tips=(TIP, NEWER), compares=landed)
         (checked, _), err = run(api)
         self.assertEqual(len(api.dispatched), 2)
+        self.assertEqual(checked, "check paths (fast gates rerun on the current tip)")
         self.assertIn("has changed the check path scripts/check-pbxproj.sh since", err)
 
     def test_a_tip_that_moves_a_check_path_on_every_run_refuses_at_the_wait_budget(self):
-        # Each run takes 60s; a 300s budget allows at most five dispatches, and the refusal names the budget and
+        # Each run takes 300s; a 1500s budget allows at most five dispatches, and the refusal names the budget and
         # the last check path that changed.
-        api = MovingTipApi(moves=1000)
+        api = MovingTipApi(moves=1000, run_polls=15)
         clock = Clock()
         with contextlib.redirect_stderr(io.StringIO()):
-            with self.assertRaisesRegex(gate.Refused, r"wait budget of 300s.*scripts/check-pbxproj.sh"):
-                gate.gate(api, "42", HEAD, gate.BRANCH, 300, 20, clock, clock.sleep)
+            with self.assertRaisesRegex(gate.Refused, r"wait budget of 1500s.*scripts/check-pbxproj.sh"):
+                gate.gate(api, "42", HEAD, gate.BRANCH, 900, 20, clock, clock.sleep, budget=1500)
         self.assertGreaterEqual(len(api.dispatched), 2)
         self.assertLessEqual(len(api.dispatched), 5)
-        self.assertLessEqual(clock.now, 300 + 20)
+        self.assertLessEqual(clock.now, 1500 + 20)
 
     def test_a_budget_below_one_run_still_waits_for_the_first_run_but_never_dispatches_again(self):
         # gh-merge-green passes what its --wait left; the first run keeps its own --timeout, as before the rerun.
@@ -224,6 +256,62 @@ class CheckPathGate(unittest.TestCase):
                                                   "the current tip"):
             run(api)
         self.assertEqual(len(api.dispatched), 2)
+
+    # Review of #39725 (cprerun-1): reruns that cannot report, stopped runs, and a list that changes meanwhile.
+    def test_no_rerun_when_less_than_one_fast_gates_run_of_budget_is_left(self):
+        # A run takes 60s here, but a real one takes at least 370s: with 240s left the rerun could not report.
+        api = MovingTipApi(moves=1000)
+        clock = Clock()
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(gate.Refused, r"wait budget of 300s.*less than one.*"
+                                                      r"scripts/check-pbxproj.sh"):
+                gate.gate(api, "42", HEAD, gate.BRANCH, 900, 20, clock, clock.sleep, budget=300)
+        self.assertEqual(len(api.dispatched), 1)
+        self.assertEqual(clock.now, 60)
+
+    def test_a_rerun_that_does_not_report_before_the_budget_ends_refuses(self):
+        api = MovingTipApi(moves=1000, run_polls=(3, 1000))
+        clock = Clock()
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(gate.Refused, r"wait budget of 600s.*ran out before dispatched run 2"):
+                gate.gate(api, "42", HEAD, gate.BRANCH, 900, 20, clock, clock.sleep, budget=600)
+        self.assertEqual(len(api.dispatched), 2)
+        self.assertLessEqual(clock.now, 600 + 20)
+
+    def test_a_stopped_run_with_no_verdict_dispatches_again(self):
+        # cmux-next-fast-gates.yml posts pending "base X; stopped (...), no verdict" when its gates job was
+        # cancelled or timed out: no verdict, so the gate dispatches again rather than wait out its timeout.
+        api = MovingTipApi(moves=1, results=("success", "stopped", "success"))
+        (checked, waited), err = run(api)
+        self.assertEqual(len(api.dispatched), 3)
+        self.assertEqual(checked, "check paths (fast gates rerun on the current tip)")
+        self.assertEqual(waited, 180)
+        self.assertIn("dispatched run 2 stopped with no verdict", err)
+
+    def test_a_cancelled_run_that_posts_no_status_dispatches_again(self):
+        # A run-level cancel (the fast-gates-<PR> concurrency group, or by hand) skips the post job: no status
+        # comes, and only the dispatched run's own state shows it ended.
+        api = MovingTipApi(moves=1, results=("success", "cancelled", "success"))
+        (checked, _), err = run(api)
+        self.assertEqual(len(api.dispatched), 3)
+        self.assertEqual(checked, "check paths (fast gates rerun on the current tip)")
+        self.assertIn("dispatched run 2 stopped with no verdict", err)
+
+    def test_a_stopped_run_still_refuses_at_the_budget(self):
+        api = MovingTipApi(moves=1, results=("success", "stopped"))
+        clock = Clock()
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(gate.Refused, r"wait budget of 900s.*stopped with no verdict"):
+                gate.gate(api, "42", HEAD, gate.BRANCH, 900, 20, clock, clock.sleep, budget=900)
+        self.assertLessEqual(clock.now, 900 + 20)
+
+    def test_the_list_is_read_again_before_each_rerun(self):
+        # During run 1 the base adds a pattern for the file the tip then changes: run 1 proves nothing for it.
+        api = MovingTipApi(moves=1, moved="scripts/cmux-next/crash-safety-baseline.json",
+                           lists=[CHECK_PATHS, CHECK_PATHS + "scripts/cmux-next/*baseline*\n"])
+        (checked, _), err = run(api)
+        self.assertEqual(len(api.dispatched), 2)
+        self.assertIn("scripts/cmux-next/crash-safety-baseline.json", err)
 
     def test_check_only_dispatches_nothing(self):
         landed = {(OLD, TIP): {"status": "ahead", "ahead_by": 1, "files": FILES_23365}}
