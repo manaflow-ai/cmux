@@ -441,11 +441,10 @@ type Props = {
   /// Shell mode still runs. This is separate from a trust read's empty `blocked` object.
   blockSend?: boolean;
   /// A Cloud start is out (App.tsx `cloudStarting`): the box still takes typing, pastes, drops and
-  /// dictation, which App carries to the started chat's composer as a draft (cloudStartCarry.ts),
-  /// but nothing sends until the start ends, so a second Return starts no second chat.
+  /// dictation, and nothing sends until the start ends, so a second Return starts no second chat.
+  /// What is typed goes to the host at once (`onUnsentDraft`, no throttle), which seeds the started
+  /// chat's composer with it as a draft (CloudStartChat `openUploaded`).
   cloudStarting?: boolean;
-  /// The prompt or its chips changed (each edit, a paste, a restore): App reads the draft then.
-  onDraftChange?(draft: { text: string; attachments: ComposerAttachment[] }): void;
   /// Current session/route auth refusal. Unlike folder Trust, force-send cannot bypass it.
   authBlock?: string;
   /// Keeps auth refusal blocking sends when its text is represented by another notice.
@@ -544,7 +543,6 @@ function ComposerFrame({
   blocked,
   blockSend = false,
   cloudStarting = false,
-  onDraftChange,
   authBlock,
   authBlocked = false,
   authChecking = false,
@@ -776,11 +774,6 @@ function ComposerFrame({
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
-  // Each change of the prompt or its chips while App listens (a Cloud start is out): App keeps what
-  // the composer holds for the started chat's composer (cloudStartCarry.ts).
-  useEffect(() => {
-    onDraftChange?.({ text, attachments: attachments.filter((attachment) => !attachment.shellRun) });
-  }, [text, attachments, onDraftChange]);
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
   /// A new chat's text as the host keeps it (`onUnsentDraft`): the person's words only. The host keeps
@@ -1231,7 +1224,10 @@ function ComposerFrame({
   }, [sessionId, onUnsentDraft]);
   useEffect(() => {
     unsentDraft.current?.push(unsentText(text));
-  }, [text, sessionId, onUnsentDraft]);
+    // A Cloud start is out: the host may open its chat and close this tab at any moment, seeding that
+    // chat's composer with what it holds then, so each change goes now (the Send's clear included).
+    if (cloudStarting) unsentDraft.current?.flush();
+  }, [text, sessionId, onUnsentDraft, cloudStarting]);
   const commands = snapshot.commands;
   const remote = remoteComposer(snapshot);
   // Permission modes live in the access chip beside +; the + menu keeps only the Plan/Build toggle.

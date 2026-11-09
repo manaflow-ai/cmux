@@ -510,15 +510,7 @@ import {
   type CloudStartAnswer,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
-import {
-  cloudStartDraftStore,
-  dropCloudStartDraft,
-  holdsDraft,
-  keepCloudStartDraft,
-  promptBeforeTyped,
-  takeCloudStartDraft,
-  type CloudStartDraft,
-} from "./cloudStartCarry";
+import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
 import { folderRunLocation, newChatRunLocation } from "./runLocationDefault";
 import { harnessLabel } from "./subagents/agentRuns";
 import {
@@ -4498,25 +4490,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const lastCloudAttempt = useRef<{ key: string; request: CloudStart } | undefined>(undefined);
   /// A Cloud start is out. The composer stays open (Leo, 2026-11-09: "I can't click into the
   /// composer at all to, like potentially type other stuff while it's doing that initial load
-  /// situation"), but sends nothing until the start ends. On success the host closes this tab with
-  /// only the sent prompt (#28686), so what is typed or pasted meanwhile is kept by the start's key
-  /// (cloudStartCarry.ts, `keepCloudDraft`) and lands in the started chat's composer as a draft; on
-  /// failure the prompt comes back in front of it (`cloudStartHeld`), to edit and send again.
+  /// situation"), but sends nothing until the start ends. On success the host closes this tab and
+  /// opens the chat with the sent prompt (#28686); the composer holds only what was typed after the
+  /// Send (`cloudStartHeld` took the prompt out), which goes to the host at once as the tab's unsent
+  /// text (Composer `onUnsentDraft`), and the host seeds the started chat's composer with it as a
+  /// draft (CloudStartChat `openUploaded`). On failure the prompt comes back in front of it.
   const cloudStarting = cloudStart?.state === "starting";
-  const cloudStartNow = useRef<CloudStartProgress | undefined>(undefined);
-  cloudStartNow.current = cloudStart;
-  /// The prompt a composer's Cloud Send took out of the composer (it shows as the message, with the
-  /// start under it, as a local send's does), by its start's key: a failed start puts it back.
+  /// The prompt a Cloud start took out of the composer (it shows as the message, with the start under
+  /// it, as a local send's does), by its start's key: a failed start puts it back. Set only where the
+  /// prompt was taken out (the composer's Send, a sign-in's resend), so nothing reads the prompt off
+  /// the composer's text.
   const cloudStartHeld = useRef<{ key: string; prompt: CloudStartDraft } | undefined>(undefined);
   /// What was typed during a start that failed, now after its prompt in the composer: Retry and Run
   /// on This Mac send the prompt alone and leave this in the composer (`sendStartPrompt`).
   const cloudTypedDuringStart = useRef<CloudStartDraft | undefined>(undefined);
-  const keepCloudDraft = useCallback((draft: CloudStartDraft) => {
-    const start = cloudStartNow.current;
-    const store = cloudStartDraftStore();
-    if (start?.state !== "starting" || !store) return;
-    keepCloudStartDraft(store, start.key, start.task, draft);
-  }, []);
   /// Sends the failed start's prompt (Retry, Run on This Mac) as Return would. What was typed during
   /// the start stays in the composer after it and never goes with it, while the composer still holds
   /// that prompt and that text (`promptBeforeTyped`); once the person changed it, what shows goes.
@@ -4605,6 +4592,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     signingIn = false,
     preservedDraft?: { text: string; attachments: ComposerAttachment[] },
     fromPage = false,
+    /// A sign-in's resend took the prompt out of the composer (`cloudSignInSend`).
+    promptTaken = false,
   ): Promise<CloudStartAnswer> | undefined => {
     const { task: text, ...start } = request;
     // A retry of the same start reuses its first key, so the host reaches the machine it made (#33493).
@@ -4646,13 +4635,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }
       // The first send's compose reservation was handed off with it; the resumed send asks for none.
       const { reservationKey: _spentReservation, ...resumed } = request;
-      return beginCloudSend(resumed, true, expected);
+      // The prompt is the start's message again, as on the first Send: it leaves the composer, and
+      // what was typed after it (a failed start's) stays, so the composer holds only new text while
+      // the start runs. A failed or cancelled start puts the prompt back in front of it.
+      const handle = composerHandle.current;
+      const taken = handle !== undefined && handle !== null && draft !== undefined;
+      if (taken) {
+        handle.take();
+        if (typed && shown && promptBeforeTyped(shown, typed)) handle.restore(typed.text, typed.attachments);
+      }
+      cloudTypedDuringStart.current = undefined;
+      return beginCloudSend(resumed, true, expected, false, taken);
     };
     lastCloudAttempt.current = { key, request };
     cloudStartPending.current = true;
     cloudTypedDuringStart.current = undefined;
-    // The composer's own Send (not a page's, not a sign-in's resend): its Send empties the composer.
-    cloudStartHeld.current = !fromPage && !signingIn && preservedDraft ? { key, prompt: preservedDraft } : undefined;
+    // The composer's own Send empties the composer, and a sign-in's resend takes the prompt out
+    // (`promptTaken`); a page's send leaves the page, whose draft comes back as `cloudPageDraft`.
+    cloudStartHeld.current =
+      !fromPage && preservedDraft && (!signingIn || promptTaken) ? { key, prompt: preservedDraft } : undefined;
     if (signingIn) cloudSignInPending.current = true;
     if (fromPage) {
       newTabCloudSent.current = true;
@@ -4684,11 +4685,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // The prompt the composer's Send took out (`cloudStartHeld`), for a start that ended here.
       const held = cloudStartHeld.current?.key === key ? cloudStartHeld.current.prompt : undefined;
       if (held) cloudStartHeld.current = undefined;
-      const store = cloudStartDraftStore();
       if (!answer.ok || cloudRunsHere(answer)) {
         // Not opened on its machine: what was typed meanwhile is still in this composer, after the
-        // prompt that comes back in front of it, and goes to no other chat.
-        if (store) dropCloudStartDraft(store, key);
+        // prompt that comes back in front of it.
         const back = pageDraft ?? held;
         if (back) {
           const typed = composerHandle.current?.draft();
@@ -7363,11 +7362,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         const seeded = composerDraft(host.draft);
         if (seeded) setDraft(seeded);
-        // The chat a Cloud start opened (its seeded prompt): what was typed on the sending page while
-        // it started comes into the composer as a draft, never sent (cloudStartCarry.ts).
-        const startStore = !reconnect && host.prompt ? cloudStartDraftStore() : undefined;
-        const carried = startStore && host.prompt ? takeCloudStartDraft(startStore, host.prompt) : undefined;
-        if (carried) restoreComposerDraft(composerHandle, heldBack, carried.text, carried.attachments);
         // Integrate a Harness… from the palette or the menu opened this tab (cx-uj5g8).
         if (host.harnesses === true) setHarnessesOpen(true);
         // New Cloud Chat from the palette opened this tab: it picks Cloud, as the Where menu's Cloud row does.
@@ -11133,7 +11127,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         <ImageViewerContext.Provider value={openImage}>
           <Composer
             cloudStarting={cloudStarting}
-            onDraftChange={cloudStarting && !quick ? keepCloudDraft : undefined}
             snapshot={composerDrawn}
             guestHarnesses={guestsHere ? composerSnapshot.catalog : undefined}
             headerCwd={snapshot.summary?.cwd ?? ""}

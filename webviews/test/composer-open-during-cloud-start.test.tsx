@@ -7,8 +7,11 @@
 // second Send while the start is out starts nothing.
 //
 // The pane runs its real client against the in-page mock daemon; the native host is a stub whose
-// `cloud.startChat` answers when the test says. The started chat is a second page on the same web
-// data store, as every agent pane shares one (AgentPaneView+Warmup `sharedDataStore`).
+// `cloud.startChat` (and `cloud.signIn`) answers when the test says. The host keeps what the sending
+// page types meanwhile as the tab's unsent text (`chat.unsentDraft`, AgentUnsentDrafts) and seeds the
+// started chat's page with it as its draft (CloudStartChat `openUploaded`): a started chat's page is
+// a second mount whose handshake carries that seed. Nothing goes through the page's own storage: a
+// pane on WebKit has a data store of its own (PageWebView+Pooled `.nonPersistent()`).
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -134,21 +137,21 @@ const FOLDER = "/tmp/cloud-project";
 const PROMPT = "Run the sidebar tests and fix what fails";
 const TYPED = "also check the nightly once that is done";
 
-/// A new chat on the mock daemon whose host offers Cloud. `cloud.startChat` waits until `answer` or
-/// `fail`; `ready` adds the handshake fields a started chat's page gets (its seeded prompt).
+/// A new chat on the mock daemon whose host offers Cloud. `cloud.startChat` and `cloud.signIn` wait
+/// until `answer` or `fail`; `ready` adds the handshake fields a started chat's page gets (its seed).
 async function mount(ready: Record<string, unknown> = {}) {
   if (!restoreAnswer) await trustFolder();
   const starts: Record<string, unknown>[] = [];
-  const calls: string[] = [];
+  const posts: { method: string; params: Record<string, unknown> }[] = [];
   let settle: ((reply: unknown) => void) | undefined;
   Object.assign(dom.window, {
     webkit: {
       messageHandlers: {
         agentSession: {
           postMessage: (message: { method: string; params?: Record<string, unknown> }) => {
-            calls.push(message.method);
-            if (message.method === "cloud.startChat") {
-              starts.push(message.params ?? {});
+            posts.push({ method: message.method, params: message.params ?? {} });
+            if (message.method === "cloud.startChat" || message.method === "cloud.signIn") {
+              starts.push({ ...message.params, method: message.method });
               return new Promise((done) => (settle = done));
             }
             return Promise.resolve({
@@ -182,17 +185,29 @@ async function mount(ready: Record<string, unknown> = {}) {
   await until(() => actions() !== undefined && promptField() !== undefined, "the new chat connects");
   return {
     starts,
-    calls,
+    posts,
+    /// The tab's unsent text as the host keeps it now: the last `chat.unsentDraft` (AgentUnsentDrafts `typed`).
+    hostDraft: () =>
+      posts.filter((post) => post.method === "chat.unsentDraft").at(-1)?.params.text as string | undefined,
     answer: () => act(async () => settle?.({ ok: true, value: { machine: "paint-dev" } })),
-    fail: (retryable = false) =>
+    fail: (retryable = false, code = "cloud_start_failed") =>
       act(async () =>
         settle?.({
           ok: false,
-          error: { code: "cloud_start_failed", userMessage: "The machine stopped answering.", retryable },
+          error: { code, userMessage: "The machine stopped answering.", retryable },
         }),
       ),
   };
 }
+
+/// The host closed this tab (the chat opened on its machine).
+async function closeTab() {
+  await act(async () => root?.unmount());
+  root = undefined;
+  host.replaceChildren();
+}
+
+const bubbles = () => [...host.querySelectorAll(".cv-user__bubble")].map((bubble) => bubble.textContent ?? "");
 
 /// Cloud picked, the prompt sent: the start is out.
 async function startInCloud() {
@@ -233,7 +248,6 @@ test("the composer stays focusable and typable while a Cloud chat starts", async
 
 test("a second Send while the start is out starts no second chat and keeps the text", async () => {
   const pane = await startInCloud();
-  const bubbles = () => [...host.querySelectorAll(".cv-user__bubble")].map((bubble) => bubble.textContent ?? "");
   await typeWhileStarting(TYPED);
   // Return again, still on Cloud: no second start.
   await pressSend();
@@ -249,34 +263,87 @@ test("a second Send while the start is out starts no second chat and keeps the t
   expect(composerText()).toBe(TYPED);
 }, 60_000);
 
-test("what was typed during the start lands in the started chat's composer, never sent", async () => {
+test("the sending page hands the host what is typed during the start at once, and never the prompt", async () => {
   const pane = await startInCloud();
+  const sentAt = pane.posts.findIndex((post) => post.method === "cloud.startChat");
+  await act(async () => void promptField()!.type(TYPED));
+  // At once, not on the 300 ms throttle: the host may open the chat and close this tab any moment.
+  for (let step = 0; step < 3; step += 1) await tick();
+  expect(pane.hostDraft()).toBe(TYPED);
+  // Only what was typed: the prompt left the composer with the Send, so the host never keeps it.
+  const during = pane.posts.slice(sentAt).filter((post) => post.method === "chat.unsentDraft");
+  expect(during.some((post) => String(post.params.text).includes(PROMPT))).toBe(false);
+  // The page keeps no copy of its own: another pane may not share its storage.
+  const stored = Object.keys(dom.window.localStorage).map((key) => dom.window.localStorage.getItem(key) ?? "");
+  expect(stored.some((value) => value.includes(TYPED))).toBe(false);
+}, 60_000);
+
+test("each started chat's composer gets its own start's draft from its seed, never sent", async () => {
+  // Two starts of the same prompt, each typed into while it ran.
+  const first = await startInCloud();
+  await typeWhileStarting("first tab's note");
+  for (let step = 0; step < 3; step += 1) await tick();
+  const firstKept = first.hostDraft();
+  await first.answer();
+  await closeTab();
+  const second = await startInCloud();
+  await typeWhileStarting("second tab's note");
+  for (let step = 0; step < 3; step += 1) await tick();
+  const secondKept = second.hostDraft();
+  await second.answer();
+  await closeTab();
+  expect([firstKept, secondKept]).toEqual(["first tab's note", "second tab's note"]);
+
+  // The host seeds each started chat with its own tab's text: the second opens first here.
+  await mount({ prompt: PROMPT, draft: secondKept });
+  await until(() => bubbles().some((text) => text.includes(PROMPT)), "the seeded prompt went");
+  await until(() => composerText() === "second tab's note", "the second chat's composer holds its draft");
+  for (let step = 0; step < 5; step += 1) await tick();
+  expect(composerText()).toBe("second tab's note");
+  expect(bubbles().some((text) => text.includes("note"))).toBe(false);
+  await closeTab();
+  await mount({ prompt: PROMPT, draft: firstKept });
+  await until(() => composerText() === "first tab's note", "the first chat's composer holds its own draft");
+  for (let step = 0; step < 5; step += 1) await tick();
+  expect(composerText()).toBe("first tab's note");
+}, 120_000);
+
+test("a chat started from attachments alone gets its draft too", async () => {
+  const image: Record<string, unknown> = {
+    id: "shot-1",
+    kind: "image",
+    name: "shot.png",
+    mimeType: "image/png",
+    size: 4,
+    data: "iVBORw==",
+  };
+  await mount({ prompt: "", promptAttachments: [image], draft: TYPED });
+  await until(() => composerText() === TYPED, "the composer holds the draft the seed carries");
+  for (let step = 0; step < 5; step += 1) await tick();
+  expect(composerText()).toBe(TYPED);
+}, 60_000);
+
+test("a start sent again after a sign-in takes its prompt out of the composer while it runs", async () => {
+  const pane = await startInCloud();
+  await pane.fail(false, "not_signed_in");
+  await until(() => composerText() === PROMPT, "the prompt is back for the sign-in");
+  const signIn = () => host.querySelector<HTMLButtonElement>(".acpmux-cloud-start__sign-in");
+  await until(() => signIn() !== null, "the failure offers Sign in");
+  await act(async () => signIn()!.click());
+  await until(() => pane.starts.length === 2, "the sign-in sends the start again");
+  expect(pane.starts[1]!.method).toBe("cloud.signIn");
+  const sentAt = pane.posts.findIndex((post) => post.method === "cloud.signIn");
+  // The prompt is the start's message now, as on the first Send: the composer holds only new text.
+  await until(() => composerText() === "", "the resent prompt leaves the composer");
   await typeWhileStarting(TYPED);
-  await pane.answer();
-  // The host opened the chat on its machine and closes this tab.
-  await act(async () => root?.unmount());
-  root = undefined;
-  host.replaceChildren();
-
-  // The started chat's page: its handshake seeds the prompt, which goes by itself.
-  await mount({ prompt: PROMPT });
-  await until(() => composerText() === TYPED, "the started chat's composer holds the draft");
-  await until(
-    () => [...host.querySelectorAll(".cv-user__bubble")].some((bubble) => bubble.textContent?.includes(PROMPT)),
-    "the seeded prompt went",
-  );
-  expect([...host.querySelectorAll(".cv-user__bubble")].some((bubble) => bubble.textContent?.includes(TYPED))).toBe(
-    false,
-  );
-
-  // Taken once: another chat opened with the same prompt gets no copy.
-  await act(async () => root?.unmount());
-  root = undefined;
-  host.replaceChildren();
-  await mount({ prompt: PROMPT });
-  await tick();
-  expect(composerText()).toBe("");
-}, 90_000);
+  for (let step = 0; step < 3; step += 1) await tick();
+  expect(pane.hostDraft()).toBe(TYPED);
+  const during = pane.posts.slice(sentAt).filter((post) => post.method === "chat.unsentDraft");
+  expect(during.some((post) => String(post.params.text).includes(PROMPT))).toBe(false);
+  // It failed: the prompt comes back in front of what was typed.
+  await pane.fail();
+  await until(() => composerText() === `${PROMPT}\n\n${TYPED}`, "the prompt is back, the typed text after it");
+}, 60_000);
 
 test("a failed start puts the prompt back in front of what was typed", async () => {
   const pane = await startInCloud();

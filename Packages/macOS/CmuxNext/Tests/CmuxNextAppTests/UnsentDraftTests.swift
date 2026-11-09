@@ -50,6 +50,22 @@ struct UnsentDraftTests {
         #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-large") == large)
     }
 
+    /// A Cloud start's sending tab: what its page typed while the chat started is read back by tab and
+    /// machine (CloudStartChat `openUploaded` seeds the started chat's composer with it), and each tab
+    /// reads only its own, so two starts of the same prompt never swap their text.
+    @Test func aSendingTabsTypedTextIsReadBackByItsTab() async throws {
+        let drafts = AgentUnsentDrafts(file: nil, files: AgentPaneStateFiles()) { "this-mac" }
+        let first = AgentPaneModel(host: MockAgentPaneHost()), second = AgentPaneModel(host: MockAgentPaneHost())
+        drafts.wire(first) { "tab-1" }
+        drafts.wire(second) { "tab-2" }
+        _ = await first.respond(to: Self.request("chat.unsentDraft", ["text": "first tab's note"]))
+        _ = await second.respond(to: Self.request("chat.unsentDraft", ["text": "second tab's note"]))
+        #expect(drafts.draft(forTab: "tab-1", machine: "this-mac") == "first tab's note")
+        #expect(drafts.draft(forTab: "tab-2", machine: nil) == "second tab's note")
+        #expect(drafts.draft(forTab: "tab-1", machine: "other-mac") == nil)
+        withExtendedLifetime((first, second)) {}
+    }
+
     /// cmux#32276: a new chat whose tab opens another chat leaves its text (typed, and prompts held
     /// for a trust answer) in its window's one slot, on disk: a second leftover adds to it, the
     /// window's next new chat takes it once, and nothing sends it.

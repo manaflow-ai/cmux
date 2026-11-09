@@ -3,7 +3,7 @@
 // composer at all to, like potentially type other stuff while it's doing that initial load
 // situation." The box used to go inert for the whole start (#28686); now it stays open: the sent
 // prompt shows as the message with the start under it, what is typed meanwhile moves to the started
-// chat's composer as a draft (cloudStartCarry.ts), and Send waits. The pane runs its real client on
+// chat's composer as a draft (the host seeds it there), and Send waits. The pane runs its real client on
 // the in-page mock daemon; the host's `cloud.startChat` answers late (or refuses, for a failure).
 // Compare arms shows the `cloud-start-composer-look` experiment.
 import { agentPaneEntry, type AgentPaneVariant } from "../../gallery/format";
