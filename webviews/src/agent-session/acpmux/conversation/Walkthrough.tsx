@@ -64,7 +64,13 @@ function Step({ step }: { step: WalkthroughStep }) {
   );
 }
 
-export const Walkthrough = memo(function Walkthrough({ id, walkthrough }: { id: string; walkthrough: WalkthroughModel }) {
+export const Walkthrough = memo(function Walkthrough({
+  id,
+  walkthrough,
+}: {
+  id: string;
+  walkthrough: WalkthroughModel;
+}) {
   const t = useT();
   // Open unless the reader folded it: the proof is what the strip is for.
   const [open, setOpen] = useTranscriptDisclosure(`walkthrough:${id}`, true, true);
@@ -101,11 +107,11 @@ export const Walkthrough = memo(function Walkthrough({ id, walkthrough }: { id: 
       {fold.present && (
         <div {...fold.bodyProps}>
           <div id={bodyId} className="cv-walk__body">
-          {error && <p className="cv-walk__why">{error}</p>}
-          <ol className="cv-walk__steps">
-            {steps.map((step) => (
-              <Step key={step.n} step={step} />
-            ))}
+            {error && <p className="cv-walk__why">{error}</p>}
+            <ol className="cv-walk__steps">
+              {steps.map((step) => (
+                <Step key={step.n} step={step} />
+              ))}
             </ol>
           </div>
         </div>
@@ -113,4 +119,3 @@ export const Walkthrough = memo(function Walkthrough({ id, walkthrough }: { id: 
     </section>
   );
 });
-

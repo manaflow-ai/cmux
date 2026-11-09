@@ -38,7 +38,13 @@ const FAILED = report({
   steps: [
     { n: 1, line: "Open Settings", ok: true, screenshot: shot(login) },
     { n: 2, line: 'Type "Ada" into #name', ok: true, screenshot: shot(login) },
-    { n: 3, line: 'See "Saved"', ok: false, error: 'Timeout 5000ms exceeded waiting for text "Saved"', screenshot: shot(form) },
+    {
+      n: 3,
+      line: 'See "Saved"',
+      ok: false,
+      error: 'Timeout 5000ms exceeded waiting for text "Saved"',
+      screenshot: shot(form),
+    },
     { n: 4, line: "Reload and see the new name", ok: false, skipped: true },
   ],
 });
@@ -58,7 +64,17 @@ const LONG = report({
   passed: true,
   steps: Array.from({ length: 9 }, (_, i) => ({
     n: i + 1,
-    line: ["Open the cart", "Add a second item", "Click Checkout", "Fill the address", "Pick express", "Click Pay", "See the receipt", "Open Orders", "See the new order first"][i],
+    line: [
+      "Open the cart",
+      "Add a second item",
+      "Click Checkout",
+      "Fill the address",
+      "Pick express",
+      "Click Pay",
+      "See the receipt",
+      "Open Orders",
+      "See the new order first",
+    ][i],
     ok: true,
     screenshot: shot(i % 2 ? form : login),
   })),
