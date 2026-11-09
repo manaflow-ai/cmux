@@ -22,6 +22,9 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         /// The turn's prompt is another agent's message: its card (AgentIncomingCard), not the person's
         /// bubble, with the images and files the prompt carried.
         case incoming(AgentIncoming, attachments: [AgentAttachment], at: Date)
+        /// A message steered into the running turn, where it went in: the person's bubble, or
+        /// another agent's card (`incoming`). It takes none of the turn prompt's edit actions.
+        case steer(SteeredMessage)
         /// One block of the agent message `messageID` (the whole message is copied).
         case block(messageID: String, block: MarkdownBlock)
         case thought(text: String, isLive: Bool)
@@ -282,6 +285,9 @@ final class ChatTranscriptBuilder {
                 if let question = turn.question(id) { add(row.id, .question(question)) }
             case .subagents(_, let ids):
                 add(row.id, .subagents(ids))
+            case .steer(var message):
+                message.incoming = message.incoming.map { Self.toned($0, context.senderTones) }
+                add(row.id, .steer(message))
             }
         }
         if let wrapUp {
