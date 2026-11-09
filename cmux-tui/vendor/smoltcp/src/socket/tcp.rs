@@ -1232,14 +1232,16 @@ impl<'a> Socket<'a> {
         let mut sacked_above = self.sack_scoreboard.sacked_bytes();
         let mut hole_start = self.local_seq_no;
         for (i, &(start, end)) in ranges.iter().enumerate() {
-            // The hole is [hole_start, start). Each hole is judged on its own:
-            // a higher one has less SACKed above it, but also less outstanding
-            // after it, so it can qualify for early retransmit when a lower
-            // one does not.
-            if hole_start < start
-                && let Some(congestion) =
+            // The hole is [hole_start, start). The walk stops at the first
+            // hole that is not lost: `sack_high_rxt` marks one point, so
+            // resending a higher hole first would move it past the lower one
+            // and leave that hole to the probe and the RTO once it is lost.
+            if hole_start < start {
+                let Some(congestion) =
                     self.sack_hole_is_lost(hole_start, sacked_above, ranges.len() - i)
-            {
+                else {
+                    break;
+                };
                 scan.congestion |= congestion;
                 let from = hole_start.max(high_rxt);
                 if from < start {
@@ -11210,13 +11212,20 @@ mod test {
     }
 
     #[test]
-    fn test_sack_early_retransmit_judges_each_hole() {
+    fn test_sack_early_retransmit_waits_for_a_lower_hole() {
         let mut s = socket_sacking();
         // The low hole (three segments, a long way from the tail) is not
-        // lost yet; the high one, a segment before the last, is.
+        // lost yet, so the high one, a segment before the last, waits too:
+        // resending it first would mark the low hole as already resent.
         send!(s, time 50, sack_ack(0, [sack_block(18, 24), sack_block(30, 36), None]));
-        recv!(s, time 50, sack_resent(24));
         recv_nothing!(s, time 50);
+        // The high hole's segment arrives late: three segments' worth is now
+        // SACKed above the low hole, and it is resent.
+        send!(s, time 60, sack_ack(0, [sack_block(18, 36), None, None]));
+        recv!(s, time 60, sack_resent(0));
+        recv!(s, time 60, sack_resent(6));
+        recv!(s, time 60, sack_resent(12));
+        recv_nothing!(s, time 60);
     }
 
     #[test]
