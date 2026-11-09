@@ -583,7 +583,7 @@ fn a_pause_watch_hold_flips_with_the_flag_and_holds_without_it() {
     let now = resumed.1 + 1_000;
 
     let (gated, skipped) =
-        role::flip_in_gate(&paths, now, gate::Honor::All, || Ok(Vec::new()), no_flip);
+        role::flip_in_gate(&paths, now, gate::Honor::All, || Ok(Vec::new()), || false, no_flip);
     assert!(matches!(gated, role::Gated::Held(_)), "{gated:?}");
     assert_eq!(skipped, None);
 
@@ -593,6 +593,7 @@ fn a_pause_watch_hold_flips_with_the_flag_and_holds_without_it() {
         now,
         gate::Honor::AllButResume,
         || Ok(Vec::new()),
+        || false,
         |_| {
             flipped = true;
             Ok::<(), ()>(())
@@ -1077,6 +1078,7 @@ fn a_resume_hold_alone_flips_with_the_flag() {
         T0_MS + 1_000,
         gate::Honor::AllButResume,
         || Ok(Vec::new()),
+        || false,
         |_| {
             flipped = true;
             Ok::<(), ()>(())
@@ -1113,7 +1115,7 @@ fn a_resume_hold_without_the_flag_is_busy() {
     let paths = Paths::new(dir.path());
     gate::Gate::new(&paths).hold(T0_MS, gate::CONNECT_HOLD, gate::HoldKind::Resume);
     let (gated, skipped) =
-        role::flip_in_gate(&paths, T0_MS + 1_000, gate::Honor::All, || Ok(Vec::new()), no_flip);
+        role::flip_in_gate(&paths, T0_MS + 1_000, gate::Honor::All, || Ok(Vec::new()), || false, no_flip);
     assert!(matches!(gated, role::Gated::Held(_)), "{gated:?}");
     assert_eq!(skipped, None);
 
@@ -1151,6 +1153,7 @@ fn a_bind_or_carrier_connect_hold_with_the_flag_is_busy() {
         end - 1_000,
         gate::Honor::AllButResume,
         || Ok(Vec::new()),
+        || false,
         no_flip,
     );
     assert!(
@@ -1171,6 +1174,7 @@ fn a_bind_or_carrier_connect_hold_with_the_flag_is_busy() {
         now + 1_000,
         gate::Honor::AllButResume,
         || Ok(Vec::new()),
+        || false,
         no_flip,
     );
     assert!(matches!(gated, role::Gated::Held(_)), "{gated:?}");
@@ -1210,6 +1214,7 @@ fn an_attached_carrier_session_with_the_flag_is_busy() {
         now + 1_000,
         gate::Honor::AllButResume,
         || Ok(vec![id]),
+        || false,
         no_flip,
     );
     match gated {
@@ -1245,6 +1250,7 @@ fn a_carrier_session_attaching_before_the_flip_is_seen_inside_the_gate() {
             assert_eq!(free, -1, "the carrier look ran outside the gate's flock");
             Ok(vec![id])
         },
+        || false,
         no_flip,
     );
     assert!(matches!(gated, role::Gated::Busy(_)), "{gated:?}");
@@ -1269,9 +1275,36 @@ fn the_off_file_with_the_flag_stops_the_flip() {
         T0_MS + 1_000,
         gate::Honor::AllButResume,
         || Ok(Vec::new()),
+        || false,
         no_flip,
     );
     assert!(matches!(gated, role::Gated::Off(_)), "{gated:?}");
+}
+
+/// A pause or restore during the carrier look (its query can take 20 s)
+/// stops the flip, with the flag too: the look after the query starts a
+/// resume hold under the gate's flock, so the next plain check honors it.
+#[test]
+fn a_stop_during_the_carrier_look_stops_the_flip() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let mut flipped = false;
+    let (gated, _) = role::flip_in_gate(
+        &paths,
+        T0_MS,
+        gate::Honor::AllButResume,
+        || Ok(Vec::new()),
+        || true,
+        |_| {
+            flipped = true;
+            Ok::<(), ()>(())
+        },
+    );
+    assert!(matches!(gated, role::Gated::Held(_)), "{gated:?}");
+    assert!(!flipped, "flipped across a stop");
+    let (gated, _) =
+        role::flip_in_gate(&paths, T0_MS + 1_000, gate::Honor::All, || Ok(Vec::new()), || false, no_flip);
+    assert!(matches!(gated, role::Gated::Held(_)), "the stop's hold did not last: {gated:?}");
 }
 
 /// A gate file from before the hold kinds (no `connect_until_ms`) reads as

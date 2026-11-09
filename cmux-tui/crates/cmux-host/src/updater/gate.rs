@@ -144,8 +144,14 @@ impl Inside<'_> {
     /// Starts or extends a connect hold under the flock already held (a new
     /// carrier session the flip's last look found), so the next flip sees it.
     pub fn hold_connects(&self) {
+        self.hold(HoldKind::Connect);
+    }
+
+    /// Starts or extends a hold of `kind` under the flock already held: a
+    /// connect, or a stop the flip's last look found (the machine's own wake).
+    pub fn hold(&self, kind: HoldKind) {
         let mut state = self.gate.read();
-        state.hold(self.now_ms.saturating_add(ms(CONNECT_HOLD)), HoldKind::Connect);
+        state.hold(self.now_ms.saturating_add(ms(CONNECT_HOLD)), kind);
         let _ = self.gate.write(&state);
     }
 

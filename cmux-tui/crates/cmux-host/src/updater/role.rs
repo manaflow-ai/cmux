@@ -178,9 +178,7 @@ pub(super) fn hold_if_paused(
     handled: &AtomicU64,
     now: (i128, u64),
 ) -> bool {
-    let seen = watch.seen();
-    let counted = seen.pauses > handled.fetch_max(seen.pauses, Ordering::SeqCst);
-    if !counted && !seen.waking(now.0) {
+    if !paused_since(watch, handled, now) {
         return false;
     }
     // A stop is the machine's own wake (as a resume is): a person's link takes its own connect hold.
@@ -192,6 +190,19 @@ pub(super) fn hold_if_paused(
 /// The last look before a flip: a pause the watch counted or is waking from
 /// ([`hold_if_paused`]), or a restore `realtime - boottime` shows from `last`
 /// to `offset_now` ([`restore_look`]), starts the connect hold. True when it did.
+/// Whether `watch` counted a pause after the last one `handled` holds (which
+/// it then takes), or is still waking from one; it starts no hold, so it can
+/// run inside the gate's flock ([`flip_in_gate`]).
+pub(super) fn paused_since(
+    watch: &crate::agent::PauseWatch,
+    handled: &AtomicU64,
+    now: (i128, u64),
+) -> bool {
+    let seen = watch.seen();
+    let counted = seen.pauses > handled.fetch_max(seen.pauses, Ordering::SeqCst);
+    counted || seen.waking(now.0)
+}
+
 pub(super) fn flip_look(
     paths: &Paths,
     watch: &crate::agent::PauseWatch,
@@ -640,7 +651,14 @@ fn check_inner(
     // and the queued restarts run inside the gate (`Gate::run`, shared with
     // every process): a bind or a new session that takes the hold before the
     // restart is seen here, and one after waits.
-    let (flipped, went_past) = flip_in_gate(paths, wall_ms(), honor, carrier_sessions, |inside| {
+    // After the carrier look (inside the gate): a pause or restore during its query.
+    let stopped = || {
+        let now = clocks();
+        let mut last = looks.offset.lock().unwrap_or_else(|e| e.into_inner());
+        let paused = paused_since(looks.watch, looks.handled, now);
+        restore_look(&mut last, crate::linux::realtime_minus_boottime_ns()) || paused
+    };
+    let (flipped, went_past) = flip_in_gate(paths, wall_ms(), honor, carrier_sessions, stopped, |inside| {
         store::flip(paths, plan.to)?;
         log(&format!(
             "profile {} -> {}: cmux-tui {} ({}); restarting the services",
@@ -686,13 +704,18 @@ pub(super) enum Gated<E> {
 /// carrier sessions (`carrier`), then `flip` (the flip and its restarts; it calls
 /// `restart_queued` between them). The carrier look is under the flock, so a
 /// session that attached after the hold was read is seen here, and a new one
-/// takes its connect hold under the same flock and stops this flip. With the
-/// hold the run went past (`--skip-resume-hold`), if any.
+/// takes its connect hold under the same flock and stops this flip. The
+/// carrier look can take seconds (its query's bound is 20 s), so `stopped`
+/// looks for a pause or restore again after it: one during the query starts
+/// the hold (resume kind) and stops this flip whatever `honor` is, as a pause
+/// found before the gate would. With the hold the run went past
+/// (`--skip-resume-hold`), if any.
 pub(super) fn flip_in_gate<E>(
     paths: &Paths,
     now_ms: u64,
     honor: Honor,
     carrier: impl FnOnce() -> Result<Vec<String>, String>,
+    stopped: impl FnOnce() -> bool,
     flip: impl FnOnce(&super::gate::Inside) -> Result<(), E>,
 ) -> (Gated<E>, Option<HoldKind>) {
     let ran = Gate::new(paths).run(now_ms, honor, |inside| {
@@ -707,6 +730,11 @@ pub(super) fn flip_in_gate<E>(
         let gated = match busy {
             Some(why) => Gated::Busy(why),
             None if new_session.get() => Gated::Held(CONNECT_HOLD),
+            None if stopped() => {
+                inside.hold(HoldKind::Resume);
+                log("the machine was stopped during the carrier look: no flip during the connect hold");
+                Gated::Held(CONNECT_HOLD)
+            }
             None => match flip(inside) {
                 Ok(()) => Gated::Flipped,
                 Err(e) => Gated::Failed(e),
