@@ -292,6 +292,24 @@ class FleetCacheTests(unittest.TestCase):
         self.assertIn("cmux_next_runtime_cas_failed \"$compile_log\"", admission)
         self.assertIn("export CMUX_CI_FLEET_CACHE_OFF=1", admission)
 
+    def test_admission_retries_when_the_fleet_socket_dies_during_the_compile(self):
+        """Review F1 on #39233: admission reads the first compile's cache before it runs, so a fleet socket that
+        is gone by the time the compile fails still gets its local-cache retry."""
+        ci_macos = (ROOT / ".github/workflows/ci-macos.yml").read_text()
+        step = ci_macos.split("          : > \"$compile_log\"\n", 1)[1]
+        before = step.split("          compile_once() {\n", 1)[0]
+        decide = step.split("          retry_compile=0\n", 1)[1].split("            # An adopted DerivedData tree", 1)[0]
+        decide = decide.rsplit("          if [ \"$retry_compile\" -eq 1 ]; then\n", 1)[0]
+        unindent = lambda text: "\n".join(line[10:] for line in text.splitlines())
+        log = self.root / "compile.log"
+        log.write_text("error: remote service unavailable\n")
+        body = (f"cd '{ROOT}'\ncompile_log='{log}'\n" + unindent(before)
+                + f"\nrm -f '{self.cache / 'fleet-cas.sock'}'\nstatus=65\nretry_compile=0\n" + unindent(decide)
+                + "\necho \"retry=$retry_compile off=${CMUX_CI_FLEET_CACHE_OFF:-}\"\n")
+        result = subprocess.run(["bash", "-uo", "pipefail", "-c", body], env=self.env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("retry=1 off=1", result.stdout)
+
     def test_nightly_release_retries_local_cache_after_runtime_cas_failure(self):
         workflow = nightly_expand((ROOT / ".github/workflows/nightly.yml").read_text())
         step = workflow.split("      - name: Build nightly app (Release)\n", 1)[1].split("      - name:", 1)[0]

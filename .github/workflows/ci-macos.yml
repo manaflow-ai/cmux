@@ -849,6 +849,11 @@ jobs:
           started="$(python3 -c 'import time; print(time.monotonic())')"
           compile_log="$RUNNER_TEMP/cmux-compile-admission.txt"
           : > "$compile_log"
+          # Which cache the first compile uses, read before it runs: a fleet
+          # socket that dies during the compile must still get its retry.
+          source scripts/ci/lib/fleet-cache-fallback.sh
+          first_compile_fleet=0
+          if cmux_fleet_cache_in_use scripts/ci; then first_compile_fleet=1; fi
           compile_once() {
             scripts/ci/compile-app-host-test-product.sh canonical-build \
               "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
@@ -886,9 +891,8 @@ jobs:
           # fleet-cache build runs on the local cache: a clean tree on the same
           # broken fleet cache fails the same way. Admission keeps the text
           # match, so a real compile error stays one build.
-          source scripts/ci/lib/fleet-cache-fallback.sh
           source scripts/cmux-next/lib/compilation-cache.sh
-          if [ "$status" -ne 0 ] && cmux_fleet_cache_in_use scripts/ci; then
+          if [ "$status" -ne 0 ] && [ "$first_compile_fleet" -eq 1 ]; then
             if cmux_next_runtime_cas_failed "$compile_log"; then
               retry_compile=1
             fi
