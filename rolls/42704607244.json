@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42704607244",
+  "recorded_at": "2026-11-09T21:49:38Z",
+  "reason": "cmux-tui dee3e635c475 changes the image's cmux-tui (pinned 5c29bb9a9fe6)",
+  "dry_run": false,
+  "cmux_tui": "dee3e635c47588d85d6b49091cd314e119626a43",
+  "fixes": [
+    {
+      "sha": "011dae20eac2cf7b600f3a469f113a0963b3c85e",
+      "mergedAt": "2026-11-09T13:06:30-08:00",
+      "subject": "cmux-tui: agent resume ready on own hook, send.not_submitted, caller env scrub, restart session ids, stop/copy/wait leftovers (W5-R) (#39027)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T21:49:38Z",
+    "snapshot_id": "sh-10aa1b2b08d147a9be48a75b29e7534b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42704607244): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9a064b14586e065ec272cf4fb4534647c57a8a81",
+    "image": "cloud-native-auto-dee3e635-42704607244-1",
+    "revision": "ci-42704607244-1",
+    "at": "2026-11-09T21:49:38Z"
+  },
+  "rolled_back": false
+}
