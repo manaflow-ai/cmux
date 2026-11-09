@@ -345,6 +345,38 @@ it("never lets an enroll with another principal's intent settle it or delete its
   expect((await enroll(other, mesh, "owned-intent", KEY_2)).status).toBe(404);
 });
 
+it("tells only the intent's own authorized, signed caller that it is revoked", async () => {
+  const { mesh } = await setup();
+  const owner = await h.addKey(A, ["mesh:read", "mesh:join"]);
+  const other = await h.addKey(A, ["mesh:read", "mesh:join"]);
+  const snapshot = () => JSON.stringify({ intents: h.mesh.store.deviceIntents(), attempts: h.mesh.store.deviceIntentAttempts(), tunnels: [...h.mesh.tunnels.keys()] });
+  // A tombstone the owner wrote before any enroll, and one written after the owner's device was made.
+  expect((await revoke(owner, mesh, "never-used-revoked")).status).toBe(200);
+  expect((await enroll(owner, mesh, "used-revoked")).status).toBe(201);
+  expect((await revoke(owner, mesh, "used-revoked")).status).toBe(200);
+  const tunnelCreates = h.upstream.callsTo("POST", /^\/v5\/tunnels$/u).length;
+  for (const intentId of ["never-used-revoked", "used-revoked"]) {
+    const before = snapshot();
+    // Another member of the mesh, with a valid signature: the same answer as an intent it cannot see.
+    const probed = await enroll(other, mesh, intentId, KEY_2);
+    expect(probed.status, intentId).toBe(404);
+    expect(await codeOf(probed), intentId).not.toBe("mesh.device.intent_revoked");
+    // A forged signature, by the owner's own key: refused as a bad signature, before the intent is read.
+    const forged = await h.request(`/v1/meshes/${mesh}/devices`, bearer(owner), {
+      method: "POST",
+      body: { ...(await enrollBody(install, mesh, { name: "mac", wgPublicKey: KEY_2 })), signature: btoa("x".repeat(64)), intentId },
+    });
+    expect(forged.status, intentId).toBe(403);
+    expect(await codeOf(forged), intentId).not.toBe("mesh.device.intent_revoked");
+    expect(snapshot(), intentId).toBe(before);
+    // The owner, signed: 409 intent_revoked.
+    const own = await enroll(owner, mesh, intentId, KEY_2);
+    expect(own.status, intentId).toBe(409);
+    expect(await codeOf(own), intentId).toBe("mesh.device.intent_revoked");
+  }
+  expect(h.upstream.callsTo("POST", /^\/v5\/tunnels$/u)).toHaveLength(tunnelCreates);
+});
+
 it("calls a create the provider answered with an error settled at once", async () => {
   const { admin, mesh } = await setup();
   h.mesh.failTunnelCreates(500);
