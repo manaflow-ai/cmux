@@ -119,7 +119,7 @@ fn gather(
     let terminal = send::find_terminal(&snapshot, target)
         .map_err(|failure| Failure::Local { error: failure.failure.error, exit: failure.exit })?
         .clone();
-    let terminal_id = terminal["id"].as_str().unwrap_or_default().to_owned();
+    let terminal_id = terminal.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
     let connect = || {
         cmux_tui_core::server::connect_session_socket(socket, *derived)
             .map(|stream| {
@@ -139,7 +139,8 @@ fn gather(
     let rows = legacy_agents(&mut connect()?).unwrap_or_default();
     let row = rows.into_iter().find(|row| row["terminal_id"] == terminal_id.as_str());
     let wanted = wanted_sequences(row.as_ref());
-    let session_id = snapshot["session"]["id"].as_str().unwrap_or_default().to_owned();
+    let session_id =
+        snapshot.pointer("/session/id").and_then(Value::as_str).unwrap_or_default().to_owned();
     let records = if wanted.is_empty() || session_id.is_empty() {
         HashMap::new()
     } else {
@@ -170,13 +171,16 @@ fn legacy_agents(reader: &mut Reader) -> Option<Vec<Value>> {
     resolve::send(reader, request.to_string().as_bytes()).ok()?;
     loop {
         let value = wire::read_envelope(reader, false).ok()??;
-        if value.get("type").is_some() || value.get("event").is_some() || value["id"] != id {
+        if value.get("type").is_some()
+            || value.get("event").is_some()
+            || value.get("id").and_then(Value::as_str) != Some(id)
+        {
             continue;
         }
-        if value["ok"] != true {
+        if value.get("ok").and_then(Value::as_bool) != Some(true) {
             return None;
         }
-        return value["data"]["agents"].as_array().cloned();
+        return value.pointer("/data/agents").and_then(Value::as_array).cloned();
     }
 }
 
@@ -187,9 +191,9 @@ fn number(value: &Value) -> Option<u64> {
 /// The journal sequences of the cause and of the screen's last observation.
 fn wanted_sequences(row: Option<&Value>) -> Vec<u64> {
     let Some(reason) = row.map(|row| &row["state_reason"]) else { return Vec::new() };
-    let mut wanted: Vec<u64> = [&reason["cause"]["sequence"], &reason["screen"]["sequence"]]
+    let mut wanted: Vec<u64> = ["/cause/sequence", "/screen/sequence"]
         .into_iter()
-        .filter_map(number)
+        .filter_map(|path| reason.pointer(path).and_then(number))
         .collect();
     wanted.sort_unstable();
     wanted.dedup();
@@ -244,10 +248,11 @@ fn journal_records(
     let mut scanned: usize = 0;
     while scanned < MAX_SCANNED_RECORDS && Instant::now() < deadline {
         let Ok(Some(envelope)) = wire::read_envelope(reader, false) else { break };
-        match envelope["type"].as_str() {
-            Some("stream_item") if envelope["stream_id"] == stream_id.as_str() => {
+        let ours = envelope.get("stream_id").and_then(Value::as_str) == Some(stream_id.as_str());
+        match envelope.get("type").and_then(Value::as_str) {
+            Some("stream_item") if ours => {
                 scanned = scanned.saturating_add(1);
-                let item = &envelope["item"];
+                let Some(item) = envelope.get("item") else { continue };
                 let Some(sequence) = number(&item["sequence"]) else { continue };
                 if wanted.binary_search(&sequence).is_ok() {
                     found.insert(sequence, item.clone());
@@ -256,7 +261,7 @@ fn journal_records(
                     break;
                 }
             }
-            Some("stream_end") if envelope["stream_id"] == stream_id.as_str() => break,
+            Some("stream_end") if ours => break,
             _ => {}
         }
     }
@@ -274,7 +279,7 @@ fn screen_text(record: &Value) -> Option<String> {
 
 /// What a journal record adds to the reason that names it.
 fn with_record(mut reason: Value, records: &HashMap<u64, Value>, wanted: &[u64]) -> Value {
-    let Some(sequence) = number(&reason["sequence"]) else { return reason };
+    let Some(sequence) = reason.get("sequence").and_then(number) else { return reason };
     if !wanted.contains(&sequence) {
         return reason;
     }
@@ -341,10 +346,11 @@ pub(super) fn explain_value(
         }
         if reason["screen"].is_object() {
             let mut screen = with_record(reason["screen"].clone(), records, wanted);
-            screen.set("agrees", json!(screen["state"] == state));
+            let agrees = screen.get("state").and_then(Value::as_str) == Some(state);
+            screen.set("agrees", json!(agrees));
             value.set("screen", screen);
         }
-        if value["status"] == "done" && state == "idle" {
+        if value.get("status").and_then(Value::as_str) == Some("done") && state == "idle" {
             value.set("status_reason", json!("unread_notification"));
         }
         return Some(value);
@@ -439,8 +445,8 @@ fn record_parts(
     if let Some(basis) = record["basis"].as_str().and_then(|basis| basis_text(messages, basis)) {
         parts.push(basis.to_owned());
     }
-    if let Some(version) = record["manifest"]["version"].as_str() {
-        let source = record["manifest"]["source"].as_str().unwrap_or("-");
+    if let Some(version) = record.pointer("/manifest/version").and_then(Value::as_str) {
+        let source = record.pointer("/manifest/source").and_then(Value::as_str).unwrap_or("-");
         parts.push(fill(messages.manifest, &[version, source]));
     }
     let at = if record["observed_at_ms"].is_null() {
@@ -525,7 +531,7 @@ pub(super) fn human(
         lines.push(format!("{}: {line}", messages.before));
     }
     if let Some(screen) = value.get("screen") {
-        let same_record = screen["sequence"] == value["cause"]["sequence"];
+        let same_record = screen.get("sequence") == value.pointer("/cause/sequence");
         if !same_record {
             let mut parts = vec![screen["state"].as_str().unwrap_or("-").to_owned()];
             parts.extend(record_parts(messages, screen, now_ms));
