@@ -20,7 +20,16 @@ type Workflow = { jobs: Record<string, Job> };
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const { YAML } = (globalThis as unknown as { Bun: { YAML: { parse(text: string): unknown } } }).Bun;
-const load = (name: string) => YAML.parse(readFileSync(path.join(REPO, ".github/workflows", name), "utf8")) as Workflow;
+/** A job's environment by name: a string, or the `{ name, deployment: false }` form secrets-only jobs use (#39689). */
+const load = (name: string) => {
+  const wf = YAML.parse(readFileSync(path.join(REPO, ".github/workflows", name), "utf8")) as {
+    jobs: Record<string, Omit<Job, "environment"> & { environment?: string | { name: string } }>;
+  };
+  for (const job of Object.values(wf.jobs)) {
+    if (typeof job.environment === "object") job.environment = job.environment.name;
+  }
+  return wf as Workflow;
+};
 const bakeWf = load("cloud-vm-image-bake.yml");
 const promoteWf = load("cloud-vm-image-promote.yml");
 
