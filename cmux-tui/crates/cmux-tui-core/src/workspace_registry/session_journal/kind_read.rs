@@ -70,23 +70,8 @@ pub(crate) fn query_session_journal_kinds_after(
     let mut records = Vec::new();
     let mut reached = sequence;
     if sequence < archive_through {
-        match archived_kinds_after(connection, sequence, archive_through, kinds, limit)? {
-            Some((archived, archived_reached)) => {
-                records = archived;
-                reached = archived_reached;
-            }
-            None => {
-                // Older sealed segments predate journal_segment_kinds: decode
-                // them with the validating legacy path, as the non-output
-                // read does.
-                let covered = archived_records_after(connection, sequence, limit)?
-                    .into_iter()
-                    .take_while(|record| record.sequence <= archive_through)
-                    .collect::<Vec<_>>();
-                reached = covered.last().map_or(archive_through, |record| record.sequence);
-                records.extend(covered.into_iter().filter(|record| kinds(&record.kind)));
-            }
-        }
+        (records, reached) =
+            archived_kinds_after(connection, sequence, archive_through, kinds, limit)?;
         // A page that stopped inside the archive ends there: the active rows
         // all come after it.
         if records.len() >= limit || reached >= through || reached < archive_through {
@@ -191,21 +176,30 @@ fn active_kinds_after(
     Ok((records, reached))
 }
 
-/// The sealed records in `(sequence, through]` of the accepted kinds, or
-/// `None` when a segment in the range has no kind map (an older segment:
-/// the caller takes the validating legacy path). A segment whose kind map
-/// names no accepted kind is skipped without loading its content; one that
-/// does is decoded whole and consumed whole, so the next page never decodes
-/// it again. Up to [`segment_decode_workers`] such segments decode at once
-/// (`consume_batch`); the page ends after the batch that brings it to
-/// `limit`.
+/// The sealed records in `(sequence, through]` of the accepted kinds, and
+/// the sequence the page covered through. A segment whose kind map names no
+/// accepted kind is skipped without loading its content; one that does is
+/// decoded whole and consumed whole, so the next page never decodes it
+/// again. Up to [`segment_decode_workers`] such segments decode at once
+/// (`consume_batch`).
+///
+/// A page decodes for one slice ([`kind_slice`]): it ends after the batch
+/// that reaches `limit` records or the end of the slice, so a read over many
+/// sparse segments returns to the replay's deadline check between pages.
+/// A segment with no kind map yet (an older segment the backfill above has
+/// not reached) is decoded whole, kept to the accepted kinds, and ends the
+/// page: a page decodes at most one of them. Before, the read fell back to
+/// the legacy read of `limit` records of every kind, which over sparse
+/// segments decoded up to `limit` whole segments in one call (router-review
+/// on #39096).
 fn archived_kinds_after(
     connection: &Connection,
     sequence: u64,
     through: u64,
     kinds: JournalKinds,
     limit: usize,
-) -> anyhow::Result<Option<(Vec<SessionJournalRecord>, u64)>> {
+) -> anyhow::Result<(Vec<SessionJournalRecord>, u64)> {
+    let deadline = std::time::Instant::now() + kind_slice();
     backfill_legacy_journal_segment_kinds(connection)?;
     let mut statement = connection.prepare(
         "SELECT segment_id, start_sequence, end_sequence
@@ -218,7 +212,9 @@ fn archived_kinds_after(
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
         })?
         .collect::<Result<Vec<_>, _>>()?;
-    let Some(first) = segments.first() else { return Ok(None) };
+    // The archive head is the last segment's end, so a range below it has a
+    // segment; none covers nothing, as the legacy read returned.
+    let Some(first) = segments.first() else { return Ok((Vec::new(), through)) };
     anyhow::ensure!(
         first.1 <= i64::try_from(sequence.saturating_add(1))?,
         "journal segments contain a gap before sequence {}",
@@ -236,28 +232,31 @@ fn archived_kinds_after(
         connection.prepare("SELECT kind FROM journal_segment_kinds WHERE segment_id = ?1")?;
     let mut page = Page { sequence, through, kinds, records: Vec::new(), reached: sequence };
     let workers = segment_decode_workers();
-    // Segments in order, each with its id when it holds an accepted kind.
+    // Segments in order, each with its id when it is decoded.
     let mut batch: Vec<(u64, Option<String>)> = Vec::new();
     for (segment_id, _, end) in segments {
         let mapped = segment_kinds
             .query_map([&segment_id], |row| row.get::<_, String>(0))?
             .collect::<Result<Vec<_>, _>>()?;
-        if mapped.is_empty() {
-            return Ok(None);
-        }
         let end = u64::try_from(end)?.min(through);
+        if mapped.is_empty() {
+            batch.push((end, Some(segment_id)));
+            page.consume_batch(connection, batch)?;
+            return Ok((page.records, page.reached));
+        }
         batch.push((end, mapped.iter().any(|kind| kinds(kind)).then_some(segment_id)));
         if batch.iter().filter(|(_, decode)| decode.is_some()).count() < workers {
             continue;
         }
         if !page.consume_batch(connection, std::mem::take(&mut batch))?
             || page.records.len() >= limit
+            || std::time::Instant::now() >= deadline
         {
-            return Ok(Some((page.records, page.reached)));
+            return Ok((page.records, page.reached));
         }
     }
     page.consume_batch(connection, batch)?;
-    Ok(Some((page.records, page.reached)))
+    Ok((page.records, page.reached))
 }
 
 /// A sealed page being read: its range, its kinds, what it holds so far.

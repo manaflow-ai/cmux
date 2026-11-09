@@ -1520,11 +1520,7 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
     // registry the whole of it took minutes, inside the start's 1 s roster
     // budget. The read takes the full-decode path for segments still
     // unmapped, and each later read goes on with the backfill.
-    #[cfg(test)]
-    let slice = BACKFILL_SLICE_FOR_TEST.with(Cell::get).unwrap_or(KIND_BACKFILL_SLICE);
-    #[cfg(not(test))]
-    let slice = KIND_BACKFILL_SLICE;
-    let deadline = std::time::Instant::now() + slice;
+    let deadline = std::time::Instant::now() + kind_slice();
     let mut decoded_any = false;
     for (segment_id, start_sequence) in legacy_backfill_segments(connection, rescan)? {
         if decoded_any && std::time::Instant::now() >= deadline {
@@ -1578,9 +1574,20 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
     })
 }
 
+/// How long one call of the kind backfill, and one kind read's sealed part
+/// after it, may decode: each stops at the first segment or batch past it.
+pub(super) fn kind_slice() -> std::time::Duration {
+    #[cfg(test)]
+    if let Some(slice) = BACKFILL_SLICE_FOR_TEST.with(Cell::get) {
+        return slice;
+    }
+    KIND_BACKFILL_SLICE
+}
+
 #[cfg(test)]
 thread_local! {
-    /// Test seam: how long one kind backfill call may decode on this thread.
+    /// Test seam: how long one kind backfill call, and one kind read's sealed
+    /// part, may decode on this thread ([`kind_slice`]).
     pub(super) static BACKFILL_SLICE_FOR_TEST: Cell<Option<std::time::Duration>> =
         const { Cell::new(None) };
 }
