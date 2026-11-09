@@ -798,7 +798,9 @@ printf 'dcede3b42632886a32753ad9d763f785d46afd5fa4580b5c979aad2d465d1cf5  %s\n' 
 EOF
   chmod +x "$bin_dir/shasum"
 
-  if ! RUNNER_TEMP="$tmp_dir/runner" PATH="$bin_dir:/usr/bin:/bin" "$helper" >"$stdout" 2>"$stderr"; then
+  # The release asset mirror in front of the download would reach the network;
+  # this case drives the helper's own fake-curl path.
+  if ! CMUX_RELEASE_MIRROR=off RUNNER_TEMP="$tmp_dir/runner" PATH="$bin_dir:/usr/bin:/bin" "$helper" >"$stdout" 2>"$stderr"; then
     echo "FAIL: sentry-cli helper behavior test should install pinned CLI"
     cat "$stderr" >&2 || true
     exit 1

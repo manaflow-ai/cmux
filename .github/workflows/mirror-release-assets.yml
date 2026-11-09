@@ -1,0 +1,72 @@
+name: Mirror release assets
+
+# Copies the release downloads CI depends on into the CI cache bucket under
+# release-assets/v1/ (scripts/ci/release_asset_mirror.py fill), so a reader
+# that finds the upstream busy or down fetches the same verified bytes from
+# the mirror instead of failing. On 2026-11-08 and 11-09 release downloads
+# answered 503 and 504 for hours and turned green pull requests red.
+#
+# Every 20 minutes, on dispatch, and minutes after an FFI release publishes:
+# the publish job runs on feat-cmux-next in its own environment, so this
+# workflow follows it through workflow_run rather than touching it. A run
+# only checks (one signed HEAD per asset) unless a pin is new. Writes are
+# write-once and read back before the URL index is written; the prefix is
+# outside what r2_cache_prune.py deletes.
+on:
+  schedule:
+    - cron: "*/20 * * * *"
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["app FFI release"]
+    types: [completed]
+
+permissions: {}
+
+env:
+  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+  # The FFI release workflow lives on feat-cmux-next only; see
+  # tests/test_ci_workflow_run_sources.py, which reads its name from there.
+  SOURCE_WORKFLOW_PATHS: feat-cmux-next:.github/workflows/app-ffi-release.yml
+
+concurrency:
+  group: mirror-release-assets
+  cancel-in-progress: false
+
+jobs:
+  fill:
+    name: Mirror pinned release assets
+    # The bucket credentials only ever run main's copy of this script.
+    if: ${{ github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/main' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    # Only main may use the R2 write credentials (see #14147).
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      # fill reads Package.swift and Package.resolved files at both branch
+      # tips with git show, so it needs feat-cmux-next's tree too.
+      - name: Fetch the feature branch tip
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin \
+            +refs/heads/main:refs/remotes/origin/main \
+            +refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next
+
+      - name: Mirror release assets
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+          # The release scan and the asset API fallback read with the
+          # job's read-only token; it goes only to api.github.com.
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -I scripts/ci/release_asset_mirror.py fill \
+            --ref origin/main --ref origin/feat-cmux-next

@@ -1228,6 +1228,52 @@ Check current values:
 gh variable list --repo manaflow-ai/cmux
 ```
 
+## Release asset mirror
+
+A busy or broken upstream makes a job slower, never makes it fail. On
+2026-11-08 and 11-09 release downloads answered 503 and 504 for hours and
+turned green pull requests red, so every release asset CI pins also lives in
+the public CI cache bucket (`https://ci-cache.cmux.com`), and readers try that
+copy first.
+
+Layout, outside the `v1/*/objects/` prefix `r2_cache_prune.py` deletes from,
+so nothing here is pruned:
+
+| Key | Contents |
+|---|---|
+| `release-assets/v1/sha256/<64 hex>` | the asset's bytes, written once (`If-None-Match: *`) and read back before anything points at it |
+| `release-assets/v1/url/<sha256 of the URL string>` | `<64 hex>\n`, written only after its object is verified |
+
+`python3 -I scripts/ci/release_asset_mirror.py fetch URL --sha256 HEX --out
+PATH` (or `--from-index`) tries, each round: the mirror object, the upstream
+URL, and for a release download with a token, the release-assets API (the
+token goes only to the API host). Rounds back off from 5 s, doubling to 60 s
+with jitter, until the deadline (900 s, `--deadline` or
+`CMUX_RELEASE_FETCH_DEADLINE`), and only then fail with a `next:` line. Every
+byte is checked against the sha256 before it lands. Scripts import `fetch(url,
+sha256, out_path, deadline=None)` directly. `ensure-sentry-cli.sh`,
+`sparkle_generate_appcast.sh`, `install-actionlint.sh` and
+`install-rcodesign.sh` put it in front of their own download, and
+`download-prebuilt-ghosttykit.sh` reads the mirror once before its curl loop
+(never with `--verify-only`); each keeps its old path as the fallback.
+
+`mirror-release-assets.yml` fills it (`fill`) every 20 minutes, on dispatch,
+and when the FFI release workflow completes, so a new FFI release is mirrored
+minutes after it publishes. It runs on main only, in the `ci-cache-writer`
+environment, and mirrors: the literal `.binaryTarget` URLs of every
+`Package.swift` on `main` and `feat-cmux-next`, plus the GhosttyKit archive each
+tree pins; the literal binary targets of every dependency those trees'
+`Package.resolved` files pin; the newest 30 FFI and xcframework releases whose
+asset digest is a sha256; and `scripts/ci/release-assets.lock`, the tools
+scripts download (`tests/test_release_asset_mirror.py` keeps it in step with
+the scripts). `list` prints the same set and writes nothing. A run fails only
+when a pinned asset fails for a reason other than the upstream being down.
+
+Two switches: `CMUX_RELEASE_MIRROR=off` skips the mirror (the scripts then
+behave exactly as before), and `CMUX_RELEASE_UPSTREAM=off` skips the upstream
+and the API, which is how a probe or an outage drill proves the mirror alone
+can serve a pin. `CMUX_RELEASE_MIRROR_URL` points readers at another copy.
+
 ## Manual runs
 
 `perf-activation.yml` and `test-e2e.yml` keep a `runner` choice input that
