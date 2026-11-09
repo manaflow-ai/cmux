@@ -14,8 +14,20 @@
   color: var(--page-text-3);
 }
 
+/* The sections' column: 220px until its edge is dragged (SplitEdge sets --debug-settings-sidebar-width
+   on it); the basis reads invalid while that is unset, and the list keeps 360px. Still, so the edge
+   stays put while the sections scroll inside it. */
+.ds-side {
+  --ds-side-basis: clamp(160px, var(--debug-settings-sidebar-width), 100% - 360px);
+  position: relative;
+  display: flex;
+  flex: 0 0 var(--ds-side-basis, 220px);
+  min-height: 0;
+}
+
 .ds-sidebar {
-  flex: 0 0 220px;
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -457,8 +469,17 @@
     flex-direction: column;
   }
 
-  .ds-sidebar {
+  .ds-side {
     flex: 0 0 auto;
+  }
+
+  /* A strip above the list: nothing to drag. */
+  .ds-side > .ui-split-edge {
+    display: none;
+  }
+
+  .ds-sidebar {
+    flex: 1;
     flex-direction: row;
     flex-wrap: wrap;
     max-height: 35vh;
