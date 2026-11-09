@@ -2455,7 +2455,10 @@ jobs:
             base="$(git cat-file commit "$MERGE" | awk "\$1 == \"parent\" && !found { print \$2; found = 1 }")"
             base="$(git rev-parse --verify "$base^{commit}")"
             code="$CODE"
-            git archive "$base" scripts/cmux-next/check-app-ffi-pin.sh scripts/ci/app_ffi_pin.py | tar -x -C "$code"
+            # The blobs as the base commit stores them: no attribute (export-ignore, a filter) applies.
+            mkdir -p "$code/scripts/cmux-next" "$code/scripts/ci"
+            git cat-file blob "$base:scripts/cmux-next/check-app-ffi-pin.sh" >"$code/scripts/cmux-next/check-app-ffi-pin.sh"
+            git cat-file blob "$base:scripts/ci/app_ffi_pin.py" >"$code/scripts/ci/app_ffi_pin.py"
             if ! grep -q -e "--tree)" "$code/scripts/cmux-next/check-app-ffi-pin.sh"; then
               # Only while the base predates --tree (the pull request that adds it).
               echo "note: the base check has no --tree; the checkout copy runs"
