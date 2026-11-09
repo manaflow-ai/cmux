@@ -60,13 +60,15 @@ EXIT_OK = 0
 EXIT_STALE = 1
 EXIT_UNAVAILABLE = 3
 
-FEED_URL = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"  # cmux NEXT (cx-x7hwx)
-# nightly-next writes two appcasts: the bare path an installed app polls and
-# the `/next/` channel path. They can disagree -- on 2026-10-26 the bare feed
-# was two hours ahead of `/next/` -- so freshness is the OLDER of the two and a
-# build that reached one path and not the other still counts as behind.
+# nightly-next has one feed: the bare path cmux NIGHTLY (com.cmuxterm.app.nightly) polls. Each build
+# is signed once, as cmux NIGHTLY (hq#7156); the `/next/` cmux NEXT-identity appcast is retired and
+# gets no builds, so it is not watched.
 BARE_FEED_URL = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
-NEXT_FEED_URLS = (BARE_FEED_URL, FEED_URL)
+NEXT_FEED_URLS = (BARE_FEED_URL,)
+# The `/next/` appcast, read only to find builds the legacy jobs have not copied to the bare feed
+# (legacy_lag). While nightly-next still runs the copy it is the newer side; once nightly-next signs
+# once, it freezes, no build is missing, and nothing is re-run.
+FEED_URL = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
 # The old feed, nightly.yml's NIGHTLY_NEXT_LEGACY_FEED_BASE: cmux NIGHTLY (com.cmuxterm.app.nightly,
 # Leo's daily driver) has it as SUFeedURL. Only publish-nightly-identity-legacy writes it, re-signing
 # each cmux NEXT Nightly build, so a failed legacy job leaves it behind while FEED_URL looks current
