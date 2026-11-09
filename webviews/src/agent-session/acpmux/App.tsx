@@ -107,7 +107,16 @@ import { screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
 import { startNewTabTransition } from "./newtab/startTransition";
-import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
+import {
+  folderFields,
+  isAgentHome,
+  projectLabel,
+  recentLocalFolders,
+  SessionsBy,
+  sessionTitle,
+  type AcpmuxSessionEntry,
+} from "./sessionList";
+import { findSession } from "./sessionIndex";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
 import {
   composerDraft,
@@ -548,7 +557,7 @@ import { isCurrentMenuCommand, parseMenuCommand } from "./header/menuCommands";
 import { errorRecovery, lastFailedTurn } from "./conversation/errorRecovery";
 import { type WorkingCounts, WorkingCountsContext } from "./conversation/workingForModel";
 import { type PreviewChips, PreviewChipsContext, previewsOf } from "./conversation/previewChipModel";
-import { NewestSteerContext, takeBackSteer, takesSteersBack } from "./conversation/pendingSteerModel";
+import { NewestSteerContext, SteerChatContext, takeBackSteer, takesSteersBack } from "./conversation/pendingSteerModel";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
 import { useTranscriptView, type TranscriptView } from "./conversation/transcriptView";
 import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversation/viewFolds";
@@ -611,6 +620,7 @@ import { showsFolderChoice } from "./folderChoiceModel";
 import { ownMachineFolders, type ExtraFolderDraft } from "./extraFolders";
 import { WorktreeFailure } from "./startFolder";
 import { type FolderAsk, confirmFolder, newChatInWorktree, newWorktree, pickFolder } from "./startFolderModel";
+import { WorktreeSetupNotice, useWorktreeSetupStart } from "./worktreeSetup";
 import { NewTabFolderAsk } from "./NewTabFolderAsk";
 import { MissingFolder } from "./missingFolder";
 import { chooseChatFolder } from "./missingFolderModel";
@@ -618,6 +628,8 @@ import { LiveChatChoice } from "./LiveChatChoice";
 import { WatchBanner } from "./WatchBanner";
 import { ManagedBanner } from "./ManagedBanner";
 import { PaneNotices } from "./PaneNotices";
+import { PlanScopeDriftNotice } from "./PlanScopeDriftNotice";
+import { dismissPlanScopeDrift, keepPlanScopeArea } from "./planScopeDriftStore";
 import { setPaneNotices } from "./paneNoticeStore";
 import { chiefOf, isTakenOver, managedBy, managerDrivingUntil, takeOverManaged } from "./managedBy";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
@@ -1254,9 +1266,7 @@ const answerSecret = (ask: AcpmuxSecretAsk) => (value?: string) => {
 /// one-time Allow and a Deny from this Mac (mac_approvers.rs).
 function chatOnPeer(snapshot: AcpmuxSnapshot): boolean {
   const summary = snapshot.summary;
-  const listedPeer = summary?.sessionId
-    ? snapshot.sessions.find((session) => session.sessionId === summary.sessionId)?.peer
-    : undefined;
+  const listedPeer = summary?.sessionId ? findSession(snapshot.sessions, summary.sessionId)?.peer : undefined;
   return snapshot.origin === "peer" || !!summary?.peer || !!listedPeer;
 }
 
@@ -3411,9 +3421,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const sessionInfoOn = useHeaderState().sessionInfo;
   // A pane opened beside another chat (a subagent's pane, a chat its agent started) has Session Info
   // of its own, closed until the person opens it there (sessionInfoState.ts `sessionInfoPaneKey`).
-  const shownEntry = shownSessionId
-    ? snapshot.sessions?.find((entry) => entry.sessionId === shownSessionId)
-    : undefined;
+  const shownEntry = shownSessionId ? findSession(snapshot.sessions ?? [], shownSessionId) : undefined;
   const sessionInfoSplit = ownSubagentPane || !!(shownEntry?.startedBy || shownEntry?.spawnedBy);
   const sessionInfoOpened = useSessionInfoOpen(sessionInfoPaneKey(shownSessionId, sessionInfoSplit));
   const processRegistry = useProcessRegistry(
@@ -5767,6 +5775,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     Promise.resolve(undefined),
   );
   const trustHeldCwd = snapshot.summary?.cwd ?? (snapshot.sessionId ? undefined : projectDraft);
+  // A worktree this pane made for the chat's folder, whose recipe's setup the line follows. Before
+  // the first send the folder is the draft New Worktree set, as the folder chip shows it: the
+  // summary can still name the checkout the worktree was made from.
+  const worktreeSetupFolder = freshChat && !snapshot.sessionId ? (projectDraft ?? trustHeldCwd) : trustHeldCwd;
+  const worktreeSetupHere = useWorktreeSetupStart(worktreeSetupFolder) !== undefined;
   /// Puts prompts the hold gives back where they were typed (set below).
   const giveBackTrustHeld = useRef(
     async (
@@ -6281,7 +6294,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const snapshotSession = showsWhatItIs && newTab === undefined && hostError === undefined ? shownSessionId : undefined;
   useEffect(() => {
     if (!snapshotSession || !pageHostClient()) return;
-    return watchChatSnapshot(snapshotSession, (params) => callNative("chat.snapshot.put", params));
+    return watchChatSnapshot(snapshotSession, (params) => {
+      // The chat's records go with its drawn copy: a quit can end the page without a `pagehide`,
+      // and the tail the host held then was the one kept when the chat was last left, which the
+      // relaunch's attach no longer meets (Leo, 2026-11-08: "what you saw when you clicked the
+      // restart button ... here's literally what you just had").
+      directClient.current?.handOverCurrentTail();
+      return callNative("chat.snapshot.put", params);
+    });
   }, [snapshotSession]);
   const summary = snapshot.summary;
   const localCwd =
@@ -6505,6 +6525,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // a newer folder pick ends it.
   /// A worktree being made, for the chat (visit) it was asked in: another fresh chat shows nothing of it.
   const [worktreeCreating, setWorktreeCreating] = useState<false | { sessionId?: string; visit?: string }>(false);
+  const worktreeCreatingHere = Boolean(
+    inThisVisit(worktreeCreating, snapshot.sessionId, visitNow) && freshChat && !snapshot.sessionId,
+  );
   /// A folder the user picked on this Mac: the host takes it at once or asks first
   /// (startFolder.tsx); `use` runs only with a folder the host took.
   /// Only the latest pick's answer counts (two quick picks can answer out of order).
@@ -7676,6 +7699,26 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               typeof taken === "function" ? (taken as () => void) : undefined,
             ),
           "chat.cancel": () => client.cancel(),
+          "chat.planScopeDrift": ({ action, sessionId, path, area }) => {
+            const id = typeof sessionId === "string" ? sessionId : undefined;
+            if (!id || id !== client.selectedSession) return Promise.resolve(false);
+            if (action === "keepGoing") {
+              keepPlanScopeArea(id, typeof area === "string" ? area : "");
+              return Promise.resolve(true);
+            }
+            dismissPlanScopeDrift(id);
+            if (action === "stop") return client.cancel().then(() => true);
+            return send(
+              typeof path === "string"
+                ? translate("planScopeDrift.replanPrompt", { path })
+                : translate("planScopeDrift.replanPromptNoPath"),
+              [],
+              undefined,
+              true,
+              undefined,
+              id,
+            ).then(() => true);
+          },
           "chat.typing": async ({ text, sessionId }) =>
             client.typing(typeof text === "string" ? text : "", typeof sessionId === "string" ? sessionId : undefined),
           "chat.queue.remove": ({ promptId }) => client.removeQueued(String(promptId)),
@@ -9677,7 +9720,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }, [artifact, harnessesOpen, imageView, inspectorOpen, replaying, showNewTab, clearWorkflowSideTab]);
   newTabRetainsDraft.current = showNewTab && newTabStartPage === newTabGeneration;
   const commandSession = showNewTab ? switchView.intent?.sessionId : undefined;
-  const commandRevision = clientSnapshot.sessions.find((session) => session.sessionId === commandSession);
+  const commandRevision = findSession(clientSnapshot.sessions, commandSession);
   const readSessionCommands = useCallback(
     (sessionId: string) => directClient.current?.sessionCommands(sessionId) ?? Promise.resolve([]),
     [],
@@ -9947,6 +9990,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const own = newTab?.projects ?? [];
     return projectsAnswered && own.length === 0 && newTab?.home ? null : own;
   }, [directProjects, projectsAnswered, newTab?.projects, newTab?.home]);
+  // The folder lists read only where each chat works and when it was active (sessionList.ts
+  // `folderFields`): another chat's status, unread, title or cost changing leaves them as they are.
+  const folderLists = useRef<{ newTab: SessionsBy; composer: SessionsBy } | null>(null);
+  folderLists.current ??= { newTab: new SessionsBy(folderFields), composer: new SessionsBy(folderFields) };
+  const newTabFolderSessions = folderLists.current.newTab.of(newTabSnapshot.sessions);
+  const composerFolderSessions = folderLists.current.composer.of(composerSnapshot.sessions);
   const newTabProjectList = useMemo(() => {
     const byPath = new Map<string, Project>();
     // A folder the host listed keeps its repository (projectRepos.ts) when a chat names it again.
@@ -9956,15 +10005,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     };
     for (const project of directProjects) byPath.set(project.cwd, project);
     for (const path of newTab?.projects ?? []) byPath.set(path, listed(path));
-    for (const session of newTabSnapshot.sessions) {
+    for (const session of newTabFolderSessions) {
       if (typeof session.cwd !== "string" || !session.cwd) continue;
       if (session.host && session.hostKind !== "local") continue;
       byPath.set(session.cwd, listed(session.cwd));
     }
     if (newTab?.cwd) byPath.set(newTab.cwd, listed(newTab.cwd));
     // The pickers list repositories in the order of their newest folder: the folder of the newest chat first.
-    return byRecentUse([...byPath.values()], recentLocalFolders(newTabSnapshot.sessions));
-  }, [newTabSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
+    return byRecentUse([...byPath.values()], recentLocalFolders(newTabFolderSessions));
+  }, [newTabFolderSessions, newTab?.cwd, newTab?.projects, directProjects]);
   // The same list while it holds the same folders in the same order (session-info/sameValue.ts): it is
   // built again from the chat list, which changes on every event of any chat that runs, and the
   // composer takes it as a prop (`projectChoices`), so a new copy of it drew the composer again four
@@ -9975,7 +10024,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const heroPicker = useMemo<EmptyStateProjects | undefined>(() => {
     if (!freshChat || quick) return undefined;
     const remote = new Map<string, Project>();
-    for (const session of composerSnapshot.sessions) {
+    for (const session of composerFolderSessions) {
       const peer = session.peer ?? (session.hostKind === "cloud" ? session.host : undefined);
       if (!peer || typeof session.cwd !== "string" || !session.cwd || isAgentHome(session.cwd)) continue;
       const project = {
@@ -10015,15 +10064,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           .catch(() => undefined);
       },
     };
-  }, [
-    freshChat,
-    quick,
-    composerSnapshot.sessions,
-    composerSnapshot.summary,
-    newTabProjects,
-    chooseProject,
-    chooseFolder,
-  ]);
+  }, [freshChat, quick, composerFolderSessions, composerSnapshot.summary, newTabProjects, chooseProject, chooseFolder]);
   // The hero's start as it shows (its project, Do not work in a project), first frame to final
   // (perf.ts noteStartState). Only a new chat with no session yet, not under a New Tab page.
   const heroShown =
@@ -10347,7 +10388,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   const transcript = (
     <PresentationContext.Provider value={chatPresentation}>
-      <ThinkingVerbsContext.Provider value={thinkingVerbs}>{transcriptContent}</ThinkingVerbsContext.Provider>
+      <ThinkingVerbsContext.Provider value={thinkingVerbs}>
+        <SteerChatContext.Provider value={snapshot.sessionId ?? ""}>{transcriptContent}</SteerChatContext.Provider>
+      </ThinkingVerbsContext.Provider>
     </PresentationContext.Provider>
   );
   // Folder trust's question heads the bottom stack, and the chat's other asks stay under it
@@ -10655,6 +10698,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     !reviewing && (
       <>
         <PaneNotices onAction={(id) => void callNative("pane.noticeAction", { id }).catch(() => undefined)} />
+        <PlanScopeDriftNotice sessionId={snapshot.sessionId} />
         {stuckDiagnosis && (
           <StuckBanner
             diagnosis={stuckDiagnosis}
@@ -10791,12 +10835,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             onDismiss={shareNudge.close}
           />
         )}
-        <Notice
-          id="worktree-creating"
-          tier="status"
-          when={inThisVisit(worktreeCreating, snapshot.sessionId, visitNow) && freshChat && !snapshot.sessionId}
-        >
-          <output className="acpmux-switch-notice acpmux-worktree-creating">{t("worktree.creating")}</output>
+        {/* New Worktree: Creating worktree…, then the worktree recipe's setup in the same line
+            (worktreeSetup.tsx), for the chat in that worktree, until it is dismissed. */}
+        <Notice id="worktree-creating" tier="status" when={worktreeCreatingHere || worktreeSetupHere}>
+          <WorktreeSetupNotice callNative={callNative} folder={worktreeSetupFolder} creating={worktreeCreatingHere} />
         </Notice>
         <Notice
           id="worktree-error"
@@ -11424,7 +11466,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   for (let index = snapshot.rows.length - 1; index >= 0 && !lastReply; index--) {
     if (snapshot.rows[index]!.kind === "assistant") lastReply = snapshot.rows[index];
   }
-  const floatingSession = composerSnapshot.sessions.find((session) => session.sessionId === snapshot.sessionId);
+  const floatingSession = findSession(composerSnapshot.sessions, snapshot.sessionId);
   const quickFloating: QuickFloating | undefined = quick
     ? {
         state: floatingHold,

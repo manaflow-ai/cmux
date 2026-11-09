@@ -6,6 +6,11 @@ use super::*;
 #[path = "agent_roster_worker.rs"]
 mod agent_roster_worker;
 pub(super) use agent_roster_worker::AgentRosterWorker;
+// A stale roster's background rebuild, on that owner.
+#[path = "agent_roster_rebuild.rs"]
+mod agent_roster_rebuild;
+#[cfg(test)]
+pub(super) use agent_roster_rebuild::rebuild_faults;
 
 /// The roster owner's fold state ([`AgentRosterWorker`]): its own journal
 /// reader. Only the owner's passes take it, so it orders folds and snapshot
@@ -390,9 +395,7 @@ impl Mux {
     /// under the fold lock, which request paths took, 5-8 s); the roster lock
     /// is taken only to apply each page that was read.
     fn run_roster_pass(&self, pass: agent_roster_worker::RosterPass) -> Vec<String> {
-        use crate::journal_reducers::{
-            AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
-        };
+        use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, RosterEvent};
         let mut fold = self.agent_roster_worker.fold.lock().unwrap_or_else(PoisonError::into_inner);
         let mut target = pass.wanted;
         // The head a retirement waits for. It is read after the close
@@ -470,6 +473,7 @@ impl Mux {
             target = target.max(self.wanted_roster_sequence());
         }
         let mut retired = false;
+        let mut retired_terminals = Vec::new();
         let (left, saved) = {
             let mut host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
             // Only after a head read and a fold that reached it: otherwise a
@@ -480,6 +484,7 @@ impl Mux {
                     for terminal in &pass.retire {
                         retired |= host.roster.retire_terminal(terminal);
                     }
+                    retired_terminals = pass.retire;
                     Vec::new()
                 }
                 _ => pass.retire,
@@ -490,6 +495,10 @@ impl Mux {
                 .then(|| (host.cursor, host.roster.snapshot().to_string()));
             (left, saved)
         };
+        // A stale roster's rebuild folds only the journal, where a close is
+        // no event: it retires the same terminals before it replaces this
+        // roster, or their entries would come back.
+        self.note_agent_roster_rebuild_retirements(retired_terminals);
         if let Some((cursor, snapshot)) = saved {
             #[cfg(test)]
             fold.note_io_for_test();
@@ -497,7 +506,7 @@ impl Mux {
             // state commits do not wait behind the snapshot write (issue 23038).
             if let Err(error) = self.registry_connection.put_journal_reducer_state(
                 AGENT_ROSTER_REDUCER_ID,
-                AGENT_ROSTER_REDUCER_VERSION,
+                self.agent_roster_save_version(),
                 cursor,
                 &snapshot,
             ) {
@@ -521,6 +530,11 @@ impl Mux {
     /// projection is a separately committed compatibility view for clients.
     /// Compare durable values first so a healthy restart emits no mutations.
     pub(super) fn reconcile_agent_roster_projections(&self) {
+        // A stale roster (a reducer bump) can disagree with projections the
+        // current reducer would make. The rebuild reconciles when it is done.
+        if self.agent_roster_stale() {
+            return;
+        }
         let entries = self
             .agent_roster
             .lock()
@@ -541,6 +555,9 @@ impl Mux {
         &self,
         terminal_id: &TerminalPublicId,
     ) {
+        if self.agent_roster_stale() {
+            return;
+        }
         let entry = self
             .agent_roster
             .lock()

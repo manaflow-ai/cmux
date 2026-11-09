@@ -58,6 +58,7 @@ import { MockAgents } from "./mockAgents";
 import { mockChannels } from "./mockChannels";
 import { mockThemeColors } from "./mockThemes";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
+import type { WorktreeRecipe } from "../../worktreeRecipe";
 
 export type MockOptions = {
   chatFolders?: ListRow["folders"];
@@ -166,6 +167,15 @@ export const mockCmuxAccount: Record<"signedIn" | "signedOut" | "signingIn", Acc
     note: "Finish signing in in your browser. If no page opened, choose Open in Browser.",
     error: null,
   },
+};
+
+/** A project of the mock session host: its repository's recipe files and the saved override. */
+export type MockWorktreeProject = {
+  path: string;
+  name: string;
+  repository: WorktreeRecipe;
+  saved?: WorktreeRecipe;
+  files: string[];
 };
 
 export class MockSettingsProvider {
@@ -520,6 +530,29 @@ export class MockSettingsProvider {
         this.revokeShare(String((params as { share_id?: unknown }).share_id ?? "")),
       "cmux.settings.environments.state": () => this.environments,
       "cmux.settings.environments.run": (params) => this.runEnvironments(params as unknown as CloudEnvironmentsRun),
+      // Settings > Agents > Worktree Setup: the session host's ops through the page relay.
+      "cmux.settings.worktree.list": () => ({
+        projects: this.worktreeProjects.map((project) => ({
+          path: project.path,
+          name: project.name,
+          state: "present",
+          overlay: project.saved ? { worktree: project.saved } : {},
+        })),
+        sources: [],
+      }),
+      "cmux.settings.worktree.save": (params) => {
+        const { path, worktree } = params as { path: string; worktree: WorktreeRecipe | null };
+        this.worktreeProjects = this.worktreeProjects.map((project) => {
+          if (project.path !== path) return project;
+          const { saved: _saved, ...rest } = project;
+          return worktree ? { ...rest, saved: worktree } : rest;
+        });
+        return { value: { path }, replayed: false };
+      },
+      "cmux.settings.worktree.read": (params) =>
+        this.worktreeReadHold
+          ? this.worktreeReadHold.then(() => this.readWorktree(params as { path: string }))
+          : this.readWorktree(params as { path: string }),
       "cmux.settings.harnesses.state": () => this.harnesses,
       "cmux.settings.harnesses.run": (params) => {
         const run = params as HarnessesRun;
@@ -712,6 +745,46 @@ export class MockSettingsProvider {
     };
     return { share_id: id, state: "revoked" };
   }
+  private readWorktree(params: { path: string }) {
+    const project = this.worktreeProjects.find((row) => row.path === params.path);
+    const repository = project?.repository ?? {};
+    const saved = project?.saved;
+    const pick = (key: "setup" | "run" | "teardown") => {
+      const value = saved?.[key] ?? repository[key];
+      return value ? value : null;
+    };
+    return {
+      root: project?.path ?? "",
+      recipe: {
+        setup: pick("setup"),
+        run: pick("run"),
+        teardown: pick("teardown"),
+        include: [...(repository.include ?? []), ...(saved?.include ?? [])],
+        repository,
+        ...(saved ? { saved } : {}),
+        files: project?.files ?? [],
+      },
+      run: { state: "none", output: "", output_start: "0", output_end: "0" },
+    };
+  }
+  /** While set, `cmux.settings.worktree.read` answers only once it resolves (a slow host). */
+  worktreeReadHold: Promise<void> | null = null;
+  /** Settings > Agents > Worktree Setup: the session host's projects and each one's recipe files. */
+  worktreeProjects: MockWorktreeProject[] = [
+    {
+      path: "/Users/you/src/cmux",
+      name: "cmux",
+      repository: { setup: "bun install", run: "bun run dev --port $CMUX_PORT", include: [".env", ".env.local"] },
+      files: [".worktreeinclude", ".cmux/worktree.toml"],
+    },
+    {
+      path: "/Users/you/src/website",
+      name: "website",
+      repository: { setup: "npm ci" },
+      saved: { setup: "pnpm install", include: ["config/local.json"] },
+      files: [".cmux/worktree.toml"],
+    },
+  ];
 
   /** Settings > Server > This Mac on Your Tailnet as acpmux answers the app's relay: signed out; null is
    * an acpmux with no tailnet. */
