@@ -417,7 +417,7 @@
     },
     "entry": {
       "actionID": "agentPane.editInstructions",
-      "title": "Edit Folder Instructions…",
+      "title": "Edit Project Instructions…",
       "keywords": ["agent", "project", "instructions", "claude.md", "agents.md", "rules", "edit"],
       "subtitle": null,
       "accessory": null,
@@ -443,7 +443,7 @@
     },
     "entry": {
       "actionID": "agentPane.addProjectFiles",
-      "title": "Add Files to Folder…",
+      "title": "Add Project Files…",
       "keywords": ["agent", "project", "files", "context", "knowledge", "add", "attach"],
       "subtitle": null,
       "accessory": null,

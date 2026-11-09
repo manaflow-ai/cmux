@@ -69608,7 +69608,7 @@
       "targets" : [
         "pane"
       ],
-      "title" : "Edit Folder Instructions…",
+      "title" : "Edit Project Instructions…",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -69675,7 +69675,7 @@
       "targets" : [
         "pane"
       ],
-      "title" : "Add Files to Folder…",
+      "title" : "Add Project Files…",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false

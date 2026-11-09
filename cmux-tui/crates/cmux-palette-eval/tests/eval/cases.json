@@ -1191,18 +1191,6 @@
       "note": "Agent chat header/menu action"
     },
     {
-      "query": "folder instructions",
-      "expect": ["action:agentPane.editInstructions"],
-      "group": "exact",
-      "note": "Agent chat header/menu action, by its folder title"
-    },
-    {
-      "query": "add files to folder",
-      "expect": ["action:agentPane.addProjectFiles"],
-      "group": "exact",
-      "note": "Agent chat header/menu action, by its folder title"
-    },
-    {
       "query": "mark chat unread",
       "expect": ["action:agentPane.markUnread"],
       "group": "exact",
