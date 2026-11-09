@@ -74,7 +74,7 @@ import Foundation
         tab.expectNotificationRead()
         guard let reading = tab.readingNotification else { return nil }
         // A read of this notification already on its way stands for this one too.
-        let key = "\(generation?.rawValue ?? "")#\(reading.rawValue)"
+        let key = "\(reading.rawValue)"; _ = generation
         guard sending[tab.id] != key else { return nil }
         sending[tab.id] = key
         let owns = { [weak self] in self?.sending[tab.id] == key }
