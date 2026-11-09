@@ -111,7 +111,7 @@
     "acpmux": 6,
     "cmux-browser-host": 4,
     "cmux-tui": 1,
-    "cmux-tui-core": 3
+    "cmux-tui-core": 4
    },
    "expect": {
     "acpmux": 14,

@@ -137,9 +137,20 @@ test("seen live, it shows once and the app keeps its record before it draws", as
   expect(state.current?.shown).toBe(false);
   await render(answered);
   expect(state.current?.shown).toBe(true);
-  expect(host.records[SHARE_NUDGE_ID]).toBe("closed");
+  // The app's claim keeps it and spends the tips' one 14-day budget.
+  expect(host.records[SHARE_NUDGE_ID]).toBe("shown");
+  expect(host.lastShownAt).not.toBeNull();
   await act(async () => state.current?.close());
   expect(state.current?.shown).toBe(false);
+});
+
+test("a tip that showed in the last 14 days holds the nudge for good", async () => {
+  const host = memoryTipHost();
+  host.lastShownAt = host.now() - 86_400_000;
+  const { state, render } = await mount(host, running);
+  await render(answered);
+  expect(state.current?.shown).toBe(false);
+  expect(host.records[SHARE_NUDGE_ID]).toBeUndefined();
 });
 
 test("a footer that lands a snapshot after the turn stops still shows it", async () => {

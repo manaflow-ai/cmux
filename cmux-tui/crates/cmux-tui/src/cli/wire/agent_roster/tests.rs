@@ -355,7 +355,10 @@ fn json_stays_the_bare_ranked_array_unless_counts_is_asked_for() {
 
     let counted = list_plan(AgentRosterView { counts: true, ..AgentRosterView::default() });
     let shown = machine_view(&counted, &result, OutputMode::Json);
-    assert_eq!(shown.as_object().unwrap().keys().collect::<Vec<_>>(), ["agents", "counts"]);
+    assert_eq!(
+        shown.as_object().unwrap().keys().collect::<Vec<_>>(),
+        ["agents", "counts", "hidden_ended"]
+    );
     assert_eq!(shown["counts"]["total"], 9);
     // --jsonl is one agent per line either way.
     assert!(machine_view(&counted, &result, OutputMode::JsonLines).is_array());
@@ -378,7 +381,7 @@ fn w4j_agent_list_rows_and_counts_use_the_shared_status_words() {
     };
     assert_eq!(row("agent_idle")["status"], "idle");
     assert_eq!(row("agent_blocked")["status"], "blocked");
-    assert_eq!(row("agent_ended")["status"], Value::Null);
+    assert_eq!(row("agent_ended")["status"], "ended");
     assert_eq!(row("agent_ended")["state"], "ended", "state is an alias of status (W5-Q)");
     assert_eq!(
         result["counts"],
@@ -426,7 +429,7 @@ fn w4j_an_unseen_idle_agent_is_done_and_ranks_after_blocked() {
     assert_eq!(result["counts"]["total"], 1);
 
     // `--state ended` asks the daemon for its `done` (a session that
-    // ended) and keeps those rows: `status` null.
+    // ended) and keeps those rows: `status` ended.
     let ended_rows = json!([
         agent("agent_gone", "done", NOW - 3_000, "term_5"),
         agent("agent_seen", "idle", NOW - 2_000, "term_3"),
@@ -434,7 +437,7 @@ fn w4j_an_unseen_idle_agent_is_done_and_ranks_after_blocked() {
     let ended = AgentRosterView { status: Some("ended"), ..AgentRosterView::default() };
     let result = shape(ended_rows, &[], &unseen, ended, NOW);
     assert_eq!(ids(&result), ["agent_gone"]);
-    assert_eq!(result["agents"][0]["status"], Value::Null);
+    assert_eq!(result["agents"][0]["status"], "ended");
     assert_eq!(result["counts"]["ended"], 1);
 }
 
@@ -497,8 +500,7 @@ fn w5q_agent_list_state_is_the_one_status_word() {
         ("agent_blocked", "blocked"),
     ] {
         assert_eq!(row(id)["state"], word, "{id}: {result}");
-        let status = if word == "ended" { Value::Null } else { json!(word) };
-        assert_eq!(row(id)["status"], status, "{id}: {result}");
+        assert_eq!(row(id)["status"], word, "{id}: {result}");
     }
 }
 
@@ -523,4 +525,58 @@ fn w5q_agent_list_leaves_out_ended_agents_of_closed_terminals() {
     assert_eq!(ids(&result), ["agent_open_ended", "agent_closed_ended"], "{result}");
     let unread = shape(rows(), &[], &HashSet::new(), AgentRosterView::default(), NOW);
     assert_eq!(unread["counts"]["total"], 3, "{unread}");
+}
+
+/// W5-Q follow-up (PR A review note 3): an ended session's row says
+/// `status: "ended"`, the word `terminal list --agents` and the send
+/// receipt say, not null.
+#[test]
+fn w5q_an_ended_row_of_agent_list_says_status_ended() {
+    let rows = json!([
+        agent("agent_ended", "done", NOW - 1_000, "term_1"),
+        agent("agent_idle", "idle", NOW - 2_000, "term_2"),
+    ]);
+    let result = shape(rows, &[], &HashSet::new(), AgentRosterView::default(), NOW);
+    let ended = result["agents"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|row| row["id"] == "agent_ended")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(ended["status"], "ended", "{result}");
+    assert_eq!(ended["state"], "ended", "{result}");
+    assert_eq!(result["counts"]["ended"], 1, "{result}");
+}
+
+/// W5-Q follow-up (PR A review note 8): the text output says how many
+/// ended agents of closed terminals it left out, and `--json --counts`
+/// has the number (`hidden_ended`). `--state ended` hides none.
+#[test]
+fn w5q_agent_list_says_how_many_ended_agents_it_left_out() {
+    let rows = || {
+        json!([
+            agent("agent_closed_1", "done", NOW - 1_000, "term_closed_1"),
+            agent("agent_closed_2", "done", NOW - 2_000, "term_closed_2"),
+            agent("agent_idle", "idle", NOW - 3_000, "term_idle"),
+        ])
+    };
+    let terminals = [json!({"id": "term_idle"})];
+    let line = crate::localization::catalog().pane_cli.agent_list_hidden_ended;
+    let result = shape(rows(), &terminals, &HashSet::new(), AgentRosterView::default(), NOW);
+    assert_eq!(ids(&result), ["agent_idle"], "{result}");
+    assert_eq!(result["hidden_ended"], 2, "{result}");
+    let text = human(&result, None);
+    assert!(text.contains(&line.replace("{count}", "2")), "{text}");
+
+    let ended = AgentRosterView { status: Some("ended"), ..AgentRosterView::default() };
+    let result = shape(rows(), &terminals, &HashSet::new(), ended, NOW);
+    assert_eq!(result["hidden_ended"], 0, "{result}");
+    assert!(!human(&result, None).contains(&line.replace("{count}", "0")), "{result}");
+
+    // Only ended agents of closed terminals: no agent row, still the line.
+    let closed = json!([agent("agent_closed_1", "done", NOW - 1_000, "term_closed_1")]);
+    let result = shape(closed, &terminals, &HashSet::new(), AgentRosterView::default(), NOW);
+    let text = human(&result, None);
+    assert!(text.contains(&line.replace("{count}", "1")), "{text}");
 }
