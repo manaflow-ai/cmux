@@ -22,6 +22,7 @@
     "planBuild.title.prompt": {"comment":"Agent pane: heading of the card comparing one prompt run on {n} agents (2 to 4)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الطلب نفسه على {n} وكلاء"}},"bs":{"stringUnit":{"state":"needs_review","value":"Isti upit na {n} agenta"}},"da":{"stringUnit":{"state":"needs_review","value":"Samme prompt på {n} agenter"}},"de":{"stringUnit":{"state":"needs_review","value":"Gleicher Prompt auf {n} Agenten"}},"en":{"stringUnit":{"state":"translated","value":"Same prompt on {n} agents"}},"es":{"stringUnit":{"state":"needs_review","value":"Mismo prompt en {n} agentes"}},"fr":{"stringUnit":{"state":"needs_review","value":"Même invite sur {n} agents"}},"it":{"stringUnit":{"state":"needs_review","value":"Stesso prompt su {n} agenti"}},"ja":{"stringUnit":{"state":"needs_review","value":"同じプロンプトを {n} 個のエージェントで"}},"km":{"stringUnit":{"state":"needs_review","value":"ប្រអប់បញ្ចូលដូចគ្នាលើភ្នាក់ងារ {n}"}},"ko":{"stringUnit":{"state":"needs_review","value":"같은 프롬프트, 에이전트 {n}개"}},"nb":{"stringUnit":{"state":"needs_review","value":"Samme ledetekst på {n} agenter"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ten sam prompt na {n} agentach"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mesmo prompt em {n} agentes"}},"ru":{"stringUnit":{"state":"needs_review","value":"Один запрос на {n} агентах"}},"th":{"stringUnit":{"state":"needs_review","value":"พรอมต์เดียวกันบน {n} เอเจนต์"}},"tr":{"stringUnit":{"state":"needs_review","value":"{n} ajanda aynı istem"}},"uk":{"stringUnit":{"state":"needs_review","value":"Один запит на {n} агентах"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cùng lời nhắc trên {n} tác tử"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"同一提示在 {n} 个代理上"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"同一提示在 {n} 個代理上"}}}},
     "planBuild.removed": {"comment":"Agent pane: a run's column after another was kept: its chat closed and worktree removed","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أُزيل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Uklonjeno"}},"da":{"stringUnit":{"state":"needs_review","value":"Fjernet"}},"de":{"stringUnit":{"state":"needs_review","value":"Entfernt"}},"en":{"stringUnit":{"state":"translated","value":"Removed"}},"es":{"stringUnit":{"state":"needs_review","value":"Eliminado"}},"fr":{"stringUnit":{"state":"needs_review","value":"Supprimé"}},"it":{"stringUnit":{"state":"needs_review","value":"Rimosso"}},"ja":{"stringUnit":{"state":"needs_review","value":"削除済み"}},"km":{"stringUnit":{"state":"needs_review","value":"បានដកចេញ"}},"ko":{"stringUnit":{"state":"needs_review","value":"제거됨"}},"nb":{"stringUnit":{"state":"needs_review","value":"Fjernet"}},"pl":{"stringUnit":{"state":"needs_review","value":"Usunięto"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Removido"}},"ru":{"stringUnit":{"state":"needs_review","value":"Удалён"}},"th":{"stringUnit":{"state":"needs_review","value":"นำออกแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kaldırıldı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Прибрано"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã gỡ"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已移除"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已移除"}}}},
     "planBuild.keptNoteRemoved": {"comment":"Agent pane: note after keeping one run: the others' worktrees were archived and removed","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أُغلقت الأخرى؛ وأُرشفت أشجار عملها وأُزيلت"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ostali su zatvoreni; njihova radna stabla arhivirana i uklonjena"}},"da":{"stringUnit":{"state":"needs_review","value":"De andre blev lukket; deres arbejdstræer arkiveret og fjernet"}},"de":{"stringUnit":{"state":"needs_review","value":"Die anderen wurden geschlossen; ihre Worktrees archiviert und entfernt"}},"en":{"stringUnit":{"state":"translated","value":"The others were closed; their worktrees archived and removed"}},"es":{"stringUnit":{"state":"needs_review","value":"Los demás se cerraron; sus worktrees se archivaron y eliminaron"}},"fr":{"stringUnit":{"state":"needs_review","value":"Les autres ont été fermés ; leurs worktrees archivés et supprimés"}},"it":{"stringUnit":{"state":"needs_review","value":"Gli altri sono stati chiusi; i loro worktree archiviati e rimossi"}},"ja":{"stringUnit":{"state":"needs_review","value":"他は閉じられ、ワークツリーはアーカイブして削除されました"}},"km":{"stringUnit":{"state":"needs_review","value":"ផ្សេងទៀតត្រូវបានបិទ; worktree របស់ពួកវាត្រូវបានរក្សាទុក ហើយដកចេញ"}},"ko":{"stringUnit":{"state":"needs_review","value":"나머지는 닫혔고 워크트리는 보관 후 제거되었습니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"De andre ble lukket; arbeidstrærne arkivert og fjernet"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pozostałe zamknięto; ich worktree zarchiwizowano i usunięto"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Os outros foram fechados; seus worktrees arquivados e removidos"}},"ru":{"stringUnit":{"state":"needs_review","value":"Остальные закрыты; их worktree заархивированы и удалены"}},"th":{"stringUnit":{"state":"needs_review","value":"ตัวอื่นถูกปิดแล้ว worktree ถูกเก็บถาวรและนำออก"}},"tr":{"stringUnit":{"state":"needs_review","value":"Diğerleri kapatıldı; çalışma ağaçları arşivlenip kaldırıldı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Решту закрито; їхні worktree заархівовано й прибрано"}},"vi":{"stringUnit":{"state":"needs_review","value":"Các cái khác đã đóng; worktree của chúng được lưu trữ và gỡ bỏ"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"其他已关闭；其工作树已归档并移除"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"其他已關閉；其工作樹已封存並移除"}}}},
+    "mention.readOnlyGuest":{"comment":"Agent pane: @ mention menu, the description beside another harness that answers read-only","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"ضيف للقراءة فقط"}},"bs":{"stringUnit":{"state":"needs_review","value":"Gost samo za čitanje"}},"da":{"stringUnit":{"state":"needs_review","value":"Skrivebeskyttet gæst"}},"de":{"stringUnit":{"state":"needs_review","value":"Gast mit Lesezugriff"}},"en":{"stringUnit":{"state":"translated","value":"Read-only guest"}},"es":{"stringUnit":{"state":"needs_review","value":"Invitado de solo lectura"}},"fr":{"stringUnit":{"state":"needs_review","value":"Invité en lecture seule"}},"it":{"stringUnit":{"state":"needs_review","value":"Ospite in sola lettura"}},"ja":{"stringUnit":{"state":"needs_review","value":"読み取り専用のゲスト"}},"km":{"stringUnit":{"state":"needs_review","value":"ភ្ញៀវសម្រាប់តែអាន"}},"ko":{"stringUnit":{"state":"needs_review","value":"읽기 전용 게스트"}},"nb":{"stringUnit":{"state":"needs_review","value":"Skrivebeskyttet gjest"}},"pl":{"stringUnit":{"state":"needs_review","value":"Gość tylko do odczytu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Convidado somente leitura"}},"ru":{"stringUnit":{"state":"needs_review","value":"Гость только для чтения"}},"th":{"stringUnit":{"state":"needs_review","value":"แขกแบบอ่านอย่างเดียว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Salt okunur konuk"}},"uk":{"stringUnit":{"state":"needs_review","value":"Гість лише для читання"}},"vi":{"stringUnit":{"state":"needs_review","value":"Khách chỉ đọc"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"只读访客"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"唯讀訪客"}}}},
     "presetApproval.title": {"comment":"Agent pane: title of the card that asks the person to approve a preset whose policy does not ask, so agents can start chats from it on other machines unattended. {preset} is the preset's name","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"هل تسمح للإعداد المسبق {preset} بتشغيل المحادثات دون أن يسأل؟"}},"bs":{"stringUnit":{"state":"needs_review","value":"Dozvoliti presetu {preset} da pokreće razgovore bez pitanja?"}},"da":{"stringUnit":{"state":"needs_review","value":"Lad forudindstillingen {preset} køre chats uden at spørge?"}},"de":{"stringUnit":{"state":"needs_review","value":"Voreinstellung {preset} Chats ohne Nachfrage ausführen lassen?"}},"en":{"stringUnit":{"state":"translated","value":"Let preset {preset} run chats without asking?"}},"es":{"stringUnit":{"state":"needs_review","value":"¿Permitir que el preajuste {preset} ejecute chats sin preguntar?"}},"fr":{"stringUnit":{"state":"needs_review","value":"Laisser le préréglage {preset} exécuter des chats sans demander ?"}},"it":{"stringUnit":{"state":"needs_review","value":"Consentire al preset {preset} di eseguire chat senza chiedere?"}},"ja":{"stringUnit":{"state":"needs_review","value":"プリセット {preset} で確認なしにチャットを実行しますか？"}},"km":{"stringUnit":{"state":"needs_review","value":"អនុញ្ញាតឱ្យការកំណត់ជាមុន {preset} ដំណើរការការជជែកដោយមិនសួរ?"}},"ko":{"stringUnit":{"state":"needs_review","value":"프리셋 {preset}이(가) 묻지 않고 채팅을 실행하도록 허용할까요?"}},"nb":{"stringUnit":{"state":"needs_review","value":"La forhåndsinnstillingen {preset} kjøre chatter uten å spørre?"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pozwolić presetowi {preset} uruchamiać czaty bez pytania?"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Permitir que a predefinição {preset} execute chats sem perguntar?"}},"ru":{"stringUnit":{"state":"needs_review","value":"Разрешить пресету {preset} запускать чаты без запросов?"}},"th":{"stringUnit":{"state":"needs_review","value":"ให้พรีเซ็ต {preset} เรียกใช้แชทโดยไม่ต้องถามหรือไม่"}},"tr":{"stringUnit":{"state":"needs_review","value":"{preset} ön ayarı sormadan sohbet çalıştırsın mı?"}},"uk":{"stringUnit":{"state":"needs_review","value":"Дозволити пресету {preset} запускати чати без запитів?"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cho phép thiết lập sẵn {preset} chạy cuộc trò chuyện mà không hỏi?"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"允许预设 {preset} 无需询问即可运行聊天？"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"允許預設 {preset} 無需詢問即可執行聊天？"}}}},
     "presetApproval.starts": {"comment":"Agent pane: preset approval card's line naming what the preset starts. {agent} is the agent and its model (Claude Code · opus), {policy} the permission policy (approve-all)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يشغّل {agent} بالسياسة {policy}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokreće {agent} s pravilom {policy}"}},"da":{"stringUnit":{"state":"needs_review","value":"Starter {agent} med politikken {policy}"}},"de":{"stringUnit":{"state":"needs_review","value":"Startet {agent} mit Richtlinie {policy}"}},"en":{"stringUnit":{"state":"translated","value":"Starts {agent} with policy {policy}"}},"es":{"stringUnit":{"state":"needs_review","value":"Inicia {agent} con la política {policy}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Démarre {agent} avec la règle {policy}"}},"it":{"stringUnit":{"state":"needs_review","value":"Avvia {agent} con il criterio {policy}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{agent} をポリシー {policy} で起動します"}},"km":{"stringUnit":{"state":"needs_review","value":"ចាប់ផ្ដើម {agent} ជាមួយគោលការណ៍ {policy}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{agent}을(를) 정책 {policy}(으)로 시작합니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Starter {agent} med regelen {policy}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Uruchamia {agent} z zasadą {policy}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Inicia {agent} com a política {policy}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Запускает {agent} с политикой {policy}"}},"th":{"stringUnit":{"state":"needs_review","value":"เริ่ม {agent} ด้วยนโยบาย {policy}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{agent} ajanını {policy} ilkesiyle başlatır"}},"uk":{"stringUnit":{"state":"needs_review","value":"Запускає {agent} з політикою {policy}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Khởi động {agent} với chính sách {policy}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"以策略 {policy} 启动 {agent}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"以策略 {policy} 啟動 {agent}"}}}},
     "presetApproval.startsOn": {"comment":"Agent pane: preset approval card's line naming what the preset starts and where. {agent} is the agent and its model (Claude Code · opus), {policy} the permission policy (approve-all), {host} the other machine","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يشغّل {agent} بالسياسة {policy} على {host}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokreće {agent} s pravilom {policy} na {host}"}},"da":{"stringUnit":{"state":"needs_review","value":"Starter {agent} med politikken {policy} på {host}"}},"de":{"stringUnit":{"state":"needs_review","value":"Startet {agent} mit Richtlinie {policy} auf {host}"}},"en":{"stringUnit":{"state":"translated","value":"Starts {agent} with policy {policy} on {host}"}},"es":{"stringUnit":{"state":"needs_review","value":"Inicia {agent} con la política {policy} en {host}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Démarre {agent} avec la règle {policy} sur {host}"}},"it":{"stringUnit":{"state":"needs_review","value":"Avvia {agent} con il criterio {policy} su {host}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{host} で {agent} をポリシー {policy} で起動します"}},"km":{"stringUnit":{"state":"needs_review","value":"ចាប់ផ្ដើម {agent} ជាមួយគោលការណ៍ {policy} នៅលើ {host}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{host}에서 {agent}을(를) 정책 {policy}(으)로 시작합니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Starter {agent} med regelen {policy} på {host}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Uruchamia {agent} z zasadą {policy} na {host}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Inicia {agent} com a política {policy} em {host}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Запускает {agent} с политикой {policy} на {host}"}},"th":{"stringUnit":{"state":"needs_review","value":"เริ่ม {agent} ด้วยนโยบาย {policy} บน {host}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{agent} ajanını {host} üzerinde {policy} ilkesiyle başlatır"}},"uk":{"stringUnit":{"state":"needs_review","value":"Запускає {agent} з політикою {policy} на {host}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Khởi động {agent} với chính sách {policy} trên {host}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"在 {host} 上以策略 {policy} 启动 {agent}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"在 {host} 上以策略 {policy} 啟動 {agent}"}}}},
@@ -28123,6 +28124,8 @@
     "host.waitingService": {"comment":"Agent pane: the pane waits for the agent service (acpmux) to answer; {time} is how long it has waited, as m:ss","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Waiting for the agent service ({time})"}},"ar":{"stringUnit":{"state":"needs_review","value":"بانتظار خدمة الوكيل ({time})"}},"bs":{"stringUnit":{"state":"needs_review","value":"Čeka se servis agenta ({time})"}},"da":{"stringUnit":{"state":"needs_review","value":"Venter på agenttjenesten ({time})"}},"de":{"stringUnit":{"state":"needs_review","value":"Warten auf den Agentendienst ({time})"}},"es":{"stringUnit":{"state":"needs_review","value":"Esperando al servicio de agentes ({time})"}},"fr":{"stringUnit":{"state":"needs_review","value":"En attente du service d’agents ({time})"}},"it":{"stringUnit":{"state":"needs_review","value":"In attesa del servizio agenti ({time})"}},"ja":{"stringUnit":{"state":"needs_review","value":"エージェントサービスを待機中（{time}）"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងរង់ចាំសេវាភ្នាក់ងារ ({time})"}},"ko":{"stringUnit":{"state":"needs_review","value":"에이전트 서비스 대기 중 ({time})"}},"nb":{"stringUnit":{"state":"needs_review","value":"Venter på agenttjenesten ({time})"}},"pl":{"stringUnit":{"state":"needs_review","value":"Oczekiwanie na usługę agentów ({time})"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aguardando o serviço de agentes ({time})"}},"ru":{"stringUnit":{"state":"needs_review","value":"Ожидание службы агентов ({time})"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังรอบริการเอเจนต์ ({time})"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ajan hizmeti bekleniyor ({time})"}},"uk":{"stringUnit":{"state":"needs_review","value":"Очікування служби агентів ({time})"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang chờ dịch vụ tác tử ({time})"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在等待代理服务（{time}）"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在等待代理服務（{time}）"}}}},
     "host.restartService": {"comment":"Agent pane: button that restarts the agent service (acpmux) while the pane waits for it; chats are kept","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Restart agent service"}},"ar":{"stringUnit":{"state":"needs_review","value":"إعادة تشغيل خدمة الوكيل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ponovo pokreni servis agenta"}},"da":{"stringUnit":{"state":"needs_review","value":"Genstart agenttjenesten"}},"de":{"stringUnit":{"state":"needs_review","value":"Agentendienst neu starten"}},"es":{"stringUnit":{"state":"needs_review","value":"Reiniciar el servicio de agentes"}},"fr":{"stringUnit":{"state":"needs_review","value":"Redémarrer le service d’agents"}},"it":{"stringUnit":{"state":"needs_review","value":"Riavvia il servizio agenti"}},"ja":{"stringUnit":{"state":"needs_review","value":"エージェントサービスを再起動"}},"km":{"stringUnit":{"state":"needs_review","value":"ចាប់ផ្ដើមសេវាភ្នាក់ងារឡើងវិញ"}},"ko":{"stringUnit":{"state":"needs_review","value":"에이전트 서비스 다시 시작"}},"nb":{"stringUnit":{"state":"needs_review","value":"Start agenttjenesten på nytt"}},"pl":{"stringUnit":{"state":"needs_review","value":"Uruchom ponownie usługę agentów"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Reiniciar o serviço de agentes"}},"ru":{"stringUnit":{"state":"needs_review","value":"Перезапустить службу агентов"}},"th":{"stringUnit":{"state":"needs_review","value":"รีสตาร์ตบริการเอเจนต์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ajan hizmetini yeniden başlat"}},"uk":{"stringUnit":{"state":"needs_review","value":"Перезапустити службу агентів"}},"vi":{"stringUnit":{"state":"needs_review","value":"Khởi động lại dịch vụ tác tử"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"重启代理服务"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"重新啟動代理服務"}}}},
     "host.restartingService": {"comment":"Agent pane: the Restart agent service button while the restart runs","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Restarting agent service…"}},"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ إعادة تشغيل خدمة الوكيل…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ponovno pokretanje servisa agenta…"}},"da":{"stringUnit":{"state":"needs_review","value":"Genstarter agenttjenesten…"}},"de":{"stringUnit":{"state":"needs_review","value":"Agentendienst wird neu gestartet …"}},"es":{"stringUnit":{"state":"needs_review","value":"Reiniciando el servicio de agentes…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Redémarrage du service d’agents…"}},"it":{"stringUnit":{"state":"needs_review","value":"Riavvio del servizio agenti…"}},"ja":{"stringUnit":{"state":"needs_review","value":"エージェントサービスを再起動中…"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងចាប់ផ្ដើមសេវាភ្នាក់ងារឡើងវិញ…"}},"ko":{"stringUnit":{"state":"needs_review","value":"에이전트 서비스 다시 시작 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Starter agenttjenesten på nytt …"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ponowne uruchamianie usługi agentów…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Reiniciando o serviço de agentes…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Перезапуск службы агентов…"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังรีสตาร์ตบริการเอเจนต์…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ajan hizmeti yeniden başlatılıyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Перезапуск служби агентів…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang khởi động lại dịch vụ tác tử…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在重启代理服务…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在重新啟動代理服務…"}}}},
+    "host.reconnecting": {"comment":"Agent pane: a quiet line above the composer while the pane's connection to the agent service (acpmux) was lost and comes back on its own","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Reconnecting…"}},"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ إعادة الاتصال…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ponovno povezivanje…"}},"da":{"stringUnit":{"state":"needs_review","value":"Genopretter forbindelse…"}},"de":{"stringUnit":{"state":"needs_review","value":"Verbindung wird wiederhergestellt…"}},"es":{"stringUnit":{"state":"needs_review","value":"Reconectando…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Reconnexion…"}},"it":{"stringUnit":{"state":"needs_review","value":"Riconnessione…"}},"ja":{"stringUnit":{"state":"needs_review","value":"再接続中…"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងភ្ជាប់ឡើងវិញ…"}},"ko":{"stringUnit":{"state":"needs_review","value":"다시 연결하는 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kobler til på nytt…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ponowne łączenie…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Reconectando…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Переподключение…"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังเชื่อมต่อใหม่…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeniden bağlanılıyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Повторне підключення…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang kết nối lại…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在重新连接…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在重新連線…"}}}},
+    "host.restoringSessions": {"comment":"Agent pane: a quiet line above the composer while the agent service (acpmux) restores its chats after a start; {time} is how long it has taken so far, as m:ss","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Restoring sessions… {time}"}},"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ استعادة الجلسات… {time}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Vraćanje sesija… {time}"}},"da":{"stringUnit":{"state":"needs_review","value":"Gendanner sessioner… {time}"}},"de":{"stringUnit":{"state":"needs_review","value":"Sitzungen werden wiederhergestellt… {time}"}},"es":{"stringUnit":{"state":"needs_review","value":"Restaurando sesiones… {time}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Restauration des sessions… {time}"}},"it":{"stringUnit":{"state":"needs_review","value":"Ripristino delle sessioni… {time}"}},"ja":{"stringUnit":{"state":"needs_review","value":"セッションを復元中… {time}"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងស្ដារវគ្គ… {time}"}},"ko":{"stringUnit":{"state":"needs_review","value":"세션 복원 중… {time}"}},"nb":{"stringUnit":{"state":"needs_review","value":"Gjenoppretter økter… {time}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przywracanie sesji… {time}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Restaurando sessões… {time}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Восстановление сеансов… {time}"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังกู้คืนเซสชัน… {time}"}},"tr":{"stringUnit":{"state":"needs_review","value":"Oturumlar geri yükleniyor… {time}"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відновлення сеансів… {time}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang khôi phục phiên… {time}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在恢复会话… {time}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在還原工作階段… {time}"}}}},
     "host.retry": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -111977,6 +111980,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "無法還原此編輯"
+          }
+        }
+      }
+    },
+    "edited.secondOpinion": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رأي ثانٍ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Drugo mišljenje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anden mening"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zweite Meinung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Second opinion"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Segunda opinión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deuxième avis"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Secondo parere"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "セカンドオピニオン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មតិទីពីរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "두 번째 의견"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Andre vurdering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Druga opinia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Segunda opinião"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Второе мнение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความคิดเห็นที่สอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İkinci görüş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Друга думка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ý kiến thứ hai"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "第二意见"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "第二意見"
           }
         }
       }

@@ -561,12 +561,19 @@ pub(super) fn push_activity(hub: &Hub, conn: &Conn, ev: &HubEvent) {
         return;
     }
     // A window shows the chat's activity too: its rows are recomputed when it may show this one.
-    super::chat_windows::activity_changed(conn, &ev.session_id, &rec.kind, || {
-        hub.resolve(&ev.session_id)
-            .ok()
-            .and_then(|session| crate::chats::session_chat_key(&session))
-            .map(|key| crate::chats::key_text(&key))
-    });
+    super::chat_windows::activity_changed(
+        conn,
+        &ev.session_id,
+        &rec.kind,
+        || {
+            hub.resolve(&ev.session_id)
+                .ok()
+                .and_then(|session| crate::chats::session_chat_key(&session))
+                .map(|key| crate::chats::key_text(&key))
+        },
+        // Read now, after the record: the newest session of the chat decides its fold.
+        |chat| hub.chat_activity().has_parent(chat),
+    );
     if !hub.chat_index().is_some_and(|service| service.watches(&conn.id)) {
         return;
     }
