@@ -335,7 +335,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         }
     }
 
-    /// New side chat and `/side [prompt]` of this chat (direct.ts `sideChatHere`), served where the
+    /// New side chat and `/side [prompt]` of this chat (direct.ts `sideChatOnMachine`), served where the
     /// initialize answer named `side_chat`. The page names this chat and the fork's boundary.
     public static let sideChatMethod = "_acpmux/side_chat"
 
