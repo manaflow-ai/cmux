@@ -70,7 +70,7 @@ package nonisolated struct SystemNotificationPermission: NotificationPermissionC
     }
 }
 
-struct NotificationPermissionStrings {
+nonisolated struct NotificationPermissionStrings {
     static var unavailable: String {
         String(localized: "notifications.permission.unavailable",
                defaultValue: "This cmux process does not use macOS notifications (an automation or test host, or not the cmux app bundle)",
