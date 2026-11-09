@@ -2558,6 +2558,19 @@ async fn dispatch_request_with_identity(
                 .await
                 .map_err(|e| RpcError::internal(format!("session search stopped: {e}")))?
         }
+        // What a chat said and did is its person's (C5): the local socket and the app only.
+        method::MUX_REVIEW_BRIEF => {
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+                return Err(RpcError::method_not_found(method::MUX_REVIEW_BRIEF));
+            }
+            let s = hub.resolve(session_key(&params)?)?;
+            let root = params.get("root").and_then(Value::as_str).map(str::to_owned);
+            // A chat's first brief reads its log: off the runtime.
+            let hub = Arc::clone(hub);
+            tokio::task::spawn_blocking(move || hub.review_brief(&s, root.as_deref()))
+                .await
+                .map_err(|e| RpcError::internal(format!("review brief stopped: {e}")))?
+        }
         m if composer::handles(m) => heap(|| composer::handle(hub, conn, m, &params)).await,
         method::MUX_TAG => {
             let s = hub.resolve(session_key(&params)?)?;

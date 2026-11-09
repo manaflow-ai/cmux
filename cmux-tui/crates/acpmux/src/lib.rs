@@ -143,6 +143,7 @@ pub mod recovery;
 pub mod registry;
 pub mod resume;
 pub mod review_box;
+pub mod review_brief;
 pub mod route_account;
 mod route_probe;
 pub mod route_shadow;

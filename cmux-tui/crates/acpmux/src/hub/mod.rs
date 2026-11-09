@@ -284,6 +284,7 @@ pub(crate) mod questions;
 mod remote_cwd;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
+mod review_brief;
 pub(crate) mod review_queue;
 mod touched;
 pub mod vm_boundary;
