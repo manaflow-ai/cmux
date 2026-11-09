@@ -124,6 +124,40 @@ export default agentPaneEntry({
           throw new Error("the creating line outlived the worktree");
       },
     },
+    "worktree-setup-runs": {
+      note: "Play: New Worktree in a project whose recipe has a setup script: Creating worktree… becomes the setup line in the same row, and it stays while the setup runs.",
+      ready: { newSession: true },
+      native: {
+        "git.worktree.create": {
+          value: {
+            root: WORKTREE,
+            branch: "cmux/fix-sidebar",
+            base: "main",
+            base_commit: "4f2a9c1",
+            setup: { state: "running", port: 40_010 },
+          },
+          replayed: false,
+        },
+        "git.worktree.setup": {
+          root: WORKTREE,
+          recipe: { setup: "bun install", run: null, teardown: null, include: [], repository: {}, files: [] },
+          run: { state: "running", output: "bun install v1.3\n", output_start: "0", output_end: "17", setup: "bun install", port: 40_010 },
+        },
+        "workspace.useFolder": { status: "ok", cwd: WORKTREE },
+      },
+      nativeDelayMs: { "git.worktree.create": 600 },
+      snapshot: inProject,
+      play: async (ctx) => {
+        await newWorktree(ctx);
+        await ctx.waitFor(() =>
+          ctx.document.querySelector('[aria-label="Folder"]')?.textContent?.includes("fix-sidebar"),
+        );
+        // The chat's summary still names the checkout; the line follows the worktree's setup.
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".acpmux-worktree-setup")?.textContent?.includes("Running setup script"),
+        );
+      },
+    },
     "worktree-refused": {
       note: "Play: a New Worktree the host does not make: the chat keeps its folder and the line above the composer says why, with Dismiss.",
       ready: { newSession: true },
