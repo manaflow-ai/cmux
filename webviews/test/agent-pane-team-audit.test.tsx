@@ -267,6 +267,39 @@ test("Download CSV waits for the picked grouping's reply, then saves that reply'
   await act(async () => root.unmount());
 });
 
+test("a Download clicked with a new grouping, before its read starts, saves nothing", async () => {
+  const { TeamAuditScreen } = await import("../src/agent-session/acpmux/teamAudit/TeamAuditScreen");
+  const calls: Record<string, unknown>[] = [];
+  const load = (params: Record<string, unknown>) => {
+    calls.push(params);
+    if (params.format === "csv") return Promise.resolve({ status: "saved", path: "/Users/a/Downloads/spend.csv" });
+    return params.groupBy === "day" ? new Promise(() => {}) : Promise.resolve(answer());
+  };
+  const root: Root = createRoot(host);
+  await act(async () => root.render(<TeamAuditScreen load={load} now={NOW} />));
+  await settle();
+  const button = () =>
+    [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Download CSV")!;
+  const trigger = host.querySelector<HTMLElement>(".cst-controls [aria-haspopup=menu]")!;
+  await act(async () => trigger.click());
+  await settle();
+  const day = [...dom.window.document.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find(
+    (item) => item.textContent?.trim() === "Day",
+  )!;
+  const stale = button();
+  expect(stale.disabled).toBe(false);
+  // One act: the pick and the click land before React renders or runs the read's effect, so the
+  // click goes to the handler of the render that still shows the person reply.
+  act(() => {
+    day.click();
+    stale.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  });
+  await settle();
+  expect(calls.filter((call) => call.format === "csv")).toEqual([]);
+  expect(button().disabled).toBe(true);
+  await act(async () => root.unmount());
+});
+
 test("Team says why there is nothing: not in a sharing team, off, signed out", async () => {
   const { TeamAuditScreen } = await import("../src/agent-session/acpmux/teamAudit/TeamAuditScreen");
   for (const [status, words] of [
