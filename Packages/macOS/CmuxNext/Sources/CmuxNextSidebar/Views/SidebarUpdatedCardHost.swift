@@ -301,6 +301,8 @@ final class SidebarUpdatedCardHost: NSView {
             return closingFrame.map { glassFrame.union($0) } ?? glassFrame
         }
         hover.passThroughWindows = { [weak self] in self?.hoverPassThroughWindows(at: NSEvent.mouseLocation) ?? [] }
+        // The x's own hover fill reads the same pointer.
+        closeButton.hover.pointer?.passThroughWindows = { [weak self] in self?.hoverPassThroughWindows(at: NSEvent.mouseLocation) ?? [] }
         pointerHover = hover
         addSubview(closeButton)
     }
@@ -376,7 +378,7 @@ final class SidebarUpdatedCardHost: NSView {
     /// the open popover took the card's hover there, so the x hid and the card could not be dismissed
     /// (https://github.com/manaflow-ai/cmux/issues/39248); a click there already reaches the x (``HoverCardPanel`` passes it to this window).
     func hoverPassThroughWindows(at screenPoint: CGPoint) -> Set<Int> {
-        notes.hoverCards()?.windowsPassingHover(at: screenPoint) ?? []
+        notes.hoverCards()?.windowsPassingHover(at: screenPoint, over: window) ?? []
     }
 
     /// A hidden card is not under the pointer: hidden by the slot (a card of higher priority took it)

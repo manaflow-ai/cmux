@@ -12,9 +12,14 @@ extension HoverCardPanel {
     private static let pressTypes: Set<NSEvent.EventType> = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
     private static let followTypes: Set<NSEvent.EventType> = [.leftMouseDragged, .rightMouseDragged, .otherMouseDragged,
                                                               .leftMouseUp, .rightMouseUp, .otherMouseUp]
+    private static let moveTypes: Set<NSEvent.EventType> = [.mouseMoved, .mouseEntered, .mouseExited]
     private static let releaseTypes: Set<NSEvent.EventType> = [.leftMouseUp, .rightMouseUp, .otherMouseUp]
 
     override func sendEvent(_ event: NSEvent) {
+        // A move over this window (the card or its band) reaches none of the parent's tracking areas, so
+        // the parent's hover is recomputed on it: a view under the band (the Updated card and its x,
+        // https://github.com/manaflow-ai/cmux/issues/39248) lights and unlights as the pointer moves.
+        if Self.moveTypes.contains(event.type), let parent { PointerHover.refresh(in: parent) }
         guard let parent, let forwarded = clickThrough(event, to: parent) else { return super.sendEvent(event) }
         parent.sendEvent(forwarded)
     }

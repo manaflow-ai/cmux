@@ -65,14 +65,16 @@ struct UpdatedCardCloseOverNotesTests {
         #expect(host.hoverPassThroughWindows(at: onPopover).isEmpty, "the popover itself still ends the card's hover")
         #expect(host.closeShown, "the x shows while the pointer is on the card under the open popover")
 
-        // The click lands in the popover's window (it is on top there) and reaches the x.
-        let location = popup.convertPoint(fromScreen: point)
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            let event = try #require(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [],
-                                                        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: popup.windowNumber,
-                                                        context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
-            popup.sendEvent(event)
-        }
+        // The x's own hover fill reads the same pass-through.
+        #expect(x.hover.pointer?.passThroughWindows() == host.hoverPassThroughWindows(at: NSEvent.mouseLocation))
+
+        // A press there goes to the sidebar's window at the same point (the popover's window passes it
+        // on), and the sidebar's window finds the x there; pressing it dismisses the card. (A synthesized
+        // press through the x's own tracking loop would wait for a release that never comes.)
+        let content = try #require(window.contentView)
+        let hit = try #require(content.hitTest(window.convertPoint(fromScreen: point)))
+        #expect(hit === x || hit.isDescendant(of: x), "the press under the popover's band lands on the x, not \(type(of: hit))")
+        x.performClick(nil)
         #expect(intents == [.dismissUpdated], "the x under the open popover dismisses the card")
     }
 }
