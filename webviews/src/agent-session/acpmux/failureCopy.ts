@@ -78,8 +78,10 @@ const AWS_AUTH_EXPIRED =
 /// `aws sso login` fixes only an SSO sign-in; static keys fail with the same exceptions.
 const AWS_SSO = /\bSSO\b|token has expired and refresh failed/i;
 /// The profile an error names (`--profile work`, `profile: work`, `profile "work"`), never the words
-/// after "this profile". A profile name that is not one never reaches a command.
-const AWS_PROFILE_NAMED = /(?:--profile\s+|\bprofile\s*[:=]\s*["']?|\bprofile\s+["'])([A-Za-z0-9_.-]+)/i;
+/// after "this profile". The whole value is taken, up to a space, quote or separator, and checked as one:
+/// `profile: "work/admin"` is no profile name, never `work`. A profile name that is not one never
+/// reaches a command.
+const AWS_PROFILE_NAMED = /(?:--profile\s+|\bprofile\s*[:=]\s*["']?|\bprofile\s+["'])([^\s"'`,;()]+)/i;
 const AWS_PROFILE_NAME = /^[A-Za-z0-9_.-]{1,64}$/;
 const ADC_AUTH_EXPIRED = /reauthentication is needed|could not load the default credentials/i;
 /// `invalid_grant` alone is the agent's own OAuth refresh (SUBSCRIPTION), Gemini's through
@@ -201,6 +203,8 @@ export function failureVia(message: string | undefined, route?: FailureRoute): s
 /// `code`: acpmux's typed reason for the failure (the turn's `errorCode`), when it gives one.
 export function failureKind(message: string | undefined, route?: FailureRoute, code?: string): FailureKind {
   const typed = code ? TYPED.find(([words]) => words.test(code))?.[1] : undefined;
+  // The router types its own limits `insufficient_quota` too: its code in the text makes it a limit.
+  if (typed === "no-credit" && message && ROUTER_CODE.test(message)) return "rate-limited";
   if (typed) return typed;
   if (!message) return "other";
   if (/\btrust\.pending\b/i.test(message)) return "trust-pending";

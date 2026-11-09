@@ -151,6 +151,15 @@ test("an own key's account out of credit reads as no-credit, not a rate limit", 
     expect(failureKind(message, claude), message).not.toBe("no-credit");
     expect(failureKind(message, claude), message).toBe("rate-limited");
   }
+  // The same refusals with `insufficient_quota` as acpmux's typed code: the router code in the text
+  // still makes them limits. A typed `insufficient_quota` with no router code stays out of credit.
+  for (const message of [
+    '{"error":{"code":"budget.exhausted","message":"the daily model budget is used up; try again later","type":"insufficient_quota"}}',
+    '{"error":{"code":"free.rate","message":"too many requests; wait a moment","type":"insufficient_quota"}}',
+  ])
+    expect(failureKind(message, claude, "insufficient_quota"), message).toBe("rate-limited");
+  expect(failureKind("You exceeded your current quota", claude, "insufficient_quota")).toBe("no-credit");
+  expect(failureKind(undefined, claude, "insufficient_quota")).toBe("no-credit");
   // A provider's bare `insufficient_quota`, with no rate words, is still out of credit.
   expect(failureKind('{"error":{"type":"insufficient_quota","code":"insufficient_quota"}}', claude)).toBe("no-credit");
   // A plain rate limit still reads as one, and the cmux model router's refusal as needs-credits.
@@ -182,7 +191,12 @@ test("an expired cloud provider sign-in names the command that refreshes it", ()
   const named = "Error when retrieving token from sso: Token has expired and refresh failed (profile: dev-admin)";
   expect(failureCopy(t, ssoExpired, { ...claude, awsProfile: "work" })).toBe(signIn("aws sso login --profile work"));
   expect(failureCopy(t, named, claude)).toBe(signIn("aws sso login --profile dev-admin"));
-  // A profile name that is not one is never pasted into a command.
+  // A profile name that is not one is never pasted into a command, nor is a part of it: the whole
+  // value the error names is checked, so `work/admin` never becomes `--profile work`.
+  for (const profile of ['profile: "work/admin"', "profile: work/admin", "--profile work$(id)"]) {
+    const message = `Token has expired and refresh failed (${profile})`;
+    expect(failureCopy(t, message, claude), message).toBe(ssoCopy);
+  }
   expect(failureCopy(t, ssoExpired, { ...claude, awsProfile: "work; rm -rf ~" })).toBe(ssoCopy);
   for (const message of [ssoExpired, "Token has expired and refresh failed"]) {
     expect(failureKind(message, claude), message).toBe("cloud-auth-expired");
