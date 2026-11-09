@@ -469,9 +469,9 @@ public struct AgentChatTranscript: View {
             configureRows: { context in
                 context.openDiff = OpenDiffAction { changes, file in surface.diffRoute = AgentChatSurface.DiffRoute(changes: changes, fileID: file) }
                 context.openFile = openFile
-                context.attachmentLoader = AttachmentLoader { [weak source = store.source] attachment in
+                context.attachmentLoader = AttachmentLoader(load: { [weak source = store.source] attachment in
                     await source?.attachmentData(attachment)
-                }
+                }, files: store.source.artifactSource)
                 // A file link in an answer opens its preview, a cmux link what it names; web links open as before.
                 context.openURL = OpenURLAction { url in
                     if CmuxLinkOpener.shared.open(url) { return .handled }
@@ -966,22 +966,29 @@ extension UserBubble {
 
 /// Sent attachments above the user bubble (SPEC 4.4 "images above text as
 /// a stacked strip, radius 16"): a lone image shows large like ChatGPT and
-/// Messages; several share a row of squares; files stay chips. Trailing
-/// edges line up with the bubble (no remove-badge room).
+/// Messages; several share a row of squares; files stay chips. A video is a
+/// tile among the images: its poster (first frame), a play glyph and its length;
+/// a tap plays it full screen. Trailing edges line up with the bubble (no
+/// remove-badge room).
 struct SentAttachments: View {
     let attachments: [AgentAttachment]
     /// A tapped attachment: every attachment of the message opens full screen, to swipe between.
     @State private var preview: FilePreviewRequest?
-    /// Bytes read for recorded images (a prompt this launch did not send).
+    /// Bytes read for recorded images and video posters (a prompt this launch did not send), by picture id.
     @State private var fetched: [String: Data] = [:]
-    /// Thumbnails decoded off the main thread, by attachment id (never decoded in a body).
+    /// Thumbnails decoded off the main thread, by picture id (never decoded in a body).
     @State private var decoded: [String: UIImage] = [:]
     private let thumbnails = SentAttachmentThumbnails.shared
     @Environment(\.attachmentLoader) private var loader
 
+    /// Drawn as a picture (an image, or a video's tile), not a file chip.
+    nonisolated static func isVisual(_ attachment: AgentAttachment) -> Bool {
+        attachment.kind == .image || attachment.video != nil
+    }
+
     var body: some View {
-        let images = attachments.filter { $0.kind == .image }
-        let files = attachments.filter { $0.kind != .image }
+        let images = attachments.filter(Self.isVisual)
+        let files = attachments.filter { !Self.isVisual($0) }
         VStack(alignment: .trailing, spacing: 6) {
             if images.count == 1, let image = images.first {
                 thumbnail(image, size: SentAttachmentThumbnails.size(images: 1))
@@ -1007,52 +1014,98 @@ struct SentAttachments: View {
         .filePreview($preview)
     }
 
-    /// Images first, then files: the order they show in. A recorded image's bytes come from the
-    /// session (read once here, or by the preview when it opens first).
+    /// Pictures first, then files: the order they show in. A recorded image's bytes come from the
+    /// session (read once here, or by the preview when it opens first); a video this phone does not
+    /// hold is read from the Mac over the link (`AttachmentLoader.files`: the `file-preview` service).
     private func open(_ attachment: AgentAttachment) {
-        let ordered = attachments.filter { $0.kind == .image } + attachments.filter { $0.kind != .image }
-        let files = ordered.map { item in
+        let ordered = attachments.filter(Self.isVisual) + attachments.filter { !Self.isVisual($0) }
+        var local: [LocalFile] = []
+        var artifacts: [TerminalArtifact] = []
+        for item in ordered {
+            if item.data == nil, item.fileURL == nil, item.recordedImageID == nil, let path = item.macPath {
+                artifacts.append(FilePreviewRequest.artifact(for: path))
+                continue
+            }
             var file = item.localFile
             if file.data == nil { file.data = fetched[item.id] }
-            return file
+            local.append(file)
+            artifacts.append(file.artifact)
         }
         let load = loader.load
-        preview = FilePreviewRequest(files: files, startingAt: attachment.id) { file in
+        let source = LocalFileArtifactSource(files: local, fallback: loader.files) { file in
             await load(AgentAttachment(id: file.id, kind: file.isImage ? .image : .file, name: file.name))
         }
+        preview = FilePreviewRequest(artifacts: artifacts, source: source, start: ordered.firstIndex { $0.id == attachment.id } ?? 0)
     }
 
     @ViewBuilder
     private func thumbnail(_ attachment: AgentAttachment, size: CGSize) -> some View {
         let side = SentAttachmentThumbnails.side(size)
+        // An image is its own picture; a video's is its first frame.
+        let picture = attachment.picture
         Group {
             // Decoded by this view's `.task`, or already (a tab card's picture runs no `.task`:
             // its key waits for the thumbnail, `SentAttachmentThumbnails.ready`).
-            if let image = decoded[attachment.id]
-                ?? (attachment.data ?? fetched[attachment.id]).flatMap({ thumbnails.image(attachment, data: $0, side: side) }) {
+            if let picture, let image = decoded[picture.id]
+                ?? (picture.data ?? fetched[picture.id]).flatMap({ thumbnails.image(picture, data: $0, side: side) }) {
                 Image(uiImage: image).resizable().scaledToFill()
             } else {
-                Color.cmuxMobileFill.overlay { Image(systemName: "photo").font(.title3).foregroundStyle(.secondary) }
+                Color.cmuxMobileFill.overlay {
+                    Image(systemName: attachment.video == nil ? "photo" : "film").font(.title3).foregroundStyle(.secondary)
+                }
             }
         }
         .frame(width: size.width, height: size.height)
+        .overlay { if let video = attachment.video { SentVideoBadge(video: video, compact: size.width < 120) } }
         .clipShape(.rect(cornerRadius: 16, style: .continuous))
         .contentShape(.rect(cornerRadius: 16, style: .continuous))
-        // Tap opens it full screen (swipe to the message's other attachments).
+        // Tap opens it full screen (swipe to the message's other attachments); a video plays there.
         .onTapGesture { open(attachment) }
-        .task(id: attachment.id) {
-            var data = attachment.data ?? fetched[attachment.id]
-            if data == nil, let loaded = await loader.load(attachment) {
-                fetched[attachment.id] = loaded
+        .task(id: picture?.id) {
+            guard let picture else { return }
+            var data = picture.data ?? fetched[picture.id]
+            if data == nil, let loaded = await loader.load(picture) {
+                fetched[picture.id] = loaded
                 data = loaded
             }
-            guard let data, decoded[attachment.id] == nil else { return }
-            if let image = await thumbnails.decode(attachment, data: data, side: side) { decoded[attachment.id] = image }
+            guard let data, decoded[picture.id] == nil else { return }
+            if let image = await thumbnails.decode(picture, data: data, side: side) { decoded[picture.id] = image }
         }
         .accessibilityElement()
-        .accessibilityLabel(Text("Image, \(attachment.name)"))
+        .accessibilityLabel(Text(attachment.video.map { "Video, \(attachment.name), \(AgentVideo.length($0.durationMs))" }
+            ?? "Image, \(attachment.name)"))
         .accessibilityAddTraits(.isButton)
-        .accessibilityHint("Opens full screen")
+        .accessibilityHint(attachment.video == nil ? "Opens full screen" : "Plays full screen")
+        .accessibilityIdentifier(attachment.video == nil ? "attachment.sentImage" : "attachment.sentVideo")
+    }
+}
+
+/// A sent video tile's marks over its poster: a play glyph in the middle and its length in the
+/// corner (the Mac's SentVideoTile).
+struct SentVideoBadge: View {
+    let video: AgentVideo
+    /// A square in a row of several: a smaller glyph.
+    var compact = false
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            Image(systemName: "play.fill")
+                .font(compact ? .footnote : .title3)
+                .foregroundStyle(.white)
+                .frame(width: compact ? 30 : 44, height: compact ? 30 : 44)
+                .background(.black.opacity(0.45), in: .circle)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if video.durationMs > 0 {
+                Text(AgentVideo.length(video.durationMs))
+                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.black.opacity(0.55), in: .capsule)
+                    .padding(6)
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 
@@ -1096,6 +1149,9 @@ extension SentAttachments {
 /// Reads the bytes of an attachment a recorded prompt names (`AgentSessionSource.attachmentData`).
 struct AttachmentLoader: Sendable {
     let load: @MainActor @Sendable (AgentAttachment) async -> Data?
+    /// The session's files on the Mac (`AgentSessionSource.artifactSource`): a sent video this
+    /// phone does not hold opens from here.
+    var files: any ArtifactSource = UnavailableArtifactSource()
 }
 
 extension EnvironmentValues {

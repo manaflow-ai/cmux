@@ -259,3 +259,40 @@ test("a list keeps only the last few lists it was made from alive", () => {
   expect(replacedSince(lists[499], lists[500])).toBeUndefined();
   expect(replacedSince(lists[last - STEPS + 1], lists[last - STEPS + 2])).toEqual([(last - STEPS + 1) % 10]);
 });
+
+test("a session listed twice in place of another, then back, is in the folder input again", () => {
+  const by = new SessionsBy(folderFields);
+  const a = () => counted(1);
+  const b = () => counted(2, { cwd: "/Users/me/code/b" });
+  by.of([b(), a()]);
+  by.of([a(), a()]);
+  const back = [b(), a()];
+  expect(by.of(back)).toBe(back);
+});
+
+test("a sender alias freed by a session listed twice resolves to the session left with it", () => {
+  const store = new SubsessionStore();
+  store.set([counted(1, { name: "old" }), counted(1, { name: "new" }), counted(2, { name: "old" })]);
+  store.set([counted(1, { name: "new" }), counted(1, { name: "new" }), counted(2, { name: "old" })]);
+  expect(store.find("old")).toBe("s2");
+});
+
+test("a session listed twice, then once, drops what only the copy it lost said", () => {
+  const store = new SessionHoverStore();
+  const peer = counted(1, { host: "far", hostKind: "peer", peer: "far", agentSessionId: "x1" });
+  const local = counted(1, { agentSessionId: "x2" });
+  store.set([peer, local]);
+  store.set([counted(1, { agentSessionId: "x2" })]);
+  expect(store.host("s1")).toBeUndefined();
+  expect(store.byAgentSession("x1")).toBeUndefined();
+});
+
+test("two chats of one agent session, reordered, link to the one now first", () => {
+  const store = new SessionHoverStore();
+  const a = counted(1, { agentSessionId: "x" });
+  const b = counted(2, { agentSessionId: "x" });
+  store.set([a, b]);
+  store.set([b, a]);
+  expect(store.byAgent("claude", "x")).toBe("s2");
+  expect(store.byAgentSession("x")).toBe("s2");
+});
