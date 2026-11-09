@@ -1328,6 +1328,22 @@ async fn join_circuit(
     )))
 }
 
+/// What a relay registration hands each joined circuit to: a cmux-remote
+/// daemon, or another endpoint that runs its own handshake over the link
+/// (acpmux's hub carrier, which bridges it to its WebSocket listener).
+#[async_trait]
+pub trait RelayIncoming: Send + Sync + 'static {
+    /// Serve one joined circuit until it ends.
+    async fn incoming(self: Arc<Self>, link: Box<dyn FrameLink>);
+}
+
+#[async_trait]
+impl RelayIncoming for RemoteDaemon {
+    async fn incoming(self: Arc<Self>, link: Box<dyn FrameLink>) {
+        let _ = self.accept(InboundLink::network(link, NetworkPeer::Relay)).await;
+    }
+}
+
 #[derive(Clone)]
 pub struct RelayDaemonConfig {
     pub endpoint: Url,
@@ -1389,7 +1405,7 @@ impl Drop for RelayDaemonRegistration {
 }
 
 pub async fn register_relay_daemon(
-    daemon: Arc<RemoteDaemon>,
+    daemon: Arc<dyn RelayIncoming>,
     mut config: RelayDaemonConfig,
 ) -> Result<RelayDaemonRegistration, ProviderError> {
     if let Err(error) = config.validate_common() {
@@ -1401,7 +1417,7 @@ pub async fn register_relay_daemon(
 }
 
 pub async fn register_relay_daemon_with_credentials(
-    daemon: Arc<RemoteDaemon>,
+    daemon: Arc<dyn RelayIncoming>,
     mut config: RelayDaemonConfig,
     credentials: RelayCredentialSource,
 ) -> Result<RelayDaemonRegistration, ProviderError> {
@@ -1441,7 +1457,7 @@ pub async fn register_relay_daemon_with_credentials(
 /// an error here. A daemon uses this so that its local services start and
 /// stay up while the relay route is unavailable.
 pub fn spawn_relay_daemon_registration(
-    daemon: Arc<RemoteDaemon>,
+    daemon: Arc<dyn RelayIncoming>,
     mut config: RelayDaemonConfig,
     credentials: RelayCredentialSource,
     log_label: &str,
@@ -1466,7 +1482,7 @@ pub fn spawn_relay_daemon_registration(
 }
 
 async fn run_registration_loop(
-    daemon: Arc<RemoteDaemon>,
+    daemon: Arc<dyn RelayIncoming>,
     config: RelayDaemonConfig,
     framing: RelayCircuitFraming,
     credentials: RelayCredentialSource,
@@ -1662,7 +1678,7 @@ impl RegisterLog {
 
 #[allow(clippy::too_many_arguments)]
 async fn run_registration_once(
-    daemon: Arc<RemoteDaemon>,
+    daemon: Arc<dyn RelayIncoming>,
     config: &RelayDaemonConfig,
     framing: RelayCircuitFraming,
     credentials: &RelayCredentialSource,
@@ -1754,8 +1770,7 @@ async fn run_registration_once(
                                 maximum,
                                 timeout,
                             ).await {
-                                let inbound = InboundLink::network(link, NetworkPeer::Relay);
-                                let _ = daemon.accept(inbound).await;
+                                daemon.incoming(link).await;
                             }
                         });
                     }

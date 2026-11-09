@@ -9,6 +9,17 @@ public struct CloudEnvironmentBootstrap: Sendable {
 
     public init(work: BackgroundWork) { self.work = work }
 
+    /// The launch's read and the refresh that follows it once the window is up (``resolveAtLaunch()``).
+    public typealias LaunchRead = (selection: CloudRuntimeSelection, refresh: @Sendable () async -> Void)
+
+    /// ``resolveAtLaunch()`` started at once off the main thread, from `main`: the CLI's spawn and run overlap
+    /// AppKit's start instead of running after applicationDidFinishLaunching, where the main thread waited for it.
+    /// Cancelling the task (Quit before the answer) kills the CLI, as before.
+    public static func startAtLaunch(work: BackgroundWork) -> Task<LaunchRead, any Error> {
+        // task-owner: AppDelegate.cloudEnvironment; awaited by its cloudBootstrap, which cancels it at Quit.
+        Task.detached(priority: .userInitiated) { try await CloudEnvironmentBootstrap(work: work).resolveAtLaunch() }
+    }
+
     /// The launch's read, with no network read when it can (`resolve(cacheFirst:)`): the fetch held every launch's
     /// first window up to 1.5 s (cmuxterm-hq#7289). `refresh`, awaited once the window is up by the task that owns
     /// the launch read, fetches the backend's client-config into the cache for the next launch; it does nothing when
