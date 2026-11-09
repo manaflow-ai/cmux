@@ -327,10 +327,9 @@ impl Bridge {
         if let Some(session) = &self.session {
             request = request.header("mcp-session-id", session);
         }
-        let mut response = request
-            .send()
-            .await
-            .map_err(|e| format!("could not reach cmux's hosted MCP server: {}", e.without_url()))?;
+        let mut response = request.send().await.map_err(|e| {
+            format!("could not reach cmux's hosted MCP server: {}", e.without_url())
+        })?;
         let status = response.status().as_u16();
         if status == 401 {
             return Ok(Sent::Unauthorized);
@@ -344,7 +343,8 @@ impl Bridge {
         if !response.status().is_success() {
             return Err(format!("cmux's hosted MCP server answered HTTP {status}"));
         }
-        if let Some(session) = response.headers().get("mcp-session-id").and_then(|v| v.to_str().ok())
+        if let Some(session) =
+            response.headers().get("mcp-session-id").and_then(|v| v.to_str().ok())
             && session.len() <= 256
             && session.bytes().all(|b| (0x21..=0x7e).contains(&b))
         {
@@ -437,9 +437,7 @@ impl Bridge {
         let id = message.get("id").cloned()?;
         let method = message["method"].as_str().unwrap_or_default();
         let ok = |result: Value| json!({"jsonrpc": "2.0", "id": id, "result": result});
-        let err = |code: i64, text: String| {
-            json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": text}})
-        };
+        let err = |code: i64, text: String| json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": text}});
         Some(match method {
             "initialize" => ok(json!({
                 "protocolVersion": crate::secret_mcp::protocol_version(&message["params"]),
@@ -454,9 +452,7 @@ impl Bridge {
                     reply["id"] = id.clone();
                     reply
                 }
-                Err(text) if method == "tools/call" => {
-                    ok(crate::secret_mcp::error_result(text))
-                }
+                Err(text) if method == "tools/call" => ok(crate::secret_mcp::error_result(text)),
                 // A failed list keeps every hosted tool out until `cmux mcp serve` tries again.
                 Err(text) => err(-32002, text),
             },

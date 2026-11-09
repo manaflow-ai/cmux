@@ -91,8 +91,9 @@ async fn hosted_server() -> (String, Arc<Mutex<Vec<(String, String)>>>) {
                                 } else {
                                     json!({"tools": [{"name": "list_repos", "inputSchema": {"type": "object"}}]})
                                 };
-                                let b = json!({"jsonrpc": "2.0", "id": body["id"], "result": result})
-                                    .to_string();
+                                let b =
+                                    json!({"jsonrpc": "2.0", "id": body["id"], "result": result})
+                                        .to_string();
                                 format!(
                                     "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{b}",
                                     b.len()
@@ -126,7 +127,10 @@ async fn hosted_mcp_signs_each_request_with_the_persons_token_and_mints_again_af
     let reply = bridge.handle(&init).await.unwrap();
     assert_eq!(reply["result"]["serverInfo"]["name"], SERVER_NAME);
     assert_eq!(mints(&dir), 0);
-    assert_eq!(bridge.handle(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"})).await, None);
+    assert_eq!(
+        bridge.handle(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"})).await,
+        None
+    );
 
     let list = json!({"jsonrpc": "2.0", "id": "a-7", "method": "tools/list", "params": {}});
     let reply = bridge.handle(&list).await.unwrap();
@@ -181,7 +185,12 @@ fn hosted_mcp_token_goes_only_to_the_platform_of_its_issuer() {
         assert_eq!(platform_for_issuer(&format!("{}/", b.owner_api())), Some(b.platform()));
     }
     let production_api = Backend::Production.owner_api();
-    for other in ["", "https://evil.example", "http://localhost:8787", "https://cmux-api-preview-3.debussy.workers.dev"] {
+    for other in [
+        "",
+        "https://evil.example",
+        "http://localhost:8787",
+        "https://cmux-api-preview-3.debussy.workers.dev",
+    ] {
         assert_eq!(platform_for_issuer(other), None, "{other}");
     }
     let now = Instant::now();
@@ -204,7 +213,10 @@ fn hosted_mcp_token_goes_only_to_the_platform_of_its_issuer() {
         "http://user@127.0.0.1:9",
         "http://127.0.0.1.evil.example",
     ] {
-        assert!(parse_minted(answer(production_api).as_bytes(), Some(origin), now).is_err(), "{origin}");
+        assert!(
+            parse_minted(answer(production_api).as_bytes(), Some(origin), now).is_err(),
+            "{origin}"
+        );
     }
     for bad in [&b"{}"[..], &b"not json"[..], &br#"{"access_token":"a b"}"#[..]] {
         assert!(parse_minted(bad, None, now).is_err());
@@ -217,7 +229,10 @@ fn hosted_mcp_reads_a_reply_from_json_a_batch_or_an_event_stream() {
     let one = json!({"jsonrpc": "2.0", "id": 3, "result": {"ok": true}});
     assert_eq!(reply_for("application/json", &one.to_string(), &id), Some(one.clone()));
     let batch = json!([{"jsonrpc": "2.0", "id": 2, "result": {}}, one]).to_string();
-    assert_eq!(reply_for("application/json; charset=utf-8", &batch, &id).unwrap()["result"]["ok"], true);
+    assert_eq!(
+        reply_for("application/json; charset=utf-8", &batch, &id).unwrap()["result"]["ok"],
+        true
+    );
     let stream = "event: message\r\ndata: {\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"x\"}\r\n\r\ndata: {\"jsonrpc\":\"2.0\",\n\
                   data: \"id\":3,\"error\":{\"code\":-1,\"message\":\"no\"}}\n\n";
     assert_eq!(reply_for("text/event-stream", stream, &id).unwrap()["error"]["message"], "no");

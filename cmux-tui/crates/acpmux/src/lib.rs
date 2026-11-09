@@ -76,7 +76,6 @@ pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
 pub mod github_status;
-pub mod hosted_mcp;
 pub mod goal;
 pub mod hand;
 pub mod harness_admin;
@@ -89,6 +88,7 @@ pub mod harness_limits;
 pub(crate) mod heap_future;
 pub mod host_load;
 pub mod host_pressure;
+pub mod hosted_mcp;
 pub mod hub;
 /// The live stream to one's own machines through the platform's relay (`hub_carrier.rs`).
 #[cfg(feature = "hub-carrier")]
