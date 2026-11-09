@@ -391,8 +391,10 @@ function devServerShell(): Plugin {
         optimizeDeps: { entries: devEntries, exclude: galleryOptimizeDeps.exclude },
         // A path this server lacks is a 404, never the index page: the app asks it for a page's
         // bundled file names first (`assets/x-hash.js`) and serves its own copy only on a miss,
-        // so an HTML 200 ran as a script and left the page blank.
-        appType: "mpa",
+        // so an HTML 200 ran as a script and left the page blank. Only the servers rooted at
+        // webviews/ (the ones the app loads from); a single-page app of its own (the guest page,
+        // Chief web) keeps its client routes.
+        ...(config.root === undefined || path.resolve(config.root) === webviewsRoot ? { appType: "mpa" as const } : {}),
       };
     },
     configureServer(server) {
