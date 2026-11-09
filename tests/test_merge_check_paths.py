@@ -64,11 +64,12 @@ class MovingTipApi(FakeApi):
     """
 
     def __init__(self, moves, run_polls=3, results=("success",)):
-        self.tips = [format(index + 1, "040x") for index in range(moves + 1)]
-        compares = {(OLD, self.tips[0]): {"status": "ahead", "ahead_by": 1, "files": FILES_23365}}
-        for older, newer in zip(self.tips, self.tips[1:]):
+        tips = [format(index + 1, "040x") for index in range(moves + 1)]
+        compares = {(OLD, tips[0]): {"status": "ahead", "ahead_by": 1, "files": FILES_23365}}
+        for older, newer in zip(tips, tips[1:]):
             compares[(older, newer)] = {"status": "ahead", "ahead_by": 1, "files": ["scripts/check-pbxproj.sh"]}
         super().__init__([status(OLD)], compares=compares)
+        self.tips = tips  # after FakeApi's own, which this fake's tip() replaces
         self.moves, self.run_polls, self.results = moves, run_polls, list(results)
         self.index, self.pending, self.current = 0, None, status(OLD)
 
