@@ -4561,14 +4561,26 @@ impl Surface {
 
     pub(crate) fn finish_terminal_reader(&self, deadline: Instant) -> Option<TerminalJournalGap> {
         let pty = self.as_pty()?;
-        let reaper = pty.reaper_thread.lock().unwrap().take();
-        if let Some(reaper) = reaper {
-            if reaper.thread().id() == std::thread::current().id() {
+        // Decide self-join under the lock and leave the reaper's own handle
+        // in place: taking it and putting it back let a concurrent caller
+        // see an empty slot and return while the handle was restored later.
+        let reaper = {
+            let mut slot = pty.reaper_thread.lock().unwrap();
+            if slot
+                .as_ref()
+                .is_some_and(|reaper| reaper.thread().id() == std::thread::current().id())
+            {
+                eprintln!("cmux-tui: child reaper skipped self-join during shutdown");
+                drop(slot);
                 #[cfg(test)]
                 pty.run_reaper_shutdown_test_hook(ReaperShutdownTestStep::SelfJoinSkipped);
-                *pty.reaper_thread.lock().unwrap() = Some(reaper);
-                eprintln!("cmux-tui: child reaper skipped self-join during shutdown");
-            } else if pty.reaper_completion.wait_until(deadline) {
+                None
+            } else {
+                slot.take()
+            }
+        };
+        if let Some(reaper) = reaper {
+            if pty.reaper_completion.wait_until(deadline) {
                 #[cfg(test)]
                 pty.run_reaper_shutdown_test_hook(ReaperShutdownTestStep::JoiningReaper);
                 if reaper.join().is_err() {
