@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e7af6076daff4eb4abb7391170e60058b9981e9e9de358d6bb23d5c14eb08d37. */
+/* cmux-tui mux protocol 12, IR 2f64fd8595b0c23ce4e6ad169aa7a5a48b6fd548d677b6128eb27abefb81caf8. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "e7af6076daff4eb4abb7391170e60058b9981e9e9de358d6bb23d5c14eb08d37" as const;
+export const SDK_IR_SHA256 = "2f64fd8595b0c23ce4e6ad169aa7a5a48b6fd548d677b6128eb27abefb81caf8" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3218,6 +3218,10 @@ export const COMMAND_METADATA = {
     "since": 5,
     "capability": null,
     "fields": {
+      "before": {
+        "since": 12,
+        "capability": "split-before-v1"
+      },
       "cwd": {
         "since": 12,
         "capability": "terminal-env-v1"
@@ -3265,7 +3269,8 @@ export const COMMAND_METADATA = {
       "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1).",
       "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1).",
       "pane_id and tab_id are the caller-minted public ids of the new pane and its tab; a request that names pane_id (else terminal_id) is keyed by it: a retry of the same request returns the first result with replayed:true, another request with the same key is refused with creation.conflict, and an id that names an existing or deleted resource is refused with pane_id_exists or tab_id_exists before anything is created (split-client-keys-v1).",
-      "split_id is the caller-minted public id of the split the request makes; every later layout names that split by it (the split node's split_id), and an id that names an existing or deleted resource is refused with split_id_exists before anything is created (split-client-split-id-v1)."
+      "split_id is the caller-minted public id of the split the request makes; every later layout names that split by it (the split node's split_id), and an id that names an existing or deleted resource is refused with split_id_exists before anything is created (split-client-split-id-v1).",
+      "before:true puts the new pane before pane on the split axis (left of it for dir right, above it for dir down) in the one split commit, with the even ratio; the layout equals split then swap-pane, so a client that shows the split before the reply sends no swap (split-before-v1)."
     ]
   },
   "subscribe": {
@@ -27380,6 +27385,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "cols and rows affect sizing only when both are present."
       ],
       "fields": {
+        "before": {
+          "capability": "split-before-v1",
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "cols": {
           "default": null,
           "nullable": true,

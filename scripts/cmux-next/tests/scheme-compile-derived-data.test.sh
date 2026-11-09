@@ -163,6 +163,12 @@ for line in "error: cannot find 'CAS' in scope" "error: use of unresolved identi
   printf '%s\n' "$line" > "$TMP/caslog"
   cmux_next_runtime_cas_failed "$TMP/caslog" && fail "source error triggered runtime cache retry: $line"
 done
+# An explicit module precompile names the CAS failure on the line after its error (run 42527779911).
+printf '%s\n' "error: There was an error precompiling module Path(_str: \"/dd/ExplicitPrecompiledModules/_DarwinFoundation1-MQEA.scan\")." "" \
+  "CAS operation failed: corrupt object '00BBEBED9869AD6D'" > "$TMP/caslog"
+cmux_next_runtime_cas_failed "$TMP/caslog" || fail "a precompile's CAS operation failure was not recognized"
+printf '%s\n' "error: There was an error precompiling module Path(_str: \"/dd/x.scan\")." "/x/a.swift:1:2: note: CAS operation failed: corrupt object '00BB'" > "$TMP/caslog"
+cmux_next_runtime_cas_failed "$TMP/caslog" && fail "a CAS phrase inside a source note triggered the retry"
 reset
 status=0; SC_ARG="$cas_dd" run CMUX_NEXT_COMPILATION_CACHE=1 STUB_XCODEBUILD_STATUS=65 || status=$?
 [[ $status -eq 65 && $(wc -l < "$TMP/args") -eq 1 ]] || fail "a code failure exited $status after $(wc -l < "$TMP/args") builds (want 65 after 1)"

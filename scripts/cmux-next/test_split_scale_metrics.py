@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """split_scale_metrics: frame times, retargets, input-aligned layout times, blank and partial frames, failed rounds, flatness (python3 scripts/cmux-next/test_split_scale_metrics.py)."""
-import os, sys, unittest
+import math, os, sys, unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import split_scale_metrics as ssm  # noqa: E402
@@ -37,6 +37,31 @@ class TraceTests(unittest.TestCase):
     def test_speeding_up_again_mid_flight_is_a_retarget(self):
         stats = ssm.trace_stats(trace([1000, 900, 840, 810, 795, 700, 640, 610, 600, 600]))
         self.assertGreaterEqual(stats["retargets"], 1)
+
+    def test_a_pane_whose_two_edges_move_on_one_spring_is_no_retarget(self):
+        # bottom_open in a 2 x 2 grid: Split Down on the bottom-left pane. Its top follows the divider above it
+        # (501 -> 334) and its bottom the new divider below it (999 -> 666), one critically damped spring, each edge on
+        # the whole-point grid as the window places it. Its height (498 -> 332) is the difference of two rounded
+        # edges and steps unevenly, which is no new target (split-scale steps 17f8df9f and 790bbb7f: 3 per round).
+        def row(top, bottom):
+            r = pane("pane_bbbbbb", 208, 695)
+            r[2], r[4], r[8], r[10], r[15], r[17] = top, bottom - top, top, bottom - top, top, bottom - top
+            return r
+
+        def spring(k, w=2 * math.pi / 0.11, phase=0.001):
+            t = k / 120 + phase
+            return 1 - (1 + w * t) * math.exp(-w * t) if k else 0.0
+
+        samples = []
+        for k in range(20):
+            p = 1.0 if k == 19 else spring(k)
+            top, bottom = math.floor(501 - 167 * p + 0.5), math.floor(999 - 333 * p + 0.5)
+            samples.append({"t": k * 8.33, "panes": [row(top, bottom)]})
+        stats = ssm.trace_stats({"refresh_ms": 8.33, "samples": samples})
+        self.assertEqual(stats["retargets"], 0, stats["retargeted"])
+        # The same pane whose top turns back mid-flight is still a retarget.
+        samples[8]["panes"] = [row(samples[8]["panes"][0][2] + 30, samples[8]["panes"][0][2] + 30 + samples[8]["panes"][0][4])]
+        self.assertGreaterEqual(ssm.trace_stats({"refresh_ms": 8.33, "samples": samples})["retargets"], 1)
 
     def test_a_dropped_frame_is_counted_and_is_no_retarget(self):
         times = [0, 8.33, 16.67, 25, 50, 58.3, 66.7, 75]

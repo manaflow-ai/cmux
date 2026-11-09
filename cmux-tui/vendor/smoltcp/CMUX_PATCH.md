@@ -40,6 +40,15 @@ unchanged:
 
 - smoltcp-rs/smoltcp#1211 (c7595c577fed, 7d961a1af84e, 51c662c23e2b):
   per-socket `set_min_rto` and `set_initial_rto`. cmux-wg sets a 200 ms floor.
+- smoltcp-rs/smoltcp#1216 (bd424c843f51): retry a fast retransmit whose
+  emit failed, instead of waiting for the RTO.
+- smoltcp-rs/smoltcp#1219 (bfe5f95404c0): the RTO and zero-window-probe
+  timers no longer cancel each other.
+- 336a1dd1aaf0: clamp a scaled receive window at the edge already
+  advertised. With cmux-wg's 256 KiB buffers (window shift 3) a peer could
+  otherwise send past the buffer and hit `assert!(count <= self.window())`
+  (smoltcp-rs/smoltcp#1227).
+- e707719e03e2: clear the keep-alive timer when keep-alive is turned off.
 
 Remove this vendor copy when the smoltcp version used by cmux starts at the
 RFC 6928 window and has these commits.
