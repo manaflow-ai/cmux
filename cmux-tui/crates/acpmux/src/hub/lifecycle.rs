@@ -101,6 +101,7 @@ impl Hub {
             env: session_env,
             workspace_id,
             keep_harness_mode,
+            names_mode,
             starter,
             route,
             subsession,
@@ -121,7 +122,8 @@ impl Hub {
             .map(|s| s.id.clone());
         // The request adds nothing of its own to its preset: what an approved preset's exception
         // below needs (`unattended_presets.rs`; review F2 of #39333).
-        let preset_only = harness.is_none()
+        let preset_only = !names_mode
+            && harness.is_none()
             && model.is_none()
             && effort.is_none()
             && policy.is_none()

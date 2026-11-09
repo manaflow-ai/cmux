@@ -219,6 +219,14 @@ fn an_approved_no_prompt_preset_starts_unattended_chats_on_another_machine() {
         assert_eq!(card["policy"], "approve-all", "{card}");
         assert_eq!(card["host"], "b", "{card}");
         let digest = card["digest"].as_str().expect("a digest").to_owned();
+        // Only the person approves: an agent's own approval, with the card's digest, is refused.
+        let own = agent
+            .call(
+                "_acpmux/presets",
+                json!({"name": PRESET, "approveMode": true, "approveDigest": digest, "sessionId": asking}),
+            )
+            .await;
+        assert_eq!(own["error"]["data"]["reason"], "permission.person_required", "{own}");
         // An agent's Not now narrows, but never closes the person's card (review 3 F3).
         agent
             .ok(
@@ -319,6 +327,9 @@ async fn a_held_start_keeps_an_approved_presets_policy_only_for_its_own_contents
     let added =
         id(&agent.ok("session/new", new_params(json!({"preset": PRESET, "harness": "kin"}))).await);
     assert_ne!(app.level(&added).await.1, json!("approve-all"), "a request's own harness rode it");
+    let moded =
+        id(&agent.ok("session/new", new_params(json!({"preset": PRESET, "mode": "strict"}))).await);
+    assert_ne!(app.level(&moded).await.1, json!("approve-all"), "a request's own mode rode it");
 }
 
 /// A held chat that got its policy from an approved preset keeps it only while its agent runs the
