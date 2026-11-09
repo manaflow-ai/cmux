@@ -629,3 +629,47 @@ async fn a_load_made_right_after_a_switch_is_sent_once() {
     peer.resend_switched(3).await;
     assert!(out_rx.try_recv().is_err());
 }
+
+/// A resume sends no history and an attach answers with its history in its reply: neither
+/// takes its chat out of dedup, so the link's late copies of what the shadow delivered are
+/// still dropped.
+#[tokio::test]
+async fn a_resume_or_attach_keeps_its_chat_in_dedup() {
+    assert!(dual::replays(method::SESSION_LOAD));
+    assert!(!dual::replays(method::SESSION_RESUME));
+    assert!(!dual::replays(method::MUX_ATTACH));
+    let mut rig = rig().await;
+    answer_shadow_attach(&mut rig, &[6, 7]).await;
+    assert_eq!(delivered(&mut rig.notices, 2).await, vec![6, 7]);
+    for m in [method::SESSION_RESUME, method::MUX_ATTACH] {
+        let peer = rig.peer.clone();
+        let asking = tokio::spawn(async move { peer.request(m, json!({"sessionId": "s1"})).await });
+        let sent = next_text(&mut rig.primary).await;
+        assert_eq!(sent["method"], m);
+        send(&mut rig.primary, json!({"jsonrpc": "2.0", "id": sent["id"], "result": {}})).await;
+        tokio::time::timeout(WAIT, asking).await.unwrap().unwrap().unwrap();
+        assert!(rig.peer.replaying.lock().unwrap().is_empty(), "{m}");
+    }
+    for seq in [6, 7, 8] {
+        send(&mut rig.primary, event(seq)).await;
+    }
+    assert_eq!(delivered(&mut rig.notices, 1).await, vec![8], "6 and 7 were the shadow's");
+}
+
+/// A pong ends the shadow while it holds 7 past a gap (cursor 5): the link's 6 brings 6 and
+/// 7, its own 7 is a repeat, and only then does the link alone stream the chat: 6, 7, 8 once.
+#[tokio::test]
+async fn a_shadow_that_ends_with_events_held_leaves_no_repeat() {
+    let mut rig = rig().await;
+    answer_shadow_attach(&mut rig, &[]).await;
+    send(&mut rig.shadow, event(7)).await;
+    assert_eq!(delivered(&mut rig.notices, 0).await, Vec::<u64>::new(), "7 waits");
+    rig.peer.path_pong(Via::Link, 3 * MS);
+    assert_eq!(next_text(&mut rig.shadow).await["method"], method::MUX_DETACH);
+    assert_eq!(rig.peer.dual_via(), None);
+    for seq in [6, 7, 8] {
+        send(&mut rig.primary, event(seq)).await;
+    }
+    assert_eq!(delivered(&mut rig.notices, 3).await, vec![6, 7, 8]);
+    assert!(!rig.peer.dual_sessions.lock().unwrap().contains("s1"), "the link alone again");
+}

@@ -99,6 +99,13 @@ pub(super) enum Merged {
 
 /// Whether a request `m` is bound to the connection it went on: it replays or subscribes a
 /// chat there, so it goes only on the link's path, and again on the next link after a switch.
+/// Whether a request `m` streams its chat's history on the connection it went on, as events
+/// below the cursor: only a `session/load`. A resume sends no history, and an attach answers
+/// with its history in its reply, so neither takes its chat out of dedup.
+pub(super) fn replays(m: &str) -> bool {
+    m == method::SESSION_LOAD
+}
+
 pub(super) fn bound(m: &str) -> bool {
     matches!(m, method::SESSION_LOAD | method::SESSION_RESUME | method::MUX_ATTACH)
 }
@@ -380,6 +387,7 @@ impl Peer {
         };
         if seq > 0 && seq <= cursor {
             self.dual_stats.repeats.fetch_add(1, Ordering::Relaxed);
+            self.retire_if_caught_up(&mut merger, sid, seq, source);
             return Merged::Done;
         }
         if source == Source::Shadow && seq != cursor + 1 {
@@ -422,12 +430,25 @@ impl Peer {
                 return Merged::Closed;
             }
         }
-        // The link is past everything a shadow gave this chat: it alone streams it again.
-        if source == Source::Link && self.shadow.lock_or_recover().is_none() {
+        self.retire_if_caught_up(&mut merger, sid, seq, source);
+        Merged::Done
+    }
+
+    /// With no shadow, the link alone streams `sid` again once its own stream reached
+    /// everything delivered (its event `seq` is at the cursor, and nothing the shadow brought
+    /// waits): until then its late copies of what the shadow delivered are still repeats.
+    fn retire_if_caught_up(&self, merger: &mut Merger, sid: &str, seq: u64, source: Source) {
+        if source != Source::Link || self.shadow.lock_or_recover().is_some() {
+            return;
+        }
+        if merger.ahead.get(sid).is_some_and(|ahead| !ahead.is_empty()) {
+            return;
+        }
+        let cursor = self.cursors.lock_or_recover().get(sid).copied().unwrap_or(0);
+        if seq >= cursor {
             self.dual_sessions.lock_or_recover().remove(sid);
             merger.forget(sid);
         }
-        Merged::Done
     }
 
     /// The chats whose gap outlived [`GAP_BOUND`]: what the shadow held past it is dropped, and

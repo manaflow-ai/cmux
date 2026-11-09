@@ -1373,11 +1373,11 @@ impl Peer {
         if let Some(session) = params.get("sessionId").and_then(Value::as_str) {
             self.replay_tail.lock_or_recover().remove(session);
         }
-        // A load, a resume or an attach replays its chat: until it answers, the replay goes to
-        // the hub as it comes, never through the merger's drop below the cursor
+        // A load streams its chat's history: until it answers, the replay goes to the hub as
+        // it comes, never through the merger's drop below the cursor
         // (`Peer::replay_start`).
         let replaying = match params.get("sessionId").and_then(Value::as_str) {
-            Some(session) if dual::bound(m) => Some(self.replay_start(session).await),
+            Some(session) if dual::replays(m) => Some(self.replay_start(session).await),
             _ => None,
         };
         if m == method::SESSION_PROMPT
