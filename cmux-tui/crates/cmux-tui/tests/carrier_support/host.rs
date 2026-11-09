@@ -26,7 +26,10 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Notify, watch};
 
-use super::{Bearers, ISSUER, Keys, MACHINE, SLOT, Signer, TEAM, Teams, fake_mux, now, platform};
+use super::{
+    Bearers, ISSUER, Keys, MACHINE, SLOT, Signer, TEAM, Teams, fake_mux, now, platform,
+    took_role_stamp,
+};
 
 /// When the session host restarts by itself.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -264,7 +267,8 @@ fn run(
     });
 }
 
-/// An echoing mux socket whose first connection restarts the session host
+/// An echoing mux socket (it takes the role stamp, [`took_role_stamp`]) whose
+/// first connection restarts the session host
 /// ([`Restart::AfterMuxOpen`]), or every one ([`Restart::Always`]).
 fn restarting_mux(
     path: &Path,
@@ -297,6 +301,9 @@ fn restarting_mux(
                 let (reader, mut writer) = stream.into_split();
                 let mut lines = tokio::io::BufReader::new(reader).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
+                    if took_role_stamp(&line, &mut writer).await {
+                        continue;
+                    }
                     if writer.write_all(format!("{line}\n").as_bytes()).await.is_err() {
                         return;
                     }
@@ -480,7 +487,11 @@ impl EventLog {
                 tokio::spawn(async move {
                     let (reader, mut writer) = stream.into_split();
                     let mut lines = tokio::io::BufReader::new(reader).lines();
-                    let Ok(Some(line)) = lines.next_line().await else { return };
+                    let Ok(Some(mut line)) = lines.next_line().await else { return };
+                    if took_role_stamp(&line, &mut writer).await {
+                        let Ok(Some(next)) = lines.next_line().await else { return };
+                        line = next;
+                    }
                     let request: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
                     let mut sent = request["afterSeq"].as_u64().unwrap_or(0);
                     loop {

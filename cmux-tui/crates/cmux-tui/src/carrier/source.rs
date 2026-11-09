@@ -10,7 +10,7 @@
 //! fails over to it on the same session, resumed by sequence.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
 
 use async_trait::async_trait;
 use cmux_remote::connection::ReconnectGroupSource;
@@ -19,9 +19,7 @@ use cmux_remote::provider::{ConnectRequest, LinkGroup, ProviderError, TransportP
 use cmux_remote_protocol::{LanePolicy, SessionId};
 
 use super::answer::CarrierAnswer;
-use crate::remote_runtime::{
-    ReconnectRouteAttempt, ResolvedRouteCandidate, select_reconnect_route,
-};
+use crate::remote_runtime::{ReconnectRouteAttempt, ResolvedRouteCandidate, next_reconnect_route};
 
 /// How a carrier session authenticates: the platform's grant, on every route.
 pub(super) const CARRIER_AUTH: AuthKind = AuthKind::Grant;
@@ -64,21 +62,15 @@ impl CarrierRoutes {
 #[async_trait]
 impl ReconnectGroupSource for CarrierRoutes {
     async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError> {
-        let start = self.next.fetch_add(1, Ordering::Relaxed).checked_rem(self.routes.len());
-        let Some(start) = start else {
-            return Err(ProviderError::Configuration("the carrier has no routes".into()));
-        };
-        let (index, group) = select_reconnect_route(
+        next_reconnect_route(
+            &self.next,
             &self.routes,
-            start,
             self.session,
             CARRIER_LANES,
             CARRIER_AUTH,
             self,
         )
-        .await?;
-        self.next.store(index.saturating_add(1), Ordering::Relaxed);
-        Ok(group)
+        .await
     }
 }
 

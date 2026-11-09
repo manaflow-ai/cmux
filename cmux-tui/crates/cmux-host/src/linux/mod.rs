@@ -166,6 +166,12 @@ impl LinuxPlatform {
         let (pause, pause_tx) = UnixDatagram::pair()?;
         pause.set_nonblocking(true)?;
         let pause_alive = Arc::new(());
+        // The record reaches the processes that flip outside this one (the
+        // operator's `cmux host update check`), on a machine with the updater.
+        let pause_file = paths.at(crate::updater::PAUSE_FILE);
+        if paths.is_system_root() && pause_file.parent().is_some_and(std::path::Path::is_dir) {
+            crate::agent::PAUSES.persist_to(pause_file);
+        }
         spawn_pause_watch(Arc::downgrade(&pause_alive), pause_tx)?;
         let platform = Self {
             epoll: Epoll::new()?,

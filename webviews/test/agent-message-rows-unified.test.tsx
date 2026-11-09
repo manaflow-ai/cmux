@@ -298,7 +298,7 @@ test("a send and a subagent's report draw through the same row as a received mes
 });
 
 test("a group's hover lists its messages newest first, short names, two lines each, then +N more", async () => {
-  const { MessageGroupHover, hoverMessages } =
+  const { GroupHoverLookContext, MessageGroupHover, hoverMessages } =
     await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
   const list: IncomingMessage[] = Array.from({ length: 7 }, (_, index) => ({
     name: `gcp-agent-lane-3/lane-${index} ${SUFFIX}`,
@@ -306,7 +306,12 @@ test("a group's hover lists its messages newest first, short names, two lines ea
     raw: "",
     ...(index === 6 && { unverified: true as const }),
   }));
-  const container = await render(<MessageGroupHover list={hoverMessages(list)} />);
+  // The `messages` look (a gallery version; the digest is group-hover-digest.test.tsx).
+  const container = await render(
+    <GroupHoverLookContext.Provider value="messages">
+      <MessageGroupHover list={hoverMessages(list)} />
+    </GroupHoverLookContext.Provider>,
+  );
   const text = container.textContent ?? "";
   expect(text).not.toContain("self-declared");
   expect(text).not.toContain("[message");
@@ -321,7 +326,8 @@ test("a group's hover lists its messages newest first, short names, two lines ea
 });
 
 test("an inbox notice's hover lists every message of every thread, newest first, and counts the rest", async () => {
-  const { MessageGroupHover, inboxHover } = await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
+  const { GroupHoverLookContext, MessageGroupHover, inboxHover } =
+    await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
   const notice: InboxNotice = {
     threads: [
       {
@@ -370,7 +376,11 @@ test("an inbox notice's hover lists every message of every thread, newest first,
   ]);
   // 3 + 4 + 1 messages in all.
   expect(list.total).toBe(8);
-  const container = await render(<MessageGroupHover list={list} />);
+  const container = await render(
+    <GroupHoverLookContext.Provider value="messages">
+      <MessageGroupHover list={list} />
+    </GroupHoverLookContext.Provider>,
+  );
   const items = [...container.querySelectorAll(".cv-group-hover__item")];
   expect(items).toHaveLength(5);
   expect(items[0]?.textContent).toContain("third from a");
@@ -436,7 +446,7 @@ test("a lane batch's hover lists its messages newest first by their time, not th
 // row and the group's hover still show "Sender not verified".
 test("a thread's unverified sender marks its newest message's row and hover", async () => {
   const { flattenInboxRows } = await import("../src/agent-session/acpmux/conversation/laneNoticeBatches");
-  const { MessageGroupHover, hoverMessages, inboxHover } =
+  const { GroupHoverLookContext, MessageGroupHover, hoverMessages, inboxHover } =
     await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
   const notice = inboxNotice("[inbox] New messages from other agents in 1 thread.", {
     threads: [
@@ -466,13 +476,15 @@ test("a thread's unverified sender marks its newest message's row and hover", as
   // Only the newest sender's message: the thread's flag names that sender, not the one before.
   expect(messages.map((m) => m?.unverified === true)).toEqual([false, true]);
   const container = await render(
-    <MessageGroupHover
-      list={hoverMessages(
-        messages,
-        [],
-        children.map((r) => r.at),
-      )}
-    />,
+    <GroupHoverLookContext.Provider value="messages">
+      <MessageGroupHover
+        list={hoverMessages(
+          messages,
+          [],
+          children.map((r) => r.at),
+        )}
+      />
+    </GroupHoverLookContext.Provider>,
   );
   const items = [...container.querySelectorAll(".cv-group-hover__item")];
   expect(items[0]?.textContent).toContain("second");

@@ -87,7 +87,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/harnesses": (["cwd"], []),
         // `refresh`: the picker's Refresh models; acpmux probes its agents' model lists again. It
         // grants nothing (the same probes acpmux runs in the background), so no gesture rule.
-        "_acpmux/models": (["refresh"], []),
+        // `localOnly`: this machine's lists only, without waiting on the peers (the picker's own read).
+        "_acpmux/models": (["refresh", "localOnly"], []),
         "_acpmux/status": ([], []),
         "_acpmux/peers": ([], []),
         "_acpmux/draft_get": (["sessionId"], []),
@@ -128,6 +129,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/forum/rules": ([], []),
         "_acpmux/resolve": (["query"], []),
         "_acpmux/side": (["sessionId", "chat"], []),
+        // The fork's boundary (`throughSeq`, or `live` for a working chat) and `/side`'s prompt.
+        "_acpmux/side_chat": (["sessionId", "throughSeq", "live", "prompt"], []),
         // `model`: the side session's model when the page names one; acpmux picks a fast one otherwise.
         "_acpmux/btw": (["sessionId", "question", "model", "inline"], []),
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),

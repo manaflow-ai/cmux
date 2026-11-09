@@ -249,12 +249,19 @@ export const PAGES = {
     out: "webviews/src/pages/server-cards/generated/strings.json",
     catalogs: [
       { file: `${sources}/CmuxNextServer/Resources/PairInvite.xcstrings` },
+      // Add Machine's card shares its table with the Machines section (`addMachine.` keys only).
+      {
+        file: `${sources}/CmuxNextServer/Resources/AddMachine.xcstrings`,
+        keys: (all) => all.filter((key) => key.startsWith("addMachine.")),
+      },
       // The server surfaces' own table (the menu bar panel, Health, pairing, Add Server); the app's
       // refusals (`refusal.*`) stay native.
       {
         file: `${sources}/CmuxNextServer/Resources/Localizable.xcstrings`,
         keys: (all) => all.filter((key) => !key.startsWith("refusal.")),
       },
+      // App health's popover (`#/app-health`, webviews/src/app-health), hosted as Health is.
+      { file: "webviews/src/app-health/Localizable.xcstrings" },
     ],
   },
   // The right sidebar's Machines section (cmux-page://cmux.machines/) shares the Swift card's table:

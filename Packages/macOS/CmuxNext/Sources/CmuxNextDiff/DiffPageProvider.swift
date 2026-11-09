@@ -127,6 +127,7 @@ public final class DiffPageProvider: PageProvider {
         default:
             if let value = try await storeCall(op, params: params) { return value }
             if let value = try await commentsCall(op, params: params, context: context) { return value }
+            if let value = try await briefCall(op, params: params) { return value }
             if let value = try await gitCall(op, params: params, context: context) { return value }
             if let value = try await revertCall(op, params: params, context: context) { return value }
             if let value = try await openFileCall(op, params: params, context: context) { return value }
@@ -164,7 +165,7 @@ public final class DiffPageProvider: PageProvider {
             // A turn the tab got after its grant (the header's Changes) is offered as Last turn too.
             let config = tab.turn == nil && host?.turn(for: tab.grant.repository) != nil
                 ? DiffPageConfig.offeringTurn(tab.config) : tab.config
-            var served = withComments(withOpenFile(withGit(await withStores(config))))
+            var served = withBrief(withComments(withOpenFile(withGit(await withStores(config)))))
             if remote { served = Self.withoutRemoteWhitespace(served) }
             return served
         } catch let failure as DiffTabFailure {

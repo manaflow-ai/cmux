@@ -34,6 +34,7 @@ import {
   type AcpmuxSnapshot,
   type QueueEdit,
   linkUp,
+  SINCE_DIVIDER,
   type AcpmuxPlanEntry,
 } from "./model";
 import { lacksImageBytes, ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
@@ -74,6 +75,7 @@ import type { AllChatsPage } from "./newtab/allChatsListModel";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
+import { INSTALL_COMMANDS } from "./harnesses/harnessRows";
 import { ContextScreen } from "./context/ContextScreen";
 import { contextAccess, contextSave } from "./context/contextAccess";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
@@ -97,6 +99,7 @@ import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
+import { goalHatPlace } from "./goalHat.experiment";
 import { PageDots } from "./newtab/PageDots";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { editNewTabWidgets, shownPageWidgets, withWidgetEdit } from "./newtab/pageWidgets";
@@ -104,7 +107,16 @@ import { screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
 import { startNewTabTransition } from "./newtab/startTransition";
-import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
+import {
+  folderFields,
+  isAgentHome,
+  projectLabel,
+  recentLocalFolders,
+  SessionsBy,
+  sessionTitle,
+  type AcpmuxSessionEntry,
+} from "./sessionList";
+import { findSession } from "./sessionIndex";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
 import {
   composerDraft,
@@ -540,17 +552,24 @@ import { agentAvatarChanged, removeAgentAvatar, setAgentAvatar, useAgentAvatar }
 import { copyRow } from "./header/copyRow";
 import { recordedConversationMarkdown } from "./conversation/exportMarkdown";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
-import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
+import { opensBesideRows, sideChatPlace, sideChatRefusal, sideChatRow } from "./header/sideChatRow";
 import { isCurrentMenuCommand, parseMenuCommand } from "./header/menuCommands";
 import { errorRecovery, lastFailedTurn } from "./conversation/errorRecovery";
 import { type WorkingCounts, WorkingCountsContext } from "./conversation/workingForModel";
 import { type PreviewChips, PreviewChipsContext, previewsOf } from "./conversation/previewChipModel";
-import { NewestSteerContext, takeBackSteer, takesSteersBack } from "./conversation/pendingSteerModel";
+import { NewestSteerContext, SteerChatContext, takeBackSteer, takesSteersBack } from "./conversation/pendingSteerModel";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
 import { useTranscriptView, type TranscriptView } from "./conversation/transcriptView";
 import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversation/viewFolds";
 import { readWakeFolds, wakeFolds, type PaneFolds } from "./conversation/wakeFolds";
-import { callsToHold, foldsToHold, linedCallOf, withHeldFolds, withoutHeldCalls } from "./conversation/turnEndHold";
+import {
+  callsToHold,
+  foldsToHold,
+  linedCallOf,
+  oneKeyPerMessageRun,
+  withHeldFolds,
+  withoutHeldCalls,
+} from "./conversation/turnEndHold";
 import { HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type HarnessHealth, type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
 import { Notice, NoticeSlot } from "./NoticeSlot";
@@ -573,11 +592,13 @@ import {
   nextRetryDelay,
   offersAcpmuxRestart,
 } from "./hostRetry";
+import { pageShowsWhatItIs } from "./firstPaint";
 import { ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { type Subagent } from "./subagents/subagentFold";
 import { restartOwner, restartPrompt, restartReaches } from "./subagents/restart";
 import { type SubagentRows, runningGroups, subagentRowsFrom, subagentsIn } from "./subagents/subagentRows";
-import { subagentPaneView, useOwnLog } from "./subagents/subagentOwnLog";
+import { foldOwnLog, subagentPaneView, useOwnLog } from "./subagents/subagentOwnLog";
+import { lastReply as lastSubagentReply, SubagentReplyContext } from "./subagents/wholeReport";
 import { knownMark } from "../shared/AgentMark";
 import {
   SubagentHarnessContext,
@@ -598,7 +619,8 @@ import { FolderChoice } from "./FolderChoice";
 import { showsFolderChoice } from "./folderChoiceModel";
 import { ownMachineFolders, type ExtraFolderDraft } from "./extraFolders";
 import { WorktreeFailure } from "./startFolder";
-import { type FolderAsk, confirmFolder, newWorktree, pickFolder } from "./startFolderModel";
+import { type FolderAsk, confirmFolder, newChatInWorktree, newWorktree, pickFolder } from "./startFolderModel";
+import { WorktreeSetupNotice, useWorktreeSetupStart } from "./worktreeSetup";
 import { NewTabFolderAsk } from "./NewTabFolderAsk";
 import { MissingFolder } from "./missingFolder";
 import { chooseChatFolder } from "./missingFolderModel";
@@ -606,8 +628,11 @@ import { LiveChatChoice } from "./LiveChatChoice";
 import { WatchBanner } from "./WatchBanner";
 import { ManagedBanner } from "./ManagedBanner";
 import { PaneNotices } from "./PaneNotices";
+import { PlanScopeDriftNotice } from "./PlanScopeDriftNotice";
+import { dismissPlanScopeDrift, keepPlanScopeArea } from "./planScopeDriftStore";
 import { setPaneNotices } from "./paneNoticeStore";
 import { chiefOf, isTakenOver, managedBy, managerDrivingUntil, takeOverManaged } from "./managedBy";
+import { bridgeGone } from "./watchBannerModel";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
@@ -622,7 +647,9 @@ import {
   resolveHarnessTarget,
   type CmuxCommand,
   type CmuxCommandResult,
+  PLACED_ACTIONS,
 } from "./cmuxCommands";
+import { commandPlace } from "./commandPlace";
 import { canContinueIn, reviewingHandoff } from "./handoff/continueIn";
 import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
@@ -644,6 +671,10 @@ import { failedRuns, failedSendText, type FailedRun } from "./sendFailure";
 import { clientWaiter, lostPrompt, resentAfterLoss } from "./lostPrompt";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
+import { readSteerLog, recordSteer, type SteerAct } from "./steerQueue/log";
+import { steerQueue } from "./steerQueue/model";
+import { SteerQueue, type SteerActions } from "./steerQueue/SteerQueue";
+import { steerQueueExperiment } from "./steerQueue/steerQueue.experiment";
 import { BtwNotes } from "./aside/btwNotes";
 import { askBtwQuestion } from "./btwCapability";
 import { HELD_EFFORT_ID, HELD_FAST_ID, HELD_FAST_ON, isFastModeOption } from "./heldOptions";
@@ -676,7 +707,7 @@ import { SandboxTab, sandboxAgent, sandboxPageRefusal, sandboxRetryable, type Ru
 import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
 import { CloudChatHint } from "./CloudChatHint";
-import { cloudChatHintShown, useCloudChatHint } from "./cloudChatHintModel";
+import { cloudChatHintDue, cloudChatHintShown, useCloudChatHint } from "./cloudChatHintModel";
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
 import { swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
@@ -1238,9 +1269,7 @@ const answerSecret = (ask: AcpmuxSecretAsk) => (value?: string) => {
 /// one-time Allow and a Deny from this Mac (mac_approvers.rs).
 function chatOnPeer(snapshot: AcpmuxSnapshot): boolean {
   const summary = snapshot.summary;
-  const listedPeer = summary?.sessionId
-    ? snapshot.sessions.find((session) => session.sessionId === summary.sessionId)?.peer
-    : undefined;
+  const listedPeer = summary?.sessionId ? findSession(snapshot.sessions, summary.sessionId)?.peer : undefined;
   return snapshot.origin === "peer" || !!summary?.peer || !!listedPeer;
 }
 
@@ -1452,6 +1481,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [newSession, setNewSession] = useState(injectedStart?.newSession === true);
   /// The chat whose recorded history plays back read-only in place of it (chat menu Replay, cx-osmw).
   const [replaying, setReplaying] = useState<string | undefined>();
+  // Steer queue (steerQueue/, an experiment): open or not, the clock its ages read, and the
+  // person's record of where they stepped in.
+  const [steering, setSteering] = useState(false);
+  const [steerNow, setSteerNow] = useState(0);
+  const [steerLog, setSteerLog] = useState<SteerAct[]>([]);
   /// The focused pane's rail visibility. The experiment still chooses compact/full when visible;
   /// this local switch is only the command-palette toggle and does not write shared experiment state.
   const [minimapVisible, setMinimapVisible] = useState(true);
@@ -1909,6 +1943,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// which row it asked for; undefined while this chat has no row for that message. Set below,
   /// where the chat's rows are.
   const showMessage = useRef<(messageId: string) => string | undefined>(() => undefined);
+  const showTimelineTurn = useRef<(turnId: string) => void>(() => undefined);
   /// ``showMessage`` for a message the chats page found by its words (a `said:` reveal).
   const showSaid = useRef<(said: SaidReveal) => string | undefined>(() => undefined);
   const reveal = (value: string) => {
@@ -1984,7 +2019,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [updateOffer, setUpdateOffer] = useState<UpdateOffer>();
   // A fresh chat has no summary yet, but its composer already names a harness. Read that
   // same harness's health so its existing Log In action is available before the first send.
-  const healthHarness = composerHealthHarness(snapshot, pickerCatalog);
+  // Before acpmux lists its harnesses the chip draws the catalog's first one; its health is read too.
+  const harnessesListed = useHarnessesListed();
+  const healthHarness = composerHealthHarness(snapshot, pickerCatalog, harnessesListed);
   const healthLocal =
     !snapshot.summary?.peer &&
     snapshot.summary?.hostKind !== "cloud" &&
@@ -2443,6 +2480,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // transcript's group cards and the agents pill.
   const subagentTray = useSubagentTray();
   const trayPlacement = useSubagentTrayPlacement();
+  const [goalHatPlaceArm] = useState(() => experimentArm(goalHatPlace));
   const doneLines = useRef<DoneLineCache>(new Map());
   const childDoneLines = useRef<DoneLineCache>(new Map());
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
@@ -2549,6 +2587,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // l10n-allow: internal transport error; the subagent pane renders its own localized state.
     (id: string) => directClient.current?.readSubagentLog(id) ?? Promise.reject(new Error("Not connected")),
     [],
+  );
+  // A finished subagent's whole last reply, from its own records, for a report card whose Show more
+  // asks for it when the chat's loaded rows no longer hold the subagent (subagents/wholeReport.ts).
+  const subagentHarness = snapshot.summary?.harness;
+  const readSubagentReply = useCallback(
+    async (id: string) =>
+      lastSubagentReply(
+        foldOwnLog(id, await readSubagentLog(id), { session: shownSessionId, harness: subagentHarness }).views[id],
+      ),
+    [readSubagentLog, shownSessionId, subagentHarness],
   );
   const { log: ownLogged, loading: ownLoading } = useOwnLog(
     subagentView && !workflowRequest && !subagentInChat ? subagentView : undefined,
@@ -2784,8 +2832,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       if (inView) {
         const held = foldsToHold(rows, turns.rows, last?.turns.rows, turns.reusedRows, inView, folds);
         if (held.length > 0) {
-          heldFolds.current = { session: shownSessionId, keys: new Set([...heldFolds.current.keys, ...held]) };
+          const kept = heldFolds.current.keys;
+          heldFolds.current = { session: shownSessionId, keys: new Set([...kept, ...held]) };
           turns = shape(withHeldFolds(folds, heldFolds.current.keys));
+          // One key per message run, the one its line closes by (turnEndHold.ts): the line and its
+          // rows draw the same with it alone.
+          const one = oneKeyPerMessageRun(held, turns.rows, turns.reusedRows);
+          if (one.length !== held.length)
+            heldFolds.current = { session: shownSessionId, keys: new Set([...kept, ...one]) };
         }
       }
       // A command the live line named out of its run, which it no longer names, stays out of the
@@ -3372,9 +3426,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const sessionInfoOn = useHeaderState().sessionInfo;
   // A pane opened beside another chat (a subagent's pane, a chat its agent started) has Session Info
   // of its own, closed until the person opens it there (sessionInfoState.ts `sessionInfoPaneKey`).
-  const shownEntry = shownSessionId
-    ? snapshot.sessions?.find((entry) => entry.sessionId === shownSessionId)
-    : undefined;
+  const shownEntry = shownSessionId ? findSession(snapshot.sessions ?? [], shownSessionId) : undefined;
   const sessionInfoSplit = ownSubagentPane || !!(shownEntry?.startedBy || shownEntry?.spawnedBy);
   const sessionInfoOpened = useSessionInfoOpen(sessionInfoPaneKey(shownSessionId, sessionInfoSplit));
   const processRegistry = useProcessRegistry(
@@ -4335,21 +4387,32 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// picking Cloud never races the grant into path_outside_roots and a grant that never answers
   /// never holds the composer.
   const [cloudFolderGrant] = useState(() => cloudFolderGrants());
-  const composerModeRows = {
-    mode: sandboxModeRows.mode,
-    environment: sandboxModeRows.environment,
-    onMode: (mode: RunMode) => {
-      if (mode === "cloud") {
-        const folder = cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);
-        if ("cwd" in folder)
-          cloudFolderGrant.granting(
-            folder.cwd,
-            pickFolder(callNative, folder.cwd, () => undefined),
-          );
-      }
-      sandboxModeRows.onMode(mode);
-    },
+  const pickComposerMode = (mode: RunMode) => {
+    if (mode === "cloud") {
+      const folder = cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);
+      if ("cwd" in folder)
+        cloudFolderGrant.granting(
+          folder.cwd,
+          pickFolder(callNative, folder.cwd, () => undefined),
+        );
+    }
+    sandboxModeRows.onMode(mode);
   };
+  // The composer takes these rows as one prop (`runMode`), so they are the same object until the mode
+  // or the environment changes: a new object on each pane render drew the composer again with it. The
+  // pick runs the latest handler, as the composer's own handlers do (stableHandlers.ts).
+  const composerModePick = useRef(pickComposerMode);
+  useLayoutEffect(() => {
+    composerModePick.current = pickComposerMode;
+  });
+  const composerModeRows = useMemo(
+    () => ({
+      mode: sandboxModeRows.mode,
+      environment: sandboxModeRows.environment,
+      onMode: (mode: RunMode) => composerModePick.current(mode),
+    }),
+    [sandboxModeRows.mode, sandboxModeRows.environment],
+  );
   /// A Sandboxed send: text only, by an agent a sandbox runs. A page-side refusal comes back as its
   /// code (the prompt stays where it was typed); false: nothing was sent.
   const startSandbox = (text: string, attachmentCount: number, harness: string | undefined): string | boolean =>
@@ -5051,6 +5114,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // Quick Chat's panel has no room beside it for the side panel.
     onOpenDocument: quick ? undefined : openArtifact,
     onShowCall: quick ? undefined : showCall,
+    onShowTurn: quick ? undefined : (turnId) => showTimelineTurn.current(turnId),
     subagent: sessionInfoSubagent,
     // A turn's diff in place, the event Inspector and, in a narrow pane, the side panel take the pane
     // in the chat's place, its header and the toggle with it: the panel steps aside while they show,
@@ -5196,7 +5260,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [snapshot.clockOffsetMs, hatSeen],
   );
   const lingering = useTrayLinger(shownSessionId, lingerLive, lingerEnded, hatHeld, lingerClock);
-  const trayFinished = useMemo(() => lingeringTrayItems(endedTray, lingering), [endedTray, lingering]);
+  const trayFinished = useMemo(
+    () => lingeringTrayItems(endedTray, lingering.kept, lingering.ends),
+    [endedTray, lingering],
+  );
   // The turn's generated output tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
   // Its output apart from what it read, when every call carried the split; held by its numbers, as
@@ -5246,6 +5313,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   showMessage.current = (messageId) => showRows(() => directClient.current?.rowsOfMessage(messageId) ?? []);
   showSaid.current = (said) => showRows((rows) => saidRows(rows, said));
+  // Jump to new (conversation/SinceDivider.tsx): "New since you looked" is a row like any other, so
+  // the transcript brings it in by its place in the chat even when it is far above the view.
+  const sinceKey = snapshot.sinceKey;
+  const jumpToSince = useCallback(() => {
+    const key = Date.now();
+    setRevealRow({ rowId: SINCE_DIVIDER, key, toolId: "" });
+    setTimeout(() => setRevealRow((current) => (current?.key === key ? undefined : current)), REVEAL_HOLD_MS);
+  }, []);
   // A link waiting on replay retries against committed rows, without a polling timer.
   useLayoutEffect(() => notifyRevealRowsChanged(), [sourceRows, transcriptRows]);
   // A shell's Bash row, opening its turn's "Worked for" when that is closed and the run that
@@ -5290,6 +5365,32 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     },
     [openFold],
   );
+  // Load the clicked turn before asking the virtual transcript to draw it. The existing
+  // history loader stops on a changed chat or a page that makes no progress.
+  showTimelineTurn.current = (turnId) => {
+    const client = directClient.current;
+    const chat = client?.selectedSession;
+    const span = counted.current.summary?.timeBreakdown?.spans.find((item) => item?.turnId === turnId);
+    if (!client || !span) return;
+    void client
+      .loadThrough(span.turnSeq)
+      .then((held) => {
+        if (!held || client !== directClient.current || chat !== client.selectedSession) return;
+        void revealMessageWhenShown(
+          turnId,
+          () => {
+            if (chat !== client.selectedSession) return undefined;
+            const row = counted.current.sourceRows.find((item) => item.turnId === turnId);
+            if (!row) return undefined;
+            openWorkflowTranscript(row.id);
+            return row.id;
+          },
+          document,
+          { chat: () => directClient.current?.selectedSession },
+        );
+      })
+      .catch(() => undefined);
+  };
   const workflowActionsFor = useCallback(
     (workflow: WorkflowSummary) => ({
       onOpenTranscript: openWorkflowTranscript,
@@ -5478,6 +5579,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The started chat's folder: the session's, else the one picked before the first send.
   // A peer's (SSH, Cloud) folder is a path on that machine: the host's workspace gets none.
   const remoteChat = Boolean(snapshot.summary?.peer) || snapshot.summary?.hostKind === "cloud";
+  const remoteRef = useRef(remoteChat);
+  remoteRef.current = remoteChat;
   // The repo tour's offer and Start (repoTour/) only for a chat on this Mac: not a peer's or Cloud
   // chat, and not one whose page talks to another machine's acpmux (chatMachine.ts `elsewhere`).
   const tourHere = !remoteChat && snapshot.origin !== "remote" && snapshot.origin !== "peer";
@@ -5677,6 +5780,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     Promise.resolve(undefined),
   );
   const trustHeldCwd = snapshot.summary?.cwd ?? (snapshot.sessionId ? undefined : projectDraft);
+  // A worktree this pane made for the chat's folder, whose recipe's setup the line follows. Before
+  // the first send the folder is the draft New Worktree set, as the folder chip shows it: the
+  // summary can still name the checkout the worktree was made from.
+  const worktreeSetupFolder = freshChat && !snapshot.sessionId ? (projectDraft ?? trustHeldCwd) : trustHeldCwd;
+  const worktreeSetupHere = useWorktreeSetupStart(worktreeSetupFolder) !== undefined;
   /// Puts prompts the hold gives back where they were typed (set below).
   const giveBackTrustHeld = useRef(
     async (
@@ -6050,7 +6158,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     openFailed ||
     (clientSnapshot.sessionId === adoptingSession && clientSnapshot.chatRead === true);
   const chatDrawn = (!awaitsChat || clientSnapshot.chatRead === true || openFailed) && adoptionDrawn;
-  const showsWhatItIs = (handshaken && chatDrawn) || hostError !== undefined || newTab !== undefined;
+  const hostErrorSaid = hostError !== undefined && (hostErrorShown || restartingAcpmux);
+  const showsWhatItIs = pageShowsWhatItIs({
+    handshaken,
+    chatDrawn,
+    hostError: hostError !== undefined,
+    hostErrorSaid,
+    newTab: newTab !== undefined,
+  });
   // No chat screen before the page knows it is no New Tab page (`contextKnown`).
   const knowsWhatItIs = contextKnown || newTab !== undefined || handshaken || hostError !== undefined;
   useEffect(() => {
@@ -6184,7 +6299,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const snapshotSession = showsWhatItIs && newTab === undefined && hostError === undefined ? shownSessionId : undefined;
   useEffect(() => {
     if (!snapshotSession || !pageHostClient()) return;
-    return watchChatSnapshot(snapshotSession, (params) => callNative("chat.snapshot.put", params));
+    return watchChatSnapshot(snapshotSession, (params) => {
+      // The chat's records go with its drawn copy: a quit can end the page without a `pagehide`,
+      // and the tail the host held then was the one kept when the chat was last left, which the
+      // relaunch's attach no longer meets (Leo, 2026-11-08: "what you saw when you clicked the
+      // restart button ... here's literally what you just had").
+      directClient.current?.handOverCurrentTail();
+      return callNative("chat.snapshot.put", params);
+    });
   }, [snapshotSession]);
   const summary = snapshot.summary;
   const localCwd =
@@ -6192,6 +6314,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The chat's folder on whichever machine runs it: the diff tab reads its repository there (the
   /// session host's git), so Changes opens a tab for a Cloud or remote chat too.
   const chatCwd = summary?.cwd || undefined;
+  // New side chat and `/side`: forked on this Mac, or on the chat's own machine (a Cloud or SSH
+  // chat), in the chat's folder there (sideChatRow.ts).
+  const sidePlace = sideChatPlace({ quick, localCwd, onMachine: snapshot.sideChatOnMachine });
   // Stop reaches acpmux even when pressed while the pane reconnects (stopThroughReconnect.ts).
   const stopThroughReconnect = useStopThroughReconnect(snapshot, cancelTurn);
   const keptStopping = stopThroughReconnect.stopping;
@@ -6282,7 +6407,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (!quick) enabledCmuxActions.add("cd");
     if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
     // A working chat offers /side too: its fork is of the chat as it is now (#38042).
-    if (forkRefusal(snapshot) === undefined && localCwd !== undefined && !quick) enabledCmuxActions.add("side");
+    if (sideChatRefusal(snapshot, sidePlace) === undefined) enabledCmuxActions.add("side");
     if (continueAvailable) enabledCmuxActions.add("continue");
     // Reserve /btw even with the kill switch off: it must never become a steer or queued prompt.
     if (snapshot.sessionId && !isSideSession && !quick) enabledCmuxActions.add("btw");
@@ -6313,7 +6438,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     isSideSession,
     startingRows,
     heldRows,
-    localCwd,
+    sidePlace,
     quick,
     keptStopping,
   ]);
@@ -6405,6 +6530,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // a newer folder pick ends it.
   /// A worktree being made, for the chat (visit) it was asked in: another fresh chat shows nothing of it.
   const [worktreeCreating, setWorktreeCreating] = useState<false | { sessionId?: string; visit?: string }>(false);
+  const worktreeCreatingHere = Boolean(
+    inThisVisit(worktreeCreating, snapshot.sessionId, visitNow) && freshChat && !snapshot.sessionId,
+  );
   /// A folder the user picked on this Mac: the host takes it at once or asks first
   /// (startFolder.tsx); `use` runs only with a folder the host took.
   /// Only the latest pick's answer counts (two quick picks can answer out of order).
@@ -6514,6 +6642,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setFolderConfirming(false);
       const sessionId = shownSession.current;
       const visit = trustVisit();
+      // The machine the worktree is made on, as the click saw it.
+      const remote = remoteRef.current;
       setFolderAsk(undefined);
       // The worktree lands only in the chat it was made for: a chat switched to meanwhile gets nothing.
       const asked = { sessionId, ...visitOf(visit) };
@@ -6525,7 +6655,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         pickedProject.current = folder;
         // A chat that started meanwhile keeps its folder: the worktree gets a new chat of its own.
         if (freshRef.current) setProjectDraft(folder);
-        else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
+        else void newChatInWorktree(callNative, folder, remote).catch(() => undefined);
       };
       void newWorktree(callNative, cwd, (folder) => {
         if (pick === folderPick.current && stillHere()) use(folder);
@@ -7574,6 +7704,26 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               typeof taken === "function" ? (taken as () => void) : undefined,
             ),
           "chat.cancel": () => client.cancel(),
+          "chat.planScopeDrift": ({ action, sessionId, path, area }) => {
+            const id = typeof sessionId === "string" ? sessionId : undefined;
+            if (!id || id !== client.selectedSession) return Promise.resolve(false);
+            if (action === "keepGoing") {
+              keepPlanScopeArea(id, typeof area === "string" ? area : "");
+              return Promise.resolve(true);
+            }
+            dismissPlanScopeDrift(id);
+            if (action === "stop") return client.cancel().then(() => true);
+            return send(
+              typeof path === "string"
+                ? translate("planScopeDrift.replanPrompt", { path })
+                : translate("planScopeDrift.replanPromptNoPath"),
+              [],
+              undefined,
+              true,
+              undefined,
+              id,
+            ).then(() => true);
+          },
           "chat.typing": async ({ text, sessionId }) =>
             client.typing(typeof text === "string" ? text : "", typeof sessionId === "string" ? sessionId : undefined),
           "chat.queue.remove": ({ promptId }) => client.removeQueued(String(promptId)),
@@ -8057,12 +8207,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           "chat.side": async ({ throughSeq, live, prompt, splitRight }) => {
             // The chat it is beside, read before the fork (the reader may open another chat meanwhile).
             const chat = client.selectedSession;
+            const split = splitRight === true ? { split: "right" } : {};
+            // A chat on another machine that opens side chats there (Cloud, SSH): that machine forks,
+            // tags and prompts it in one call, in the chat's folder there; the app opens it beside.
+            if (snapshotRef.current?.sideChatOnMachine) {
+              const text = typeof prompt === "string" ? prompt.trim() : "";
+              const boundary = live === true ? "live" : Number(throughSeq);
+              const side = await client.sideChatOnMachine(boundary, text || undefined);
+              if (!side || !chat) throw new Error("");
+              await postNative("chat.sideChat", { sessionId: side.sessionId, ...split });
+              // The side chat is open; a prompt it did not take stays in the composer, which says why.
+              if (side.notSent) throw new CmuxCommandRefused(translate("prompt.notSent", { reason: side.notSent }));
+              return;
+            }
             const sessionId = await client.forkAside(live === true ? "live" : Number(throughSeq));
             if (!sessionId || !chat) throw new Error("");
             try {
               // acpmux marks it the chat's side chat; the app only opens it beside the chat.
               await client.markSide(sessionId, chat);
-              await postNative("chat.sideChat", { sessionId, ...(splitRight === true ? { split: "right" } : {}) });
+              await postNative("chat.sideChat", { sessionId, ...split });
             } catch (error) {
               client.takeBackSide(sessionId);
               throw error;
@@ -8565,8 +8728,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const commandState = (fresh: boolean) => ({
     summary: !fresh && !!snapshot.summary,
     forkable: !fresh && forkable && forkSeq !== undefined,
-    sideFork: forkRefusal(snapshot),
-    sideAvailable: !fresh && localCwd !== undefined && !quick,
+    sideFork: sideChatRefusal(snapshot, sidePlace),
+    sideAvailable: !fresh && sidePlace !== undefined,
     canContinue: !fresh && canContinue,
     sideSessions: opensSideSessions,
     session: !fresh && !!snapshot.sessionId,
@@ -8574,12 +8737,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     targets: fresh ? [] : handoffTargets,
     cwd: snapshot.summary?.cwd,
     newTab: fresh,
+    inCloud: snapshot.summary?.hostKind === "cloud",
   });
   /// Shared by the chat composer and New Tab: cmux-owned slash commands never fall through to a
   /// literal harness prompt. A string is an inline refusal; Composer/NewTab keep the draft intact.
-  const handleCmuxCommand = (command: CmuxCommand, args?: string, fresh = false): CmuxCommandResult => {
-    const refusal = cmuxCommandRefusal(command, args, commandState(fresh));
+  const handleCmuxCommand = (command: CmuxCommand, typedArgs?: string, fresh = false): CmuxCommandResult => {
+    const state = commandState(fresh);
+    const refusal = cmuxCommandRefusal(command, typedArgs, state);
     if (refusal) return t(refusal);
+    // `--on here|cloud` before a chat-starting command's arguments (commandPlace.ts); the refusal
+    // above allowed only what runs. `/cd --on cloud` in a chat with no turn yet takes the folder and
+    // picks Cloud in this composer, so its first Send is the composer's own Cloud start
+    // (cloud.startChat, the Environment chip's pick, Auto by default). Never by default.
+    const placed = commandPlace(typedArgs);
+    const args = PLACED_ACTIONS.has(command.action) && "rest" in placed ? placed.rest : typedArgs;
+    const inCloudHere = command.action === "cd" && "place" in placed && placed.place === "cloud" && !state.inCloud;
     if (command.action === "status") {
       setStatusCardOpen(true);
       return true;
@@ -8614,9 +8786,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // `/cd` is the folder chip's pick, typed: a chat with no turn yet starts in the folder, a
     // started one opens a new chat there (chooseProject). Bare, it opens the folder browser.
     if (command.action === "cd") {
+      // `--on cloud` (a chat with no turn yet, cmuxCommandRefusal): the folder, then Cloud.
+      const thenCloud = () => {
+        if (inCloudHere) composerModePick.current("cloud");
+      };
       if (!argument)
         return callNative<{ cwd?: string }>("project.browse").then((result) => {
-          if (result?.cwd) return chooseProject(result.cwd);
+          if (result?.cwd) return chooseProject(result.cwd).then(thenCloud);
         });
       const folder = cdFolder(argument, snapshot.summary?.cwd);
       if (!folder) return t("composer.cmuxCdPath");
@@ -8627,6 +8803,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         refused = true;
       }).then(() => {
         if (refused) throw new CmuxCommandRefused(t("composer.cmuxCdNotFolder", { folder }));
+        thenCloud();
       });
     }
     // The composer sends the prompt as typed through onSend, attachments and steer included, the
@@ -8695,6 +8872,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const prompt = args?.trim();
       return callNative("chat.side", { ...target, splitRight: true, ...(prompt ? { prompt } : {}) }).catch(
         (error: unknown) => {
+          // The side chat opened but its prompt was not sent: that refusal says so itself.
+          if (error instanceof CmuxCommandRefused) throw error;
           const reason = errorMessage(error);
           throw new CmuxCommandRefused(
             reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"),
@@ -9077,10 +9256,94 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       await postNative("chat.sideChat", { sessionId: await client.btw(question, sessionId) });
     },
   });
+  // Steer queue (steerQueue/): ⌘⇧J or the chat menu opens it over the chat. Each step opens the chat
+  // it acts on first, so the step goes through the same send, Stop and fork the chat's own composer
+  // and menu use, and the person sees it land in the chat under the queue.
+  const steerQueueOn = !quick && experimentArm(steerQueueExperiment) === "on";
+  useEffect(() => {
+    if (!steerQueueOn) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.repeat || !(event.metaKey && event.shiftKey && event.key.toLowerCase() === "j")) return;
+      event.preventDefault();
+      setSteering((open) => !open);
+    };
+    // ui-allow: the Steer queue's one opening key, page-wide while its experiment is on.
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [steerQueueOn]);
+  useEffect(() => {
+    if (!steering) return;
+    setSteerLog(readSteerLog());
+    setSteerNow(Date.now());
+    // Ages tick while the queue is open, and only then.
+    const timer = window.setInterval(() => setSteerNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, [steering]);
+  const steerItems = useMemo(
+    () => (steering ? steerQueue({ sessions: snapshot.sessions, now: steerNow || Date.now(), log: steerLog }) : []),
+    [steering, snapshot.sessions, steerNow, steerLog],
+  );
+  const steerActions = useMemo<SteerActions>(() => {
+    // Opens the chat and waits until it is the one drawn: Stop and Fork act on the drawn chat, which
+    // during a switch's hold is still the chat before.
+    const openChat = async (sessionId: string) => {
+      if (directClient.current?.selectedSession !== sessionId) await callNative("chat.select", { sessionId });
+      if (!(await directClient.current?.shownAndAttached(sessionId)))
+        throw new Error(translate("steerQueue.state.failed"));
+    };
+    // Settles once acpmux took the prompt, as a composer send does (sendWhenTaken).
+    const sendTo = (sessionId: string, text: string, steer: boolean) =>
+      new Promise<void>((resolve, reject) => {
+        callNative("chat.send", {
+          text,
+          attachments: [],
+          steer,
+          expectedSessionId: sessionId,
+          accepted: () => resolve(),
+        }).then(
+          () => resolve(),
+          // A prompt the folder's trust holds is taken: it goes once the folder is trusted.
+          (error: unknown) => (heldRefusal(error) ? resolve() : reject(error)),
+        );
+      });
+    return {
+      steer: async (item, text) => {
+        await openChat(item.sessionId);
+        await sendTo(item.sessionId, text, item.running);
+      },
+      // Stop, then the line as the next prompt: acpmux runs it once the stopped turn ends.
+      redirect: async (item, text) => {
+        await openChat(item.sessionId);
+        await callNative("chat.cancel");
+        await sendTo(item.sessionId, text, false);
+      },
+      stop: async (item) => {
+        await openChat(item.sessionId);
+        await callNative("chat.cancel");
+      },
+      // A fork the chat refuses (nothing to fork yet) answers nothing, and says why in its own toast.
+      fork: async (item) => {
+        await openChat(item.sessionId);
+        if ((await callNative("chat.forkTo", {})) === undefined) throw new Error(translate("steerQueue.state.failed"));
+      },
+      // The queue closes once the chat is drawn, and a line typed for it goes on in its composer,
+      // ahead of what it holds: a refused switch keeps the queue and the line.
+      open: async (item, draft) => {
+        await openChat(item.sessionId);
+        setSteering(false);
+        if (draft) composerHandle.current?.prefill(`${draft} `);
+      },
+    };
+  }, []);
   const lastForkSeq = latestForkSeq(snapshot.rows);
   const sideChat = sideChatRow(
-    // Quick Chat's panel is not a tab: there is no split to open beside it.
-    { canFork: forkable, throughSeq: lastForkSeq, local: localCwd !== undefined && !quick },
+    // Quick Chat's panel is not a tab: there is no split to open beside it (no `sidePlace`).
+    {
+      canFork:
+        sidePlace === "machine" ? !snapshot.isWorking && sideChatRefusal(snapshot, sidePlace) === undefined : forkable,
+      throughSeq: lastForkSeq,
+      place: sidePlace,
+    },
     (throughSeq) => ignoreFailure(callNative("chat.side", { throughSeq })),
     t,
   );
@@ -9177,6 +9440,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             },
           ]
         : [];
+    const steerQueueRow: ChatMenuItem[] =
+      !quick && experimentArm(steerQueueExperiment) === "on"
+        ? [
+            {
+              key: "steerQueue",
+              label: t("steerQueue.open"),
+              icon: "composer.steer",
+              onSelect: () => setSteering(true),
+            },
+          ]
+        : [];
     // The chat folder's CLAUDE.md or AGENTS.md, in a file tab beside the chat (a tab: not Quick Chat).
     const instructions = quick
       ? undefined
@@ -9204,6 +9478,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const tools: ChatMenuItem[] = [
       transcriptView ?? { ...display, icon: "site.permission.localfonts" },
       ...replay,
+      ...steerQueueRow,
       ...(instructions ? [instructions] : []),
       ...(projectFiles ? [projectFiles] : []),
       {
@@ -9362,16 +9637,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   if (newTab !== undefined && !handshaken && hostError !== undefined) composerStoodIn.current = true;
   /// The one-time Cloud hint shows on a new chat this Mac starts while Cloud is offered and is not
   /// its mode (cloudChatHintModel.ts); never in a quick chat or a chat on another machine.
-  const cloudHintShown =
-    !quick &&
-    !onOtherMachine &&
-    cloudChatHintShown({
-      record: cloudHint.record,
-      tipsOn: featureTipsOn,
-      cloudOffered: sandboxOffered,
-      cloudPicked: sandbox.mode === "cloud",
-      started: Boolean(snapshot.sessionId),
-    });
+  /// It shows at most once per install: the page asks the app when the moment fits, and the app's
+  /// yes spends the tips' one 14-day budget.
+  const cloudHintFacts = {
+    record: cloudHint.record,
+    tipsOn: featureTipsOn,
+    cloudOffered: sandboxOffered,
+    cloudPicked: sandbox.mode === "cloud",
+    started: Boolean(snapshot.sessionId),
+  };
+  /// Only where it draws: the chat composer, or the New Tab screen (not the classic New Tab page, nor
+  /// history), so a claim never spends the budget on a hint nobody saw.
+  const cloudHintDraws =
+    !showNewTab || (newTab !== undefined && !newTab.history && shownTemplate(newTab) !== "classic");
+  const cloudHintDue = !quick && !onOtherMachine && cloudHintDraws && cloudChatHintDue(cloudHintFacts);
+  const claimCloudHint = cloudHint.claim;
+  useEffect(() => {
+    if (cloudHintDue) claimCloudHint();
+  }, [cloudHintDue, claimCloudHint]);
+  const cloudHintShown = !quick && !onOtherMachine && cloudChatHintShown(cloudHintFacts);
   /// New Cloud Chat, pending until taken: the New Tab page takes it (`cloudPick`) or this composer
   /// picks Cloud once it is offered; a chat that already started drops it.
   const cloudPickPending = cloudPickRequest > cloudPicksDone;
@@ -9464,7 +9748,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }, [artifact, harnessesOpen, imageView, inspectorOpen, replaying, showNewTab, clearWorkflowSideTab]);
   newTabRetainsDraft.current = showNewTab && newTabStartPage === newTabGeneration;
   const commandSession = showNewTab ? switchView.intent?.sessionId : undefined;
-  const commandRevision = clientSnapshot.sessions.find((session) => session.sessionId === commandSession);
+  const commandRevision = findSession(clientSnapshot.sessions, commandSession);
   const readSessionCommands = useCallback(
     (sessionId: string) => directClient.current?.sessionCommands(sessionId) ?? Promise.resolve([]),
     [],
@@ -9734,7 +10018,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const own = newTab?.projects ?? [];
     return projectsAnswered && own.length === 0 && newTab?.home ? null : own;
   }, [directProjects, projectsAnswered, newTab?.projects, newTab?.home]);
-  const newTabProjects = useMemo(() => {
+  // The folder lists read only where each chat works and when it was active (sessionList.ts
+  // `folderFields`): another chat's status, unread, title or cost changing leaves them as they are.
+  const folderLists = useRef<{ newTab: SessionsBy; composer: SessionsBy } | null>(null);
+  folderLists.current ??= { newTab: new SessionsBy(folderFields), composer: new SessionsBy(folderFields) };
+  const newTabFolderSessions = folderLists.current.newTab.of(newTabSnapshot.sessions);
+  const composerFolderSessions = folderLists.current.composer.of(composerSnapshot.sessions);
+  const newTabProjectList = useMemo(() => {
     const byPath = new Map<string, Project>();
     // A folder the host listed keeps its repository (projectRepos.ts) when a chat names it again.
     const listed = (cwd: string): Project => {
@@ -9743,21 +10033,26 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     };
     for (const project of directProjects) byPath.set(project.cwd, project);
     for (const path of newTab?.projects ?? []) byPath.set(path, listed(path));
-    for (const session of newTabSnapshot.sessions) {
+    for (const session of newTabFolderSessions) {
       if (typeof session.cwd !== "string" || !session.cwd) continue;
       if (session.host && session.hostKind !== "local") continue;
       byPath.set(session.cwd, listed(session.cwd));
     }
     if (newTab?.cwd) byPath.set(newTab.cwd, listed(newTab.cwd));
     // The pickers list repositories in the order of their newest folder: the folder of the newest chat first.
-    return byRecentUse([...byPath.values()], recentLocalFolders(newTabSnapshot.sessions));
-  }, [newTabSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
+    return byRecentUse([...byPath.values()], recentLocalFolders(newTabFolderSessions));
+  }, [newTabFolderSessions, newTab?.cwd, newTab?.projects, directProjects]);
+  // The same list while it holds the same folders in the same order (session-info/sameValue.ts): it is
+  // built again from the chat list, which changes on every event of any chat that runs, and the
+  // composer takes it as a prop (`projectChoices`), so a new copy of it drew the composer again four
+  // times a second with another chat working (test/agent-pane-scroll-tick-composer-hat-still.test.ts).
+  const newTabProjects = useSameValue(newTabProjectList);
   // The new chat's hero picker (cx-9g0w): this Mac's projects, then other machines' folders from
   // their chats (each with its machine's name), Add project and Do not work in a project.
   const heroPicker = useMemo<EmptyStateProjects | undefined>(() => {
     if (!freshChat || quick) return undefined;
     const remote = new Map<string, Project>();
-    for (const session of composerSnapshot.sessions) {
+    for (const session of composerFolderSessions) {
       const peer = session.peer ?? (session.hostKind === "cloud" ? session.host : undefined);
       if (!peer || typeof session.cwd !== "string" || !session.cwd || isAgentHome(session.cwd)) continue;
       const project = {
@@ -9797,15 +10092,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           .catch(() => undefined);
       },
     };
-  }, [
-    freshChat,
-    quick,
-    composerSnapshot.sessions,
-    composerSnapshot.summary,
-    newTabProjects,
-    chooseProject,
-    chooseFolder,
-  ]);
+  }, [freshChat, quick, composerFolderSessions, composerSnapshot.summary, newTabProjects, chooseProject, chooseFolder]);
   // The hero's start as it shows (its project, Do not work in a project), first frame to final
   // (perf.ts noteStartState). Only a new chat with no session yet, not under a New Tab page.
   const heroShown =
@@ -9936,170 +10223,181 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                             <OfferDefaultsContext.Provider value={offerDefaultsValue}>
                               <SubagentNavContext.Provider value={navigateSubagent}>
                                 <SubagentViewsContext.Provider value={readSubagentView}>
-                                  <SubagentPaneContext.Provider value={showSubagent}>
-                                    <WorkingCountsContext.Provider value={workingCounts}>
-                                      <PreviewChipsContext.Provider value={previewChips}>
-                                        <WaitingOnContext.Provider value={waiting}>
-                                          <SubagentStopContext.Provider value={stopSubagent}>
-                                            <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-                                              <SubagentHarnessContext.Provider
-                                                value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
-                                              >
-                                                <SessionHoverContext.Provider value={sessionHover}>
-                                                  <SubsessionNamesProvider
-                                                    subsessions={subsessions}
-                                                    started={subsessionNames}
-                                                  >
-                                                    <StartedMentionsContext.Provider value={startedMentions}>
-                                                      <FailedSendsContext.Provider value={failedSends}>
-                                                        <ChatFindScope
-                                                          rows={
-                                                            chatPresentation === "messages"
-                                                              ? transcriptRows
-                                                              : (childRows ?? findRows)
-                                                          }
-                                                          shown={childRows ? undefined : transcriptRows}
-                                                          openFold={openFold}
-                                                          findRef={findRef}
-                                                        >
-                                                          {(find) => (
-                                                            <VirtualTranscript
-                                                              key={chatPresentation}
-                                                              topInset={soloUnder ? tabRow.height : 0}
-                                                              rows={transcriptRows}
-                                                              streams={!childRows}
-                                                              earlier={!childRows ? snapshot.earlierPrompts : undefined}
-                                                              promptCount={
-                                                                !childRows ? snapshot.promptCount : undefined
-                                                              }
-                                                              loadThrough={
-                                                                !childRows
-                                                                  ? (seq) =>
-                                                                      directClient.current?.loadThrough(seq) ??
-                                                                      Promise.resolve(false)
-                                                                  : undefined
-                                                              }
-                                                              loadPromptIndex={
-                                                                !childRows
-                                                                  ? () =>
-                                                                      directClient.current?.loadPromptIndex() ??
-                                                                      Promise.resolve(false)
-                                                                  : undefined
-                                                              }
-                                                              sourceRows={childRows ? undefined : sourceRows}
-                                                              endReserve={
-                                                                previewBeside ? COMPUTER_USE_PREVIEW_RESERVE : 0
-                                                              }
-                                                              working={snapshot.isWorking}
-                                                              // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                                                              jumpButton={!quick}
-                                                              onJumpShownChange={quick ? undefined : setJumpLatestShown}
-                                                              needsYou={needsYou.pill}
-                                                              focusComposer={() => composerHandle.current?.focus()}
-                                                              // Quick Chat's panel stacks its composer below the transcript.
-                                                              dock={quick ? undefined : dock}
-                                                              queueWithdrawn={snapshot.queueWithdrawn}
-                                                              queueIds={quick ? undefined : queueIds}
-                                                              queuedTail={queuedRows}
-                                                              find={quick ? undefined : find}
-                                                              sessionId={
-                                                                childRows
-                                                                  ? `${shownSessionId}:subagent:${subagentView}`
-                                                                  : shownSessionId
-                                                              }
-                                                              canLoadOlder={
-                                                                workflowTranscript.rows
-                                                                  ? workflowTranscript.canLoadOlder
-                                                                  : !childRows && snapshot.canLoadOlder
-                                                              }
-                                                              historyFrom={
-                                                                workflowTranscript.rows
-                                                                  ? workflowTranscript.historyFrom
-                                                                  : childRows
-                                                                    ? undefined
-                                                                    : snapshot.historyFrom
-                                                              }
-                                                              onLoadOlder={
-                                                                workflowTranscript.rows
-                                                                  ? workflowTranscript.loadOlder
-                                                                  : !childRows
-                                                                    ? () =>
-                                                                        directClient.current?.loadOlder() ??
-                                                                        Promise.resolve()
+                                  <SubagentReplyContext.Provider value={readSubagentReply}>
+                                    <SubagentPaneContext.Provider value={showSubagent}>
+                                      <WorkingCountsContext.Provider value={workingCounts}>
+                                        <PreviewChipsContext.Provider value={previewChips}>
+                                          <WaitingOnContext.Provider value={waiting}>
+                                            <SubagentStopContext.Provider value={stopSubagent}>
+                                              <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+                                                <SubagentHarnessContext.Provider
+                                                  value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
+                                                >
+                                                  <SessionHoverContext.Provider value={sessionHover}>
+                                                    <SubsessionNamesProvider
+                                                      subsessions={subsessions}
+                                                      started={subsessionNames}
+                                                    >
+                                                      <StartedMentionsContext.Provider value={startedMentions}>
+                                                        <FailedSendsContext.Provider value={failedSends}>
+                                                          <ChatFindScope
+                                                            rows={
+                                                              chatPresentation === "messages"
+                                                                ? transcriptRows
+                                                                : (childRows ?? findRows)
+                                                            }
+                                                            shown={childRows ? undefined : transcriptRows}
+                                                            openFold={openFold}
+                                                            findRef={findRef}
+                                                          >
+                                                            {(find) => (
+                                                              <VirtualTranscript
+                                                                key={chatPresentation}
+                                                                topInset={soloUnder ? tabRow.height : 0}
+                                                                rows={transcriptRows}
+                                                                streams={!childRows}
+                                                                earlier={
+                                                                  !childRows ? snapshot.earlierPrompts : undefined
+                                                                }
+                                                                promptCount={
+                                                                  !childRows ? snapshot.promptCount : undefined
+                                                                }
+                                                                loadThrough={
+                                                                  !childRows
+                                                                    ? (seq) =>
+                                                                        directClient.current?.loadThrough(seq) ??
+                                                                        Promise.resolve(false)
                                                                     : undefined
-                                                              }
-                                                              openAt={
-                                                                !childRows &&
-                                                                shownSessionId &&
-                                                                scrollAnchor?.sessionId === shownSessionId
-                                                                  ? scrollAnchor
-                                                                  : undefined
-                                                              }
-                                                              anchorNow={
-                                                                quick || childRows ? undefined : transcriptAnchor
-                                                              }
-                                                              inViewNow={
-                                                                quick || childRows ? undefined : transcriptInView
-                                                              }
-                                                              // A prompt goes to the chat, not to the subagent shown in its place.
-                                                              sends={childRows ? undefined : sends}
-                                                              onFollowingChange={
-                                                                childRows ? undefined : onTranscriptFollowingChange
-                                                              }
-                                                              onAnchor={
-                                                                quick || childRows || !shownSessionId
-                                                                  ? undefined
-                                                                  : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                                                              }
-                                                              expanded={folds}
-                                                              showMinimap={minimapVisible}
-                                                              reveal={childRows ? undefined : revealRow}
-                                                              coldOpen={
-                                                                !childRows && opened.cold ? opened.open : undefined
-                                                              }
-                                                              onColdOpenShown={coldOpenShown}
-                                                              // Still reading the chat: what lands after a blank or partly blank
-                                                              // first paint fades in rather than popping (shared/loadFade.ts).
-                                                              loading={
-                                                                !childRows &&
-                                                                snapshot.sessionId !== undefined &&
-                                                                snapshot.chatRead !== true
-                                                              }
-                                                              afterLatest={
-                                                                childRows
-                                                                  ? undefined
-                                                                  : afterLatestFooter(
-                                                                      showOpenAppCard ? (
-                                                                        <OpenAppCard ports={cloudPreviewPortList} />
-                                                                      ) : null,
-                                                                      trayPlacement === "after-latest-message"
-                                                                        ? trayNode
-                                                                        : null,
-                                                                    )
-                                                              }
-                                                              registry={readOnlySubagent ? noDismissRegistry : registry}
-                                                              githubRepository={githubRepository}
-                                                              fallbackRepository={
-                                                                pullRequestRef(headerPullRequest?.url ?? "")?.repo
-                                                              }
-                                                              // The Quick Composer has no room for the changes view; its file rows stay plain.
-                                                              onOpenDiff={quick ? undefined : openDiff}
-                                                              onToggleActivity={toggleActivity}
-                                                            />
-                                                          )}
-                                                        </ChatFindScope>
-                                                        <SelectionReplyChip />
-                                                      </FailedSendsContext.Provider>
-                                                    </StartedMentionsContext.Provider>
-                                                  </SubsessionNamesProvider>
-                                                </SessionHoverContext.Provider>
-                                              </SubagentHarnessContext.Provider>
-                                            </SubagentClockContext.Provider>
-                                          </SubagentStopContext.Provider>
-                                        </WaitingOnContext.Provider>
-                                      </PreviewChipsContext.Provider>
-                                    </WorkingCountsContext.Provider>
-                                  </SubagentPaneContext.Provider>
+                                                                }
+                                                                loadPromptIndex={
+                                                                  !childRows
+                                                                    ? () =>
+                                                                        directClient.current?.loadPromptIndex() ??
+                                                                        Promise.resolve(false)
+                                                                    : undefined
+                                                                }
+                                                                sourceRows={childRows ? undefined : sourceRows}
+                                                                endReserve={
+                                                                  previewBeside ? COMPUTER_USE_PREVIEW_RESERVE : 0
+                                                                }
+                                                                working={snapshot.isWorking}
+                                                                // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                                                                jumpButton={!quick}
+                                                                onJumpShownChange={
+                                                                  quick ? undefined : setJumpLatestShown
+                                                                }
+                                                                needsYou={needsYou.pill}
+                                                                focusComposer={() => composerHandle.current?.focus()}
+                                                                // Quick Chat's panel stacks its composer below the transcript.
+                                                                dock={quick ? undefined : dock}
+                                                                queueWithdrawn={snapshot.queueWithdrawn}
+                                                                queueIds={quick ? undefined : queueIds}
+                                                                queuedTail={queuedRows}
+                                                                find={quick ? undefined : find}
+                                                                sessionId={
+                                                                  childRows
+                                                                    ? `${shownSessionId}:subagent:${subagentView}`
+                                                                    : shownSessionId
+                                                                }
+                                                                canLoadOlder={
+                                                                  workflowTranscript.rows
+                                                                    ? workflowTranscript.canLoadOlder
+                                                                    : !childRows && snapshot.canLoadOlder
+                                                                }
+                                                                historyFrom={
+                                                                  workflowTranscript.rows
+                                                                    ? workflowTranscript.historyFrom
+                                                                    : childRows
+                                                                      ? undefined
+                                                                      : snapshot.historyFrom
+                                                                }
+                                                                onLoadOlder={
+                                                                  workflowTranscript.rows
+                                                                    ? workflowTranscript.loadOlder
+                                                                    : !childRows
+                                                                      ? () =>
+                                                                          directClient.current?.loadOlder() ??
+                                                                          Promise.resolve()
+                                                                      : undefined
+                                                                }
+                                                                openAt={
+                                                                  !childRows &&
+                                                                  shownSessionId &&
+                                                                  scrollAnchor?.sessionId === shownSessionId
+                                                                    ? scrollAnchor
+                                                                    : undefined
+                                                                }
+                                                                anchorNow={
+                                                                  quick || childRows ? undefined : transcriptAnchor
+                                                                }
+                                                                inViewNow={
+                                                                  quick || childRows ? undefined : transcriptInView
+                                                                }
+                                                                // A prompt goes to the chat, not to the subagent shown in its place.
+                                                                sends={childRows ? undefined : sends}
+                                                                onFollowingChange={
+                                                                  childRows ? undefined : onTranscriptFollowingChange
+                                                                }
+                                                                onAnchor={
+                                                                  quick || childRows || !shownSessionId
+                                                                    ? undefined
+                                                                    : (anchor) =>
+                                                                        postScrollAnchor(shownSessionId, anchor)
+                                                                }
+                                                                expanded={folds}
+                                                                showMinimap={minimapVisible}
+                                                                reveal={childRows ? undefined : revealRow}
+                                                                sinceKey={childRows ? undefined : sinceKey}
+                                                                onJumpToSince={jumpToSince}
+                                                                coldOpen={
+                                                                  !childRows && opened.cold ? opened.open : undefined
+                                                                }
+                                                                onColdOpenShown={coldOpenShown}
+                                                                // Still reading the chat: what lands after a blank or partly blank
+                                                                // first paint fades in rather than popping (shared/loadFade.ts).
+                                                                loading={
+                                                                  !childRows &&
+                                                                  snapshot.sessionId !== undefined &&
+                                                                  snapshot.chatRead !== true
+                                                                }
+                                                                afterLatest={
+                                                                  childRows
+                                                                    ? undefined
+                                                                    : afterLatestFooter(
+                                                                        showOpenAppCard ? (
+                                                                          <OpenAppCard ports={cloudPreviewPortList} />
+                                                                        ) : null,
+                                                                        trayPlacement === "after-latest-message"
+                                                                          ? trayNode
+                                                                          : null,
+                                                                      )
+                                                                }
+                                                                registry={
+                                                                  readOnlySubagent ? noDismissRegistry : registry
+                                                                }
+                                                                githubRepository={githubRepository}
+                                                                fallbackRepository={
+                                                                  pullRequestRef(headerPullRequest?.url ?? "")?.repo
+                                                                }
+                                                                // The Quick Composer has no room for the changes view; its file rows stay plain.
+                                                                onOpenDiff={quick ? undefined : openDiff}
+                                                                onToggleActivity={toggleActivity}
+                                                              />
+                                                            )}
+                                                          </ChatFindScope>
+                                                          <SelectionReplyChip />
+                                                        </FailedSendsContext.Provider>
+                                                      </StartedMentionsContext.Provider>
+                                                    </SubsessionNamesProvider>
+                                                  </SessionHoverContext.Provider>
+                                                </SubagentHarnessContext.Provider>
+                                              </SubagentClockContext.Provider>
+                                            </SubagentStopContext.Provider>
+                                          </WaitingOnContext.Provider>
+                                        </PreviewChipsContext.Provider>
+                                      </WorkingCountsContext.Provider>
+                                    </SubagentPaneContext.Provider>
+                                  </SubagentReplyContext.Provider>
                                 </SubagentViewsContext.Provider>
                               </SubagentNavContext.Provider>
                             </OfferDefaultsContext.Provider>
@@ -10118,7 +10416,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   const transcript = (
     <PresentationContext.Provider value={chatPresentation}>
-      <ThinkingVerbsContext.Provider value={thinkingVerbs}>{transcriptContent}</ThinkingVerbsContext.Provider>
+      <ThinkingVerbsContext.Provider value={thinkingVerbs}>
+        <SteerChatContext.Provider value={snapshot.sessionId ?? ""}>{transcriptContent}</SteerChatContext.Provider>
+      </ThinkingVerbsContext.Provider>
     </PresentationContext.Provider>
   );
   // Folder trust's question heads the bottom stack, and the chat's other asks stay under it
@@ -10320,6 +10620,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       )}
     </div>
   ) : null;
+  // A fresh chat on another machine has no summary yet: its connection's origin, or a folder list
+  // its host marked as that machine's, says where it runs.
+  const startsElsewhere =
+    remoteChat || snapshot.origin === "remote" || snapshot.origin === "peer" || Boolean(machineFolders);
   // A failed start of a folder harness says what it waits for, in place of the switch's Retry
   // card: Enable (sent from the button's click, then the chat starts again), or the Trust answer.
   const block =
@@ -10391,6 +10695,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const stuckDiagnosis =
     snapshot.summary?.loopEpisode?.diagnosis ||
     (snapshot.summary?.stalledSince != null ? t("stuck.silentDiagnosis") : undefined);
+  // The chat's goal, a row of the composer hat (TaskGoalStrip.tsx; goalHat.experiment.ts places it
+  // at the hat's top, the default, or its foot over the composer). Its actions are Codex's own
+  // `/goal` subcommands; an edit sends `/goal <text>`, which sets the new objective in its place.
+  const goalNode =
+    !showNewTab && composerSnapshot.summary?.goal ? (
+      <TaskGoalStrip
+        // Its own key: HatQuestions, its sibling in the stack, is keyed by the chat's id.
+        key={`goal:${composerSnapshot.summary.sessionId}`}
+        goal={composerSnapshot.summary.goal}
+        harness={composerSnapshot.summary.harness}
+        command={(action, objective) =>
+          callNative("chat.send", {
+            text: `/goal ${action === "delete" ? "clear" : action === "edit" ? objective : action}`,
+            attachments: [],
+          })
+        }
+      />
+    ) : null;
+  const goalAtFoot = goalNode !== null && goalHatPlaceArm === "foot";
   const composer = readOnlySubagent ? (
     <SubagentComposer
       key={subagentDraftKey}
@@ -10403,6 +10726,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     !reviewing && (
       <>
         <PaneNotices onAction={(id) => void callNative("pane.noticeAction", { id }).catch(() => undefined)} />
+        <PlanScopeDriftNotice sessionId={snapshot.sessionId} />
         {stuckDiagnosis && (
           <StuckBanner
             diagnosis={stuckDiagnosis}
@@ -10441,16 +10765,26 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           >
             <SwitchNotice
               switching={snapshot.switching}
+              // Install runs the installer in a terminal tab of this Mac: never for a chat elsewhere.
+              installs={!startsElsewhere}
               onRetry={() => void callNative("chat.harness.retry")}
               // The refused prompt is back in the composer; a chat on another machine starts only
               // with a send, so the share's retry sends it again (as Trust's answer does).
               onShared={() => void callNative("chat.harness.retry").then(() => composerHandle.current?.send())}
               onAction={(action) => {
-                // A fresh chat on another machine has no summary yet: its connection's origin, or a
-                // folder list its host marked as that machine's, says where it runs.
-                const elsewhere =
-                  remoteChat || snapshot.origin === "remote" || snapshot.origin === "peer" || Boolean(machineFolders);
-                const route = startRefusalRoute(action, elsewhere);
+                // Install runs the agent's installer where its output shows, then Retry starts it.
+                if (action === "install") {
+                  const command = snapshot.switching ? INSTALL_COMMANDS[snapshot.switching.harness] : undefined;
+                  if (command)
+                    void callNative("tab.open", {
+                      kind: "terminal",
+                      text: command,
+                      ...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {}),
+                      run: true,
+                    }).catch(() => undefined);
+                  return;
+                }
+                const route = startRefusalRoute(action, startsElsewhere);
                 if (route === "newCloudMachine") connectMachine("cloud");
                 // That machine's folder menu; a menu that is not mounted falls back to the panel's answer.
                 else if (route === "machineFolderMenu") {
@@ -10529,12 +10863,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             onDismiss={shareNudge.close}
           />
         )}
-        <Notice
-          id="worktree-creating"
-          tier="status"
-          when={inThisVisit(worktreeCreating, snapshot.sessionId, visitNow) && freshChat && !snapshot.sessionId}
-        >
-          <output className="acpmux-switch-notice acpmux-worktree-creating">{t("worktree.creating")}</output>
+        {/* New Worktree: Creating worktree…, then the worktree recipe's setup in the same line
+            (worktreeSetup.tsx), for the chat in that worktree, until it is dismissed. */}
+        <Notice id="worktree-creating" tier="status" when={worktreeCreatingHere || worktreeSetupHere}>
+          <WorktreeSetupNotice callNative={callNative} folder={worktreeSetupFolder} creating={worktreeCreatingHere} />
         </Notice>
         <Notice
           id="worktree-error"
@@ -10603,6 +10935,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         {/* The agent's questions waiting on the person, over the hat (question/HatQuestions.tsx). */}
         {/* The card under it keeps answering the question it shows; the hat shows only with more to
             step to than that one (hatShows), and stays mounted so it arrives and leaves as a move. */}
+        {!goalAtFoot && goalNode}
         <HatQuestions
           key={shownSessionId}
           questions={hatShows(hatQuestionList) ? hatQuestionList : NO_HAT_QUESTIONS}
@@ -10619,6 +10952,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           ) : (
             trayNode
           ))}
+        {goalAtFoot && goalNode}
         {statusCardOpen && <HarnessStatusCard summary={snapshot.summary} onDismiss={() => setStatusCardOpen(false)} />}
         {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
         <ImageViewerContext.Provider value={openImage}>
@@ -10812,7 +11146,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               const send = async () => {
                 // Replying to a View Only chat takes it over first (`takeOver`); while the app that
                 // runs it still does, the pane asks how, and the composer keeps the message.
-                if (snapshot.summary?.watching && !(await directClient.current?.takeOver())) {
+                // A Claude desktop session acpmux delivers into takes the reply where it runs (`bridgedWatch`).
+                if (
+                  snapshot.summary?.watching &&
+                  !snapshot.summary.bridged &&
+                  !(await directClient.current?.takeOver())
+                ) {
                   throw new Error("watch.notTakenOver");
                 }
                 if (projectDraft && !snapshot.sessionId)
@@ -10840,18 +11179,33 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     },
                   );
                 // A View Only chat, taken over above, answers its waiting question in the chat too.
-                return withdrawForTypedReply(
-                  snapshot.sessionId ? individualPermission : undefined,
-                  directClient.current,
-                  () =>
-                    callNative("chat.send", {
-                      text,
-                      attachments,
-                      accepted: () => accept(true),
-                      steer,
-                      ...(gesture ? { gesture } : {}),
-                    }),
-                );
+                const deliver = () =>
+                  withdrawForTypedReply(
+                    snapshot.sessionId ? individualPermission : undefined,
+                    directClient.current,
+                    () =>
+                      callNative("chat.send", {
+                        text,
+                        attachments,
+                        accepted: () => accept(true),
+                        steer,
+                        ...(gesture ? { gesture } : {}),
+                      }),
+                  );
+                if (!snapshot.summary?.bridged) return deliver();
+                // The app that ran the bridged session is gone: the chat is taken over and the message
+                // stays in the composer. It is not sent again here, since its send gesture is spent;
+                // the next Return sends it to the taken-over chat.
+                // Taken over only while the chat it was sent to is still the one shown.
+                const sender = directClient.current;
+                const sentTo = snapshot.sessionId;
+                const stillShown = () => directClient.current === sender && sessionIdRef.current === sentTo;
+                return deliver().catch(async (error: unknown) => {
+                  if (bridgeGone(error) && stillShown() && (await sender?.takeOver())) {
+                    throw new Error("watch.notTakenOver");
+                  }
+                  throw error;
+                });
               };
               // The composer that holds the prompt: a refusal that comes once it is gone (the pane
               // swaps it when the chat's session starts) puts the prompt in the one shown now.
@@ -10971,7 +11325,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             {...(snapshot.summary?.hostKind === "cloud" && !quick
               ? { onRepick: (machine: RepickMachine) => repickCloudChat(callNative, machine) }
               : {})}
-            onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
+            // A Cloud or SSH chat's worktree is made on its machine, beside its repository there
+            // (cmuxterm-hq#7856: whatever works on a local chat works on a Cloud chat).
+            onNewWorktree={freshChat && !quick ? startInWorktree : undefined}
             onConnect={connectMachine}
             // The floating chat has no tab to move.
             {...(quick ? {} : { onOffload: offloadChat, offloads })}
@@ -11107,7 +11463,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // and commands go behind Details (hostLine.ts).
   const hostWords = hostLineText(hostFailure, hostError ?? "", t, machineName);
   const hostErrorCard = (
-    <Notice id="host-error" tier="error" when={hostError !== undefined && (hostErrorShown || restartingAcpmux)}>
+    <Notice id="host-error" tier="error" when={hostErrorSaid}>
       <HostUnavailableLine
         message={hostWords.line}
         detail={hostWords.detail}
@@ -11158,7 +11514,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   for (let index = snapshot.rows.length - 1; index >= 0 && !lastReply; index--) {
     if (snapshot.rows[index]!.kind === "assistant") lastReply = snapshot.rows[index];
   }
-  const floatingSession = composerSnapshot.sessions.find((session) => session.sessionId === snapshot.sessionId);
+  const floatingSession = findSession(composerSnapshot.sessions, snapshot.sessionId);
   const quickFloating: QuickFloating | undefined = quick
     ? {
         state: floatingHold,
@@ -11371,6 +11727,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         aria-label={composerSnapshot.summary?.title || t("header.agentChat")}
         style={inTabRow ? tabRowStyle(tabRow) : undefined}
       >
+        {steering && steerQueueOn ? (
+          <SteerQueue
+            items={steerItems}
+            now={steerNow || Date.now()}
+            actions={steerActions}
+            onClose={() => setSteering(false)}
+            onAct={(item, act, text) =>
+              setSteerLog((log) =>
+                recordSteer(log, { sessionId: item.sessionId, act, ...(text ? { text } : {}), at: Date.now() }),
+              )
+            }
+          />
+        ) : null}
         <div
           className="acpmux-main"
           data-stuck={stuckDiagnosis ? "" : undefined}
@@ -11888,6 +12257,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 {underHeader.watching && snapshot.summary?.watching && !snapshot.liveTakeOver && (
                   <WatchBanner
                     family={snapshot.summary.watching}
+                    bridged={snapshot.summary.bridged === true}
                     onTakeOver={() => void directClient.current?.takeOver().catch(() => undefined)}
                     onContinue={() => void directClient.current?.continueWatched().catch(() => undefined)}
                   />
@@ -12031,19 +12401,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
                   fallback={snapshot.presence}
                 />
-                {!showNewTab && composerSnapshot.summary?.goal && (
-                  <TaskGoalStrip
-                    key={composerSnapshot.summary.sessionId}
-                    goal={composerSnapshot.summary.goal}
-                    harness={composerSnapshot.summary.harness}
-                    command={(action) => {
-                      return callNative("chat.send", {
-                        text: `/goal ${action === "delete" ? "clear" : action}`,
-                        attachments: [],
-                      });
-                    }}
-                  />
-                )}
                 {/* A draft a refusal put back stays in reach even once the tab's run shows. */}
                 {(!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && composer}
               </div>

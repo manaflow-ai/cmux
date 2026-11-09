@@ -252,7 +252,6 @@ fn the_needed_text_arguments() {
         needed(&args(json!({})), "linkId"),
         Err(Said::with("portFailed", ["linkId is required"]))
     );
-    assert_eq!(needed(&args(json!({})), "tunnelKey"), Err(Said::key("tunnelKeyRequired")));
 }
 
 #[test]

@@ -137,7 +137,9 @@ actions through the repository's normal review and approval path.
 
 ## Run and close work deterministically
 
-Use the lifecycle primitives deliberately:
+Use the lifecycle primitives deliberately. In a chat, message with the acpmux `send` tool
+(`cmux.acpmux_send` in a cmux_exec script), not `acpmux send` in a shell; the commands below are
+for shells and scripts:
 
 ```bash
 acpmux send NAME --no-wait "..."

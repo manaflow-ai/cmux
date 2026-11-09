@@ -34,7 +34,6 @@ import { DeliveryMark } from "./PromptDelivery";
 import { ChevronLeft, ChevronRight, ImageIcon, Pencil, Spinner } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
-import { sendMorphRef } from "./sendMorph";
 import { PromptText } from "./PromptText";
 import { InlinePromptContent, PromptFile } from "./InlinePromptContent";
 import { readsAsText } from "./inlinePromptContentModel";
@@ -450,9 +449,6 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   const [failed, setFailed] = useState<string>();
   // The app it came from, at the thumbnail's top-right corner (composer/SourceBadge.tsx).
   const from = useSourceLabel(image.source);
-  // The pane's own send: the thumbnail's first frame is over the composer's chip, then it moves to
-  // the slot it holds from that frame (sendMorph.ts).
-  const morph = useMemo(() => sendMorphRef(image.id), [image.id]);
   if (shown.status === "missing") return null;
   const { width, height } = sentImageSize(shown);
   // Its shape, at most `width` wide: in a narrow chat the bubble's width scales it down whole
@@ -470,20 +466,12 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   // sent-image band appears after the transcript row has already been placed and pushes the
   // prompt and everything below it down by a frame.
   if (shown.src === undefined)
-    return (
-      <span
-        ref={morph}
-        className="cv-user__image-placeholder"
-        aria-hidden="true"
-        style={{ ...shape, flexBasis: width }}
-      />
-    );
+    return <span className="cv-user__image-placeholder" aria-hidden="true" style={{ ...shape, flexBasis: width }} />;
   const src = shown.src;
   // A pasted image's name is WebKit's "image.png": name it by its size instead (imageLabel.ts).
   const label = imageLabel(t, { name: image.name, width: shown.width, height: shown.height });
   const thumbnail = (
     <img
-      ref={morph}
       className={shown.fresh ? "cv-user__image cv-enter" : "cv-user__image"}
       src={src}
       alt={label}

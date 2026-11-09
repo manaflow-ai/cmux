@@ -596,7 +596,7 @@ class FreshStateTests(unittest.TestCase):
         self.saved_env = dict(os.environ)
         os.environ.update(BENCH_LAUNCH_ANY_SESSION="1", BENCH_LAUNCH_PMSET="/usr/bin/false",
                           BENCH_LAUNCH_LPM_MARKER=os.path.join(self.folder, "lpm.json"),
-                          BENCH_LAUNCH_STATE_BASE=os.path.join(self.folder, "appsupport-cmux"))
+                          BENCH_LAUNCH_STATE_BASE=os.path.join(self.folder, "appsupport-cmux-next"))
         os.environ.pop("BENCH_LAUNCH_KEEP_STATE", None)
         self.tag = f"bl-fresh-{os.getpid()}"
         app = os.path.join(self.folder, f"cmux DEV {self.tag}.app")
@@ -606,7 +606,7 @@ class FreshStateTests(unittest.TestCase):
             f.write("#!/bin/sh\nexit 0\n")
         os.chmod(main, 0o755)
         self.app = app
-        self.root = os.path.join(self.folder, "appsupport-cmux", "tags", self.tag)
+        self.root = os.path.join(self.folder, "appsupport-cmux-next", "tags", self.tag)
         os.makedirs(os.path.join(self.root, "tui"))
         with open(os.path.join(self.root, "tui", "session.json"), "w") as f:
             f.write('{"workspaces": 60}')

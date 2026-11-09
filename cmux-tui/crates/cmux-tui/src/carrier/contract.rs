@@ -1,6 +1,6 @@
 //! The stdio contract of `cmux carrier dial` and `serve` and its pure rules:
-//! the reply and ready lines, the exit codes, the step a failure names, the one deadline and its
-//! full-jitter backoff, and the route log line. No I/O here.
+//! the reply and ready lines, the exit codes, the step a failure names, the one deadline, and the
+//! route log line. No I/O here.
 
 use std::time::Duration;
 
@@ -11,12 +11,6 @@ use serde_json::json;
 pub(super) const DEFAULT_DEADLINE: Duration = Duration::from_secs(180);
 /// The longest `--deadline-ms` accepted.
 pub(super) const MAX_DEADLINE_MS: u64 = 600_000;
-/// The first backoff ceiling between attempts, doubled after each failure.
-pub(super) const INITIAL_BACKOFF: Duration = Duration::from_millis(250);
-/// The largest backoff ceiling: the machine link's own park between redial
-/// bursts (`ReconnectPolicy::maximum_delay`), so a dial after a long outage
-/// waits no longer than an established link would.
-pub(super) const MAX_BACKOFF: Duration = Duration::from_secs(5);
 /// The usage `error_code` (exit 64).
 pub(super) const BAD_REQUEST: &str = "bad_request";
 /// The longest `error_detail`, in bytes.
@@ -75,8 +69,8 @@ pub(super) struct Failure {
     pub detail: String,
     pub retryable: bool,
     /// The daemon no longer has the attempt's session (its session host
-    /// restarted): the next attempt opens a fresh session at once, with no
-    /// backoff ([`super::client::dial`] allows [`MAX_FRESH_SESSIONS`]).
+    /// restarted): the next attempt opens a fresh session
+    /// ([`super::client::dial`] allows [`MAX_FRESH_SESSIONS`]).
     pub fresh_session: bool,
 }
 
@@ -455,39 +449,6 @@ pub(super) fn phases_line(
         times.lanes,
         elapsed.as_millis()
     )
-}
-
-/// The full-jitter backoff between attempts of one dial: each delay is
-/// uniform in `[0, ceiling]`, the ceiling doubles up to [`MAX_BACKOFF`], and
-/// no delay outlives the deadline.
-#[derive(Clone, Copy, Debug)]
-pub(super) struct Backoff {
-    ceiling: Duration,
-}
-
-impl Default for Backoff {
-    fn default() -> Self {
-        Self { ceiling: INITIAL_BACKOFF }
-    }
-}
-
-impl Backoff {
-    /// The delay before the next attempt, given `remaining` time to the
-    /// deadline and `jitter` (the full-jitter draw from `[0, ceiling]`), or
-    /// `None` when no time is left for another attempt.
-    pub(super) fn next(
-        &mut self,
-        remaining: Duration,
-        jitter: impl FnOnce(Duration) -> Duration,
-    ) -> Option<Duration> {
-        if remaining.is_zero() {
-            return None;
-        }
-        let ceiling = self.ceiling;
-        self.ceiling = (ceiling * 2).min(MAX_BACKOFF);
-        let delay = jitter(ceiling).min(ceiling);
-        (delay < remaining).then_some(delay)
-    }
 }
 
 /// `--answer-fd`: 0 (stdin) or a descriptor past stderr, in decimal.

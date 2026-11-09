@@ -364,7 +364,7 @@ final class SSHService {
     /// cx-3r9mt: on connect, an older remote build (`cmux-tui remote update-need`) gets this app's
     /// build, daemons handed over; any other answer or a failure leaves the machine as it was.
     func updateIfOlder(_ session: SSHMachineSession) async {
-        guard !policyDisabled, let binary, case .installed? = await session.link.lastReport?.binary,
+        guard !policyDisabled, let binary, case .installed? = await session.link.probedReport(await Self.environment())?.binary,
               let commit = await BundledCmuxTUI.commit(binary: binary) else { return }
         let tried = session.machineID + "|" + commit
         guard autoUpdated.mayTry(tried), !installing.contains(session.machineID),

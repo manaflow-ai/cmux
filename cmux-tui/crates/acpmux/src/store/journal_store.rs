@@ -643,6 +643,7 @@ impl Store for JournalStore {
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         let mut line = serde_json::to_string(record)?;
         line.push('\n');
+        super::note_write_budget(record, line.len());
         let kind = record_class(record);
         let class = if kind == RecordClass::Acked { Class::Ack } else { Class::Stream };
         let payload = encode_log(id, line.as_bytes());

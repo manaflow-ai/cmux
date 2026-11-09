@@ -319,6 +319,10 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "stash.restore"
                         | "stash.delete"
                         | "stash.import"
+                        // The move from classic cmux is the app's: it reads
+                        // the plan and records what it made.
+                        | "classic_import.plan"
+                        | "classic_import.record"
                         // Import from Conductor is the app's: it reads the
                         // plan and records what it made.
                         | "conductor_import.plan"

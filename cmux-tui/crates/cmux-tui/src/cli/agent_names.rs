@@ -133,7 +133,7 @@ pub(in crate::cli) fn places_named(snapshot: &Value, name: &str) -> Vec<Place> {
                 terminal: terminal["id"].as_str()?.to_owned(),
                 tab: tab["id"].as_str()?.to_owned(),
                 pane: tab["pane_id"].as_str()?.to_owned(),
-                live: terminal["lifecycle"] != "exited",
+                live: super::terminal_lifecycle::is_live(terminal),
             })
         })
         .collect()
@@ -426,6 +426,7 @@ fn daemon_finds(global: &super::GlobalArgs, target: &Target) -> bool {
 }
 
 /// How long the selector probe waits for the daemon.
+// timeout: each read of the probe; a daemon that does not answer leaves the args as typed.
 const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// `args` with each agent or unique tab name replaced by its id;

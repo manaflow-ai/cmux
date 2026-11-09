@@ -1271,6 +1271,32 @@ fn old_hyphenated_action_is_not_a_nested_selector() {
     );
 }
 
+/// W5-Q (lead decision on PR A findings 6-7): `done` is only a finished
+/// turn nobody viewed. A session that ended is `ended` on the CLI: `agent
+/// report --state ended` reports the daemon's `done`, and the report's
+/// receipt says `ended` for it. The wire keeps its word.
+#[test]
+fn w5q_agent_report_says_ended_for_an_ended_session() {
+    const TERMINAL: &str = "term_55555555555555555555555555555555";
+    let report = protocol(&[
+        "agent",
+        "report",
+        "--terminal",
+        TERMINAL,
+        "--state",
+        "ended",
+        "--source",
+        "socket",
+    ]);
+    assert_eq!(report.params["state"], "done");
+    let shown = report.view.project(serde_json::json!({
+        "value": {"terminal_id": TERMINAL, "state": "done", "source": "socket"},
+    }));
+    assert_eq!(shown["value"]["state"], "ended", "{shown}");
+    let working = report.view.project(serde_json::json!({"value": {"state": "working"}}));
+    assert_eq!(working["value"]["state"], "working");
+}
+
 #[test]
 fn sensitive_renderer_grant_has_no_public_path() {
     for scope in ["terminal", "tab", "client"] {

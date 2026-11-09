@@ -214,19 +214,26 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
           `http://127.0.0.1:${port}/test/browser/tool-row-column.html?fixture=mixed&theme=${theme}&width=760&harness=${harness}&working=${working ? 1 : 0}`,
         );
         const fixture = page.locator("[data-fixture-mixed]");
-        await fixture
-          .getByRole("button", {
-            name: "Ran 2 commands and used 3 tools",
-          })
-          .click();
-        const steps = fixture.locator("[data-mixed-tool-steps]");
+        const line = fixture.getByRole("button", { name: "Ran 2 commands and used 3 tools" });
+        if (working) {
+          // While the turn runs nothing folds (cmux#38339): no run line, each call in sight with no
+          // click, in its group or on its own row.
+          await fixture.locator(".cv-tool").first().waitFor();
+          expect(await line.count()).toBe(0);
+        } else await line.click();
         // A finished call stays in its run while the live line reads Thinking (#37635): live or
-        // finished, the run lists every call.
-        await expect(steps.locator(":scope > .cv-step").count()).resolves.toBe(5);
-        expect(await steps.locator(".is-run").count()).toBe(0);
-        const geometry = await steps.locator(":scope > .cv-step > .cv-tool").evaluateAll((rows) =>
+        // finished, the run lists every call, each on its own row.
+        const steps = working ? fixture : fixture.locator("[data-mixed-tool-steps]");
+        const step = working ? ".cv-tool:not(.is-run)" : ":scope > .cv-step > .cv-tool";
+        if (!working) {
+          await expect(steps.locator(":scope > .cv-step").count()).resolves.toBe(5);
+          expect(await steps.locator(".is-run").count()).toBe(0);
+        } else await expect(steps.locator(step).count()).resolves.toBe(5);
+        const geometry = await steps.locator(step).evaluateAll((rows) =>
           rows.map((row) => ({
-            top: row.getBoundingClientRect().top,
+            // A lone call with a picture draws in its visual's block (`.cv-tool-with-visual`): the
+            // block is the row on the pitch. In an opened run every call is a step.
+            top: (row.closest(".cv-tool-with-visual") ?? row).getBoundingClientRect().top,
             text: row.querySelector(".cv-tool__text, .cv-command__text")!.getBoundingClientRect().left,
             icon: getComputedStyle(row.querySelector(".cv-tool__icon")!).visibility,
           })),

@@ -1,6 +1,6 @@
 import CmuxNextCompat
 public import CmuxNextWakeups
-import Foundation
+public import Foundation
 public import Observation
 import os
 
@@ -199,6 +199,8 @@ public final class DaemonStore: StateResourceQueries {
     /// Workspace snapshots the main actor compared or keyed for ``snapshotMemo`` since creation
     /// (tests: a live resync with its off-main ``SnapshotDiff`` walks none).
     @ObservationIgnored var snapshotWorkspacesWalkedOnMain = 0
+    /// Confirmed workspace records an incremental apply walked to rebuild the list (none when no workspace moved).
+    @ObservationIgnored var workspaceListWalkedOnMain = 0
     /// Set while `run(connection:scheduler:)` drives the store.
     @ObservationIgnored var driver: StoreDriver?
     /// Test seam (nil in the app): while it returns true for the buffered events, `drain` leaves them
@@ -361,7 +363,7 @@ public final class DaemonStore: StateResourceQueries {
         stage?.commitAll()
         withOverlayLifted(snapshot: true) {
             if let diff = incrementalDiff(tree, diff: diff) {
-                applyTreeIncrementally(tree, touching: touchedWorkspaces(diff))
+                applyTreeIncrementally(tree, touching: touchedWorkspaces(diff), diff: diff)
                 advanceSnapshotMemo(tree, applying: diff)
             } else {
                 applyTree(tree)
@@ -460,8 +462,14 @@ public final class DaemonStore: StateResourceQueries {
     private(set) var parkedBeforeDisconnect = false
     /// Connections the store applied (``DaemonConnectionChange/connected(_:_:)``).
     public private(set) var connects = 0
+    /// The last connection the store applied: its connection and serial (``DaemonEventEnvelope``).
+    private(set) var connectedSerial: (source: UUID, serial: UInt64)?
 
-    public func noteRetriesSpent(_ spent: Bool) {
+    /// `source` and `serial`: the connection and attempt that parked. A park from an attempt older
+    /// than the last connection applied is stale (the link recovered before the delivery landed)
+    /// and changes nothing, so it never marks the next disconnect offline.
+    public func noteRetriesSpent(_ spent: Bool, source: UUID? = nil, serial: UInt64? = nil) {
+        if spent, let source, let serial, let last = connectedSerial, last.source == source, last.serial > serial { return }
         if spent, case .connected = connectionState {
             parkedBeforeDisconnect = true
             return
@@ -477,8 +485,9 @@ public final class DaemonStore: StateResourceQueries {
         noteRetriesSpent(true)
     }
 
-    func noteConnected() {
+    func noteConnected(_ envelope: DaemonEventEnvelope? = nil) {
         connects += 1
+        connectedSerial = envelope.flatMap { envelope in envelope.sourceID.map { ($0, envelope.connectionSerial) } }
         noteRetriesSpent(false)
     }
 

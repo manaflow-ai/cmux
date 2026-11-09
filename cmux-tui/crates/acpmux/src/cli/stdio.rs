@@ -34,6 +34,7 @@ impl Defaults {
 }
 
 pub async fn run(defaults: Defaults) -> Result<()> {
+    let socket = crate::config::socket_path();
     let stream = crate::daemon::connect_stream().await?;
     let (daemon_read, mut daemon_write) = crate::local_stream::split(stream);
     // Requests the editor sent that the daemon has not answered. When stdin
@@ -47,6 +48,7 @@ pub async fn run(defaults: Defaults) -> Result<()> {
                 pending.lock().unwrap_or_else(|e| e.into_inner()).insert(id);
             }
             let line = apply_defaults(&line, &defaults);
+            let line = declare_caller(&line, |k| std::env::var(k).ok(), &socket);
             daemon_write.write_all(line.as_bytes()).await.context("write to acpmux")?;
             daemon_write.write_all(b"\n").await.context("write to acpmux")?;
         }
@@ -97,6 +99,45 @@ fn response_id(line: &str) -> Option<String> {
         return None;
     }
     message.get("id").map(Value::to_string)
+}
+
+/// The editor's `initialize`, with what this relay says about its caller in `_meta.acpmux`, as
+/// the CLI's own hello says it (`client.rs`): the session it runs in with its caller token (only
+/// to the socket of the daemon that issued it), and whether it runs in an acpmux session's
+/// environment (`cli_caller::declare`). Whatever the editor put in those keys is replaced: run
+/// from an agent's shell (`"$ACPMUX_BIN" stdio`), the relay is no owner's terminal (review of
+/// #39020, N1). Any other line is left as it is.
+pub fn declare_caller(
+    line: &str,
+    env: impl Fn(&str) -> Option<String>,
+    socket: &std::path::Path,
+) -> String {
+    let Ok(mut message) = serde_json::from_str::<Value>(line) else { return line.to_owned() };
+    if message.get("method").and_then(Value::as_str) != Some(method::INITIALIZE) {
+        return line.to_owned();
+    }
+    let Some(object) = message.as_object_mut() else { return line.to_owned() };
+    let params = object.entry("params").or_insert_with(|| Value::Object(Map::new()));
+    let Some(params) = params.as_object_mut() else { return line.to_owned() };
+    let meta = params.entry("_meta").or_insert_with(|| Value::Object(Map::new()));
+    let Some(meta) = meta.as_object_mut() else { return line.to_owned() };
+    let mux = meta.entry("acpmux").or_insert_with(|| Value::Object(Map::new()));
+    let Some(mux) = mux.as_object_mut() else { return line.to_owned() };
+    let set = |k: &str| env(k).filter(|v| !v.is_empty());
+    mux.remove(crate::hub::person::CALLER_FIELD);
+    let issuer = set(crate::hub::person::CALLER_SOCKET_ENV);
+    if let (Some(id), Some(token), true) = (
+        set("ACPMUX_SESSION_ID"),
+        set(crate::hub::person::CALLER_TOKEN_ENV),
+        issuer.is_some_and(|issuer| std::path::Path::new(&issuer) == socket),
+    ) {
+        mux.insert(
+            crate::hub::person::CALLER_FIELD.to_owned(),
+            serde_json::json!({"sessionId": id, "token": token}),
+        );
+    }
+    crate::cli_caller::declare(mux, set);
+    message.to_string()
 }
 
 /// Adds the defaults to a `session/new` request. Every other line, and any

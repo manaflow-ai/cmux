@@ -5,6 +5,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { until } from "./support/until";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -97,15 +98,19 @@ test("a failed Add folder… says why and Retry asks the host again", async () =
     option.textContent?.includes("Add folder…"),
   )!;
   await act(async () => add.click());
-  await act(async () => new Promise((done) => setTimeout(done, 0)));
+  await until(
+    () => host.querySelector('[role="alert"]') !== null,
+    () => act(async () => {}),
+  );
   expect(calls).toBe(1);
   expect(host.querySelector('[role="alert"]')?.textContent).toBe("Folder access was denied");
 
   const retry = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
     (button) => button.textContent === "Retry",
   )!;
+  // The retry's ask and its answer are promise steps: the act returns only after a task turn, when
+  // they have run.
   await act(async () => retry.click());
-  await act(async () => new Promise((done) => setTimeout(done, 0)));
   expect(calls).toBe(2);
   expect(host.querySelector('[role="alert"]')).toBeNull();
 });
@@ -146,7 +151,8 @@ test("a folder picked while Add folder… is open is not replaced by the panel's
   await act(async () => option("relay").click());
   expect(picks).toEqual(["/work/relay"]);
 
+  // The panel's late answer and its handling are promise steps: the act returns only after a task
+  // turn, when they have run.
   await act(async () => answer("/work/late"));
-  await act(async () => new Promise((done) => setTimeout(done, 0)));
   expect(picks).toEqual(["/work/relay"]);
 });

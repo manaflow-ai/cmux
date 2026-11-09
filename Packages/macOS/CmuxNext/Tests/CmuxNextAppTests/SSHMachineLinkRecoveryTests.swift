@@ -8,6 +8,7 @@ import CmuxNextCompat
 import CmuxNextRemote
 import CmuxNextSidebar
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -77,6 +78,34 @@ import Testing
         #expect(!store.retriesSpent, "a connect clears a pending park")
     }
 
+    /// Review of #38925, F1: a park delivered after the link already recovered (its hop to main landed
+    /// after the next connection applied) was kept as pending, so the next disconnect read Offline.
+    /// Each park now carries its attempt's serial; one older than the connection applied is stale.
+    @Test func aParkDeliveredAfterTheRecoveryDoesNotMarkTheNextDisconnect() throws {
+        let store = DaemonStore()
+        let source = UUID()
+        let identity = try Self.identity()
+        func connected(_ serial: UInt64) -> DaemonConnectionChange {
+            .connected(identity, DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: 0),
+                                                     event: .connected(identity, generationChanged: false), sourceID: source))
+        }
+        _ = connected(1).apply(to: store)
+        _ = DaemonConnectionChange.disconnected("link lost").apply(to: store)
+        // Attempt 2 parks; attempt 3 connects before attempt 2's notice reaches main.
+        _ = connected(3).apply(to: store)
+        store.noteRetriesSpent(true, source: source, serial: 2)
+        _ = DaemonConnectionChange.disconnected("link lost").apply(to: store)
+        #expect(!store.retriesSpent, "a stale park marked the next disconnect offline")
+        // A park of a later attempt of the same connection still marks it.
+        store.noteRetriesSpent(true, source: source, serial: 4)
+        #expect(store.retriesSpent)
+        // Another connection's serials are not comparable: its park marks the store.
+        _ = connected(5).apply(to: store)
+        _ = DaemonConnectionChange.disconnected("link lost").apply(to: store)
+        store.noteRetriesSpent(true, source: UUID(), serial: 1)
+        #expect(store.retriesSpent)
+    }
+
     /// Review F2 (fc883e4): a new startup attempt armed the startup deadline, which a recovery inside the
     /// existing connection never cancelled, so a working machine later read as failed to start.
     @Test func reconnectOnADroppedDaemonWakesItWithNoNewStartupAttempt() {
@@ -132,6 +161,9 @@ import Testing
         defer { session.close() }
         session.linkStatus = .connected
         session.daemon.startupDeadline = .seconds(1)
+        // The startup deadline runs on a clock only the test moves.
+        let clock = ManualClock()
+        session.daemon.startupClock = clock
         session.daemon.start(remote: {
             let nth = calls.withLock { $0 += 1; return $0 }
             // The link exited; its restart probe takes a while, then the link runs again.
@@ -148,8 +180,10 @@ import Testing
         #expect(session.connectionAttemptID == 0, "a new startup attempt would arm a deadline no recovery cancels")
         while !Self.recovered(session, log: log), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
         try #require(Self.recovered(session, log: log), "recovered inside the existing connection")
-        // Past the startup deadline: no false startup failure.
-        try await Task.sleep(for: .milliseconds(1500))
+        // Past the startup deadline: no false startup failure. The connection cancelled the deadline and
+        // the recovery armed none, so nothing is asleep on its clock and no amount of time fails the start.
+        #expect(clock.sleeperCount == 0, "a startup deadline is still pending after the recovery")
+        clock.advance(by: .seconds(60))
         #expect(!session.daemon.startup.isUnavailable, "the recovered machine read as failed to start")
         #expect(session.daemonFailure == nil)
     }

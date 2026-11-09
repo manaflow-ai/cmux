@@ -287,7 +287,7 @@ pub fn override_block(text: &str, scope: &str) -> Value {
 /// Capture preset bytes as well as the injected addition so later config edits do not
 /// change the effective text reported for an existing chat.
 pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
-    let mut parts = snapshot_for(cfg, &meta.cwd, &meta.harness);
+    let mut parts = snapshot_for(cfg, &meta.cwd, &meta.harness, meta.remote_origin);
     // A folder set up for another harness: its instructions, which this one does not read itself.
     let family = family_for_folder(cfg, &meta.harness);
     parts.extend(crate::folder_instructions::part(&family, &meta.cwd));
@@ -379,9 +379,15 @@ pub const GUIDANCE_SOURCE: &str = "cmux-guidance";
 /// [`snapshot`] plus the chat guidance for a session of profile `harness`. The guidance is
 /// its own part, so a person's guidance override (which replaces the default rule) keeps it;
 /// the `agents.guidance.*` settings turn it off.
-pub fn snapshot_for(cfg: &Config, cwd: &Path, harness: &str) -> Vec<ContextPart> {
+pub fn snapshot_for(
+    cfg: &Config,
+    cwd: &Path,
+    harness: &str,
+    remote_origin: bool,
+) -> Vec<ContextPart> {
     let mut parts = snapshot(cfg, cwd);
-    parts.extend(crate::agent_guidance::for_session(cfg, harness).map(guidance_part));
+    let guidance = crate::agent_guidance::for_session(cfg, harness, remote_origin);
+    parts.extend(guidance.map(guidance_part));
     parts
 }
 

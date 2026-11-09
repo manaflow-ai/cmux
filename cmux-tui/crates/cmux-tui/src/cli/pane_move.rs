@@ -29,6 +29,7 @@
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use super::agent_start::placement::Placeholder;
 use super::terminal_talk::send::Daemon;
 use super::worktree_workspace::{StepFailure, command_key, finish, plan, usage, words};
 use super::{GlobalArgs, UsageError};
@@ -304,19 +305,6 @@ fn created_path(result: &Value) -> Value {
     result.get("value").cloned().unwrap_or_else(|| result.clone())
 }
 
-/// The shell tab a new pane started with, and its terminal.
-struct Placeholder {
-    tab: String,
-    terminal: Option<String>,
-}
-
-fn placeholder_of(path: &Value) -> Placeholder {
-    Placeholder {
-        tab: text(path, "tab_id"),
-        terminal: path.get("terminal_id").and_then(Value::as_str).map(str::to_owned),
-    }
-}
-
 /// Runs `pane <pane> move`; the result names the moved tabs, where they
 /// went, what was made and the pane that has the focus after.
 pub(in crate::cli) fn move_pane<B: Daemon + ?Sized>(
@@ -377,7 +365,7 @@ pub(in crate::cli) fn move_pane<B: Daemon + ?Sized>(
                         text(&path, "screen_id"),
                         text(&path, "pane_id"),
                         1,
-                        Some(placeholder_of(&path)),
+                        Some(Placeholder::from_path(&path)),
                         json!({"pane": text(&path, "pane_id")}),
                     )
                 }
@@ -432,7 +420,7 @@ pub(in crate::cli) fn move_pane<B: Daemon + ?Sized>(
                 text(&path, "screen_id"),
                 text(&path, "pane_id"),
                 1,
-                Some(placeholder_of(&path)),
+                Some(Placeholder::from_path(&path)),
                 json!({"screen": text(&path, "screen_id"), "pane": text(&path, "pane_id")}),
             )
         }
@@ -466,10 +454,7 @@ pub(in crate::cli) fn move_pane<B: Daemon + ?Sized>(
         // Ending the shell takes its tab; closing only the tab left the
         // shell running with no tab until the session ended (W5-O). A daemon
         // that names no terminal gets the tab close, and its reaper.
-        let close = match &placeholder.terminal {
-            Some(terminal) => words(&["terminal", terminal, "close"]),
-            None => words(&["tab", &placeholder.tab, "close"]),
-        };
+        let close = words(&placeholder.end_command());
         backend
             .request(None, plan(&close, Some(step_key(command_key, "close-shell")))?)
             .map_err(|failure| step_failure(failure, "close-shell", made(&moved)))?;

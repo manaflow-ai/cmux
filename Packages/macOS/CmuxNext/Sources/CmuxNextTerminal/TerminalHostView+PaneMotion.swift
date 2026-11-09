@@ -77,9 +77,27 @@ extension TerminalHostView: PaneMotionHoldFollowing {
     /// The snap this host's size was drawn ahead for showed: a size its placement did not take (the snap showed this host
     /// at its old size) goes at the next layout.
     public func aheadOfFollowShown() {
+        showsKeySnap = false
         guard dropsAheadAtRest, aheadRestBasis != nil else { return }
         aheadRestBasis = nil
         needsLayout = true
+    }
+
+    /// A key press's snap (Reduce Motion, RESIZE P0 20) waits while the surface waits for its program's redraw at the
+    /// grid that went with the size drawn ahead for it (``TerminalSurfaceView/aheadAwaitsProgram(refreshesWaited:)``), so
+    /// the pane never shows its new size with the program's old picture. A snapped split's, close's or zoom's size
+    /// (render only) never waits.
+    public func aheadOfFollowAwaitsContent(refreshesWaited: Int) -> Bool {
+        guard aheadOfKeyResize, !isHidden, let current else { return false }
+        return current.aheadAwaitsProgram(refreshesWaited: refreshesWaited)
+    }
+
+    /// A key press's held snap shows in this turn (RESIZE P0 21): its wait for the program's redraw was the snap's, so
+    /// the placement it makes now does not hold the surface again (``TerminalSurfaceView/programHoldTicks``): the snap's
+    /// commit shows the surface at the pane's new size, with the redraw or the size only. A snap of no key press (a
+    /// split's, close's or zoom's) holds nothing.
+    public func aheadOfFollowWillShow() {
+        if aheadOfKeyResize { showsKeySnap = true }
     }
 
     /// Whether the host is in a content area that holds for a key resize and will hand it the follow in the area's next
