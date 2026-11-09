@@ -275,17 +275,28 @@ pub struct Moved {
 }
 
 /// Lets the chats written longest ago go once more than [`STASH_CHATS`] have a stack; never `keep`.
+/// A file that holds no draft, only the ids moves brought in, counts apart, against its own
+/// [`STASH_CHATS`]: a chat whose moved drafts were all used never pushes out one with drafts.
 fn trim_chats(dir: &Path, keep: &Path) {
     let Ok(entries) = fs::read_dir(dir) else { return };
-    let mut files: Vec<(std::time::SystemTime, PathBuf)> = entries
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "json") && path != keep)
-        .filter_map(|path| Some((fs::metadata(&path).ok()?.modified().ok()?, path)))
-        .collect();
-    let over = (files.len() + 1).saturating_sub(STASH_CHATS);
-    files.sort();
-    for (_, path) in files.into_iter().take(over) {
+    let mut stacks: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
+    let mut receipts: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
+    for path in entries.filter_map(Result::ok).map(|entry| entry.path()) {
+        if path.extension().is_none_or(|ext| ext != "json") || path == keep {
+            continue;
+        }
+        let Some(modified) = fs::metadata(&path).ok().and_then(|m| m.modified().ok()) else { continue };
+        match load(&path) {
+            Ok(drafts) if drafts.is_empty() => receipts.push((modified, path)),
+            _ => stacks.push((modified, path)),
+        }
+    }
+    let over_stacks = (stacks.len() + 1).saturating_sub(STASH_CHATS);
+    let over_receipts = receipts.len().saturating_sub(STASH_CHATS);
+    stacks.sort();
+    receipts.sort();
+    let going = stacks.into_iter().take(over_stacks).chain(receipts.into_iter().take(over_receipts));
+    for (_, path) in going {
         if crate::config::refuse_lost_home(&path).is_err() {
             return;
         }
