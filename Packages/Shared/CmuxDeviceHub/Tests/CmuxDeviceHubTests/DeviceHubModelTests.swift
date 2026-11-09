@@ -198,7 +198,7 @@ import Testing
         await hub.start()
         #expect(hub.status == .ready)
         #expect(hub.identity.id == fresh.id)
-        let registrations = stub.requests.filter { $0.url.path == "/v1/devices" }
+        let registrations = stub.requests.filter { $0.method == "POST" && $0.url.path == "/v1/devices" }
         #expect(registrations.map { $0.header("X-Device-Id") } == [me.id, fresh.id])
         #expect(registrations.last?.jsonBody?["signingKey"] as? String == fresh.signingKey)
         hub.stop()
