@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextCompat
 @testable import CmuxNextDaemon
 import Foundation
 import Testing
@@ -89,6 +90,52 @@ struct CrossMachineTabMoveTests {
             #expect(await world.services.daemon.appliedThroughReply(on: world.macConnection, after: "move"))
             #expect(world.services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).contains { $0.id == tab.id },
                     "this Mac's terminal tab closed although its keep failed")
+            // The other machine's new tab closed again with the failed keep.
+            let vmConnection = try #require(world.machine.daemon.connection)
+            #expect(await world.machine.daemon.appliedThroughReply(on: vmConnection, after: "move"))
+            let target = world.target
+            #expect(!target.screens.flatMap(\.panes).flatMap(\.tabs).contains { $0.kind == .remoteTerminal },
+                    "the other machine kept a tab for a terminal whose keep failed")
+        }
+    }
+
+    /// A terminal whose new tab on the other machine fails to open is not left kept: the keep comes
+    /// after the new tab, so once its last tab here closes this Mac's owner reaps it (grace 1 s). A
+    /// keep made first and left behind kept the shell running with no tab anywhere.
+    @Test func aTerminalWhoseNewTabFailsIsNotLeftKept() async throws {
+        try await Self.withMachines(macReapGraceSeconds: 1) { world in
+            let created = try await world.macConnection.newTab(in: world.macPane.handle)
+            let tab = try await world.macTab { $0.surface == created.surface && $0.kind == .pty && $0.terminalID != nil }
+            let terminal = try #require(tab.terminalID)
+            let host = try #require(TerminalHostExit.hostPID(of: terminal, state: world.macState), "no host record for the terminal")
+            // The other machine's pane, as this app last saw it, is gone there: its new tab fails.
+            for pane in world.target.screens.flatMap(\.panes) { pane.handle = PaneID(rawValue: 1 << 40) }
+            let moved = await world.move(tab)
+            #expect(!moved, "the terminal moved although the other machine could not open its tab")
+            try await world.macConnection.closeTab(created.surface)
+            #expect(await TerminalHostExit.exits(host, within: .seconds(20)), "the shell outlived its last tab: the failed move left it kept")
+        }
+    }
+
+    /// A tab whose original cannot close (the first tab of a pinned column, which the daemon keeps)
+    /// still moves: the other machine shows it, the move reports success, and the original stays
+    /// beside it with a notice. It was reported as a failed move, with the new tab left open there.
+    @Test func aTabWhoseOriginalCannotCloseStillMoves() async throws {
+        try await Self.withMachines { world in
+            let surface = try await world.macConnection.newTab(in: world.macPane.handle).surface
+            let tab = try await world.macTab { $0.surface == surface && $0.kind == .pty && $0.terminalID != nil }
+            // Another column scrolls, so this pane's column can be the pinned one, with this tab first: it then cannot close.
+            _ = try await world.macConnection.newColumn(rightOf: world.macPane.handle)
+            _ = try await world.macConnection.moveTab(surface, to: world.macPane.handle, index: 0)
+            _ = try await world.macConnection.request(SetColumnDockRequest(pane: world.macPane.handle,
+                                                                           dock: DockSnapshot(edge: .left, mode: .docked), pinned: true))
+            await #expect(throws: (any Error).self, "the pinned column's first tab closed") { try await world.macConnection.closeTab(surface) }
+            let moved = await world.move(tab)
+            #expect(moved, "the tab opened on the other machine, yet the move reported a failure")
+            let landed = try await world.machineTab { $0.kind == .remoteTerminal }
+            #expect(landed.remote?.terminalID == tab.terminalID, "the other machine's tab names another terminal")
+            #expect(world.services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).contains { $0.id == tab.id },
+                    "the pinned original closed")
         }
     }
 
@@ -101,13 +148,17 @@ struct CrossMachineTabMoveTests {
         let macConnection: DaemonConnection
         let macPane: PaneModel
         let target: WorkspaceModel
+        /// This Mac's owner's state directory (its terminal host records, ``TerminalHostExit``).
+        let macState: URL
 
-        init(services: AppServices, machine: CloudMachineSession, macConnection: DaemonConnection, macPane: PaneModel, target: WorkspaceModel) {
+        init(services: AppServices, machine: CloudMachineSession, macConnection: DaemonConnection, macPane: PaneModel, target: WorkspaceModel,
+             macState: URL) {
             self.services = services
             self.machine = machine
             self.macConnection = macConnection
             self.macPane = macPane
             self.target = target
+            self.macState = macState
         }
 
         /// Moves `tab` to the other machine's workspace as the tab menu and a drag do; whether it moved.
@@ -118,12 +169,12 @@ struct CrossMachineTabMoveTests {
         }
 
         /// This Mac's tab matching `match`, once the store shows it.
-        func macTab(_ match: (TabModel) -> Bool) async throws -> TabModel {
+        func macTab(_ match: @escaping @MainActor @Sendable (TabModel) -> Bool) async throws -> TabModel {
             try await poll("this Mac's tab did not appear") { self.services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first(where: match) }
         }
 
         /// The other machine's tab matching `match` in the target workspace, once its store shows it.
-        func machineTab(_ match: (TabModel) -> Bool) async throws -> TabModel {
+        func machineTab(_ match: @escaping @MainActor @Sendable (TabModel) -> Bool) async throws -> TabModel {
             let deadline = ContinuousClock.now + .seconds(20)
             // A move's reply can precede the store applying its rename. Read after the
             // daemon's barrier so the creation event alone cannot satisfy this lookup.
@@ -148,25 +199,41 @@ struct CrossMachineTabMoveTests {
             }
         }
 
-        /// Whether this Mac's tab `id` is gone (waits up to 20 s).
+        /// Whether this Mac's tab `id` is gone (waits up to 20 s for the store to drop it).
         func macTabGone(_ id: String) async -> Bool {
-            let deadline = ContinuousClock.now + .seconds(20)
-            func present() -> Bool { services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).contains { $0.id == id } }
-            while present(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
-            return !present()
+            let services = services
+            let gone = await CrossMachineTabMoveTests.observed(until: ContinuousClock.now + .seconds(20)) {
+                services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).contains { $0.id == id } ? nil : true
+            }
+            return gone == true
         }
 
-        private func poll<T>(_ message: String, until deadline: ContinuousClock.Instant = ContinuousClock.now + .seconds(20), _ value: () -> T?) async throws -> T {
-            try Task.checkCancellation()
-            while value() == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
-            try Task.checkCancellation()
-            return try #require(value(), Comment(rawValue: message))
+        private func poll<T: Sendable>(_ message: String, until deadline: ContinuousClock.Instant = ContinuousClock.now + .seconds(20),
+                                       _ value: @escaping @MainActor @Sendable () -> T?) async throws -> T {
+            try #require(await CrossMachineTabMoveTests.observed(until: deadline, value), Comment(rawValue: message))
         }
+    }
+
+    /// The first non-nil value of `value`, read again after each change of the observable state it
+    /// reads (``ObservationStream``), or nil once `deadline` passes: a store change is the signal,
+    /// and the deadline only bounds a value that never comes.
+    static func observed<T: Sendable>(until deadline: ContinuousClock.Instant,
+                                      _ value: @escaping @MainActor @Sendable () -> T?) async -> T? {
+        // task-owner: the wait is joined below and cancelled by the deadline or the caller's cancellation.
+        let watch = Task { @MainActor () -> T? in
+            for await current in ObservationStream(value) where current != nil { return current }
+            return nil
+        }
+        // A deadline, not a poll: it ends the wait for a value that never comes.
+        let bound = Task { try? await ContinuousClock().sleep(until: deadline); watch.cancel() }
+        defer { bound.cancel() }
+        return await withTaskCancellationHandler { await watch.value } onCancel: { watch.cancel() }
     }
 
     /// Runs `body` with this Mac's daemon (a workspace with a pane) and another machine's daemon
     /// with a workspace of its own, both connected to one app (StashTests reuses it).
-    static func withMachines(_ body: (World) async throws -> Void) async throws {
+    /// `macReapGraceSeconds` is this Mac's owner's reap grace (the app's 30 s by default).
+    static func withMachines(macReapGraceSeconds: UInt32 = 30, _ body: (World) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = URL(fileURLWithPath: "/private/tmp/cn-xmove-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
         var reaped = false
@@ -176,7 +243,7 @@ struct CrossMachineTabMoveTests {
             ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"]
         }
         let mac = DaemonLauncher(configuration: .init(binary: binary, session: "cn-xmove-mac-\(UUID().uuidString.prefix(6).lowercased())",
-                                                      stateDirectory: root.appendingPathComponent("mac-state"), exitWithProcess: ProcessInfo.processInfo.processIdentifier), environment: environment)
+                                                      stateDirectory: root.appendingPathComponent("mac-state"), terminalReapGraceSeconds: macReapGraceSeconds, exitWithProcess: ProcessInfo.processInfo.processIdentifier), environment: environment)
         let vm = DaemonLauncher(configuration: .init(binary: binary, session: "cn-xmove-vm-\(UUID().uuidString.prefix(6).lowercased())",
                                                      stateDirectory: root.appendingPathComponent("vm-state"), exitWithProcess: ProcessInfo.processInfo.processIdentifier), environment: environment)
         let macOwner = AppTestDaemonOwner(mac)
@@ -218,7 +285,8 @@ struct CrossMachineTabMoveTests {
             }
             while target() == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(100)) }
             let workspace = try #require(target(), "the other machine's workspace has no pane")
-            try await body(World(services: services, machine: machine, macConnection: macConnection, macPane: pane, target: workspace))
+            try await body(World(services: services, machine: machine, macConnection: macConnection, macPane: pane, target: workspace,
+                                 macState: root.appendingPathComponent("mac-state")))
             result = .success(())
         } catch {
             result = .failure(error)
