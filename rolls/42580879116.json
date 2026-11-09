@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42580879116",
+  "recorded_at": "2026-11-09T07:45:29Z",
+  "reason": "cmux-tui 67479c6b6cb7 changes the image's cmux-tui (pinned f6080ec85314)",
+  "dry_run": false,
+  "cmux_tui": "67479c6b6cb7e3638c3e63d88448573f3edf4fb4",
+  "fixes": [
+    {
+      "sha": "67479c6b6cb7e3638c3e63d88448573f3edf4fb4",
+      "mergedAt": "2026-11-09T07:27:10Z",
+      "subject": "perf(terminal): key resizes and divider drags show a new size only with the program's redraw (RESIZE P0 12 hold) (#38206)"
+    },
+    {
+      "sha": "6f82eed7fac08cc975fa191bae05d29b52e35dab",
+      "mergedAt": "2026-11-08T23:26:03-08:00",
+      "subject": "cmux-host: update check --skip-resume-hold for the spare refresh (#39032)"
+    },
+    {
+      "sha": "ed292a365beabefdecad56c02fb1578690d3923a",
+      "mergedAt": "2026-11-08T23:19:52-08:00",
+      "subject": "cmux-tui: wake_on_event gets a stream and clock seam and behavior tests; PROMPT_WAIT gets its timeout reason (#39330)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-09T07:45:29Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
