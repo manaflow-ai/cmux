@@ -266,6 +266,7 @@ fn move_stack_with(
             other => other,
         });
     if let Err(e) = removed {
+        let _ = if own.is_empty() { fs::remove_file(&to_path) } else { write(&to_path, to, &own) };
         return Err(not_saved(e));
     }
     trim_chats(dir, &to_path);
