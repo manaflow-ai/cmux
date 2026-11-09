@@ -156,6 +156,7 @@ pub mod route_shadow;
 mod router_socket;
 pub mod routes;
 pub mod rpc;
+pub mod run_elsewhere;
 pub mod schema;
 pub mod secret_mcp;
 pub mod secret_scan;
