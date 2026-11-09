@@ -9,6 +9,7 @@ import { userScrollIntent } from "./conversation/userScroll";
 // (a message posted from the frame runs after the rendering update), so a frame that misses a
 // 120 Hz display needs more than 8.33 ms however fast the display under the run is.
 import { MockAcpmuxSocket } from "./mock";
+import { subscribePageSecond } from "../../ui/pageClock";
 import { acpmuxPerf, frameStats, isBlank, median, percentile, round2 } from "./perf";
 
 export type LoadRunOptions = {
@@ -232,6 +233,17 @@ export type LoadTickOptions = {
   /// Text each output line ends with (` see #12`: a `#N` the pane reads out of the output, so each
   /// update draws through the pane, liveToolOutput.ts).
   line_suffix?: string;
+  /// Shells the turn sends to the background at its start (mock.ts `tickLoadTurn`), so the composer's
+  /// hat shows them with their time ticking each second for the whole run.
+  background_commands?: number;
+  /// Parts that must hold still while it runs, by name: a selector each (the composer's form, the
+  /// hat). Each frame of the still window reads every part's box and node: how far its box moved or
+  /// resized, and how many different nodes it was (a remount draws a new one). The window opens
+  /// `still_settle_ms` after every part first shows (the turn's start, which may move them, is over) and
+  /// closes a quarter second before the turn ends; the renders and page-clock ticks inside it are
+  /// reported on their own (`still`).
+  still?: Record<string, string>;
+  still_settle_ms?: number;
 };
 
 /// The Session Info parts counted while `loadTick` runs (SessionInfo.tsx `useCountedRender`): its
@@ -290,6 +302,7 @@ export async function loadTick(
           tickMs: Math.max(16, tickMs),
           sidebarMs: Math.max(0, options.sidebar_ms ?? 250),
           lineSuffix: options.line_suffix ?? "",
+          backgroundCommands: Math.max(0, Math.floor(options.background_commands ?? 0)),
         })
       : new Promise<{ ticks: number; sidebar: number }>((resolve) =>
           setTimeout(() => resolve({ ticks: 0, sidebar: 0 }), seconds * 1000),
@@ -302,9 +315,13 @@ export async function loadTick(
   let direction = speed > 0 ? 1 : 0;
   let previous: number | undefined;
   let frames = 0;
+  const still = options.still
+    ? stillWatch(options.still, started, seconds, options.still_settle_ms ?? 1500)
+    : undefined;
   while (!done) {
     const now = await frame();
     frames += 1;
+    still?.frame();
     if (previous !== undefined && direction !== 0) {
       offset += (direction * speed * (now - previous)) / 1000;
       if (offset >= span) {
@@ -320,6 +337,7 @@ export async function loadTick(
   }
   const elapsed = (performance.now() - started) / 1000;
   const ticked = await ticking;
+  const stillReport = still?.report();
   for (const record of watch.takeRecords()) {
     mutations += 1;
     if (record.attributeName === "data-cmux-scrolling") scrollMarks += 1;
@@ -371,6 +389,7 @@ export async function loadTick(
     seconds: round2(elapsed),
     frames,
     scroll_target: panelTarget ? "session-info" : "chat",
+    still: stillReport,
     scrolled_px: Math.round(span),
     session_info: sessionInfo,
     history_rows: history.size,
@@ -387,5 +406,130 @@ export async function loadTick(
       .filter(([, value]) => value > 0)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8),
+  };
+}
+
+/// The still window of `loadTick` (`still`): each frame, every named part's box against its box when
+/// the window opened, and the nodes it was drawn as; the renders (`acpmuxPerf.render`) and page-clock
+/// seconds (pageClock.ts `subscribePageSecond`, what a ticking time draws on) inside the window.
+function stillWatch(parts: Record<string, string>, started: number, seconds: number, settleMs: number) {
+  const closeAt = started + seconds * 1000 - 250;
+  // `text`: a text node's characters changed (the ticking time itself); `structure`: nodes added,
+  // removed or re-attributed, which a time that ticks in its own text node never does.
+  type Part = {
+    first?: DOMRect;
+    nodes: Set<Element>;
+    moved: number;
+    missing: number;
+    text: number;
+    structure: number;
+    /// What changed most, by element and attribute (or `children`): where a change came from.
+    where: Map<string, number>;
+    watch?: MutationObserver;
+  };
+  const watched = new Map<string, Part>(
+    Object.keys(parts).map((name) => [
+      name,
+      { nodes: new Set(), moved: 0, missing: 0, text: 0, structure: 0, where: new Map() },
+    ]),
+  );
+  const tally = (part: Part, records: MutationRecord[]) => {
+    for (const record of records) {
+      if (record.type === "characterData") part.text += 1;
+      else part.structure += 1;
+      const element = record.target instanceof Element ? record.target : record.target.parentElement;
+      const name = `${element?.tagName.toLowerCase() ?? "?"}.${element?.classList[0] ?? ""} ${record.attributeName ?? record.type}`;
+      part.where.set(name, (part.where.get(name) ?? 0) + 1);
+    }
+  };
+  let shownAt: number | undefined;
+  let openedAt: number | undefined;
+  let closedAt: number | undefined;
+  let rendersAtOpen = new Map<string, number>();
+  let rendersAtClose = new Map<string, number>();
+  let clockTicks = 0;
+  let stopClock: (() => void) | undefined;
+  let frames = 0;
+  const close = (at: number) => {
+    if (openedAt === undefined || closedAt !== undefined) return;
+    closedAt = at;
+    rendersAtClose = new Map(acpmuxPerf.renders);
+    stopClock?.();
+    for (const part of watched.values()) {
+      if (part.watch) tally(part, part.watch.takeRecords());
+      part.watch?.disconnect();
+    }
+  };
+  return {
+    frame() {
+      const at = performance.now();
+      if (closedAt !== undefined) return;
+      if (at >= closeAt) return close(at);
+      const nodes = Object.entries(parts).map(([name, selector]) => [name, document.querySelector(selector)] as const);
+      if (openedAt === undefined) {
+        if (nodes.some(([, node]) => !node)) return;
+        shownAt ??= at;
+        if (at - shownAt < settleMs) return;
+        openedAt = at;
+        rendersAtOpen = new Map(acpmuxPerf.renders);
+        let armed = false;
+        // A subscriber that joins a running clock is called at once: that is not a tick.
+        stopClock = subscribePageSecond(() => {
+          if (armed) clockTicks += 1;
+        });
+        armed = true;
+      }
+      frames += 1;
+      for (const [name, node] of nodes) {
+        const part = watched.get(name)!;
+        if (!node) {
+          part.missing += 1;
+          continue;
+        }
+        if (!part.watch) {
+          const watch = new MutationObserver((records) => tally(part, records));
+          watch.observe(node, { subtree: true, childList: true, attributes: true, characterData: true });
+          part.watch = watch;
+        }
+        part.nodes.add(node);
+        const box = node.getBoundingClientRect();
+        part.first ??= box;
+        part.moved = Math.max(
+          part.moved,
+          Math.abs(box.x - part.first.x),
+          Math.abs(box.y - part.first.y),
+          Math.abs(box.width - part.first.width),
+          Math.abs(box.height - part.first.height),
+        );
+      }
+    },
+    report() {
+      close(performance.now());
+      if (openedAt === undefined || closedAt === undefined) return { error: "the parts never all showed" };
+      const renders: Record<string, number> = {};
+      for (const [name, value] of rendersAtClose) {
+        const count = value - (rendersAtOpen.get(name) ?? 0);
+        if (count > 0) renders[name] = count;
+      }
+      return {
+        window_s: round2((closedAt - openedAt) / 1000),
+        frames,
+        clock_ticks: clockTicks,
+        renders,
+        parts: Object.fromEntries(
+          [...watched].map(([name, part]) => [
+            name,
+            {
+              moved_px: round2(part.moved),
+              nodes: part.nodes.size,
+              missing_frames: part.missing,
+              text_mutations: part.text,
+              structure_mutations: part.structure,
+              busiest: [...part.where].sort((a, b) => b[1] - a[1]).slice(0, 6),
+            },
+          ]),
+        ),
+      };
+    },
   };
 }
