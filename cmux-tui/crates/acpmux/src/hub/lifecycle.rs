@@ -112,6 +112,7 @@ impl Hub {
             additional_directories,
             person,
             wait_start,
+            require_asking,
         } = req;
         // The proven agent session that asked for this one, as it is now; never for a remote
         // chat, and never one a remote connection started (`remote_origin`).
@@ -131,6 +132,13 @@ impl Hub {
             let cfg = self.config.read().await;
             let r =
                 self.resolve_new(&cfg, harness, &preset, model.as_deref(), remote, cwd.as_deref())?;
+            // Held to asking: checked on this profile, under this read (`require_asking.rs`).
+            if require_asking {
+                let adopting = adopt.is_some();
+                super::require_asking::holds_at_start(
+                    &cfg, &r.agent, &r.profile, policy, adopting,
+                )?;
+            }
             let plain = super::start_mode::plain_for_mode(r.preset_name.as_deref(), &cfg);
             (r, plain)
         };
