@@ -487,6 +487,7 @@ mod tests {
         let link = SshProcessLink {
             inner: LengthDelimitedLink::new("ssh://test", 1024, stdout, stdin),
             child: Mutex::new(Some(child)),
+            stderr: None,
         };
 
         link.close().await.unwrap();
