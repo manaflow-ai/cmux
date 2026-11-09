@@ -688,7 +688,7 @@ impl Supervisor {
                 let mut stop = self.stop.clone();
                 let read = tokio::select! {
                     read = self.refresh(&client, &identity, &tunnel) => read,
-                    _ = stop.wait_for(|stop| *stop) => {
+                    () = stopped(&mut stop) => {
                         hub.stop().await;
                         return HubEnd::Stopped;
                     }
@@ -741,7 +741,7 @@ impl Supervisor {
                     let mut stop = self.stop.clone();
                     tokio::select! {
                         read = self.refresh(&client, &identity, &tunnel) => read,
-                        _ = stop.wait_for(|stop| *stop) => return HubEnd::Stopped,
+                        () = stopped(&mut stop) => return HubEnd::Stopped,
                     }
                 } {
                     Ok(fresh) => tunnel = fresh,
@@ -752,6 +752,13 @@ impl Supervisor {
             }
         }
     }
+}
+
+/// Resolves once a stop is asked (or its sender is gone), holding no
+/// borrow of the channel's value: a `watch::Ref` kept across the hub's stop
+/// would make the supervisor's future not `Send`.
+async fn stopped(stop: &mut watch::Receiver<bool>) {
+    let _ = stop.wait_for(|stop| *stop).await;
 }
 
 fn now_ms() -> u64 {
