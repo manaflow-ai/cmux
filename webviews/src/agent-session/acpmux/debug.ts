@@ -13,6 +13,7 @@ import { tickWatch } from "./tickWatch";
 import { followTrace } from "./followTrace";
 import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
 import type { IdleProbeOptions } from "./idleProbe";
+import type { MenuScrollOptions } from "./menuScrollProbe";
 import { queuedRowsState } from "./queuedRowsState";
 import { composerAttachmentsState } from "./composerAttachmentsState";
 import { cloudSignedInForDebug } from "./cloudMachines";
@@ -75,6 +76,8 @@ export type AcpmuxDebug = {
   models(): Record<string, unknown>;
   /** What moved on the page after it first showed its content, watched for `ms` (layoutWatch.ts). */
   layoutWatch(options?: LayoutWatchOptions): Promise<Record<string, unknown>>;
+  /** Scrolls the open menu's list and reports what else changed meanwhile (menuScrollProbe.ts). */
+  menuScroll(options?: MenuScrollOptions): Promise<Record<string, unknown>>;
   /** What the page asks for while nobody touches it, by call site, over `ms` (idleProbe.ts). */
   idleProbe(options?: IdleProbeOptions): Promise<Record<string, unknown>>;
   /** Streams a scripted reply into a long synthetic transcript and reports the frames (streamDebug.ts). */
@@ -430,6 +433,10 @@ export function createAcpmuxDebug(
       return layoutWatch(options);
     },
 
+    async menuScroll(options = {}) {
+      const { menuScroll } = await import("./menuScrollProbe");
+      return menuScroll(options);
+    },
     async idleProbe(options = {}) {
       const { idleProbe } = await import("./idleProbe");
       return idleProbe(options);

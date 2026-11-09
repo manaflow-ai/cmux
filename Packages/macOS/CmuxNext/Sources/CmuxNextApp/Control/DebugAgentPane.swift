@@ -39,7 +39,7 @@ import WebKit
 /// `decision`), `toast` (`text`: a pane toast), `open_changes` (the latest turn's changes view), `set_files` (`paths`, `selector` default
 /// `.acpmux-attach-input`: the composer's file input gets those files as a pick in Chromium's open panel),
 /// `models` (the harness's models), `set_model` (`model`, `effort`), `layout_watch` (`ms`, `tolerance`; layoutWatch.ts),
-/// `readiness` (page body, transcript and composer metrics), `cloud_auth` (the native
+/// `menu_scroll` (menuScrollProbe.ts), `readiness` (page body, transcript and composer metrics), `cloud_auth` (the native
 /// `cloudMachine.list` reply consumed by the picker), `engine` (`cef` or `webkit:<reason>`), `focus_composer`, `composer_focused`, `click` (`selector`
 /// or `text`: a native click on that element, DebugAgentPaneClick), `open_subagent` (`index`, from 1, and `focus`, default
 /// false: the `subagents` fixture's subagent at `index` opens in its own pane as a tray click's `chat.subagentPane` opens
@@ -64,7 +64,7 @@ enum DebugAgentPane {
         "select_session": "selectSession", "answer_permission": "answerPermission", "open_changes": "openChanges",
         "set_model": "setModel", "models": "models", "stream": "stream", "pick_folder": "pickFolder",
         "compose_send": "composeSend", "run_mode": "runMode", "toast": "toast",
-        "load_seed": "loadSeed", "load_run": "loadRun", "layout_watch": "layoutWatch", "idle_probe": "idleProbe",
+        "load_seed": "loadSeed", "load_run": "loadRun", "layout_watch": "layoutWatch", "idle_probe": "idleProbe", "menu_scroll": "menuScroll",
     ]
 
     /// The chat verbs drive the chat as a person does, so each records a user gesture first (as
@@ -226,7 +226,7 @@ enum DebugAgentPane {
             }
         }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, tick_watch, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, compose_send, run_mode, toast, answer_permission, open_changes, set_model, models, stream, layout_watch, idle_probe, readiness, cloud_auth, engine, focus_composer, composer_focused, click, open_subagent, pid, full_rate, gesture_state, session_info_action or inspector")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, tick_watch, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, compose_send, run_mode, toast, answer_permission, open_changes, set_model, models, stream, layout_watch, idle_probe, menu_scroll, readiness, cloud_auth, engine, focus_composer, composer_focused, click, open_subagent, pid, full_rate, gesture_state, session_info_action or inspector")])
         }
         do {
             let result = try await view.callPageScript(script, arguments: ["fn": function, "args": AgentPaneDebugAutomationArguments(action: action, parameters: params).values])

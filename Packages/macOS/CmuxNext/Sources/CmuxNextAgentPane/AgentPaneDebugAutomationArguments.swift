@@ -48,6 +48,16 @@ public struct AgentPaneDebugAutomationArguments {
         case "idle_probe":
             // What the page asks for while nobody touches it (idleProbe.ts), over `ms`.
             return [params["ms"]?.doubleValue.map { ["ms": $0] as [String: Any] } ?? [:]]
+        case "menu_scroll":
+            // Scrolls the open menu's list and reports what else changed (menuScrollProbe.ts).
+            var options: [String: Any] = [:]
+            for key in ["ms", "step"] {
+                if let value = params[key]?.doubleValue { options[key] = value }
+            }
+            for key in ["hover", "detach", "result"] {
+                if let value = params[key]?.boolValue { options[key] = value }
+            }
+            return [options]
         case "open_menu":
             return [params["label"]?.stringValue ?? ""]
         case "acp_log":
