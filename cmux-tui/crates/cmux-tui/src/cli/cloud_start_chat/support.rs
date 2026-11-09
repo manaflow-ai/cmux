@@ -14,7 +14,7 @@ pub(super) fn words(list: &[&str]) -> Vec<String> {
 }
 
 /// The `@@name` sections a step's script printed: `@@exit 0` is the section `exit` with `0`.
-pub(super) fn sections(stdout: &str) -> std::collections::HashMap<String, String> {
+pub(in crate::cli) fn sections(stdout: &str) -> std::collections::HashMap<String, String> {
     let mut out = std::collections::HashMap::new();
     let mut current: Option<String> = None;
     for line in stdout.lines() {
