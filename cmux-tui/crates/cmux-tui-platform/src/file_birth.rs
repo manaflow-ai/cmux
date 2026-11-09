@@ -18,7 +18,7 @@ pub fn birth_ns(file: &std::fs::File) -> Option<u64> {
         btime_nsec: u32,
         rest: [u32; 41],
     }
-    const _: () = assert!(std::mem::size_of::<Statx>() == 256);
+    const _: () = assert!(size_of::<Statx>() == 256);
     const _: () = assert!(std::mem::offset_of!(Statx, btime_sec) == 80);
     const STATX_BTIME: u32 = 0x800;
     let mut buf = Statx { mask: 0, head: [0; 19], btime_sec: 0, btime_nsec: 0, rest: [0; 41] };
