@@ -151,7 +151,9 @@ impl Driver {
     /// Send in the mode agreed with the peer, capped when either network is
     /// metered.
     pub(super) fn apply_ultra_mode(&mut self) {
-        self.underlay.set_mode(self.negotiation.mode());
+        if self.underlay.set_mode(self.negotiation.mode()) {
+            self.stack.link_repairs_losses();
+        }
         self.underlay.set_metered(self.negotiation.metered());
     }
 

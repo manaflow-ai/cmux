@@ -220,6 +220,17 @@ impl TcpStack {
         }
     }
 
+    /// Ultra mode began repairing this tunnel's losses (Auto turned it on at
+    /// the first loss): the losses that turned it on, and any other of data
+    /// already in flight, cut no congestion window, and a cut one already
+    /// made is undone. Repair covers the link from here on, as it covers a
+    /// tunnel that started in Always, whose TCP never sees those losses.
+    pub(crate) fn link_repairs_losses(&mut self) {
+        for conn in &self.conns {
+            self.sockets.get_mut::<tcp::Socket>(conn.handle).link_repairs_losses();
+        }
+    }
+
     /// When smoltcp next wants a poll, or `None` to wait for an event.
     pub(crate) fn poll_delay(&mut self) -> Option<Duration> {
         let now = self.now();

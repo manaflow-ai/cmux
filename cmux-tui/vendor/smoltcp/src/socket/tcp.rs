@@ -721,6 +721,13 @@ pub struct Socket<'a> {
     /// cmux patch: the path under the connection changed; the next RTO
     /// branch resends without backing off ([path_changed](#method.path_changed)).
     path_change_retransmit: bool,
+    /// cmux patch: losses of data sent below this happened before the link
+    /// under the connection began repairing its own losses
+    /// ([link_repairs_losses](#method.link_repairs_losses)); they cut no window.
+    repaired_below: Option<TcpSeqNumber>,
+    /// cmux patch: the congestion controller as it was before the latest
+    /// window cut, and the sequence that cut's episode lasts until.
+    window_before_cut: Option<(congestion::AnyController, TcpSeqNumber)>,
 
     /// Duration for Delayed ACK. If None no ACKs will be delayed.
     ack_delay: Option<Duration>,
@@ -821,6 +828,8 @@ impl<'a> Socket<'a> {
             sack_window_cut: false,
             local_mss: usize::MAX,
             path_change_retransmit: false,
+            repaired_below: None,
+            window_before_cut: None,
             ack_delay: Some(ACK_DELAY_DEFAULT),
             ack_delay_timer: AckDelayTimer::Idle,
             challenge_ack_timer: Instant::from_secs(0),
@@ -1099,6 +1108,64 @@ impl<'a> Socket<'a> {
         };
     }
 
+    /// cmux patch: the link under this connection repairs its own losses
+    /// from now on.
+    ///
+    /// A tunnel that starts sending repair data (cmux-wg's ultra mode, which
+    /// Auto turns on at the first loss) calls this. The losses that turned it
+    /// on, and any other loss of data already in flight, were the link's
+    /// before it repaired anything: they are still resent, but they cut no
+    /// congestion window, and a cut one of them already made is undone (the
+    /// controller returns to its state before that cut, as an undo after a
+    /// spurious retransmission does). A loss of data sent after this call
+    /// cuts the window as usual. With nothing in flight and no cut pending it
+    /// does nothing.
+    pub fn link_repairs_losses(&mut self) {
+        if self.remote_last_seq > self.local_seq_no {
+            self.repaired_below = Some(self.remote_last_seq);
+        }
+        if let Some((controller, _)) = self.window_before_cut.take() {
+            net_debug!("undoing a window cut: the link repairs losses now");
+            self.congestion_controller = controller;
+            self.congestion_controller
+                .inner_mut()
+                .set_remote_window(self.remote_win_len);
+        }
+    }
+
+    /// cmux patch: before a loss cuts the window. False when the lost data
+    /// was sent before the link began repairing losses: no cut. Otherwise
+    /// remembers the controller so [`Self::link_repairs_losses`] can undo the cut.
+    fn loss_cuts_window(&mut self) -> bool {
+        if self
+            .repaired_below
+            .is_some_and(|bound| self.local_seq_no < bound)
+        {
+            net_debug!("loss of data sent before the link repaired losses: no window cut");
+            return false;
+        }
+        self.window_before_cut = Some((self.congestion_controller.clone(), self.remote_last_seq));
+        true
+    }
+
+    /// cmux patch: forget the marks of [`Self::link_repairs_losses`] and of the last
+    /// window cut once the cumulative ACK passes them.
+    fn prune_loss_marks(&mut self) {
+        if self
+            .repaired_below
+            .is_some_and(|bound| self.local_seq_no >= bound)
+        {
+            self.repaired_below = None;
+        }
+        if self
+            .window_before_cut
+            .as_ref()
+            .is_some_and(|(_, until)| self.local_seq_no >= *until)
+        {
+            self.window_before_cut = None;
+        }
+    }
+
     /// cmux patch: the delayed-ACK allowance of tail-loss probes, `None` when they are off.
     pub fn tail_loss_probe(&self) -> Option<Duration> {
         self.tail_loss_probe
@@ -1335,11 +1402,15 @@ impl<'a> Socket<'a> {
         // One window cut for the whole episode, however many holes it has,
         // and only once the duplicate threshold shows a loss.
         if self.sack_recovery_point.is_some() && scan.congestion && !self.sack_window_cut {
-            self.sack_window_cut = true;
-            let in_flight = self.flight_size();
-            self.congestion_controller
-                .inner_mut()
-                .on_sack_loss(cx.now(), in_flight);
+            // cmux patch: a loss from before the link repaired losses
+            // leaves the episode uncut, so a later loss can still cut it.
+            if self.loss_cuts_window() {
+                self.sack_window_cut = true;
+                let in_flight = self.flight_size();
+                self.congestion_controller
+                    .inner_mut()
+                    .on_sack_loss(cx.now(), in_flight);
+            }
         }
     }
 
@@ -1490,6 +1561,8 @@ impl<'a> Socket<'a> {
         self.sack_window_cut = false;
         self.local_mss = usize::MAX;
         self.path_change_retransmit = false;
+        self.repaired_below = None;
+        self.window_before_cut = None;
         self.ack_delay_timer = AckDelayTimer::Idle;
         self.challenge_ack_timer = Instant::from_secs(0);
 
@@ -2772,6 +2845,7 @@ impl<'a> Socket<'a> {
                 self.remote_last_seq = self.local_seq_no
             }
 
+            self.prune_loss_marks();
             self.process_sack(cx, repr);
         }
 
@@ -3117,9 +3191,11 @@ impl<'a> Socket<'a> {
 
                 // Inform the congestion controller that we're retransmitting and should enter the slow start state
                 let in_flight = self.flight_size();
-                self.congestion_controller
-                    .inner_mut()
-                    .on_rto(cx.now(), in_flight);
+                if self.loss_cuts_window() {
+                    self.congestion_controller
+                        .inner_mut()
+                        .on_rto(cx.now(), in_flight);
+                }
 
                 // Rewind "last sequence number sent", as if we never
                 // had sent them. This will cause all data in the queue
@@ -3147,9 +3223,11 @@ impl<'a> Socket<'a> {
 
                 // Inform the congestion controller that we're doing a fast retransmit and should enter the fast recovery state
                 let in_flight = self.flight_size();
-                self.congestion_controller
-                    .inner_mut()
-                    .on_loss(cx.now(), in_flight);
+                if self.loss_cuts_window() {
+                    self.congestion_controller
+                        .inner_mut()
+                        .on_loss(cx.now(), in_flight);
+                }
 
                 self.pending_fast_retransmit = true;
             }
@@ -11221,6 +11299,90 @@ mod test {
         send!(s, time 100, sack_ack(18, [None, None, None]));
         assert!(s.congestion_controller.inner().window() >= window);
         assert_eq!(s.sack_recovery_point, None);
+    }
+
+    // cmux patch: a link that repairs its own losses from now on.
+
+    #[cfg(feature = "socket-tcp-cubic")]
+    #[test]
+    fn test_link_repairs_losses_undoes_the_cut_of_an_earlier_loss() {
+        let mut s = socket_sacking_with(CongestionControl::Cubic, 36);
+        let before = s.congestion_controller.inner().window();
+        send!(s, time 50, sack_ack(6, [sack_block(12, 36), None, None]));
+        assert!(s.congestion_controller.inner().window() < before);
+        // The link starts repairing (the tunnel's repair data turned on): the
+        // loss was the unrepaired link's, so its cut is undone, and the hole
+        // is still resent.
+        s.link_repairs_losses();
+        // The window is back where it was, plus the ACKed segment's growth.
+        assert!(s.congestion_controller.inner().window() >= before);
+        recv!(s, time 50, sack_resent(6));
+    }
+
+    #[cfg(feature = "socket-tcp-cubic")]
+    #[test]
+    fn test_link_repairs_losses_spares_data_already_in_flight() {
+        let mut s = socket_sacking_with(CongestionControl::Cubic, 36);
+        let before = s.congestion_controller.inner().window();
+        // Repair turns on before the loss is reported (the peer's hello came
+        // ahead of its ACK): no cut at all, and the hole is resent.
+        s.link_repairs_losses();
+        send!(s, time 50, sack_ack(6, [sack_block(12, 36), None, None]));
+        assert!(s.congestion_controller.inner().window() >= before);
+        assert!(!s.sack_window_cut);
+        recv!(s, time 50, sack_resent(6));
+        // Once everything sent before it is ACKed, the mark is gone.
+        send!(s, time 100, sack_ack(36, [None, None, None]));
+        assert_eq!(s.repaired_below, None);
+        assert!(s.window_before_cut.is_none());
+    }
+
+    #[cfg(feature = "socket-tcp-cubic")]
+    #[test]
+    fn test_link_repairs_losses_still_cuts_for_later_data() {
+        let mut s = socket_sacking_with(CongestionControl::Cubic, 6);
+        s.link_repairs_losses();
+        send!(s, time 50, sack_ack(6, [None, None, None]));
+        assert_eq!(s.repaired_below, None);
+        // Data sent after the call and lost is a loss the repair did not
+        // cover: it cuts the window as usual.
+        s.send_slice(&SACK_DATA[6..]).unwrap();
+        for offset in (6..36).step_by(6) {
+            recv!(s, time 60, Ok(TcpRepr {
+                seq_number: sack_seq(offset),
+                ack_number: Some(REMOTE_SEQ + 1),
+                payload:    &SACK_DATA[offset..offset + 6],
+                ..RECV_TEMPL
+            }));
+        }
+        let before = s.congestion_controller.inner().window();
+        send!(s, time 100, sack_ack(6, [sack_block(12, 36), None, None]));
+        assert!(s.congestion_controller.inner().window() < before);
+        assert!(s.sack_window_cut);
+    }
+
+    #[cfg(feature = "socket-tcp-cubic")]
+    #[test]
+    fn test_link_repairs_losses_keeps_no_stale_cut() {
+        let mut s = socket_sacking_with(CongestionControl::Cubic, 36);
+        send!(s, time 50, sack_ack(6, [sack_block(12, 36), None, None]));
+        recv!(s, time 50, sack_resent(6));
+        // The episode ends: its cut is the window's history now, not undone.
+        send!(s, time 100, sack_ack(36, [None, None, None]));
+        assert!(s.window_before_cut.is_none());
+        let window = s.congestion_controller.inner().window();
+        s.link_repairs_losses();
+        assert_eq!(s.congestion_controller.inner().window(), window);
+        assert_eq!(s.repaired_below, None);
+    }
+
+    #[test]
+    fn test_link_repairs_losses_cleared_by_reset() {
+        let mut s = socket_sacking();
+        s.link_repairs_losses();
+        assert!(s.repaired_below.is_some());
+        s.reset();
+        assert_eq!(s.repaired_below, None);
     }
 
     #[test]

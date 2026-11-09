@@ -61,6 +61,18 @@ slow start included, but its RTO returns to the RTT estimate's value instead of
 doubling: the losses were the old route's. With nothing in flight it does
 nothing.
 
+`Socket::link_repairs_losses()` is for a tunnel that starts repairing its own
+losses below TCP (cmux-wg's ultra mode, which "Auto" turns on at the first
+loss). The losses that turned it on, and any other loss of data already in
+flight at the call, were the unrepaired link's: they are still resent, but they
+cut no congestion window, and a cut one of them already made (SACK recovery,
+fast retransmit or RTO) is undone by restoring the controller saved just before
+it, as long as that cut's episode is still open. Data sent after the call cuts
+the window as usual. Without it, a loss early in slow start at a 300 ms round
+trip cut the window of a stream that needed it, and the stream ran seconds
+behind for the rest of the session; a tunnel that had repair on from the start
+never saw the loss at all. The controllers derive `Clone` for the saved copy.
+
 The changes are in `src/socket/tcp/congestion/cubic.rs` and `src/socket/tcp.rs`,
 each marked `cmux patch`, with tests next to them. Reno's own start is unchanged;
 cmux does not enable it.

@@ -13,7 +13,12 @@
 //! On the first loss this side sends in [`UltraMode::SETTING`] at once and
 //! tells the peer in its in-tunnel hello (`crate::ultra_hello`), which takes
 //! the stronger mode of the two, so both directions are protected half a
-//! round trip later. A gap that a late datagram fills (reordering across
+//! round trip later. When a side's repair turns on, its TCP is told that the
+//! link repairs its own losses from then on
+//! (`crate::tcp_stack::TcpStack::link_repairs_losses`): the loss that turned
+//! Auto on, and any other of data already in flight, is resent about one
+//! round trip later but cuts no congestion window, so after that round trip
+//! the tunnel runs as one that had "Always" from the start. A gap that a late datagram fills (reordering across
 //! paths) is not loss: when every gap since turning on was filled late, and
 //! no segment was sent again, Auto turns off at once. Otherwise it stays on
 //! until the link has been clean for [`HOLD`] and [`CLEAN_DATAGRAMS`]

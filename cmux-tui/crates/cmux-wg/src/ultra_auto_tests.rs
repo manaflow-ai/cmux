@@ -149,3 +149,27 @@ fn a_metered_network_is_told_without_loss() {
     assert!(auto.observe(start, sample(0, 0, 0, 1), 0), "a move to Wi-Fi is told");
     assert_eq!(auto.wanted(), (UltraMode::Off, false));
 }
+
+#[test]
+fn the_first_missing_counter_turns_auto_on_at_the_next_datagram() {
+    // The ramp: the datagram after a lost one shows the gap, and that same
+    // pass turns repair on, well inside one round trip of the loss.
+    let mut meter = LossMeter::default();
+    let mut auto = UltraChoice::AUTO.auto().unwrap();
+    let start = Instant::now();
+    for counter in 0..10 {
+        meter.observe(INDEX, counter, false);
+    }
+    assert!(!auto.observe(start, meter.take(), 0), "clean so far");
+    // Counter 10 is lost; 11 arrives one datagram interval later.
+    meter.observe(INDEX, 11, false);
+    let next = start + Duration::from_millis(1);
+    assert!(auto.observe(next, meter.take(), 0), "on at the next datagram");
+    assert_eq!(auto.wanted().0, UltraMode::SETTING);
+    // Counter 10 never comes: still on, a confirmed loss once it ages out.
+    for counter in 12..12 + WINDOW + 1 {
+        meter.observe(INDEX, counter, false);
+    }
+    assert!(!auto.observe(next, meter.take(), 0));
+    assert!(auto.is_on());
+}

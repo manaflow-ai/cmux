@@ -580,7 +580,9 @@ impl Driver {
                         self.negotiation.receive(hello);
                         // Field by field (not `apply_ultra_mode`): `packet`
                         // still borrows the scratch buffer.
-                        self.underlay.set_mode(self.negotiation.mode());
+                        if self.underlay.set_mode(self.negotiation.mode()) {
+                            self.stack.link_repairs_losses();
+                        }
                         self.underlay.set_metered(self.negotiation.metered());
                     }
                     self.underlay.authenticated(origin);

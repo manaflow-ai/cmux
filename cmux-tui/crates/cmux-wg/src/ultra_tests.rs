@@ -615,3 +615,15 @@ fn parity_is_never_a_wireguard_or_stun_message() {
     let parity = &parity_datagrams(&group, 8, 2)[0];
     assert_eq!(classify(parity), DatagramClass::Unknown);
 }
+
+#[test]
+fn set_mode_says_when_repair_turned_on() {
+    let script = Script { inbox: VecDeque::new(), sent: Arc::default() };
+    let mut ultra = UltraUnderlay::new(Box::new(script), UltraMode::Off, Arc::default());
+    assert!(!ultra.set_mode(UltraMode::Off), "off stays off");
+    assert!(ultra.set_mode(UltraMode::SETTING), "off to repair: the TCP is told");
+    assert!(!ultra.set_mode(UltraMode::SETTING), "no change");
+    assert!(!ultra.set_mode(UltraMode::Fec { group: 8, parity: 2 }), "one repair to another");
+    assert!(!ultra.set_mode(UltraMode::Off));
+    assert!(ultra.set_mode(UltraMode::SETTING), "and again after it turned off");
+}

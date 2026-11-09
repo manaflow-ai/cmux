@@ -858,14 +858,19 @@ impl UltraUnderlay {
     /// Send in `mode` from now on: the mode the two sides agreed inside the
     /// tunnel. A mode that sends parity also means the peer sends it, so
     /// rebuilding starts now, before the peer's first parity arrives.
-    pub(crate) fn set_mode(&mut self, mode: UltraMode) {
+    /// True when this turned repair on (the mode was off): the tunnel's TCP
+    /// then stops counting losses of what was already in flight as
+    /// congestion ([`crate::tcp_stack::TcpStack::link_repairs_losses`]).
+    pub(crate) fn set_mode(&mut self, mode: UltraMode) -> bool {
         let mode = mode.normalized();
         if mode == self.mode {
-            return;
+            return false;
         }
+        let turned_on = self.mode == UltraMode::Off;
         self.close_group();
         self.mode = mode;
         self.decoding |= matches!(mode, UltraMode::Fec { .. } | UltraMode::Rs { .. });
+        turned_on
     }
 
     /// Keep repair bytes within the metered cap, or stop keeping them.
