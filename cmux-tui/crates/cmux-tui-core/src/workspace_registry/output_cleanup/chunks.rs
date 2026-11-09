@@ -1,5 +1,5 @@
-//! Kept records at rest in the staging file. Up to 1024 records in sequence
-//! order are one compressed chunk, in the codec sealing writes; each record
+//! Kept records at rest in the staging file. Up to 1024 records are one
+//! compressed chunk, in the codec sealing writes; each record
 //! keeps a row with its kind, actor, chunk and the few fields the index
 //! rows are derived from (`index_json`), so the swap's SQL never inflates a
 //! chunk. Staging format 2 stored every kept record as plain JSON, and one
@@ -76,7 +76,7 @@ fn index_json(record: &[u8]) -> anyhow::Result<String> {
 /// One record to stage: sequence, kind, its archived JSON and its actor.
 pub(super) type StagedRecord = (u64, String, Vec<u8>, Option<String>);
 
-/// Stages `records` (in sequence order, at most [`CHUNK_RECORD_LIMIT`]) as
+/// Stages `records` (at most [`CHUNK_RECORD_LIMIT`], in any order) as
 /// one chunk through `connection`, inside the caller's transaction.
 pub(super) fn insert_chunk(
     connection: &Connection,
@@ -84,6 +84,7 @@ pub(super) fn insert_chunk(
 ) -> anyhow::Result<()> {
     let Some(first) = records.first() else { return Ok(()) };
     anyhow::ensure!(records.len() <= CHUNK_RECORD_LIMIT, "a staged chunk holds too many records");
+    // Sequences are unique, so the first one names the chunk.
     let chunk = i64::try_from(first.0)?;
     let mut json = Vec::with_capacity(records.iter().map(|record| record.2.len() + 1).sum());
     json.push(b'[');
@@ -124,16 +125,30 @@ pub(super) fn insert_chunk(
     Ok(())
 }
 
-/// Reads staged records back in sequence order, inflating each chunk once.
-pub(super) struct ChunkReader {
-    chunk: Option<i64>,
+/// Chunks a [`ChunkReader`] keeps inflated. Sealed records stage one chunk
+/// per segment, in sequence order; live rows stage one kind per chunk, so a
+/// read in sequence order moves between one open chunk per kind. Past this
+/// many kinds interleaved, or past [`OPEN_CHUNK_BYTES`] of inflated JSON, a
+/// chunk is inflated again (slower, still exact).
+const OPEN_CHUNKS: usize = 64;
+/// Inflated JSON the open chunks may hold; a chunk is at most 16 MiB.
+const OPEN_CHUNK_BYTES: usize = 256 * 1024 * 1024;
+
+struct OpenChunk {
+    chunk: i64,
     json: Vec<u8>,
     records: Vec<(u64, Range<usize>)>,
 }
 
+/// Reads staged records back in sequence order, inflating each chunk once
+/// while it stays among the [`OPEN_CHUNKS`] most recently read.
+pub(super) struct ChunkReader {
+    open: std::collections::VecDeque<OpenChunk>,
+}
+
 impl ChunkReader {
     pub(super) fn new() -> Self {
-        Self { chunk: None, json: Vec::new(), records: Vec::new() }
+        Self { open: std::collections::VecDeque::with_capacity(OPEN_CHUNKS) }
     }
 
     /// The JSON of staged record `sequence`, held in `chunk`.
@@ -143,39 +158,53 @@ impl ChunkReader {
         chunk: i64,
         sequence: u64,
     ) -> anyhow::Result<&[u8]> {
-        if self.chunk != Some(chunk) {
-            let (count, codec, content, uncompressed_bytes, sha256) = connection.query_row(
-                "SELECT record_count, codec, content, uncompressed_bytes, sha256
-                 FROM main.output_cleanup_chunks WHERE chunk = ?1",
-                [chunk],
-                |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, Vec<u8>>(2)?,
-                        row.get::<_, i64>(3)?,
-                        row.get::<_, Vec<u8>>(4)?,
-                    ))
-                },
-            )?;
-            let id = format!("staged chunk {chunk}");
-            self.json = inflate_segment(&id, &codec, &content, uncompressed_bytes, &sha256)?;
-            self.records = split_records(&self.json)?
-                .into_iter()
-                .map(|record| (record.sequence, record.bytes))
-                .collect();
-            anyhow::ensure!(
-                i64::try_from(self.records.len())? == count,
-                "{id} record count is invalid"
-            );
-            self.chunk = Some(chunk);
-        }
-        let index = self
+        let position = match self.open.iter().position(|open| open.chunk == chunk) {
+            Some(position) => position,
+            None => {
+                let inflated = Self::inflate(connection, chunk)?;
+                let mut bytes = inflated.json.len();
+                self.open.retain(|open| {
+                    bytes = bytes.saturating_add(open.json.len());
+                    bytes <= OPEN_CHUNK_BYTES
+                });
+                self.open.truncate(OPEN_CHUNKS - 1);
+                self.open.push_front(inflated);
+                0
+            }
+        };
+        let open = self.open.get(position).context("staged chunk is not open")?;
+        let index = open
             .records
             .binary_search_by_key(&sequence, |(sequence, _)| *sequence)
             .map_err(|_| anyhow::anyhow!("staged chunk {chunk} has no record {sequence}"))?;
-        let range = self.records[index].1.clone();
-        self.json.get(range).context("staged record is out of range")
+        let range = open.records.get(index).map(|(_, range)| range.clone());
+        range.and_then(|range| open.json.get(range)).context("staged record is out of range")
+    }
+
+    fn inflate(connection: &Connection, chunk: i64) -> anyhow::Result<OpenChunk> {
+        let (count, codec, content, uncompressed_bytes, sha256) = connection.query_row(
+            "SELECT record_count, codec, content, uncompressed_bytes, sha256
+             FROM main.output_cleanup_chunks WHERE chunk = ?1",
+            [chunk],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Vec<u8>>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, Vec<u8>>(4)?,
+                ))
+            },
+        )?;
+        let id = format!("staged chunk {chunk}");
+        let json = inflate_segment(&id, &codec, &content, uncompressed_bytes, &sha256)?;
+        let mut records: Vec<_> = split_records(&json)?
+            .into_iter()
+            .map(|record| (record.sequence, record.bytes))
+            .collect();
+        records.sort_unstable_by_key(|(sequence, _)| *sequence);
+        anyhow::ensure!(i64::try_from(records.len())? == count, "{id} record count is invalid");
+        Ok(OpenChunk { chunk, json, records })
     }
 }
 
@@ -232,5 +261,39 @@ mod tests {
             .unwrap();
         assert_eq!((subject, producer), ("remote-1".to_owned(), "daemon".to_owned()));
         assert!(reader.record(&connection, 1, 2048).is_err());
+    }
+
+    /// Live rows stage in (kind, sequence) order, one kind per chunk; the
+    /// pack reads them by sequence and moves between the kinds' chunks.
+    #[test]
+    fn interleaved_kind_chunks_read_back_in_sequence_order() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(CHUNK_SCHEMA).unwrap();
+        let record = |sequence: u64, kind: &str| -> StagedRecord {
+            let json = json!({"sequence": sequence, "kind": kind, "subjects": []});
+            (sequence, kind.to_owned(), json.to_string().into_bytes(), None)
+        };
+        let odd: Vec<_> = (1..=99).step_by(2).map(|s| record(s, "a.kind")).collect();
+        let even: Vec<_> = (2..=100).step_by(2).map(|s| record(s, "b.kind")).collect();
+        insert_chunk(&connection, &odd).unwrap();
+        insert_chunk(&connection, &even).unwrap();
+        let mut reader = ChunkReader::new();
+        let mut statement = connection
+            .prepare("SELECT sequence, chunk FROM output_cleanup_records ORDER BY sequence")
+            .unwrap();
+        let rows: Vec<(i64, i64)> = statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(rows.len(), 100);
+        for (sequence, chunk) in rows {
+            let sequence = u64::try_from(sequence).unwrap();
+            let json: Value =
+                serde_json::from_slice(reader.record(&connection, chunk, sequence).unwrap())
+                    .unwrap();
+            assert_eq!(json["sequence"], json!(sequence));
+        }
+        assert_eq!(reader.open.len(), 2, "each chunk was inflated once and kept");
     }
 }

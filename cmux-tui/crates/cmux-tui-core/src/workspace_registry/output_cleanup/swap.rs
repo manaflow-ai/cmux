@@ -830,8 +830,11 @@ fn stage_live_rows(tx: &Transaction<'_>) -> anyhow::Result<()> {
         let actor = row.get::<_, Option<String>>(19)?;
         let record = decode_record(stored)?;
         let json = serde_json::to_vec(&journal_record_for_archive(&record))?;
-        // A chunk stays under a segment's uncompressed limit, as Phase A's do.
+        // A chunk holds one kind (the rows come in (kind, sequence) order,
+        // and the pack reads them by sequence: `ChunkReader`) and stays
+        // under a segment's uncompressed limit, as Phase A's do.
         if chunk.len() == CHUNK_RECORD_LIMIT
+            || chunk.last().is_some_and(|last| last.1 != record.kind)
             || chunk_bytes.saturating_add(json.len()).saturating_add(chunk.len() + 2)
                 >= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES
         {
