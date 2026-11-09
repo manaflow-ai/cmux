@@ -84,6 +84,12 @@ extension PageWebView {
     func contentProcessTerminated() {
         loaded = false
         router.reset()
+        if rendererRestartPending {
+            // App health ended this renderer to repair the page: bring it back, never the notice.
+            rendererRestartPending = false
+            logger.error("page \(self.descriptor.id, privacy: .public) renderer restarted by app health; reloading")
+            return reloadPage()
+        }
         healthFeed?.pageCrashed(self)
         guard reloadsAfterCrash else {
             // A renderer that crashed before the page reached the host leaves the Chromium start

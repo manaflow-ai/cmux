@@ -262,7 +262,9 @@ extension PageWebView {
         webView.isHidden = false
         router.reset()
         loaded = false
-        if ended, !reloadsAfterCrash {
+        let repaired = rendererRestartPending
+        rendererRestartPending = false
+        if ended, !reloadsAfterCrash, !repaired {
             lastTermination = .unknown
             logger.error("page \(self.descriptor.id, privacy: .public) Chromium ended; no automatic reload (the crash notice offers Reload)")
             webKitLoadsOnReload = true

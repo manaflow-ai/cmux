@@ -75,6 +75,7 @@ extension PageWebView {
     public func restartRenderer() {
         guard !isClosed else { return }
         guard loaded else { return reloadAfterCrashes() }
+        rendererRestartPending = true
         if let chromiumPage {
             chromiumPage.restartRenderer()
             return
@@ -83,6 +84,7 @@ extension PageWebView {
         if webView.responds(to: kill) {
             webView.perform(kill)
         } else {
+            rendererRestartPending = false
             reloadAfterCrashes()
         }
     }

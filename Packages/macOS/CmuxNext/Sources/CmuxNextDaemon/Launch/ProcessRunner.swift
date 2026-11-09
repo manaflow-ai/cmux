@@ -36,6 +36,8 @@ public struct ProcessRunner {
         // Each stderr line as the child writes it (a CLI's progress lines), on a queue of its own;
         // the last one once the child exits. Nil reads stderr only after exit, as before.
         stderrLine: (@Sendable (String) -> Void)? = nil,
+        // Each stdout write while `progressIdle` watches it (a progress event), on the watch's queue.
+        progressed: (@Sendable () -> Void)? = nil,
         clock: any Clock<Duration>
     ) async throws -> ProcessResult {
         if let outputTailBytes, outputTailBytes <= 0 { throw DaemonError.launchFailed("output tail must be positive") }
@@ -69,7 +71,7 @@ public struct ProcessRunner {
         process.standardError = stderrFile.handle
         // Each stdout write is a progress event (a vnode event on the temp
         // file; the child's writes land on the same file).
-        let progress = progressIdle.map { _ in StdoutProgress(watching: stdoutFile.handle.fileDescriptor) }
+        let progress = progressIdle.map { _ in StdoutProgress(watching: stdoutFile.handle.fileDescriptor, onWrite: progressed) }
         defer { progress?.cancel() }
         // Stops at the child's exit (`finish`, below) or when this throws (`cancel`).
         let lines = stderrLine.map { StderrLines(watching: stderrFile.handle.fileDescriptor, onLine: $0) }
@@ -203,12 +205,15 @@ final class StdoutProgress: Sendable {
     private let source = Mutex<(any DispatchSourceFileSystemObject)?>(nil)
     private let queue = DispatchQueue(label: "com.cmuxterm.next.process-progress")
 
-    init(watching fd: Int32) {
+    init(watching fd: Int32, onWrite: (@Sendable () -> Void)? = nil) {
         let watched = fcntl(fd, F_DUPFD_CLOEXEC, 0)
         guard watched >= 0 else { return }
         let watch = DispatchSource.makeFileSystemObjectSource(fileDescriptor: watched, eventMask: [.write, .extend],
                                                               queue: queue)
-        watch.setEventHandler { [weak self] in self?.writes.withLock { $0 += 1 } }
+        watch.setEventHandler { [weak self] in
+            self?.writes.withLock { $0 += 1 }
+            onWrite?()
+        }
         watch.setCancelHandler { close(watched) }
         watch.activate()
         source.withLock { $0 = watch }

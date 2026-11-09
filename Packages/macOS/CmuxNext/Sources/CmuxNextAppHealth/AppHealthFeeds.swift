@@ -55,6 +55,8 @@ public final class AppHealthFeeds {
     public func start() {
         guard connectionFeed == nil else { return }
         let health = health
+        // A restore that still makes progress holds the watch's automatic replace.
+        daemon.recovery.holdsReplace = { health.holdsReplace }
         // The session daemon: the launcher's facts, and once the registry's size.
         health.register(AppHealth.sessionDaemonID, kind: .sessionDaemon, label: AppHealthStrings.sessionDaemon)
         if let stateDirectory {
@@ -90,6 +92,7 @@ public final class AppHealthFeeds {
         case .started: health.noteDaemonStarted()
         case .ready(let pid): health.noteDaemonReady(pid: pid)
         case .exited: health.noteDaemonExited()
+        case .restoring: health.noteDaemonRestoring(pid: nil)
         case .requestTimedOut:
             health.visibility(AppHealth.acpmuxID, visible: true)
             health.event(AppHealth.acpmuxID, .disconnected)

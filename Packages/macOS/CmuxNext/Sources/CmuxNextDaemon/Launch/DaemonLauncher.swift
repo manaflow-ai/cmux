@@ -376,6 +376,7 @@ public struct DaemonLauncher: Sendable {
                 stdin: configuration.installKey?.payload,
                 timeout: progress ? Self.ensureRestoreCap : max(ensureTimeout, Self.ensureRestoreCap),
                 progressIdle: progress ? ensureTimeout : nil,
+                progressed: health.map { sink in { @Sendable in sink.note(.restoring) } },
                 clock: clock
             )
             let ensured = try Self.parseEnsure(result)

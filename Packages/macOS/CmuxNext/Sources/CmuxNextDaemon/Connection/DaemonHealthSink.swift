@@ -14,6 +14,8 @@ public final class DaemonHealthSink: Sendable {
         case ready(pid: Int32)
         /// `server ensure` failed or timed out: the owner it started did not become ready.
         case exited
+        /// The owner `server ensure` waits on reported restore progress (a `--restore-progress` write).
+        case restoring
         /// A request ended in `DaemonError.timedOut` (the first since the last answer).
         case requestTimedOut
         /// A request was answered after a timeout.

@@ -240,6 +240,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Chromium ended under a host that shows the crash notice: the page reopens in WebKit only on
     /// the notice's Reload (``reloadAfterCrashes()``).
     var webKitLoadsOnReload = false
+    /// App health's ``restartRenderer()`` ended the renderer: the end is a repair, not a crash, so
+    /// the page reloads even under a host that shows the crash notice. Cleared by that reload.
+    var rendererRestartPending = false
     let claimState = PageClaimState()
 
     public var pageID: String { descriptor.id }
