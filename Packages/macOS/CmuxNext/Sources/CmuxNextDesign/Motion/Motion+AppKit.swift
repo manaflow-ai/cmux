@@ -210,6 +210,24 @@ extension MotionGate {
                  curve: CAMediaTimingFunction(controlPoints: 0.7, 0, 0.3, 1))
     }
 
+    /// The sidebar's Updated card curve: a fast start that settles long, 265 ms at 1x (Leo
+    /// 2026-11-08: "the animation also seems like it's a little bit slow"). The card's page runs the
+    /// same one on its hover preview (webviews `updateSurfaces.css`, `--wn-preview-ease`), so the native
+    /// glass behind the page and the page's preview move as one.
+    public static var cardCurve: CAMediaTimingFunction { CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1) }
+    public static let cardDuration: TimeInterval = 0.265
+
+    /// Animates `animator()` frame changes on the card curve (``cardCurve``) for ``cardDuration``, or
+    /// applies them at once when movement does not animate. The duration does not follow the animation
+    /// speed: the page's CSS twin runs a fixed 265 ms, so a scaled native side would part from it. Call it
+    /// on `Motion.web`, the gate the page's `data-cmux-motion` follows (WebTheme.motionValue).
+    public func animateCard(in view: NSView? = nil, _ changes: () -> Void,
+                            completion: (@MainActor @Sendable () -> Void)? = nil) {
+        guard canAnimate(in: view) else { return snap(changes, completion: completion) }
+        guard animatesMovement else { return withoutAnimation(changes, completion: completion) }
+        runTimed(Self.cardDuration, changes, completion: traced("card", completion), curve: Self.cardCurve)
+    }
+
     /// Timed animation with a fade token (NSWindow alpha).
     public func animateTimed(_ token: MotionFade, in view: NSView? = nil, _ changes: () -> Void,
                                     completion: (@MainActor @Sendable () -> Void)? = nil) {

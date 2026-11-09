@@ -31,7 +31,8 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// host shows the native confirmation of that kind, then runs the op as the user's own
     /// (deleting data, money, publishing, signing in). The page never calls them directly.
     public let confirmedOps: [String: PageConfirmation.Kind]
-    /// The page's Content Security Policy (``PageCSP``); strict unless a first-party page widens it.
+    /// The page's Content Security Policy (``PageCSP``); strict unless a first-party page widens it, or
+    /// another built-in page adds image sources.
     public let csp: PageCSP
     /// The file `cmux-page://<id>/` serves (default `index.html`): a page whose root is a shared
     /// build (the diff viewer in the one webviews-app build) names its own entry html.
@@ -73,8 +74,12 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.gestureActions = gestureActions.intersection(actions)
         self.commands = commands
         self.confirmedOps = confirmedOps
-        // Only a first-party page may widen its policy (PageID); any other id gets the strict one.
-        self.csp = PageID.isFirstParty(id) ? csp : .strict
+        // Only a first-party page may widen its policy (PageID). Another built-in (`cmux.`) page may
+        // add image sources only (the GitHub page's image proxy), which loads pixels and runs nothing,
+        // and keeps no daemon access, while its own narrowing (inline script off) stands (review
+        // follow-up on #38075, F2); any other id gets the strict one.
+        self.csp = PageID.isFirstParty(id) ? csp
+            : PageID.isReserved(id) ? PageCSP(image: csp.image, inlineScript: csp.inlineScript) : .strict
         // One file name inside the root, never a path.
         self.entry = entry.isEmpty || entry.contains("/") || entry.hasPrefix(".") ? "index.html" : entry
         self.dynamicPrefixes = dynamicPrefixes
@@ -244,7 +249,16 @@ public extension PageDescriptor {
     /// request drawn from the app's pull request cache, with no github.com page load. One tab per workspace, which
     /// every pull request link of a chat moves to its own route (`#/pull?url=`), so a second link is a route change
     /// in a page already running, never a new tab or a new web page.
-    static let github = PageDescriptor(id: "cmux.github", resource: "github", namespaces: ["cmux.github."])
+    /// Its only remote images are the ones GitHub's own rendering of a body points at (`bodyHTML`), which
+    /// go through GitHub's image proxy: camo for an outside image, so its host never sees the reader,
+    /// and the signed links of images people attached. No other host loads.
+    static let github = PageDescriptor(
+        id: "cmux.github", resource: "github", namespaces: ["cmux.github."], csp: PageCSP(image: githubImageSources))
+
+    static let githubImageSources = [
+        "https://camo.githubusercontent.com", "https://private-user-images.githubusercontent.com",
+        "https://user-images.githubusercontent.com", "https://avatars.githubusercontent.com",
+    ]
 
     /// The browser's Page Info bubble (webviews/src/pages/page-info, its owner CmuxNextBrowser's
     /// PageInfoController through the App's BrowserChromeWebHost): one page per pane, kept between

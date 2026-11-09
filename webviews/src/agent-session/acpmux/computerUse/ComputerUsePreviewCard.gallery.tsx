@@ -2,7 +2,8 @@
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
-import { FLOAT_MARGIN, SessionInfoPanel, type SessionInfoPlacement } from "../session-info/SessionInfo";
+import { SessionInfoPanel } from "../session-info/SessionInfo";
+import { FLOAT_MARGIN, type SessionInfoPlacement } from "../session-info/sessionInfoModel";
 import { useUnderSessionInfo } from "../session-info/underSessionInfo";
 import { ComputerUsePreviewCard } from "./ComputerUsePreviewCard";
 import { useComputerUsePreviewRoom, type ComputerUsePreview } from "./computerUsePreview";

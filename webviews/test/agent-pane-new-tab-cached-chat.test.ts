@@ -70,6 +70,9 @@ class Daemon {
   onmessage: ((message: { data: string }) => void) | null = null;
   hold?: string;
   fail?: string;
+  /** Keeps every request of this method unanswered until `answerStalled` (a busy acpmux at launch). */
+  stall?: string;
+  private stalled: Message[] = [];
   private held?: Message;
   private holding?: () => void;
   /** Resolves when the held attach has been asked for. */
@@ -104,6 +107,10 @@ class Daemon {
     if (message.id === undefined) return;
     this.asked_.push(message.method);
     const sessionId = String(message.params?.sessionId ?? "");
+    if (message.method === this.stall) {
+      this.stalled.push(message);
+      return;
+    }
     if (message.method === "_acpmux/attach" && sessionId === this.hold) {
       this.held = message;
       this.hold = undefined;
@@ -115,6 +122,12 @@ class Daemon {
 
   close(): void {
     this.readyState = 3;
+  }
+
+  /** Answers the stalled requests and stops stalling. */
+  answerStalled(): void {
+    this.stall = undefined;
+    for (const message of this.stalled.splice(0)) this.answer(message);
   }
 
   /** Answers the attach held back, as acpmux would once it caught up. */
@@ -346,6 +359,35 @@ test("a chat the host kept draws while the page's socket is still connecting", a
   expect(tab.last()!.canLoadOlder).toBe(false);
 });
 
+/// hq#7289: a chat in front at relaunch drew nothing until acpmux answered `initialize` and the
+/// chat list (about 900 ms on a fleet Mac), though the host's kept tail was in: the open held its
+/// snapshots over it. A tail drawn for the tab's own chat ends that hold, as it draws when the
+/// socket is still connecting, and the open's attach lays over it as before.
+test("a chat the host kept draws while acpmux is slow to answer the open", async () => {
+  const chat = new Fixture("slow-open");
+  chat.pages.set(chat.a, { events: [prompt("Look at the retry path"), reply(chat.a, "Retry added.")] });
+  chat.pages.set(chat.b, { events: [prompt("Docs"), reply(chat.b, "Docs updated.")] });
+  await chat.readInATab();
+  expect(chat.host.tails.has(chat.a)).toBe(true);
+
+  const tab = chat.tab(chat.a, { holdConnect: true });
+  tab.daemon.stall = "initialize";
+  // The socket opens before the host's tail answers, and acpmux has not answered `initialize`.
+  tab.daemon.connect();
+  await flush();
+  expect(tab.daemon.asked_).toEqual(["initialize"]);
+  expect(text(tab.last())).toContain("Retry added.");
+  expect(tab.last()!.sessionId).toBe(chat.a);
+  expect(tab.last()!.chatRead).toBe(true);
+  expect(tab.last()!.drewKeptTail).toBe(true);
+
+  tab.daemon.answerStalled();
+  live.push(await tab.client);
+  const shown = text(tab.last());
+  expect(shown).toContain("Retry added.");
+  expect(shown.split("Retry added.").length - 1).toBe(1);
+});
+
 /// #32735: a held connect whose attach then fails leaves no rows drawn as if read.
 test("a tail drawn while connecting goes when the chat's attach fails", async () => {
   const chat = new Fixture("slow-socket-fail");
@@ -451,22 +493,30 @@ test("opening the chat on screen in a new tab hands it over, with no switch away
 
 /// The wiring the test above cannot reach. It calls `handOverCurrentTail` itself, so it proves the
 /// client hands a chat over — not that anything in the product asks it to. The asking happens in
-/// `App.tsx`, in the two actions that open a chat in a tab, and it is React code no test here
-/// drives. Take either call away and every test in this file stays green while the flow this cache
-/// is named for goes cold again, so the call sites are read out of the source.
+/// the two actions that open a chat in a tab: `openInOwnTab` (openFork.ts, behind App.tsx's
+/// openOwnTab) and App.tsx's onMoveToTab, React code no test here drives. Take either call away and
+/// every test in this file stays green while the flow this cache is named for goes cold again, so
+/// the call sites are read out of the source.
 ///
 /// Renaming the method is fine; this test then names what to rewrite it to.
 test("the actions that open a chat in a tab hand the chat over first", async () => {
-  const app = await readFile(new URL("../src/agent-session/acpmux/App.tsx", import.meta.url), "utf8");
-  const sites = [...app.matchAll(/callNative\("chat\.openTab"/g)];
-  // Two today (openOwnTab, onMoveToTab); a third would need the hand-over too, so this notices it.
+  const files = ["../src/agent-session/acpmux/App.tsx", "../src/agent-session/acpmux/conversation/openFork.ts"];
+  const sources = await Promise.all(files.map((file) => readFile(new URL(file, import.meta.url), "utf8")));
+  const sites = sources.flatMap((source, at) =>
+    [...source.matchAll(/callNative\("chat\.openTab"/g)].map((site) => ({
+      file: files[at],
+      source,
+      index: site.index,
+    })),
+  );
+  // Two today (openInOwnTab, onMoveToTab); a third would need the hand-over too, so this notices it.
   expect(sites.length).toBe(2);
-  for (const site of sites) {
+  for (const { file, source, index } of sites) {
     // The hand-over has to come before the op, and close enough to belong to it.
-    const before = app.slice(Math.max(0, site.index - 400), site.index);
+    const before = source.slice(Math.max(0, index - 400), index);
     expect(
       before.includes("handOverCurrentTail()"),
-      `a chat.openTab at index ${site.index} does not hand the chat over first, so the new tab ` +
+      `a chat.openTab in ${file} at index ${index} does not hand the chat over first, so the new tab ` +
         "opens cold (tailCache.ts). Call client.handOverCurrentTail() before it.",
     ).toBe(true);
   }

@@ -27,6 +27,9 @@ export type AgentNotice = {
   severity: NoticeSeverity;
   title: string;
   links: readonly NoticeLink[];
+  /// How many more notices went in with this one (a digest of notices, incomingMessage.ts): the
+  /// line names this one, the most severe, and counts the rest.
+  more?: number;
 };
 
 const SEVERITIES: readonly string[] = ["info", "warn", "fire"];
@@ -39,6 +42,24 @@ const line = (value: unknown, max: number): string | undefined => {
   return text && text.length <= max ? text : undefined;
 };
 
+/// A title as one line of at most `TITLE_MAX` characters. A longer one keeps its end (a
+/// background command's `(exit 2)`) and loses the middle, cut with `…`: it is still the notice's.
+const TITLE_MAX = 200;
+function noticeTitle(value: unknown): string | undefined {
+  const text = line(value, Number.MAX_SAFE_INTEGER);
+  if (!text || text.length <= TITLE_MAX) return text;
+  const end = titleParts(text).end;
+  const keep = end ? ` ${end}` : "";
+  return `${text.slice(0, TITLE_MAX - keep.length - 1).trimEnd()}…${keep}`;
+}
+
+/// A title split where its line may cut it: what it is about (`lead`, cut first), and the outcome in
+/// parentheses that ends it (`(exit 2)`, `(signal 9)`), which the line always shows whole.
+export function titleParts(title: string): { lead: string; end?: string } {
+  const split = /^(.*\S)[ \t]+(\([^()\n]{1,80}\))$/.exec(title);
+  return split ? { lead: split[1]!, end: split[2]! } : { lead: title };
+}
+
 /// The notice a `notice` provenance carries, or undefined when it names no sender, severity or
 /// title (an older or broken record: the prompt then reads as its sender's message).
 export function provenanceNotice(provenance: Record<string, unknown>): AgentNotice | undefined {
@@ -46,7 +67,7 @@ export function provenanceNotice(provenance: Record<string, unknown>): AgentNoti
   if (!raw || typeof raw !== "object") return undefined;
   const notice = raw as Record<string, unknown>;
   const sender = line(notice.sender, 64) ?? line(provenance.fromName, 64);
-  const title = line(notice.title, 200);
+  const title = noticeTitle(notice.title);
   const severity = typeof notice.severity === "string" && SEVERITIES.includes(notice.severity) ? notice.severity : "";
   if (!sender || !title || !severity) return undefined;
   const host = typeof notice.host === "string" && HOST.test(notice.host) ? notice.host : undefined;

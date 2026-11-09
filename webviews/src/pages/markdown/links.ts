@@ -14,13 +14,14 @@ export interface ParsedLink {
   anchor: string;
 }
 
-/** `cmux://workspace/ws_…`, `pane/…`, `tab/…`, `session/…`, `chief/…`, `agent/…` (with its `?host=&name=` hints) in the `cmux` scheme or a build's
- * `cmux-…` one; the host checks the ids again (DeepLink.parse) and opens nothing it does not know. */
+/** `cmux://workspace/ws_…`, `pane/…`, `tab/…`, `session/…`, `chief/…`, `group/…`, `agent/…` (with its `?host=&name=` hints) in the `cmux` scheme or a build's
+ * `cmux-…` one; the host checks the ids again (DeepLink.parse) and opens nothing it does not know. An agent link's
+ * percent-encoded or malformed hint is dropped by the host, never the link (schemas/deeplinks/agent-link.json). */
 const APP_AUTHORITY = /^cmux(-[a-z0-9-]+)?:\/\//i;
 const APP_ORDINARY =
-  /^(workspace|pane|tab|session|chief)\/[A-Za-z0-9._~/-]+(\?[A-Za-z0-9._~=&-]+)?(#[A-Za-z0-9._~-]+)?$/i;
+  /^(workspace|pane|tab|session|chief|group)\/[A-Za-z0-9._~/-]+(\?[A-Za-z0-9._~=&-]+)?(#[A-Za-z0-9._~-]+)?$/i;
 const APP_AGENT =
-  /^agent\/[a-z0-9-]{1,64}\/(?!\.+(?:[?#]|$))[A-Za-z0-9._:-]{1,256}(\?[A-Za-z0-9._~=&-]+)?(#[A-Za-z0-9._~-]+)?$/i;
+  /^agent\/[a-z0-9-]{1,64}\/(?!\.+(?:[?#]|$))[A-Za-z0-9._:-]{1,256}(\?[A-Za-z0-9._~=&%-]+)?(#[A-Za-z0-9._~-]+)?$/i;
 
 function isAppLink(href: string): boolean {
   const marker = href.indexOf("://");

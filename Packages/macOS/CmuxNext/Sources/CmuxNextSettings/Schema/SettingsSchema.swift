@@ -13,7 +13,7 @@ public nonisolated enum SettingsSchema {
     public static let all: [SettingDescriptor] = {
         let next = GeneralSettingsSchema.history + GeneralSettingsSchema.window + TabSettingsSchema.descriptors + GeneralSettingsSchema.quitting + GeneralSettingsSchema.columns
             + ShortcutHintsSettingsSchema.descriptors + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements
-            + MachineSettingsSchema.computerUse + MachineSettingsSchema.freeModel + SessionSettingsSchema.descriptors + SessionSettingsSchema.phoneDescriptors + MachineColorsSettingsSchema.descriptors + MachineSettingsSchema.sshLinks + MachineSettingsSchema.cloud + SubsessionSettingsSchema.descriptors + AgentGuidanceSettingsSchema.descriptors + AgentRetrySettingsSchema.descriptors + TrustSettingsSchema.descriptors + MachineSettingsSchema.mobile + GeneralSettingsSchema.layout
+            + MachineSettingsSchema.computerUse + MachineSettingsSchema.freeModel + SessionSettingsSchema.descriptors + SessionSettingsSchema.phoneDescriptors + MachineColorsSettingsSchema.descriptors + MachineSettingsSchema.sshLinks + MachineSettingsSchema.cloud + SubsessionSettingsSchema.descriptors + AgentGuidanceSettingsSchema.descriptors + AgentRetrySettingsSchema.descriptors + AgentCacheSettingsSchema.descriptors + TrustSettingsSchema.descriptors + MachineSettingsSchema.mobile + GeneralSettingsSchema.layout
             + GeneralSettingsSchema.workspaceList + GeneralSettingsSchema.palette
             + ChatSettingsSchema.descriptors + PickerSettingsSchema.descriptors + ScreenshotsSettingsSchema.descriptors + AutoArchiveSettingsSchema.descriptors + WorkspaceHibernationSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors + EditorSettingsSchema.descriptors
             + SidebarSettingsSchema.sidebar + HoverCardSettingsSchema.descriptors + NowPlayingSettingsSchema.descriptors + NowPlayingSettingsSchema.newTabDescriptors + NowPlayingSettingsSchema.pictureInPictureDescriptors + NewTabWidgetSettingsSchema.descriptors + ColorTransitionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors + ChiefReactionSettingsSchema.descriptors + ChiefPermissionSettingsSchema.descriptors + ChiefRoutingSettingsSchema.descriptors + ChiefSidebarSettingsSchema.descriptors
@@ -21,7 +21,7 @@ public nonisolated enum SettingsSchema {
             + NotificationSettingsSchema.attentionDescriptors + NotificationSettingsSchema.mutedWorkspacesDescriptors + NotificationSettingsSchema.soundDescriptors
             + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
             + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
-            + AgentDefaultsSettingsSchema.descriptors + HangReportsSettingsSchema.descriptors
+            + AgentDefaultsSettingsSchema.descriptors + HangReportsSettingsSchema.descriptors + DeveloperToolsSettingsSchema.descriptors
             + MachineSettingsSchema.macScreen + MachineSettingsSchema.macScreenDebug + MachineSettingsSchema.remote
             + MachineSettingsSchema.deviceHub + GeneralSettingsSchema.menus + MachineSettingsSchema.imessage
         return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }

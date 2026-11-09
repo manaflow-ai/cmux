@@ -20,6 +20,7 @@ import realChanges from "./fixtures/real-pr-changes.json";
 import nightlyNext50 from "./fixtures/nightly-next-50.json";
 import type { ReleaseNotes } from "./types";
 import { clipNotes, clipRoute } from "./clipFixtures";
+import { compareNotes } from "./compareFixtures";
 import { dayOfNightlies, denseDay, journalNotes, longAreaDay } from "./whatsNewFixtures";
 
 /** Where build `index` of the 18 starts in realChanges: each takes (index % 5) + 1, none shared. */
@@ -60,6 +61,8 @@ export default changelogPageEntry({
     "pages/changelog/ReleaseParts.tsx",
     "pages/changelog/SpanNews.tsx",
     "pages/changelog/clipFixtures.ts",
+    "pages/changelog/MediaCompare.tsx",
+    "pages/changelog/compareFixtures.ts",
   ],
   variants: {
     "nightly-3913596493801": {
@@ -151,6 +154,58 @@ export default changelogPageEntry({
         await ctx.click({ selector: ".cls-build-action button" });
         await ctx.waitFor(() => document.querySelector('.cls-build-action button:not([data-variant="ghost"])'));
       },
+    },
+    "compare-slider": {
+      note: 'Leo 2026-10-20 ("before/afters for our techincal stuff is p important... we want things to be PRETTY!!!!"), variant A, the default: a highlight\'s before/after pair under its sheet row, one 7:4 box with the before left of a split the person drags (or moves with the arrow keys). Here the split is moved to 30%. A lone picture stays off the sheet.',
+      notes: compareNotes,
+      play: async (ctx) => {
+        await ctx.focus({ selector: ".cl-compare-range" });
+        for (let i = 0; i < 20; i++) await ctx.press("ArrowLeft");
+      },
+    },
+    "compare-side": {
+      note: "Before/after variant B (compare=side): the two pictures side by side in the same box, each under its label.",
+      notes: compareNotes,
+      route: "#/?compare=side",
+    },
+    "compare-toggle": {
+      note: "Before/after variant C (compare=toggle): one picture with a Before / After switch; the before fades in over the after (motion gate). Here Before is on.",
+      notes: compareNotes,
+      route: "#/?compare=toggle",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cl-compare-switch button" });
+      },
+    },
+    "compare-lightbox": {
+      note: "The pair enlarged (the corner Enlarge button): the after sets the box, shown whole, with the same dragged split.",
+      notes: compareNotes,
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cl-compare-enlarge" });
+        await ctx.waitFor(() => document.querySelector(".cl-lightbox .cl-compare"));
+      },
+    },
+    "compare-lightbox-side": {
+      note: "Variant B enlarged: side by side, each half shown whole.",
+      notes: compareNotes,
+      route: "#/?compare=side",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cl-compare-enlarge" });
+        await ctx.waitFor(() => document.querySelector(".cl-lightbox .cl-compare"));
+      },
+    },
+    "compare-lightbox-toggle": {
+      note: "Variant C enlarged: the switch under the whole picture.",
+      notes: compareNotes,
+      route: "#/?compare=toggle",
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cl-compare-enlarge" });
+        await ctx.waitFor(() => document.querySelector(".cl-lightbox .cl-compare"));
+      },
+    },
+    "compare-ledger": {
+      note: "The same pair in the Ledger (design=ledger), where every change shows its picture: the pair as its row's picture.",
+      notes: compareNotes,
+      route: "#/?design=ledger",
     },
     "sheet-prs-hover": {
       note: "Leo 2026-11-07 (\"this could maybe still be better with linking to prs\"), variant A, the default: a public pull request's title links it and its #N shows at the row's end on hover (here the first linked row is hovered); a private change has no link. The wide column at full screen, descriptions whole.",

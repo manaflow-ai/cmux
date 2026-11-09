@@ -195,7 +195,7 @@ struct IntentLog {
     /// sequence from the previous one no longer compares: an intent whose
     /// reply came settles with the new connection's first snapshot.
     mutating func connectionReplaced() {
-        replacedStandIns.removeAll() // another daemon may reuse their surfaces
+        replacedStandIns.removeAll(); closedTabs.removeAll() // another daemon may reuse their surfaces
         entries = entries.map { entry in
             var entry = entry
             if entry.settleSequence != nil {
@@ -233,6 +233,21 @@ struct IntentLog {
     private static let replacedStandInLimit = 64
 
     func replacement(ofStandIn id: String) -> SurfaceID? { replacedStandIns.last { $0.standIn == id }?.surface }
+
+    /// The daemon tabs the person closed lately (bounded, newest last), still known after their close settled: a new
+    /// tab's move that waits for its tab to be listed stops waiting for one already closed (``DaemonStore/closedLately(_:)``).
+    private(set) var closedTabs: [(id: String, surface: SurfaceID)] = []
+
+    /// Notes `tabs` closed; the overlay applies a close again on every restore, so each is listed once.
+    mutating func noteClosed(_ tabs: [(id: String, surface: SurfaceID)]) {
+        for tab in tabs where !closedTabs.contains(where: { $0.id == tab.id }) { closedTabs.append(tab) }
+        if closedTabs.count > Self.replacedStandInLimit { closedTabs.removeFirst(closedTabs.count - Self.replacedStandInLimit) }
+    }
+
+    /// The tabs on `surfaces` are not closed after all (their close was rejected).
+    mutating func forgetClosed(_ surfaces: Set<SurfaceID>) {
+        closedTabs.removeAll { surfaces.contains($0.surface) }
+    }
 
     /// Whether daemon surface `surface` took a recently created stand-in's place.
     func replacedAStandIn(_ surface: SurfaceID) -> Bool { replacedStandIns.contains { $0.surface == surface } }

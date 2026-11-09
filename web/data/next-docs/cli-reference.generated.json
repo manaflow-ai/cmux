@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 818,
-    "mcp": 732
+    "verbs": 859,
+    "mcp": 773
   },
   "nouns": [
     {
@@ -601,6 +601,13 @@
           "id": "app.install",
           "mcp": true,
           "mcpTool": "app_apps_install"
+        },
+        {
+          "command": "cmux apps reload",
+          "title": "Reload Custom Views",
+          "id": "app.reloadCustomViews",
+          "mcp": true,
+          "mcpTool": "app_apps_reload"
         },
         {
           "command": "cmux apps remove",
@@ -1282,13 +1289,6 @@
           "mcpTool": "app_cloud_domain_list"
         },
         {
-          "command": "cmux cloud enroll-machine",
-          "title": "Enroll Machine as Agent Host",
-          "id": "cloudEnrollMachine",
-          "mcp": true,
-          "mcpTool": "app_cloud_enroll_machine"
-        },
-        {
           "command": "cmux cloud exec",
           "title": "Run Command on Cloud Machine…",
           "id": "cloudExec",
@@ -1541,13 +1541,6 @@
           "mcpTool": "app_cloud_publication_list"
         },
         {
-          "command": "cmux cloud relay-chat",
-          "title": "Chat on Cloud Machine via the Relay…",
-          "id": "cloudRelayChat",
-          "mcp": true,
-          "mcpTool": "app_cloud_relay_chat"
-        },
-        {
           "command": "cmux cloud rename-machine",
           "title": "Rename Machine…",
           "id": "cloudRenameMachine",
@@ -1776,7 +1769,7 @@
         },
         {
           "command": "cmux density use-cozy",
-          "title": "Density: Cozy",
+          "title": "Density: Default",
           "id": "appearance.density.cozy",
           "mcp": false,
           "mcpTool": null
@@ -2101,6 +2094,13 @@
           "mcpTool": "app_home_show_hidden"
         },
         {
+          "command": "cmux home start-agent",
+          "title": "Start Queued Agent Now",
+          "id": "home.startQueuedAgent",
+          "mcp": true,
+          "mcpTool": "app_home_start_agent"
+        },
+        {
           "command": "cmux home switch-view",
           "title": "Switch Home View",
           "id": "home.switchView",
@@ -2113,6 +2113,13 @@
           "id": "home.tab",
           "mcp": true,
           "mcpTool": "app_home_tab"
+        },
+        {
+          "command": "cmux home undock-chief",
+          "title": "Undock Chief",
+          "id": "home.undockChief",
+          "mcp": true,
+          "mcpTool": "app_home_undock_chief"
         },
         {
           "command": "cmux home unmute",
@@ -2461,11 +2468,151 @@
           "mcpTool": "app_pane_move_to_new_workspace"
         },
         {
+          "command": "cmux pane new-agent-chat-above",
+          "title": "New Agent Chat Above",
+          "id": "new.agentChat.up",
+          "mcp": true,
+          "mcpTool": "app_pane_new_agent_chat_above"
+        },
+        {
+          "command": "cmux pane new-agent-chat-below",
+          "title": "New Agent Chat Below",
+          "id": "new.agentChat.down",
+          "mcp": true,
+          "mcpTool": "app_pane_new_agent_chat_below"
+        },
+        {
+          "command": "cmux pane new-agent-chat-to-left",
+          "title": "New Agent Chat to the Left",
+          "id": "new.agentChat.left",
+          "mcp": true,
+          "mcpTool": "app_pane_new_agent_chat_to_left"
+        },
+        {
+          "command": "cmux pane new-agent-chat-to-new-column-left",
+          "title": "New Agent Chat to New Column Left",
+          "id": "new.agentChat.columnLeft",
+          "mcp": true,
+          "mcpTool": "app_pane_new_agent_chat_to_new_column_left"
+        },
+        {
+          "command": "cmux pane new-agent-chat-to-new-column-right",
+          "title": "New Agent Chat to New Column Right",
+          "id": "new.agentChat.columnRight",
+          "mcp": true,
+          "mcpTool": "app_pane_new_agent_chat_to_new_column_right"
+        },
+        {
+          "command": "cmux pane new-agent-chat-to-new-row",
+          "title": "New Agent Chat to New Row",
+          "id": "new.agentChat.row",
+          "mcp": true,
+          "mcpTool": "app_pane_new_agent_chat_to_new_row"
+        },
+        {
+          "command": "cmux pane new-agent-chat-to-new-tab",
+          "title": "New Agent Chat to New Tab",
+          "id": "new.agentChat.tab",
+          "mcp": true,
+          "mcpTool": "app_pane_new_agent_chat_to_new_tab"
+        },
+        {
+          "command": "cmux pane new-agent-chat-to-new-window",
+          "title": "New Agent Chat to New Window",
+          "id": "new.agentChat.window",
+          "mcp": true,
+          "mcpTool": "app_pane_new_agent_chat_to_new_window"
+        },
+        {
+          "command": "cmux pane new-agent-chat-to-new-workspace",
+          "title": "New Agent Chat to New Workspace",
+          "id": "new.agentChat.workspace",
+          "mcp": true,
+          "mcpTool": "app_pane_new_agent_chat_to_new_workspace"
+        },
+        {
+          "command": "cmux pane new-agent-chat-to-right",
+          "title": "New Agent Chat to the Right",
+          "id": "new.agentChat.right",
+          "mcp": true,
+          "mcpTool": "app_pane_new_agent_chat_to_right"
+        },
+        {
           "command": "cmux pane new-auto-layout",
           "title": "New Pane (Auto Layout)",
           "id": "newPaneAutoLayout",
           "mcp": true,
           "mcpTool": "app_pane_new_auto_layout"
+        },
+        {
+          "command": "cmux pane new-browser-above",
+          "title": "New Browser Above",
+          "id": "new.browser.up",
+          "mcp": true,
+          "mcpTool": "app_pane_new_browser_above"
+        },
+        {
+          "command": "cmux pane new-browser-below",
+          "title": "New Browser Below",
+          "id": "new.browser.down",
+          "mcp": true,
+          "mcpTool": "app_pane_new_browser_below"
+        },
+        {
+          "command": "cmux pane new-browser-to-left",
+          "title": "New Browser to the Left",
+          "id": "new.browser.left",
+          "mcp": true,
+          "mcpTool": "app_pane_new_browser_to_left"
+        },
+        {
+          "command": "cmux pane new-browser-to-new-column-left",
+          "title": "New Browser to New Column Left",
+          "id": "new.browser.columnLeft",
+          "mcp": true,
+          "mcpTool": "app_pane_new_browser_to_new_column_left"
+        },
+        {
+          "command": "cmux pane new-browser-to-new-column-right",
+          "title": "New Browser to New Column Right",
+          "id": "new.browser.columnRight",
+          "mcp": true,
+          "mcpTool": "app_pane_new_browser_to_new_column_right"
+        },
+        {
+          "command": "cmux pane new-browser-to-new-row",
+          "title": "New Browser to New Row",
+          "id": "new.browser.row",
+          "mcp": true,
+          "mcpTool": "app_pane_new_browser_to_new_row"
+        },
+        {
+          "command": "cmux pane new-browser-to-new-tab",
+          "title": "New Browser to New Tab",
+          "id": "new.browser.tab",
+          "mcp": true,
+          "mcpTool": "app_pane_new_browser_to_new_tab"
+        },
+        {
+          "command": "cmux pane new-browser-to-new-window",
+          "title": "New Browser to New Window",
+          "id": "new.browser.window",
+          "mcp": true,
+          "mcpTool": "app_pane_new_browser_to_new_window"
+        },
+        {
+          "command": "cmux pane new-browser-to-new-workspace",
+          "title": "New Browser to New Workspace",
+          "id": "new.browser.workspace",
+          "mcp": true,
+          "mcpTool": "app_pane_new_browser_to_new_workspace"
+        },
+        {
+          "command": "cmux pane new-browser-to-right",
+          "title": "New Browser to the Right",
+          "id": "new.browser.right",
+          "mcp": true,
+          "mcpTool": "app_pane_new_browser_to_right"
         },
         {
           "command": "cmux pane new-column",
@@ -2494,6 +2641,146 @@
           "id": "palette.newSimulatorPane",
           "mcp": true,
           "mcpTool": "app_pane_new_simulator"
+        },
+        {
+          "command": "cmux pane new-tab-page-above",
+          "title": "New Tab Page Above",
+          "id": "new.newTabPage.up",
+          "mcp": true,
+          "mcpTool": "app_pane_new_tab_page_above"
+        },
+        {
+          "command": "cmux pane new-tab-page-below",
+          "title": "New Tab Page Below",
+          "id": "new.newTabPage.down",
+          "mcp": true,
+          "mcpTool": "app_pane_new_tab_page_below"
+        },
+        {
+          "command": "cmux pane new-tab-page-to-left",
+          "title": "New Tab Page to the Left",
+          "id": "new.newTabPage.left",
+          "mcp": true,
+          "mcpTool": "app_pane_new_tab_page_to_left"
+        },
+        {
+          "command": "cmux pane new-tab-page-to-new-column-left",
+          "title": "New Tab Page to New Column Left",
+          "id": "new.newTabPage.columnLeft",
+          "mcp": true,
+          "mcpTool": "app_pane_new_tab_page_to_new_column_left"
+        },
+        {
+          "command": "cmux pane new-tab-page-to-new-column-right",
+          "title": "New Tab Page to New Column Right",
+          "id": "new.newTabPage.columnRight",
+          "mcp": true,
+          "mcpTool": "app_pane_new_tab_page_to_new_column_right"
+        },
+        {
+          "command": "cmux pane new-tab-page-to-new-row",
+          "title": "New Tab Page to New Row",
+          "id": "new.newTabPage.row",
+          "mcp": true,
+          "mcpTool": "app_pane_new_tab_page_to_new_row"
+        },
+        {
+          "command": "cmux pane new-tab-page-to-new-tab",
+          "title": "New Tab Page to New Tab",
+          "id": "new.newTabPage.tab",
+          "mcp": true,
+          "mcpTool": "app_pane_new_tab_page_to_new_tab"
+        },
+        {
+          "command": "cmux pane new-tab-page-to-new-window",
+          "title": "New Tab Page to New Window",
+          "id": "new.newTabPage.window",
+          "mcp": true,
+          "mcpTool": "app_pane_new_tab_page_to_new_window"
+        },
+        {
+          "command": "cmux pane new-tab-page-to-new-workspace",
+          "title": "New Tab Page to New Workspace",
+          "id": "new.newTabPage.workspace",
+          "mcp": true,
+          "mcpTool": "app_pane_new_tab_page_to_new_workspace"
+        },
+        {
+          "command": "cmux pane new-tab-page-to-right",
+          "title": "New Tab Page to the Right",
+          "id": "new.newTabPage.right",
+          "mcp": true,
+          "mcpTool": "app_pane_new_tab_page_to_right"
+        },
+        {
+          "command": "cmux pane new-terminal-above",
+          "title": "New Terminal Above",
+          "id": "new.terminal.up",
+          "mcp": true,
+          "mcpTool": "app_pane_new_terminal_above"
+        },
+        {
+          "command": "cmux pane new-terminal-below",
+          "title": "New Terminal Below",
+          "id": "new.terminal.down",
+          "mcp": true,
+          "mcpTool": "app_pane_new_terminal_below"
+        },
+        {
+          "command": "cmux pane new-terminal-to-left",
+          "title": "New Terminal to the Left",
+          "id": "new.terminal.left",
+          "mcp": true,
+          "mcpTool": "app_pane_new_terminal_to_left"
+        },
+        {
+          "command": "cmux pane new-terminal-to-new-column-left",
+          "title": "New Terminal to New Column Left",
+          "id": "new.terminal.columnLeft",
+          "mcp": true,
+          "mcpTool": "app_pane_new_terminal_to_new_column_left"
+        },
+        {
+          "command": "cmux pane new-terminal-to-new-column-right",
+          "title": "New Terminal to New Column Right",
+          "id": "new.terminal.columnRight",
+          "mcp": true,
+          "mcpTool": "app_pane_new_terminal_to_new_column_right"
+        },
+        {
+          "command": "cmux pane new-terminal-to-new-row",
+          "title": "New Terminal to New Row",
+          "id": "new.terminal.row",
+          "mcp": true,
+          "mcpTool": "app_pane_new_terminal_to_new_row"
+        },
+        {
+          "command": "cmux pane new-terminal-to-new-tab",
+          "title": "New Terminal to New Tab",
+          "id": "new.terminal.tab",
+          "mcp": true,
+          "mcpTool": "app_pane_new_terminal_to_new_tab"
+        },
+        {
+          "command": "cmux pane new-terminal-to-new-window",
+          "title": "New Terminal to New Window",
+          "id": "new.terminal.window",
+          "mcp": true,
+          "mcpTool": "app_pane_new_terminal_to_new_window"
+        },
+        {
+          "command": "cmux pane new-terminal-to-new-workspace",
+          "title": "New Terminal to New Workspace",
+          "id": "new.terminal.workspace",
+          "mcp": true,
+          "mcpTool": "app_pane_new_terminal_to_new_workspace"
+        },
+        {
+          "command": "cmux pane new-terminal-to-right",
+          "title": "New Terminal to the Right",
+          "id": "new.terminal.right",
+          "mcp": true,
+          "mcpTool": "app_pane_new_terminal_to_right"
         },
         {
           "command": "cmux pane open-cloud-as",

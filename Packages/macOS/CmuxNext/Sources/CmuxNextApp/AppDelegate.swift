@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var daemonPrestart: DaemonPrestart?
     /// Resolves once before any auth or daemon is constructed; cancelled on quit.
     private var cloudBootstrap: Task<Void, Never>?
+    private let cloudEnvironment: Task<CloudEnvironmentBootstrap.LaunchRead, any Error>  // started in `main` (startAtLaunch)
     /// The first live terminal frame (or no daemon), never before the first window frame: deferrable warm-up waits for it.
     private let launchSettle: LaunchSettle
     /// Launch work that starts after the first window frame (perf-launch-memory).
@@ -43,6 +44,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
     private var services: AppServices?
     private let openedURLs = OpenedURLDelivery()
+    private lazy var appCopyGuide = AppCopyGuide(open: { [weak self] urls in for url in urls { self?.routeOpenedURL(url) } },
+                                                 relaunching: { [weak self] in self?.services?.updater.willRelaunch?() })
     /// A second quit signal's exit (`QuitSignal`): the Home cache's and the state files' last writes, bounded, then the end.
     private lazy var forcedQuitExit = Self.secondSignalExit { [weak self] in self?.services }
 
@@ -80,11 +83,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?,
-         launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
-        self.environment = environment
-        self.launchReads = launchReads
-        self.daemonPrestart = daemonPrestart
-        self.launchCleanup = launchCleanup
+         launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake),
+         cloudEnvironment: Task<CloudEnvironmentBootstrap.LaunchRead, any Error>, launchCleanup: LaunchCleanup = LaunchCleanup()) {
+        self.environment = environment; self.cloudEnvironment = cloudEnvironment
+        self.launchReads = launchReads; self.daemonPrestart = daemonPrestart; self.launchCleanup = launchCleanup
         let firstFrame = FirstFrameGate()
         self.firstFrame = firstFrame
         launchSettle = LaunchSettle(firstFrame: firstFrame)
@@ -95,11 +97,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // task-owner: cloudBootstrap; one CLI read before services, then the cache refresh after the first frame, cancelled at termination.
-        cloudBootstrap = Task { [weak self] in
+        // task-owner: cloudBootstrap; awaits the CLI read `main` started (its cancel kills that CLI) before services, then the cache refresh after the first frame, cancelled at termination.
+        cloudBootstrap = Task { [weak self, cloudEnvironment] in
             guard let self else { return }
             do {
-                let (selection, refresh) = try await CloudEnvironmentBootstrap(work: launchReads.work).resolveAtLaunch()
+                let (selection, refresh) = try await withTaskCancellationHandler { try await cloudEnvironment.value } onCancel: { cloudEnvironment.cancel() }
                 try Task.checkCancellation()
                 environment.cloudConfiguration = CloudConfiguration.from(selection: selection, isDebugBuild: ControlService.isDebugBuild)
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_RUNTIME"] = "1"
@@ -152,12 +154,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // An agent launch must never come back by itself: without this, loginwindow reopens it at the
         // next login (without the agent's environment, so it activates and takes the tag's socket).
         if environment.noActivate { NSApp.disableRelaunchOnLogin() }
-        // A `cmux` shim outside this app runs the CLI of the app opened last
-        // (plans/cmux-next/version-skew.md); an isolated launch never claims it.
-        if LastAppCLIPointer.shouldPublish(environment: ProcessInfo.processInfo.environment),
-           let cli = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux").path {
-            Task.detached(priority: .utility) { LastAppCLIPointer().publish(cliPath: cli) }
-        }
+        // A `cmux` shim outside this app runs the CLI of the app opened last (plans/cmux-next/version-skew.md).
+        LastAppCLIPointer.publishAtLaunch()
+        // Other copies of this app: a second copy opened says which kept running; a passing copy offers a move.
+        appCopyGuide.start(activates: !environment.noActivate)
         // cmux.json's appearance goes on the Ghostty overrides before the
         // runtime's first config load, so the first frame needs no reload.
         let settingsRead = SettingsController.readAtLaunch(
@@ -248,9 +248,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // Once the first terminal frame is drawn, the palette panel is made at the next idle moment, so the first
         // open costs what later opens cost (a launcher panel opens in one frame), without delaying that frame.
-        // Then the icon picker (its panel, page and symbol catalog) and the dialogs' page, so the first Set Icon and dialog open warm.
+        // Then the icon picker (its panel, page and symbol catalog) and the dialogs' and toasts' pages, so the first Set Icon, dialog and toast open warm.
         launchSettle.whenSettled { [palette = services.palette, weak services] in
-            Self.preparePalette(palette, step: 0) { IdleOnce.schedule { services?.iconPicker.prepare(); services?.groupEditor.prepare(); services?.dialogs.prewarm() } }
+            Self.preparePalette(palette, step: 0) { IdleOnce.schedule { services?.iconPicker.prepare(); services?.groupEditor.prepare(); services?.dialogs.prewarm(); services?.toasts.prewarm() } }
         }
         // Temporary download files a crash left in an earlier run (only the
         // recorded ones; the record is read and the files deleted off the
@@ -361,7 +361,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         settings.start(announcingDiagnostics: true, rotatingFavoriteThemes: true)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, isFirstLaunch: OnboardingWindowPresenter.isFirstLaunch(), firstWindow: { [firstFrame] in await firstFrame.opened() })
-        KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
+        KeepAwakeService.shared.start(settings: settings, store: services.daemon.store, menuBar: services.menuBarExtra)
         services.mobile.follow(settings, launch: services.environment.launch, configureAdmission: services.iphone.followPhoneAccess)
         let acpmux = QuitAgents.environment(services)
         AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
@@ -377,15 +377,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 services?.feed.configureGitHub(enabled: github.enabled, pollIntervalSeconds: github.pollIntervalSeconds)
             }
         }
-        // macOS posts no notification when an MDM profile changes; activation
-        // is the event-driven backstop next to the managed-file watchers. A full-screen window an
-        // update relaunch kept back enters once the user is in cmux (`enterRestoredFullScreens`).
+        // macOS posts no notification when an MDM profile changes; activation is the event-driven backstop next to the
+        // managed-file watchers. A full-screen window an update relaunch kept back enters once the user is in cmux (`enterRestoredFullScreens`).
         Task { [weak settings, weak services] in
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
                 settings?.managedPreferencesMayHaveChanged()
                 services?.windows.enterRestoredFullScreens()
                 await services?.paidPlanReturned() // an upgrade's payment page sends the person back here
                 await services?.joinConsent.refresh() // a consent refusal acpmux recorded meanwhile; reads nothing with Labs off
+                if let services { CloudStartChat.warmSpare(services) } // intent, never awaited: the next activation runs at once
             }
         }
         services.configActions.start(settings: settings)
@@ -414,9 +414,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.themes.start()
         services.themes.followChromeTheme(settings)
         services.remoteLocalhost.follow(settings)
-        // A Cloud machine's localhost (Open Desktop, or a machine whose cmux-tui has no loopback
-        // forward) goes over the app's own WireGuard tunnel, as in cmux Classic.
-        services.remoteLocalhost.cloudTunnelSocket = services.cloud.tunnelSocket
         services.bookmarks.follow(settings)
         services.apps.start()
         Task {

@@ -15,7 +15,7 @@ import { splitToolLabel } from "./toolVerbModel";
 import { ToolRows } from "./TurnRows";
 import { ToolRow } from "./ToolRow";
 import { ToolVerbColumn } from "./ToolVerb";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

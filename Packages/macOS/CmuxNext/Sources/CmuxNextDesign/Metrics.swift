@@ -192,11 +192,26 @@ public struct Metrics {
     public static var corners: ConcentricCorners { ConcentricCorners(outer: cornerRadius, padding: cornerPadding) }
     /// Corner radius of a pane's rounded rect: ``cornerRadius``, or 0 (square)
     /// when panes are edge to edge (no padding and no border), where neighbors
-    /// meet with no gap for a curve to show in.
+    /// meet with no gap for a curve to show in. Floating panes (the floating and
+    /// blocks styles) have no main pane card around them, so the panes in the
+    /// window's corners meet it: ``floatingPaneCornerRadius``.
     public static var paneCornerRadius: CGFloat {
         if panePadding == 0 && paneBorder == .none { return 0 }
-        return cornerRadius
+        return floatingPanes ? floatingPaneCornerRadius : cornerRadius
     }
+    /// Corner radius of every pane card under Floating Panes: concentric with the window's corner
+    /// across the corner pane's inset (``floatingPaneWindowInset``), so 12 pt in a 16 pt window at
+    /// compact density; `layout.paneCornerRadius` still sets it, at most the window's radius
+    /// (``windowConcentricCornerRadius(windowCornerRadius:edgeInset:setting:)``). Lawrence 2026-11-07:
+    /// "make it all concentric with macos windows by default (but still configurable)".
+    public static var floatingPaneCornerRadius: CGFloat {
+        windowConcentricCornerRadius(windowCornerRadius: standardWindowCornerRadius, edgeInset: floatingPaneWindowInset,
+                                     setting: DesignSettings.shared.paneChrome.cornerRadius.map(scale))
+    }
+    /// How far a corner pane's card sits inside the window under Floating Panes: the gutter (at
+    /// least the window's lit rim, ``windowEdgeInset(_:in:)``) to the pane's cell, then the pane
+    /// padding to its card.
+    public static var floatingPaneWindowInset: CGFloat { max(mainPaneGutter, PaneTabRowRim.height) + panePadding }
     /// The radius of a shape `inset` points inside a pane, `size` big: concentric with the
     /// pane's corner (``paneCornerRadius``, or the one ``cornerRadius`` where panes are square
     /// inside the rounded main pane), at most half the shape's shorter side.
@@ -208,8 +223,8 @@ public struct Metrics {
     /// The density's outer corner radius, used when `layout.paneCornerRadius` is unset:
     /// the omnibar's 8 pt in every density (Lawrence 2026-11-05: "default roundness is too
     /// round now", "default roundness should be omnibar roundness"). The tab pills and the
-    /// sidebar's rows nest the corner padding inside it; the main pane is less round than
-    /// the 16 pt window across its 6 pt gutter, never rounder.
+    /// sidebar's rows nest the corner padding inside it. The curved main pane does not read it
+    /// by default: it is concentric with the window instead (`mainPaneCornerRadius(windowCornerRadius:)`).
     public static var densityPaneCornerRadius: CGFloat { MetricTunables.densityPaneCornerRadius.value }
     /// How panes are told apart (`layout.paneSeparation`, else the legacy
     /// `layout.paneBorder` and padding).
@@ -314,6 +329,16 @@ public struct Typography {
     /// Interface Size is not overridden). Surfaces with their own type scale
     /// (the Home transcript's `textScale`) follow it.
     public static var userScale: CGFloat { scale }
+    /// The text scale app web pages draw at (`--cmux-interface-scale`). Pages are drawn for the
+    /// Default density's 13 pt text; a larger chrome body size (Text Size, else the density's)
+    /// grows them by the same ratio, and a smaller one keeps them as drawn, so Ultra-compact and
+    /// Compact pages stay as they were.
+    public static var pageScale: CGFloat {
+        let interfaceScale = DesignSettings.shared.interfaceScaleEnabled ? DesignSettings.shared.interfaceScale : 1
+        let body = DesignSettings.shared.overrides[.chromeFontSize] ?? Metrics.tokens.bodySize
+        let drawn = DensityPreset.cozy.tokens.bodySize
+        return max(body, drawn) / drawn * interfaceScale
+    }
     /// A style's size: the density's (`DensityTokens.textSize`, which follows its level and its
     /// own font size), times the user's text scale.
     private static func size(_ compactSize: CGFloat, _ comfortableSize: CGFloat) -> CGFloat {
@@ -334,9 +359,11 @@ public struct Typography {
 
     /// Tab titles, sidebar rows, palette results.
     public static var body: NSFont { system(.default, size: size(12, 13), weight: .regular) }
-    /// Tab titles: `appearance.metrics.tabFontSize` (times the interface scale when it is on), else `body`.
+    /// Tab titles: `appearance.metrics.tabFontSize` (times the interface scale when it is on), else Chrome's 12 pt at
+    /// every density (Chromium's `ChromeTypographyProvider` gives a tab label its default 12 pt; Lawrence 2026-11-07:
+    /// match Chrome's tab title size).
     public static var tabTitle: NSFont {
-        guard let points = DesignSettings.shared.overrides[.tabFontSize] else { return body }
+        guard let points = DesignSettings.shared.overrides[.tabFontSize] else { return system(.default, size: size(12, 12), weight: .regular) }
         return system(.default, size: Metrics.scale(points), weight: .regular)
     }
     /// Selected or emphasized row titles.

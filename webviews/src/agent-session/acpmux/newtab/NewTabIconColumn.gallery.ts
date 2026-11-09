@@ -52,7 +52,7 @@ export default agentPaneEntry({
       play: ready,
     },
     machine: {
-      note: "Another machine picked: the strip names the machine beside the folder; the folder icon keeps the column.",
+      note: "Remote picked: the strip names the machine beside the folder; the folder icon keeps the column.",
       ready: newTab({ cwd: "/Users/you", startedProject: CWD, projects: [CWD] }),
       snapshot: noChat([], { listedSessions: true, peers: ["devbox"], peerKinds: { devbox: "ssh" } }),
       play: async (ctx) => {

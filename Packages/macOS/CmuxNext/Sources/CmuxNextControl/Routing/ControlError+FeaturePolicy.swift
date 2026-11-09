@@ -8,8 +8,9 @@ extension ActionFeature {
     /// The feature control method `method` belongs to, or nil.
     public init?(controlMethod method: String) {
         switch method {
-        // A new sandboxed run is Cloud; waiting on or cancelling one that exists is its cleanup.
-        case "auth.token", "cloud.machines", "cloud.automation", "debug.cloud.link_ensure", "runs.sandbox.create", "vm.agent_key.create": self = .cloud
+        // A new sandboxed run is Cloud (and Add Device's join line, a hub mint); waiting on or cancelling one that exists is its cleanup.
+        case "auth.token", "cloud.machines", "cloud.automation", "debug.cloud.link_ensure", "runs.sandbox.create", "vm.agent_key.create",
+             "device.join_line": self = .cloud
         case "remote.machines": self = .remoteHosts
         default:
             // CodeRouter writes configure the Cloud model plane; its reads stay.

@@ -40,8 +40,6 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
     public var localHistoryMismatches: Int = 0
     /// Local-history READYs that kept the surface's own reflowed history.
     public var localSnapshots: Int = 0
-    /// Kitty images the owner left out of its image replays.
-    public var skippedImages: Int = 0
     /// Ghostty's frame counters (`ghostty_surface_render_counters`): frames drawn, frame updates
     /// that rebuilt cells, and frames drawn while a theme color blend ran (those change only the
     /// color table the shaders read).
@@ -100,7 +98,6 @@ extension TerminalSession {
             swappedSurfaces: swappedSurfaces,
             localHistoryMismatches: localHistoryMismatches,
             localSnapshots: localSnapshots,
-            skippedImages: skippedImages,
             renderCounters: surface.surface.map { surface in
                 let counters = ghostty_surface_render_counters(surface)
                 return TerminalRenderCounters(frames: counters.frames, cellRebuilds: counters.cell_rebuilds,

@@ -580,6 +580,36 @@ test("Shift-Return right after an input method's commit Return adds a line and s
   expect({ sent, lines: lines(field) }).toEqual({ sent: [], lines: 2 });
 });
 
+for (const inputType of ["insertParagraph", "insertLineBreak"]) {
+  for (const [reportsComposing, started] of [
+    [true, true],
+    [false, true],
+    [true, false],
+  ]) {
+    test(`${inputType} during composition never sends (event flag ${reportsComposing}, lifecycle ${started})`, async () => {
+      const { field, sent } = await composer(chat(), "日本語");
+      if (started) await dispatch(field, new window.CompositionEvent("compositionstart", { bubbles: true }), 1_000);
+      const proceeded = await dispatch(
+        field,
+        new window.InputEvent("beforeinput", {
+          inputType,
+          isComposing: reportsComposing,
+          bubbles: true,
+          cancelable: true,
+        }),
+        1_500,
+      );
+      expect(proceeded).toBe(false);
+      expect(sent).toEqual([]);
+      expect(field.textContent).toBe("日本語");
+      await dispatch(field, new window.CompositionEvent("compositionend", { bubbles: true }), 2_000);
+      await dispatch(field, key({ key: "Enter", keyCode: 229 }), 2_010);
+      await dispatch(field, key({ key: "Enter", keyCode: 13 }), 2_100);
+      expect(sent).toEqual([{ text: "日本語", steer: false }]);
+    });
+  }
+}
+
 test("a paragraph the input method inserts on its own sends instead", async () => {
   const { field, sent } = await composer(working(), "What is Spotlight?");
   const inserted = await dispatch(
