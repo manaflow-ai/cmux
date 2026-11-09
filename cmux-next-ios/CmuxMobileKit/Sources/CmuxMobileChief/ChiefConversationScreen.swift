@@ -366,7 +366,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     // MARK: Chief's questions
 
     /// The bar under the header while Chief asks (``ChiefQuestionBar``).
-    private lazy var questionBar: UIHostingController<ChiefQuestionBar> = {
+    lazy var questionBar: UIHostingController<ChiefQuestionBar> = {
         var bar = ChiefQuestionBar(session: session) { [weak self] question in
             self?.presentQuestion(question.id)
         }
