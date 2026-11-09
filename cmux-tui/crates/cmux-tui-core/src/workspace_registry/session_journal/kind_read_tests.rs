@@ -352,6 +352,64 @@ fn reducer_record_backfill_starts_over_when_its_segment_is_gone() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A downgrade and upgrade around an output cleanup: an older build's swap
+/// copies the backfill cursor and the kept records across and repacks the
+/// segments, and a repacked segment can keep its id (ids hash the range and
+/// content). So the cursor's segment can survive while the earlier segments
+/// were rewritten without kept records. Emulated here after a finished
+/// backfill: every segment but the cursor's loses its kept records, and the
+/// cleanup's done marker changes, as that swap leaves them. The cursor alone
+/// would skip them forever; the changed marker starts the backfill over.
+#[test]
+fn reducer_record_backfill_starts_over_after_an_older_builds_output_cleanup() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-reducer-record-downgrade-{}", new_uuid_v4().replace('-', "")));
+    let mut registry = WorkspaceRegistry::open(&root, "reducer-record-downgrade").unwrap();
+    registry.append_journal_records_for_test(&sealed_history(6_000));
+    registry.seal_journal_for_test("downgrade");
+    registry.connection.get().execute("DELETE FROM journal_segment_reducer_records", []).unwrap();
+    assert!(run_reducer_record_backfill(&registry, usize::MAX) > 1);
+    assert_eq!(kept_reducer_records(&registry), SEALED_AGENT_RECORDS as i64);
+    let cursor_segment: String = registry
+        .connection
+        .get()
+        .query_row(
+            "SELECT json_extract(value, '$.segment_id') FROM meta
+             WHERE key = 'journal_segment_reducer_records_backfill'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    registry
+        .connection
+        .get()
+        .execute(
+            "DELETE FROM journal_segment_reducer_records WHERE segment_id != ?1",
+            [&cursor_segment],
+        )
+        .unwrap();
+    assert!(kept_reducer_records(&registry) < SEALED_AGENT_RECORDS as i64);
+    assert_eq!(run_reducer_record_backfill(&registry, usize::MAX), 0, "no cleanup ran yet");
+
+    registry
+        .connection
+        .get()
+        .execute(
+            "INSERT INTO meta(key, value) VALUES('output_cleanup_v1', '{\"at_ms\":\"1\",\"kept\":\"1\"}')
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [],
+        )
+        .unwrap();
+    assert!(
+        run_reducer_record_backfill(&registry, usize::MAX) > 0,
+        "the backfill did not start over"
+    );
+    assert_eq!(kept_reducer_records(&registry), SEALED_AGENT_RECORDS as i64);
+    assert_eq!(run_reducer_record_backfill(&registry, usize::MAX), 0, "a done backfill stays done");
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// A `terminal.output` record: what the output cleanup drops.
 fn sealed_terminal_output(index: usize) -> TestJournalRecord {
     TestJournalRecord {
