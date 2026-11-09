@@ -1587,6 +1587,11 @@ fn archived_non_output_after(
     }
     let mut reached = sequence;
     let mut records = Vec::new();
+    // Segments read in order, each with the segment to decode (None for an
+    // output-only one). A batch of up to `workers` decodes runs in parallel;
+    // every segment of a batch is consumed whole.
+    let workers = segment_decode_workers();
+    let mut batch: Vec<(u64, Option<String>)> = Vec::new();
     for row in rows {
         let segment_id = row.0.as_str();
         let (has_kind_rows, has_non_output): (bool, bool) = connection.query_row(
@@ -1600,25 +1605,109 @@ fn archived_non_output_after(
             return Ok(None);
         }
         let end = u64::try_from(row.2)?.min(through);
-        if !has_non_output {
-            reached = reached.max(end);
+        batch.push((end, has_non_output.then(|| row.0.clone())));
+        if batch.iter().filter(|(_, decode)| decode.is_some()).count() < workers {
             continue;
         }
-        // A decoded segment is consumed whole, even past `limit`: stopping
-        // mid-segment made the next page decode it again, once per `limit`
-        // records it holds. A page exceeds `limit` by less than one segment
-        // (JOURNAL_SEGMENT_RECORD_LIMIT records).
-        let segment = load_journal_segment(connection, segment_id)?;
-        let decoded = decode_journal_segment_without_output(connection, segment)?;
-        records.extend(
-            decoded.records.into_iter().filter(|r| r.sequence > sequence && r.sequence <= through),
-        );
-        reached = reached.max(end);
-        if records.len() >= limit {
-            break;
+        if !consume_non_output_batch(
+            connection,
+            std::mem::take(&mut batch),
+            (sequence, through),
+            &mut records,
+            &mut reached,
+        )? || records.len() >= limit
+        {
+            return Ok(Some((records, reached)));
         }
     }
+    consume_non_output_batch(connection, batch, (sequence, through), &mut records, &mut reached)?;
     Ok(Some((records, reached)))
+}
+
+/// Decodes a batch's segments on parallel threads, then adds their records
+/// in sequence order. A decoded segment is consumed whole, even past the
+/// page's `limit`: stopping mid-segment made the next page decode it again,
+/// once per `limit` records it holds. A page exceeds `limit` by less than one
+/// batch (`segment_decode_workers` segments of JOURNAL_SEGMENT_RECORD_LIMIT
+/// records).
+///
+/// A segment that fails to decode ends the page before it, so the records
+/// already read still count and the next page meets the error at its start,
+/// as a sequential read would. Returns whether the whole batch was consumed;
+/// an error with nothing consumed is returned.
+fn consume_non_output_batch(
+    connection: &Connection,
+    batch: Vec<(u64, Option<String>)>,
+    (sequence, through): (u64, u64),
+    records: &mut Vec<SessionJournalRecord>,
+    reached: &mut u64,
+) -> anyhow::Result<bool> {
+    let rows = batch
+        .iter()
+        .filter_map(|(_, segment_id)| segment_id.as_deref())
+        .map(|segment_id| load_journal_segment(connection, segment_id))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let mut decoded = inflate_segments(rows, SegmentOutput::Drop)
+        .into_iter()
+        .map(|inflated| inflated.and_then(|inflated| check_segment_gaps(connection, inflated)));
+    for (end, segment_id) in batch {
+        if segment_id.is_some() {
+            match decoded.next().context("journal segment batch lost a segment")? {
+                Ok(segment) => records.extend(
+                    segment
+                        .records
+                        .into_iter()
+                        .filter(|r| r.sequence > sequence && r.sequence <= through),
+                ),
+                Err(error) if *reached == sequence && records.is_empty() => return Err(error),
+                Err(_) => return Ok(false),
+            }
+        }
+        *reached = (*reached).max(end);
+    }
+    Ok(true)
+}
+
+/// How many sealed segments one non-output read decodes at once: half the
+/// cores, at most 8, so the person's own work keeps the other half. Each
+/// in-flight decode holds at most one segment
+/// (MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES of JSON) and its parsed records.
+fn segment_decode_workers() -> usize {
+    #[cfg(test)]
+    if let Some(workers) = SEGMENT_DECODE_WORKERS.with(Cell::get) {
+        return workers;
+    }
+    std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get).div_ceil(2).min(8)
+}
+
+/// Inflates `rows` on one scoped thread each (inline for a single row), in
+/// order. The decode needs no connection; only the gap check after it does.
+fn inflate_segments(
+    rows: Vec<JournalSegmentRow>,
+    output: SegmentOutput,
+) -> Vec<anyhow::Result<InflatedSegment>> {
+    if rows.len() <= 1 {
+        return rows.into_iter().map(|row| inflate_segment(row, output)).collect();
+    }
+    std::thread::scope(|scope| {
+        let handles = rows
+            .into_iter()
+            .map(|row| {
+                std::thread::Builder::new()
+                    .name("cmux-journal-decode".into())
+                    .spawn_scoped(scope, move || inflate_segment(row, output))
+            })
+            .collect::<Vec<_>>();
+        handles
+            .into_iter()
+            .map(|handle| match handle {
+                Ok(handle) => handle
+                    .join()
+                    .unwrap_or_else(|_| Err(anyhow::anyhow!("journal segment decode panicked"))),
+                Err(error) => Err(anyhow::Error::from(error).context("spawn a segment decode")),
+            })
+            .collect()
+    })
 }
 
 /// Populate the seal-time kind index for segments written before the index was
@@ -1950,6 +2039,9 @@ thread_local! {
     /// Segment decodes and output records validated on this thread, so a
     /// test can count what a read cost.
     pub(super) static SEGMENT_DECODE_COUNTS: Cell<(u64, u64)> = const { Cell::new((0, 0)) };
+    /// Overrides segment_decode_workers on this thread, so a test can time
+    /// the same read decoded one segment at a time.
+    pub(super) static SEGMENT_DECODE_WORKERS: Cell<Option<usize>> = const { Cell::new(None) };
 }
 
 /// A segment that output cleanup re-encoded keeps its sequence range but
@@ -1981,11 +2073,28 @@ fn decode_segment(
     row: JournalSegmentRow,
     output: SegmentOutput,
 ) -> anyhow::Result<DecodedJournalSegment> {
+    check_segment_gaps(connection, inflate_segment(row, output)?)
+}
+
+/// A segment inflated and checked on its own, before the gap check that
+/// needs the connection.
+struct InflatedSegment {
+    segment_id: String,
+    start_sequence: u64,
+    end_sequence: u64,
+    /// Every record's sequence, the dropped output's included.
+    sequences: Vec<u64>,
+    records: Vec<SessionJournalRecord>,
+    dropped_output: usize,
+    /// Output records validated, for SEGMENT_DECODE_COUNTS.
     #[cfg(test)]
-    SEGMENT_DECODE_COUNTS.with(|counts| {
-        let (decodes, outputs) = counts.get();
-        counts.set((decodes + 1, outputs));
-    });
+    validated_output: u64,
+}
+
+fn inflate_segment(
+    row: JournalSegmentRow,
+    output: SegmentOutput,
+) -> anyhow::Result<InflatedSegment> {
     let (
         segment_id,
         start_sequence,
@@ -2049,16 +2158,15 @@ fn decode_segment(
         digest.as_slice() == expected_digest.as_slice(),
         "journal segment {segment_id} digest is invalid"
     );
+    #[cfg(test)]
+    let mut validated_output = 0;
     for record in &mut records {
         if output == SegmentOutput::Drop && record.kind == "terminal.output" {
             continue;
         }
         #[cfg(test)]
-        if record.kind == "terminal.output" {
-            SEGMENT_DECODE_COUNTS.with(|counts| {
-                let (decodes, outputs) = counts.get();
-                counts.set((decodes, outputs + 1));
-            });
+        {
+            validated_output += u64::from(record.kind == "terminal.output");
         }
         normalize_terminal_output(record, None)
             .with_context(|| format!("validate journal segment {segment_id}"))?;
@@ -2072,20 +2180,7 @@ fn decode_segment(
             && records.last().is_some_and(|record| record.sequence <= end_sequence),
         "journal segment {segment_id} sequence range is invalid"
     );
-    // A whole segment checks no pruned range; one with fewer records than
-    // its range checks each missing run once.
-    anyhow::ensure!(start_sequence > 0, "journal segment {segment_id} sequence range is invalid");
-    let mut previous = start_sequence - 1;
-    let after_end = end_sequence.saturating_add(1);
-    for sequence in records.iter().map(|record| record.sequence).chain([after_end]) {
-        anyhow::ensure!(
-            sequence == previous.saturating_add(1)
-                || (sequence > previous.saturating_add(1)
-                    && pruned_gap(connection, previous, sequence)?),
-            "journal segment {segment_id} contains a sequence gap"
-        );
-        previous = sequence;
-    }
+    let sequences = records.iter().map(|record| record.sequence).collect::<Vec<_>>();
     let mut dropped_output = 0;
     if output == SegmentOutput::Drop {
         records.retain(|record| {
@@ -2093,6 +2188,50 @@ fn decode_segment(
             dropped_output += usize::from(!keep);
             keep
         });
+    }
+    Ok(InflatedSegment {
+        segment_id,
+        start_sequence,
+        end_sequence,
+        sequences,
+        records,
+        dropped_output,
+        #[cfg(test)]
+        validated_output,
+    })
+}
+
+fn check_segment_gaps(
+    connection: &Connection,
+    segment: InflatedSegment,
+) -> anyhow::Result<DecodedJournalSegment> {
+    #[cfg(test)]
+    SEGMENT_DECODE_COUNTS.with(|counts| {
+        let (decodes, outputs) = counts.get();
+        counts.set((decodes + 1, outputs + segment.validated_output));
+    });
+    let InflatedSegment {
+        segment_id,
+        start_sequence,
+        end_sequence,
+        sequences,
+        records,
+        dropped_output,
+        ..
+    } = segment;
+    // A whole segment checks no pruned range; one with fewer records than
+    // its range checks each missing run once.
+    anyhow::ensure!(start_sequence > 0, "journal segment {segment_id} sequence range is invalid");
+    let mut previous = start_sequence - 1;
+    let after_end = end_sequence.saturating_add(1);
+    for sequence in sequences.into_iter().chain([after_end]) {
+        anyhow::ensure!(
+            sequence == previous.saturating_add(1)
+                || (sequence > previous.saturating_add(1)
+                    && pruned_gap(connection, previous, sequence)?),
+            "journal segment {segment_id} contains a sequence gap"
+        );
+        previous = sequence;
     }
     Ok(DecodedJournalSegment { start_sequence, end_sequence, records, dropped_output })
 }

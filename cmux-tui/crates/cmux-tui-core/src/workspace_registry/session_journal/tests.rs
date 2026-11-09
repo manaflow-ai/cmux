@@ -611,28 +611,61 @@ fn roster_replay_over_output_heavy_segments_decodes_each_segment_once() {
         head,
         segments * u64::try_from(journal_extensions::JOURNAL_SEGMENT_RECORD_LIMIT).unwrap()
     );
-    SEGMENT_DECODE_COUNTS.with(|counts| counts.set((0, 0)));
-    let started = std::time::Instant::now();
-    let (mut cursor, mut seen, mut pages) = (0, Vec::new(), 0);
-    while cursor < head {
-        let (records, reached) =
-            registry.session_journal_without_output_after(cursor, head, 512).unwrap();
-        assert!(reached > cursor, "each page makes progress");
-        assert!(records.iter().all(|record| record.kind != "terminal.output"));
-        seen.extend(records.iter().map(|record| record.sequence));
-        cursor = reached;
-        pages += 1;
+    // The same read one segment at a time, then with the default workers.
+    let mut timings = Vec::new();
+    for workers in [Some(1), None] {
+        SEGMENT_DECODE_WORKERS.with(|cell| cell.set(workers));
+        SEGMENT_DECODE_COUNTS.with(|counts| counts.set((0, 0)));
+        let started = std::time::Instant::now();
+        let (mut cursor, mut seen, mut pages) = (0, Vec::new(), 0);
+        while cursor < head {
+            let (records, reached) =
+                registry.session_journal_without_output_after(cursor, head, 512).unwrap();
+            assert!(reached > cursor, "each page makes progress");
+            assert!(records.iter().all(|record| record.kind != "terminal.output"));
+            seen.extend(records.iter().map(|record| record.sequence));
+            cursor = reached;
+            pages += 1;
+        }
+        let elapsed = started.elapsed();
+        SEGMENT_DECODE_WORKERS.with(|cell| cell.set(None));
+        eprintln!(
+            "roster replay bench: {segments} segments, {} records, {pages} pages, {} workers, {} ms",
+            seen.len(),
+            workers.unwrap_or_else(segment_decode_workers),
+            elapsed.as_millis()
+        );
+        assert_eq!(seen, expected);
+        let (decodes, outputs) = SEGMENT_DECODE_COUNTS.with(Cell::get);
+        assert_eq!(decodes, segments, "each segment is decoded once");
+        assert_eq!(outputs, 0, "no output record is validated only to be dropped");
+        timings.push(elapsed);
     }
-    let elapsed = started.elapsed();
-    eprintln!(
-        "roster replay bench: {segments} segments, {} records, {pages} pages, {} ms",
-        seen.len(),
-        elapsed.as_millis()
-    );
-    assert_eq!(seen, expected);
-    let (decodes, outputs) = SEGMENT_DECODE_COUNTS.with(Cell::get);
-    assert_eq!(decodes, segments, "each segment is decoded once");
-    assert_eq!(outputs, 0, "no output record is validated only to be dropped");
+    eprintln!("roster replay bench: {:.1}x", timings[0].as_secs_f64() / timings[1].as_secs_f64());
+}
+
+/// A segment that does not decode, past the first of a parallel batch, ends
+/// the page before it: the segments ahead of it still count, and the next
+/// page fails at its start, as a read one segment at a time would.
+#[test]
+fn a_damaged_segment_in_a_parallel_batch_ends_the_page_before_it() {
+    let (registry, expected) = output_heavy_sealed_registry(4, 64);
+    let db = registry.connection.get();
+    db.execute(
+        "UPDATE journal_segments SET sha256 = zeroblob(32) WHERE segment_id = 'segment_2049_3072'",
+        [],
+    )
+    .unwrap();
+    drop(db);
+    let head = registry.session_journal_head().unwrap();
+    SEGMENT_DECODE_WORKERS.with(|cell| cell.set(Some(4)));
+    let (records, reached) = registry.session_journal_without_output_after(0, head, 4096).unwrap();
+    assert_eq!(reached, 2048);
+    let before = expected.iter().copied().filter(|sequence| *sequence <= 2048).collect::<Vec<_>>();
+    assert_eq!(records.iter().map(|record| record.sequence).collect::<Vec<_>>(), before);
+    let error = registry.session_journal_without_output_after(reached, head, 4096).unwrap_err();
+    SEGMENT_DECODE_WORKERS.with(|cell| cell.set(None));
+    assert!(format!("{error:#}").contains("digest is invalid"), "{error:#}");
 }
 
 /// A kind backfill an older build stopped partway (marker `0`) resumes after
