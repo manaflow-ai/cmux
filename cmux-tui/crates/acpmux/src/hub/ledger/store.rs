@@ -114,6 +114,10 @@ struct Writer {
     /// ledger and skip the seed for good) and every step tries the rewrite again. A restart
     /// before one lands finds no ledger and seeds again.
     seed_pending: bool,
+    /// A first start that the hub will seed: nothing reaches the file before the seed's rewrite.
+    /// A line appended before it (a watcher's turn while the store loads) would read as a ledger,
+    /// and a crash before the rewrite landed would skip the seed for good.
+    awaiting_seed: bool,
     state: Arc<Mutex<State>>,
 }
 
@@ -136,7 +140,7 @@ impl Writer {
     }
 
     fn write(&mut self, text: &str) {
-        if self.seed_pending || text.is_empty() {
+        if self.seed_pending || self.awaiting_seed || text.is_empty() {
             // Held in the state: the seed's rewrite carries it.
             return;
         }
@@ -148,7 +152,7 @@ impl Writer {
     }
 
     fn maybe_compact(&mut self) {
-        if self.size <= self.compact_bytes.max(self.floor.saturating_mul(2)) {
+        if self.awaiting_seed || self.size <= self.compact_bytes.max(self.floor.saturating_mul(2)) {
             return;
         }
         let _ = self.compact();
@@ -190,13 +194,16 @@ impl Writer {
     /// while seeding leaves no ledger file and the next start seeds again. A rewrite that fails
     /// is tried again at every step ([`Writer::seed_pending`]), never replaced by appends.
     fn seed(&mut self) {
+        self.awaiting_seed = false;
         self.seed_pending = !self.compact();
     }
 
     /// Ends a step: a pending seed's rewrite again, else a compaction when one is due (`now`:
     /// at once, for a purge).
     fn settle(&mut self, now: bool) {
-        if self.seed_pending {
+        if self.awaiting_seed {
+            // The seed's rewrite carries everything held.
+        } else if self.seed_pending {
             self.seed_pending = !self.compact();
         } else if now {
             let _ = self.compact();
@@ -249,8 +256,9 @@ impl Writer {
                         self.repo(sid, &cwd);
                     }
                     Work::Seed => {
-                        // Lines queued before it are in the state the seed writes.
-                        self.write(&std::mem::take(&mut text));
+                        // Lines queued before it are in the state the seed writes: none is
+                        // appended first, so the file is the whole rewrite or nothing.
+                        text.clear();
                         self.seed();
                     }
                     #[cfg(test)]
@@ -297,6 +305,7 @@ pub(crate) fn spawn_writer(
     path: PathBuf,
     size: u64,
     compact_bytes: u64,
+    awaiting_seed: bool,
     state: Arc<Mutex<State>>,
 ) -> Option<(Sender<Work>, WriterThread)> {
     let (tx, rx) = std::sync::mpsc::channel();
@@ -310,6 +319,7 @@ pub(crate) fn spawn_writer(
         floor: 0,
         written_upto: 0,
         seed_pending: false,
+        awaiting_seed,
         state,
     };
     let spawned = std::thread::Builder::new().name("acpmux-ledger".into()).spawn(move || {

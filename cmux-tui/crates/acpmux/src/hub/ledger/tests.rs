@@ -769,3 +769,88 @@ fn a_failed_seed_rewrite_leaves_no_partial_ledger() {
     assert_eq!(l.query(&all(D0, D0)).totals.turns, 4);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A first start writes nothing before its seed: a watcher's turn while the store loads would
+/// otherwise make a file that reads as a ledger, and a crash before the seed's rewrite landed
+/// would skip the seed for good. The seed's rewrite carries the held turn.
+#[test]
+fn a_first_start_writes_nothing_before_its_seed() {
+    let dir = scratch("seed-holds");
+    let path = dir.join(store::FILE);
+    let l = Ledger::open_as(Some(dir.clone()), COMPACT_BYTES, "leo@test".into(), true);
+    turn(&l, "live", D0 + 100, 0, json!({"costUsd": 0.5}), "claude", "claude");
+    l.flush();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    assert!(text.is_empty(), "{text}");
+    // A crash here: the next start still seeds.
+    assert!(Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into()).wants_seed());
+    l.seed(vec![Seed {
+        id: "old".into(),
+        at: D0 + 5,
+        turns: 2,
+        totals: TurnUsage { cost_usd: Some(1.0), ..Default::default() },
+        ctx: TurnContext { model: Some("claude-opus-5-5".into()), ..ctx("claude", "claude") },
+    }]);
+    l.flush();
+    drop(l);
+    let after = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    assert!(!after.wants_seed());
+    let t = after.query(&all(D0, D0)).totals;
+    assert_eq!(t.turns, 3);
+    assert!((t.cost_usd - 1.5).abs() < 1e-9);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A first start with nothing to seed still ends the hold: later turns reach the file.
+#[test]
+fn an_empty_seed_ends_the_hold() {
+    let dir = scratch("seed-empty");
+    let l = Ledger::open_as(Some(dir.clone()), COMPACT_BYTES, "leo@test".into(), true);
+    l.seed(Vec::new());
+    turn(&l, "a", D0, 0, json!({"costUsd": 0.5}), "claude", "claude");
+    l.flush();
+    drop(l);
+    let after = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    assert!(!after.wants_seed());
+    assert_eq!(after.query(&all(D0, D0)).totals.turns, 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A deleted chat's late record, after a new chat took its id, neither counts nor removes the
+/// new chat's spend: the old chat's own flag is read under the ledger's lock.
+#[test]
+fn a_deleted_chats_late_record_leaves_its_replacement_alone() {
+    let l = mem();
+    let c = || ctx("claude", "claude");
+    let old = AtomicBool::new(false);
+    let new = AtomicBool::new(false);
+    let r = |l: &Ledger, gone: &AtomicBool, kind: &str, at: u64, msg: Value| {
+        let dir = match kind {
+            "user_message" => "out",
+            "tool_call" => "in",
+            _ => "mux",
+        };
+        l.record_as("same", Some(gone), &rec(dir, kind, at, msg), c);
+    };
+    r(&l, &old, "user_message", D0, json!({"text": "go"}));
+    r(&l, &old, "turn_started", D0 + 1_000, json!({}));
+    // Deleted (`Hub::kill` sets the flag, then purges), then created again under the same id.
+    old.store(true, Ordering::SeqCst);
+    l.purge("same");
+    l.reopen("same");
+    r(&l, &new, "user_message", D0 + 60_000, json!({"text": "go"}));
+    r(&l, &new, "turn_started", D0 + 61_000, json!({}));
+    // The old chat's paused watcher resumes: a tool call and a result.
+    r(&l, &old, "tool_call", D0 + 62_000, json!({}));
+    r(&l, &old, "turn_result", D0 + 63_000, json!({"costUsd": 5.0}));
+    assert!(l.lock().open.contains_key("same"), "the new chat's turn is still open");
+    r(&l, &new, "turn_result", D0 + 71_000, json!({"costUsd": 1.0}));
+    let t = l.query(&all(D0, D0)).totals;
+    assert_eq!(t.turns, 1);
+    assert!((t.cost_usd - 1.0).abs() < 1e-9, "{}", t.cost_usd);
+    // The new chat keeps counting.
+    r(&l, &new, "user_message", D0 + 80_000, json!({"text": "go"}));
+    r(&l, &new, "turn_started", D0 + 81_000, json!({}));
+    r(&l, &new, "turn_result", D0 + 90_000, json!({"costUsd": 1.0}));
+    assert_eq!(l.query(&all(D0, D0)).totals.turns, 2);
+}
