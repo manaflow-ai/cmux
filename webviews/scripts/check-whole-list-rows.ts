@@ -32,7 +32,16 @@ const baselinePath = path.join(root, "scripts/whole-list-rows-baseline.tsv");
 const MARKER = /\/\/\s*whole-list-ok:\s*\S/;
 const ROW_NAME = /^[A-Z]\w*(?:Row|Item|Card|Cell)$/;
 /** Names that always mean a whole collection of the app's sessions, asks, workspaces or panes. */
-export const WHOLE_LISTS = new Set(["sessions", "allSessions", "sessionList", "asks", "workspaces", "panes", "allRows", "allItems"]);
+export const WHOLE_LISTS = new Set([
+  "sessions",
+  "allSessions",
+  "sessionList",
+  "asks",
+  "workspaces",
+  "panes",
+  "allRows",
+  "allItems",
+]);
 /**
  * Names that are a whole list only when read off the app's snapshot (`snapshot.rows`) or bound from a store
  * subscription (`useSyncExternalStore`, `useContext`): elsewhere `rows` and `items` are usually a group's own
@@ -121,11 +130,7 @@ function hookName(node: ts.Expression): string | undefined {
     node = node.expression;
   if (!ts.isCallExpression(node)) return undefined;
   const callee = node.expression;
-  const name = ts.isIdentifier(callee)
-    ? callee.text
-    : ts.isPropertyAccessExpression(callee)
-      ? callee.name.text
-      : "";
+  const name = ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : "";
   return /^use[A-Z]/.test(name) ? name : undefined;
 }
 
@@ -194,10 +199,9 @@ export function findWholeListRows(file: string, text: string): string[] {
   return [...hits].sort((a, b) => a - b).map((at) => `${name}:${at + 1}`);
 }
 
-export function readBaseline(text = existsSync(baselinePath) ? readFileSync(baselinePath, "utf8") : ""): Map<
-  string,
-  number
-> {
+export function readBaseline(
+  text = existsSync(baselinePath) ? readFileSync(baselinePath, "utf8") : "",
+): Map<string, number> {
   return new Map(
     text
       .split("\n")
@@ -233,7 +237,9 @@ export function compareToBaseline(
     const before = baseline.get(file) ?? 0;
     if (!found.has(file) && !exists(file)) continue;
     if (now > before)
-      grew.push(`  ${file}: ${now} whole-list reads in rows, baseline ${before}\n    ${found.get(file)!.join("\n    ")}`);
+      grew.push(
+        `  ${file}: ${now} whole-list reads in rows, baseline ${before}\n    ${found.get(file)!.join("\n    ")}`,
+      );
     else if (now < before) shrank.push(`  ${file}: ${now} whole-list reads in rows, baseline ${before}`);
   }
   return { grew, shrank };
@@ -245,7 +251,11 @@ export function scanSources(directory = path.join(root, "src")): Map<string, str
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const file = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      if (!["node_modules", "generated", "fixtures", "gallery", "prototype", "prototypes", "__tests__"].includes(entry.name))
+      if (
+        !["node_modules", "generated", "fixtures", "gallery", "prototype", "prototypes", "__tests__"].includes(
+          entry.name,
+        )
+      )
         for (const [k, v] of scanSources(file)) found.set(k, v);
     } else if (/\.tsx$/.test(entry.name) && !/[._](?:test|spec|gallery|stories)\.tsx$/.test(entry.name)) {
       const reads = findWholeListRows(file, readFileSync(file, "utf8"));
@@ -283,7 +293,5 @@ if (import.meta.main) {
   }
   if (grew.length || shrank.length) process.exitCode = 1;
   else
-    console.log(
-      `Whole-list row reads checked (${[...counts.values()].reduce((a, b) => a + b, 0)} on the baseline).`,
-    );
+    console.log(`Whole-list row reads checked (${[...counts.values()].reduce((a, b) => a + b, 0)} on the baseline).`);
 }
