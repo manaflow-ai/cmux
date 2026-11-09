@@ -31,6 +31,7 @@ import { TextAttachmentCard } from "./TextAttachmentCard";
 import { pastedSize } from "./textAttachmentCardModel";
 import { ATTACHMENT_LABELS, imageShape, type PendingAttachment } from "./attachmentIntakeModel";
 import { RemoveGlyph } from "./RemoveGlyph";
+import { chipRef } from "../conversation/sendMorph";
 import { PasteLoadingMark } from "./pasteLoading";
 import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 
@@ -128,6 +129,9 @@ export function AttachmentStrip({
           key={attachment.id}
           className="acpmux-attachment-slot"
           data-attachment-index={index}
+          // Where its chip is when the prompt goes: sent from the latest row, it moves from there
+          // to its slot in the message (conversation/sendMorph.ts).
+          ref={chipRef(attachment.id)}
           data-dragging={reorder.dragging === attachment.id || undefined}
         >
           <AttachmentChip

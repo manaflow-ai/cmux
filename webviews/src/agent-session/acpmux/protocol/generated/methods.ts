@@ -64,6 +64,7 @@ export interface AcpmuxRequests {
   "_acpmux/forum/rules": { params: ForumRulesParams; result: unknown };
   "_acpmux/set_tools": { params: SetToolsParams; result: unknown };
   "_acpmux/set_directories": { params: unknown; result: unknown };
+  "_acpmux/project_new": { params: unknown; result: unknown };
   "_acpmux/mcp/reconnect": { params: McpReconnectParams; result: unknown };
   "_acpmux/subagent_stop": { params: SubagentStopParams; result: unknown };
   "_acpmux/subagent_transcript": { params: SubagentTranscriptParams; result: unknown };
@@ -135,6 +136,7 @@ export interface AcpmuxRequests {
   "_acpmux/history": { params: unknown; result: unknown };
   "_acpmux/session_search": { params: unknown; result: unknown };
   "_acpmux/complete": { params: unknown; result: unknown };
+  "_acpmux/hunk_summary": { params: unknown; result: unknown };
   "_acpmux/wait": { params: unknown; result: unknown };
   "_acpmux/watch_add": { params: unknown; result: unknown };
   "_acpmux/watch_ls": { params: unknown; result: unknown };
@@ -406,6 +408,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/forum/rules", kind: "request", acp: false, typed: true },
   { name: "_acpmux/set_tools", kind: "request", acp: false, typed: true },
   { name: "_acpmux/set_directories", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/project_new", kind: "request", acp: false, typed: false },
   { name: "_acpmux/mcp/reconnect", kind: "request", acp: false, typed: true },
   { name: "_acpmux/subagent_stop", kind: "request", acp: false, typed: true },
   { name: "_acpmux/subagent_transcript", kind: "request", acp: false, typed: true },
@@ -478,6 +481,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/history", kind: "request", acp: false, typed: false },
   { name: "_acpmux/session_search", kind: "request", acp: false, typed: false },
   { name: "_acpmux/complete", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/hunk_summary", kind: "request", acp: false, typed: false },
   { name: "_acpmux/wait", kind: "request", acp: false, typed: false },
   { name: "_acpmux/watch_add", kind: "request", acp: false, typed: false },
   { name: "_acpmux/watch_ls", kind: "request", acp: false, typed: false },

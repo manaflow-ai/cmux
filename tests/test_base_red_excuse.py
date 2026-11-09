@@ -1826,6 +1826,24 @@ class StatusOnlyChecks(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "which tested cccccccccccc"):
             self.judge()
 
+    def test_a_fast_gates_red_is_the_prs_own_and_never_compared_by_the_dispatch_head(self):
+        """2026-11-09, cmux#38640: a dispatched cmux-next-fast-gates.yml run tests the PR head merged into the
+        feat-cmux-next tip, so its head_sha is the tip. The refusal read "its status links run 42644887804, which
+        tested 144fbacf8328, not 6115...", as if the run tested another commit. A fast-gates red is never a base red:
+        it is refused as the PR's own, naming the base it ran on and the run, before any head_sha comparison."""
+        self.status = {"context": excuse.FAST_GATES_STATUS, "state": "failure",
+                       "target_url": f"https://github.com/{REPO}/actions/runs/10", "description": f"base {BASE_SHA}"}
+        self.head_run = {"id": 10, "workflow_id": 7, "head_sha": BASE_SHA, "event": "workflow_dispatch",
+                         "display_title": "cmux-next fast gates"}
+        with self.assertRaises(excuse.Refused) as refused:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[excuse.FAST_GATES_STATUS])
+        why = str(refused.exception)
+        self.assertIn("the pull request's own", why)
+        self.assertIn(f"base {BASE_SHA[:12]}", why)
+        self.assertIn("run 10", why)
+        self.assertNotIn("which tested", why)
+        self.assertFalse([r for r in self.gh.routes if r.endswith("/actions/runs/10")])  # the status decides
+
     def test_a_status_whose_run_has_no_such_job_is_refused_with_its_description(self):
         # same-tree-cmux-tui posts a failure when the tree is unavailable: no daemon tests ran.
         self.gh.jobs.pop(1)
@@ -2543,6 +2561,79 @@ class WebviewTestReplayPerTest(unittest.TestCase):
         text = self.judge(gh)
         self.assertIn(f"excused '{HEAD_SHARD}'", text)
         self.assertIn("(feat-cmux-next run 40)", text)
+
+
+def cut_short_log(*results, running=()):
+    """A head shard's log as GitHub keeps it after a cancel mid-run (cmux#39676's `web / react-apps-check (1)`): live
+    START / PASS / FAIL lines only, then the cancel, with no `##[group]FAIL` log and no closing summary. RESULTS are
+    (file, PASS|FAIL|TIMEOUT); RUNNING the files started and never finished."""
+    lines = []
+    for name, result in results:
+        lines += [f"START {name} (hard limit 120s)", f"{result} {name} (raw log retained for the final bounded summary)"]
+    lines += [f"START {name} (hard limit 51s)" for name in running]
+    lines += ["##[error]The operation was canceled.", "Terminate orphan process: pid (203461) (bun)"]
+    return "\n".join(f"2026-11-09T19:24:25.9168732Z {line}" for line in lines)
+
+
+class CancelledWebShardPerFile(unittest.TestCase):
+    """A head shard cancelled or timed out mid-run is judged per file against the base's webview runs: cmux#39676's
+    `web / react-apps-check (1)` was cancelled after 31 min while every file it failed fails on feat-cmux-next too, and
+    was refused as having no verdict (claude-sr2-coord, 2026-11-09)."""
+
+    def gh(self, log, conclusion="cancelled"):
+        gh = WebReplayGitHub()
+        del gh.jobs[1]
+        gh.jobs[3].update(conclusion=conclusion)
+        gh.jobs[3]["steps"][-1]["conclusion"] = "cancelled"
+        gh.logs[3] = log
+        return gh
+
+    def judge(self, gh):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh))
+
+    def test_a_cancelled_shard_whose_red_files_all_fail_on_the_base_is_a_base_red(self):
+        text = self.judge(self.gh(cut_short_log((FOOTER, "PASS"), (CAPSULES, "FAIL"))))
+        self.assertIn(f"excused '{HEAD_SHARD}': cancelled mid-run", text)
+        self.assertIn(f"{CAPSULES} (feat-cmux-next run 40)", text)
+
+    def test_the_file_running_at_the_cancel_counts_as_red_and_must_fail_on_the_base(self):
+        # cmux#39676: the cancel came during composer-plus-geometry's retry.
+        text = self.judge(self.gh(cut_short_log((FOOTER, "PASS"), running=[CAPSULES]), conclusion="timed_out"))
+        self.assertIn(f"excused '{HEAD_SHARD}': timed_out mid-run", text)
+        with self.assertRaisesRegex(excuse.Refused, re.escape(f"1 red file(s) pass or do not run on feat-cmux-next "
+                                                              f"run 40: {FOOTER}")):
+            self.judge(self.gh(cut_short_log((CAPSULES, "FAIL"), running=[FOOTER])))
+
+    def test_one_red_file_the_base_does_not_fail_is_its_own(self):
+        with self.assertRaisesRegex(excuse.Refused, re.escape(f"'{HEAD_SHARD}' is cancelled; judged per file")
+                                    + ".*" + re.escape(f"pass or do not run on feat-cmux-next run 40: {FOOTER}")):
+            self.judge(self.gh(cut_short_log((CAPSULES, "FAIL"), (FOOTER, "FAIL"))))
+
+    def test_a_file_that_passed_its_retry_is_a_pass(self):
+        text = self.judge(self.gh(cut_short_log((FOOTER, "FAIL"), (CAPSULES, "FAIL"), (FOOTER, "PASS"))))
+        self.assertIn(f"excused '{HEAD_SHARD}'", text)
+        self.assertNotIn(FOOTER, text)
+
+    def test_a_cancelled_shard_whose_log_names_no_red_file_still_has_no_verdict(self):
+        with self.assertRaisesRegex(excuse.Refused, "is cancelled: it has no verdict to compare with the base"):
+            self.judge(self.gh(cut_short_log((FOOTER, "PASS"), (CAPSULES, "PASS"))))
+
+    def test_a_file_that_timed_out_on_the_head_is_its_own(self):
+        with self.assertRaisesRegex(excuse.Refused, "timed out \\(a cut-short file is never a base red\\)"):
+            self.judge(self.gh(cut_short_log((CAPSULES, "FAIL"), (FOOTER, "TIMEOUT"))))
+
+    def test_a_shard_cancelled_outside_its_test_step_still_has_no_verdict(self):
+        gh = self.gh(cut_short_log((CAPSULES, "FAIL")))
+        gh.jobs[3]["steps"].insert(1, {"name": "Install webview dependencies", "status": "completed",
+                                       "conclusion": "cancelled"})
+        with self.assertRaisesRegex(excuse.Refused, "it has no verdict to compare with the base"):
+            self.judge(gh)
+
+    def test_a_green_base_run_ends_the_window(self):
+        gh = self.gh(cut_short_log((CAPSULES, "FAIL")))
+        gh.add_base_run(50, "2026-11-07T12:00:00Z", {7: (1, None), 8: (2, None)})
+        with self.assertRaisesRegex(excuse.Refused, "every webview test passed on feat-cmux-next run 50"):
+            self.judge(gh)
 
 
 SIGNED_HOST = "signed host admission"
