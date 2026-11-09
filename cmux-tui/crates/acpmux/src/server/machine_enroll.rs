@@ -14,9 +14,6 @@ use crate::cli::cloud_join::{EnrollOutcome, EnrollRequest};
 use crate::hub::Hub;
 use crate::rpc::RpcError;
 
-/// The capability id the app checks before it asks.
-pub(crate) const CAPABILITY: &str = "machine-enroll-v1";
-
 /// The local app's socket only: never a peer, a phone or a web page.
 fn local(conn: &Conn, method: &str) -> Result<(), RpcError> {
     if conn.origin != Origin::Local || conn.origin.web_class() {
