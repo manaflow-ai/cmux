@@ -71,10 +71,13 @@ enum DebugAgentPane {
     /// `click` delivers a real click): the relay then treats a folder the verb names, a send, a
     /// pick or an answer as the user's, and automation reaches what a person sees (the trust
     /// question, not `transport.path_outside_roots`; cx-nn3e P0b). Measuring verbs record none.
+    /// `answer_permission` records a click, as the card's Allow once is one: the relay lets a
+    /// permission answer through only on a fresh click (cx-ocdz, `hasFreshAnswerGesture`), and a
+    /// typing-class gesture left every scripted answer refused (`transport.gesture_required`).
     static let userVerbs: Set<String> = ["new_chat", "send_prompt", "select_session", "answer_permission", "pick_folder", "compose_send", "run_mode"]
 
     static func actAsUser(_ action: String, gestures: AgentPaneUserGestures) {
-        if userVerbs.contains(action) { gestures.record() }
+        if userVerbs.contains(action) { gestures.record(click: action == "answer_permission") }
     }
 
     /// Runs `fn(...args)` on the page and returns its result as JSON text. A page still loading

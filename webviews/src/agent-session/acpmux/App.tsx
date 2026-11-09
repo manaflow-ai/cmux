@@ -6500,6 +6500,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // holds no pick of another harness either (review of #37196: it drew the hold, then sent
       // the message to this chat).
       ...(quick && { canHandoff: false }),
+      // Cloud picked: the first send starts the chat on a Cloud machine, which decides its mode.
+      ...(cloudPicked && { startsOnCloud: true as const }),
     };
     // Prompts still waiting for a new chat to take them follow acpmux's queue, then the prompts the
     // folder's trust holds (trustHeld.ts).
@@ -6522,6 +6524,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     sidePlace,
     quick,
     keptStopping,
+    cloudPicked,
   ]);
   // What the composer draws from: the same object while nothing it shows changed (composer/composerView.ts),
   // so a tool call or another row added to the transcript does not draw the composer again.
