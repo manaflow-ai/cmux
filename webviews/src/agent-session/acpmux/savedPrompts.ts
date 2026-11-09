@@ -201,6 +201,10 @@ const pad = (value: number) => String(value).padStart(2, "0");
 
 /// `text` with the variables the chat knows filled in, and the first one left (its range in the
 /// result), which the composer selects so typing replaces it.
+/// Where the word the caret at `at` sits in ends: a saved prompt picked from `/sta|ndup` replaces the
+/// whole `/standup`, as a command's completion does.
+export const wordEnd = (value: string, at: number): number => at + (/^\S*/.exec(value.slice(at))?.[0].length ?? 0);
+
 export function fillPrompt(text: string, context: PromptContext): { text: string; open?: [number, number] } {
   const now = context.now ?? new Date();
   const folder = context.cwd?.replace(/\/+$/, "").split("/").pop() || undefined;

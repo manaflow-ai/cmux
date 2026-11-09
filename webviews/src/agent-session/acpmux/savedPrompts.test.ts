@@ -12,6 +12,7 @@ import {
   suggestedName,
   savedPromptsNow,
   withPrompt,
+  wordEnd,
   type SavedPrompt,
 } from "./savedPrompts";
 import { returnPicks, slashMatches } from "./slashCommands";
@@ -172,5 +173,10 @@ describe("saved prompts", () => {
     lists.shift()!({ prompts: daemon });
     await read;
     expect(savedPromptsNow().map((prompt) => prompt.name)).toEqual(["fresh"]);
+  });
+  test("a pick mid-word replaces the whole /word", () => {
+    expect(wordEnd("/standup later", 4)).toBe(8);
+    expect(wordEnd("/sta", 4)).toBe(4);
+    expect(wordEnd("say /st\nmore", 7)).toBe(7);
   });
 });

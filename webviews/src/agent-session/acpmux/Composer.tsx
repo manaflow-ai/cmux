@@ -167,7 +167,7 @@ import { COMPOSER_LABELS } from "./composerModel";
 import { moveStash, useNewChatStash } from "./composer/draftStash";
 import { isStashKey, useDraftStash } from "./composer/useDraftStash";
 import { StashedChip } from "./composer/StashedChip";
-import { fillPrompt, refreshSavedPrompts, savedPromptCommands, useSavedPrompts } from "./savedPrompts";
+import { fillPrompt, refreshSavedPrompts, savedPromptCommands, useSavedPrompts, wordEnd } from "./savedPrompts";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -1406,8 +1406,8 @@ function ComposerFrame({
     const filled = fillPrompt(body, { cwd: snapshot.summary?.cwd, branch: snapshot.summary?.branch });
     const plain = field.current?.text();
     if (plain && typedSlash) {
-      const end = plain.selectionStart;
-      const start = Math.max(0, end - typedSlash.length);
+      const start = Math.max(0, plain.selectionStart - typedSlash.length);
+      const end = wordEnd(plain.value, plain.selectionStart);
       const value = plain.value.slice(0, start) + filled.text + plain.value.slice(end);
       const [from, to] = filled.open ?? [filled.text.length, filled.text.length];
       field.current?.writeText(value, start + from, start + to);

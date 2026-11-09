@@ -117,7 +117,7 @@ import { useMenuPressGuard } from "../menuPressGuard";
 import { useMinuteClock } from "../clock";
 import { usePasteAnywhere } from "../composer/pasteAnywhere";
 import { SlashMenu } from "../SlashMenu";
-import { fillPrompt, refreshSavedPrompts, savedPromptCommands, useSavedPrompts } from "../savedPrompts";
+import { fillPrompt, refreshSavedPrompts, savedPromptCommands, useSavedPrompts, wordEnd } from "../savedPrompts";
 import { NEW_TAB_STASH } from "../composer/draftStash";
 import { StashedChip } from "../composer/StashedChip";
 import { isStashKey, useDraftStash } from "../composer/useDraftStash";
@@ -958,8 +958,8 @@ export function NewTabScreen(props: Props) {
       const filled = fillPrompt(command.body ?? "", { cwd: chatFolder });
       const plain = field.current?.text();
       if (plain && commandAt) {
-        const end = plain.selectionStart;
-        const start = Math.max(0, end - commandAt.length);
+        const start = Math.max(0, plain.selectionStart - commandAt.length);
+        const end = wordEnd(plain.value, plain.selectionStart);
         const [from, to] = filled.open ?? [filled.text.length, filled.text.length];
         field.current?.writeText(
           plain.value.slice(0, start) + filled.text + plain.value.slice(end),
