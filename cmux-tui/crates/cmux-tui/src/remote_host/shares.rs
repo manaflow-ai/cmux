@@ -177,7 +177,11 @@ pub(super) fn allowable(config: &config::Config, login: &str) -> anyhow::Result<
 /// The running daemon's boot id, or `None` when it cannot be read.
 pub(super) fn generation(config: &config::Config) -> Option<String> {
     let identify = daemon(config, &json!({"cmd": "identify"})).ok()?;
-    identify["data"]["generation"].as_str().filter(|g| !g.is_empty()).map(str::to_owned)
+    identify
+        .pointer("/data/generation")
+        .and_then(serde_json::Value::as_str)
+        .filter(|g| !g.is_empty())
+        .map(str::to_owned)
 }
 
 /// The daemon's boot and the surface's current agent session, over the same-user socket. A
