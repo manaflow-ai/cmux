@@ -126,7 +126,8 @@ pub fn agent_declaration() -> Map<String, Value> {
 pub const OLD_CLI_REASON: &str = "caller.old_client";
 
 /// The refusal of a verb only the person's own terminal may use, to an old acpmux CLI that proves
-/// no caller: it names the client and says which CLI to run instead.
+/// no caller: it names the client and says which CLI to run instead. The daemon does not know the
+/// old client's locale, so the text is English, then Japanese.
 pub fn old_cli_refused(client: &str, what: &str) -> crate::rpc::RpcError {
     let daemon = crate::hub::VERSION;
     crate::rpc::RpcError::new(
@@ -134,7 +135,11 @@ pub fn old_cli_refused(client: &str, what: &str) -> crate::rpc::RpcError {
         format!(
             "{client} is older than this acpmux daemon ({daemon}) and does not say who runs it, so \
              {what} is refused: run the daemon's own acpmux (in an agent session: \"$ACPMUX_BIN\"; \
-             `acpmux daemon status` names its path), or update the one on your PATH"
+             `acpmux daemon status` names its path), or update the one on your PATH. / \
+             {client} はこの acpmux デーモン ({daemon}) より古く、だれが実行しているかを伝えないため、\
+             この操作は拒否されました。デーモン自身の acpmux を実行してください \
+             (エージェントのセッションでは \"$ACPMUX_BIN\"、パスは `acpmux daemon status` で確認できます)。\
+             または PATH 上の acpmux を更新してください。"
         ),
     )
     .with_data(json!({"reason": OLD_CLI_REASON, "client": client, "daemonVersion": daemon}))
@@ -177,5 +182,14 @@ mod tests {
         // An unknown kind fails closed.
         let odd = json!({"_meta": {"acpmux": {"callerProtocol": 1, "callerKind": "robot"}}});
         assert_eq!(of_initialize(&odd), Some(Declared::Agent));
+    }
+
+    #[test]
+    fn the_old_cli_refusal_names_the_client_and_the_fix_in_english_and_japanese() {
+        let e = old_cli_refused("acpmux-cli 0.1.0", "changing a session's turn cap");
+        assert!(e.message.contains("acpmux-cli 0.1.0 is older than this acpmux daemon"), "{e:?}");
+        assert!(e.message.contains("\"$ACPMUX_BIN\""), "{e:?}");
+        assert!(e.message.contains("より古く"), "{e:?}");
+        assert_eq!(e.data.unwrap()["reason"], OLD_CLI_REASON);
     }
 }
