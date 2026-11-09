@@ -389,6 +389,27 @@ test("Endpoint: another preset or URL after Fetch Models starts over: the fetche
   page.unmount();
 });
 
+test("Endpoint: a key typed for one URL is dropped when the URL changes, so it never goes to another", async () => {
+  const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
+  const form = () => endpointForm(page.container);
+  await changeValue(form().querySelector("select")!, "hosted");
+  await settle();
+  await changeValue(endpointInput(form(), "baseUrl")!, "https://api.example.com/v1");
+  await changeValue(endpointInput(form(), "models")!, "m");
+  await changeValue(endpointInput(form(), "apiKey")!, "hosted-key");
+  await changeValue(endpointInput(form(), "baseUrl")!, "https://api.other.dev/v1");
+  await settle();
+  expect(endpointInput(form(), "apiKey")!.value).toBe("");
+  expect(form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.disabled).toBe(true);
+  await changeValue(endpointInput(form(), "apiKey")!, "other-key");
+  await act(async () => form().querySelector<HTMLButtonElement>("[data-endpoint-add]")!.click());
+  await settle();
+  const adds = ops(page.provider, "cmux.chief.backend.add") as Record<string, unknown>[];
+  expect(adds).toHaveLength(1);
+  expect(adds[0]).toMatchObject({ baseUrl: "https://api.other.dev/v1", apiKey: "other-key" });
+  page.unmount();
+});
+
 test("Endpoint: a URL change after a failed check removes that add before the next one", async () => {
   const page = await renderPage({ path: "/settings/agents?focus=agents.endpoint" });
   const form = () => endpointForm(page.container);

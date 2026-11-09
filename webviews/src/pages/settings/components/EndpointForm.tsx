@@ -21,6 +21,7 @@ import {
   endpointProblemAt,
   failureText,
   fetchEndpointModels,
+  patchDraft,
   addedTarget,
   type AddTarget,
   type EndpointBackend,
@@ -113,7 +114,8 @@ export function EndpointForm({ done }: { done: () => void }) {
   };
   const change = (patch: Partial<EndpointDraft>) => {
     if (patch.baseUrl !== undefined && patch.baseUrl !== draft.baseUrl) startOver();
-    setDraft((before) => ({ ...before, ...patch }));
+    // Another URL also drops the typed key (`patchDraft`).
+    setDraft((before) => patchDraft(before, patch));
   };
   const pick = (id: EndpointPresetId) => {
     startOver();

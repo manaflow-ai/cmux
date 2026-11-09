@@ -59,6 +59,20 @@ fn load(path: &Path, id: &str) -> (HarnessProfile, ProfileMeta) {
     }
 }
 
+/// The account of a profile's own generation item (`<id>/<KEY>.<generation>`) its env names.
+fn own_account(profile: &HarnessProfile, id: &str, key: &str) -> String {
+    let value = &profile.env[key];
+    let account = value
+        .strip_prefix("${keychain:cmux-harness/")
+        .and_then(|rest| rest.strip_suffix('}'))
+        .unwrap_or_else(|| panic!("{key} names no item of cmux's own: {value}"));
+    let generation = account
+        .strip_prefix(&format!("{id}/{key}."))
+        .unwrap_or_else(|| panic!("not {id}'s own generation item: {account}"));
+    assert!(!generation.is_empty() && generation.chars().all(|c| c.is_ascii_hexdigit()));
+    account.to_owned()
+}
+
 fn config(id: &str, profile: HarnessProfile, meta: ProfileMeta) -> Config {
     let mut cfg = Config::default();
     cfg.harnesses.insert(id.into(), profile);
@@ -146,8 +160,9 @@ fn byo_endpoint_openai_profile_configures_opencode_with_a_keychain_key() {
     assert_eq!(profile.kind, HarnessKind::Acp);
     assert_eq!(profile.argv, vec!["opencode".to_owned(), "acp".to_owned()]);
     assert_eq!(profile.model.as_deref(), Some("byo/org/model-7b"));
-    let item = crate::cli::harness_secret::reference("acme-oai", OPENAI_KEY_ENV);
-    assert_eq!(profile.env[OPENAI_KEY_ENV], format!("${{keychain:{item}}}"));
+    let account = own_account(&profile, "acme-oai", OPENAI_KEY_ENV);
+    assert!(seen.lock().unwrap()[0].0.contains(&account), "stored in another item than it names");
+    assert_eq!(reply["secret"]["keychainItem"], json!(format!("cmux-harness/{account}")));
     assert_eq!(Kind::of_env(&profile.env), Some(Kind::OpenAi));
     let config: Value = serde_json::from_str(&profile.env["OPENCODE_CONFIG_CONTENT"]).unwrap();
     let provider = &config["provider"]["byo"];
@@ -342,20 +357,27 @@ fn byo_endpoint_secret_set_stores_through_stdin_and_never_echoes() {
     let done = admin::secret_set("sec", "ANTHROPIC_AUTH_TOKEN", GOOD_KEY, &cfg, &store).unwrap();
     let reply = serde_json::to_string(&done).unwrap();
     assert!(!reply.contains(GOOD_KEY), "{reply}");
-    let item = crate::cli::harness_secret::reference("sec", "ANTHROPIC_AUTH_TOKEN");
     let reply: Value = serde_json::from_str(&reply).unwrap();
-    assert_eq!(reply["keychainItem"], json!(item), "{reply}");
     assert_eq!(reply["profile"], "written", "{reply}");
+    // An endpoint profile: the key goes to a new item of this profile's own, which it now names
+    // (never a shared `cmux-harness/sec/ANTHROPIC_AUTH_TOKEN` another profile or a backup reads).
+    let (profile, _) = load(&added.path, "sec");
+    let account = own_account(&profile, "sec", "ANTHROPIC_AUTH_TOKEN");
+    assert_eq!(reply["keychainItem"], json!(format!("cmux-harness/{account}")), "{reply}");
+    assert_eq!(profile.env["ANTHROPIC_BASE_URL"], "https://llm.example.com");
     {
         let seen = seen.lock().unwrap();
         assert_eq!(seen.len(), 1);
         assert!(seen[0].0.iter().all(|a| !a.contains(GOOD_KEY)), "the value is in argv");
+        assert!(seen[0].0.contains(&account), "{:?}", seen[0].0);
         assert!(seen[0].1.contains(GOOD_KEY), "the value goes on stdin");
     }
     let text = std::fs::read_to_string(&added.path).unwrap();
     assert!(!text.contains(GOOD_KEY));
-    let (profile, _) = load(&added.path, "sec");
-    assert_eq!(profile.env["ANTHROPIC_AUTH_TOKEN"], format!("${{keychain:{item}}}"));
+    // An endpoint has one key: another env name is refused, nothing stored.
+    let e = admin::secret_set("sec", "OTHER_KEY", GOOD_KEY, &cfg, &store).unwrap_err();
+    assert!(e.message().contains("ANTHROPIC_AUTH_TOKEN"), "{e}");
+    assert_eq!(seen.lock().unwrap().len(), 1);
 
     // A harness not added yet (the app stores an endpoint's key, then adds the profile that
     // names it): the item is stored and nothing is pointed at it yet.
@@ -926,8 +948,8 @@ fn byo_endpoint_concurrent_adds_of_one_id_store_one_key_under_its_own_profile() 
     assert!(log[0].contains(won[0]) && log[0].contains("race/CMUX_BYO_API_KEY"), "{log:?}");
     // The surviving profile names that one item: its own, by id.
     let (profile, _) = load(&root.join("harnesses").join("race.toml"), "race");
-    let item = crate::cli::harness_secret::reference("race", OPENAI_KEY_ENV);
-    assert_eq!(profile.env[OPENAI_KEY_ENV], format!("${{keychain:{item}}}"));
+    let account = own_account(&profile, "race", OPENAI_KEY_ENV);
+    assert!(log[0].contains(&account), "{log:?}");
 
     // An id another source has (a built-in) is refused too, before any key is stored.
     let (log, store) = recording(false);
@@ -970,15 +992,13 @@ fn byo_endpoint_a_keyed_add_keeps_or_rolls_back_its_profile() {
     .unwrap_err();
     assert!(e.message().contains("not stored") && !e.message().contains(GOOD_KEY), "{e}");
     assert!(!path.exists());
-    // A profile an older app wrote names `.../API_KEY`: a replace without a key keeps that item.
-    let old = params(
-        "openai-endpoint",
-        "team",
-        "https://api.example.com/v1",
-        "m",
-        Some("cmux-harness/team/API_KEY"),
-    );
-    add(&old, &src).unwrap();
+    // A profile an older app wrote names `.../API_KEY`: a replace without a key (same URL) keeps
+    // that item.
+    add(&params("openai-endpoint", "team", "https://api.example.com/v1", "m", Some("x/y")), &src)
+        .unwrap();
+    let text =
+        std::fs::read_to_string(&path).unwrap().replace("\"x/y\"", "\"cmux-harness/team/API_KEY\"");
+    std::fs::write(&path, text).unwrap();
     p.replace = true;
     p.models = vec!["m2".into()];
     add(&p, &src).unwrap();
@@ -1010,9 +1030,9 @@ async fn byo_endpoint_a_keyless_endpoint_names_no_key_and_its_env_resolves() {
     // Any program that is there: the env step comes after the command step.
     profile.argv[0] = fake_claude(&root).to_string_lossy().into_owned();
     let inline: Value = serde_json::from_str(&profile.env["OPENCODE_CONFIG_CONTENT"]).unwrap();
-    // apiKey names the env variable, never a value: a key stored later needs no config rewrite.
-    let api_key = format!("{{env:{OPENAI_KEY_ENV}}}");
-    assert_eq!(inline["provider"]["byo"]["options"]["apiKey"], json!(api_key), "{inline}");
+    // No apiKey at all: a CMUX_BYO_API_KEY in some env (the daemon's, a login shell's) never
+    // reaches a keyless endpoint.
+    assert!(inline["provider"]["byo"]["options"].get("apiKey").is_none(), "{inline}");
     // The doctor's env step (what startup resolves) passes with no Keychain at all.
     let cfg = config("local", profile, meta);
     let mut opts = options(GOOD_KEY, false);
@@ -1046,7 +1066,7 @@ async fn byo_endpoint_a_removed_endpoints_key_is_deleted_and_never_reused_by_a_f
     admin::remove("team", &cfg, &src, &home, Some(&forget)).unwrap();
     let forgot = forgot.into_inner().unwrap();
     assert_eq!(forgot.len(), 1, "{forgot:?}");
-    assert!(forgot[0].iter().any(|a| a == "team/CMUX_BYO_API_KEY"), "{forgot:?}");
+    assert!(forgot[0].iter().any(|a| a.starts_with("team/CMUX_BYO_API_KEY.")), "{forgot:?}");
     assert!(forgot[0].iter().all(|a| !a.contains(GOOD_KEY)));
     // A fresh add of the same id without a key (another URL) names no item, even if one were left,
     // and its `*` is asked for without any key: no lookup at all.
@@ -1190,30 +1210,28 @@ fn byo_endpoint_an_add_never_writes_over_another_sources_id_even_with_replace() 
 }
 
 #[test]
-fn byo_endpoint_a_cli_add_then_secret_set_sends_the_key_with_no_config_rewrite() {
+fn byo_endpoint_a_cli_add_then_secret_set_sends_the_key_to_that_endpoint_only() {
     // `cmux harness add ID --example openai-endpoint` (no key), then `cmux harness secret set ID
-    // CMUX_BYO_API_KEY`: the profile gains the Keychain reference, and the OpenCode config, which
-    // already reads the key from that env variable, sends it.
+    // CMUX_BYO_API_KEY`: the profile is written again with the same URL and models, naming a new
+    // item of its own, and its OpenCode config now reads the key (a keyless one reads none).
     let root = scratch("later");
     let p = params("openai-endpoint", "later", "https://api.example.com/v1", "m", None);
     let added = add(&p, &sources(&root)).unwrap();
     let (profile, meta) = load(&added.path, "later");
-    let config_before = profile.env.get("OPENCODE_CONFIG_CONTENT").cloned();
+    let inline: Value = serde_json::from_str(&profile.env["OPENCODE_CONFIG_CONTENT"]).unwrap();
+    assert!(inline["provider"]["byo"]["options"].get("apiKey").is_none(), "{inline}");
     let cfg = config("later", profile, meta);
-    let store = |_: &StoreCommand| -> anyhow::Result<()> { Ok(()) };
+    let (log, store) = recording(false);
     let done = admin::secret_set("later", OPENAI_KEY_ENV, GOOD_KEY, &cfg, &store).unwrap();
     assert_eq!(serde_json::to_value(&done).unwrap()["profile"], "written");
     let (profile, _) = load(&added.path, "later");
-    assert_eq!(
-        profile.env.get("OPENCODE_CONFIG_CONTENT").cloned(),
-        config_before,
-        "the config was rewritten"
-    );
+    let own = own_account(&profile, "later", OPENAI_KEY_ENV);
+    assert_eq!(profile.model.as_deref(), Some("byo/m"));
     // What the harness starts with: the env resolved (the Keychain answering), and the config's
-    // apiKey naming that variable.
+    // apiKey naming that variable, for the same base URL.
     let mut env = profile.env.clone();
     profiles::resolve_env_refs(&mut env, &|_| None, &|service, account| match (service, account) {
-        ("cmux-harness", Some("later/CMUX_BYO_API_KEY")) => Ok(GOOD_KEY.to_owned()),
+        ("cmux-harness", Some(a)) if a == own => Ok(GOOD_KEY.to_owned()),
         _ => Err("not found".into()),
     })
     .unwrap();
@@ -1221,9 +1239,23 @@ fn byo_endpoint_a_cli_add_then_secret_set_sends_the_key_with_no_config_rewrite()
     let inline: Value =
         serde_json::from_str(env.get("OPENCODE_CONFIG_CONTENT").map_or("{}", String::as_str))
             .unwrap();
-    assert_eq!(
-        inline["provider"]["byo"]["options"]["apiKey"],
-        json!(format!("{{env:{OPENAI_KEY_ENV}}}"))
+    let options = &inline["provider"]["byo"]["options"];
+    assert_eq!(options["apiKey"], json!(format!("{{env:{OPENAI_KEY_ENV}}}")));
+    assert_eq!(options["baseURL"], "https://api.example.com/v1");
+    // A second `secret set` (a new key) goes to yet another item, and the one it replaces is
+    // deleted: no item is ever written while a profile reads it.
+    let (profile, meta) = load(&added.path, "later");
+    let cfg = config("later", profile, meta);
+    admin::secret_set("later", OPENAI_KEY_ENV, BAD_KEY, &cfg, &store).unwrap();
+    let (profile, _) = load(&added.path, "later");
+    let newer = own_account(&profile, "later", OPENAI_KEY_ENV);
+    assert_ne!(newer, own);
+    let log = log.lock().unwrap();
+    assert_eq!(log.len(), 3, "{log:?}");
+    assert!(log[0].contains(&own) && log[1].contains(&newer) && log[1].contains(BAD_KEY));
+    assert!(
+        log[2].contains(&own) && log[2].ends_with("| "),
+        "the old item was not deleted: {log:?}"
     );
 }
 
@@ -1250,8 +1282,10 @@ fn byo_endpoint_remove_then_undo_brings_back_a_working_endpoint_with_its_key() {
     let restored = admin::restore(&removed.backup, &src, &home).unwrap();
     let (profile, _) = load(&restored.path, "team");
     let mut env = profile.env.clone();
+    let own = own_account(&profile, "team", OPENAI_KEY_ENV);
+    assert!(log.lock().unwrap()[0].contains(&own), "Undo names another item than was stored");
     profiles::resolve_env_refs(&mut env, &|_| None, &|service, account| match (service, account) {
-        ("cmux-harness", Some("team/CMUX_BYO_API_KEY")) => Ok(GOOD_KEY.to_owned()),
+        ("cmux-harness", Some(a)) if a == own => Ok(GOOD_KEY.to_owned()),
         _ => Err("not found".into()),
     })
     .unwrap();
@@ -1442,8 +1476,10 @@ fn byo_endpoint_no_reader_sees_a_profile_before_its_key_is_stored() {
     let mut again = params("openai-endpoint", "team", "https://two.example.com/v1", "m", None);
     again.replace = true;
     let during = std::sync::Mutex::new(String::new());
-    let store = |_: &StoreCommand| -> anyhow::Result<()> {
-        *during.lock().unwrap() = std::fs::read_to_string(&path).unwrap();
+    let store = |c: &StoreCommand| -> anyhow::Result<()> {
+        if !c.stdin.is_empty() {
+            *during.lock().unwrap() = std::fs::read_to_string(&path).unwrap();
+        }
         Ok(())
     };
     let key =
@@ -1459,4 +1495,189 @@ fn byo_endpoint_no_reader_sees_a_profile_before_its_key_is_stored() {
         admin::EndpointKey { value: Some(GOOD_KEY), store: &refuse, ..admin::EndpointKey::NONE };
     assert!(admin::add_endpoint_keyed(&fresh, &src, &key).is_err());
     assert!(!root.join("harnesses").join("other.toml").exists());
+}
+
+#[test]
+fn byo_endpoint_a_replace_stores_its_key_in_a_new_item_the_old_profile_never_reads() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = scratch("generation");
+    let src = sources(&root);
+    let dir = root.join("harnesses");
+    let path = dir.join("team.toml");
+    let (log, store) = recording(false);
+    let key = |value| admin::EndpointKey {
+        value: Some(value),
+        store: &store,
+        ..admin::EndpointKey::NONE
+    };
+    let p = params("openai-endpoint", "team", "https://one.example.com/v1", "m", None);
+    admin::add_endpoint_keyed(&p, &src, &key(GOOD_KEY)).unwrap();
+    let (profile, _) = load(&path, "team");
+    let first = own_account(&profile, "team", OPENAI_KEY_ENV);
+    // A replace with a new key at a new URL: the new key goes to a new item (the profile still
+    // there, at the old URL, reads its own item up to the rename), and the old item goes after.
+    let mut again = params("openai-endpoint", "team", "https://two.example.com/v1", "m", None);
+    again.replace = true;
+    admin::add_endpoint_keyed(&again, &src, &key(BAD_KEY)).unwrap();
+    let (profile, _) = load(&path, "team");
+    let second = own_account(&profile, "team", OPENAI_KEY_ENV);
+    assert_ne!(first, second);
+    {
+        let log = log.lock().unwrap();
+        assert_eq!(log.len(), 3, "{log:?}");
+        assert!(log[0].contains(&first) && log[0].contains(GOOD_KEY));
+        assert!(log[1].contains(&second) && log[1].contains(BAD_KEY));
+        assert!(!log[1].contains(&format!("{first} ")), "the old item was written: {log:?}");
+        assert!(log[2].contains(&first) && log[2].ends_with("| "), "{log:?}");
+    }
+    // A replace whose publish fails: its new item goes, and the profile there keeps naming its own
+    // item, which nothing wrote. (Skipped where a read-only folder is still writable: root.)
+    let before = std::fs::read_to_string(&path).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let writable = std::fs::write(dir.join("probe"), "").is_ok();
+    if !writable {
+        let mut third =
+            params("openai-endpoint", "team", "https://three.example.com/v1", "m", None);
+        third.replace = true;
+        log.lock().unwrap().clear();
+        assert!(admin::add_endpoint_keyed(&third, &src, &key(GOOD_KEY)).is_err());
+        let log = log.lock().unwrap();
+        assert_eq!(log.len(), 2, "{log:?}");
+        let staged = log[0].split(' ').find(|a| a.starts_with("team/")).unwrap().to_owned();
+        assert_ne!(staged, second);
+        assert!(log[1].contains(&staged) && log[1].ends_with("| "), "not rolled back: {log:?}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    }
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn byo_endpoint_a_replace_keeps_the_key_only_for_the_same_url_and_kind() {
+    let root = scratch("sameurl");
+    let src = sources(&root);
+    let path = root.join("harnesses").join("team.toml");
+    let (log, store) = recording(false);
+    let keyed =
+        admin::EndpointKey { value: Some(GOOD_KEY), store: &store, ..admin::EndpointKey::NONE };
+    let no_key = admin::EndpointKey { store: &store, ..admin::EndpointKey::NONE };
+    let p = params("openai-endpoint", "team", "https://one.example.com/v1", "m", None);
+    admin::add_endpoint_keyed(&p, &src, &keyed).unwrap();
+    let (profile, _) = load(&path, "team");
+    let first = own_account(&profile, "team", OPENAI_KEY_ENV);
+    // Same URL (written another way), other models: the profile keeps its item; nothing deleted.
+    let mut same = params("openai-endpoint", "team", "https://one.example.com/v1/", "m2", None);
+    same.replace = true;
+    admin::add_endpoint_keyed(&same, &src, &no_key).unwrap();
+    let (profile, _) = load(&path, "team");
+    assert_eq!(own_account(&profile, "team", OPENAI_KEY_ENV), first);
+    assert_eq!(log.lock().unwrap().len(), 1);
+    // Its `*` read with replace, same URL: the key of that item.
+    let open = fake_models(true, Arc::new(std::sync::Mutex::new(Vec::new())));
+    let url = format!("http://127.0.0.1:{open}/v1");
+    let read = |want: Option<String>| {
+        move |service: &str, account: Option<&str>| {
+            assert_eq!(
+                Some(format!("{service}/{}", account.unwrap_or(""))),
+                want,
+                "read another key"
+            );
+            Ok::<_, String>(GOOD_KEY.to_owned())
+        }
+    };
+    let mut star = params("openai-endpoint", "team", &url, "*", None);
+    star.replace = true;
+    // Another URL: the read never takes the old profile's key along.
+    admin::fetch_endpoint_models(&mut star, None, &src, read(None)).await.unwrap();
+    // A new URL, no key: the replace names no item, and the old profile's own item goes.
+    let mut moved = params("openai-endpoint", "team", "https://two.example.com/v1", "m", None);
+    moved.replace = true;
+    admin::add_endpoint_keyed(&moved, &src, &no_key).unwrap();
+    let (profile, _) = load(&path, "team");
+    assert!(!profile.env.contains_key(OPENAI_KEY_ENV), "{:?}", profile.env);
+    {
+        let log = log.lock().unwrap();
+        assert_eq!(log.len(), 2, "{log:?}");
+        assert!(log[1].contains(&first) && log[1].ends_with("| "), "{log:?}");
+    }
+    // The same URL again with a key, then its `*` read: that item's key.
+    let mut back = params("openai-endpoint", "team", &url, "m", None);
+    back.replace = true;
+    admin::add_endpoint_keyed(&back, &src, &keyed).unwrap();
+    let (profile, _) = load(&path, "team");
+    let own = own_account(&profile, "team", OPENAI_KEY_ENV);
+    let mut star = params("openai-endpoint", "team", &url, "*", None);
+    star.replace = true;
+    admin::fetch_endpoint_models(&mut star, None, &src, read(Some(format!("cmux-harness/{own}"))))
+        .await
+        .unwrap();
+    assert_eq!(star.models, ["served-a", "served-b"]);
+    // Another kind at that URL: no item either (an Anthropic profile never reads an OpenAI key).
+    let mut other = params("anthropic-endpoint", "team", &url, "m", None);
+    other.replace = true;
+    admin::add_endpoint_keyed(&other, &src, &no_key).unwrap();
+    let (profile, _) = load(&path, "team");
+    assert!(!profile.env.contains_key("ANTHROPIC_AUTH_TOKEN"), "{:?}", profile.env);
+    assert!(!profile.env.contains_key(OPENAI_KEY_ENV), "{:?}", profile.env);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn byo_endpoint_an_add_never_names_an_item_cmux_stored_for_another_endpoint() {
+    let root = scratch("ownitems");
+    let src = sources(&root);
+    for item in ["cmux-harness/team/CMUX_BYO_API_KEY", "keychain:cmux-harness/other/K.1a2b"] {
+        let p = params("openai-endpoint", "mine", "https://two.example.com/v1", "m", Some(item));
+        let e = add(&p, &src).unwrap_err();
+        assert!(matches!(e, AdminError::Invalid(_)), "{e}");
+        assert!(e.message().contains("give the key itself"), "{e}");
+        let mut star = params("openai-endpoint", "mine", "http://127.0.0.1:9/v1", "*", Some(item));
+        let e = admin::fetch_endpoint_models(&mut star, None, &src, |_, _| panic!("read a key"))
+            .await
+            .unwrap_err();
+        assert!(matches!(e, AdminError::Invalid(_)), "{e}");
+    }
+    assert!(!root.join("harnesses").join("mine.toml").exists());
+    // Any other item is the person's own choice for this endpoint.
+    add(
+        &params("openai-endpoint", "mine", "https://two.example.com/v1", "m", Some("acme/key")),
+        &src,
+    )
+    .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn byo_endpoint_spawn_never_passes_an_inherited_byo_key() {
+    let root = scratch("byokey");
+    let src = sources(&root);
+    let env_of = |profile: &HarnessProfile| -> Vec<(String, Option<String>)> {
+        let cmd = crate::agent::harness_command("x", profile, &root, None, None).unwrap();
+        cmd.as_std()
+            .get_envs()
+            .map(|(k, v)| {
+                (k.to_string_lossy().into_owned(), v.map(|v| v.to_string_lossy().into_owned()))
+            })
+            .collect()
+    };
+    let get = |envs: &[(String, Option<String>)], key: &str| {
+        envs.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
+    };
+    // A keyless endpoint, of either kind: the variable is removed, whatever the daemon inherited.
+    for (example, id) in [("openai-endpoint", "local"), ("anthropic-endpoint", "local-claude")] {
+        let added =
+            add(&params(example, id, "http://127.0.0.1:11434/v1", "qwen3", None), &src).unwrap();
+        let (profile, _) = load(&added.path, id);
+        assert_eq!(get(&env_of(&profile), OPENAI_KEY_ENV), Some(None), "{example}");
+    }
+    // A keyed one: its own (resolved) key is what the harness gets.
+    let added = add(
+        &params("openai-endpoint", "keyed", "https://api.example.com/v1", "m", Some("acme/key")),
+        &src,
+    )
+    .unwrap();
+    let (mut profile, _) = load(&added.path, "keyed");
+    profile.env.insert(OPENAI_KEY_ENV.into(), "resolved-key".into());
+    assert_eq!(get(&env_of(&profile), OPENAI_KEY_ENV), Some(Some("resolved-key".into())));
+    // A harness that is not an endpoint keeps its env as it was.
+    let (mut plain, _) = load(&added.path, "keyed");
+    plain.env.clear();
+    assert_eq!(get(&env_of(&plain), OPENAI_KEY_ENV), None);
 }

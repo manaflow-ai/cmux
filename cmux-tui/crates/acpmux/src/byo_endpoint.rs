@@ -14,7 +14,8 @@
 //!   project config) defining provider `byo` on `@ai-sdk/openai-compatible`
 //!   with every model, and `"model": "byo/<first model>"`; the key comes from
 //!   `CMUX_BYO_API_KEY` (a Keychain reference) through OpenCode's `{env:…}`
-//!   substitution.
+//!   substitution. A keyless endpoint's config names no key, and the spawn
+//!   removes an inherited `CMUX_BYO_API_KEY` from every endpoint harness.
 //!
 //! An endpoint harness holds one or more models (the picker lists each; the
 //! first is the default). [`ALL_MODELS`] in the list asks for every model the
@@ -99,7 +100,7 @@ impl Kind {
         }
     }
 
-    fn marker(self) -> &'static str {
+    pub(crate) fn marker(self) -> &'static str {
         match self {
             Self::Anthropic => "anthropic",
             Self::OpenAi => "openai",
@@ -336,13 +337,14 @@ pub fn profile_text(e: &Endpoint<'_>) -> String {
             for m in e.models {
                 models.insert(m.clone(), serde_json::json!({"name": m}));
             }
-            // apiKey is always the env reference (never a value): a key `cmux harness secret set`
-            // stores later reaches OpenCode with no rewrite of this config; a keyless endpoint's
-            // env has no such variable.
-            let options = serde_json::json!({
-                "baseURL": e.base_url,
-                "apiKey": format!("{{env:{OPENAI_KEY_ENV}}}"),
-            });
+            // apiKey is the env reference (never a value), and only when the profile names a
+            // Keychain item: a keyless endpoint's config reads no variable, so a stray
+            // CMUX_BYO_API_KEY in some env never reaches it (the spawn removes it too:
+            // [`clear_inherited`]). `cmux harness secret set` later rewrites the profile.
+            let mut options = serde_json::json!({"baseURL": e.base_url});
+            if e.keychain_item.is_some() {
+                options["apiKey"] = serde_json::Value::String(format!("{{env:{OPENAI_KEY_ENV}}}"));
+            }
             let config = serde_json::json!({
                 "$schema": "https://opencode.ai/config.json",
                 "provider": {OPENCODE_PROVIDER: {
@@ -627,16 +629,25 @@ pub fn fix(problem: Problem, kind: Kind, id: &str) -> String {
     }
 }
 
-/// Remove from `cmd` the inherited Claude provider env an Anthropic endpoint
-/// harness must not get: every `ANTHROPIC_*` and Claude provider switch that
-/// `env` (what the profile sets) does not set itself.
-pub(crate) fn clear_inherited(cmd: &mut tokio::process::Command, env: &BTreeMap<String, String>) {
-    let mut drop: Vec<String> = crate::agent::command_env(cmd)
-        .into_iter()
-        .map(|(k, _)| k)
-        .filter(|k| k.starts_with("ANTHROPIC_") || CLAUDE_PROVIDER_KEYS.contains(&k.as_str()))
-        .collect();
-    drop.extend(ANTHROPIC_KEYS.iter().chain(CLAUDE_PROVIDER_KEYS).map(|k| (*k).to_owned()));
+/// Remove from `cmd` the inherited env an endpoint harness of `kind` must not
+/// get, unless `env` (what the profile sets) sets it itself: `CMUX_BYO_API_KEY`
+/// for both kinds (a key only ever comes from the profile's own Keychain item,
+/// never the daemon's or a login shell's env), and for an Anthropic endpoint
+/// every `ANTHROPIC_*` and Claude provider switch.
+pub(crate) fn clear_inherited(
+    cmd: &mut tokio::process::Command,
+    kind: Kind,
+    env: &BTreeMap<String, String>,
+) {
+    let mut drop: Vec<String> = vec![OPENAI_KEY_ENV.to_owned()];
+    if kind == Kind::Anthropic {
+        drop.extend(
+            crate::agent::command_env(cmd).into_iter().map(|(k, _)| k).filter(|k| {
+                k.starts_with("ANTHROPIC_") || CLAUDE_PROVIDER_KEYS.contains(&k.as_str())
+            }),
+        );
+        drop.extend(ANTHROPIC_KEYS.iter().chain(CLAUDE_PROVIDER_KEYS).map(|k| (*k).to_owned()));
+    }
     drop.retain(|k| !env.contains_key(k));
     for k in drop {
         cmd.env_remove(k);

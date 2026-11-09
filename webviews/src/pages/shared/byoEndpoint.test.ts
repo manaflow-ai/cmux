@@ -16,6 +16,7 @@ import {
   fetchEndpointModels,
   newTarget,
   modelList,
+  patchDraft,
   type EndpointBackend,
   type EndpointDraft,
   type EndpointStatus,
@@ -224,4 +225,14 @@ test("only the form's own earlier add is replaced, and a retry keeps the key it 
   const again = endpointBackend(draft(), keyless);
   expect(again).toMatchObject({ replace: "team-models" });
   expect("apiKey" in again).toBe(false);
+});
+
+test("a key typed for one URL never goes to another: a URL change drops it", () => {
+  const typed = draft({ baseUrl: "https://one.example.com/v1", apiKey: "sk-one" });
+  expect(patchDraft(typed, { models: "b" }).apiKey).toBe("sk-one");
+  expect(patchDraft(typed, { baseUrl: "https://one.example.com/v1" }).apiKey).toBe("sk-one");
+  const moved = patchDraft(typed, { baseUrl: "https://two.example.com/v1" });
+  expect(moved).toMatchObject({ baseUrl: "https://two.example.com/v1", apiKey: "", models: "a" });
+  // One patch that sets both keeps the key it sets (typed for that URL).
+  expect(patchDraft(typed, { baseUrl: "https://two.example.com/v1", apiKey: "sk-two" }).apiKey).toBe("sk-two");
 });

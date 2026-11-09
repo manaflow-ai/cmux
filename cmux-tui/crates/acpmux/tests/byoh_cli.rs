@@ -235,7 +235,7 @@ fn byo_endpoint_cli_adds_an_endpoint_profile_with_keychain_refs() {
     assert!(file.contains(r#"ANTHROPIC_BASE_URL = "https://llm.example.com""#), "{file}");
     assert!(file.contains(r#"protocol = "claude-stdio""#), "{file}");
 
-    // OpenAI-compatible: OpenCode, its key from the default Keychain item.
+    // OpenAI-compatible: OpenCode, keyless until a key is stored.
     let out = user.run(&[
         "harness",
         "add",
@@ -257,8 +257,10 @@ fn byo_endpoint_cli_adds_an_endpoint_profile_with_keychain_refs() {
     // resolves); `cmux harness secret set` points it at one later.
     let file = std::fs::read_to_string(dir.join("local-oai.toml")).unwrap();
     assert!(!file.contains("CMUX_BYO_API_KEY = {"), "{file}");
-    // OpenCode reads the key from the env variable a later `secret set` fills: no config rewrite.
-    assert!(file.contains("{env:CMUX_BYO_API_KEY}"), "{file}");
+    // A keyless OpenCode config reads no key at all (a CMUX_BYO_API_KEY in some env never reaches
+    // it); a later `secret set` writes the profile again with one.
+    assert!(!file.contains("{env:CMUX_BYO_API_KEY}"), "{file}");
+    assert!(!file.contains("apiKey"), "{file}");
 
     // Plain http to another host is refused, and nothing is written.
     let out = user.run(&[

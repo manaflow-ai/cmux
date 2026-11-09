@@ -15,6 +15,7 @@ import {
   endpointBackend,
   endpointBusy,
   modelList,
+  patchDraft,
   addedTarget,
   type AddTarget,
   type EndpointDraft,
@@ -385,7 +386,11 @@ function BringYourOwn({
               checked={kind === value}
               disabled={busy}
               onChange={() => {
-                if (value !== kind) startOver();
+                if (value !== kind) {
+                  startOver();
+                  // A key typed for one protocol never goes to another.
+                  setDraft((before) => ({ ...before, apiKey: "" }));
+                }
                 setKind(value);
               }}
             />
@@ -400,7 +405,8 @@ function BringYourOwn({
             draft={{ ...draft, kind: kind as EndpointKind, name }}
             change={(patch) => {
               if (patch.baseUrl !== undefined && patch.baseUrl !== draft.baseUrl) startOver();
-              setDraft((before) => ({ ...before, ...patch }));
+              // Another URL also drops the typed key (`patchDraft`).
+              setDraft((before) => patchDraft(before, patch));
             }}
             labels={{ baseUrl: t("chief.byo.baseUrl"), models: t("chief.byo.model"), apiKey: t("chief.byo.apiKey") }}
             placeholders={{

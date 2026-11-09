@@ -429,6 +429,36 @@ test("Bring your own: another kind or URL after a failed check starts over, neve
   expect(removed(calls)).toEqual(["acme", "acme"]);
 });
 
+test("Bring your own: a key typed for one URL or kind is dropped when either changes, before any add", async () => {
+  const container = installDom();
+  const { service, calls } = fakeService();
+  await mount(container, service, CHIEF);
+  const picker = byLabel<HTMLSelectElement>(container, t("chief.backend.title"));
+  await choose(picker, picker.options[picker.options.length - 1]!.value);
+  const within = "[data-chief-byo]";
+  const key = () => byLabel<HTMLInputElement>(container, t("chief.byo.apiKey"), within);
+  await click(byLabel(container, t("chief.byo.kind.anthropic"), within));
+  await type(byLabel(container, t("chief.byo.name"), within), "Acme");
+  await type(byLabel(container, t("chief.byo.baseUrl"), within), "https://api.acme.dev");
+  await type(byLabel(container, t("chief.byo.model"), within), "acme-1");
+  await type(key(), "sk-secret-123");
+  // Another URL: the key goes, and Add waits for one typed for this URL.
+  await type(byLabel(container, t("chief.byo.baseUrl"), within), "https://api.other.dev");
+  expect(key().value).toBe("");
+  expect(keyAnywhere(container)).toBe(false);
+  expect(button(container, t("chief.byo.add")).disabled).toBe(true);
+  // Another kind (protocol): the same.
+  await type(key(), "sk-secret-123");
+  await click(byLabel(container, t("chief.byo.kind.openai"), within));
+  expect(key().value).toBe("");
+  expect(keyAnywhere(container)).toBe(false);
+  await type(key(), "sk-other-456");
+  await click(button(container, t("chief.byo.add")));
+  const add = calls.filter((call) => call.op === "addBackend").at(-1)!.args[0] as HomeChiefByoBackend;
+  expect(add).toMatchObject({ kind: "openai-endpoint", baseUrl: "https://api.other.dev", apiKey: "sk-other-456" });
+  expect(calls.filter((call) => call.op === "addBackend")).toHaveLength(1);
+});
+
 test("Bring your own: Cancel after a failed check, or closing during a held check, removes the add", async () => {
   const container = installDom();
   const { service, calls, checks } = fakeService();

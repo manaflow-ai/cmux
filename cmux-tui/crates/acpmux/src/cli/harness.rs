@@ -309,7 +309,10 @@ async fn add_endpoint_cmd(
         &sources,
         &crate::harness_admin::EndpointKey {
             taken: &taken,
-            ..crate::harness_admin::EndpointKey::NONE
+            // No key to store; a replace deletes the item of the profile it replaces when the new
+            // one no longer names it (another URL).
+            store: &|cmd| crate::cli::harness_secret::run_delete(cmd),
+            value: None,
         },
     )
     .map_err(|e| anyhow!("{e}"))?;

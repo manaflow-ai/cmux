@@ -195,10 +195,11 @@ pub(crate) fn harness_command(
     for k in route_unset.iter().flat_map(|list| list.split(',')) {
         cmd.env_remove(k);
     }
-    // An Anthropic endpoint harness: no inherited ANTHROPIC_* or Claude
-    // provider switch (the login shell's, the daemon's) overrides its own.
-    if own_endpoint == Some(crate::byo_endpoint::Kind::Anthropic) {
-        crate::byo_endpoint::clear_inherited(&mut cmd, &env);
+    // An endpoint harness: no inherited key (CMUX_BYO_API_KEY) and, for an
+    // Anthropic one, no inherited ANTHROPIC_* or Claude provider switch (the
+    // login shell's, the daemon's) overrides its own or reaches its URL.
+    if let Some(kind) = own_endpoint {
+        crate::byo_endpoint::clear_inherited(&mut cmd, kind, &env);
     }
     if let Some((id, sname)) = session {
         cmd.env("ACPMUX_ENV", "1")

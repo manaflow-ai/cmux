@@ -127,6 +127,16 @@ export interface EndpointDraft {
   apiKey: string;
 }
 
+/**
+ * The draft after `patch`. Another base URL drops the typed key: a key reaches only the URL it was
+ * typed for, so it is typed again for the new one (a patch may set both). Every endpoint form
+ * (Settings › Agents › Add › Endpoint, Home Chief › Bring your own) changes its draft through this.
+ */
+export function patchDraft<T extends { baseUrl: string; apiKey: string }>(before: T, patch: Partial<T>): T {
+  const moved = patch.baseUrl !== undefined && patch.baseUrl !== before.baseUrl;
+  return { ...before, ...(moved ? { apiKey: "" } : {}), ...patch };
+}
+
 /** The model ids of a typed list, in order, without repeats. */
 export function modelList(text: string): string[] {
   const out: string[] = [];

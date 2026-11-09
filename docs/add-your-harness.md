@@ -244,24 +244,31 @@ cmux harness doctor acme                              # one real hello turn
 - `openai-endpoint` writes an `opencode acp` profile with `OPENCODE_CONFIG_CONTENT` (OpenCode's
   inline config, which wins over your global and project config): provider `byo` on
   `@ai-sdk/openai-compatible` with `options.baseURL` (the URL before `/chat/completions`, usually
-  ending in `/v1`), `options.apiKey = "{env:CMUX_BYO_API_KEY}"` and every model, and
-  `"model": "byo/<first model>"`; `CMUX_BYO_API_KEY = { keychain = ITEM }`. A chat starts on any of
-  the models.
+  ending in `/v1`) and every model, and `"model": "byo/<first model>"`. With a key it also has
+  `options.apiKey = "{env:CMUX_BYO_API_KEY}"` and `CMUX_BYO_API_KEY = { keychain = ITEM }`; a
+  keyless endpoint's config names no key at all. A chat starts on any of the models.
 - The base URL is https; plain http only to `localhost`, `127.0.0.1` or `::1`. A URL with a user,
   password or key, a Keychain item name that looks like a key, and a key passed as a parameter are
   refused: the key goes only into the Keychain.
-- Without `--keychain-item` the profile's env names no key, so a keyless server's env always
-  resolves, and a new endpoint never picks up a key an earlier profile of the same id left. The
-  OpenCode config's `apiKey` is always the `{env:CMUX_BYO_API_KEY}` reference, never a value, so
-  `cmux harness secret set ID CMUX_BYO_API_KEY` (which stores the key in
-  `cmux-harness/<id>/<KEY>` and points the profile's env at it) works with no config rewrite. Removing an endpoint keeps its key in the Keychain (the backup holds only the reference,
-  never the key), so Undo (`cmux harness restore`) brings back a working endpoint.
+- **A key reaches only the URL it was stored with.** Each key cmux stores for an endpoint goes to
+  a new Keychain item of that one profile, `cmux-harness/<id>/<KEY>.<generation>`, and the
+  profile names that item; no other profile (an earlier one of the same id, a backup for Undo)
+  ever reads it, and nothing writes an item while a profile reads it. Without a key the profile's
+  env names none, so a keyless server's env always resolves, and a new endpoint never picks up a
+  key an earlier profile of the same id left. `cmux harness secret set ID KEY` on an endpoint
+  stores the key in a new item and writes the profile again (same URL, models and name) naming
+  it, then deletes the item it named before. Every endpoint harness starts without an inherited
+  `CMUX_BYO_API_KEY` (from your login shell or the daemon). Removing an endpoint keeps its key in
+  the Keychain (the backup holds only the reference, never the key), so Undo (`cmux harness
+  restore`) brings back a working endpoint with its own key.
   `cmux harness remove ID --forget-key` (`_acpmux/harness/remove {id, forgetKey: true}`) also
   deletes the keys in its own `cmux-harness/<id>/...` items; a restore then needs the key again. An
   item already gone is fine; any other failure is reported, never taken for a deleted key: the CLI
   prints "removed ID, but its key could not be deleted from Keychain: REASON" and exits non-zero,
   and the daemon's remove answers `keyError`. With
-  `--keychain-item`, the profile reads the item you name (`service` or `service/account`).
+  `--keychain-item`, the profile reads the item you name (`service` or `service/account`); an item
+  in cmux's own `cmux-harness/` space is refused (it holds a key stored for one endpoint): give
+  the key itself.
 - A family or global route binding never rewrites an endpoint harness; a chat's or
   workspace's route still does.
 - `cmux harness doctor ID` (and `_acpmux/harness/doctor {id, prompt: true}`) sends one real prompt:
@@ -275,11 +282,15 @@ models?, apiKey? | keychainItem?, replace?}` answers with `secret: {key, keychai
 step, taken one add at a time (an OS lock on `.endpoint-add.lock` in the harness folder, which the
 daemon and the CLI share): an id that already has a profile (in your folder or any other
 source) is refused (`harness.exists`) before any key is stored, unless `replace` is true. Then the
-profile is written and `apiKey`, if given, is stored in that profile's own item
-(`cmux-harness/<id>/<KEY>`, through `security -i` on stdin; never echoed, never in the file). If
-the key cannot be stored, the profile is put back as it was. Without `apiKey`, a `replace` keeps
-the item the old profile named, and a new endpoint names none. `*` is read with the key given, or
-on `replace` the one stored; a new endpoint without a key asks for the list with none. `_acpmux/harness/secret/set {id, key, value}` stores a key for a harness on its own.
+`apiKey`, if given, is stored in a new item of this profile's own
+(`cmux-harness/<id>/<KEY>.<generation>`, through `security -i` on stdin; never echoed, never in
+the file), and only then is the profile published (one atomic rename): until then the profile it
+replaces still reads its own item. If the key cannot be stored, nothing changes; if the profile
+cannot be written, the new item is deleted. Without `apiKey`, a `replace` keeps the item the old
+profile named only when it has the same kind and base URL, and a new endpoint names none; a
+replace that no longer names the old profile's own item deletes it. `*` is read with the key
+given, or on `replace` of the same kind and URL the one stored; otherwise the list is asked for
+with none. `_acpmux/harness/secret/set {id, key, value}` stores a key for a harness on its own.
 The app's `cmux.chief.backend.add {id?, replace?, apiKey?, ...}` passes these on: the page sends
 `replace` only for its own earlier add. The add can take up to 70 s (10 s for `*`, 60 s for
 the Keychain), and the app waits 90 s for it. The page reads every harness id (any source,
