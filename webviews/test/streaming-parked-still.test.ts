@@ -29,6 +29,8 @@ type Sample = {
   top: number;
   fromEnd: number;
   input: number;
+  /// The follow motion's translate on the thread, px: rows drawn off their layout by it.
+  lag: number;
   view: [number, number];
   items: Record<string, number>;
 };
@@ -57,7 +59,9 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
     for (let index = 1; index < samples.length; index += 1) {
       const before = samples[index - 1]!;
       const now = samples[index]!;
-      const scrolled = now.top - before.top;
+      // The offset's change as drawn: a held follow motion folded into the offset moves the offset and
+      // takes the thread's translate back by as much in the same frame, so the picture is the same.
+      const scrolled = now.top - before.top - (now.lag - before.lag);
       const t = Math.round(now.t - t0);
       if (Object.keys(now.items).some((key) => key.startsWith("block:"))) blockFrames += 1;
       if (Math.abs(scrolled) > 0.5) {
@@ -162,6 +166,10 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
           w.__still.samples.push({
             t,
             top: scroller.scrollTop,
+            lag:
+              Number.parseFloat(
+                getComputedStyle(scroller.querySelector<HTMLElement>(".acpmux-thread")!).translate.split(" ")[1] ?? "",
+              ) || 0,
             fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
             input: w.__still.input,
             view: [view.top, view.bottom],
