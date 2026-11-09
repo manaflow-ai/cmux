@@ -39,6 +39,11 @@ pub struct List {
     /// that left too). Empty for a list not drawn before.
     #[serde(default)]
     pub reference: Vec<String>,
+    /// Ending the hold: the rows on screen now, in their drawn order (the last pass's `order`).
+    /// A remembered row that is not drawn comes back as an insert, never a move. Empty: every
+    /// row of `reference` counts as drawn.
+    #[serde(default)]
+    pub drawn: Vec<String>,
     /// The order the pass computed.
     pub next: Vec<String>,
 }
@@ -77,7 +82,10 @@ pub fn respond(request: &Request) -> Reply {
                         key: list.key.clone(),
                         order: list.next.clone(),
                         reference: Vec::new(),
-                        moved: moved(&list.reference, &list.next),
+                        moved: moved(
+                            if list.drawn.is_empty() { &list.reference } else { &list.drawn },
+                            &list.next,
+                        ),
                     }
                 }
             })
@@ -254,5 +262,21 @@ mod tests {
         assert_eq!(reply.lists[0].order, keys("b a c"));
         assert_eq!(reply.lists[0].moved.len(), 1);
         assert!(reply.lists[0].reference.is_empty());
+    }
+
+    #[test]
+    fn a_remembered_row_that_returns_at_release_is_an_insert_not_a_move() {
+        // Launch drew `a b c`, a pass listed only `a`, and the release lists `b c a`: `b` and
+        // `c` open their slots; `a` keeps its place among the drawn rows.
+        let request = Request {
+            hold: false,
+            lists: vec![List {
+                key: "rows".into(),
+                reference: keys("a b c"),
+                drawn: keys("a"),
+                next: keys("b c a"),
+            }],
+        };
+        assert_eq!(respond(&request).lists[0].moved, Vec::<String>::new());
     }
 }
