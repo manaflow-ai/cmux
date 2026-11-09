@@ -67,7 +67,8 @@ pub(super) fn copy(
     let head = match sync_cli::push_head(socket, local, remote, subpath) {
         Ok(head) => head,
         Err(error) => {
-            end(socket, &hold.job, false);
+            // The copy's own error is the answer; a hold whose end is lost runs out its lease.
+            let _ = end(socket, &hold.job, false);
             return Err(error);
         }
     };
@@ -76,7 +77,8 @@ pub(super) fn copy(
     let marked = match marked {
         Ok(marked) => marked,
         Err(error) => {
-            end(socket, &hold.job, false);
+            // The copy's own error is the answer; a hold whose end is lost runs out its lease.
+            let _ = end(socket, &hold.job, false);
             return Err(error);
         }
     };
