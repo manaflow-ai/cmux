@@ -55,6 +55,28 @@ import Testing
         #expect(calls.value == 3, "the connected edge during the failing attempt was lost (\(calls.value) endpoint calls)")
     }
 
+    /// Review F1 (fc883e4): the pacer reset only after ten healthy seconds, so a second drop soon after a
+    /// recovered one found the budget spent and waited for an event that a connected link never sends.
+    @Test func eachDropGetsItsAttemptAlsoASecondDropSoonAfter() async throws {
+        let calls = Calls()
+        let wake = RetryWake(owner: "LinkWakeDuringAttemptTests.drops")
+        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", Self.script])
+        let socket = "/tmp/cmux-link-drops-test-\(UUID().uuidString).sock"
+        let connection = DaemonConnection(
+            configuration: .init(requiredCapabilities: [], retry: .linkReconnect, retryWake: wake, requestTimeout: .seconds(5),
+                                 spawnTimeout: .seconds(5), terminalEnvironment: nil)
+        ) {
+            _ = calls.hit()
+            return DaemonEndpoint(socketPath: socket, bridge: bridge)
+        }
+        try await connection.start()
+        // Each connection drops 0.3 s after its handshake: the first drop's attempt connects, and so
+        // must the second drop's, well within ten seconds.
+        try await Task.sleep(for: .seconds(4))
+        await connection.close()
+        #expect(calls.value >= 3, "a second drop within 10 s got no attempt (\(calls.value) endpoint calls)")
+    }
+
     @Test func theLinkReportingConnectedDuringAFailingFirstConnectWakesTheNextAttempt() async throws {
         let calls = Calls()
         let wake = RetryWake(owner: "LinkWakeDuringAttemptTests.first")

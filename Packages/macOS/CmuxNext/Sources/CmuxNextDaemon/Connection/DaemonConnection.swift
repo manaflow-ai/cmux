@@ -334,6 +334,8 @@ public actor DaemonConnection {
             releaseHandoffHold()
             wake.watch(file: endpoint.socketPath, companions: [endpoint.socketPath + ".websocket.json"])
             healthy.schedule(after: configuration.healthyAfter) { [weak self] in await self?.stayedHealthy(serial: serial) }
+            // A link that redials by itself: each drop gets its one attempt, also one soon after the last.
+            if pacer.policy.keepsEventsDuringAttempt { pacer.reset() }
             if endpoint.bridge != nil || configuration.localHeartbeat { heartbeat.start(transport, every: configuration.heartbeat, misses: configuration.heartbeatMisses) }
             let connected = DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: 0),
                                                 event: .connected(identity, generationChanged: generationChanged), sourceID: eventSourceID)

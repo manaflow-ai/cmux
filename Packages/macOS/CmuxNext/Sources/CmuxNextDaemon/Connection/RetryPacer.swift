@@ -80,6 +80,9 @@ public struct RetryPacer: Sendable {
     private var budgetSocket: RetryWake.Identity?
     /// The last attempt was refused at the daemon's connection limit (``refusedBusy()``).
     private var busyRefusal = false
+    /// Spacing of busy refusals under a link policy (``RetryPolicy/keepsEventsDuringAttempt``), whose own
+    /// backoff is 1 ms: from 50 ms toward ``busyRetryCap``, as the timed policies space them.
+    private var busyBackoff = Backoff(initial: .milliseconds(50), maximum: RetryPacer.busyRetryCap)
     /// The longest spacing after a busy refusal: the daemon is up and frees a slot
     /// as soon as one of its connections ends.
     public static let busyRetryCap: Duration = .seconds(1)
@@ -106,6 +109,7 @@ public struct RetryPacer: Sendable {
         budgetSocket = nil
         busyRefusal = false
         backoff.reset()
+        busyBackoff.reset()
     }
 
     /// Notes one failure and returns the spacing before the next attempt,
@@ -114,6 +118,7 @@ public struct RetryPacer: Sendable {
         if busyRefusal {
             busyRefusal = false
             wokeBySocket = false
+            if policy.keepsEventsDuringAttempt { return busyBackoff.next() }
             return min(backoff.next(), Self.busyRetryCap)
         }
         failures += 1

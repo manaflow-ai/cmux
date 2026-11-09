@@ -45,20 +45,24 @@ import Testing
         #expect(MachineLinkState.reconnectsOnUse(.offline), "Using the machine reconnects it")
     }
 
-    @Test func reconnectOnADroppedDaemonRetriesItOverTheSameLink() {
-        #expect(SSHConnectionMachine.Status.connected.reconnectStep(daemonConnected: true, daemonFailed: false, daemonDown: true) == .reconnectDaemon)
+    /// Review F2 (fc883e4): a new startup attempt armed the startup deadline, which a recovery inside the
+    /// existing connection never cancelled, so a working machine later read as failed to start.
+    @Test func reconnectOnADroppedDaemonWakesItWithNoNewStartupAttempt() {
+        #expect(SSHConnectionMachine.Status.connected.reconnectStep(daemonConnected: true, daemonFailed: false, daemonDown: true) == .wake)
+        #expect(SSHConnectionMachine.Status.connected.reconnectStep(daemonConnected: true, daemonFailed: true, daemonDown: true) == .reconnectDaemon)
         #expect(SSHConnectionMachine.Status.connected.reconnectStep(daemonConnected: true, daemonFailed: false) == .nothing)
         #expect(SSHConnectionMachine.Status.reconnecting.reconnectStep(daemonConnected: true, daemonFailed: false, daemonDown: true) == .wake)
         #expect(SSHConnectionMachine.Status.offline.reconnectStep(daemonConnected: true, daemonFailed: false, daemonDown: true) == .connect)
     }
 
-    @Test func reconnectOnADroppedDaemonStartsANewAttemptOnTheLiveLink() throws {
+    @Test func reconnectOnADroppedDaemonKeepsTheStartupBookkeeping() throws {
         let session = try Self.session()
         session.linkStatus = .connected
         session.daemon.store.connectionState = .disconnected("link lost")
         #expect(SidebarBridge.sshStatus(session, compatibility: nil) == .connecting)
         Self.service().reconnect(session)
-        #expect(session.connectionAttemptID == 1)
+        #expect(session.connectionAttemptID == 0, "a new startup attempt would arm a deadline no recovery cancels")
+        #expect(session.daemon.startup == .connecting, "the startup state is left as it was")
         #expect(session.linkStatus == .connected, "the running link client is kept")
         session.close()
     }
