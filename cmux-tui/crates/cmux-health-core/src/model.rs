@@ -298,8 +298,9 @@ impl Health {
         self.ids.get(id).copied()
     }
 
-    fn part(&mut self, slot: usize) -> &mut Part {
-        self.slots[slot].as_mut().expect("a live slot")
+    /// The live part in `slot`; `None` only for a slot freed by `unregister`.
+    fn part(&mut self, slot: usize) -> Option<&mut Part> {
+        self.slots.get_mut(slot)?.as_mut()
     }
 
     /// Adds a part (or renames one already known). With `now` it is armed
@@ -307,8 +308,9 @@ impl Health {
     /// it hidden, never timed.
     pub fn register(&mut self, id: &str, kind: Kind, label: &str, now: Option<u64>, visible: bool) {
         if let Some(slot) = self.slot(id) {
-            let part = self.part(slot);
-            part.label = label.to_string();
+            if let Some(part) = self.part(slot) {
+                part.label = label.to_string();
+            }
             return;
         }
         let part = Part {
@@ -352,7 +354,8 @@ impl Health {
     /// Changes `id`'s signals with `change`, then re-evaluates it.
     fn signal(&mut self, id: &str, now: u64, change: impl FnOnce(&mut Part)) {
         let Some(slot) = self.slot(id) else { return };
-        change(self.part(slot));
+        let Some(part) = self.part(slot) else { return };
+        change(part);
         self.refresh(slot, now, None);
     }
 
@@ -475,7 +478,7 @@ impl Health {
     /// `ok` alone never heals a part; `ok: false` makes the next step due now.
     pub fn repair_result(&mut self, id: &str, action: RepairAction, ok: bool, now: u64) {
         let Some(slot) = self.slot(id) else { return };
-        let part = self.part(slot);
+        let Some(part) = self.part(slot) else { return };
         if part.repair.attempt == 0 || part.repair.action != action {
             return;
         }
@@ -493,7 +496,7 @@ impl Health {
     pub fn repair_now(&mut self, id: &str, now: u64) -> Vec<Action> {
         let mut actions = Vec::new();
         let Some(slot) = self.slot(id) else { return actions };
-        let part = self.part(slot);
+        let Some(part) = self.part(slot) else { return actions };
         let repairable = matches!(part.mode, Mode::Ladder(_))
             && matches!(part.state, State::Stuck | State::Repairing | State::Failed);
         if repairable {
@@ -601,7 +604,7 @@ impl Health {
     /// `now` for the host's next tick.
     fn refresh(&mut self, slot: usize, now: u64, mut actions: Option<&mut Vec<Action>>) {
         let mut receipts: Vec<ReceiptParts> = Vec::new();
-        let part = self.part(slot);
+        let Some(part) = self.part(slot) else { return };
         let cond = evaluate(part, now);
         let mut deadline = cond.next;
         let kind = part.kind;
@@ -696,7 +699,7 @@ impl Health {
     fn set_deadline(&mut self, slot: usize, deadline: Option<u64>) {
         self.generation += 1;
         let generation = self.generation;
-        let part = self.part(slot);
+        let Some(part) = self.part(slot) else { return };
         if part.deadline == deadline {
             return;
         }
