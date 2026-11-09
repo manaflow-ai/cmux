@@ -91,6 +91,12 @@ fn is_mirrored_session(summary: &Value) -> bool {
 /// presence for it, whatever it serves the link as (`server/view.rs`).
 pub const CLIENT_NAME: &str = "acpmux-peer";
 
+/// The link's own notice (never a peer's) that a chat it streams was attached again without
+/// history after a reconnect: what the peer sent between the links never came, and the hub tells
+/// that chat's local clients they lagged (`hub/peers.rs`), so each reads on from its own last
+/// record (`_acpmux/lagged {sessionIds}`).
+pub const REATTACHED_NOTICE: &str = "_acpmux/peer_reattached";
+
 /// The link's own `_acpmux/attach` of a peer's session `id`: it subscribes and reads no history,
 /// and names its byte limit all the same, as `bound_page` does for a client's attach. A peer on an
 /// older build reads `limit: 0` as no limit and has none of its own, so it answers with the whole

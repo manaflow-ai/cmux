@@ -77,3 +77,7 @@ pub(super) fn newest_seq(records: &[crate::store::EventRecord]) -> u64 {
 pub(super) fn values(session_id: &str, records: Vec<crate::store::EventRecord>) -> Vec<Value> {
     records.into_iter().map(|r| into_event_value(session_id, r)).collect()
 }
+
+#[cfg(test)]
+#[path = "events_tests.rs"]
+mod tests;
