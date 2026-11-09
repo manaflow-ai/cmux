@@ -567,9 +567,8 @@ export function IncomingMessageLine({
             className="cv-received__more"
             aria-expanded={details}
             aria-controls={details ? rawId : undefined}
-            onClick={() => {
-              played.current = true;
-              envelope.toggle();
+            onClick={(event) => {
+              if (envelope.toggle(event)) played.current = true;
             }}
           >
             {t("message.details")}
