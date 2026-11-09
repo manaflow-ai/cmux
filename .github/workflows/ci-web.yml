@@ -936,10 +936,15 @@ jobs:
           import os
           import sys
 
-          def exit_with_verdict(bad, what):
+          def exit_with_verdict(results, what, may_skip=()):
               """scripts/ci/needs_verdict.py PYTHON_RULE, copied verbatim (tests/test_needs_verdict.py)."""
-              failed = {n: r for n, r in bad.items() if (r or "").split(" ", 1)[0] in ("failure", "invalid")}
-              for n, r in (failed or bad).items():
+              def word(r):
+                  return (r or "").replace(":", " ").split(" ", 1)[0]
+              bad = {n: r for n, r in results.items() if word(r) != "success" and not (r == "skipped" and n in may_skip)}
+              if not bad:
+                  return
+              failed = {n: r for n, r in bad.items() if word(r) in ("failure", "invalid")}
+              for n, r in bad.items():
                   print(f"{n}: {r or 'none'}", file=sys.stderr)
               if failed:
                   print(f"::error::{what}: " + "; ".join(f"{n}: {r}" for n, r in failed.items()))
@@ -955,14 +960,8 @@ jobs:
           required_jobs = ["react-apps-check-shard", "react-doctor"]
           if os.environ.get("GITHUB_EVENT_NAME") == "pull_request":
               required_jobs.append("react-apps-base-check")
-          allowed = {"success"} if required else {"success", "skipped"}
-          bad = {
-              name: needs[name]["result"]
-              for name in required_jobs
-              if needs[name]["result"] not in allowed
-          }
-          if bad:
-              exit_with_verdict(bad, "react-apps-check")
+          exit_with_verdict({name: needs[name]["result"] for name in required_jobs}, "react-apps-check",
+                            () if required else required_jobs)
           for name in required_jobs:
               print(f"{name}: required={str(required).lower()} result={needs[name]['result']}")
           PY
@@ -1245,10 +1244,15 @@ jobs:
           import os
           import sys
 
-          def exit_with_verdict(bad, what):
+          def exit_with_verdict(results, what, may_skip=()):
               """scripts/ci/needs_verdict.py PYTHON_RULE, copied verbatim (tests/test_needs_verdict.py)."""
-              failed = {n: r for n, r in bad.items() if (r or "").split(" ", 1)[0] in ("failure", "invalid")}
-              for n, r in (failed or bad).items():
+              def word(r):
+                  return (r or "").replace(":", " ").split(" ", 1)[0]
+              bad = {n: r for n, r in results.items() if word(r) != "success" and not (r == "skipped" and n in may_skip)}
+              if not bad:
+                  return
+              failed = {n: r for n, r in bad.items() if word(r) in ("failure", "invalid")}
+              for n, r in bad.items():
                   print(f"{n}: {r or 'none'}", file=sys.stderr)
               if failed:
                   print(f"::error::{what}: " + "; ".join(f"{n}: {r}" for n, r in failed.items()))
@@ -1268,8 +1272,7 @@ jobs:
           scope = needs["web-subarea-scope"]
           scope_required = inputs["web"] == "true" or inputs["macos"] == "true"
           if scope_required:
-              if scope["result"] != "success":
-                  exit_with_verdict({"web-subarea-scope": scope["result"]}, "Web status")
+              exit_with_verdict({"web-subarea-scope": scope["result"]}, "Web status")
               subareas = scope.get("outputs", {})
               for name in ("db", "diff_sidecar", "instant", "production_build", "react_apps", "typecheck", "unit_tests"):
                   if subareas.get(name) not in {"true", "false"}:
@@ -1296,16 +1299,8 @@ jobs:
               "diff-sidecar-check": scope_required and subareas["diff_sidecar"] == "true",
               "web-db-migrations": inputs["web"] == "true" and subareas["db"] == "true",
           }
-          bad = {}
-          for job, is_required in sorted(required.items()):
-              result = needs[job]["result"]
-              if is_required:
-                  if result != "success":
-                      bad[job] = result
-              elif result not in {"success", "skipped"}:
-                  bad[job] = result
-          if bad:
-              exit_with_verdict(bad, "Web status")
+          exit_with_verdict({job: needs[job]["result"] for job in sorted(required)}, "Web status",
+                            {job for job, is_required in required.items() if not is_required})
           for job, is_required in sorted(required.items()):
               print(f"{job}: required={str(is_required).lower()} result={needs[job]['result']}")
           PY

@@ -1443,6 +1443,64 @@ class Excusing(unittest.TestCase):
     def judge_guard(self):
         return excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["nightly-guards / Guard status"])
 
+    def guard_step_output(self, tests_result):
+        """What ci-guards.yml's `Check routed guard jobs` step prints, run for real, as its log lines: stdout and
+        stderr, each `::error::` annotation the way the runner logs it (`##[error]`), then the runner's exit line."""
+        import yaml
+        doc = yaml.safe_load((ROOT / ".github/workflows/ci-guards.yml").read_text(encoding="utf-8"))
+        body = next(s for s in doc["jobs"]["guard-status"]["steps"] if s["name"] == "Check routed guard jobs")["run"]
+        inputs = {"submodule_forward_only": "false", "linux_guard_tests": "true",
+                  "linux_guard_test_groups": '["release-notary"]', "linux_guard_history": "false",
+                  "linux_guard_cli": "false", "linux_guard_source": "false"}
+        needs = {job: {"result": "skipped"} for job in (
+            "workflow-guard-submodule-forward-only", "workflow-guard-history", "workflow-guard-cli-scripts",
+            "workflow-guard-source-lints")}
+        needs["workflow-guard-submodule-forward-only"] = {"result": "success"}
+        needs["workflow-guard-tests"] = {"result": tests_result}
+        done = subprocess.run(["bash", "-e", "-c", body], capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                              env={**os.environ, "GUARD_INPUTS": json.dumps(inputs), "GUARD_NEEDS": json.dumps(needs)})
+        printed = [line.replace("::error::", "##[error]", 1) if line.startswith("::error::") else line
+                   for line in (done.stdout + done.stderr).splitlines()]
+        return printed + [f"##[error]Process completed with exit code {done.returncode}."], done.returncode
+
+    def guard_from_its_step(self, tests_result):
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        name = "nightly-guards / Guard status"
+        printed, code = self.guard_step_output(tests_result)
+        for job_id in (3, 4):
+            self.gh.logs[job_id] = log(name, "Check routed guard jobs", *printed)
+        return printed, code
+
+    def test_guard_status_rule_output_with_an_inherited_failure_is_excused(self):
+        # ci-guards.yml judges its needs with scripts/ci/needs_verdict.py's rule, whose red adds the line
+        # `##[error]Guard status: workflow-guard-tests: failure (route linux_guard_tests=true)` (cmux#39857 F1).
+        printed, code = self.guard_from_its_step("failure")
+        self.assertEqual(code, 1, printed)
+        self.assertIn("##[error]Guard status: workflow-guard-tests: failure (route linux_guard_tests=true)", printed)
+        self.assertIn("release-notary", "\n".join(self.judge_guard()))
+
+    def test_guard_status_rule_output_with_its_own_failure_is_refused(self):
+        self.guard_from_its_step("failure")
+        self.gh.logs[6] = log("nightly-guards / workflow-guard-tests / release-notary",
+                              "Test What's New highlights and release notes", "ok")
+        self.gh.jobs[6]["conclusion"] = "success"
+        self.gh.jobs[6]["steps"][-1]["conclusion"] = "success"
+        with self.assertRaisesRegex(excuse.Refused, "release-notary' is not red on feat-cmux-next"):
+            self.judge_guard()
+
+    def test_guard_status_rule_output_with_no_verdict_is_rerun(self):
+        printed, code = self.guard_from_its_step("abandoned")
+        self.assertEqual(code, 3, printed)
+        with self.assertRaisesRegex(excuse.Refused, r"gave no verdict.*re-run it"):
+            self.judge_guard()
+
+    def test_guard_status_rule_line_naming_other_failures_is_a_routing_error(self):
+        printed, _ = self.guard_from_its_step("failure")
+        self.gh.logs[3] += "\n" + log("nightly-guards / Guard status", "Check routed guard jobs",
+                                      "##[error]Guard status: workflow-guard-source-lints: failure")
+        with self.assertRaisesRegex(excuse.Refused, "routing error"):
+            self.judge_guard()
+
     def test_guard_route_job_must_match_the_reported_route_input(self):
         # ci-guards.yml maps linux_guard_tests -> workflow-guard-tests and
         # linux_guard_source -> workflow-guard-source-lints.  A mismatched

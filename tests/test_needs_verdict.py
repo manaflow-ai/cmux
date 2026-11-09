@@ -4,7 +4,9 @@ Class: a summary or status poster turning "nothing judged" into a red, or into a
 cmux-next/fast-gates poster (#39743) and the `rust workspaces` summary (#39791) each read an `abandoned` dependency
 as the pull request's own red, because every gate wrote its own `== success` test. Detector: this file.
 `test_every_summary_step_reading_needs_results_uses_the_rule` fails when a step that reads needs results neither
-carries the rule nor is listed in NOT_MERGE_GATES with its reason.
+carries the rule nor is listed (NOT_MERGE_GATES, MARKER_STEPS) with its reason, or carries the rule but still compares
+a result with success itself; `test_no_summary_job_is_skipped_or_fed_by_a_needs_result` fails when a summary job's
+`if:` or `with:` reads a needs result (JOB_IF_READS lists the route skips, with why).
 """
 from __future__ import annotations
 
@@ -27,6 +29,8 @@ import needs_verdict as nv  # noqa: E402
 
 WORKFLOWS = ROOT / ".github/workflows"
 NEEDS_RESULT = re.compile(r"needs\.[\w-]+\.result|toJSON\(needs\)")
+# A hand-written verdict: a result compared with success (`== success`, `!= "success"`, `not in {"success", ...}`).
+SUCCESS_TEST = re.compile(r"""[!=]=\s*["']?success\b|\bsuccess["']?\s*[!=]=|\bin\s*[{(\[]\s*["']success["']""")
 
 # (results, may_skip, state): the table every copy of the rule answers the same way.
 TABLE = (
@@ -38,6 +42,8 @@ TABLE = (
     ({"a": "cancelled", "b": "failure"}, (), nv.FAIL),
     ({"a": "invalid route web=None"}, (), nv.FAIL),
     ({"a": "failure (route x=true)"}, (), nv.FAIL),
+    ({"a": "invalid: not among the needs"}, (), nv.FAIL),  # a required job missing from needs is a config red
+    ({"a": "success", "b": "invalid: not among the needs"}, ("b",), nv.FAIL),
     ({"a": "abandoned"}, (), nv.NONE),
     ({"a": "cancelled"}, (), nv.NONE),
     ({"a": "timed_out"}, (), nv.NONE),
@@ -68,6 +74,31 @@ NOT_MERGE_GATES = {
     ("sdk-release-cut.yml", "summarize"): "release cut, not a merge gate",
     ("stable-next.yml", "report"): "stable release report, not a merge gate",
 }
+
+
+# Summary steps that read a verdict from a job's output as well as its result, so they print the rule's marker
+# themselves instead of calling it; each still never turns "nothing judged" into a pass or the PR's own red.
+MARKER_STEPS = {
+    ("cmux-next.yml", "fast-tier"): "the fleet's own verdict output (pass/fail) decides, its result alone does not",
+    ("cmux-next.yml", "crash-ends-app"): "the compile's crash_gate output decides; its result only says why it is empty",
+}
+# Summary jobs whose job-level `if:` reads a needs result (the gate is skipped, so it reads as passed), with why that
+# skip is a route and not a verdict.
+JOB_IF_READS = {
+    ("cmux-next.yml", "crash-ends-app"): "a skipped compile is a route that asked for no app build; the compile's own "
+                                         "check says so",
+}
+
+
+def summary_jobs():
+    """(workflow file, job id, job) for every job with a step that reads a needs result, or a `with:` that does."""
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+        for job_id, job in (doc.get("jobs") or {}).items():
+            if NEEDS_RESULT.search(json.dumps(job.get("with") or {})) or any(
+                    NEEDS_RESULT.search(json.dumps(step.get("env") or {})) or NEEDS_RESULT.search(step.get("run") or "")
+                    for step in job.get("steps") or []):
+                yield path.name, job_id, job
 
 
 def summary_steps():
@@ -119,11 +150,8 @@ class Rule(unittest.TestCase):
 
     def test_the_python_copy_answers_the_table(self):
         for results, may_skip, state in TABLE:
-            bad = {k: v for k, v in results.items() if nv.classify(v, k in may_skip) != nv.PASS}
-            if not bad:
-                continue
             with self.subTest(results=results):
-                code = "import sys\n" + nv.PYTHON_RULE + f"exit_with_verdict({bad!r}, 'w')\n"
+                code = "import sys\n" + nv.PYTHON_RULE + f"exit_with_verdict({results!r}, 'w', {set(may_skip)!r})\n"
                 done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
                                       stdin=subprocess.DEVNULL)
                 self.assertEqual(done.returncode, nv.exit_code(state), done.stdout + done.stderr)
@@ -147,18 +175,44 @@ class Copies(unittest.TestCase):
         self.assertGreaterEqual(seen, 8)
 
     def test_every_summary_step_reading_needs_results_uses_the_rule(self):
-        uses = (nv.SHELL_RULE.splitlines()[0], nv.PYTHON_RULE.splitlines()[0], "web_validation.py check",
-                "::error::no verdict: ", "::no verdict: ")
-        listed = set()
+        uses = (nv.SHELL_RULE.splitlines()[0], nv.PYTHON_RULE.splitlines()[0], "web_validation.py check")
+        listed, marked = set(), set()
         for workflow, job, st in summary_steps():
             if (workflow, job) in NOT_MERGE_GATES:
                 listed.add((workflow, job))
                 continue
+            body = st.get("run") or ""
             with self.subTest(workflow=workflow, job=job, step=st.get("name")):
-                self.assertTrue(any(u in (st.get("run") or "") for u in uses),
+                if (workflow, job) in MARKER_STEPS:
+                    marked.add((workflow, job))
+                    self.assertIn("::no verdict: " if "title=" in body else "::error::no verdict: ", body)
+                    continue
+                self.assertTrue(any(u in body for u in uses),
                                 "a summary step that reads needs results must use scripts/ci/needs_verdict.py's rule "
                                 "(or be listed in NOT_MERGE_GATES with why)")
+                own = body.replace(nv.SHELL_RULE, "").replace(nv.PYTHON_RULE, "")
+                left = [line.strip() for line in own.splitlines() if SUCCESS_TEST.search(line)]
+                self.assertEqual(left, [], "a step on the rule still compares a result with success itself: give the "
+                                           "rule every result (and the jobs that may skip) instead")
         self.assertEqual(listed, set(NOT_MERGE_GATES), "a NOT_MERGE_GATES entry that no longer exists")
+        self.assertEqual(marked, set(MARKER_STEPS), "a MARKER_STEPS entry that no longer exists")
+
+    def test_no_summary_job_is_skipped_or_fed_by_a_needs_result(self):
+        """A summary whose job-level `if:` reads a needs result is skipped, which reads as a pass, on exactly the
+        results it should judge; one whose `with:` passes needs results judges them where this file cannot see."""
+        seen = set()
+        for workflow, job_id, job in summary_jobs():
+            if (workflow, job_id) in NOT_MERGE_GATES:
+                continue
+            with self.subTest(workflow=workflow, job=job_id):
+                self.assertFalse(NEEDS_RESULT.search(json.dumps(job.get("with") or {})),
+                                 "a summary's `with:` reads needs results: judge them in this job with the rule")
+                if NEEDS_RESULT.search(str(job.get("if") or "")):
+                    seen.add((workflow, job_id))
+                    self.assertIn((workflow, job_id), JOB_IF_READS,
+                                  "a summary's job-level `if:` reads a needs result, so it is skipped (read as "
+                                  "passed) on a result it should judge: use always() and judge it with the rule")
+        self.assertEqual(seen, set(JOB_IF_READS), "a JOB_IF_READS entry that no longer reads a needs result")
 
 
 class Summaries(unittest.TestCase):
@@ -217,9 +271,10 @@ class Summaries(unittest.TestCase):
 
         for change, code in (({}, 0), ({"build": {"result": "failure"}}, 1), ({"build": {"result": "abandoned"}}, 3),
                              ({"changes": {"result": "abandoned"}}, 3), ({"changes": {"result": "failure"}}, 1),
-                             ({"changes": {"result": "success", "outputs": {"required": "x"}}}, 1)):
+                             ({"changes": {"result": "success", "outputs": {"required": "x"}}}, 1),
+                             ({"database": None}, 1)):  # a required job missing from needs is a config red
             with self.subTest(change=change):
-                done = check({**good, **change})
+                done = check({k: v for k, v in {**good, **change}.items() if v is not None})
                 self.assertEqual(done.returncode, code, done.stdout + done.stderr)
                 self.assertEqual("::error::no verdict: web-validation:" in done.stdout, code == 3)
 

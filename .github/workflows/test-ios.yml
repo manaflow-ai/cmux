@@ -1125,10 +1125,15 @@ jobs:
           import os
           import sys
 
-          def exit_with_verdict(bad, what):
+          def exit_with_verdict(results, what, may_skip=()):
               """scripts/ci/needs_verdict.py PYTHON_RULE, copied verbatim (tests/test_needs_verdict.py)."""
-              failed = {n: r for n, r in bad.items() if (r or "").split(" ", 1)[0] in ("failure", "invalid")}
-              for n, r in (failed or bad).items():
+              def word(r):
+                  return (r or "").replace(":", " ").split(" ", 1)[0]
+              bad = {n: r for n, r in results.items() if word(r) != "success" and not (r == "skipped" and n in may_skip)}
+              if not bad:
+                  return
+              failed = {n: r for n, r in bad.items() if word(r) in ("failure", "invalid")}
+              for n, r in bad.items():
                   print(f"{n}: {r or 'none'}", file=sys.stderr)
               if failed:
                   print(f"::error::{what}: " + "; ".join(f"{n}: {r}" for n, r in failed.items()))
@@ -1150,19 +1155,12 @@ jobs:
           #
           # The routing job must succeed for its should_run/should_lint outputs to
           # be trustworthy; the suites below run or skip based on those outputs.
-          if needs["detect-ios-changes"]["result"] != "success":
-              exit_with_verdict({"detect-ios-changes": needs["detect-ios-changes"]["result"]}, "ios-tests")
+          exit_with_verdict({"detect-ios-changes": needs["detect-ios-changes"]["result"]}, "ios-tests")
 
           # A suite that opted out via the routing filter reports "skipped", which
           # is fine; a suite that actually ran and failed must block the merge.
-          allowed = {"success", "skipped"}
-          bad = {
-              name: data["result"]
-              for name, data in sorted(needs.items())
-              if name != "detect-ios-changes" and data["result"] not in allowed
-          }
-          if bad:
-              exit_with_verdict(bad, "ios-tests")
+          suites = {name: data["result"] for name, data in sorted(needs.items()) if name != "detect-ios-changes"}
+          exit_with_verdict(suites, "ios-tests", suites)
 
           for name, data in sorted(needs.items()):
               print(f"{name}={data['result']}")

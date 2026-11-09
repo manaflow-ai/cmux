@@ -440,6 +440,8 @@ BASE_DISPATCH_EVERY = timedelta(minutes=60)
 ROUTE_IF = re.compile(r"\$\{\{ *inputs\.(\w+) *== *'true' *\}\}")
 # A route report the Guard status prints: always read, even for a job the contract does not name (refused as unknown).
 ROUTE_REPORT = r"workflow-guard-[\w-]+|linux_guard_\w+"
+# The `what` Guard status passes to needs_verdict.py's rule (ci-guards.yml, `exit_with_verdict(bad, "Guard status")`).
+GUARD_STATUS_WHAT = "Guard status"
 HOOK_REFUSAL = "glaeda-cmux-runner-hook: refused"
 VERDICTS = frozenset({"success", "failure"})
 # How far back the base lookup reads. A feat-cmux-next push skips swift-test, so its base verdict comes
@@ -1104,12 +1106,14 @@ def validate_guard_routes(repo: str, sha: str, guard: dict, children: list[dict]
     steps, _, errors = signature(guard, text)
     if steps != {"Check routed guard jobs"}:
         raise Refused(f"'{name}': non-routing failed steps: {'; '.join(sorted(steps))}")
-    if errors:
-        raise Refused(f"'{name}': routing error: {'; '.join(sorted(errors))[:600]}")
+    # The step judges its needs with scripts/ci/needs_verdict.py's rule: no verdict is re-run, never compared.
+    if (said := summary_no_verdict(text)) is not None:
+        raise Refused(f"'{name}' gave no verdict ({said[:300]}): nothing it summarizes was judged, so it is "
+                      "neither a pass nor this PR's own red; re-run it")
     report = test_reds.read(text)
     if report.crashes or report.truncated:
         raise Refused(f"'{name}': routing process crashed or ended early")
-    routes = []
+    routes, reported = [], []
     lines = lines_of(text)
     inputs = {route["route"] for route in routed.values() if route["route"]}
     report = rf"({ROUTE_REPORT}|{'|'.join(re.escape(key) for key in sorted(set(routed) | inputs))}): (.+)"
@@ -1136,6 +1140,12 @@ def validate_guard_routes(repo: str, sha: str, guard: dict, children: list[dict]
                    for child in children):
             raise Refused(f"'{name}': no failed child for routed failure {route}")
         routes.append(route)
+        reported.append(f"{route}: {result}")
+    # The rule's own red line (`::error::Guard status: <job>: failure (...); ...`) restates exactly the failures read
+    # above, each checked against a failed child; any other error line is a routing error.
+    errors -= {normalise_error(f"{GUARD_STATUS_WHAT}: " + "; ".join(reported))}
+    if errors:
+        raise Refused(f"'{name}': routing error: {'; '.join(sorted(errors))[:600]}")
     if not routes:
         raise Refused(f"'{name}': no routed failure report to compare with its children")
 

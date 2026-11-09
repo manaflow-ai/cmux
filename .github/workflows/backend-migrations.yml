@@ -264,7 +264,7 @@ jobs:
             local what=$1 failed="" unjudged="" pair name result; shift
             for pair in "$@"; do
               name=${pair%%=*}; result=${pair#*=}
-              case "${result%% *}" in
+              case "${result%%[ :]*}" in
                 success) ;;
                 failure|invalid) failed+=" $name: $result;" ;;
                 *) unjudged+=" $name ${result:-none}," ;;

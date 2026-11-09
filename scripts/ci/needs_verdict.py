@@ -8,10 +8,13 @@ rule does not know. A summary with such a result and no failure gives NO VERDICT
 nothing stood behind it, and never the pull request's own red, because nothing was judged. The job still ends red
 (exit 3), so no merger reads it as green, with one annotation that starts `no verdict: ` (NO_VERDICT_PREFIX).
 scripts/ci/base_red_excuse.py reads that annotation and refuses the merge with "re-run it" instead of comparing it
-with the base as a test red. A real failure among the results wins: it is a red (exit 1), compared as usual.
+with the base as a test red. A real failure among the results wins: it is a red (exit 1), compared as usual. Its
+line `::error::<what>: <job>: <result>; ...` restates the failures; base_red_excuse's Guard status check reads it as
+that restatement, not as a routing error (GUARD_STATUS_WHAT).
 
 A summary may also hold reds that are not job results, such as an invalid route ("invalid route web=None"). An
-entry whose first word is `failure` or `invalid` is a red; any other entry is no verdict.
+entry whose first word is `failure` or `invalid` (a trailing colon is no part of the word) is a red; any other
+entry is no verdict.
 
 Why: on 2026-11-09 the cmux-next/fast-gates poster (#39743) and the `rust workspaces` summary (#39791) each turned an
 `abandoned` dependency into a red that merge_hold read as the pull request's own, because every summary gate wrote
@@ -45,7 +48,7 @@ needs_verdict() {  # scripts/ci/needs_verdict.py SHELL_RULE, copied verbatim (te
   local what=$1 failed="" unjudged="" pair name result; shift
   for pair in "$@"; do
     name=${pair%%=*}; result=${pair#*=}
-    case "${result%% *}" in
+    case "${result%%[ :]*}" in
       success) ;;
       failure|invalid) failed+=" $name: $result;" ;;
       *) unjudged+=" $name ${result:-none}," ;;
@@ -59,13 +62,19 @@ needs_verdict() {  # scripts/ci/needs_verdict.py SHELL_RULE, copied verbatim (te
 }
 """
 
-# The rule as a Python function, for a summary step with no checkout. BAD holds only the entries that did not
-# pass ({job: result}); it never returns.
+# The rule as a Python function, for a summary step with no checkout. RESULTS holds every entry the summary judges
+# ({job: result}); MAY_SKIP names the jobs whose `skipped` passes. It returns when every entry passed and exits otherwise,
+# so the step never compares a result with "success" itself.
 PYTHON_RULE = '''\
-def exit_with_verdict(bad, what):
+def exit_with_verdict(results, what, may_skip=()):
     """scripts/ci/needs_verdict.py PYTHON_RULE, copied verbatim (tests/test_needs_verdict.py)."""
-    failed = {n: r for n, r in bad.items() if (r or "").split(" ", 1)[0] in ("failure", "invalid")}
-    for n, r in (failed or bad).items():
+    def word(r):
+        return (r or "").replace(":", " ").split(" ", 1)[0]
+    bad = {n: r for n, r in results.items() if word(r) != "success" and not (r == "skipped" and n in may_skip)}
+    if not bad:
+        return
+    failed = {n: r for n, r in bad.items() if word(r) in ("failure", "invalid")}
+    for n, r in bad.items():
         print(f"{n}: {r or 'none'}", file=sys.stderr)
     if failed:
         print(f"::error::{what}: " + "; ".join(f"{n}: {r}" for n, r in failed.items()))
@@ -79,7 +88,7 @@ def exit_with_verdict(bad, what):
 def classify(result: str | None, may_skip: bool = False) -> str:
     """PASS, FAIL or NONE for one entry."""
     value = (result or "").strip()
-    word = value.split(" ", 1)[0]
+    word = value.replace(":", " ").split(" ", 1)[0]  # "invalid: not among the needs" is the word "invalid"
     if word == "success" or (value == "skipped" and may_skip):
         return PASS
     if word in RED_WORDS:
