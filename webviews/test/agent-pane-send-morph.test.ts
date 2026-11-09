@@ -375,7 +375,7 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
       expect(drawn[0]!.bubble!.shown, "the bubble draws in its place").toBe(true);
       expect(
         drawn[0]!.bubble!.ink,
-        `the bubble fades in in place (${JSON.stringify(drawn.slice(0, 4).map((frame) => [frame.at, frame.row, frame.bubble!.ink]))})`,
+        `the bubble fades in in place (${JSON.stringify(drawn.slice(0, 4).map((frame) => [frame.at, frame.row, frame.bubble!.ink]))}) probe ${JSON.stringify(await page.evaluate(() => (window as unknown as { __mountProbe?: unknown }).__mountProbe))}`,
       ).toBeLessThan(0.6);
       expect(drawn.at(-1)!.bubble!.ink).toBeGreaterThan(0.99);
     } finally {
@@ -401,7 +401,7 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
       expect(drawn[0]!.bubble!.shown, "the bubble draws in its place").toBe(true);
       expect(
         drawn[0]!.bubble!.ink,
-        `the bubble fades in in place (${JSON.stringify(drawn.slice(0, 4).map((frame) => [frame.at, frame.row, frame.bubble!.ink]))})`,
+        `the bubble fades in in place (${JSON.stringify(drawn.slice(0, 4).map((frame) => [frame.at, frame.row, frame.bubble!.ink]))}) probe ${JSON.stringify(await page.evaluate(() => (window as unknown as { __mountProbe?: unknown }).__mountProbe))}`,
       ).toBeLessThan(0.6);
       expect(drawn.at(-1)!.bubble!.ink).toBeGreaterThan(0.99);
     } finally {

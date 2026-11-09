@@ -1923,6 +1923,15 @@ function TranscriptView({
   if (knownRows.current === null || sessionChanged) {
     const mounting = knownRows.current === null;
     knownRows.current = new Set(rows.map(rowFrameKey));
+    // PROBE (temporary, removed before merge)
+    ((window as unknown as { __mountProbe?: unknown[] }).__mountProbe ??= []).push({
+      mounting,
+      sessionChanged,
+      sends,
+      rows: rows.map((row) => [row.id, row.kind, row.pending, row.queued, Date.now() - row.at]),
+      coldOpen,
+      allowed: entranceAllowed(),
+    });
     // An empty chat draws no transcript: it mounts with the first prompt the reader just sent (and
     // its thinking line), and those rows enter on the send's clock as every later prompt's do
     // (conversation.css SEND-ENTRANCE). A transcript mounted again over an older chat does not.
