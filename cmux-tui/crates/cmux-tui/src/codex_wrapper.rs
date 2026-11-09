@@ -162,7 +162,7 @@ pub(crate) fn install_shim(dir: &Path, executable: &Path) -> anyhow::Result<Path
     if current {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
     } else {
-        agent_hook_install::atomic_write(&path, script.as_bytes(), Some(0o700))?;
+        agent_hook_install::replace_rewritable_file(&path, script.as_bytes(), Some(0o700))?;
     }
     Ok(path)
 }

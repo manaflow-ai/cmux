@@ -99,6 +99,13 @@ const MAX_KINDS: usize = 32;
 /// Worker calls (pages, prompts, permission answers) per attachment.
 const MAX_CALLS: usize = 8;
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long a prompt waits for acpmux's `prompt_accepted`. acpmux accepts before it starts the
+/// agent, but the first prompt of a chat started a moment ago first waits for that chat's log and
+/// adoption on a daemon that just started, which took over 5 s on a fresh Cloud machine (HQ's
+/// cloud-start-matrix phone-start row, run 42617701877: `agent_session.timeout` 1.4 s after the
+/// start). The prompt was already sent then, so a refusal there was a turn that might still run
+/// while the phone said it failed. Bounded as the login start is.
+pub(super) const PROMPT_ACCEPT_TIMEOUT: Duration = Duration::from_secs(30);
 /// Notifications held while the attach call waits for its reply.
 const MAX_EARLY: usize = 256;
 /// Largest attach or events page sent to the client (a control message);
@@ -1593,7 +1600,7 @@ fn submit_prompt(
         attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
         return Err(refusal);
     }
-    let accepted = receiver.recv_timeout(CALL_TIMEOUT);
+    let accepted = receiver.recv_timeout(PROMPT_ACCEPT_TIMEOUT);
     attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
     match accepted {
         Ok(accepted) => Ok(json!({
