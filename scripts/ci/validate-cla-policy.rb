@@ -193,7 +193,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0aeffcf9241fbc59bd9aa744a882ddbd8c7555ca879855
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "db77181140de6880ea038cb0a76db100e391fad7f0d09a22f9054bf62a43249f"
+EXPECTED_GUARD_SCRIPT_DIGEST = "1ec5172cd6cb234f739b3e56b4cdedd0cbe5271c33b4193cd06a12548222ab9f"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -737,6 +737,16 @@ def api_json(repository, endpoint, allow_missing: false)
   end
 
   api_request_json([endpoint], allow_missing: allow_missing)
+end
+
+# True when the live pull request merged with the head this run was started
+# for. A merged pull request cannot merge again or reopen, so a run on it
+# (a bot edit just after the merge) has nothing to gate. A closed pull request
+# that did not merge can reopen, so it stays fail-closed.
+def merged_at_head?(live_pr, pr_number, head_sha)
+  head = live_pr["head"]
+  live_pr["number"].to_s == pr_number && live_pr["state"] == "merged" &&
+    head.is_a?(Hash) && head["sha"] == head_sha
 end
 
 def review_sort_key(review)
@@ -3631,6 +3641,12 @@ begin
   assert_positive_integer(repository_id, "base repository ID")
   live_pr = api_json(repository, "repos/#{repository}/pulls/#{pr_number}")
   fail!("pull request metadata is malformed") unless live_pr.is_a?(Hash)
+  # A bot edit a few seconds after a merge starts an `edited` run on the merged
+  # pull request (cmux #39226, run 42566226142). Pass it with no file read.
+  if merged_at_head?(live_pr, pr_number, head_sha)
+    puts "PASS: pull request ##{pr_number} is already merged at #{head_sha}; nothing to gate"
+    exit 0
+  end
   live_base = live_pr["base"]
   live_head = live_pr["head"]
   live_base_repo = live_base.is_a?(Hash) ? live_base["repo"] : nil

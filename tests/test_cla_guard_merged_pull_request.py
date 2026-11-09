@@ -15,7 +15,6 @@ also fails.
 """
 import json
 import os
-import shutil
 import subprocess
 import tempfile
 import unittest
@@ -56,7 +55,6 @@ eval(src[cut..], TOPLEVEL_BINDING, path)
 """
 
 
-@unittest.skipUnless(shutil.which("ruby"), "ruby is required")
 class CLAGuardMergedPullRequestTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
