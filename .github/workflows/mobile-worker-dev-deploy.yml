@@ -10,10 +10,14 @@
 # lockfile, then checks that /v1/health serves the API version wrangler.jsonc declares.
 #
 # Migrations: the README's rule is to apply a migration to a database before deploying the
-# Worker that reads it. This job holds no database credentials, so it cannot apply or read
-# them. DEV_DB_LATEST_MIGRATION below records the newest migration known to be applied to the
-# dev database; a tree with a newer file under drizzle/ stops before the deploy. Apply it to
-# the dev database (README, "Migrations"), then raise DEV_DB_LATEST_MIGRATION in the same PR.
+# Worker that reads it. The dev Worker reads the `mobile_*` tables of cmux-next-vitess
+# `development` through Hyperdrive (PS_MYSQL); their migrations live in
+# backend/db/drizzle-mysql (the old Postgres drizzle/ directory under cmux-next-ios/backend is
+# no longer bound). This job holds no database credentials, so it cannot read or apply them.
+# DEV_DB_LATEST_MOBILE_MIGRATION records the newest drizzle-mysql migration touching `mobile_*`
+# tables that is applied to `development`; a tree with a newer one stops before the deploy.
+# Apply it (`bun migrate-mysql.ts --branch development` in backend/db), then raise
+# DEV_DB_LATEST_MOBILE_MIGRATION in the same PR.
 #
 # Required repository secrets (the ones presence.yml and cloudflare-relay.yml use):
 #   CLOUDFLARE_API_TOKEN   API token with Workers Scripts:Edit on the account
@@ -35,9 +39,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # Newest drizzle migration applied to the dev database (cmux-mobile-dev). 0004 is what
-  # API 0.13.0 and later read; dev served 0.14.0 on 2026-11-09.
-  DEV_DB_LATEST_MIGRATION: "0004_push_settings"
+  # Newest backend/db/drizzle-mysql migration touching mobile_* tables that is applied to
+  # cmux-next-vitess development. 0002_mobile created them; dev served API 0.14.0 from them on 2026-11-09.
+  DEV_DB_LATEST_MOBILE_MIGRATION: "0002_mobile"
 
 jobs:
   deploy-dev:
@@ -84,13 +88,18 @@ jobs:
             exit 1
           fi
 
-      - name: No migration newer than the dev database
+      - name: No mobile migration newer than the dev database
+        working-directory: backend/db/drizzle-mysql
         run: |
-          latest="$(find drizzle -maxdepth 1 -name '[0-9][0-9][0-9][0-9]_*.sql' -printf '%f\n' | sort | tail -n 1)"
+          latest="$(grep -lE '\bmobile_' -- [0-9][0-9][0-9][0-9]_*.sql | sort | tail -n 1)"
           latest="${latest%.sql}"
-          echo "Newest migration in the tree: $latest; newest applied to the dev database: $DEV_DB_LATEST_MIGRATION"
-          if [[ "$latest" > "$DEV_DB_LATEST_MIGRATION" ]]; then
-            echo "::error::drizzle/$latest.sql is newer than the dev database ($DEV_DB_LATEST_MIGRATION). Apply it to cmux-mobile-dev first (cmux-next-ios/backend/README.md, Migrations), then raise DEV_DB_LATEST_MIGRATION in this workflow."
+          echo "Newest drizzle-mysql migration touching mobile_* tables: ${latest:-none}; applied to development: $DEV_DB_LATEST_MOBILE_MIGRATION"
+          if [ -z "$latest" ]; then
+            echo "::error::No drizzle-mysql migration mentions mobile_* tables; the check no longer matches the tree."
+            exit 1
+          fi
+          if [[ "$latest" > "$DEV_DB_LATEST_MOBILE_MIGRATION" ]]; then
+            echo "::error::backend/db/drizzle-mysql/$latest.sql changes mobile_* tables and is newer than what development has ($DEV_DB_LATEST_MOBILE_MIGRATION). Apply it first (bun migrate-mysql.ts --branch development in backend/db), then raise DEV_DB_LATEST_MOBILE_MIGRATION in this workflow."
             exit 1
           fi
 
