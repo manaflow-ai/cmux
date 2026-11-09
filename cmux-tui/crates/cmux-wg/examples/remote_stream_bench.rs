@@ -84,11 +84,11 @@ const HEADER: usize = 1 + 4 + 8 + 8;
 #[allow(dead_code)]
 #[path = "../../cmux-rd-ffi/src/input.rs"]
 mod input;
+#[path = "remote_stream_rd/link.rs"]
+mod rd_link;
 #[allow(dead_code)]
 #[path = "../../cmux-rd-ffi/src/receiver.rs"]
 mod receiver;
-#[path = "remote_stream_rd/link.rs"]
-mod rd_link;
 
 #[derive(Clone)]
 struct Args {

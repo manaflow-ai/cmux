@@ -37,8 +37,8 @@ use tokio::time::{Instant, sleep_until};
 use crate::input::InputChannel;
 use crate::receiver::{Carrier, Receiver};
 use crate::{
-    Args, Clock, HEADER, INPUT_INTERVAL, KIND_FRAME, LATE, Shared, header, impair, lock,
-    next_tick, parse_header,
+    Args, Clock, HEADER, INPUT_INTERVAL, KIND_FRAME, LATE, Shared, header, impair, lock, next_tick,
+    parse_header,
 };
 
 /// The link host's datagram size (`cmux-rd-host` `serve.rs` `MAX_DATAGRAM`):
@@ -92,11 +92,7 @@ pub fn frames_in_flight(args: &Args) -> u32 {
         return args.rd_frames_in_flight;
     }
     let rtt_us = args.rtt_ms * 1000;
-    if rtt_us == 0 {
-        2
-    } else {
-        cmux_rd_engine::frames_in_flight_for(rtt_us, args.fps).max(2)
-    }
+    if rtt_us == 0 { 2 } else { cmux_rd_engine::frames_in_flight_for(rtt_us, args.fps).max(2) }
 }
 
 /// What the host sent, for the note.
@@ -191,10 +187,12 @@ impl Host {
                 got = self.side.socket.recv_from(&mut buf) => {
                     let (n, source) = got?;
                     let now = self.clock.us();
-                    let events = match self.side.endpoint.on_packet(Route::Udp(source), &buf[..n], now) {
-                        Ok(events) => events,
-                        Err(_) => Vec::new(),
-                    };
+                    // A packet that is not this link's is dropped.
+                    let events = self
+                        .side
+                        .endpoint
+                        .on_packet(Route::Udp(source), &buf[..n], now)
+                        .unwrap_or_default();
                     for event in events {
                         match event {
                             EndpointEvent::Link(Event::Established) if self.engine.is_none() => {
@@ -278,8 +276,7 @@ impl Host {
             let _ = engine.encoded(&request, None, now);
             return;
         }
-        let size =
-            if request.force_idr { self.args.keyframe_bytes } else { self.args.frame_bytes };
+        let size = if request.force_idr { self.args.keyframe_bytes } else { self.args.frame_bytes };
         let echo = std::mem::take(&mut self.pending_echo);
         let encoded = Encoded {
             access_unit: access_unit(self.seq, now, echo, size),
@@ -339,10 +336,12 @@ impl Viewer {
                 got = self.side.socket.recv_from(&mut buf) => {
                     let (n, source) = got?;
                     let now = self.clock.us();
-                    let events = match self.side.endpoint.on_packet(Route::Udp(source), &buf[..n], now) {
-                        Ok(events) => events,
-                        Err(_) => Vec::new(),
-                    };
+                    // A packet that is not this link's is dropped.
+                    let events = self
+                        .side
+                        .endpoint
+                        .on_packet(Route::Udp(source), &buf[..n], now)
+                        .unwrap_or_default();
                     for event in events {
                         match event {
                             EndpointEvent::Link(Event::Established) => established = true,
@@ -432,8 +431,9 @@ pub async fn run(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Result<(
     // The viewer knows the host's candidate from signaling; the host learns
     // the viewer's route from its handshake.
     viewer_endpoint.add_path(Route::Udp(dial), PathKind::DirectWan, now);
-    let host_endpoint = Endpoint::new(Role::Responder, SESSION, &host_keys, viewer_keys.public, now)
-        .map_err(link_error)?;
+    let host_endpoint =
+        Endpoint::new(Role::Responder, SESSION, &host_keys, viewer_keys.public, now)
+            .map_err(link_error)?;
     let in_flight = frames_in_flight(args);
     let config = EngineConfig {
         width: WIDTH,
