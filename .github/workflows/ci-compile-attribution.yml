@@ -217,7 +217,7 @@ jobs:
           # The PR pool's root label (compile admission's), then the Blacksmith
           # pool whose seeds match its width.
           OWNED: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_COMPILE_PROBE_POOL || 'glaeda-root-std-xcode-26.6' }}
-          OVERFLOW: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
+          OVERFLOW: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26_large }}
         run: |
           set -euo pipefail
           since="$(date -u -d '-30 seconds' +%Y-%m-%dT%H:%M:%SZ)"
