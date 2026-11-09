@@ -420,8 +420,11 @@ pub(crate) struct Hooks<'a> {
     pub audit: &'a mut dyn FnMut(Value),
     /// Holds off every other change to one person's share of one machine on this host until the
     /// guard drops ([`person_lock`]), so a change is computed from the share as it is then.
-    pub lock: &'a dyn Fn(&str, &str) -> anyhow::Result<Box<dyn std::any::Any>>,
+    pub lock: &'a dyn Fn(&str, &str) -> anyhow::Result<Guard>,
 }
+
+/// What [`Hooks::lock`] hands back: the lock is held until it drops.
+pub(crate) type Guard = Box<dyn std::any::Any>;
 
 /// How many times a change re-reads and writes again when a concurrent writer (another host)
 /// undid it between its write and its check.
@@ -790,7 +793,7 @@ fn move_here(api: &dyn Api, machine: &str) -> anyhow::Result<Option<Value>> {
 
 /// An exclusive lock on one person's share of one machine, on this host (a 0600 file beside the
 /// host config, `flock` on Unix), held until the guard drops.
-fn person_lock(machine: &str, person: &str) -> anyhow::Result<Box<dyn std::any::Any>> {
+fn person_lock(machine: &str, person: &str) -> anyhow::Result<Guard> {
     let mut options = std::fs::OpenOptions::new();
     options.read(true).write(true).create(true).truncate(false);
     #[cfg(unix)]

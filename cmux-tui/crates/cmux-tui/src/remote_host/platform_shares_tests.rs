@@ -141,7 +141,7 @@ fn words(words: &[&str]) -> Vec<String> {
 }
 
 /// The tests run one change at a time; the lock's own exclusion is `flock`'s.
-fn no_lock(_: &str, _: &str) -> anyhow::Result<Box<dyn std::any::Any>> {
+fn no_lock(_: &str, _: &str) -> anyhow::Result<Guard> {
     Ok(Box::new(()))
 }
 
@@ -727,11 +727,14 @@ fn a_grant_with_a_share_left_here_stays_and_stays_proxied() {
     assert_eq!(next_connection(&outcome.config), Some(true));
 }
 
+/// A change another host makes to the stand-in platform.
+type Meanwhile<'a> = Box<dyn FnOnce(&Platform) + 'a>;
+
 /// The stand-in platform, with `after` run once right after the first create or revoke: a writer
 /// on another host whose change lands between this run's write and its read-back.
 struct Interleaved<'a> {
     platform: &'a Platform,
-    after: RefCell<Option<Box<dyn FnOnce(&Platform) + 'a>>>,
+    after: RefCell<Option<Meanwhile<'a>>>,
     passes: RefCell<u32>,
 }
 
