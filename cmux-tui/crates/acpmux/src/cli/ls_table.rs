@@ -192,6 +192,10 @@ fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
         "harness_unavailable" => return "harness down".into(),
         other => return other.replace('_', " "),
     }
+    // Every command it runs is refused: its harness's own sandbox did not start.
+    if row.get("harnessSandboxFailed").and_then(Value::as_u64).is_some() {
+        return "harness sandbox".into();
+    }
     let lane = &row["lane"];
     if let Some(since) = lane["stalledSince"].as_u64() {
         return format!("stalled {}", ago(now, since));
