@@ -80,10 +80,10 @@ impl AgentRow {
         json!({
             "terminal": self.terminal,
             "harness": self.harness,
-            // `state` is a deprecated alias of `status` (`ended` for a session
-            // that ended): scripts that read it get the same word.
+            // `status` is `ended` for a session that ended, as in the send
+            // receipt; `state` is its deprecated alias.
             "state": self.status_word(),
-            "status": self.status.map(AgentStatus::as_str),
+            "status": self.status_word(),
             "title": self.title,
             "workspace_id": self.workspace_id,
             "workspace": self.workspace,
@@ -233,7 +233,7 @@ pub(in crate::cli) fn agent_rows(snapshot: &Value) -> Vec<AgentRow> {
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|terminal| terminal["lifecycle"] != "exited")
+        .filter(|terminal| super::super::terminal_lifecycle::is_live(terminal))
         .filter_map(|terminal| {
             let unseen = terminal["id"].as_str().is_some_and(|id| unseen.contains(id));
             agent_of_terminal(terminal, agents, unseen)

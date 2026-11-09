@@ -634,6 +634,12 @@ pub struct TurnUsage {
     pub cache_read_tokens: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_write_tokens: Option<u64>,
+    /// Of `cache_write_tokens`, the hour-long writes (Claude Code's
+    /// `cache_creation.ephemeral_1h_input_tokens`), which bill at twice the input price where a
+    /// 5-minute write bills at 1.25 times. Absent in older records and for harnesses that do not
+    /// say: their writes price at the 5-minute rate.
+    #[serde(default, rename = "cacheWrite1hTokens", skip_serializing_if = "Option::is_none")]
+    pub cache_write_1h_tokens: Option<u64>,
 }
 
 impl TurnUsage {
@@ -656,6 +662,7 @@ impl TurnUsage {
         self.output_tokens = sum(self.output_tokens, turn.output_tokens);
         self.cache_read_tokens = sum(self.cache_read_tokens, turn.cache_read_tokens);
         self.cache_write_tokens = sum(self.cache_write_tokens, turn.cache_write_tokens);
+        self.cache_write_1h_tokens = sum(self.cache_write_1h_tokens, turn.cache_write_1h_tokens);
     }
 }
 

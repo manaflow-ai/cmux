@@ -83,7 +83,7 @@ export function steerQueue({ sessions, now, log = [] }: SteerQueueInput): SteerI
 export function steerReason(session: AcpmuxSessionEntry, now: number): SteerReason | undefined {
   // A chat whose machine is unreachable waits on nobody: it is a failure to look at, never an ask.
   if (session.indicator === "lost" || session.lane === "lost") return "failed";
-  // As Needs you reads it (needsYou/model.ts `waitsOnPerson`): a local chat acpmux says is not
+  // As Needs you reads it (sessionIndex.ts `waitsOnPerson`): a local chat acpmux says is not
   // waiting has nothing pending, whatever its dot last said.
   if (
     (session.pendingPermissions ?? 0) > 0 ||

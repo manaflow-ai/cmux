@@ -277,7 +277,7 @@ public final class ConsentGate: Sendable {
     /// the machine-consent gate at execution.
     public static let capability = "machine-consent-gate-v1"
     /// Advertised in the socket's admission reply: `admit` reads the screen lock after its last
-    /// await, so no tool runs on a locked screen. acpmux sends no call to a helper without it.
+    /// await, so no tool runs on a locked screen. acpmux's v2 bridge sends no call to a helper without it (#37239).
     public static let lockCapability = "screen-lock-at-execution-v1"
 
     public let authority: any MachineConsentAuthority
@@ -300,13 +300,26 @@ public final class ConsentGate: Sendable {
         lockFlag(session: CGSessionCopyCurrentDictionary() as? [String: Any])
     }
 
-    /// The window server sets `CGSSessionScreenIsLocked` only while locked: no key is
-    /// unlocked. No session dictionary, or a key that is not a Boolean, is unknown: locked.
+    /// The window server sets `CGSSessionScreenIsLocked` (true) only while locked and leaves it out
+    /// while unlocked: it never reports `false`, so requiring an explicit `false` would refuse every
+    /// call on an unlocked Mac (NotificationPreviews and scripts/cmux-next/bench_launch.py read the
+    /// same key the same way). A missing key is unlocked only for a session it reports logged in
+    /// and on the console (`kCGSessionLoginDoneKey` and `kCGSSessionOnConsoleKey` both true). No
+    /// session dictionary, a key that is not a Boolean, or a missing key in any other session is
+    /// unknown: locked.
     static func lockFlag(session: [String: Any]?) -> Bool {
         guard let session else { return true }
-        guard let value = session["CGSSessionScreenIsLocked"] else { return false }
+        guard let value = session["CGSSessionScreenIsLocked"] else {
+            return !(isBoolean(session["kCGSessionLoginDoneKey"], true)
+                && isBoolean(session["kCGSSessionOnConsoleKey"], true))
+        }
         guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return true }
         return number.boolValue
+    }
+
+    private static func isBoolean(_ value: Any?, _ expected: Bool) -> Bool {
+        guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return false }
+        return number.boolValue == expected
     }
 
     /// The requirement for `name`, from the driver's own inventory

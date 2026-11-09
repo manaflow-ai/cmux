@@ -14,7 +14,7 @@ import PackageDescription
 //   CmuxNextFavicons -> CmuxNextBrowser, CmuxNextTabs (public read-only favicon leaf)
 //   CmuxNextTabs, Sidebar, Layout, Browser -> CmuxNextDesign; Tabs, Home -> DesignTokens (the tab close rule); Tabs, Sidebar -> CmuxNextIcons; Palette -> Design, Actions
 //   Feature UI modules never import CmuxNextDaemon; the App maps daemon state into their view models.
-//   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary)
+//   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary), CCmuxAppFFI (predictive echo)
 //   CmuxNextCompat -> swift-atomics, system frameworks (back-ports of newer system APIs for the
 //     macOS 14 floor: Mutex, Atomic; any module may import it; plans/cmux-next/macos-floor.md)
 //   CmuxNextWakeups -> Compat, Signposts, system frameworks (the only sanctioned wakeup primitives:
@@ -1555,22 +1555,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
-        // App permissions (plans/cmux-next/first-party-apps.md sections 4 and 5):
-        // tiers, sandbox profiles, grants and the pure policy, plus the consent
-        // sheet, Settings > Apps > Permissions and first-use prompt prototypes.
-        // No daemon; the App supplies the data source and the style setting.
-        .target(
-            name: "CmuxNextAppPermissions",
-            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
-                "CmuxNextApps",
-                "CmuxNextDesign",
-                "CmuxNextIcons",
-            ],
-            resources: [
-                .process("Resources"),
-            ],
-            swiftSettings: uiSwiftSettings
-        ),
         // The workspace checklist's strings (the Todo page and its refusals), kept out of the App.
         .target(
             name: "CmuxNextChecklist",
@@ -2120,10 +2104,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // Links libghostty (GhosttyNextKit, whose macOS archive has the lib
         // prefix, so SwiftPM test bundles link it too).
+        // CCmuxAppFFI: predictive local echo for remote shells (cmux-terminal-prediction's C ABI).
         .target(
             name: "CmuxNextTerminal",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
-                // CCmuxAppFFI: the terminal selection rule (cmux-motion terminal_selection).
+                // CCmuxAppFFI: the terminal selection rule (cmux-motion terminal_selection)
+                // and predictive local echo (cmux-terminal-prediction).
                 "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextCopyMode",

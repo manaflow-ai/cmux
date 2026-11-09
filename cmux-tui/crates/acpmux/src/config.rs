@@ -1061,7 +1061,8 @@ pub struct SessionResourceConfig {
     pub sessions_tasks_max: Option<u64>,
     /// `cpuClass`: the CPU class a macOS session's harness runs at once its
     /// start is over (it starts at normal), `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
-    /// overrides it, a profile's env overrides both. Unset: `background`.
+    /// overrides it, a profile's env overrides both. Unset: `background`, or `normal` for a
+    /// Claude Code launcher (`cpu_class::default_for`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_class: Option<crate::cpu_class::CpuClass>,
 }

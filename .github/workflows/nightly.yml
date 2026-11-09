@@ -6054,19 +6054,25 @@ jobs:
   # decide reads the body and tag (published_sha), so the dispatched tail (cross_run) never runs it. They were a job
   # of their own until run 42018687632: its second whole-Mac claim, set-up and variant download let the
   # deltas job take cmux15 first, and the names moved 40 min after the feed.
+  # It holds the release App key, so it runs on an ephemeral GitHub-hosted VM in release-next, as
+  # publish-release-notes already does with the same key, never on a mini a pull request job can reach. Leo,
+  # 2026-11-08, on moving it off the signer: "no. if this is still a good idea, we can still do it." (the override of
+  # Lawrence's owned-minis rule for this one job, tests/test_nightly_owned_minis_only.HOSTED_LOOP_JOBS). On cmux15
+  # it held the whole signing Mac 289-406 s a build after queueing 79-412 s behind keep-published-dsyms (runs
+  # 42547726872, 42552327203, 42555458535, 42563930397); hosted it starts beside keep-published-dsyms.
   publish-nightly-next-github:
-    needs: [published-build, pick-nightly-sign-runner]
+    needs: [published-build]
     if: "always() && !cancelled() && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_already_published != 'true' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.publish_tag_status == 'updated' && needs.published-build.outputs.cross_run != 'true'"
     # Nothing on the feed's path needs this job, so a failure shows red and holds nothing.
     environment: ${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}
     permissions:
       contents: write
       actions: read # The published build's artifacts, from the run that published.
-    # An upload holds the release App key but signs nothing. As an exclusive publisher on the one signer's mini it
-    # holds the whole Mac while the next signs wait (run 41900945757); it still has nowhere safer to run.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
+    # An upload holds the release App key but signs nothing: a fresh hosted VM per job, so no other job shares it and
+    # the signer stays free for the next sign (one-mini mode too: on the mini it would need the whole-Mac claim).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}
     # The two former jobs' limits added up: the uploads and the names each may wait out an hour of rate limits.
-    timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 480 || 240 }}
+    timeout-minutes: 240
     outputs:
       release_id: ${{ steps.publish_assets.outputs.release_id }}
       asset_names: ${{ steps.publish_assets.outputs.asset_names }}
@@ -6079,10 +6085,6 @@ jobs:
       NIGHTLY_BUILD: ${{ needs.published-build.outputs.publish_build }}
       PUBLISH_TOOLING: *pub-tooling
     steps:
-      # First, before any checkout or secret: the whole mini (glaeda's exclusive class), as the signing jobs.
-      - *hold-the-whole-mac
-      - *clean-owned-workdir
-
       # Only the source archive reads the build's tree; every other step runs .publish-tooling. The full
       # checkout took 2 min of the whole Mac on run 42018687632, whose archive step was off.
       - name: Checkout publish ref
@@ -6093,9 +6095,6 @@ jobs:
           ref: ${{ needs.published-build.outputs.publish_build_sha }}
 
       - *checkout-publication-tooling-a
-
-      # Before any release App secret: the claim again, and a keychain a killed job left is removed.
-      - *claim-publication-mac
 
       - *gh-app-token-write
 
@@ -6281,8 +6280,6 @@ jobs:
         continue-on-error: true
         env: *github-names-lease
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-lease.sh unlock
-
-      - *wipe-owned-credentials
 
   # A published nightly-next build's dSYMs, kept on R2. Nothing needs it and it continues on
   # error, so it never delays a publication. The dSYMs come from the run that compiled the

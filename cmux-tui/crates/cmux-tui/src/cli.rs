@@ -139,8 +139,9 @@ mod machine_join;
 mod machine_link;
 #[cfg(unix)]
 pub(crate) use machine_join::{
-    CallError as PlatformCallError, Platform, device_credential as joined_machine_credential,
-    platform_origin, rows_for_devices as joined_machine_rows,
+    Auth as PlatformAuth, CallError as PlatformCallError, Platform,
+    device_credential as joined_machine_credential, platform_origin,
+    read_credential as read_platform_credential, rows_for_devices as joined_machine_rows,
 };
 mod machine_server;
 #[cfg(test)]
@@ -176,6 +177,8 @@ mod status;
 mod stream_output;
 mod surface;
 mod tab_capabilities;
+#[cfg(unix)]
+mod terminal_lifecycle;
 #[cfg(unix)]
 mod terminal_talk;
 mod topology_help;

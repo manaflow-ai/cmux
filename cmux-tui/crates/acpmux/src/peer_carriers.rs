@@ -124,6 +124,21 @@ where
     }
 }
 
+/// The log line of a cold connect of a peer with an ssh path (`has_ssh`) that `via`, another
+/// path, won: which path carries the link and why ssh does not (its failure class,
+/// `peer_ssh.rs`, never ssh's stderr; or that it had not answered first). None when ssh won
+/// or the peer has no ssh path.
+pub(super) fn backup_line(via: Via, has_ssh: bool, failed: &[(Via, String)]) -> Option<String> {
+    if via == Via::Ssh || !has_ssh {
+        return None;
+    }
+    let why = match failed.iter().find(|(failed, _)| *failed == Via::Ssh) {
+        Some((_, error)) => format!("ssh did not connect ({error})"),
+        None => "ssh had not connected first".to_owned(),
+    };
+    Some(format!("{why}; the link runs on the {} path", via.as_str()))
+}
+
 /// One line for a connect whose every path failed.
 pub(super) fn failures_line(failed: &[(Via, String)]) -> String {
     match failed {
@@ -414,6 +429,9 @@ impl Peer {
         for (via, error) in &failed {
             tracing::debug!(peer = %self.name, via = via.as_str(), "path unavailable: {error}");
             self.path_failed(*via);
+        }
+        if let Some(line) = backup_line(via, self.ssh_parts().is_some(), &failed) {
+            tracing::info!(peer = %self.name, via = via.as_str(), carrier = via.carrier().as_str(), "{line}");
         }
         Ok((via, opened))
     }
@@ -713,7 +731,7 @@ impl Peer {
 
     /// The probe of path `via`: while the link does not run on it, a WebSocket of its own,
     /// pinged each [`PROBE_EVERY`]; a dead one is dialed again on its recovery backoff.
-    async fn probe(self: Arc<Self>, via: Via) {
+    pub(super) async fn probe(self: Arc<Self>, via: Via) {
         let mut stopped = self.stop_changed.subscribe();
         loop {
             if *stopped.borrow() {
@@ -855,6 +873,7 @@ impl Peer {
         if let Some(run) = shadow.take() {
             let _ = self.shadow_end(run).await;
         }
+        // timeout: a polite close on a link that is ending; a peer that never answers it is dropped.
         let _ = tokio::time::timeout(Duration::from_secs(1), ws.close(None)).await;
         // `_tunnel` (an ssh probe's own process) ends here.
     }

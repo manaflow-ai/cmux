@@ -142,7 +142,7 @@ fi
 
 before="$(git status --porcelain --untracked-files=normal)"
 enum_roots=()
-for d in Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobile* Packages/Shared/CmuxSyncStore ios/cmux; do
+for d in Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobile* ios/cmux; do
     [[ -d "$d" ]] && enum_roots+=("$d")
 done
 type_roots=()

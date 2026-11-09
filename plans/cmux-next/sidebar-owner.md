@@ -1,5 +1,18 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-09: a multi-selection drags as one stack of its rows, as a browser's vertical tabs do. Leo,
+  verbatim (2026-11-08, ask-2ba1bed2e4, screen recordings of ours beside a browser's): "ours vs edge's group moving i
+  think we need to make ours more like edge and chrome". The card carried only the pressed row and a count badge
+  while the list opened a gap for every selected row, so the card rode over rows that had not made way and the gap
+  stood empty below it. The card now carries every selected row in drop order (`SidebarListLift.stack`), closed up
+  at the row spacing with the pressed row under the pointer; the gap is the card's height; its drops resolve
+  against the whole card. The badge and stacked backs stay only when a selected row has no row in the list (a
+  collapsed group). Regression: `SidebarMultiDragStackTests`.
+- 2026-11-08: a renamed workspace's name rolls as the agent chat's live line rolls a new tool call. Leo, verbatim: "i
+  feel like when workspaces get renamed (esp by agents) it should have that same fade in animation that the tool call
+  situation has...". `sidebar.workspaceTitleMotion` gains `roll`, its default: the old name rises 0.6 em, blurs and
+  fades out as the new rises in from below on `fadeIn` (`MotionGate.rollTitle`, CmuxNextDesign/Text/TitleRoll.swift).
+  A first name over the loading bar still arrives at once. Tab titles renamed by an agent or another device roll too.
 - 2026-11-07: pinning never renames a workspace. Lawrence, verbatim: "i pinned a workspace and it's name disappeared
   and went back to workspace-936". A workspace nobody named keeps the daemon's `workspace-N`; its list row shows the
   auto name the page face gives (`AppServices.sidebarPageFace`). Pinned (layout tiles), it leaves the list for a band
@@ -22,7 +35,7 @@
   into opaque when it does get hovered. I feel like we should be able to keep it as glass though, right?" A native
   glass behind the card's page (`SidebarUpdatedCardHost.glass`), the card and its open preview, frosts the rows under
   it, so the page keeps its tint open, at rest and dragged (takes back the solid fill of a72c0fd5c542, f1d36c5f77e3,
-  9205005b4340). The preview and the glass move on cubic-bezier(0.16, 1, 0.3, 1) over 265 ms on `Motion.web`. The rows
+  9205005b4340). The preview and the glass move on cubic-bezier(0.16, 1, 0.3, 1) over 180 ms on `Motion.web`. The rows
   under the open card neither light nor open hover cards (`SidebarListView.hoverOccluded`), and the grown view takes
   clicks only on the glass. Regression: `UpdatedCardHoverPreviewTests`, webviews `updated-card-hover-preview.test.tsx`,
   `updated-card-native-glass.test.ts`.
@@ -747,6 +760,20 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 2. Do not take back a look another commit chose in the last week without naming that commit here.
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
+
+## An agent driving the screen or a browser shows on its row (2026-11-08)
+
+Lawrence 2026-11-07: "i think the computer use/browser use indiciator in workspaces needs to be better".
+A row whose agent uses the computer (Computer Use) or a browser draws `AgentDriveIndicatorView` in its
+trailing cluster, left of the badge column, with `sidebar.presenceDots` off: a capsule tinted in the
+agent's presence color with the drive's glyph (`display` or `globe`) and the agent's short name
+(`Claude 2`). The glyph breathes on agent work's `MotionLoop.breath`; Reduce Motion shows it still and
+fades nothing in. It never gives way to the hover controls (it sits left of them, as the usage warning
+does). A click opens Go to (the agent's tab, `.selectTab`) and Stop (`.stopAgentDrive`: its Computer Use
+session, or its chat's turn; a terminal agent's browser use has no Stop). Debug Settings
+`sidebar.driveIndicator` switches to the glyph alone, a solid badge, or the old dot. The tab chip and pane
+tag lead with the same glyph. Quieter presence (editing, reading) stays behind `sidebar.presenceDots`.
+Tests: `AgentDriveIndicatorTests`. Coordinated with a590 (sidebar owner) by note; a590 was not running.
 
 ## A workspace row's favicon follows the tab last focused in it (2026-11-07)
 
