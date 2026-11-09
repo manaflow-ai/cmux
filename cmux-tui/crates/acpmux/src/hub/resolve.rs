@@ -362,6 +362,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         last_turn: None,
         auth_change: None,
         harness_failures: Default::default(),
+        harness_sandbox: Default::default(),
         remote_origin: d.remote,
         vm_boundary: false,
         session_env: Default::default(),
