@@ -329,7 +329,12 @@ fn timed_out(until: Until, timeout: Option<Duration>) -> Failure {
         error: json!({
             "code": "wait.timeout",
             "message": format!("the terminal was not {condition} within {millis} ms"),
-            "details": {"until": until.as_str(), "timeout_ms": millis.to_string()},
+            "details": {
+                "until": until.as_str(),
+                "timeout_ms": millis.to_string(),
+                "timed_out": true,
+                "waited_ms": millis.to_string(),
+            },
             "retryable": true,
         }),
         exit: TIMEOUT_EXIT,

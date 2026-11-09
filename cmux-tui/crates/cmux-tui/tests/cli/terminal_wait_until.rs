@@ -96,6 +96,7 @@ fn assert_timed_out(output: &Output) {
     assert_eq!(output.status.code(), Some(124), "{}", String::from_utf8_lossy(&output.stderr));
     let error = json_error(output);
     assert_eq!(error["code"], "wait.timeout", "{error}");
+    assert_eq!(error["details"]["timed_out"], true, "{error}");
 }
 
 /// `--until idle` returns at once on a terminal with nothing running, waits
@@ -129,6 +130,22 @@ fn terminal_wait_until_idle_returns_when_the_command_ends() {
     assert!(started.elapsed() >= Duration::from_secs(1), "the wait ended before its timeout");
     assert_timed_out(&output);
     write(&server, &terminal, "go\n");
+}
+
+/// `--until ready` on a terminal whose agent never gets ready fails its
+/// timeout like the other waits: 124, `wait.timeout`, `timed_out: true` and
+/// `waited_ms`.
+#[test]
+fn terminal_wait_until_ready_timeout_says_timed_out() {
+    let server = HeadlessServer::start_without_shell_integration("terminal-wait-ready-timeout");
+    let terminal = new_terminal(&server);
+    let output = finished(
+        spawn_wait(&server, &terminal, &["--until", "ready", "--timeout", "1s"]),
+        SECONDS_10,
+    );
+    assert_timed_out(&output);
+    let error = json_error(&output);
+    assert_eq!(error["details"]["waited_ms"], "1000", "{error}");
 }
 
 /// `--until prompt` waits for the shell's prompt mark: a terminal that never
