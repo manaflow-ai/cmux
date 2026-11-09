@@ -2622,7 +2622,7 @@ pre.cv-math-source {
    quite good too how it animates the changing text!!! we need to have that!!! for changing tool
    calls at the bottom"): the old words (`cv-roll-out`, in the line's one tone as it drew them)
    rise, soften and fade out above while the new rise in from below. Transform, opacity and a small
-   blur only, on the agent motion token, so nothing reflows and ui.animationSpeed scales it. Reduce
+   blur only, on the running turn's step token (--agent-motion-step), so nothing reflows and ui.animationSpeed scales it. Reduce
    Motion, cmux motion off or reduced, the pane's agent motion off (ui.animationSpeed) and the
    static status look change the words at once; the old words never show. Two keyframes of one roll,
    swapped each change, restart it on the same element, so the line's live region is never
@@ -2642,7 +2642,7 @@ pre.cv-math-source {
     user-select: none;
     -webkit-user-select: none;
     color: var(--cv-text-dim);
-    animation: cv-roll-out var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+    animation: cv-roll-out var(--agent-motion-step, 80ms) var(--agent-ease-out, ease-out) both;
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out::before {
     content: attr(data-lead);
@@ -2651,10 +2651,10 @@ pre.cv-math-source {
     content: attr(data-text);
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-thinking[data-roll="odd"] {
-    animation: cv-roll-in-odd var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) backwards;
+    animation: cv-roll-in-odd var(--agent-motion-step, 80ms) var(--agent-ease-out, ease-out) backwards;
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-thinking[data-roll="even"] {
-    animation: cv-roll-in-even var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) backwards;
+    animation: cv-roll-in-even var(--agent-motion-step, 80ms) var(--agent-ease-out, ease-out) backwards;
   }
 }
 @keyframes cv-roll-out {
@@ -5460,7 +5460,7 @@ a.cv-sha:focus-visible {
      visible transcript when a subagent or command arrives; the row's measured box is already in
      the layout, so only its ink fades in. Message rows keep their dedicated presentation motion. */
   .acpmux-row.acpmux-row--enter:not(.acpmux-user):not(.acpmux-assistant) {
-    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+    animation: cv-enter-fade var(--agent-motion-step, 80ms) var(--agent-ease-out, ease-out) both;
   }
   .acpmux-row__message-presentation {
     animation: cv-message-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;

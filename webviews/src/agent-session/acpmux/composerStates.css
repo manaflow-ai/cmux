@@ -15,6 +15,10 @@
   --agent-motion-focus: var(--cmux-motion-quick, 80ms);
   --agent-motion-in: var(--cmux-motion-micro, 120ms);
   --agent-motion-out: var(--cmux-motion-quick, 80ms);
+  /* A running turn's step: a tool call or thinking row arriving and the live line's words changing
+     run on the quick step, so a run of calls never trails behind (Leo, 2026-11-09: "thinking, tool
+     calls, etc... cannot lag nor can they take long"). */
+  --agent-motion-step: var(--agent-motion-out);
   /* The native move spring's timed equivalent (MotionSpring.move: visibly at rest by 180 ms). */
   --agent-motion-move: var(--cmux-motion-standard, 180ms);
   /* A sent prompt's one motion: its room, its bubble and the thread's rise (the scale's send step;
