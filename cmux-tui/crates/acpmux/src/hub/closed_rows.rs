@@ -144,14 +144,15 @@ impl ClosedRows {
         }
     }
 
-    /// The rows of `with_tools`'s form walk `walk` found current, in list order.
-    fn in_order(&self, with_tools: bool, walk: u64) -> Vec<ClosedRow> {
+    /// The rows of `with_tools`'s form walk `walk` found current, in list order, save those of
+    /// `listed` (the sessions the walk listed live): a session listed once, as it is now.
+    fn in_order(&self, with_tools: bool, walk: u64, listed: &HashSet<String>) -> Vec<ClosedRow> {
         let sorted = if with_tools { &self.full_order } else { &self.list_order };
         sorted
             .iter()
             .filter_map(|(.., id)| {
                 let cached = self.entries.get(id)?.form(with_tools);
-                (cached.seen == walk)
+                (cached.seen == walk && !listed.contains(id))
                     .then(|| ClosedRow { bytes: cached.bytes.clone(), key: cached.key.clone() })
             })
             .collect()
@@ -274,15 +275,41 @@ impl Hub {
             }
             walk
         };
+        let mut listed = HashSet::new();
         for session in rebuild {
             // A live row, or a closed one that is cached and marked by this walk now. A session
-            // that went live meanwhile is listed with the row just built.
+            // that went live meanwhile is listed with the row just built, and its cached row,
+            // whatever marked it, is not (review: a reopen during a list listed it twice).
             let (row, cached) = self.closed_summary_seen(&session, with_tools, Some(walk));
             if !cached {
                 live(row);
+                listed.insert(session.id.clone());
             }
         }
         let cache = self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner());
-        cache.in_order(with_tools, walk)
+        cache.in_order(with_tools, walk, &listed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A session the walk listed live is never listed again from a cached row the same walk
+    /// marked (review: a chat reopened between the walk's status read and its rebuild was
+    /// listed twice in one list).
+    #[test]
+    fn a_session_listed_live_is_not_listed_again_from_its_cached_row() {
+        let mut rows = ClosedRows::default();
+        let row = |id: &str, at: u64| json!({"sessionId": id, "updatedAt": at, "status": "closed"});
+        for (id, at) in [("a", 2), ("b", 1)] {
+            rows.store(id.into(), false, (SummaryStamp::default(), 0), &row(id, at), Some(7));
+        }
+        let ids = |listed: &[&str]| -> Vec<Option<String>> {
+            let listed = listed.iter().map(|id| (*id).to_owned()).collect();
+            rows.in_order(false, 7, &listed).iter().map(|r| r.key.session_id.clone()).collect()
+        };
+        assert_eq!(ids(&[]), [Some("a".to_owned()), Some("b".to_owned())]);
+        assert_eq!(ids(&["a"]), [Some("b".to_owned())]);
     }
 }
