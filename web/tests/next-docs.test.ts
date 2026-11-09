@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import cliGenerated from "../data/next-docs/cli-reference.generated.json";
 import paletteGenerated from "../data/next-docs/palette-reference.generated.json";
 import settingsGenerated from "../data/next-docs/settings-reference.generated.json";
-import { nextDocHref, nextDocPage, nextDocPages, nextDocPublicPath } from "../data/next-docs/pages";
+import { nextDocHref, nextDocPage, nextDocPages, nextDocPublicPath, repoSourceHref } from "../data/next-docs/pages";
 import { buildLlmsText, resolveAgentPageVariant } from "../app/lib/agent-page-paths";
 import { sitemapEntries } from "../app/sitemap";
 import {
@@ -74,6 +74,8 @@ describe("cmux-next docs", () => {
         .filter((file) => !existsSync(join(repo, file.path)))
         .map((file) => `${page.slug}: ${file.path}`));
     expect(missing).toEqual([]);
+    expect(repoSourceHref("cmux-tui/docs")).toBe("https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/docs");
+    expect(repoSourceHref("cmux-tui/spec/resource-api-v2.md")).toBe("https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/spec/resource-api-v2.md");
   });
 
   test("the settings reference is fresh against the settings schema", () => {

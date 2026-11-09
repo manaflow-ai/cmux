@@ -522,9 +522,10 @@ export function headingId(text: string): string {
 }
 
 /** The docs path of a cmux-next page; Getting started is the track's index. */
-/** Where a repository path of a `files` block opens on GitHub. */
+/** Where a repository path of a `files` block opens on GitHub: a file (its name has an extension) under blob, a folder under tree. */
 export function repoSourceHref(path: string): string {
-  return `https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/${path}`;
+  const kind = /\.[^/]+$/.test(path) ? "blob" : "tree";
+  return `https://github.com/manaflow-ai/cmux/${kind}/feat-cmux-next/${path}`;
 }
 
 export function nextDocHref(slug: string): string {
