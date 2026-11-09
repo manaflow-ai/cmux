@@ -301,7 +301,10 @@ impl Default for Fold {
 impl Fold {
     /// A saved fold, or a new one when the bytes are not one of this schema.
     pub fn read(bytes: &[u8]) -> Self {
-        serde_json::from_slice::<Self>(bytes).ok().filter(|f| f.schema == SCHEMA).unwrap_or_default()
+        serde_json::from_slice::<Self>(bytes)
+            .ok()
+            .filter(|f| f.schema == SCHEMA)
+            .unwrap_or_default()
     }
 
     /// Folds one record; records at or before the last one folded are passed.
@@ -394,7 +397,8 @@ impl Fold {
                 // A hedge about a file points at that file's latest edit.
                 let path = self.mentioned_path(&lower).unwrap_or_default();
                 let edit = self.edits.iter().rev().find(|e| !path.is_empty() && e.path == path);
-                let (snippet, line) = edit.map_or((String::new(), None), |e| (e.added.clone(), e.line));
+                let (snippet, line) =
+                    edit.map_or((String::new(), None), |e| (e.added.clone(), e.line));
                 let spot = Spot {
                     kind: SpotKind::Hedge,
                     text: clip(&sentence, MAX_NOTE),
@@ -535,7 +539,11 @@ impl Fold {
             .filter_map(|s| Some(Spot { path: relative(&s.path)?, ..s.clone() }))
             .collect();
         let hedges = fold.hedges.iter().map(|s| Spot {
-            path: if s.path.is_empty() { String::new() } else { relative(&s.path).unwrap_or_default() },
+            path: if s.path.is_empty() {
+                String::new()
+            } else {
+                relative(&s.path).unwrap_or_default()
+            },
             ..s.clone()
         });
         let (linked, unlinked): (Vec<Spot>, Vec<Spot>) = hedges.partition(|s| !s.path.is_empty());
@@ -695,11 +703,8 @@ fn push_sentence(out: &mut Vec<String>, s: &str) {
 
 /// `text` cut to at most `max` characters, control characters made spaces, an ellipsis when cut.
 fn clip(text: &str, max: usize) -> String {
-    let mut out: String = text
-        .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .take(max)
-        .collect();
+    let mut out: String =
+        text.chars().map(|c| if c.is_control() { ' ' } else { c }).take(max).collect();
     if text.chars().count() > max {
         out.push('…');
     }

@@ -26,7 +26,10 @@ fn a_chat_s_brief_has_its_goal_plan_dropped_approach_and_unsure_spots() {
     );
     assert_eq!(brief["planText"], "Retry each chunk; clamp progress.");
     assert_eq!(brief["plan"].as_array().unwrap().len(), 3);
-    assert_eq!(brief["plan"][1], json!({"content": "Add retry with backoff", "status": "in_progress"}));
+    assert_eq!(
+        brief["plan"][1],
+        json!({"content": "Add retry with backoff", "status": "in_progress"})
+    );
     assert_eq!(
         brief["rejected"],
         json!([{
@@ -165,19 +168,31 @@ fn diff(path: &str, old: &str, new: &str) -> Value {
 fn an_edit_counts_once_its_call_completes_and_a_failed_call_s_never() {
     let mut fold = Fold::default();
     // Proposed, then failed: no edit, so undoing it later is no revert.
-    fold.feed(&tool(1, json!({"toolCallId": "a", "status": "pending",
-        "content": diff("/r/x.rs", "one();", "two();")})));
+    fold.feed(&tool(
+        1,
+        json!({"toolCallId": "a", "status": "pending",
+        "content": diff("/r/x.rs", "one();", "two();")}),
+    ));
     fold.feed(&tool(2, json!({"toolCallId": "a", "status": "failed"})));
-    fold.feed(&tool(3, json!({"toolCallId": "b", "status": "completed",
-        "content": diff("/r/x.rs", "two();", "one();")})));
+    fold.feed(&tool(
+        3,
+        json!({"toolCallId": "b", "status": "completed",
+        "content": diff("/r/x.rs", "two();", "one();")}),
+    ));
     assert_eq!(fold.brief(Some("/r"))["unsure"], json!([]));
     // A diff corrected by a later update of the call is the edit that counts.
-    fold.feed(&tool(4, json!({"toolCallId": "c", "status": "in_progress",
-        "content": diff("/r/y.rs", "guess", "a();")})));
+    fold.feed(&tool(
+        4,
+        json!({"toolCallId": "c", "status": "in_progress",
+        "content": diff("/r/y.rs", "guess", "a();")}),
+    ));
     fold.feed(&tool(5, json!({"toolCallId": "c", "content": diff("/r/y.rs", "b();", "a();")})));
     fold.feed(&tool(6, json!({"toolCallId": "c", "status": "completed"})));
-    fold.feed(&tool(7, json!({"toolCallId": "d", "status": "completed",
-        "content": diff("/r/y.rs", "a();", "b();")})));
+    fold.feed(&tool(
+        7,
+        json!({"toolCallId": "d", "status": "completed",
+        "content": diff("/r/y.rs", "a();", "b();")}),
+    ));
     assert_eq!(
         fold.brief(Some("/r"))["unsure"],
         json!([{"kind": "reverted", "path": "y.rs", "snippet": "a();", "seq": 7}])
@@ -188,9 +203,12 @@ fn an_edit_counts_once_its_call_completes_and_a_failed_call_s_never() {
 fn a_relative_path_counts_under_its_root_by_the_canonical_path_the_hub_added() {
     let mut fold = Fold::default();
     let edit = |seq: u64, id: &str, old: &str, new: &str| {
-        tool(seq, json!({"toolCallId": id, "status": "completed", "content": [{"type": "diff",
+        tool(
+            seq,
+            json!({"toolCallId": id, "status": "completed", "content": [{"type": "diff",
             "path": "./src/a.rs", "oldText": old, "newText": new,
-            "_meta": {"acpmux": {"canonicalPath": "/r/src/a.rs"}}}]}))
+            "_meta": {"acpmux": {"canonicalPath": "/r/src/a.rs"}}}]}),
+        )
     };
     fold.feed(&edit(1, "a", "x();", "y();"));
     fold.feed(&edit(2, "b", "y();", "x();"));
@@ -209,10 +227,16 @@ fn a_call_id_used_again_in_a_later_turn_is_a_new_edit() {
         host_seq: None,
     };
     fold.feed(&turn(1));
-    fold.feed(&tool(2, json!({"toolCallId": "0", "status": "completed",
-        "content": diff("/r/z.rs", "one();", "two();")})));
+    fold.feed(&tool(
+        2,
+        json!({"toolCallId": "0", "status": "completed",
+        "content": diff("/r/z.rs", "one();", "two();")}),
+    ));
     fold.feed(&turn(3));
-    fold.feed(&tool(4, json!({"toolCallId": "0", "status": "completed",
-        "content": diff("/r/z.rs", "two();", "one();")})));
+    fold.feed(&tool(
+        4,
+        json!({"toolCallId": "0", "status": "completed",
+        "content": diff("/r/z.rs", "two();", "one();")}),
+    ));
     assert_eq!(fold.brief(Some("/r"))["unsure"][0]["kind"], "reverted");
 }
