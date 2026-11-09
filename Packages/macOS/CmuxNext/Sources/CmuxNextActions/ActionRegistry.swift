@@ -120,6 +120,10 @@ public final class ActionRegistry {
     /// Every known value of a suggested argument (`ActionSuggestions.source`),
     /// supplied by the App.
     @ObservationIgnored public var argumentSuggestions: (@MainActor (String) -> [ActionEnumCase])?
+    /// A suggested argument whose values are not read yet (a list the daemon has not answered):
+    /// the load that answers them, which the palette's step awaits under its loading state instead
+    /// of opening on an empty list. Nil, or a nil load, when ``argumentSuggestions`` already has them.
+    @ObservationIgnored public var argumentSuggestionsLoad: (@MainActor (String) -> (@MainActor () async -> [ActionEnumCase])?)?
     /// Shortcut recorders open now (`ShortcutRecorder`); any open one sets `.recordingShortcut`.
     @ObservationIgnored var openShortcutRecorders: Set<ObjectIdentifier> = []
     /// Whether free text is a valid value of a suggested argument (a theme
