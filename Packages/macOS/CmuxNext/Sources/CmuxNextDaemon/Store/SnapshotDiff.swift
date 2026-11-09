@@ -34,14 +34,15 @@ nonisolated struct SnapshotDiff: Sendable {
         // and frees no N-long order on main (Leo 2026-11-04: "never ... acceptable ... linear time growth degradation").
         var built: [String]?
         var matched = 0
+        var memoIDs = memoOrder.makeIterator()
         for workspace in tree.workspaces {
             let id = WorkspaceModel.identity(workspace)
             present.insert(id)
-            if built == nil, matched < memoOrder.count, memoOrder[matched] == id {
+            if built == nil, memoIDs.next() == id {
                 matched += 1
             } else {
                 if built == nil {
-                    var order = Array(memoOrder[..<matched])
+                    var order = Array(memoOrder.prefix(matched))
                     order.reserveCapacity(tree.workspaces.count)
                     built = order
                 }
@@ -51,7 +52,7 @@ nonisolated struct SnapshotDiff: Sendable {
             if applied[id] != workspace { changed[id] = workspace } else { changed[id] = nil }
         }
         let unmoved = built == nil && matched == memoOrder.count
-        let order = built ?? (unmoved ? memoOrder : Array(memoOrder[..<matched]))
+        let order = built ?? (unmoved ? memoOrder : Array(memoOrder.prefix(matched)))
         let removed = Set(applied.keys.filter { !present.contains($0) })
         return SnapshotDiff(revision: revision, changed: changed, removed: removed, order: order,
                             sameOrder: removed.isEmpty && unmoved)
