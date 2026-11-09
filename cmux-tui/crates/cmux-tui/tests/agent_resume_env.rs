@@ -48,6 +48,11 @@ const CALLER_SESSION_ENV: &[(&str, &str)] = &[
     ("ACPMUX_SESSION_TOKEN", SENTINEL),
     ("ACPMUX_HOST_NONCE", SENTINEL),
     ("CMUX_AGENT_SESSION", SENTINEL),
+    // A Chief turn's own messaging credential (acpmux CHIEF_CREDENTIAL_ENV)
+    // and a background task's subagent mark (review 6731023492, item 5).
+    ("MUX_AGENT_TOKEN_FILE", SENTINEL),
+    ("OPTCHAT_CHIEF_PARTICIPANT", SENTINEL),
+    ("ACPMUX_CALLER_SUBAGENT", SENTINEL),
 ];
 
 /// A setting of the person's own that the agents keep.
