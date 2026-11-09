@@ -488,6 +488,9 @@ public struct AgentStates: Sendable {
     /// acpmux session id → what its open ask is, when the phone has seen it
     /// (a question wins over a permission). Absent: "is waiting".
     public var waitingFor: [String: WorkspaceTab.WaitingFor] = [:]
+    /// acpmux session id → the chat's title (`SessionSummary.title`: its generated title, else
+    /// its first prompt), which the Mac's tab and sidebar row read as.
+    public var chatTitles: [String: String] = [:]
 
     public init() {}
 
