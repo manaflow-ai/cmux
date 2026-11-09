@@ -239,10 +239,6 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/WorkspaceVerbs.xcstrings": {
       "needs_review": 108
     },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions/Resources/Localizable.xcstrings": {
-      "identical": 12,
-      "needs_review": 376
-    },
     "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/Localizable.xcstrings": {
       "identical": 38,
       "needs_review": 639

@@ -11,7 +11,9 @@
 use super::super::agent_vocabulary::harness_name;
 
 /// `$0` of the launcher script; marks an argv this module built.
-pub(super) const ARG0: &str = "cmux-agent";
+pub(super) const ARG0: &str = cmux_tui_core::agent_start_launch::ARG0;
+/// The launch's shell flag, shared with the daemon's mark.
+const SHELL_FLAG: &str = cmux_tui_core::agent_start_launch::SHELL_FLAG;
 /// What follows the launcher in the script.
 const SCRIPT_TAIL: &str = " \"$@\"";
 /// The environment variable that names the default launcher.
@@ -36,7 +38,7 @@ impl Launch {
     pub(in crate::cli) fn argv(&self) -> Vec<String> {
         let mut argv = vec![
             self.shell.clone(),
-            "-lc".to_owned(),
+            SHELL_FLAG.to_owned(),
             format!("{}{SCRIPT_TAIL}", self.launcher),
             ARG0.to_owned(),
         ];
@@ -48,7 +50,7 @@ impl Launch {
     /// other argv (an agent typed into a shell, a `pane run -- claude`).
     pub(in crate::cli) fn from_argv(argv: &[String]) -> Option<Self> {
         let [shell, flag, script, arg0, args @ ..] = argv else { return None };
-        if flag != "-lc" || arg0 != ARG0 {
+        if flag != SHELL_FLAG || arg0 != ARG0 {
             return None;
         }
         let launcher = script.strip_suffix(SCRIPT_TAIL)?.trim();

@@ -8,10 +8,10 @@
 // compared to our claude code version", then "we already have a good version"); Codex's keeps its
 // folder tray. The `codex-*-alt-*` variants are the other Codex layouts drawn for the pick
 // (gallery-only CSS over the shipped one), the replaced in-box row among them.
-import { GALLERY_NOW } from "../../gallery/clock";
+import { GALLERY_NOW, minutesAgo } from "../../gallery/clock";
 import { agentPaneEntry } from "../../gallery/format";
 import type { PlayContext } from "../../gallery/play";
-import { assistant, chat, CWD, manySessions, noChat, user } from "../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, CWD, manySessions, noChat, tool, user } from "../../gallery/fixtures/acpmux";
 import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 import { setComposerLook, type ComposerLook } from "./composerLook";
 import type { TaskGoal } from "./goal";
@@ -219,6 +219,64 @@ async function materialStage(ctx: PlayContext, mode: MaterialStage) {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-box.ui-glass-material"));
 }
 
+/// The composer hat over the card, as Leo's image of 2026-11-05 shows it: three background commands
+/// run, so the hat draws a card joined to the composer as one glass (bottomStack.css).
+const HAT_COMMANDS = [
+  "mkdir -p webviews/test/browser",
+  "bun test test/composer-hat-material.test.ts",
+  "git push -q origin HEAD:lane/composer-strip-glass",
+];
+const hatChat = () => {
+  const snapshot = startedChat();
+  const commands = activity(
+    HAT_COMMANDS.map((command, index) =>
+      tool(command, "execute", "completed", {
+        inputSummary: JSON.stringify({ command, run_in_background: true }),
+        startedAt: minutesAgo(15.35 - index),
+      }),
+    ),
+    15.35,
+  );
+  return { ...snapshot, rows: [...snapshot.rows, commands], isWorking: true };
+};
+/// The joined stack in the glass material over the wallpaper: the pick lights the hat's top and drops
+/// the card's top light at the join. The alternates are gallery-only CSS over it.
+async function hatMaterialStage(ctx: PlayContext, css = "") {
+  await materialStage(ctx, "plain");
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-dock > .acpmux-running-tray[data-card]"));
+  ctx.document.getElementById("composer-hat-material-gallery")?.remove();
+  if (!css) return;
+  const style = ctx.document.createElement("style");
+  style.id = "composer-hat-material-gallery";
+  style.textContent = css;
+  ctx.document.head.append(style);
+}
+const HAT_FLAT = `.acpmux-dock > .acpmux-running-tray[data-card] {
+  box-shadow:
+    inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-composer-edge, transparent),
+    inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-composer-edge, transparent),
+    inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge, transparent) !important;
+  --acpmux-tray-frost: var(--ds-glass-popover-blur) !important;
+}`;
+const CARD_LIT = `.acpmux-dock > .acpmux-running-tray[data-card] + .acpmux-composer > .acpmux-composer-box.ui-glass-material {
+  --acpmux-composer-rim: var(--glass-material-rim) !important;
+}`;
+/// Before (base): the hat a flat hairline box, the card's bright top line across the stack's middle.
+const HAT_BEFORE = HAT_FLAT + CARD_LIT;
+/// Alternate: both lit, the hat's top and the card's top at the join.
+const HAT_BOTH_LIT = CARD_LIT;
+/// Alternate: the pick, and the hat casts the material's depth as well.
+const HAT_DEPTH = `.acpmux-dock > .acpmux-running-tray[data-card] {
+  box-shadow:
+    inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-composer-edge, transparent),
+    inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-composer-edge, transparent),
+    inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge, transparent),
+    inset 0 var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-tray-specular),
+    inset 1px 1.5px 1px -1px var(--acpmux-tray-specular),
+    inset 0 16px 20px -16px var(--acpmux-tray-sheen),
+    var(--glass-material-depth) !important;
+}`;
+
 /// Alternate B: the strip stays plain text over the box, as Claude's look draws it; only the row moves.
 const ALT_PLAIN_STRIP = `
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip,
@@ -311,7 +369,7 @@ export default agentPaneEntry({
   ],
   variants: {
     "goal-active": {
-      note: "A running Codex goal is pinned directly above the composer; its elapsed time and pause, delete and disclosure controls stay in one row.",
+      note: "A running Codex goal heads the composer hat; its elapsed time and chevron stay in one row, and pause, edit and delete fade in over the cut objective on hover.",
       snapshot: goalChat("running"),
       play: (ctx) => look(ctx, "claude"),
     },
@@ -331,11 +389,11 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "claude"),
     },
     "claude-loop-steps": {
-      note: "Claude's /loop is projected into the same goal row, with an expandable checklist for step-by-step plans.",
+      note: "Claude's /loop is projected into the same goal row; opening it in place shows its checklist for step-by-step plans.",
       snapshot: goalChat("running", "claude"),
       play: async (ctx) => {
         await look(ctx, "claude");
-        await ctx.click({ selector: ".acpmux-goal-action[aria-expanded]" });
+        await ctx.click({ selector: ".acpmux-goal-toggle" });
       },
     },
     "loop-wakeup": {
@@ -506,6 +564,26 @@ export default agentPaneEntry({
       note: "The shared glass material (Plain, what ships) over the colorful wallpaper on a see-through window: the specular rim lit from above-left, the sheen under the top edge, the soft shadow, and a frost that keeps the colors vivid.",
       snapshot: startedChat(),
       play: (ctx) => materialStage(ctx, "plain"),
+    },
+    "composer-hat-material": {
+      note: "The pick for Leo's image (2026-11-05, the hat over the composer): the hat and the card are one glass, lit once from above. The hat's top takes the card's specular line, corner band and sheen, its frost is the card's vivid one, and the card gives up its own top light at the join, keeping the hairline there and its return along the bottom.",
+      snapshot: hatChat(),
+      play: (ctx) => hatMaterialStage(ctx),
+    },
+    "composer-hat-material-before": {
+      note: "Before (base): the hat a flat box with a hairline top and the popover frost, and the card's bright top line and sheen running across the middle of the stack, under the hat.",
+      snapshot: hatChat(),
+      play: (ctx) => hatMaterialStage(ctx, HAT_BEFORE),
+    },
+    "composer-hat-material-alt-both-lit": {
+      note: "Alternate: the hat's top lit and the card keeps its own top light too, so a second bright line divides the one glass.",
+      snapshot: hatChat(),
+      play: (ctx) => hatMaterialStage(ctx, HAT_BOTH_LIT),
+    },
+    "composer-hat-material-alt-depth": {
+      note: "Alternate: the pick, and the hat casts the material's depth too; through the clear card under it the shadow reads as a smudge at the join.",
+      snapshot: hatChat(),
+      play: (ctx) => hatMaterialStage(ctx, HAT_DEPTH),
     },
     "composer-material-lens": {
       note: "The same card in the opt-in Lens (Debug choice glass.lens): the lens bends the wallpaper at the rim and draws its own specular light; the material adds the depth.",

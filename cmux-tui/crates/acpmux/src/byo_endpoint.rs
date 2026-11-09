@@ -494,6 +494,8 @@ async fn read_capped(mut response: reqwest::Response, cap: usize) -> Result<Vec<
 pub enum Problem {
     /// The endpoint refused the key.
     Key,
+    /// The key works, but its account has no credit left.
+    Credit,
     /// The endpoint was not reached, or the path is wrong.
     BaseUrl,
     /// The endpoint has no such model.
@@ -515,6 +517,22 @@ fn has_code(text: &str, code: &str) -> bool {
 pub fn classify(text: &str) -> Problem {
     let t = text.to_ascii_lowercase();
     let any = |words: &[&str]| words.iter().any(|w| t.contains(w));
+    // The words the agent pane reads as `no-credit` (webviews failureCopy.ts NO_CREDIT). First: an
+    // OpenAI-compatible endpoint sends it as a 429 or 402, and its body can name the key too.
+    if any(&[
+        "credit balance is too low",
+        "credit balance too low",
+        "insufficient_quota",
+        "insufficient quota",
+        "billing_hard_limit",
+        "billing hard limit",
+        "exceeded your current quota",
+        "insufficient credits",
+        "insufficient credit",
+        "payment required",
+    ]) {
+        return Problem::Credit;
+    }
     if has_code(&t, "401")
         || has_code(&t, "403")
         || any(&[
@@ -589,6 +607,9 @@ pub fn fix(problem: Problem, kind: Kind, id: &str) -> String {
         ),
         Problem::BaseUrl => format!(
             "check the base URL: the endpoint was not reached or has no such path. It is {base}; add the harness again with the right baseUrl (--base-url)"
+        ),
+        Problem::Credit => format!(
+            "add credit: the endpoint took the key, but the account it belongs to is out of credit. Add credit to that account, then run `cmux harness doctor {id}` again"
         ),
         Problem::Model => "model not found: the endpoint has no such model. Add the harness again with a model id from its model list (--model)".to_owned(),
         Problem::Other => format!(
