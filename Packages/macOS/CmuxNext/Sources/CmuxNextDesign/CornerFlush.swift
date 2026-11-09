@@ -153,12 +153,14 @@ public final class CornerFlushChrome: NSView {
                       shade: MainPaneChromeShadeView, in root: NSView) {
         let alpha = Metrics.mainPaneChromeShade(isDark: isDark)
         var card = content.frame
+        // Only the wedges round the card's top corners, so the content keeps its own top corners whenever they don't draw.
         let on = CornerFlush.current.isOn && !page && DesignSettings.shared.tabBarPosition != .bottom
+            && alpha > 0 && radius > 0 && content.superview === root
         Self.roundBottomOnly(content, on)
         if content.superview === root, superview !== root || root.subviews.firstIndex(of: self) != (root.subviews.firstIndex(of: content) ?? 0) + 1 {
             root.addSubview(self, positioned: .above, relativeTo: content)
         }
-        guard on, alpha > 0, radius > 0, superview === root else {
+        guard on, superview === root else {
             isHidden = true
             shade.update(card: card, radius: radius, alpha: alpha)
             return
