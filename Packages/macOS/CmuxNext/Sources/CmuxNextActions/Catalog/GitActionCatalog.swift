@@ -14,8 +14,8 @@ nonisolated enum GitActionCatalog: ActionCatalogGroup {
                 keywords: ["git", "worktree", "branch", "checkout", "new", "create", "isolate"],
                 category: .tab, symbol: "arrow.triangle.branch",
                 arguments: [
-                    ActionArgument(name: "name", title: t("argument.git.worktree.name", "Worktree Name"), kind: .string, isRequired: false),
-                    ActionArgument(name: "base", title: t("argument.git.worktree.base", "Base Revision"), kind: .string, isRequired: false),
+                    ActionArgument(name: "name", title: t("argument.git.worktree.name", "Worktree Name"), kind: .string).askedInPalette,
+                    ActionArgument(name: "base", title: t("argument.git.worktree.base", "Base Revision"), kind: .string).askedInPalette,
                 ],
                 targets: [.tab],
                 surfacePlan: plan
@@ -34,7 +34,7 @@ nonisolated enum GitActionCatalog: ActionCatalogGroup {
                 id: "git.worktree.remove", title: t("action.git.worktree.remove", "Remove Git Worktree"),
                 keywords: ["git", "worktree", "remove", "delete", "clean up", "branch"],
                 category: .tab, symbol: "trash",
-                arguments: [ActionArgument(name: "discard", title: t("argument.git.worktree.discard", "Discard Unsaved Work"), kind: .bool, isRequired: false)],
+                arguments: [ActionArgument(name: "discard", title: t("argument.git.worktree.discard", "Discard Unsaved Work"), kind: .bool).askedInPalette],
                 targets: [.tab],
                 destructive: true,
                 surfacePlan: plan

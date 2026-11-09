@@ -4,6 +4,9 @@
 //! (export, import), `views` (summaries), `handoff` (a reviewed first message to another harness),
 //! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
+// A reply's checkable claims against the turn's runs (`claim_checks`).
+mod claim_check;
+
 mod activity;
 // A foreground shell still running after a minute goes to the background (Claude Code).
 mod auto_background;
@@ -97,6 +100,7 @@ mod held_asks;
 pub(super) mod idle;
 mod idle_census;
 mod person_prompt_at;
+pub(crate) mod unattended_presets;
 pub(crate) use idle::SessionAtWork;
 mod tool_start;
 pub(crate) use idle_census::LaunchServers;
@@ -225,8 +229,11 @@ pub(super) use session::{newest_first, prompt_text, short_text};
 pub(crate) mod shell_readonly;
 mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
+mod bridge;
+pub(crate) mod desktop_bridge;
 pub(crate) use shutdown::{CREATED as REFUSED_CREATED, shutting_down_before_create};
 mod caller_registry;
+mod history_timing;
 pub(crate) mod inbox;
 mod spawn;
 mod start_defaults;
@@ -398,6 +405,10 @@ pub struct HubEvent {
     /// rest (`server::deliver`). HOT PATH AUDIT area F, row A4: a streamed token is copied and
     /// encoded once, not once per attached connection.
     pub update_line: Arc<std::sync::OnceLock<Option<Arc<str>>>>,
+    /// The session's row as a watcher's `_acpmux/session_changed` carries it, without and with
+    /// its tools, built by the first watching connection that sends it and shared by the rest
+    /// (`server::deliver`): one build per record, not one per watching connection.
+    pub row: Arc<[std::sync::OnceLock<Value>; 2]>,
 }
 
 /// One `_acpmux/message` copy in a journal: its message id, plus for a sender's copy the chat
@@ -724,6 +735,13 @@ pub struct Hub {
     /// whenever a session starts, so the picker can list a harness that has
     /// no live session.
     pub(super) known_models: StdMutex<HashMap<String, Vec<(String, String)>>>,
+    /// The ACP lists kept on disk by earlier probes (`live_models::AcpCache`), read once at
+    /// start: by harness, the profile key it was probed under and the list. Each fills
+    /// `known_models` for a profile with the same key until its probe answers (`model_probe.rs`).
+    pub(super) acp_cached: StdMutex<HashMap<String, (String, Vec<(String, String)>)>>,
+    /// The harnesses whose `known_models` entry is that disk copy, not a report of this
+    /// daemon's: the probe still runs for them.
+    pub(super) acp_from_disk: StdMutex<std::collections::HashSet<String>>,
     /// Model lists from Claude Code's and Codex's own CLIs, by profile name
     /// (`hub/live_models.rs`): richer than `known_models` (efforts, fast).
     pub(super) live_models: StdMutex<HashMap<String, Vec<crate::live_models::LiveModel>>>,
@@ -757,6 +775,8 @@ pub struct Hub {
     pub(crate) adoption_ready: tokio::sync::watch::Sender<bool>,
     /// Startup has read the login environment: the catalog sees its PATH.
     pub(super) catalog_ready: tokio::sync::watch::Sender<bool>,
+    /// Startup has served the model lists kept on disk: `_acpmux/models` waits for it.
+    pub(super) model_caches_ready: tokio::sync::watch::Sender<bool>,
     pub(super) login_env_requested: AtomicBool,
     /// Session ids an `import` is writing right now.
     pub(super) importing: StdMutex<std::collections::HashSet<String>>,
@@ -972,12 +992,22 @@ pub struct Hub {
 /// Serialized forms of one closed session. Each form has its own generation and tag-expiry
 /// deadline: building a list row must never make a previously cached full row look fresh.
 pub(super) struct ClosedSummaryCacheEntry {
-    pub(super) list_generation: u64,
+    pub(super) list_generation: SummaryStamp,
     pub(super) list_next_expiry: u64,
     pub(super) list: String,
-    pub(super) full_generation: u64,
+    pub(super) full_generation: SummaryStamp,
     pub(super) full_next_expiry: u64,
     pub(super) full: String,
+}
+
+/// What a cached closed row was built after: every row's changes (`Events::summary_generation`),
+/// its own session's (`Session::summary_gen`), and its open children's (`subsessions`). A change
+/// of one session's row moves its own count only, so the other closed rows keep their bytes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct SummaryStamp {
+    all: u64,
+    own: u64,
+    children: u64,
 }
 
 impl Hub {
@@ -1116,6 +1146,8 @@ impl Hub {
             peer_notices_finished: AtomicBool::new(false),
             peer_notices_done: Arc::new(Notify::new()),
             known_models: StdMutex::new(HashMap::new()),
+            acp_cached: StdMutex::new(HashMap::new()),
+            acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
             live_models: StdMutex::new(HashMap::new()),
             live_rechecks: StdMutex::new(HashMap::new()),
             refused_models: StdMutex::new(HashMap::new()),
@@ -1129,6 +1161,7 @@ impl Hub {
             retention_wake: Arc::new(Notify::new()),
             adoption_ready: tokio::sync::watch::channel(true).0,
             catalog_ready: tokio::sync::watch::channel(true).0,
+            model_caches_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
             importing: StdMutex::new(std::collections::HashSet::new()),
             pending_forks: Default::default(),
@@ -1416,6 +1449,8 @@ impl Hub {
         sessions.insert(session.id.clone(), session.clone());
         drop(sessions);
         self.update_live_session_index(&session);
+        // A session that came may be another row's parent: every closed row is built again.
+        self.events.changed();
     }
 
     /// Wait until every chat log is read, or their load failed (immediate outside a deferred
@@ -1522,6 +1557,7 @@ impl Hub {
         let moving = meta.moved_to.as_ref().map(|_| transfer_out::MOVED_AWAY.to_owned());
         // Every start of a session whose creator asked waits on its harness (`SessionMeta::wait_start`).
         let wait_start = meta.wait_start;
+        let parent_print = views::parent_print_of(&meta);
         let session = Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
@@ -1604,6 +1640,7 @@ impl Hub {
             closing: AtomicBool::new(false),
             stops: AtomicU64::new(0),
             cancels: AtomicU64::new(0),
+            claim_runs: StdMutex::new(Default::default()),
             start_retry_wake: Notify::new(),
             start_retry_waits: AtomicBool::new(false),
             start_retry_cancels: AtomicU64::new(start_retry::NO_RETRY),
@@ -1623,6 +1660,8 @@ impl Hub {
             status_writes: AtomicU64::new(0),
             status_changes: AtomicU64::new(0),
             state_seq: AtomicU64::new(0),
+            summary_gen: AtomicU64::new(0),
+            parent_print: AtomicU64::new(parent_print),
             attached: std::sync::atomic::AtomicUsize::new(0),
             hidden: std::sync::atomic::AtomicUsize::new(0),
             stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
@@ -1669,12 +1708,19 @@ impl Hub {
         session
     }
 
+    /// Changes a session's metadata in place, with no record or save (tests outside the hub).
+    #[cfg(test)]
+    pub(crate) fn edit_test_meta(&self, session: &Session, edit: impl FnOnce(&mut SessionMeta)) {
+        edit(&mut session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+    }
+
     #[cfg(test)]
     pub(crate) fn insert_test_session(&self, meta: SessionMeta) -> Arc<Session> {
         let id = meta.id.clone();
         let session = self.make_session(meta);
         self.sessions.lock().unwrap().insert(id, session.clone());
         self.update_live_session_index(&session);
+        self.events.changed();
         session
     }
 
@@ -1698,15 +1744,25 @@ impl Hub {
     pub(super) fn cached_closed_summary(&self, session: &Session, with_tools: bool) -> Value {
         let id = session.id.clone();
         let now = now_ms();
-        let next_expiry = session
-            .meta()
-            .tags
-            .values()
-            .filter_map(|tag| tag.expires_at)
-            .filter(|expires_at| *expires_at > now)
-            .min()
-            .unwrap_or(0);
-        let generation = self.events.summary_generation.load(Ordering::SeqCst);
+        // Its own tags' and its parent's (whether the row folds under it, `Hub::spawned_by`):
+        // a tag that expires changes the row with no event.
+        let (own_expiry, parent) = session.read_meta(|m| {
+            (views::next_tag_expiry(m, now), views::activity_parent_id(m).map(str::to_owned))
+        });
+        let parent_expiry = parent
+            .filter(|parent| *parent != id)
+            .and_then(|parent| self.session_by_id(&parent))
+            .and_then(|parent| parent.read_meta(|m| views::next_tag_expiry(m, now)));
+        let next_expiry = match (own_expiry, parent_expiry) {
+            (Some(a), Some(b)) => a.min(b),
+            (a, b) => a.or(b).unwrap_or(0),
+        };
+        // Read before the row is built: a change while it builds leaves the cached bytes stale.
+        let generation = SummaryStamp {
+            all: self.events.summary_generation.load(Ordering::SeqCst),
+            own: session.summary_gen.load(Ordering::SeqCst),
+            children: self.subsessions.generation(&id),
+        };
         if session.status() == SessionStatus::Closed
             && let Some(bytes) = self
                 .closed_summary_cache
@@ -1743,10 +1799,10 @@ impl Hub {
                 return row;
             }
             let entry = cache.entry(id).or_insert_with(|| ClosedSummaryCacheEntry {
-                list_generation: 0,
+                list_generation: SummaryStamp::default(),
                 list_next_expiry: 0,
                 list: String::new(),
-                full_generation: 0,
+                full_generation: SummaryStamp::default(),
                 full_next_expiry: 0,
                 full: String::new(),
             });
@@ -1771,6 +1827,16 @@ impl Hub {
     /// The sessions the daemon may need to summarize on a hot path. Closed records are looked up
     /// from `sessions` only by an explicit id/name request.
     pub(super) fn indexed_live_sessions(&self) -> Vec<Arc<Session>> {
+        newest_first(self.live_session_handles())
+    }
+
+    /// The sessions that are not closed, in no order and with no metadata read: the ones that
+    /// may hold an agent or run a turn (a close ends both before its status). A timer that takes
+    /// the first deadline of these reads them, not every closed record too.
+    pub(super) fn live_session_handles(&self) -> Vec<Arc<Session>> {
+        // The ids are copied and that lock let go at the end of this statement, before `sessions`
+        // is taken: never both at once, so no order against a purge (which holds `sessions`
+        // while it updates the index) can deadlock.
         let ids: Vec<String> = self
             .live_session_ids
             .lock()
@@ -1779,7 +1845,7 @@ impl Hub {
             .cloned()
             .collect();
         let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        newest_first(ids.into_iter().filter_map(|id| sessions.get(&id).cloned()).collect())
+        ids.into_iter().filter_map(|id| sessions.get(&id).cloned()).collect()
     }
 
     // ------------------------------------------------------------ lookup
@@ -2271,6 +2337,8 @@ impl Hub {
         }
         // The cost ledger's index: O(1), no IO (its writer thread writes the file).
         self.ledger.observe(session, &record);
+        // Its row's sequence numbers and date moved, sent or not: its cached closed row is stale.
+        session.summary_gen.fetch_add(1, Ordering::SeqCst);
         if matches!(
             kind,
             "status"
@@ -2313,6 +2381,7 @@ impl Hub {
                 record: Arc::new(record.clone()),
                 remote: None,
                 update_line: Default::default(),
+                row: Default::default(),
             };
             // A live chat's streamed text changes only its own row, which is never cached, so the
             // closed rows keep their bytes while agents stream. Read after the metadata update
@@ -2321,8 +2390,12 @@ impl Hub {
                 && session.status() != SessionStatus::Closed
             {
                 self.events.send_live_stream(event)
-            } else {
+            } else if list_guard::reaches_other_rows(&record.dir, &record.kind) {
                 self.events.send(event)
+            } else {
+                // Any other record changes its own chat's row only: the other closed rows keep
+                // their bytes (`list_guard::Events::send_row`).
+                self.events.send_row(session, event)
             };
         }
         (record, stored)
@@ -2398,9 +2471,12 @@ impl Hub {
             "turn_end",
             "turn_error",
         ];
+        let kinds: Vec<&str> = KINDS.iter().chain(history_timing::KINDS).copied().collect();
+        let mut timing = history_timing::Timing::default();
         let mut turns: Vec<Value> = Vec::new();
         let mut cur: Option<serde_json::Map<String, Value>> = None;
-        let _ = self.store.scan_kinds(&session.id, KINDS, &mut |e: EventRecord| {
+        let _ = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
+            let mut opened = false;
             match e.kind.as_str() {
                 "user_message" if e.msg.get("steer").and_then(Value::as_bool) != Some(true) => {
                     if let Some(t) = cur.take() {
@@ -2420,6 +2496,7 @@ impl Hub {
                     t.insert("permissions".into(), json!(0));
                     t.insert("status".into(), json!("running"));
                     cur = Some(t);
+                    opened = true;
                 }
                 "tool_call" => {
                     if let Some(t) = cur.as_mut() {
@@ -2460,6 +2537,11 @@ impl Hub {
                         if let Some(err) = e.msg.get("error") {
                             t.insert("error".into(), err.clone());
                         }
+                        // Why a failed turn ended with no answer (`outcome_unknown`: a daemon
+                        // restart cut it short), so a reader tells that from an agent error.
+                        if let Some(detail) = e.msg.get("detail") {
+                            t.insert("detail".into(), detail.clone());
+                        }
                     }
                 }
                 "turn_end" | "turn_error" => {
@@ -2483,6 +2565,7 @@ impl Hub {
                 }
                 _ => {}
             }
+            timing.note(&e, cur.as_mut(), opened);
             true
         });
         if let Some(t) = cur.take() {
@@ -2702,3 +2785,8 @@ impl Drop for LogsReady<'_> {
         self.0.send_replace(true);
     }
 }
+
+// What one small update costs at 100, 1,000 and 3,000 sessions (manual, `--ignored`).
+#[cfg(test)]
+#[path = "update_cost_bench.rs"]
+mod update_cost_bench;

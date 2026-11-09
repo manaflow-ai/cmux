@@ -50,6 +50,10 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
 
     public func media(path: String) async throws -> Data { try await mapped { try await client.media(path: path) } }
 
+    public func mediaRange(path: String, offset: Int, length: Int, handle: String?) async throws -> Data {
+        try await mapped { try await client.mediaRange(path: path, offset: offset, length: length, handle: handle) }
+    }
+
     public func typing(_ on: Bool) async throws { _ = try await mapped { try await client.typing(on); return Data() } }
 
     public func view(_ visible: Bool) async throws { _ = try await mapped { try await client.view(visible); return Data() } }
