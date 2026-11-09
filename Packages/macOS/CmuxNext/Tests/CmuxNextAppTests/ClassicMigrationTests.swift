@@ -13,14 +13,14 @@ import Testing
 /// The one-time classic migration at launch, end to end: the real daemon, the
 /// app's restore, and classic's session file `session-groups.json` (two
 /// windows, groups, a colored and a pinned workspace, a Cloud VM workspace;
-/// see ``ClassicMigrationPlannerTests``). Each test is one person's upgrade
+/// see ``ClassicTestHome/groupsFixture``). Each test is one person's upgrade
 /// path from classic: first launch, relaunch, downgrade and upgrade again, a
 /// run cut off midway, then Import Workspaces from Classic cmux. A later
 /// launch is the launch's own run again (`migrateClassic(.automatic)`) on the
 /// same daemon tree, which is what a relaunch restores.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct ClassicMigrationTests {
-    private static let fixture = ClassicMigrationPlannerTests.fixture
+    private static let fixture = ClassicTestHome.groupsFixture
 
     /// What the tree holds after a run.
     private struct Tree {
@@ -37,15 +37,21 @@ struct ClassicMigrationTests {
         var notice: String?
     }
 
-    /// A Mac that ran classic: its session file, a daemon state folder and
-    /// the migration's folder, all under one scratch folder.
+    /// A Mac that ran classic: the daemon's home folder with classic's session file, the
+    /// migration's folder the daemon keeps there, and a daemon state folder, all under one scratch folder.
     private final class Mac {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-migrate-\(UUID().uuidString.prefix(8))")
-        var session: URL { root.appendingPathComponent("session-com.cmuxterm.app.json") }
-        var migration: URL { root.appendingPathComponent("migration") }
+        var home: ClassicTestHome { ClassicTestHome(root: root) }
+        var session: URL { home.session() }
+        /// The app's bundle id, which names the migration's folder (set at launch).
+        var bundleID = "com.cmuxterm.app.next"
+        var migration: URL { home.migration(bundleID) }
         var ledger: URL { migration.appendingPathComponent("ledger.json") }
 
+        func readLedger() throws -> ClassicTestLedger { try ClassicTestLedger.read(migration) }
+
         init(edit: (inout [String: Any]) -> Void = { _ in }) throws {
+            try FileManager.default.createDirectory(at: home.classic, withIntermediateDirectories: true)
             try FileManager.default.createDirectory(at: root.appendingPathComponent("proj/api/logs"), withIntermediateDirectories: true)
             for folder in ["web", "db"] {
                 try FileManager.default.createDirectory(at: root.appendingPathComponent("proj/\(folder)"), withIntermediateDirectories: true)
@@ -74,15 +80,13 @@ struct ClassicMigrationTests {
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: "cn-migrate-\(UUID().uuidString.prefix(8).lowercased())",
                                  stateDirectory: mac.root.appendingPathComponent(state)),
-            environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+            environment: { [home = mac.home] in home.daemonEnvironment() })
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
-        services.onboarding.classicSessions = ClassicSessionImporter(fileURL: mac.session)
-        services.onboarding.classicMigrationDirectory = mac.migration
+        mac.bundleID = AppOnboardingServices(owner: services.onboarding).classicBundleID
         services.onboarding.classicMigrationAtLaunch = true
-        services.onboarding.classicRunning = { false }
         services.onboarding.classicMigrationConfirmation = { _ in answer }
         services.onboarding.classicChatPlan = { _, _ in nil }
         services.daemon.start {
@@ -155,10 +159,10 @@ struct ClassicMigrationTests {
         let mac = try Mac()
         let tree = try await launch(mac, answer: .declined) { services in
             #expect(Self.read(services).names.allSatisfy { !Self.classicNames.contains($0) })
-            let declined = try JSONDecoder().decode(ClassicMigrationLedger.self, from: Data(contentsOf: mac.ledger))
-            #expect(declined.declinedAt != nil && declined.state == .completed && declined.runs == 0, "\(declined)")
-            // Only the Cloud VM workspace, which never comes over, is recorded.
-            #expect(declined.workspaces.values.allSatisfy { $0.stage == .skipped }, "\(declined.workspaces)")
+            let declined = try mac.readLedger()
+            #expect(declined.declinedAt != nil && declined.state == "completed" && declined.runs == 0, "\(declined)")
+            // Nothing that came over is recorded (at most the Cloud VM workspace, which never comes over).
+            #expect(declined.workspaces.values.allSatisfy { $0.stage == "skipped" }, "\(declined.workspaces)")
             #expect(!FileManager.default.fileExists(atPath: mac.migration.appendingPathComponent("backups").path))
             #expect(services.onboarding.classicImportNotice == ClassicImportStrings.declined)
             try mac.write { root in root["createdAt"] = 1_891_728_605.0 }
@@ -166,12 +170,12 @@ struct ClassicMigrationTests {
                 Issue.record("a declined preview was asked again")
                 return .accepted
             }
-            #expect(again.decision == .skip(.declined) && again.opened.isEmpty, "\(again)")
+            #expect(again.decision == .skip("declined") && again.opened.isEmpty, "\(again)")
             let manual = try await AppOnboardingServices(owner: services.onboarding).migrateClassic(.manual) { _ in .accepted }
             #expect(manual.opened.count >= Self.classicNames.count, "\(manual)")
         }
         for name in Self.classicNames { #expect(tree.names.contains(name), "\(tree.names)") }
-        let imported = try JSONDecoder().decode(ClassicMigrationLedger.self, from: Data(contentsOf: mac.ledger))
+        let imported = try mac.readLedger()
         #expect(imported.declinedAt == nil && imported.runs == 1, "\(imported)")
     }
 
@@ -182,7 +186,7 @@ struct ClassicMigrationTests {
         let mac = try Mac()
         let tree = try await launch(mac, answer: .unanswered) { services in
             #expect(Self.read(services).names.allSatisfy { !Self.classicNames.contains($0) })
-            let first = try JSONDecoder().decode(ClassicMigrationLedger.self, from: Data(contentsOf: mac.ledger))
+            let first = try mac.readLedger()
             #expect(first.declinedAt == nil && first.source == nil && first.runs == 0 && first.workspaces.isEmpty, "\(first)")
             let next = try await Self.relaunch(services)
             #expect(next.decision == .merge && next.opened.count >= Self.classicNames.count, "\(next)")
@@ -218,7 +222,7 @@ struct ClassicMigrationTests {
         let tree = try await launch(mac) { services in
             first = Self.read(services).names
             let again = try await Self.relaunch(services)
-            #expect(again.decision == .skip(.unchanged) && again.opened.isEmpty, "\(again)")
+            #expect(again.decision == .skip("unchanged") && again.opened.isEmpty, "\(again)")
             var ran = false
             let work = services.registry.capturingWork { ran = services.registry.perform("workspace.importClassic") }
             #expect(ran)
@@ -291,7 +295,7 @@ struct ClassicMigrationTests {
                 added["stableId"] = "AAAAAAAA-0000-4000-8000-000000000099"
                 added["customTitle"] = "made while downgraded"
                 added["customTitleSource"] = "user"
-                added["groupId"] = ClassicMigrationPlannerTests.backend
+                added["groupId"] = ClassicTestHome.backendGroup
                 workspaces[1]["customTitle"] = "renamed in classic"
                 workspaces.append(added)
                 manager["workspaces"] = workspaces
@@ -316,18 +320,18 @@ struct ClassicMigrationTests {
     /// the half-made workspace and makes it once.
     @Test func aRunCutOffMidwayResumesWithoutDuplicates() async throws {
         let mac = try Mac()
-        let key = ClassicMigrationPlannerTests.pinned
+        let key = ClassicTestHome.pinnedKey
         let tree = try await launch(mac) { services in
-            var ledger = try JSONDecoder().decode(ClassicMigrationLedger.self, from: Data(contentsOf: mac.ledger))
-            ledger.state = .inProgress
-            ledger.workspaces[key]?.stage = .created
-            try JSONEncoder().encode(ledger).write(to: mac.ledger, options: .atomic)
+            var ledger = try mac.readLedger()
+            ledger.state = "inProgress"
+            ledger.workspaces[key]?.stage = "created"
+            try ledger.write(mac.migration)
             let resume = try await Self.relaunch(services)
             #expect(resume.decision == .resume && resume.opened.count == 1, "\(resume)")
         }
         #expect(tree.names.filter { $0 == "pinned one" }.count == 1, "\(tree.names)")
-        let resumed = try JSONDecoder().decode(ClassicMigrationLedger.self, from: Data(contentsOf: mac.ledger))
-        #expect(resumed.state == .completed && resumed.workspaces[key]?.stage == .done && resumed.runs == 2)
+        let resumed = try mac.readLedger()
+        #expect(resumed.state == "completed" && resumed.workspaces[key]?.stage == "done" && resumed.runs == 2)
     }
 
     /// A damaged session file migrates nothing and breaks no launch; once

@@ -30,19 +30,11 @@ struct ClassicImportTests {
     private static let everything = fixture("session-everything.json")
 
     @Test func previewIncludesInterruptedWorkspacesThatWillBeReplaced() {
-        let source = ClassicMigrationSource(
-            path: "/tmp/session.json",
-            bundleID: ClassicSessionImporter.stableBundleIdentifier,
-            size: 1,
-            modifiedAt: 1,
-            createdAt: 1
-        )
-        let plan = ClassicImportPlan(
-            source: source,
-            migration: ClassicMigrationPlan(cleanup: ["half-made-1", "half-made-2"])
-        )
-        #expect(plan.cleanupWorkspaces == 2)
-        #expect(ClassicImportStrings.previewLines(plan).count == 9)
+        let plan = ClassicImportPreview(counts: ClassicImportReply.Preview(workspaces: 0, cleanupWorkspaces: 2),
+                                        bundleID: "com.cmuxterm.app", savedAt: 1, classicRunning: false)
+        let lines = ClassicImportStrings.previewLines(plan)
+        #expect(lines.count == 9)
+        #expect(lines.last?.hasSuffix("2") == true, "\(lines)")
     }
 
     /// What the import left: each workspace's pane trees by name, the SSH
@@ -258,20 +250,19 @@ struct ClassicImportTests {
             .replacingOccurrences(of: "/Users/cmux/p4rt-classic/proj", with: proj.path)
             .replacingOccurrences(of: "/Users/cmux/p4rt-full/proj", with: proj.path)
             .replacingOccurrences(of: "/Users/cmux", with: root.path)
-        let file = root.appendingPathComponent("session-com.cmuxterm.app.json")
-        try session.write(to: file, atomically: true, encoding: .utf8)
+        // Where the daemon, whose home is `root`, finds classic stable's save.
+        let home = ClassicTestHome(root: root)
+        try FileManager.default.createDirectory(at: home.classic, withIntermediateDirectories: true)
+        try session.write(to: home.session(), atomically: true, encoding: .utf8)
 
         let launcher = DaemonLauncher(
             configuration: .init(binary: binary, session: "cn-classic-\(UUID().uuidString.prefix(8).lowercased())",
                                  stateDirectory: root.appendingPathComponent("state")),
-            environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+            environment: { home.daemonEnvironment() })
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
-        services.onboarding.classicSessions = ClassicSessionImporter(fileURL: file)
-        services.onboarding.classicMigrationDirectory = root.appendingPathComponent("migration")
-        services.onboarding.classicMigrationDirectory = root.appendingPathComponent("migration")
         services.onboarding.classicMigrationAtLaunch = false
         var destinations: [String] = []
         services.onboarding.classicSSH = { destination in

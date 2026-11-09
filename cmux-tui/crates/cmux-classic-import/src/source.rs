@@ -3,9 +3,10 @@
 //!
 //! Classic saves `~/Library/Application Support/cmux/session-<bundle>.json`
 //! per channel, a `-previous` copy, and archives in `session-history/`. The
-//! finder prefers the classic channel that matches this build's own bundle
-//! id (cmux NEXT stable reads classic stable, nightly reads nightly), then
-//! the channel saved last. Classic debug builds are never a source.
+//! finder reads the channel saved last, whichever classic app that was;
+//! equal save times go to this build's own channel. When no file of that
+//! channel decodes, the next channel's are read. Classic debug builds are
+//! never a source.
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -91,31 +92,42 @@ impl Finder {
         })
     }
 
-    /// The channel to read: this build's own when classic saved one, else
-    /// the channel whose session changed last. A channel whose session file
-    /// is gone still counts by its `-previous` copy, then its newest archive.
+    /// The channel to read: the one whose session changed last.
     pub fn channel(&self) -> Option<&'static str> {
-        let saved: Vec<(&'static str, SystemTime)> = CHANNELS
+        self.channels_by_recency().into_iter().next()
+    }
+
+    /// Every channel classic saved, the newest save first; equal times put
+    /// this build's own channel first, then stable before nightly, rc and
+    /// staging. A channel whose session file is gone still counts by its
+    /// `-previous` copy, then its newest archive. A cmux NEXT nightly
+    /// installed beside the classic stable someone still uses brings
+    /// stable's session, not an older classic nightly one.
+    pub fn channels_by_recency(&self) -> Vec<&'static str> {
+        let own = self.own_channel();
+        let mut saved: Vec<(&'static str, SystemTime, isize)> = CHANNELS
             .iter()
-            .filter_map(|channel| {
+            .enumerate()
+            .filter_map(|(index, channel)| {
                 let date = modified(&self.primary(channel))
                     .or_else(|| modified(&self.previous(channel)))
                     .or_else(|| modified(&self.newest_archive(channel)?))?;
-                Some((*channel, date))
+                let rank = if Some(*channel) == own { -1 } else { index as isize };
+                Some((*channel, date, rank))
             })
             .collect();
-        if let Some(own) =
-            self.own_channel().filter(|own| saved.iter().any(|(channel, _)| channel == own))
-        {
-            return Some(own);
-        }
-        saved
+        saved.sort_by(|a, b| b.1.cmp(&a.1).then(a.2.cmp(&b.2)));
+        saved.into_iter().map(|(channel, _, _)| channel).collect()
+    }
+
+    /// [`Finder::candidates`] of every channel in
+    /// [`Finder::channels_by_recency`] order: a reader that cannot decode
+    /// the newest channel's files goes on to the next.
+    pub fn all_candidates(&self) -> Vec<(PathBuf, String)> {
+        self.channels_by_recency()
             .into_iter()
-            .fold(None::<(&'static str, SystemTime)>, |best, next| match best {
-                Some(best) if best.1 >= next.1 => Some(best),
-                _ => Some(next),
-            })
-            .map(|(channel, _)| channel)
+            .flat_map(|channel| self.candidates(Some(channel)))
+            .collect()
     }
 
     /// The files to try, best first, for `channel` (else [`Finder::channel`]):
@@ -243,9 +255,75 @@ impl RunningProbe {
         self.state_root.join("lifecycle").join(channel).join("running.sentinel")
     }
 
-    /// Whether the classic that wrote `source` is running at `now` (seconds since 1970).
+    /// Whether the classic that wrote `source` is running at `now` (seconds
+    /// since 1970), by its launch sentinel and a recent save.
     pub fn is_running(&self, source: &Source, now: f64) -> bool {
         self.sentinel(&source.bundle_id).exists() && now - source.modified_at < Self::QUIET_SECONDS
+    }
+
+    /// The lock files classic of `channel` (a bundle id) holds while it
+    /// listens: `<socket>.lock` beside `~/.local/state/cmux/cmux[-<channel>].sock`,
+    /// then beside the `/tmp` one (`tmp`). cmux NEXT uses the same socket
+    /// names but never takes these locks.
+    pub fn lock_paths(channel: &str, home: &Path, tmp: &Path) -> [PathBuf; 2] {
+        let suffix = match channel {
+            "com.cmuxterm.app.nightly" => "-nightly",
+            "com.cmuxterm.app.rc" => "-rc",
+            "com.cmuxterm.app.staging" => "-staging",
+            _ => "",
+        };
+        let name = format!("cmux{suffix}.sock.lock");
+        [home.join(".local/state/cmux").join(&name), tmp.join(name)]
+    }
+
+    /// Whether a process holds the `flock` on `path`, asked without
+    /// blocking. A missing file, one another user owns, or a free lock is
+    /// not held; a free lock is taken shared for an instant and let go.
+    #[cfg(unix)]
+    pub fn is_lock_held(path: &Path) -> bool {
+        use std::os::unix::ffi::OsStrExt;
+        let Ok(text) = std::ffi::CString::new(path.as_os_str().as_bytes()) else { return false };
+        // SAFETY: `text` is a valid C string; the descriptor is closed below.
+        let fd = unsafe {
+            libc::open(
+                text.as_ptr(),
+                libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
+            )
+        };
+        if fd < 0 {
+            return false;
+        }
+        // SAFETY: `fd` is open, `info` is a zeroed stat buffer, and every
+        // call below only reads it or changes its lock.
+        let held = unsafe {
+            let mut info: libc::stat = std::mem::zeroed();
+            if libc::fstat(fd, &mut info) != 0 || info.st_uid != libc::getuid() {
+                false
+            } else if libc::flock(fd, libc::LOCK_SH | libc::LOCK_NB) == 0 {
+                libc::flock(fd, libc::LOCK_UN);
+                false
+            } else {
+                std::io::Error::last_os_error().raw_os_error() == Some(libc::EWOULDBLOCK)
+            }
+        };
+        // SAFETY: `fd` was opened above and is closed once.
+        unsafe { libc::close(fd) };
+        held
+    }
+
+    /// Never held where there is no `flock`.
+    #[cfg(not(unix))]
+    pub fn is_lock_held(_path: &Path) -> bool {
+        false
+    }
+
+    /// Whether the classic that saved `source` is open and may still save:
+    /// it holds a lock beside its control socket, or its launch sentinel and
+    /// a recent save say so. Classic builds older than the sentinel write
+    /// none, which is why the lock is asked too.
+    pub fn is_open(&self, source: &Source, home: &Path, tmp: &Path, now: f64) -> bool {
+        Self::lock_paths(&source.bundle_id, home, tmp).iter().any(|path| Self::is_lock_held(path))
+            || self.is_running(source, now)
     }
 }
 
@@ -270,27 +348,98 @@ mod tests {
         file
     }
 
-    /// cmux NEXT nightly reads classic nightly's session; stable reads stable's.
+    /// The newest save wins whichever build reads it: a cmux NEXT nightly
+    /// beside the classic stable someone still uses brings stable's session.
     #[test]
-    fn the_own_channel_is_preferred_then_the_newest() {
+    fn the_newest_channel_is_read_and_a_tie_goes_to_the_own_channel() {
         let root = tempfile::tempdir().unwrap();
         write(root.path(), "support/cmux/session-com.cmuxterm.app.json", Some(1));
         write(root.path(), "support/cmux/session-com.cmuxterm.app.nightly.json", Some(2));
         write(root.path(), "support/cmux/session-com.cmuxterm.app.debug.json", Some(9));
         let support = root.path().join("support");
+        for own in ["com.cmuxterm.app", "com.cmuxterm.app.nightly.cmux-next", "com.cmuxterm.app.rc"]
+        {
+            assert_eq!(
+                Finder::new(&support, Some(own)).channel(),
+                Some("com.cmuxterm.app.nightly")
+            );
+        }
         assert_eq!(
-            Finder::new(&support, Some("com.cmuxterm.app")).channel(),
-            Some("com.cmuxterm.app")
+            Finder::new(&support, Some("com.cmuxterm.app")).channels_by_recency(),
+            ["com.cmuxterm.app.nightly", "com.cmuxterm.app"]
+        );
+        // Equal times: the own channel, then stable before the others.
+        write(root.path(), "support/cmux/session-com.cmuxterm.app.json", Some(5));
+        write(root.path(), "support/cmux/session-com.cmuxterm.app.nightly.json", Some(5));
+        write(root.path(), "support/cmux/session-com.cmuxterm.app.rc.json", Some(5));
+        assert_eq!(
+            Finder::new(&support, Some("com.cmuxterm.app.rc.cmux-next")).channels_by_recency(),
+            ["com.cmuxterm.app.rc", "com.cmuxterm.app", "com.cmuxterm.app.nightly"]
         );
         assert_eq!(
-            Finder::new(&support, Some("com.cmuxterm.app.nightly.cmux-next")).channel(),
-            Some("com.cmuxterm.app.nightly")
+            Finder::new(&support, None).channels_by_recency(),
+            ["com.cmuxterm.app", "com.cmuxterm.app.nightly", "com.cmuxterm.app.rc"]
         );
-        // A channel classic never saved falls back to the newest one; debug is never a source.
+    }
+
+    /// Every channel's files, the newest channel's first.
+    #[test]
+    fn all_candidates_go_channel_by_channel_newest_first() {
+        let root = tempfile::tempdir().unwrap();
+        let stable = write(root.path(), "support/cmux/session-com.cmuxterm.app.json", Some(1));
+        let nightly =
+            write(root.path(), "support/cmux/session-com.cmuxterm.app.nightly.json", Some(3));
+        let copy = write(
+            root.path(),
+            "support/cmux/session-com.cmuxterm.app.nightly-previous.json",
+            Some(2),
+        );
+        let finder = Finder::new(&root.path().join("support"), Some("com.cmuxterm.app"));
+        let all: Vec<PathBuf> = finder.all_candidates().into_iter().map(|(file, _)| file).collect();
+        assert_eq!(all, [nightly, copy, stable]);
+    }
+
+    #[test]
+    fn the_socket_lock_paths_follow_the_channel() {
+        let home = Path::new("/Users/me");
+        let tmp = Path::new("/tmp");
         assert_eq!(
-            Finder::new(&support, Some("com.cmuxterm.app.rc")).channel(),
-            Some("com.cmuxterm.app.nightly")
+            RunningProbe::lock_paths("com.cmuxterm.app", home, tmp),
+            [home.join(".local/state/cmux/cmux.sock.lock"), PathBuf::from("/tmp/cmux.sock.lock")]
         );
+        assert_eq!(
+            RunningProbe::lock_paths("com.cmuxterm.app.nightly", home, tmp)[0],
+            home.join(".local/state/cmux/cmux-nightly.sock.lock")
+        );
+        assert_eq!(
+            RunningProbe::lock_paths("com.cmuxterm.app.rc", home, tmp)[1],
+            PathBuf::from("/tmp/cmux-rc.sock.lock")
+        );
+        assert_eq!(
+            RunningProbe::lock_paths("com.cmuxterm.app.staging", home, tmp)[1],
+            PathBuf::from("/tmp/cmux-staging.sock.lock")
+        );
+    }
+
+    /// A lock another open file description holds is held; a free one, a
+    /// missing file and a link are not.
+    #[cfg(unix)]
+    #[test]
+    fn a_held_socket_lock_says_classic_is_open() {
+        use std::os::unix::io::AsRawFd;
+        let root = tempfile::tempdir().unwrap();
+        let lock = write(root.path(), "cmux.sock.lock", None);
+        assert!(!RunningProbe::is_lock_held(&lock));
+        assert!(!RunningProbe::is_lock_held(&root.path().join("missing.lock")));
+        let holder = File::open(&lock).unwrap();
+        // SAFETY: the descriptor is open for the call.
+        assert_eq!(unsafe { libc::flock(holder.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+        assert!(RunningProbe::is_lock_held(&lock));
+        let link = root.path().join("link.lock");
+        std::os::unix::fs::symlink(&lock, &link).unwrap();
+        assert!(!RunningProbe::is_lock_held(&link));
+        drop(holder);
+        assert!(!RunningProbe::is_lock_held(&lock));
     }
 
     #[test]
@@ -340,7 +489,7 @@ mod tests {
         );
         let finder = Finder::new(&root.path().join("support"), Some("com.cmuxterm.app"));
         let files: Vec<PathBuf> =
-            finder.candidates(None).into_iter().map(|(file, _)| file).collect();
+            finder.candidates(Some("com.cmuxterm.app")).into_iter().map(|(file, _)| file).collect();
         assert_eq!(files, [primary.clone(), previous, newest.clone()]);
         assert!(finder.is_session_file(&primary) && finder.is_session_file(&newest));
         assert!(!finder.is_session_file(&root.path().join("support/cmux/other.json")));

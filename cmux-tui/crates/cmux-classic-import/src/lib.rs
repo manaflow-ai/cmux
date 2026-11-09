@@ -14,7 +14,10 @@
 //!   the folder holding it and the backups.
 //! - [`plan`]: whether a launch runs, and what a run makes. Pure.
 //! - [`read`]: the save a run reads, trying the session file, its
-//!   `-previous` copy and the newest archive in turn.
+//!   `-previous` copy and the newest archive of each channel in turn, newest
+//!   channel first.
+//! - [`replay`]: a terminal's scrollback as the read-only text its new shell
+//!   prints once.
 //!
 //! ```no_run
 //! use cmux_classic_import::{ledger, plan, read, source};
@@ -38,6 +41,7 @@ pub mod model;
 mod names;
 pub mod plan;
 pub mod read;
+pub mod replay;
 pub mod source;
 
 pub use decode::Error;
