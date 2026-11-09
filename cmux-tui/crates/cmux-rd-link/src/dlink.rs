@@ -130,16 +130,36 @@ fn turn_servers(names: &[TurnName]) -> Vec<TurnServer> {
         .collect()
 }
 
-/// What the resolver thread found.
-type Resolved = (Vec<SocketAddr>, Vec<TurnServer>);
+/// `resolve` on its own thread, so a slow resolver never holds the stream or
+/// the other list; an empty `names` answers at once.
+fn resolved<N: Send + 'static, T: Send + 'static>(
+    thread: &str,
+    names: Vec<N>,
+    resolve: fn(&[N]) -> Vec<T>,
+) -> Result<mpsc::Receiver<Vec<T>>, String> {
+    let (tx, rx) = mpsc::channel();
+    if names.is_empty() {
+        let _ = tx.send(Vec::new());
+    } else {
+        std::thread::Builder::new()
+            .name(thread.into())
+            .spawn(move || {
+                let _ = tx.send(resolve(&names));
+            })
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(rx)
+}
 
 /// A viewer's side before the link starts: its keys and session id.
 pub struct ViewerOffer {
     keys: KeyPair,
     session: String,
-    /// The STUN servers and TURN relays, resolved on their own thread so a slow
-    /// resolver never holds the stream; a link that starts first goes without them.
-    servers: mpsc::Receiver<Resolved>,
+    /// The STUN servers and the TURN relays, each resolved on its own thread so a
+    /// slow resolver never holds the stream or the other list; a link that starts
+    /// before a list resolves goes without it.
+    stun: mpsc::Receiver<Vec<SocketAddr>>,
+    turn: mpsc::Receiver<Vec<TurnServer>>,
 }
 
 impl ViewerOffer {
@@ -148,18 +168,9 @@ impl ViewerOffer {
         let keys = KeyPair::generate().map_err(|e| e.to_string())?;
         let id_seed = KeyPair::generate().map_err(|e| e.to_string())?.public;
         let session = hex(&id_seed[..16]);
-        let (tx, rx) = mpsc::channel();
-        if stun.is_empty() && turn.is_empty() {
-            let _ = tx.send((Vec::new(), Vec::new()));
-        } else {
-            std::thread::Builder::new()
-                .name("rd-link-stun".into())
-                .spawn(move || {
-                    let _ = tx.send((stun_servers(&stun), turn_servers(&turn)));
-                })
-                .map_err(|e| e.to_string())?;
-        }
-        Ok(Self { keys, session, servers: rx })
+        let stun = resolved("rd-link-stun", stun, stun_servers)?;
+        let turn = resolved("rd-link-turn", turn, turn_servers)?;
+        Ok(Self { keys, session, stun, turn })
     }
 
     /// The Noise prologue, for `link_offer`'s `session`.
@@ -176,7 +187,8 @@ impl ViewerOffer {
     /// initiates the handshake.
     pub fn start(self, host_key: &str, bind: SocketAddr) -> Result<DatagramLink, String> {
         let remote = unhex::<32>(host_key).ok_or("the host's link key is not 64 hex")?;
-        let (stun, turn) = self.servers.try_recv().unwrap_or_default();
+        let stun = self.stun.try_recv().unwrap_or_default();
+        let turn = self.turn.try_recv().unwrap_or_default();
         let net = Net::start(NetConfig {
             role: Role::Initiator,
             session: self.session.into_bytes(),
@@ -382,6 +394,20 @@ mod tests {
             DatagramLink::respond(offer.session(), &offer.key(), any()).unwrap();
         // Starting never waits for the resolver.
         assert!(offer.start(&host_key, any()).is_ok());
+    }
+
+    #[test]
+    fn a_slow_turn_lookup_never_holds_the_stun_servers() {
+        fn slow(_: &[TurnName]) -> Vec<TurnServer> {
+            std::thread::sleep(Duration::from_secs(5));
+            Vec::new()
+        }
+        let turn = resolved("rd-link-turn", vec![turn_name("turn.example:3478")], slow).unwrap();
+        let stun =
+            resolved("rd-link-stun", vec!["127.0.0.1:3478".to_owned()], stun_servers).unwrap();
+        let found = stun.recv_timeout(Duration::from_secs(2)).expect("STUN resolves on its own");
+        assert_eq!(found, vec!["127.0.0.1:3478".parse::<SocketAddr>().unwrap()]);
+        assert!(turn.try_recv().is_err(), "the TURN lookup is still running");
     }
 
     fn turn_name(addr: &str) -> TurnName {
