@@ -1083,6 +1083,30 @@ export function linkUp(connection: string): boolean {
   return connection !== "disconnected" && !connection.startsWith("connecting");
 }
 
+/** Incremental journal attribution for the Session Info "Where the time went" chart. */
+export type AcpmuxTimeCategory = {
+  id: string;
+  wallMs: number;
+  tokens?: number;
+};
+export type AcpmuxTimeSpan = {
+  turnSeq: number;
+  turnId?: string;
+  category: string;
+  startAt: number;
+  endAt: number;
+  tokens?: number;
+  /** Measured usage for the whole turn; phase/category attribution may be unavailable. */
+  turnTokens?: number;
+};
+export type AcpmuxTimeBreakdown = {
+  totalMs: number;
+  totalTokens?: number;
+  tokensComplete: boolean;
+  categories: AcpmuxTimeCategory[];
+  spans: AcpmuxTimeSpan[];
+};
+
 export type AcpmuxSnapshot = {
   type: "snapshot";
   /** The selected chat's daemon-owned retry, including the last automatic attempt. */
@@ -1153,6 +1177,8 @@ export type AcpmuxSnapshot = {
     /// What the session spends (acpmux `usageStats`, usageStats.ts): 24h tokens and cost, its
     /// autocompact cap, its subagents. Unset while the harness has no readable transcript.
     usageStats?: SessionUsageStats;
+    /// Incremental per-turn wall-time and token attribution for the Session Info timeline.
+    timeBreakdown?: AcpmuxTimeBreakdown;
     host?: string;
     /// What Claude Code's last init line said the chat runs on: its version, model id, route and
     /// folder, for Session Info's Environment and the `/status` card.
@@ -1530,9 +1556,9 @@ const LIVE_STEP_EDGE = "+step";
 /// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
 /// #29965), `--cv-tool-row-height`.
 const TOOL_ROW_PT = 22;
-/// The room around "Worked for"'s rule (Lucas, 2026-11-07): 4 under its words, 12 over the next row,
+/// The room around "Worked for"'s rule (Lucas, 2026-11-07; Leo, 2026-11-09): 4 under its words, 8 over the next row,
 /// conversation.css `.cv-worked.has-divider.is-toggle`; no stack gap follows (MARK_WORKED).
-const WORKED_GAP_PT = gridLength("gap-foot") + gridLength("gap-inner");
+const WORKED_GAP_PT = gridLength("gap-foot") + gridLength("gap");
 const toolRowHeight = () => TOOL_ROW_PT * chromeScale;
 const TOOL_RUN_BOTTOM = 0;
 /// A one-line row that is not a tool run (`isLineRow`) draws one tool row's line, as a one-call run

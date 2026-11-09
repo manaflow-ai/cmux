@@ -10,6 +10,7 @@ import path from "node:path";
 import {
   MOTION_EASE_OUT,
   MOTION_MS,
+  MOTION_SEND_MS,
   MOTION_SETTLE,
   MOTION_SETTLE_MS,
   MOTION_SPRING,
@@ -59,10 +60,18 @@ describe("motion scale", () => {
     expect(x1).toBeLessThan(0.3);
     expect(MOTION_SETTLE).toBe(`cubic-bezier(${SCALE.settle.bezier.join(", ")})`);
     expect(MOTION_SETTLE_MS).toBe(SCALE.settle.ms);
-    expect(MOTION_SETTLE_MS).toBeLessThanOrEqual(300);
     const desktop = fs.readFileSync(path.join(SRC, "pages/shared/desktop.css"), "utf8");
     expect(desktop).toContain(`--cmux-ease-settle: ${MOTION_SETTLE};`);
     expect(desktop).toContain(`--cmux-motion-settle: ${MOTION_SETTLE_MS}ms;`);
+  });
+
+  // Leo, 2026-11-09: "there's some sort of \"settling\" and like ok maybe but the animations end to end
+  // need to just resolve faster". The settle and the send keep their curve but end on the standard
+  // step, so a fold or a sent prompt is at rest as soon as any structural move.
+  test("the settle and the send end within the standard step", () => {
+    expect(MOTION_SETTLE_MS).toBeLessThanOrEqual(MOTION_MS.standard);
+    expect(MOTION_SEND_MS).toBeLessThanOrEqual(MOTION_MS.standard);
+    expect(SCALE.send.ms).toBe(MOTION_SEND_MS);
   });
 
   // What the scan caught on the base before the scale (feat-cmux-next, 2026-10-20).

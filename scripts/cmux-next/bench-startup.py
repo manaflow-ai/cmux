@@ -641,9 +641,20 @@ def app_support_tag(tag):
     """The tag's folder under Application Support, where the app keeps its saved session and its daemon's state
     (BuildIdentity: CMUX_TUI_STATE_DIR = <this>/tui). The app resolves it from the password database's home
     (FileManager.homeDirectoryForCurrentUser), not from $HOME, which a fleet step points at its own folder; the same
-    root as bench_launch.BenchApp.state_root (BENCH_LAUNCH_STATE_BASE overrides both)."""
-    base = os.environ.get("BENCH_LAUNCH_STATE_BASE") or os.path.join(account_home(), "Library/Application Support/cmux")
-    return os.path.join(base, "tags", tag)
+    root as bench_launch.BenchApp.state_root (BENCH_LAUNCH_STATE_BASE overrides both): NEXT's own cmux-next/tags/<tag>,
+    or cmux/tags/<tag> while only a build from before that folder has run."""
+    roots = app_support_tags(tag)
+    return next((root for root in roots if os.path.lexists(root)), roots[0])
+
+
+def app_support_tags(tag):
+    """Both places of the tag's folder, NEXT's own first (bench_launch.tag_state_roots, from this module's
+    account_home)."""
+    base = os.environ.get("BENCH_LAUNCH_STATE_BASE")
+    if base:
+        return [os.path.join(base, "tags", tag)]
+    support = os.path.join(account_home(), "Library/Application Support")
+    return [os.path.join(support, "cmux-next/tags", tag), os.path.join(support, "cmux/tags", tag)]
 
 
 def state_directories(tag):
@@ -892,8 +903,13 @@ def reset_state(tag):
     """A first launch: no daemon, no host, no saved workspaces, sidebar or agent sessions."""
     stop(tag_daemon_pids(tag))
     end_tag_hosts(tag)  # before the state roots go: the hosts are found through them
-    for directory in state_directories(tag):
-        shutil.rmtree(directory, ignore_errors=True)
+    # Both the tag's folders (NEXT's own and an older build's in cmux/tags, or its link to NEXT's): a new build adopts
+    # the old one at launch.
+    for directory in app_support_tags(tag) + state_directories(tag)[1:]:
+        if os.path.islink(directory):
+            os.remove(directory)
+        else:
+            shutil.rmtree(directory, ignore_errors=True)
 
 
 def user_temp_dir():

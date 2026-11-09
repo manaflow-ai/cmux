@@ -179,6 +179,9 @@ public final class TerminalSession {
 
     /// Reports a pane that still shows nothing after a reveal (``TerminalBlankWatch``).
     let blankWatch: TerminalBlankWatch
+    /// Predictive local echo, for an IO whose keys make a network round trip (``TerminalIO/predictsEcho``); nil
+    /// otherwise, so a local terminal pays nothing per key or chunk.
+    let echo: TerminalEchoPredictor?
 
     /// - Parameter blankClock: The clock of the blank-pane check after a reveal; tests pass a manual clock.
     public init(io: any TerminalIO, ownsGeometry: Bool = true, blankClock: any Clock<Duration> = ContinuousClock()) {
@@ -192,7 +195,9 @@ public final class TerminalSession {
         input = TerminalInputSink(continuation: continuation)
 
         view = TerminalHostView()
-        surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil)
+        echo = io.predictsEcho
+            ? TerminalEchoPredictor(engine: TerminalEchoPrediction(enabled: true, remote: true)) : nil
+        surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil, prediction: echo?.engine)
         surfaceView.bridge.takeUnretainedValue().installLinkFilter(nil)
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
@@ -200,6 +205,8 @@ public final class TerminalSession {
         view.install(surfaceView)
         find.target = self
         view.attachFind(find)
+        echo?.colors = { [weak self] in self?.theme?.colors ?? GhosttyRuntime.shared.themeColors }
+        echo?.attach(to: surfaceView)
 
         writerTask = Task.detached(priority: .userInitiated) { [io, weak self] in
             for await item in outgoing {
@@ -450,6 +457,7 @@ public final class TerminalSession {
         input.finish()
         frameHold.end() // a held frame has no time limit: it goes with the session, not with the object
         blankWatch.cancel()
+        echo?.close()
         surfaceView.removeFromSuperview()
     }
 
@@ -496,7 +504,7 @@ public final class TerminalSession {
         switch event {
         case .replay(let data):
             if surfaceHasContent { swapSurface() }
-            surfaceView.lane?.processOutput(data)
+            surfaceView.lane?.processOutput(data, replacesScreen: true)
             surfaceHasContent = true
             frameHold.contentQueued()
             TerminalTimings.contentApplied()
@@ -507,7 +515,7 @@ public final class TerminalSession {
             // replayed and on-screen Kitty images come back only when the
             // program draws them again.
             if surfaceHasContent { swapSurface() }
-            surfaceView.lane?.processOutput(replay.vt)
+            surfaceView.lane?.processOutput(replay.vt, replacesScreen: true)
             surfaceHasContent = true
             frameHold.contentQueued()
             TerminalTimings.contentApplied()
@@ -571,6 +579,7 @@ public final class TerminalSession {
     /// `.resize` applies; the event is the PTY's size at this point in the
     /// stream.
     private func applyCanonicalGrid(_ grid: TerminalGridSize) async {
+        if canonicalGrid != grid { echo?.gridChanged() }
         canonicalGrid = grid
         surfaceView.applyAnnouncedGrid(grid)
     }
@@ -582,7 +591,7 @@ public final class TerminalSession {
         old.clipboardRequests.cancelPendingWrite()
         old.cancelGridReport() // detached: its waiting grid is not this session's any more
         let wasFirstResponder = old.isFirstResponder
-        let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self)
+        let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self, prediction: echo?.engine)
         swappedSurfaces += 1
         #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceSurfaceSwapped(fresh) }
@@ -594,6 +603,7 @@ public final class TerminalSession {
         fresh.bridge.takeUnretainedValue().installLinkFilter(linkCheck)
         fresh.bridge.takeUnretainedValue().linkFilter.setWorkingDirectory(model.workingDirectory)
         view.install(fresh)
+        echo?.attach(to: fresh)
         frameHold.begin(old: old, fresh: fresh, in: view) // no empty frame until the fresh one draws (cx-6so.23)
         applyTheme(to: fresh, clearing: false, animated: false)
         TerminalFontScale(old).carry(to: fresh) // after the theme: its config update can reset the size
