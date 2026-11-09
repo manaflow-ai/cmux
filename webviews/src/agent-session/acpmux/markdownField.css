@@ -524,12 +524,21 @@
    never inside a box of no size (Leo, 2026-11-09: "it doesn't have a caret"). The chip is a widget
    that takes no input; it has no text of its own, so it has no height: the chip is its
    pseudo-elements, which hold real text at the line's own size and an icon no taller than the sent
-   chip's, so the line keeps its height. ::before is the icon; ::after is the title, pulled back
+   chip's, so the line keeps its height. The front's ::before is the icon; ::after is the title, pulled back
    under the icon so one wash with the sent chip's padding and radius covers both, and the icon
    paints over it (position). No break between the icon and the title (nowrap on the span); the
    title wraps with the sentence. */
 .acpmux-md .is-titled-link {
   display: none;
+}
+/* The chip's front (the icon) and its title end are two widgets around the hidden link, drawn as
+   one chip: the same no-size boxes, the front's icon painted over the title's wash (position). */
+.acpmux-md .is-titled-start {
+  --cmux-link-chip-pad-inline: 5px;
+  --cmux-link-chip-icon: 14px;
+  font-size: 0;
+  line-height: 0;
+  white-space: nowrap;
 }
 .acpmux-md .is-titled[data-title] {
   /* The sent chip's measures (startedSessions.css .acpmux-started-chip padding, cmuxLinkChip.css's
@@ -546,7 +555,7 @@
   text-decoration: none;
   white-space: nowrap;
 }
-.acpmux-md .is-titled[data-title][data-icon]::before {
+.acpmux-md .is-titled-start[data-icon]::before {
   content: "";
   position: relative;
   display: inline-block;

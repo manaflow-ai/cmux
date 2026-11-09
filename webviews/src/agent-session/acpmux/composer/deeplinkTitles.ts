@@ -11,9 +11,9 @@ import { deeplinksKey } from "./deeplinkTokens";
 // copy link to workspace thing, it should be able to render in the box that it is an actual chat
 // that is there, like with the title and whatever"). Only decorations: the draft's text stays the
 // link, so send, copy, paste and undo see exactly what was pasted. The link's own characters are
-// hidden (markdownField.css `.is-titled-link`, display: none) and the chip is a widget after them
-// that takes no input (`.is-titled`: the kind's icon on its ::before, the title on its ::after with
-// the sent chip's wash). The caret at either end of the link stands outside the chip, at the line's
+// hidden (markdownField.css `.is-titled-link`, display: none) between two widgets that take no
+// input: the chip's front before them (`.is-titled-start`, the kind's icon on its ::before) and its
+// title end after them (`.is-titled`, the title on its ::after with the sent chip's wash). The caret at either end of the link stands outside the chip, at the line's
 // own height (Leo, 2026-11-09: "it's just weird that it doesn't have a caret": the link's characters
 // had been drawn at no size under the chip, and the caret after them was drawn there, at no height).
 // The chip acts as one character: ArrowLeft and ArrowRight step over it, Backspace and Delete take
@@ -27,6 +27,8 @@ import { deeplinksKey } from "./deeplinkTokens";
 export const TITLED_CLASS = "is-titled";
 /// The class of a titled link's own characters, hidden under the chip (markdownField.css).
 export const TITLED_LINK_CLASS = "is-titled-link";
+/// The class of the chip's front, its kind icon, before the link's characters (markdownField.css).
+export const TITLED_START_CLASS = "is-titled-start";
 
 export type DeeplinkTitles = {
   /// What a link names now, from the page's stores; undefined keeps it a link.
@@ -65,7 +67,7 @@ function charBefore(doc: ProseNode, pos: number): string {
   return doc.textBetween(pos - 1, pos, undefined, "￼");
 }
 
-/// The chip's element: no text of its own (the title is its ::after), and no input.
+/// The chip's title end: no text of its own (the title is its ::after), and no input.
 function chipElement(title: string, kind: string, href: string, icon: string | undefined): HTMLElement {
   const chip = document.createElement("span");
   chip.className = TITLED_CLASS;
@@ -73,12 +75,23 @@ function chipElement(title: string, kind: string, href: string, icon: string | u
   chip.dataset.title = title;
   chip.dataset.kind = kind;
   chip.dataset.link = href;
-  // The kind's icon on the chip's ::before (markdownField.css), as the sent chip draws it.
-  if (icon) {
-    chip.dataset.icon = "";
-    chip.style.setProperty("--cmux-link-icon", icon);
-  }
+  // The wash reaches back under the front's icon (markdownField.css).
+  if (icon) chip.dataset.icon = "";
   return chip;
+}
+
+/// The chip's front: the kind's icon on its ::before (markdownField.css), as the sent chip draws it.
+/// A box of its own before the link's characters, so the caret before the chip stands beside a drawn
+/// element in WebKit too, never against the hidden text alone (at a line's start WebKit drew none).
+function chipStart(icon: string | undefined): HTMLElement {
+  const start = document.createElement("span");
+  start.className = TITLED_START_CLASS;
+  start.setAttribute("contenteditable", "false");
+  if (icon) {
+    start.dataset.icon = "";
+    start.style.setProperty("--cmux-link-icon", icon);
+  }
+  return start;
 }
 
 /// Draws each known link in the draft as its chip. `titles` undefined draws nothing.
@@ -112,6 +125,8 @@ export function deeplinkTitlesPlugin(titles: DeeplinkTitles | undefined): Plugin
       const title = titles.label(info);
       const icon = titles.icon?.(info);
       decorations.push(
+        // After the position before the link (side 1): the caret there stands before the chip.
+        Decoration.widget(link.from, () => chipStart(icon), { side: 1, key: `start\n${icon ?? ""}` }),
         Decoration.inline(link.from, link.to, { class: TITLED_LINK_CLASS }),
         // Before the position after the link (side -1): the caret there stands after the chip.
         Decoration.widget(link.to, () => chipElement(title, info.kind, href, icon), {
