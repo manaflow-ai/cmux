@@ -255,7 +255,8 @@ fn move_stack_with(
         moving.into_iter().filter(|draft| !own.iter().any(|d| d.id == draft.id)).collect();
     let moved = drafts.len();
     drafts.extend(own.iter().cloned());
-    drafts.truncate(STASH_LIMIT);
+    // Every draft is written first, none let go: until the source is gone, a failure at any later
+    // step (the put-back too) loses no draft, and a retry finds them all by id.
     write(&to_path, to, &drafts).map_err(not_saved)?;
     // A source that stays puts `to` back as it was: a move is whole or not at all, so no draft is
     // in two stacks for a later move to take twice or one of them to lose.
@@ -267,8 +268,21 @@ fn move_stack_with(
             }
         });
     if let Err(e) = removed {
-        let _ = if own.is_empty() { fs::remove_file(&to_path) } else { write(&to_path, to, &own) };
-        return Err(not_saved(e));
+        let put_back =
+            if own.is_empty() { fs::remove_file(&to_path) } else { write(&to_path, to, &own) };
+        return Err(match put_back {
+            Ok(()) => not_saved(e),
+            // Both stacks hold the moved drafts, `to` all of its own as well: a retry adds none twice.
+            Err(back) => not_saved(io::Error::other(format!(
+                "{e}; the stack it moved into could not be put back either ({back})"
+            ))),
+        });
+    }
+    // The source is gone: now the oldest past the limit go, as a push lets them. A failure here
+    // leaves a longer stack, which the next push trims.
+    if drafts.len() > STASH_LIMIT {
+        drafts.truncate(STASH_LIMIT);
+        let _ = write(&to_path, to, &drafts);
     }
     trim_chats(dir, &to_path);
     Ok(Moved { count: moved, ids })
