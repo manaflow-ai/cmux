@@ -24,8 +24,23 @@ nonisolated struct KeepAwakePolicy: Equatable, Sendable {
     var onBattery = false
 
     var holds: Bool {
-        manual || ((agentsWorking || (commands && commandsRunning > 0)) && Self.allows(agents, onBattery: onBattery))
-            || ((phoneServing || iPhoneServing) && Self.allows(SessionKeepAwakeSetting(rawValue: phone.rawValue) ?? .off, onBattery: onBattery))
+        manual || agentsHold || phoneHolds
+    }
+
+    /// The setting behind the hold, for the menu bar line to open: agents and commands first, then
+    /// phones; nil when only the Keep Mac Awake action holds, or nothing does.
+    var setting: String? {
+        if agentsHold { return "sessions.keepAwake" }
+        if phoneHolds { return "phone.keepAwake" }
+        return nil
+    }
+
+    private var agentsHold: Bool {
+        (agentsWorking || (commands && commandsRunning > 0)) && Self.allows(agents, onBattery: onBattery)
+    }
+
+    private var phoneHolds: Bool {
+        (phoneServing || iPhoneServing) && Self.allows(SessionKeepAwakeSetting(rawValue: phone.rawValue) ?? .off, onBattery: onBattery)
     }
 
     /// Whether a keep-awake choice applies on the current power source.

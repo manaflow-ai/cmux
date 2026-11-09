@@ -65,6 +65,19 @@ struct KeepAwakePolicyTests {
         #expect(!KeepAwakePolicy(phoneServing: false, phone: .always).holds)
     }
 
+    /// The setting the menu bar's Keeping Mac awake line opens is the one behind the hold: agents
+    /// and commands before phones, and none for the Keep Mac Awake action alone.
+    @Test func theHoldNamesItsSetting() {
+        #expect(KeepAwakePolicy().setting == nil)
+        #expect(KeepAwakePolicy(manual: true).setting == nil)
+        #expect(KeepAwakePolicy(agentsWorking: true).setting == "sessions.keepAwake")
+        #expect(KeepAwakePolicy(commandsRunning: 1, commands: true).setting == "sessions.keepAwake")
+        #expect(KeepAwakePolicy(iPhoneServing: true, phone: .pluggedIn).setting == "phone.keepAwake")
+        #expect(KeepAwakePolicy(manual: true, agentsWorking: true, iPhoneServing: true, phone: .pluggedIn).setting == "sessions.keepAwake")
+        // An agent the choice does not allow (on battery) leaves the phones' setting.
+        #expect(KeepAwakePolicy(agentsWorking: true, iPhoneServing: true, phone: .always, onBattery: true).setting == "phone.keepAwake")
+    }
+
     /// A long terminal command holds only with `sessions.keepAwakeForCommands` on, and then as
     /// `sessions.keepAwake` allows: Off there turns it off too.
     @Test func longCommandsHoldOnlyWhenTheirSettingIsOn() {

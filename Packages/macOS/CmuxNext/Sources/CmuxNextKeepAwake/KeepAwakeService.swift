@@ -104,6 +104,6 @@ public final class KeepAwakeService {
         }
         // The menu bar's line: what holds, nil once nothing does.
         menuBar?.keepingAwake = activity == nil ? nil
-            : MenuBarMenuState.KeepingAwake(commands: policy.commands ? policy.commandsRunning : 0)
+            : MenuBarMenuState.KeepingAwake(commands: policy.commands ? policy.commandsRunning : 0, setting: policy.setting)
     }
 }

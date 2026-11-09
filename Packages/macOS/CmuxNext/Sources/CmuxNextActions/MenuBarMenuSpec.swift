@@ -99,8 +99,10 @@ public nonisolated struct MenuBarMenuSpec: Sendable {
         }
         var agents: [Item] = []
         if let awake = state.keepingAwake {
-            // A click opens the setting that decides it (user 2026-11-09, on the defaults: "nor sure").
-            agents.append(.setting(Self.text("menu.menuBar.keepingAwake", "Keeping Mac awake"), key: "sessions.keepAwake", symbol: "cup.and.saucer"))
+            // A click opens the setting behind the hold (user 2026-11-09, on the defaults: "nor sure").
+            let title = Self.text("menu.menuBar.keepingAwake", "Keeping Mac awake")
+            agents.append(awake.setting.map { .setting(title, key: $0, symbol: "cup.and.saucer") }
+                ?? .info(title, symbol: "cup.and.saucer", avatar: false))
             if awake.commands > 0 { agents.append(.info(Self.commandsRunning(awake.commands), symbol: "terminal", avatar: false)) }
         }
         if state.agentsWorking > 0 {

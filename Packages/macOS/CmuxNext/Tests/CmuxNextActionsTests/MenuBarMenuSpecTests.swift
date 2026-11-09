@@ -71,16 +71,22 @@ struct MenuBarMenuSpecTests {
     /// While cmux keeps the Mac awake the agents section says so first, with the terminal commands that
     /// count; with no hold there is no line.
     @Test func keepingAwakeLeadsTheAgentsSection() throws {
-        let state = MenuBarMenuState(agentsWorking: 2, keepingAwake: .init(commands: 1))
+        let state = MenuBarMenuState(agentsWorking: 2, keepingAwake: .init(commands: 1, setting: "sessions.keepAwake"))
         let items = MenuBarMenuSpec().items(for: state, isBound: Self.everything)
         let ids = Self.ids(items)
         let start = try #require(ids.firstIndex(of: "-")) + 1
         #expect(Array(ids[start..<start + 4]) == ["setting:sessions.keepAwake:Keeping Mac awake", "info:Commands running: 1", "info:Agents working: 2", "-"])
         #expect(items[start] == .setting("Keeping Mac awake", key: "sessions.keepAwake", symbol: "cup.and.saucer"))
 
-        let agentsOnly = Self.ids(MenuBarMenuSpec().items(for: MenuBarMenuState(agentsWorking: 1, keepingAwake: .init()), isBound: Self.everything))
+        let agentsOnly = Self.ids(MenuBarMenuSpec().items(for: MenuBarMenuState(agentsWorking: 1, keepingAwake: .init(setting: "sessions.keepAwake")), isBound: Self.everything))
         #expect(agentsOnly.contains("setting:sessions.keepAwake:Keeping Mac awake"))
         #expect(!agentsOnly.contains { $0.hasPrefix("info:Commands running") })
+
+        // Phones hold: the line opens their setting. The Keep Mac Awake action alone: a plain line.
+        let phone = Self.ids(MenuBarMenuSpec().items(for: MenuBarMenuState(keepingAwake: .init(setting: "phone.keepAwake")), isBound: Self.everything))
+        #expect(phone.contains("setting:phone.keepAwake:Keeping Mac awake"))
+        let manual = Self.ids(MenuBarMenuSpec().items(for: MenuBarMenuState(keepingAwake: .init()), isBound: Self.everything))
+        #expect(manual.contains("info:Keeping Mac awake"))
 
         let none = Self.ids(MenuBarMenuSpec().items(for: MenuBarMenuState(agentsWorking: 1), isBound: Self.everything))
         #expect(!none.contains { $0.hasPrefix("setting:sessions.keepAwake") })
@@ -111,7 +117,7 @@ struct MenuBarMenuSpecTests {
         let registry = ActionRegistry.standard()
         registry.bind("openSettings") {}
         let menu = NSMenu()
-        MenuBarMenuBuilder(registry: registry).fill(menu, state: MenuBarMenuState(keepingAwake: .init()))
+        MenuBarMenuBuilder(registry: registry).fill(menu, state: MenuBarMenuState(keepingAwake: .init(setting: "sessions.keepAwake")))
         let row = try #require(menu.items.first { $0.identifier?.rawValue == "cmux.setting.sessions.keepAwake" })
         #expect(row.title == "Keeping Mac awake")
         #expect(row.keyEquivalent.isEmpty)
