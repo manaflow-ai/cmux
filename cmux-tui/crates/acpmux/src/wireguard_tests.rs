@@ -508,7 +508,12 @@ fn a_restart_runs_the_mesh_with_the_new_key_on_the_same_port() {
             }));
         }
         let mut wrote = 0;
-        a_side.put_key(&fresh, &mut || { wrote += 1; Ok(()) }).unwrap();
+        a_side
+            .put_key(&fresh, &mut || {
+                wrote += 1;
+                Ok(())
+            })
+            .unwrap();
         assert_eq!(wrote, 1, "the key file is written once");
         assert_eq!(*took.lock().unwrap(), ["other 42", "carrier 42"]);
         assert!(a_side.put_key(&[7u8; 32], &mut || Err(anyhow::anyhow!("no write"))).is_err());
