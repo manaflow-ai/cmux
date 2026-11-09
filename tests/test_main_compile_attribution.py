@@ -411,6 +411,8 @@ class FixerFilesNeverRunAsTrustedPython(unittest.TestCase):
         config = (self.checkout / ".git/config").read_text()
         self.tool("claude", "test ! -e .git || { echo 'the fixer sees .git' >&2; exit 3; }\n"
                   "echo 'let a = 2' > Sources/A.swift\n"
+                  # A real fixer edits seconds after the step's stamp; this one would be within one clock tick.
+                  "touch -d \"@$(( $(date +%s) + 5 ))\" Sources/A.swift\n"
                   "mkdir -p .git && printf '[core]\\n\\tfsmonitor = touch planted\\n' > .git/config\n"
                   "echo planted > NEW.swift\n"
                   "echo '{\"structured_output\": {\"mechanical\": true, \"summary\": \"fixed\"}}'\n")
@@ -435,6 +437,17 @@ class FixerFilesNeverRunAsTrustedPython(unittest.TestCase):
         check = self.run_step("Check that the fixer left .git alone")
         self.assertNotEqual(check.returncode, 0, check.stdout + check.stderr)
         self.assertFalse((self.checkout / ".git").exists())
+
+    def test_a_fixer_that_never_started_leaves_git_and_the_job_alone(self):
+        # npm cannot install the fixer (a registry outage): the fixer decides nothing, .git stays and the check
+        # passes, so the job stays green as before.
+        report = self.fixer_checkout()
+        self.tool("npm", "exit 1\n")
+        result = self.run_step("Ask the fixer for a mechanical fix", REPORT=str(report))
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        check = self.run_step("Check that the fixer left .git alone")
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+        self.assertTrue((self.checkout / ".git").is_dir())
 
 
 if __name__ == "__main__":
