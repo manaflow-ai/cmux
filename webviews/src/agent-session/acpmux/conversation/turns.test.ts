@@ -85,7 +85,7 @@ test("a new turn start alone draws the live turn again", () => {
 
 // Leo, 2026-11-09: "we can be a bit more optimistic with, like, the displaying of the thinking ...
 // I only started seeing your thinking bit, like, seven seconds in". A running turn's thought draws
-// from its first words, streaming in its live viewport, not only once the next step ends it.
+// from its first words, as its folded line, not only once the next step ends it.
 test("a running turn draws its thought from its first line, then keeps it in the run", () => {
   const text = "Looking for every retry loop: the fetch client, the socket reconnect";
   const thought = { kind: "thought", text, startedAt: 2_000, endedAt: 2_400 };
@@ -96,9 +96,10 @@ test("a running turn draws its thought from its first line, then keeps it in the
   );
   const run = streaming.find((row) => row.id === "act");
   expect(run?.items?.map((item) => item.text)).toEqual([text]);
-  expect(run?.live).toBe(true);
+  // Drawn as its folded line from the start (ThoughtRow without `streaming`): nothing resizes when it ends.
+  expect(run?.live).toBeUndefined();
   expect(streaming.at(-1)?.kind).toBe(THINKING);
-  // A call after it ends it: it stays in the run, no longer live; the call in flight is the line's.
+  // A call after it ends it: it stays in the run, as drawn; the call in flight is the line's.
   const call = {
     kind: "tool",
     text: "",
@@ -166,7 +167,7 @@ test("an inbox notice that lands mid-thought leaves the thought in its run", () 
   });
   const options = { now: 6_000, working: true };
   const before = turnViewFrom([user(1_000), act], new Set(), options);
-  expect(before.rows.find((row) => row.id === "act")?.live).toBe(true);
+  expect(before.rows.find((row) => row.id === "act")?.items?.map((item) => item.text)).toEqual([text]);
   for (const steer of ["waiting", "landed"] as const) {
     const rows = [user(1_000), act, notice(steer)];
     const built = turnViewFrom(rows, new Set(), options, before);

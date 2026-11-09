@@ -613,21 +613,22 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   // Closed, a thought's button reads its words (Codex parity); open, "Thought".
   const thoughtToggle = (page: Page) => page.locator("button.cv-thought[aria-expanded]");
 
-  test("a long thought streams, then folds when the next step starts without moving the rows above it", async () => {
+  test("a long thought draws as its folded line while it streams, and the next step moves nothing above it", async () => {
     const chat = newChat();
     thinks(chat, THOUGHT);
     const page = await open(chat, 900);
-    // Streaming: the thought draws from its first words, in its live viewport, nothing to open yet
+    // Streaming: the thought draws from its first words as the line it folds to once done, closed
     // (Leo, 2026-11-09: "we can be a bit more optimistic with, like, the displaying of the thinking
-    // ... I only started seeing your thinking bit, like, seven seconds in"). The turn's live line at
-    // its foot says Thinking.
+    // ... I only started seeing your thinking bit, like, seven seconds in"), its text not drawn. The
+    // turn's live line at its foot says Thinking.
     await page
       .locator(".cv-worked.is-below .cv-thinking", {
         hasText: /^Thinking/,
       })
       .waitFor();
-    await page.locator(".cv-thought.is-full.is-live").waitFor();
-    expect(await thoughtToggle(page).count()).toBe(0);
+    await thoughtToggle(page).waitFor();
+    expect(await thoughtToggle(page).getAttribute("aria-expanded")).toBe("false");
+    expect(await page.getByText("Step 60: check the retry path.", { exact: false }).count()).toBe(0);
     await page.locator(".acpmux-scroll").hover();
     await page.mouse.wheel(0, -1600);
     await settle(page);

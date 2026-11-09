@@ -2442,7 +2442,7 @@ const OPEN_RUN_STATES = 2;
 /// when its family's finished turn takes the work in one fold (Leo, 2026-11-08: "you only do the overarching
 /// fold at the very end ... you know what the target line height will be"). The call in flight is
 /// not in the run: the turn's live line names it (WorkingFor.tsx `doing`) and each step replaces it
-/// in place. A thought still coming is, streaming in its live viewport (the row's `live`). A call still running in an earlier run
+/// in place. A thought still coming is, drawn as its folded line. A call still running in an earlier run
 /// (a background shell) stays in its run, except the command the live line names (`named`,
 /// `lineCall`), which reads once, on the line. Each derived row's version moves with its drawn state.
 function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
@@ -2482,10 +2482,13 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
     // finished steps and never grows a stack of live rows (Leo 2026-10-20: "rows pile up instead
     // of replacing each other").
     const all = row.items ?? [];
-    // A thought still coming stays in the run from its first line, in its live viewport
-    // (ThoughtRow `streaming`, the row's `live`), not only once the next step ends it (Leo,
-    // 2026-11-09: "we can be a bit more optimistic with, like, the displaying of the thinking ... I
-    // only started seeing your thinking bit, like, seven seconds in"). Not while it is still quiet by
+    // A thought still coming stays in the run from its first words, not only once the next step
+    // ends it (Leo, 2026-11-09: "we can be a bit more optimistic with, like, the displaying of the
+    // thinking ... I only started seeing your thinking bit, like, seven seconds in"). It draws as it
+    // will once done, its folded line (ThoughtRow, not `streaming`: the row is not `live`), so the
+    // row neither grows under the reader as it streams nor shrinks when it ends (Leo, 2026-11-07:
+    // "the jumps are jarring. We want to minimize the jumps"); the live line under it says
+    // Thinking. Not while it is still quiet by
     // the rule a finished thought draws by (thoughts.ts `isQuietThought`): its text and its time only
     // grow, so one shown here never leaves when it ends, and a short thought that has run a second
     // shows now, as it does once the turn ends or the chat reloads (Leo, 2026-11-09: "oh i guess the
@@ -2502,7 +2505,6 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
         items,
         settled: true,
         foldRun: false,
-        ...(thinking && { live: true }),
         version: row.version * RUN_STATES + (thinking ? 3 : 1),
       },
     ];
