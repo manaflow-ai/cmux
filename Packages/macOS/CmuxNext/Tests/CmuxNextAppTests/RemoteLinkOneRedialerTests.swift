@@ -12,15 +12,15 @@ import Testing
 /// pacer, the connection's own reconnect loop, a network monitor, and a Reconnect that killed and
 /// restarted the link client "with a new retry budget"), so one dead link became a burst of dials.
 /// Now the app makes one attempt and then waits for the link's state or an event.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct RemoteLinkOneRedialerTests {
-    /// Counts endpoint calls.
-    private final class Calls: Sendable {
-        private let count = Mutex(0)
-        func hit() { count.withLock { $0 += 1 } }
-        var value: Int { count.withLock { $0 } }
-    }
+/// Counts endpoint calls; off the main actor, so the endpoint closure can call it.
+private final class RemoteLinkCalls: Sendable {
+    private let count = Mutex(0)
+    func hit() { count.withLock { $0 += 1 } }
+    var value: Int { count.withLock { $0 } }
+}
 
-    private static func service(_ calls: Calls, followsLink: Bool) -> DaemonService {
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct RemoteLinkOneRedialerTests {
+    private static func service(_ calls: RemoteLinkCalls, followsLink: Bool) -> DaemonService {
         let daemon = DaemonService(machineID: "ssh:one-redialer-\(UUID().uuidString)")
         daemon.start(remote: {
             calls.hit()
@@ -30,7 +30,7 @@ import Testing
     }
 
     @Test func aLinkThatFollowsItsOwnStateGetsOneFirstAttemptAndNoTimedRetries() async throws {
-        let calls = Calls()
+        let calls = RemoteLinkCalls()
         let daemon = Self.service(calls, followsLink: true)
         try await Task.sleep(for: .milliseconds(2000))
         daemon.shutdownConnection()
@@ -40,7 +40,7 @@ import Testing
     /// The legacy route (a server's own socket or bridge, a Cloud ticket) still paces its own retries:
     /// this is what the link route no longer stacks on its link.
     @Test func theLegacyRouteStillRetriesOnATimer() async throws {
-        let calls = Calls()
+        let calls = RemoteLinkCalls()
         let daemon = Self.service(calls, followsLink: false)
         try await Task.sleep(for: .milliseconds(2000))
         daemon.shutdownConnection()
@@ -48,7 +48,7 @@ import Testing
     }
 
     @Test func theLinksStateWakesTheWaitingAttemptOnce() async throws {
-        let calls = Calls()
+        let calls = RemoteLinkCalls()
         let daemon = Self.service(calls, followsLink: true)
         try await Task.sleep(for: .milliseconds(1000))
         #expect(calls.value == 1, "the first attempt, and no timed retry")
@@ -61,7 +61,7 @@ import Testing
     /// A machine unreachable at launch has no link process yet, so nothing in Rust watches its network:
     /// the network coming back still wakes its first attempt, with no app action.
     @Test func aNeverConnectedLinkStillWakesOnTheNetwork() async throws {
-        let calls = Calls()
+        let calls = RemoteLinkCalls()
         let daemon = Self.service(calls, followsLink: true)
         #expect(daemon.watchesNetwork, "an SSH machine unreachable at launch would never come back by itself")
         daemon.shutdownConnection()
