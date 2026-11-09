@@ -30,6 +30,7 @@ import {
   toggled,
   toggledAll,
   usedShare,
+  withRefused,
   type KeptRow,
   type StaleRow,
   type StorageDisk,
@@ -123,6 +124,11 @@ export function useStorage(
   );
   // Each read's number: an older answer that lands after a newer ask is dropped.
   const reads = useRef(0);
+  // What the read after a clean keeps in place: the rows the clean refused (withRefused).
+  const refused = useRef<{ rows: readonly StaleRow[]; failed: ReadonlyMap<string, string> }>({
+    rows: NO_ROWS,
+    failed: NO_FAILED,
+  });
 
   const read = useCallback(() => {
     if (!source || unsupported) return;
@@ -137,7 +143,7 @@ export function useStorage(
           setNotice("failed");
           return;
         }
-        const rows = storageRows(report);
+        const rows = withRefused(storageRows(report), refused.current.rows, refused.current.failed);
         const next: Known = {
           ...(report.disk ? { disk: report.disk } : {}),
           pressure: report.pressure,
@@ -187,7 +193,8 @@ export function useStorage(
         }
         // One commit: the freed rows leave, the refused ones stay with acpmux's words, and the
         // button gives its place to what was freed.
-        const done = afterClean(stale, report);
+        const done = afterClean(stale, report, paths);
+        refused.current = { rows: done.stale, failed: done.failed };
         setKnown((now) => {
           const next = now && { ...now, stale: done.stale };
           lastKnown = next;
@@ -217,6 +224,7 @@ export function useStorage(
   const onToggle = (path: string) => pick(toggled(selected, path));
   const onToggleAll = () => pick(toggledAll(stale, selected));
   const onRefresh = () => {
+    refused.current = { rows: NO_ROWS, failed: NO_FAILED };
     setFailed(NO_FAILED);
     setFreed(undefined);
     read();

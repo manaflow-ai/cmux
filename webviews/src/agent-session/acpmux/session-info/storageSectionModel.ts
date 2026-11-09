@@ -220,17 +220,35 @@ export function keptSelection(stale: readonly StaleRow[], selected: ReadonlySet<
 export function afterClean(
   stale: readonly StaleRow[],
   clean: StorageReport,
+  asked: readonly string[] = [],
 ): { stale: StaleRow[]; failed: Map<string, string>; freed: number } {
   const outcomes = new Map(clean.items.flatMap((item) => (item.outcome ? [[item.path, item.outcome] as const] : [])));
+  const reasons = new Map(clean.items.map((item) => [item.path, item.reason] as const));
   const failed = new Map<string, string>();
   const left = stale.filter((row) => {
     const outcome = outcomes.get(row.path);
-    if (!outcome) return true;
+    if (!outcome) {
+      // Asked for and not acted on: it stopped being stale before the pass reached it (a file
+      // changed, a chat opened in it). It stays, with acpmux's reason for keeping it.
+      if (asked.includes(row.path)) failed.set(row.path, reasons.get(row.path) ?? "");
+      return true;
+    }
     if (outcome.ok) return false;
     failed.set(row.path, outcome.error ?? "");
     return true;
   });
   return { stale: left, failed, freed: clean.freed };
+}
+
+/// A read's rows with the worktrees a clean just refused kept in place: the read may now count them
+/// as kept, and their row is where the person looks for why.
+export function withRefused(rows: StorageRows, previous: readonly StaleRow[], refused: ReadonlyMap<string, string>): StorageRows {
+  if (refused.size === 0) return rows;
+  const listed = new Set(rows.stale.map((row) => row.path));
+  const carried = previous.filter((row) => refused.has(row.path) && !listed.has(row.path));
+  if (carried.length === 0) return rows;
+  const moved = new Set(carried.map((row) => row.path));
+  return { stale: [...rows.stale, ...carried], kept: rows.kept.filter((row) => !moved.has(row.path)) };
 }
 
 /// The disk's used share, 0 to 1.

@@ -12,6 +12,7 @@ import {
   toggled,
   toggledAll,
   usedShare,
+  withRefused,
 } from "./storageSectionModel";
 
 const GB = 1024 ** 3;
@@ -129,6 +130,31 @@ test("after a clean, freed rows leave and refused rows keep their place with acp
   expect(done.freed).toBe(3 * GB);
   expect(done.stale.map((row) => row.name)).toEqual(["small", "unmeasured"]);
   expect([...done.failed]).toEqual([["/w/small", "it changed since the scan; it stays"]]);
+});
+
+test("a worktree asked for and passed over stays, with why, through the read after", () => {
+  const before = storageRows(parseStorageReport({ report: { items: [item("/w/a"), item("/w/b")] } })!);
+  const clean = parseStorageReport({
+    applied: true,
+    freed: GB,
+    items: [
+      item("/w/a", { outcome: { ok: true, freed: GB } }),
+      item("/w/b", { stale: false, verdict: { action: "keep", reason: "session lane is open in it" } }),
+    ],
+  })!;
+  const done = afterClean(before.stale, clean, ["/w/a", "/w/b"]);
+  expect(done.stale.map((row) => row.path)).toEqual(["/w/b"]);
+  expect([...done.failed]).toEqual([["/w/b", "session lane is open in it"]]);
+  // The read after counts it as kept; its row stays where the person looks.
+  const after = storageRows(
+    parseStorageReport({
+      report: { items: [item("/w/b", { stale: false, verdict: { action: "keep", reason: "session lane is open in it" } })] },
+    })!,
+  );
+  const shown = withRefused(after, done.stale, done.failed);
+  expect(shown.stale.map((row) => row.path)).toEqual(["/w/b"]);
+  expect(shown.kept).toEqual([]);
+  expect(withRefused(after, done.stale, new Map())).toBe(after);
 });
 
 test("the disk's used share stays within 0 and 1", () => {

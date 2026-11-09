@@ -10,7 +10,7 @@
 //! Only this machine's clients get them, like the process methods: they
 //! read and remove folders on this machine.
 
-use super::{Conn, str_param};
+use super::{Conn, Origin, str_param};
 use crate::hub::Hub;
 use crate::rpc::{RpcError, method};
 use serde_json::{Value, json};
@@ -35,7 +35,37 @@ pub(super) async fn dispatch(
             "{m} (not served to a remote WebSocket connection or a peer)"
         ))));
     }
+    if conn.origin == Origin::LocalApp
+        && let Err(error) = pane_scope(m, params)
+    {
+        return Some(Err(error));
+    }
     Some(handle(hub, m, params).await)
+}
+
+/// The app's agent pane (`Origin::LocalApp`) frees only what Session
+/// Info's Storage offers: `clean` must say `staleOnly: true` and name the
+/// folders, so a page that went wrong cannot run an unrestricted pass, and
+/// it never restores. The Unix socket (the CLI, the app's machine view)
+/// keeps every form.
+fn pane_scope(m: &str, params: &Value) -> Result<(), RpcError> {
+    match m {
+        method::MUX_WORKTREE_REPORT => Ok(()),
+        method::MUX_WORKTREE_CLEAN => {
+            let named = params
+                .get("only")
+                .and_then(Value::as_array)
+                .is_some_and(|paths| !paths.is_empty());
+            if stale_only(params) && named {
+                Ok(())
+            } else {
+                Err(RpcError::invalid_params(
+                    "the agent pane frees only named stale worktrees (staleOnly: true, only: [...])",
+                ))
+            }
+        }
+        _ => Err(RpcError::method_not_found(&format!("{m} (not served to the agent pane)"))),
+    }
 }
 
 /// `_acpmux/retention` (`hub/retention.rs`), to this machine's clients only: it rewrites and
@@ -108,4 +138,22 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
 /// `staleOnly`: act on and measure only stale worktrees (`policy::stale`).
 fn stale_only(params: &Value) -> bool {
     params.get("staleOnly").and_then(Value::as_bool).unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_pane_frees_only_named_stale_worktrees() {
+        let clean = method::MUX_WORKTREE_CLEAN;
+        assert!(pane_scope(clean, &json!({"only": ["/w/a"], "staleOnly": true})).is_ok());
+        assert!(pane_scope(clean, &json!({})).is_err(), "an unrestricted pass");
+        assert!(pane_scope(clean, &json!({"staleOnly": true})).is_err(), "every stale worktree");
+        assert!(pane_scope(clean, &json!({"only": [], "staleOnly": true})).is_err());
+        assert!(pane_scope(clean, &json!({"only": ["/w/a"]})).is_err(), "not stale-only");
+        assert!(pane_scope(clean, &json!({"only": ["/w/a"], "staleOnly": false})).is_err());
+        assert!(pane_scope(method::MUX_WORKTREE_REPORT, &json!({})).is_ok());
+        assert!(pane_scope(method::MUX_WORKTREE_RESTORE, &json!({"key": "x"})).is_err());
+    }
 }
