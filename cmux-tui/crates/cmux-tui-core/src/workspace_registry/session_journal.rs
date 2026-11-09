@@ -2627,16 +2627,28 @@ impl RegistryConnection {
         cursor: u64,
         snapshot: &str,
     ) -> anyhow::Result<()> {
-        let value = serde_json::json!({
-            "version": version,
-            "cursor": cursor.to_string(),
-            "snapshot": snapshot,
-        });
-        self.get().execute(
-            "INSERT INTO meta(key, value) VALUES(?1, ?2)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![format!("journal_reducer.{reducer_id}"), value.to_string()],
-        )?;
-        Ok(())
+        write_journal_reducer_state(&self.get(), reducer_id, version, cursor, snapshot)
     }
+}
+
+/// The `meta` row of a reducer's fold position and snapshot, written on
+/// `connection` (the registry's own, or the synthetic registry writer's).
+pub(crate) fn write_journal_reducer_state(
+    connection: &Connection,
+    reducer_id: &str,
+    version: u32,
+    cursor: u64,
+    snapshot: &str,
+) -> anyhow::Result<()> {
+    let value = serde_json::json!({
+        "version": version,
+        "cursor": cursor.to_string(),
+        "snapshot": snapshot,
+    });
+    connection.execute(
+        "INSERT INTO meta(key, value) VALUES(?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![format!("journal_reducer.{reducer_id}"), value.to_string()],
+    )?;
+    Ok(())
 }

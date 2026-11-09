@@ -107,6 +107,23 @@ pub(crate) fn slow_durable_commit_delay() -> Option<std::time::Duration> {
     })
 }
 
+/// Debug seam (`CMUX_TUI_TEST_REGISTRY_COMMIT_DELAY_MS=N`, debug builds
+/// only): every registry commit takes N ms longer inside `COMMIT`, holding
+/// SQLite's write lock and the connection lock, as a commit on a slow disk
+/// does, so a test can see which requests wait for one.
+pub(crate) fn registry_commit_delay() -> Option<std::time::Duration> {
+    #[cfg(debug_assertions)]
+    {
+        std::env::var("CMUX_TUI_TEST_REGISTRY_COMMIT_DELAY_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|ms| *ms > 0)
+            .map(std::time::Duration::from_millis)
+    }
+    #[cfg(not(debug_assertions))]
+    None
+}
+
 /// Install the registry connection's commit hook: the debug span mark
 /// (`debug_spans::traced`); [`RegistryConnection::new`] adds the WAL
 /// syncer's commit count to a file registry's hook.
@@ -169,11 +186,12 @@ impl RegistryConnection {
         database_path: Option<&std::path::Path>,
     ) -> Arc<Self> {
         let durability = database_path.map(|path| {
-            super::wal_durability::WalDurability::attach(
+            super::wal_durability::WalDurability::attach_with_commit_delay(
                 &connection,
                 path,
                 slow_durable_commit_delay(),
                 false,
+                registry_commit_delay(),
             )
         });
         let reader =

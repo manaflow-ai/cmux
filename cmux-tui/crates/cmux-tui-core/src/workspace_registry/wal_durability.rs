@@ -102,6 +102,9 @@ struct Shared {
     /// Flush after every commit (a store with no request funnel), instead
     /// of only when asked.
     flush_each_commit: bool,
+    /// `CMUX_TUI_TEST_REGISTRY_COMMIT_DELAY_MS`: each commit takes this much
+    /// longer inside `COMMIT`, holding the write lock, as on a slow disk.
+    commit_delay: Option<Duration>,
     /// Bytes of one WAL frame: its header and one page.
     frame_bytes: u64,
 }
@@ -163,6 +166,24 @@ impl WalDurability {
         slow_flush: Option<Duration>,
         flush_each_commit: bool,
     ) -> Self {
+        Self::attach_with_commit_delay(
+            connection,
+            database_path,
+            slow_flush,
+            flush_each_commit,
+            None,
+        )
+    }
+
+    /// [`Self::attach`] whose commits each wait `commit_delay` inside
+    /// `COMMIT` (the registry's `CMUX_TUI_TEST_REGISTRY_COMMIT_DELAY_MS` seam).
+    pub(crate) fn attach_with_commit_delay(
+        connection: &Connection,
+        database_path: &Path,
+        slow_flush: Option<Duration>,
+        flush_each_commit: bool,
+        commit_delay: Option<Duration>,
+    ) -> Self {
         let mut wal_path = database_path.as_os_str().to_owned();
         wal_path.push("-wal");
         // A WAL database keeps its page size (SQLite changes it only when the journal is not WAL).
@@ -183,11 +204,15 @@ impl WalDurability {
             changed: Condvar::new(),
             slow_flush,
             flush_each_commit,
+            commit_delay,
             frame_bytes: page_size + WAL_FRAME_HEADER_BYTES,
         });
         let owner = SyncerOwner(shared.clone());
         let _ = connection.commit_hook(Some(move || {
             crate::debug_spans::mark("sqlite.commit");
+            if let Some(delay) = owner.0.commit_delay {
+                std::thread::sleep(delay);
+            }
             COMMITTING.with(|committing| *committing.borrow_mut() = Some(owner.0.clone()));
             false
         }));
