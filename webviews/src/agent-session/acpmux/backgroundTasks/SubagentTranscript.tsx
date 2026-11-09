@@ -40,6 +40,7 @@ import {
   NestedAgents,
   runFold,
   carryRange,
+  type Range,
   transcriptBlocks,
   type TranscriptBlock,
 } from "./subagentTranscriptModel";
@@ -71,6 +72,34 @@ function restore(view: HTMLElement, hold: Hold) {
   }
   view.scrollTop += row.getBoundingClientRect().bottom - view.getBoundingClientRect().top - hold.edge;
 }
+
+/// A row the transcript drew is gone. Streaming keeps every row where it was and appends below, so the
+/// common case is one pass comparing ids in place, with nothing allocated; only rows that moved build a
+/// set.
+function rowsRemoved(prev: readonly AcpmuxRow[], next: readonly AcpmuxRow[]): boolean {
+  if (next.length < prev.length) return true;
+  let index = 0;
+  while (index < prev.length && prev[index]!.id === next[index]!.id) index += 1;
+  if (index === prev.length) return false;
+  const ids = new Set(next.map((row) => row.id));
+  return prev.some((row) => !ids.has(row.id));
+}
+
+/// A block the transcript drew starts somewhere else now, or a block before the newest changed what it
+/// holds (a fold, rows read in above): the window's indices no longer name the same rows.
+function blocksMoved(prev: readonly TranscriptBlock[], next: readonly TranscriptBlock[]): boolean {
+  if (next.length < prev.length) return true;
+  for (let index = 0; index < prev.length; index += 1) {
+    const a = prev[index]!;
+    const b = next[index]!;
+    if (a.id !== b.id || a.type !== b.type) return true;
+  }
+  return false;
+}
+
+/// `current` when `next` mounts the same blocks, so an update that moves nothing renders nothing more.
+const sameRange = (current: Range, next: Range): Range =>
+  current.start === next.start && current.end === next.end ? current : next;
 
 export function SubagentTranscript({
   rows,
@@ -117,27 +146,18 @@ export function SubagentTranscript({
   }
   // Rows removed (a workflow agent's transcript read again from a fresh page after its file was cut or
   // replaced: a row the transcript drew is gone): the window is taken again from the new rows, never
-  // left past their end. The same rows drawn as fewer blocks (two work rows folded into one run as a
-  // call streams in) is not that: the window keeps the rows it mounted (carryRange). Rows read in
-  // above the first one (a workflow agent's older history): the window moves down by as many, so the
-  // rows the reader was on stay the ones mounted. A row is the same row by its id: a page that reuses
-  // ids for other content reads as the same rows changing, as a streaming update does.
+  // left past their end. Otherwise the same rows may draw as other blocks: work rows folded into one
+  // run as a call streams in, older history read in above the first row, both with rows appended
+  // below. carryRange moves each end of the window to the block that now holds its row, so the rows
+  // the reader was on stay the ones mounted. A row is the same row by its id: a page that reuses ids
+  // for other content reads as the same rows changing, as a streaming update does.
   const [seen, setSeen] = useState({ rows, units });
   if (rows !== seen.rows || units !== seen.units) {
+    const before = seen;
     setSeen({ rows, units });
-    const ids = new Set(rows.map((row) => row.id));
-    const before = seen.units;
-    if (seen.rows.some((row) => !ids.has(row.id))) setRange(windowRange(units));
-    else if (units.length < before.length) setRange((current) => carryRange(before, units, current));
-    else if (before[0] !== undefined && units[0]?.id !== before[0].id) {
-      const moved = units.findIndex((unit) => unit.id === before[0]!.id);
-      if (moved < 0) setRange(windowRange(units));
-      else
-        setRange((current) => ({
-          start: current.start + moved,
-          end: current.end === undefined ? undefined : current.end + moved,
-        }));
-    }
+    if (rowsRemoved(before.rows, rows)) setRange(windowRange(units));
+    else if (before.units.length > 0 && blocksMoved(before.units, units))
+      setRange((current) => sameRange(current, carryRange(before.units, units, current)));
   }
   const atBottom = useRef(anchor === undefined);
   // While the mounted window moves (rows added above, rows unmounted above, older text merged into a

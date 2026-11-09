@@ -62,6 +62,36 @@ describe("setupSteps", () => {
     expect(nextStep(ready)?.id).toBe("account");
   });
 
+  test("a login opened here that cannot be read: the person confirms it or signs in again; the row stays open", () => {
+    const steps = setupSteps(
+      { ...fresh, agents: [{ id: "claude", name: "Claude Code", state: "unverified" }, fresh.agents[1]!] },
+      strings,
+    );
+    expect(steps[0]).toMatchObject({ done: false, detail: "Finish signing in to Claude Code in its terminal tab" });
+    expect(steps[0]?.action).toEqual({ label: "I’m Signed In", run: { kind: "confirmAgent", id: "claude" } });
+    expect(steps[0]?.secondary).toEqual({ label: "Sign In Again", run: { kind: "signInAgent", id: "claude" } });
+    expect(nextStep(steps)?.id).toBe("agents");
+  });
+
+  test("every agent has a button: Codex stays reachable while Claude Code installs or after it fails", () => {
+    const freshRow = setupSteps(fresh, strings)[0]!;
+    expect(freshRow.action?.run).toEqual({ kind: "installAgent", id: "claude" });
+    expect(freshRow.secondary).toEqual({ label: "Install Codex", run: { kind: "installAgent", id: "codex" } });
+    for (const state of ["installing", "failed"] as const) {
+      const row = setupSteps({ ...fresh, agents: [{ ...fresh.agents[0]!, state }, fresh.agents[1]!] }, strings)[0]!;
+      expect(row.secondary?.run).toEqual({ kind: "installAgent", id: "codex" });
+      // Installs run one at a time: while Claude Code installs, Codex's waits, greyed, and the row says so.
+      expect(row.secondary?.disabled === true).toBe(state === "installing");
+      if (state === "installing") expect(row.detail).toBe("Codex installs after Claude Code");
+    }
+    const both = setupSteps(
+      { ...fresh, agents: fresh.agents.map((agent) => ({ ...agent, state: "installing" as const })) },
+      strings,
+    )[0]!;
+    expect(both.busy).toBe(true);
+    expect([both.action, both.secondary]).toEqual([undefined, undefined]);
+  });
+
   test("an install in flight is busy; another app's cmux offers Replace", () => {
     const steps = setupSteps(
       { ...fresh, agents: [{ id: "claude", name: "Claude Code", state: "installing" }], cli: "other" },
