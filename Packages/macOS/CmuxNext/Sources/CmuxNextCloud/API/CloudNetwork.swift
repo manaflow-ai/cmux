@@ -4,7 +4,7 @@ public import Foundation
 /// take), `meshId` its provider mesh.
 public struct CloudNetwork: Sendable, Hashable, Decodable {
     public var id: String
-    public var meshId: String? = nil
+    public var meshId: String?
     public var cidr: String?
     public var cidrV6: String?
     public var scope: String
