@@ -183,9 +183,11 @@ fn seeds_hold() {
 }
 
 /// The seeds that found a bug, each kept so it stays found: 3 (the daemon's deadlines on another
-/// clock than its timers: every link group past 30 s expired as it formed) and 658 (a relay that
-/// stalls after the Noise handshake: the wait for link-ready had no deadline, and the session it
-/// returned 60 s later was one the daemon had dropped).
+/// clock than its timers: every link group past 30 s expired as it formed), 479 (a relay that goes
+/// silent for 60 s: with a 5 s heartbeat and a 15 s answer window the link took 35 s to notice and
+/// recover, past the 30 s bound; the 6 s silent-link death recovers it in under 8 s) and 658 (a
+/// relay that stalls after the Noise handshake: the wait for link-ready had no deadline, and the
+/// session it returned 60 s later was one the daemon had dropped).
 #[test]
 fn seeds_that_found_bugs_hold() {
     for seed in [3, 479, 658] {

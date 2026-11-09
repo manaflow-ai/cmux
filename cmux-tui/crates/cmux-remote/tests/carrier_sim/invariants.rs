@@ -7,8 +7,12 @@ use std::time::Duration;
 
 use crate::world::{Kind, Outcome};
 
-/// The longest a fault may take to recover from. The detection alone can take a heartbeat
-/// interval plus its deadline (5 s + 15 s), then one backoff step (at most 5 s) and the dial.
+/// The longest a fault may take to recover from: a silent link is declared dead within 6 s (a
+/// probe every 2 s, answered within 4 s), its first redial goes at once, a failed one waits at
+/// most one 5 s backoff step, and a dial that stalls fails at the 15 s attempt timeout (its link
+/// open included): 6 + 5 + 15 = 26 s, under the bound. Before the 6 s silent-link death the
+/// detection alone took up to 20 s (a 5 s interval and a 15 s deadline), and seed 479's silent
+/// relay took 35 s to recover; it is kept in `seeds_that_found_bugs_hold`.
 pub const RECOVERY_BOUND: Duration = Duration::from_secs(30);
 
 pub struct Invariant {
