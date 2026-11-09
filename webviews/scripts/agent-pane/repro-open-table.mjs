@@ -48,6 +48,8 @@ try {
       await button.waitFor({ timeout: 20_000 });
       await page.screenshot({ path: path.join(out, `${name}-before.png`) });
       const t0 = await page.evaluate(() => Math.round(performance.now()));
+      // Open and Copy take the pointer only while the table is hovered (conversation.css .cv-table-tools).
+      await page.locator(".cv-table-block:not(.cv-user .cv-table-block)").last().hover();
       await button.click();
       await page.waitForTimeout(1500);
       await page.screenshot({ path: path.join(out, `${name}-after.png`) });
