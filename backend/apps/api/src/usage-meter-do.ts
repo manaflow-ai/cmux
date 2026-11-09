@@ -1,7 +1,7 @@
 import type { Principal } from "@cmux/ownership"
 import { UsageRecord, type Meter, type UsageSummary } from "@cmux/protocol"
 import { Schema } from "effect"
-import { ceilingUsd, MONEY_METERS, recordMicros, METERS, summarize, usageDomain, utcMonth, type MeterCounter, type UsageState } from "./domains/usage.ts"
+import { BILLABLE_METERS, BILLABLE_METERS_SQL, billedMetersSql, ceilingUsd, MONEY_METERS, recordMicros, METERS, summarize, usageDomain, utcMonth, type MeterCounter, type UsageState } from "./domains/usage.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { addUserSpend, BILLABLE_GRACE_MS, ensureUserTables, expireUserReservations, nextUserWake, recordCostMicros, reserveUser, settleCall, userSpentMicros, type UserReserve } from "./usage-user.ts"
@@ -14,7 +14,7 @@ import { currentBillable, ensureBillingTables, markBillable, previousPush, pushS
 /** How long a record key is remembered for dedupe (longer than any run's retry window that records it twice). */
 export const USAGE_KEY_RETENTION_MS = 35 * 24 * 3600_000
 /**
- * How long a billable fact (a money meter row: model.spend_usd) is kept: the bill and its later
+ * How long a billable fact (a money meter row: BILLABLE_METERS, model.spend_usd and cloud.machine_usd) is kept: the bill and its later
  * corrections read these rows (cx-y79zh S2, plans/cmux-next/usage-billing.md), so they outlive the
  * dedupe window by far. Count-meter rows are priced 0 to customers today and keep the dedupe window.
  */
@@ -139,15 +139,15 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
   /**
    * team.ai_limit.get, the team line (S5 console): with a billable mark in force, the billing period's
    * settled level against the included amount the sync saw (x seats per seat); otherwise this UTC
-   * month's model spend (settled plus open, what the included-amount stop counts). `fallback`: the unbilled
+   * month's billable spend (models and Cloud machine time, settled plus open model calls; what the included-amount stop counts). `fallback`: the unbilled
    * mode with no operator setting (billing-catalog.ts defaultIncludedMode). Never binds.
    */
-  async teamUsage(entity: string, fallback: IncludedMode = "per_team"): Promise<{ billable: ({ period_start: number | null; period_end: number; mode: IncludedMode; seats: number; included_usd: number | null; spent_usd: number }) | null; month_spent_usd: number; unbilled: { mode: IncludedMode; seats: number } }> {
+  async teamUsage(entity: string, fallback: IncludedMode = "per_team", machineTime = false): Promise<{ billable: ({ period_start: number | null; period_end: number; mode: IncludedMode; seats: number; included_usd: number | null; spent_usd: number }) | null; month_spent_usd: number; unbilled: { mode: IncludedMode; seats: number } }> {
     if (!this.isBound(entity)) return { billable: null, month_spent_usd: 0, unbilled: { mode: fallback, seats: 1 } }
     const sql = this.ctx.storage.sql
     const now = Date.now()
     const month = utcMonth(now)
-    const spent = Number(sql.exec<{ m: number | null }>(`SELECT usd_micros AS m FROM usage_month WHERE month = ? AND meter = 'model.spend_usd'`, month).toArray()[0]?.m ?? 0)
+    const spent = Number(sql.exec<{ m: number | null }>(`SELECT SUM(usd_micros) AS m FROM usage_month WHERE month = ? AND meter IN ${billedMetersSql(machineTime)}`, month).toArray()[0]?.m ?? 0)
     const open = Number(sql.exec<{ m: number | null }>(`SELECT SUM(micros) AS m FROM user_reservation WHERE month = ?`, month).toArray()[0]?.m ?? 0)
     const month_spent_usd = Math.round(spent + open) / 1_000_000
     const mark = currentBillable(sql, now, BILLABLE_GRACE_MS)
@@ -156,7 +156,7 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     if (!mark) return { billable: null, month_spent_usd, unbilled }
     const mode = mark.mode ?? "per_team"
     const seats = mark.seats ?? 1
-    const level = mark.period_start !== undefined ? await this.level(entity, mark.period_start * 1000, mark.period_end * 1000) : null
+    const level = mark.period_start !== undefined ? await this.level(entity, mark.period_start * 1000, mark.period_end * 1000, machineTime) : null
     return {
       billable: { period_start: mark.period_start ?? null, period_end: mark.period_end, mode, seats, included_usd: mark.included_usd === undefined ? null : mode === "per_seat" ? mark.included_usd * seats : mark.included_usd, spent_usd: level ? level.micros / 1_000_000 : month_spent_usd },
       month_spent_usd,
@@ -165,10 +165,10 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
   }
 
   /** Model router (inference/route.ts): reserve `maxMicros` of the member's monthly limit before the upstream call (usage-user.ts). */
-  async reserveUser(entity: string, user: string, id: string, maxMicros: number, limitMicros: number, includedMicros?: number, includedFallback?: IncludedMode): Promise<UserReserve> {
+  async reserveUser(entity: string, user: string, id: string, maxMicros: number, limitMicros: number, includedMicros?: number, includedFallback?: IncludedMode, machineTime = false): Promise<UserReserve> {
     this.bind(entity)
     const now = Date.now()
-    const r = reserveUser(this.ctx.storage, utcMonth(now), user, id, maxMicros, limitMicros, now, includedMicros, includedFallback)
+    const r = reserveUser(this.ctx.storage, utcMonth(now), user, id, maxMicros, limitMicros, now, includedMicros, includedFallback, machineTime)
     if (r.ok) this.scheduleAlarm()
     return r
   }
@@ -493,7 +493,7 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     for (const meter of METERS) {
       const at = sql.exec<{ at: number | null }>(`SELECT MIN(recorded_at) AS at FROM usage_ledger WHERE meter = ?`, meter).toArray()[0]?.at
       // One hour of slack: one wake prunes a batch of keys, not one wake per key.
-      if (at !== null && at !== undefined) times.push(Number(at) + (MONEY_METERS.has(meter) ? BILLABLE_FACT_RETENTION_MS : USAGE_KEY_RETENTION_MS) + 3600_000)
+      if (at !== null && at !== undefined) times.push(Number(at) + (BILLABLE_METERS.includes(meter) ? BILLABLE_FACT_RETENTION_MS : USAGE_KEY_RETENTION_MS) + 3600_000)
     }
     const reservations = nextUserWake(sql)
     if (reservations !== null) times.push(reservations)
@@ -506,8 +506,8 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
 
   /** Dedupe keys leave after their retention, billable facts after theirs; monthly counters stay; stale member reservations are charged. */
   protected override async onWake(now: number): Promise<void> {
-    this.ctx.storage.sql.exec(`DELETE FROM usage_ledger WHERE meter != 'model.spend_usd' AND recorded_at < ?`, now - USAGE_KEY_RETENTION_MS)
-    this.ctx.storage.sql.exec(`DELETE FROM usage_ledger WHERE meter = 'model.spend_usd' AND recorded_at < ?`, now - BILLABLE_FACT_RETENTION_MS)
+    this.ctx.storage.sql.exec(`DELETE FROM usage_ledger WHERE meter NOT IN ${BILLABLE_METERS_SQL} AND recorded_at < ?`, now - USAGE_KEY_RETENTION_MS)
+    this.ctx.storage.sql.exec(`DELETE FROM usage_ledger WHERE meter IN ${BILLABLE_METERS_SQL} AND recorded_at < ?`, now - BILLABLE_FACT_RETENTION_MS)
     this.ctx.storage.sql.exec(`DELETE FROM usage_push WHERE pushed_at < ?`, now - BILLABLE_FACT_RETENTION_MS)
     expireCreditHolds(this.ctx.storage, now, this.mirrorOn())
     expireUserReservations(this.ctx.storage, now, utcMonth(now))
@@ -516,15 +516,15 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
   }
 
   /**
-   * The billing level (cx-y79zh S2): the sum of the team's settled AI spend facts recorded in
-   * [from, to), corrections included, in integer micro-dollars. Pass-through pricing: the billed
-   * amount is our cost (AI_PRICE_VERSION). The reconcile worker sends this level, never deltas.
+   * The billing level (cx-y79zh S2): the sum of the team's settled billable facts (BILLABLE_METERS:
+   * model spend and Cloud machine time) recorded in [from, to), corrections included, in integer
+   * micro-dollars. Models pass through at cost (AI_PRICE_VERSION); machine time arrives at list price. The reconcile worker sends this level, never deltas.
    */
-  async level(entity: string, from: number, to: number): Promise<{ micros: number; facts: number; last_at: number | null }> {
+  async level(entity: string, from: number, to: number, machineTime = false): Promise<{ micros: number; facts: number; last_at: number | null }> {
     // A team that never used the meter has no facts; a read does not bind (create) its object (S2 review P3).
     if (!this.isBound(entity)) return { micros: 0, facts: 0, last_at: null }
     const row = this.ctx.storage.sql.exec<{ micros: number | null; facts: number; last_at: number | null }>(
-      `SELECT SUM(CAST(ROUND(quantity * 1000000) AS INTEGER)) AS micros, COUNT(*) AS facts, MAX(recorded_at) AS last_at FROM usage_ledger WHERE meter = 'model.spend_usd' AND recorded_at >= ? AND recorded_at < ?`,
+      `SELECT SUM(CAST(ROUND(quantity * 1000000) AS INTEGER)) AS micros, COUNT(*) AS facts, MAX(recorded_at) AS last_at FROM usage_ledger WHERE meter IN ${billedMetersSql(machineTime)} AND recorded_at >= ? AND recorded_at < ?`,
       from, to
     ).toArray()[0]
     return { micros: Number(row?.micros ?? 0), facts: Number(row?.facts ?? 0), last_at: row?.last_at === null || row?.last_at === undefined ? null : Number(row.last_at) }

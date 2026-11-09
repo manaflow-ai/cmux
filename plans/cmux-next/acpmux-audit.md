@@ -211,3 +211,36 @@ asked for it: workers stuck in Manual were "a huge blocker". What changed in acp
   cli/snapshot/terminal_host_recovery), so they are not from this change.
 - Open for the owner: whether the Settings choice "Harness Default" should be renamed for Claude
   (it now means Auto), and whether Codex needs a similar "own mode" fallback.
+
+## Notice to PL-acpmux: a Claude Code subagent's MCP calls and task ends route to it; agents drop cmux-tui plugin folders (2026-11-08)
+
+1. W5-M, #38952 (merged `8c39afa3`), and its follow-up PR `acpmux-subagent-bg-end` (this
+   notice's PR). A Claude Code subagent that reaches acpmux through MCP tools now gets the
+   replies and task ends it asked for, not its lead's chat. What changed in acpmux:
+   - `subagent_call.rs` (new): `<home>/run/subagent-calls/<session>/<tool_use_id>.json` =
+     `{id, type}`. Claude Code puts one tool use id in the hook input and in the MCP request
+     (`_meta["claudecode/toolUseId"]`); acpmux's PreToolUse hook writes the record
+     (`bg_hook.rs` `MCP_CALLS`), PostToolUse / PostToolUseFailure / SubagentStop and a session
+     close remove it. cmux's MCP proxy passes that one `_meta` key upstream, for direct calls and
+     inside `cmux_exec`.
+   - `agent_tools.rs` `bg_hooks()`: new MCP PreToolUse and PostToolUseFailure entries.
+     PostToolUse, PostToolUseFailure, SubagentStop and the MCP PreToolUse run through a shell
+     filter (`subagent_hook_command`): the binary starts only when the input names `agent_id`.
+     The Bash PreToolUse entry is unchanged.
+   - `acpmux_mcp.rs`, `acpmux_mcp_send.rs`: MCP `send` names the subagent (`PromptId.subagent`).
+     `bg_start` and `run_wait` pass `callerSubagent`; `Hub::bg_start` takes it, sets
+     `ACPMUX_CALLER_SUBAGENT` in the task env and keeps it in `bg_run::Spec` / `Record`
+     (`subagent`).
+   - `hub/bg_notify.rs`: such a task's end is left for the subagent with the lane-report rule
+     (`Hub::subagent_notice_leave`, shared with `lane_report_to_subagent`), handed over after its
+     next Bash or acpmux MCP call, marked sent once left. One it never took goes to the chat at
+     the sweep, with `forSubagent` and "This task end is for your TYPE subagent ID".
+   - `cli/sender.rs`: the subagent `sending as` line, English and Japanese by locale env.
+   - Not covered: cmux workflow scripts (no tool use id) and sends handed to the send relay.
+     Known limits: delivery waits for the subagent's next Bash or acpmux MCP call; a subagent
+     that ends with no SubagentStop keeps its notices until no subagent of the lead runs.
+2. W5-N, #38967 (open when written; the acpmux part is in its fix commit). `agent/command.rs`
+   and new `agent_tools/claude_plugin_dirs.rs`: a local agent no longer inherits cmux-tui plugin
+   folders (by place or manifest) in `CLAUDE_CODE_PLUGIN_DIRS` from a daemon started in a
+   cmux-tui pane. Other folders and a profile's own value stay; a remote harness base is not
+   touched. Before, such an agent loaded the pane's plugin and reported into that pane.
