@@ -83,7 +83,7 @@ test("an app without the op stops the beats for the document", async () => {
 });
 
 test("the host's save keeps a focused draft, and the next load puts it back", () => {
-  const first = page(`<textarea id="note"></textarea>`);
+  const first = page(`<textarea id="note" data-cmux-restore-draft></textarea>`);
   installPageHealth(first.client, first.dom.window.document);
   const field = first.dom.window.document.querySelector("textarea")!;
   field.value = "half a thought";
@@ -94,15 +94,33 @@ test("the host's save keeps a focused draft, and the next load puts it back", ()
   first.setVisible(false);
   first.dom.window.close();
 
-  const second = page(`<textarea id="note"></textarea>`);
+  const second = page(`<textarea id="note" data-cmux-restore-draft></textarea>`);
   restoreState(second.dom.window.document, JSON.parse(kept!));
   expect(second.dom.window.document.querySelector("textarea")!.value).toBe("half a thought");
   second.dom.window.close();
 });
 
+test("a field that did not opt in is never captured or restored (a document editor saves what it is given)", () => {
+  const first = page(`<textarea id="source"></textarea>`);
+  const field = first.dom.window.document.querySelector("textarea")!;
+  field.value = "old text";
+  field.focus();
+  expect(captureState(first.dom.window.document).draft).toBeUndefined();
+  first.dom.window.close();
+
+  // Even a kept draft from an older build is not written into a field that did not opt in.
+  const second = page(`<textarea id="source"></textarea>`);
+  let inputs = 0;
+  second.dom.window.document.querySelector("textarea")!.addEventListener("input", () => (inputs += 1));
+  restoreState(second.dom.window.document, { draft: { path: `[id="source"]`, text: "old text" } });
+  expect(second.dom.window.document.querySelector("textarea")!.value).toBe("");
+  expect(inputs).toBe(0);
+  second.dom.window.close();
+});
+
 test("an editor that keeps its own draft is left alone", () => {
   const editor = `<div contenteditable="true" tabindex="0" id="composer">hi</div>`;
-  const { dom } = page(`<div class="ProseMirror">${editor}</div>`);
+  const { dom } = page(`<div data-cmux-restore-draft><div class="ProseMirror">${editor}</div></div>`);
   (dom.window.document.getElementById("composer") as HTMLElement).focus();
   expect(captureState(dom.window.document).draft).toBeUndefined();
   dom.window.close();

@@ -9,7 +9,7 @@ extension PageDescriptor {
     /// item's popover). A new card adds its ops' prefix here (`cmux.app.health.`: the app health
     /// popover, `#/app-health`, served by the App's AppHealthCard).
     public static let serverCards = PageDescriptor(id: "cmux.server-cards", resource: "server-cards",
-                                                   namespaces: ["cmux.card.", "cmux.pairInvite.", "cmux.server.", "cmux.app.health."])
+                                                   namespaces: ["cmux.card.", "cmux.pairInvite.", "cmux.addMachine.", "cmux.server.", "cmux.app.health."])
 }
 
 /// "Pair Another Machine…" on the server card page (`#/pair-invite`, webviews/src/pages/server-cards):

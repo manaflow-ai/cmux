@@ -62,6 +62,9 @@ use channel::{Binary, CMUX_TUI, CMUX_TUI_HOOK, Payload};
 pub const OFF_FILE: &str = "/etc/cmux/no-self-update";
 pub const STATE_DIR: &str = "/var/lib/cmux/self-update";
 pub const STATE_FILE: &str = "/var/lib/cmux/self-update/state.json";
+/// The pause watch's record ([`crate::agent::PauseWatch::persist_to`]): its
+/// last look and the last pause it found, for the processes outside the service.
+pub const PAUSE_FILE: &str = "/var/lib/cmux/self-update/pauses.json";
 /// An update between its flip and its health check.
 pub const PENDING_FILE: &str = "/var/lib/cmux/self-update/pending.json";
 pub const DOWNLOAD_DIR: &str = "/var/lib/cmux/self-update/download";

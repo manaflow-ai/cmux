@@ -7,13 +7,15 @@
 //   part, so the cost stays the same however many pages are open). `handled` counts the key and
 //   pointer presses the page's script received; the host counts the ones it sent, so a page that
 //   takes input but never runs its handlers reads as stuck. A host without the op stops the beats.
-// - Kept state: the scroll position of the scroller that moved last (scrollers.ts) and the draft in
-//   a focused textarea or plain contenteditable go to sessionStorage, keyed by the page's URL, with
-//   each beat (the autosave a hung page's reload falls back on), when the page hides or unloads, and
-//   on the host's `cmux.page.save_state` before it reloads the page. After a load they come back once. An
-//   editor that keeps its own draft is left alone: the agent chat composer (ProseMirror,
-//   composerDraft.ts) and anything inside `[data-cmux-keeps-draft]`; so is a scroller whose page
-//   follows its rows itself (the agent transcript, `SHOWN_SCROLLER_ATTRIBUTE`).
+// - Kept state: the scroll position of the scroller that moved last (scrollers.ts), and the draft in
+//   a focused field that opted in (`[data-cmux-restore-draft]`: a textarea or plain contenteditable),
+//   go to sessionStorage, keyed by the page's URL, with each beat (the autosave a hung page's reload
+//   falls back on), when the page hides or unloads, and on the host's `cmux.page.save_state` before it
+//   reloads the page. After a load they come back once. Drafts are opt-in because a field bound to a
+//   document (the Markdown source) saves what it is given: putting an old draft back would write it
+//   over a newer file. Editors that keep their own draft (the agent chat composer, composerDraft.ts)
+//   never opt in; a scroller whose page follows its rows itself (the agent transcript,
+//   `SHOWN_SCROLLER_ATTRIBUTE`) is left alone too.
 // - Fault injection: `window.__cmuxHealthInject({fault: "hang"})` busy-loops the page for real, for
 //   the host's fault-injection tests. It exists only when the host set `__cmuxHealthInjectAllowed`
 //   before page code ran; no other page gets the function.
@@ -172,10 +174,15 @@ const isTextArea = (element: Element): element is HTMLTextAreaElement => element
 const isHTMLElement = (element: Element | null): element is HTMLElement =>
   element !== null && typeof (element as HTMLElement).focus === "function";
 
-/** A field whose draft the page keeps: a textarea or a plain contenteditable no editor owns. */
+/** Marks a field (or an ancestor) whose draft the page keeps across a repair's reload. */
+export const RESTORE_DRAFT_ATTRIBUTE = "data-cmux-restore-draft";
+
+/** A field whose draft the page keeps: a textarea or a plain contenteditable that opted in, no
+ * editor owns, and nothing saves on its own. */
 function draftField(element: Element | null): HTMLElement | null {
   if (!isHTMLElement(element)) return null;
-  if (element.closest(".ProseMirror, [data-cmux-keeps-draft]")) return null;
+  if (!element.closest(`[${RESTORE_DRAFT_ATTRIBUTE}]`)) return null;
+  if (element.closest(".ProseMirror")) return null;
   if (isTextArea(element)) return element.readOnly || element.disabled ? null : element;
   return element.isContentEditable || element.getAttribute("contenteditable") === "true" ? element : null;
 }

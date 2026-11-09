@@ -404,11 +404,13 @@ public actor DaemonConnection {
     }
 
     /// Told each time a reconnect fails with the timed retries spent; see ``observeRetriesSpent(_:)``.
-    private var retriesSpentObserver: (@Sendable () -> Void)?
+    private var retriesSpentObserver: (@Sendable (UInt64) -> Void)?
 
     /// Called each time a reconnect parks: its last attempt failed and the next waits for an event
     /// only (a remote machine's header then reads offline, and using it reconnects; HQ #4877 G4).
-    public func observeRetriesSpent(_ observer: (@Sendable () -> Void)?) {
+    /// The observer gets the serial of the attempt that parked: a connection that came up after it
+    /// has a higher serial (``DaemonEventEnvelope/connectionSerial``), so a late delivery can tell.
+    public func observeRetriesSpent(_ observer: (@Sendable (UInt64) -> Void)?) {
         retriesSpentObserver = observer
     }
 
@@ -425,12 +427,11 @@ public actor DaemonConnection {
             // A drop or a failed attempt: space the next one (events only past the budget;
             // in a crash loop a new socket no longer counts, `RetryPolicy.socketRetries`).
             wake.rebaseline(keepingEventsAfter: pacer.policy.keepsEventsDuringAttempt ? mark : nil)
-            // While the link has no process (it probes, installs or spawns) the bounded bootstrap retry.
-            let delay = pacer.failed(linkRunning: configuration.linkRunning)
+            let delay = pacer.failed()
             if pacer.socketFailures == pacer.policy.socketRetries {
                 logger.error("cmux-tui reconnect: \(self.pacer.socketFailures) new daemon sockets failed; waiting for app activation or a reconnect")
             }
-            if delay == nil, !Task.isCancelled, !isClosedPhase { retriesSpentObserver?() }
+            if delay == nil, !Task.isCancelled, !isClosedPhase { retriesSpentObserver?(serial) }
             if pacer.waitsForToken, let delay {
                 logger.info("cmux-tui reconnect: drop budget spent; next attempt in \(String(describing: delay), privacy: .public) or on an event")
             }
