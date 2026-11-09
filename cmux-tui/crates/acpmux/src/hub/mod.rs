@@ -188,6 +188,7 @@ pub(crate) use queue::approved_prompts_error;
 pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
 mod live_name;
 mod profile_respawn;
+pub(crate) mod require_asking;
 mod resolve;
 mod route_switch;
 mod stale_host_respawn;
@@ -285,6 +286,7 @@ mod permission_groups;
 mod permissions;
 pub(crate) use permissions::drop_display_lines;
 mod attribution;
+mod hunk_summary;
 pub mod person;
 pub mod presence;
 mod processes;
@@ -697,6 +699,8 @@ pub struct Hub {
     pub(super) remote_sessions: StdMutex<remote_rows::RemoteRows>,
     /// The same person's machines and sessions the mesh hub lists (`mesh_book.rs`).
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
+    /// Read answers larger than one hub message, held for their asker (`mesh_read_parts.rs`).
+    pub(crate) mesh_read_parts: crate::server::mesh_relay::read::parts::ReadParts,
     /// Each parent's children by tag, for an approval card's label (`permissions/display.rs`).
     pub(super) child_tags: permissions::ChildTags,
     /// Leased peers by name, with the generation of the peer each lease
@@ -877,6 +881,9 @@ pub struct Hub {
     /// Tests only: a pause while a prompt's model-sized copies are made (`turns::agent_blocks`).
     #[cfg(test)]
     pub(super) copy_seam: full_access_bound::WriteSeam,
+    /// Tests only: a pause after a fork read its parent's meta, before its cut (`fork.rs`).
+    #[cfg(test)]
+    pub(super) fork_seam: full_access_bound::WriteSeam,
     /// Tests only: pause an admitted prompt before its logical turn is installed.
     #[cfg(test)]
     pub(super) prompt_start_seam: full_access_bound::WriteSeam,
@@ -1123,6 +1130,7 @@ impl Hub {
             peers: StdMutex::new(HashMap::new()),
             remote_sessions: Default::default(),
             mesh_book: Default::default(),
+            mesh_read_parts: Default::default(),
             child_tags: Default::default(),
             peer_leases: StdMutex::new(HashMap::new()),
             peer_cache_writers: StdMutex::new(HashMap::new()),
@@ -1211,6 +1219,8 @@ impl Hub {
             family_write_seam: Default::default(),
             #[cfg(test)]
             copy_seam: Default::default(),
+            #[cfg(test)]
+            fork_seam: Default::default(),
             #[cfg(test)]
             cancel_write_seam: Arc::new(Default::default()),
             #[cfg(test)]
