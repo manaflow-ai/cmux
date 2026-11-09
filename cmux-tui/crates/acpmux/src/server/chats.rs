@@ -93,6 +93,8 @@ pub(super) async fn route(
 ) -> Result<Value, RpcError> {
     // A read-only paired machine reads, nothing else (`pairing.rs`), before any dispatcher.
     let params = super::pairing::gate(conn, m, params)?;
+    // So does a teammate through the Cloud carrier, to its verbs (`carrier.rs`).
+    let params = super::carrier::gate(hub, conn, m, params)?;
     hub.prepare_store_request(m, &params).await;
     if let Some(reply) = super::pairing::dispatch(hub, conn, m, &params).await {
         return reply;
@@ -143,6 +145,10 @@ pub(super) async fn route(
         return reply;
     }
     if let Some(reply) = super::goal::dispatch(hub, conn, m, &params) {
+        return reply;
+    }
+    // The plan approval card's builds (`plan_build.rs`): sub-sessions of this daemon.
+    if let Some(reply) = heap(|| super::plan_build::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
     if let Some(reply) = heap(|| super::memory_inbox::dispatch(hub, conn, m, &params)).await {

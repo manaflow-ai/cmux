@@ -253,8 +253,9 @@ pub struct Session {
     /// (`start_defaults.rs`).
     pub(super) applied: StdMutex<Applied>,
     /// Set once the session is purged, so late events do not recreate its
-    /// files while the directory is being removed.
-    pub(super) purged: AtomicBool,
+    /// files while the directory is being removed. Shared with the audit writer, which drops an
+    /// entry of this copy that reaches it after the purge, even once a new chat took the id.
+    pub(super) purged: Arc<AtomicBool>,
     /// Set before a purge when the same chat, brought back under this id, replaces this copy
     /// (`transfer_in.rs`): its uploads stay, since the returning chat's prompts name them, and the
     /// purge record says `replaced` so the app keeps what it holds for the chat too.

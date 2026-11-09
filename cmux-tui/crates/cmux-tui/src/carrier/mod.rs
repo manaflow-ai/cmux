@@ -111,6 +111,7 @@ mod secrets;
 mod serve;
 pub(crate) mod tunnel;
 mod tunnel_cli;
+mod source;
 
 use std::io::Write as _;
 use std::path::PathBuf;
