@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42580302857",
+  "recorded_at": "2026-11-09T07:40:57Z",
+  "reason": "cmux-tui ed292a365bea changes the image's cmux-tui (pinned f6080ec85314)",
+  "dry_run": false,
+  "cmux_tui": "ed292a365beabefdecad56c02fb1578690d3923a",
+  "fixes": [
+    {
+      "sha": "ed292a365beabefdecad56c02fb1578690d3923a",
+      "mergedAt": "2026-11-08T23:19:52-08:00",
+      "subject": "cmux-tui: wake_on_event gets a stream and clock seam and behavior tests; PROMPT_WAIT gets its timeout reason (#39330)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-09T07:40:57Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
