@@ -254,21 +254,26 @@ test("the hang injection exists only when the host allowed it", () => {
 
 // Codex's review of #39247 at 5e952b6 (F1): the Cloud page's file editor keeps unsaved text only in
 // the page, so the page says so with its beat, and at once when an input marks or clears it.
-test("reports unsaved edits with the beat, at once after the input that marks them, and clears them", async () => {
-  const { dom, calls, client } = page("<textarea></textarea>");
+test("reports unsaved edits with the beat, at once after the input that marks them, and clears them", () => {
+  // The check after an input runs on the page's next timer turn: the test runs that turn itself.
+  const turns: Array<() => void> = [];
+  const { dom, calls, client } = page("<textarea></textarea>", (window) => {
+    window.setTimeout = (run: () => void) => turns.push(run);
+  });
+  const input = (field: Element) => {
+    field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    for (const run of turns.splice(0)) run();
+  };
   installPageHealth(client, dom.window.document);
   expect(beats(calls)).toEqual([{ op: PAGE_HEARTBEAT_OP, params: { handled: 0 } }]);
   const field = dom.window.document.querySelector("textarea")!;
   field.setAttribute(UNSAVED_EDITS_ATTRIBUTE, "");
-  field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-  await new Promise((resolve) => dom.window.setTimeout(resolve, 5));
+  input(field);
   expect(beats(calls).at(-1)).toEqual({ op: PAGE_HEARTBEAT_OP, params: { handled: 0, edits: true } });
   // Another input with the mark unchanged sends no extra beat.
-  field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-  await new Promise((resolve) => dom.window.setTimeout(resolve, 5));
+  input(field);
   expect(beats(calls)).toHaveLength(2);
   field.removeAttribute(UNSAVED_EDITS_ATTRIBUTE);
-  field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-  await new Promise((resolve) => dom.window.setTimeout(resolve, 5));
+  input(field);
   expect(beats(calls).at(-1)).toEqual({ op: PAGE_HEARTBEAT_OP, params: { handled: 0 } });
 });
