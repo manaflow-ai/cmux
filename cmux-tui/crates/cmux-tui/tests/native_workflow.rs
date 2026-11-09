@@ -100,6 +100,11 @@ impl Machine {
     /// A chat of the stand-in agent ([`PROBE`]): its id, and the acpmux environment its agent
     /// got (caller token, sockets, home), which an MCP server its harness starts inherits.
     fn agent_chat(&self) -> (String, Vec<(String, String)>) {
+        self.agent_chat_of("probe")
+    }
+
+    /// [`Self::agent_chat`] with harness `harness`.
+    fn agent_chat_of(&self, harness: &str) -> (String, Vec<(String, String)>) {
         use std::io::{BufRead, BufReader, Write};
         let socket = self.dir.path().join("acpmux/acpmux.sock");
         let stream = std::os::unix::net::UnixStream::connect(socket).unwrap();
@@ -128,7 +133,7 @@ impl Machine {
         let (created, _) = call(
             2,
             "session/new",
-            json!({"cwd": work, "mcpServers": [], "_meta": {"acpmux": {"harness": "probe"}}}),
+            json!({"cwd": work, "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}}),
         );
         let session = created["result"]["sessionId"]
             .as_str()
@@ -460,7 +465,7 @@ fn w5s_a_workflow_no_running_subagent_call_starts_runs_as_no_subagent() {
     let (other, _) = machine.agent_chat();
     let home = machine.dir.path().join("acpmux");
     let record = |chat: &str, call: &str| {
-        acpmux::subagent_call::record(&home, chat, call, SUB, "general-purpose").unwrap()
+        acpmux::subagent_call::record(&home, chat, call, SUB, "general-purpose").unwrap();
     };
     // An ended call: its PostToolUse removed the record.
     record(&session, "toolu_01ended");
@@ -477,6 +482,8 @@ fn w5s_a_workflow_no_running_subagent_call_starts_runs_as_no_subagent() {
         let answer = machine.mcp_exec(&env, &script, json!({"claudecode/toolUseId": call}));
         assert_ne!(answer["isError"], true, "{name}: {answer}");
     };
+    // A subagent of the chat runs a call meanwhile: the lead's own call still names none.
+    record(&session, "toolu_01live");
     started("Lead's own call", "toolu_01lead");
     started("Ended call", "toolu_01ended");
     started("Other chat's call", "toolu_01other");
