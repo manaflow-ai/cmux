@@ -247,7 +247,12 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     git(&checkout, &["config", "filter.mine.required", "true"]);
     // And one that only a review branch's own configuration turns on.
     let branchy = root.join("branchy.gitconfig");
-    let driver = format!("[filter \"branchy\"]\n\tsmudge = \"{smudge}\"\n\trequired = true\n");
+    // Its fetch command too: a fetch from a review's worktree must not run it.
+    let fetch_ran = root.join("fetch-ran");
+    let driver = format!(
+        "[filter \"branchy\"]\n\tsmudge = \"{smudge}\"\n\trequired = true\n[remote \"origin\"]\n\tuploadpack = \"touch '{}'; git-upload-pack\"\n",
+        fetch_ran.display()
+    );
     fs::write(&branchy, driver).unwrap();
     git(&checkout, &["config", "includeIf.onbranch:cmux/review-*.path", branchy.to_str().unwrap()]);
 
@@ -300,6 +305,13 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     assert!(!hook_ran.exists(), "a hook or filter ran in the review's checkout");
     assert_eq!(git(&worktree, &["rev-parse", "HEAD"]), head);
     assert_eq!(git(&checkout, &["config", "--get", "branch.cmux/review-7.cmuxBase"]), merge_base);
+    // Started again from inside the review's worktree: git runs in the main
+    // checkout, so the review branch's fetch command never runs.
+    let inside =
+        git_cli(&server, &worktree, &["review", "start", url, "--idempotency-key", "rv-inside"]);
+    assert_success(&inside);
+    assert_eq!(json_output(&inside)["value"]["reused"], true);
+    assert!(!fetch_ran.exists(), "a review branch's fetch command ran");
     // The person's checkout stays on its branch.
     assert_eq!(git(&checkout, &["rev-parse", "--abbrev-ref", "HEAD"]), "main");
 

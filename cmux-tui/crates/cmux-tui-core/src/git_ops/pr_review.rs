@@ -99,7 +99,12 @@ fn start(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resou
         if let Some(replayed) = ledger::prior(mux, &key, START, &fingerprint)? {
             return Ok(replayed);
         }
-        let repository = &target.repository;
+        // Every git run here is in the person's main checkout: one started
+        // from a review's worktree would read that checkout's configuration
+        // (its branch's includes), which can name a transport command
+        // (`core.sshCommand`, `uploadpack`) in the pull request's code.
+        let main = checkout(&target)?;
+        let repository = &main;
         let git = UserGit { root: &repository.root, deadline: deadline() };
         let view = view(&git, &pull)?;
         let remote = remote(repository, &pull)?;
@@ -122,7 +127,7 @@ fn start(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resou
             return Err(refused(START, "pull_request_moved", message, Value::Null));
         }
         let base = merge_base(repository, &view.base, &view.head)?;
-        let (folder, branch, reused) = worktree(&target, &git, &pull, &view.head)?;
+        let (folder, branch, reused) = worktree(&target, repository, &git, &pull, &view.head)?;
         for (setting, value) in [("cmuxBase", base.as_str()), ("cmuxReview", &pull.url())] {
             let setting = format!("branch.{branch}.{setting}");
             let run = git
@@ -241,21 +246,35 @@ fn merge_base(repository: &Repository, base: &str, head: &str) -> Result<String,
 /// The review's worktree: one already on `head` from an earlier review of
 /// this pull request (its drafts kept), else a new one at `head`. Answers
 /// its folder, branch and whether it was reused.
+/// The person's main checkout of the target's repository: the target's own
+/// worktree unless that is a review's, whose checkout is the pull request's.
+fn checkout(target: &Target) -> Result<Repository, ResourceError> {
+    if !worktree::reviewed(&target.repository.root) {
+        return Ok(target.repository.clone());
+    }
+    let Some(main) = cmux_git::main_root(target.common_dir()) else {
+        let message = "start the review from the repository's main checkout, not a review's worktree";
+        return Err(refused(START, "not_main_checkout", message, Value::Null));
+    };
+    open_repository(main, START).map_err(normalized)
+}
+
 fn worktree(
     target: &Target,
+    repository: &Repository,
     git: &UserGit<'_>,
     pull: &PullRef,
     head: &str,
 ) -> Result<(PathBuf, String, bool), ResourceError> {
     let name = format!("review-{}", pull.number);
-    if let Some((folder, branch)) = existing(&target.repository, &name, &pull.url(), head) {
+    if let Some((folder, branch)) = existing(repository, &name, &pull.url(), head) {
         return Ok((folder, branch, true));
     }
     let fields = Map::from_iter([("name".into(), json!(name)), ("base".into(), json!(head))]);
-    let attempt = worktree::plan(&target.repository, target.common_dir(), &fields)?;
+    let attempt = worktree::plan(repository, target.common_dir(), &fields)?;
     // Untrusted: no hook or filter driver runs, since either could run the
     // pull request's code in its checkout before anyone read it.
-    worktree::create(&target.repository, git, &attempt, Some(&pull.url()))?;
+    worktree::create(repository, git, &attempt, Some(&pull.url()))?;
     Ok((attempt.root, attempt.branch, false))
 }
 
