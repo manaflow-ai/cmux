@@ -967,6 +967,33 @@ mark {
   width: 240px;
 }
 
+/* Settings > Cloud Environments' editor: the setup script and the variables take the form's width
+   under their label, as the Codex environment editor lays them out. */
+.environment-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.environment-script {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 520px;
+  resize: vertical;
+}
+
+.environment-variable {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.environment-variable > .field {
+  width: 160px;
+}
+
 /* Wrap complete controls rather than shrinking their labels in narrow profile editors. */
 .host-field[data-clear-browsing-data] {
   flex-wrap: wrap;

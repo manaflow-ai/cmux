@@ -699,7 +699,9 @@ bytes one change writes). `registry_wal_file_bytes` is the registry's WAL file
 size now and `registry_wal_file_high_water_bytes` the largest size seen since
 the daemon started: a reader that pins an old snapshot keeps every later
 commit in the WAL, and the file shrinks to 64 MiB at the first commit after a
-checkpoint copied the whole WAL; an idle registry keeps its size. Daemons
+checkpoint copied the whole WAL and the last reader of the old WAL ended (a
+read transaction still open after the checkpoint delays it); an idle registry
+keeps its size. Daemons
 older than each field omit it.
 
 `locks` reports the workspace registry lock (`registry`) and the mux state

@@ -507,6 +507,8 @@ pub const CWD_3: Argument = Argument { name: "cwd", title: t("CloudSessionAction
 #[rustfmt::skip]
 pub const LOGIN: Argument = Argument { name: "login", title: t("CloudSessionActions", "argument.cloudStartSession.login", "Harness Login"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
+pub const FROM_FOLDER: Argument = Argument { name: "fromFolder", title: t("CloudSessionActions", "argument.cloudStartSession.fromFolder", "Folder on This Mac to Copy"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
+#[rustfmt::skip]
 pub const KEYMAP: Argument = Argument { name: "keymap", title: t("Localizable", "argument.keymap", "Keymap"), kind: ArgKind::Enumeration(CASES_CMUX_ITERM2), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
 pub const REPLACE_2: Argument = Argument { name: "replace", title: t("Localizable", "argument.installCLI.replace", "Replace Another App's cmux"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
@@ -678,3 +680,13 @@ pub const BROWSER_2: Argument = Argument { name: "browser", title: t("ImportActi
 pub const SITE: Argument = Argument { name: "site", title: t("ImportActions", "argument.import.suggest.site", "Site"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
 pub const REASON_2: Argument = Argument { name: "reason", title: t("ImportActions", "argument.import.suggest.reason", "Reason"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
+#[rustfmt::skip]
+pub const HARNESS_PROFILE: Argument = Argument { name: "id", title: t("ActionCatalog", "argument.agent.harness.id", "Agent"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "agentHarnessProfiles", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false };
+#[rustfmt::skip]
+pub const HARNESS_ICON: Argument = Argument { name: "icon", title: t("ActionCatalog", "argument.agent.harness.icon", "Icon"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
+#[rustfmt::skip]
+pub const WORKTREE_NAME: Argument = Argument { name: "name", title: t("ActionCatalog", "argument.git.worktree.name", "Worktree Name"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
+#[rustfmt::skip]
+pub const WORKTREE_BASE: Argument = Argument { name: "base", title: t("ActionCatalog", "argument.git.worktree.base", "Base Revision"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
+#[rustfmt::skip]
+pub const WORKTREE_DISCARD: Argument = Argument { name: "discard", title: t("ActionCatalog", "argument.git.worktree.discard", "Discard Unsaved Work"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };

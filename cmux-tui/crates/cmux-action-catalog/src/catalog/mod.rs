@@ -36,6 +36,7 @@ mod divider;
 mod extension;
 mod file_page;
 mod files_pane;
+mod git;
 mod hang_reports;
 mod help_link;
 mod hibernation;
@@ -136,6 +137,7 @@ pub static GROUPS: &[&[Action]] = &[
     agent_chat_view::ACTIONS,
     agent_side_question::ACTIONS,
     agent_harness::ACTIONS,
+    git::ACTIONS,
     cloud::ACTIONS,
     cloud_port::ACTIONS,
     account::ACTIONS,
