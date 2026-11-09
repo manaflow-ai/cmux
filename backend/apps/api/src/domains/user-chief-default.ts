@@ -86,7 +86,18 @@ export const reduceDefaultChief = (state: UserState, op: string, params: unknown
     if (!params || typeof params !== "object" || Array.isArray(params) || Object.keys(params).length !== 0) return reject("validation.invalid", "default Chief backfill takes no params")
     // Decided in the reducer, so concurrent ensures queue it once: the first marks the account done.
     if (!defaultChiefBackfillDue(state)) return { ok: true, state, value: { queued: false }, changed: false }
-    return { ok: true, state: { ...state, migrations: { ...state.migrations, default_chief_machine: true } }, value: { queued: true }, outbox: signupChiefOutbox(user.id) }
+    // Select (or, for an account that never had one, create) the hosted default in this same transaction, so
+    // hosted_default names it before the owner can change anything. Delivery's chief.default.ensure then only
+    // replays that selection: a Chief the owner archives, deletes or places meanwhile is never replaced by a new
+    // hosted default, and provisioning skips it.
+    const selected = reduceDefaultChief(state, DEFAULT_CHIEF_ENSURE, {}, ctx)
+    if (!selected.ok) return selected
+    return {
+      ok: true,
+      state: { ...selected.state, migrations: { ...selected.state.migrations, default_chief_machine: true } },
+      value: { queued: true, chief: selected.state.hosted_default ?? null },
+      outbox: [...(selected.outbox ?? []), ...signupChiefOutbox(user.id)]
+    }
   }
   if (op !== DEFAULT_CHIEF_BIND && op !== DEFAULT_CHIEF_REBIND) return reject("validation.invalid", "unknown default Chief op")
   const v = params as Partial<ChiefCloudMachine> | null

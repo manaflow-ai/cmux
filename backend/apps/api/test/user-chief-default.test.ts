@@ -225,6 +225,8 @@ describe("default Chief backfill for accounts older than signup provisioning", (
     const h = host(oldAccount())
     expect(backfillDefaultChief(ON, h.state(), h.submit)).toBe("queued")
     expect(h.outbox).toEqual(signupOutbox)
+    // The selection is made at enqueue, before the owner can change anything.
+    expect(h.state().hosted_default).toBe(Object.keys(h.state().chiefs ?? {})[0])
     expect(h.keys).toEqual([`chief-default-backfill:${USER}`])
     // Later ensures, and a second ensure racing the first, find the account marked and queue nothing.
     expect(backfillDefaultChief(ON, h.state(), h.submit)).toBe("not_due")
@@ -301,6 +303,56 @@ describe("default Chief backfill for accounts older than signup provisioning", (
     expect(due({ ...legacy, chiefs: {}, chief_tombstones: { [id]: { id, owner_user: USER, archived_at: at } } })).toBe("not_due")
     // A live Chief that is not the default, with the hosted one archived: no plain default to adopt.
     expect(due({ ...legacy, chiefs: { [id]: { ...hosted, is_default: false, archived_at: at }, other: { ...hosted, id: "other", is_default: false } } })).toBe("not_due")
+  })
+
+  it("enqueue, then an owner change, then delivery: the owner's choice stands and no hosted default is made", async () => {
+    const PLACE = { host: "host_00000000000000000001", install: "inst_00000000000000000009" } as never
+    const at = new Date(2).toISOString()
+    const deliver = async (start: UserState) => {
+      let state = start
+      const activated: Array<string> = []
+      const items = signupOutbox.map((o, i) => ({ id: i + 1, op: o.kind, key: o.entity, params: {} }))
+      const done = await deliverSignupChief(USER, `user:${USER}`, items, {
+        platform: platform(),
+        current: () => state,
+        activate: async (agent: string) => { activated.push(agent); return { ok: true as const } },
+        deliver: async (batch: ReadonlyArray<TargetItem>) => {
+          for (const item of batch) state = machineState(decided(userDomain.reduce(state, item.op, item.params, context(undefined, `deliver-${item.id}`))).state)
+          return { done: batch.map((item) => item.id) }
+        },
+        bind: (machine: typeof binding) => {
+          state = decided(userDomain.reduce(state, DEFAULT_CHIEF_BIND, machine, context())).state
+          return { frames: [{ t: "result" as const, tx: "bind", idempotency_key: "bind", value: machine, revision: "1", replayed: false }] }
+        }
+      })
+      return { state, activated, done }
+    }
+    for (const start of [oldAccount(), existing()]) {
+      const h = host(start)
+      expect(backfillDefaultChief(ON, h.state(), h.submit)).toBe("queued")
+      const queued = h.state(), id = queued.hosted_default!, hosted = queued.chiefs![id]!
+      const placed = { ...hosted, id: "agent_00000000000000000009", display_name: "Chief (Mac mini)", brain_place: PLACE }
+      const changes: Record<string, UserState> = {
+        // The owner made a placed Chief the default, then archived or deleted the hosted one.
+        archived: { ...queued, chiefs: { [id]: { ...hosted, is_default: false, archived_at: at }, [placed.id]: placed } },
+        deleted: { ...queued, chiefs: { [placed.id]: placed }, chief_tombstones: { [id]: { id, owner_user: USER, archived_at: at } } },
+        // The owner placed the hosted Chief itself on a server.
+        placed: { ...queued, chiefs: { [id]: { ...hosted, brain_place: PLACE } } }
+      }
+      for (const [kind, changed] of Object.entries(changes)) {
+        const r = await deliver(changed)
+        expect(r.done, kind).toEqual({ done: [1, 2] })
+        expect(r.state.chiefs, kind).toEqual(changed.chiefs)
+        expect(r.state.hosted_default, kind).toBe(id)
+        expect(r.activated, kind).toEqual([])
+      }
+      // The owner made the placed Chief the default and kept the hosted one: the default stays theirs.
+      const switched: UserState = { ...queued, chiefs: { [id]: { ...hosted, is_default: false }, [placed.id]: { ...placed, is_default: true } } }
+      const r = await deliver(switched)
+      expect(Object.keys(r.state.chiefs ?? {}).sort()).toEqual([id, placed.id].sort())
+      expect(r.state.chiefs?.[placed.id]).toEqual(switched.chiefs![placed.id])
+      expect(r.state.chiefs?.[id]?.is_default).toBe(false)
+    }
   })
 
   it("is off unless both CHIEF_BRAIN_ENABLED and HANDS_ENABLED are 1, as production is today", () => {
