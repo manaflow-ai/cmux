@@ -167,6 +167,8 @@
    "request": {"held": [{"id": "t1", "held_at_ms": 0}], "now_ms": 120000, "reachable": false}, "expect": {"replay": [], "expire": ["t1"], "settle": [], "unsure": [], "next_check_ms": null}},
   {"source": "DaemonStore.sweepHeldIntents: a timed-out close past the bound may still close; never a certain refusal", "op": "offline_intent_sweep",
    "request": {"held": [{"id": "t1", "held_at_ms": 0, "sent": true}], "now_ms": 120000, "reachable": false}, "expect": {"replay": [], "expire": [], "settle": [], "unsure": ["t1"], "next_check_ms": null}},
+  {"source": "DaemonService.intendNowReporting: a close whose connection closed before the reply is held as sent", "op": "offline_intent_disposition",
+   "request": {"kind": "connectionClosed", "answering": false}, "expect": {"disposition": "hold", "sent": true, "bound_ms": 120000}},
   {"source": "DaemonService.intendNowReporting: a timeout from a daemon that does not answer is held as sent", "op": "offline_intent_disposition",
    "request": {"kind": "timedOut", "answering": false}, "expect": {"disposition": "hold", "sent": true, "bound_ms": 120000}},
   {"source": "HeldIntents.pending: the health model's words", "op": "offline_intent_text",

@@ -7,7 +7,8 @@
 //! the action up with one refusal the person sees, and the visible state
 //! returns once. One transition each way, never a flip.
 //!
-//! A request that timed out may already sit in the daemon's queue: a
+//! A request that timed out, or whose reply a closed connection lost, may
+//! already sit in the daemon's queue: a
 //! client timeout cancels nothing there. Such an action is `sent`, and it is
 //! never replayed blindly nor refused for certain: once the daemon answers,
 //! the app settles it from the daemon's state (replay only if it did not
@@ -44,10 +45,13 @@ pub enum Disposition {
 const UNREACHED: [&str; 4] =
     ["notConnected", "connectionClosed", "daemonShutdown", "connectFailed"];
 
-/// The command may have reached the daemon before it failed with `kind`
-/// (a missed deadline), so a held copy is [`Held::sent`].
+/// The command may have reached the daemon before it failed with `kind`, so
+/// a held copy is [`Held::sent`]: a missed deadline, or a connection that
+/// closed (or a daemon that shut down) with the request written and its
+/// reply lost. Only a connection that never opened (`notConnected`,
+/// `connectFailed`) proves the daemon never had it.
 pub fn maybe_sent(kind: &str) -> bool {
-    kind == "timedOut"
+    matches!(kind, "timedOut" | "connectionClosed" | "daemonShutdown")
 }
 
 /// Hold or reject a command that failed with error `kind`. A missed
@@ -264,7 +268,12 @@ mod tests {
     fn a_timed_out_close_is_never_refused_for_certain_and_settles_when_the_daemon_is_back() {
         // The daemon is paused: the close times out, but may sit in its queue.
         assert!(maybe_sent("timedOut"));
+        // A reply lost when the connection closed or the daemon shut down.
+        assert!(maybe_sent("connectionClosed"));
+        assert!(maybe_sent("daemonShutdown"));
+        // A connection that never opened: the daemon never had it.
         assert!(!maybe_sent("notConnected"));
+        assert!(!maybe_sent("connectFailed"));
         let list = [Held { sent: true, ..held("a", 0) }, held("b", 0)];
         // Past the bound with no answer: `a` gets the notice that it may
         // still close, never "wasn't closed"; `b` never left, so it is refused.
