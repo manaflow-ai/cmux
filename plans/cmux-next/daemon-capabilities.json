@@ -37,6 +37,7 @@
     "chief-events-v1",
     "chief-inspect-v1",
     "chief-live-v1",
+    "classic-import-v1",
     "close-reason-v1",
     "close-workspace-if-empty-v1",
     "closed-conversation-tabs-v1",
