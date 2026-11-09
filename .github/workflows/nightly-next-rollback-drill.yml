@@ -26,7 +26,7 @@ name: nightly-next rollback drill
 #
 # The probe reads feed_s from the receipt: served_at minus pull_ordered_at.
 # GitHub runs a schedule, and registers a dispatch, only from the default
-# branch, so this file is on main too, byte for byte. There the Monday cron
+# branch, so this file is on main too, with main's runner labels. There the Monday cron
 # (publish 09:15 UTC, pull 10:15 UTC; the probe starts at 09:29) runs job
 # start, which dispatches the step here on nightly-next, where release-next
 # releases the feed's R2 token. Every other job runs only on nightly-next.
