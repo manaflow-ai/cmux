@@ -300,6 +300,8 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
 
       case "apply":
         return await withLocalLock(dir, `apply-${tree.name}-${target}`, async () => {
+          const setRole = flag("--set-role")
+          if (setRole && target === "production") throw new Refused("--set-role is refused on production: log in as the owner itself")
           const realRoot = deps.root
           let base: string | undefined
           let verifiedHead: string | undefined
@@ -318,8 +320,6 @@ export const main = async (argv: ReadonlyArray<string>, initialDeps: Deps = defa
           }
           await lintOrRefuse(deps, tree, base, realRoot)
           if (!urlVar) throw new Refused("apply needs --url-env with the owner's credentials for the target")
-          const setRole = flag("--set-role")
-          if (setRole && target === "production") throw new Refused("--set-role is refused on production: log in as the owner itself")
           // The rehearsal copy restores logins from 6 minutes back, and a short-lived role is younger than that.
           if (setRole && !flag("--skip-rehearsal")) throw new Refused("--set-role needs --skip-rehearsal: the rehearsal copy would not have the short-lived login")
           if (setRole && !ownerPgRole) throw new Refused(`--set-role needs a SQL owner role for ${tree.name}/${target} (trees.ts ownerPgRole)`)
