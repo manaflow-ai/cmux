@@ -24,8 +24,10 @@ watch job, every 10 minutes, with the token the overflow switch already uses) it
     used while its `checked` is at most HEALTH_MAX_AGE old;
   - the queue janitor's snapshot (macos-pool-load), only while its `generated_at` is at most
     SNAPSHOT_MAX_AGE old: a Blacksmith label in `pools` whose oldest
-    queued job has waited BLACKSMITH_STALL_MINUTES (simple_pool_picker.blacksmith_stalled(): on
-    a first-in, first-out queue nothing started there since), and the dead-label entries
+    queued job has waited BLACKSMITH_STALL_MINUTES (simple_pool_picker.blacksmith_stalled()) while
+    nothing runs there and `label_started` shows no start since that job began to wait
+    (started_nothing_while_queued(): the queue is not first in, first out, so the wait alone
+    proves nothing), and the dead-label entries
     (`dead_labels`, cmux#27114: `label` joined with "," and `live`, members that started jobs).
     The snapshot's `starved` and `unserved` describe owned (glaeda-*) labels, which are never
     pool members, so they are not read;
@@ -91,6 +93,9 @@ MIRRORS = {"LINUX_RUNNER": "linux"}
 # While the overflow switch's record is set, the switch owns those variables (cloud_overflow_switch.py).
 OVERFLOW_RECORD = "CI_CLOUD_OVERFLOW_SAVED"
 DEAD_KEY = "_dead"
+# The queue janitor snapshot's map of label -> when a runner last took a job asking for it
+# (queue_janitor.LABEL_STARTED_KEY).
+LABEL_STARTED_KEY = "label_started"
 UPDATED_KEY = "_updated"
 # A dead mark lasts this long unless seen again. The probe runs every 10 minutes and the janitor
 # sweeps about as often, so a label that is still dead is marked again before its mark expires,
@@ -277,6 +282,27 @@ def _labels(joined: object) -> set[str]:
     return {part.strip() for part in re.split(r"[,+]", joined) if part.strip()}
 
 
+def started_nothing_while_queued(snapshot: Mapping[str, Any], label: str, load: Mapping[str, Any],
+                                 oldest_minutes: float, generated: dt.datetime) -> bool:
+    """Whether a stalled label (its oldest queued job waited BLACKSMITH_STALL_MINUTES) is dead, not busy:
+    nothing runs on it, and the janitor's `label_started` map shows no start since that job began to wait.
+
+    A Blacksmith queue is not first in, first out, so a long wait alone proves nothing: on 2026-11-08
+    blacksmith-6vcpu-macos-15 started four jobs of run 42503576472 at 17:28-17:31Z (one still running) and
+    was marked dead at 17:34:13Z, because other jobs had queued there for more than 10 minutes. A snapshot
+    without `label_started` (an older janitor) proves nothing either: no mark."""
+    starts = snapshot.get(LABEL_STARTED_KEY)
+    if not isinstance(starts, Mapping):
+        return False
+    try:
+        if int(load.get("running") or 0) > 0:
+            return False
+    except (TypeError, ValueError):
+        return False
+    started = parse_time(starts.get(label))
+    return started is None or (generated - started).total_seconds() / 60 >= oldest_minutes
+
+
 def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any] | None, *,
                    now: dt.datetime) -> tuple[set[str], set[str], list[str]]:
     """(dead, started, notes): the labels seen starting nothing, the labels seen starting a job."""
@@ -314,8 +340,14 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
                 oldest = float(load.get("oldest_queued_minutes") or 0)
             except (TypeError, ValueError):
                 continue
-            if simple_pool_picker.blacksmith_stalled(queued, oldest + age):
+            if not simple_pool_picker.blacksmith_stalled(queued, oldest + age):
+                continue
+            if started_nothing_while_queued(snapshot, label, load, oldest, generated):
                 dead.add(label)
+            elif isinstance(snapshot.get(LABEL_STARTED_KEY), Mapping):
+                # Positive evidence: it runs a job or started one while its oldest job waited, so a
+                # dead mark an older rule wrote from the wait alone is cleared now, not at DEAD_TTL.
+                started.add(label)
         for entry in snapshot.get("dead_labels") or ():
             if isinstance(entry, Mapping):
                 dead |= _labels(entry.get("label"))
