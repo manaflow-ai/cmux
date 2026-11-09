@@ -159,7 +159,12 @@ impl Mux {
     /// Starts this owner's reaper of other sessions' unowned hosts; none for
     /// a session with no durable state.
     pub fn start_unowned_host_reaper(self: &Arc<Self>) -> Option<UnownedHostReaper> {
-        let own_root = self.surface_options.lock().unwrap().terminal_host_root.clone()?;
+        let own_root = self
+            .surface_options
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .terminal_host_root
+            .clone()?;
         let store = self.session_state_directory()?.join(STORE_FILE);
         let timing = Timing::for_owner();
         let stop = Arc::new((Mutex::new(false), Condvar::new()));
@@ -394,7 +399,8 @@ fn walk_roots<T>(
     let start = cursor.map_or(0, |cursor| roots.partition_point(|root| path(root) <= cursor));
     let mut cursor = cursor.map(Path::to_path_buf);
     let mut counted = 0;
-    for root in roots[start..].iter().chain(&roots[..start]) {
+    let (before, after) = roots.split_at_checked(start).unwrap_or((roots, &[]));
+    for root in after.iter().chain(before) {
         if stopped() {
             return (cursor, true);
         }
