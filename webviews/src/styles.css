@@ -2728,10 +2728,6 @@ button.file-header-open:focus-visible {
   font: inherit;
   font-size: var(--cmux-diff-ui-font-size);
   text-align: start;
-  cursor: pointer;
-}
-.review-brief-row:disabled {
-  cursor: default;
 }
 .review-brief-row:not(:disabled):hover {
   background: var(--cmux-diff-hover-bg);
@@ -2868,9 +2864,6 @@ button.file-header-open:focus-visible {
   color: var(--cmux-diff-fg);
   font: inherit;
   text-align: start;
-}
-button.review-brief-spot {
-  cursor: pointer;
 }
 button.review-brief-spot:hover {
   background: var(--cmux-diff-hover-bg);
