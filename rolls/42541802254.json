@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42541802254",
+  "recorded_at": "2026-11-09T00:55:35Z",
+  "reason": "cmux-tui 11dfbd62acd4 changes the image's cmux-tui (pinned 9eab6e4400c8)",
+  "dry_run": false,
+  "cmux_tui": "11dfbd62acd4535d101adc1d91ef5ea6228fb97d",
+  "fixes": [
+    {
+      "sha": "11dfbd62acd4535d101adc1d91ef5ea6228fb97d",
+      "mergedAt": "2026-11-08T16:26:59-08:00",
+      "subject": "remote: a forced-command SSH route never runs remote-probe or an install (Cloud carrier ssh backup, S6) (#38922)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T00:55:35Z",
+    "snapshot_id": "sh-a8812874e6f04293992b522629af710d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42541802254): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "39c993030ad2d051d4cbe9db40eb1b2b60acafeb",
+    "image": "cloud-native-auto-11dfbd62-42541802254-1",
+    "revision": "ci-42541802254-1",
+    "at": "2026-11-09T00:55:35Z"
+  },
+  "rolled_back": false
+}
