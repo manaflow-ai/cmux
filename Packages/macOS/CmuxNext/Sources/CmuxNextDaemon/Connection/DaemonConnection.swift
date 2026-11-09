@@ -398,6 +398,9 @@ public actor DaemonConnection {
         pacer.refillDropBudget()
     }
 
+    /// Why the reconnect ended for good (an incompatible daemon), or nil.
+    public private(set) var endedBy: DaemonError?
+
     private func reconnectLoop() async {
         // The explicit events before the last attempt (`RetryPolicy.keepsEventsDuringAttempt`).
         var mark: UInt64?
@@ -430,6 +433,7 @@ public actor DaemonConnection {
                     logger.error("cmux-tui reconnect failed permanently: \(error.description, privacy: .public)")
                     reconnectTask = nil
                     phase = .closed
+                    endedBy = error
                     releaseHandoffHold()
                     continuation.finish(throwing: error)
                     return

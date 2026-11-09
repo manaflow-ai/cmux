@@ -381,12 +381,14 @@ public final class DaemonService {
             while !Task.isCancelled {
                 // A link-following service retries an incompatible daemon on an explicit reconnect only.
                 let seen = followsLink ? requests.value : nil
+                let startupFailure = Mutex<DaemonError?>(nil)
                 let connected = await DaemonStartup.shared.connect(policy: firstConnect, wake: wake, clock: clock) {
                     DaemonConnection(configuration: configuration) {
                         DaemonEndpoint(socketPath: try await endpoint(), bridge: bridge)
                     }
                 } onFailure: { error in
                     logger.error("\(machineID, privacy: .public): daemon unavailable: \(error.description, privacy: .public)")
+                    startupFailure.withLock { $0 = error }
                     // Before the failure is published: an event from then on
                     // (the machine updated, app activation) wakes the wait below.
                     if DaemonStartup.shared.isPermanent(error) { wake.rebaseline() }
@@ -397,9 +399,11 @@ public final class DaemonService {
                     return
                 }
                 guard let (connection, identity) = connected else {
-                    // Incompatible daemon: wait for an event only (an explicit reconnect when
-                    // following a link), then try again.
-                    guard await Self.awaitRetry(wake, clock: clock, explicitAfter: seen, requests: requests) else { return }
+                    // A permanent failure: wait for an event only, then try again. An incompatible daemon
+                    // waits for an explicit reconnect when following a link; a blocked endpoint (SSH
+                    // auth, host key, install) keeps waking on events (activation, the link's state).
+                    let explicit = Self.needsExplicitReconnect(startupFailure.withLock { $0 }) ? seen : nil
+                    guard await Self.awaitRetry(wake, clock: clock, explicitAfter: explicit, requests: requests) else { return }
                     continue
                 }
                 guard let self, !Task.isCancelled else {
@@ -425,10 +429,11 @@ public final class DaemonService {
                 await store.run(connection: connection, scheduler: drainScheduler)
                 await connection.closeAndWait()
                 if Task.isCancelled { return }
-                // Ended for good (an incompatible daemon): only an event can change that (an explicit
-                // reconnect when following a link; the link's own wakes would retry it forever).
+                // Ended for good: only an event can change that (an explicit reconnect for an
+                // incompatible daemon when following a link; the link's own wakes would retry it forever).
+                let explicit = Self.needsExplicitReconnect(await connection.endedBy) ? seen : nil
                 wake.rebaseline()
-                guard await Self.awaitRetry(wake, clock: clock, explicitAfter: seen, requests: requests) else { return }
+                guard await Self.awaitRetry(wake, clock: clock, explicitAfter: explicit, requests: requests) else { return }
             }
         }
     }
@@ -447,6 +452,15 @@ public final class DaemonService {
         Task {
             await connection.refillRetryBudget()
             wake.fire()
+        }
+    }
+
+    /// The failures that only an explicit reconnect retries for a link-following service: an
+    /// incompatible daemon answers the same until someone updates it.
+    nonisolated static func needsExplicitReconnect(_ failure: DaemonError?) -> Bool {
+        switch failure {
+        case .unsupportedProtocol?, .missingCapabilities?: true
+        default: false
         }
     }
 

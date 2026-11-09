@@ -218,4 +218,26 @@ private nonisolated final class RemoteLinkCalls: Sendable {
         try await Self.waitUntil { if case .connected = daemon.store.connectionState { true } else { false } }
         #expect(Self.identifies(log) == 3, "Reconnect made one new attempt")
     }
+
+    /// Review of 8cbf436, F1: the explicit-Reconnect gate also held a blocked endpoint (SSH auth, host key,
+    /// install). After the person fixed their agent or known_hosts, app activation opened the SSH gate and
+    /// fired the retry wake, and the wait ignored it. Only an incompatible daemon needs a Reconnect.
+    @Test func aBlockedEndpointRetriesOnActivationWithNoReconnect() async throws {
+        let calls = RemoteLinkCalls()
+        let host = try SSHHost(destination: SSHDestination(parsing: "blocked-endpoint.invalid"))
+        let session = SSHMachineSession(host: host, binary: URL(fileURLWithPath: "/usr/bin/false"),
+                                        paths: SSHPaths(root: URL(fileURLWithPath: "/private/tmp/blocked-endpoint-tests")),
+                                        environment: { [:] }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        defer { session.daemon.shutdownConnection() }
+        session.daemon.start(remote: {
+            calls.hit()
+            throw DaemonError.endpointBlocked("Host key verification failed.")
+        }, requiredCapabilities: [], followsLink: true)
+        try await Task.sleep(for: .milliseconds(1000))
+        #expect(calls.value == 1, "the blocked first attempt, then a wait for an event")
+        // The person fixed known_hosts and came back to the app: activation opens the gate and wakes the daemon.
+        session.wake(.appActivated)
+        try await Task.sleep(for: .milliseconds(1000))
+        #expect(calls.value == 2, "activation retried a blocked endpoint with no Reconnect (\(calls.value) endpoint calls)")
+    }
 }
