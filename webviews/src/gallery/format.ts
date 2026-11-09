@@ -279,6 +279,9 @@ export type DiffPageVariant = VariantBase & {
   commentsSend?: boolean;
   /** A review worktree's pull request (`comments.list`'s `review`): the section posts to it. */
   commentsReview?: DiffReviewTarget;
+  /** The diff's chat's review brief the in-page host answers (`cmux.diff.brief`), as acpmux's
+   * `_acpmux/review_brief` answers it; absent, the host serves no brief. */
+  reviewBrief?: unknown;
 };
 
 /** The App Store page on an in-page cmuxPage host serving its supervisor projection. */

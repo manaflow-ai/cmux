@@ -64,12 +64,12 @@ struct DiffCommentsTests {
         var sent: [(String, String)] = []
 
         var tabChat: DiffTabChat {
-            DiffTabChat(session: "chat-1") { [self] text, promptID in
+            DiffTabChat(session: "chat-1", deliver: { [self] text, promptID in
                 await MainActor.run {
                     sent.append((text, promptID))
                     return accepts
                 }
-            }
+            }, brief: { _ in nil })
         }
     }
 
