@@ -41,7 +41,7 @@ try {
           if (!last || last.open !== open) window.__panelLog.push({ open, t: Math.round(performance.now()) });
         }).observe(document, { childList: true, subtree: true });
       });
-      await page.goto(url, { waitUntil: "networkidle" });
+      await page.goto(url, { waitUntil: "networkidle", timeout: 120_000 });
       await page.waitForFunction(() => window.cmuxAcpmuxBridge && window.cmuxAcpmuxActions?.["chat.send"]);
       await page.evaluate((text) => window.cmuxAcpmuxActions["chat.send"]({ text }), prompt);
       const button = page.locator('.cv-table-block:not(.cv-user .cv-table-block) button[aria-label="Open table"]').last();
