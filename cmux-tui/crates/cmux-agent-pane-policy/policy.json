@@ -102,7 +102,7 @@
     "_acpmux/prewarm": {"params": ["harness", "cwd", "release"], "acpmux": []},
     "_acpmux/start_mode": {"params": ["harness", "cwd"], "acpmux": []},
     "_acpmux/harnesses": {"params": ["cwd"], "acpmux": []},
-    "_acpmux/models": {"params": ["refresh"], "acpmux": []},
+    "_acpmux/models": {"params": ["refresh", "localOnly"], "acpmux": []},
     "_acpmux/status": {"params": [], "acpmux": []},
     "_acpmux/peers": {"params": [], "acpmux": []},
     "_acpmux/draft_get": {"params": ["sessionId"], "acpmux": []},

@@ -949,10 +949,11 @@ workspace, then ends each running terminal that had a tab in it and has none
 after the close (they worked in the removed folder); a refused remove closes
 nothing. Each end is `terminal.close` with `if_unplaced`, so the session
 leaves a terminal running that is marked keep, is attached or got a tab since.
-The daemon that receives the close (the same route, also with `--machine`)
-decides: a build older than `terminal-close-if-unplaced-v1` refuses the field
-as an unknown parameter, and only then the command sends the plain
-`terminal.close`, which also ends a kept or attached terminal. Any other
+The command sends the field on the same route as the close (also with
+`--machine`). Any older daemon on that route (a build without
+`terminal-close-if-unplaced-v1`, the target or a local daemon that forwards
+the request) refuses it as an unknown parameter, and only then the command
+sends the plain `terminal.close`, which also ends a kept or attached terminal. Any other
 failure leaves that terminal to the reaper.
 The caller's own terminal (`CMUX_TUI_TERMINAL_ID`) is not ended: the reply and
 the exit code go there, and the reaper ends it after its grace. The result is
@@ -1285,16 +1286,18 @@ plugin names are slugs matching `[a-z0-9-_]+`.
 rows, so the wire value is unchanged. `--state` and `--terminal` are the
 read's own filters. Every row has `status`, one of the words `terminal list
 --agents` and `agent wait` use: `blocked`, `done` (idle with an unread
-notification on its terminal), `working`, `idle` or `unknown`, and `null` for
-an agent whose session ended. The CLI writes the row's `state` over with
-the same word (`ended` for an ended session), as a deprecated alias of
-`status`. The daemon's wire does not change: `agent.list` and
+notification on its terminal), `working`, `idle` or `unknown`, and `ended` for
+an agent whose session ended (the word the `send` receipt says; it was
+`null`). The CLI writes the row's `state` over with the same word, as a
+deprecated alias of `status`. The daemon's wire does not change: `agent.list` and
 `session.snapshot` still say `state: done` for an ended session, and the CLI
 maps that `done` to `ended` in every output (`agent list`, `agent report`,
 `terminal list --agents`, the `send` receipt). In the CLI, `done` means only a
 finished turn that nobody viewed yet. The CLI leaves out the ended agents of
 terminals that closed (the snapshot has no such terminal); `--state ended`
-shows them. `--state` takes
+shows them. `hidden_ended` (in `--json --counts`) counts the rows it left out,
+and the text output ends with a line that says how many (localized).
+`--state` takes
 the status words and `ended` and asks the daemon for its state: `done` and
 `idle` ask for `idle` (the CLI then keeps the rows with that status), `ended`
 asks for the daemon's `done`, the others for themselves. `--state done` used to
@@ -1391,7 +1394,9 @@ its width only from that pane: every pane that existed before keeps its width
 (or height for a vertical row), so a person's 0.7 column stays 0.7. The agent
 panes next to the new one in that row (panes whose tabs' terminals all have
 the snapshot's `extra.agent_start` mark and still run; a tab's name does not
-count, and an exited agent kept with `--on-exit keep` keeps its width) then
+count; only a live terminal, `running`, `launching` or `adopting`, counts, so
+an exited agent kept with `--on-exit keep`, any other lifecycle word or a
+terminal record without one keeps its width) then
 share their space equally, so the third agent of a row is not an
 eighth of it.
 

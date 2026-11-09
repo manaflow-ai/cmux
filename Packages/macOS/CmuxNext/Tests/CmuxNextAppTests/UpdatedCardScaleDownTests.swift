@@ -26,11 +26,15 @@ struct UpdatedCardScaleDownTests {
         }
     }
 
+    /// `islands` holds the card's own pages (`.updated`). The shipped look also makes the changes'
+    /// popover page (`.updatedNotes`, af041242c9c) when the card shows; it reports no card height, so
+    /// it is kept apart and `islands.last` stays the card's page.
     final class FakeSurfaces: SidebarUpdateSurfaces {
         var islands: [FakeIsland] = []
+        var notes: [FakeIsland] = []
         func island(_ kind: SidebarUpdateSurfaceKind) -> any SidebarSurfaceIsland {
             let island = FakeIsland()
-            islands.append(island)
+            if kind == .updated { islands.append(island) } else { notes.append(island) }
             return island
         }
     }

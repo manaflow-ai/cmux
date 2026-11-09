@@ -6,7 +6,7 @@
 // (session-info/scheduled.ts), latest first. The lists, their order and their words come from the page's
 // own helpers, so both panels say the same thing.
 import { useState } from "react";
-import { formatDuration } from "../../conversation/turns";
+import { formatDuration, spanDuration } from "../../conversation/turns";
 import type { StringKey, Translate } from "../../i18n";
 import { openCommand } from "../../processTerminal";
 import { modelName, phaseAgents, phaseState, tally, workflowDetailRequest } from "../../summary/foldWorkflows";
@@ -202,7 +202,7 @@ export function tasksSection(
   const finishedCommand = (item: BackgroundCommand): NativeInfoRow => {
     const time =
       item.endedAt !== undefined && item.startedAt !== undefined
-        ? formatDuration(Math.max(0, item.endedAt - item.startedAt))
+        ? spanDuration(t, item.endedAt - item.startedAt)
         : undefined;
     return command(item, [time, t(COMMAND_STATE[item.state])].filter(Boolean).join(" · "));
   };

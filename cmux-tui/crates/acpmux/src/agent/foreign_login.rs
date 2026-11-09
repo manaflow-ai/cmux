@@ -20,7 +20,10 @@
 //! to them on purpose (`cli/chief/launch.rs` `brain_env_allowed`), so it keeps
 //! them. A command line that names no known agent, or more than one, loses
 //! every harness's own sign-in and keeps only the provider API keys: the safe
-//! side; its profile's env can still give it a login on purpose.
+//! side; its profile's env can still give it a login on purpose. The provider
+//! keys only multi-provider harnesses read (`login_env::PROVIDER_KEYS`:
+//! OPENROUTER_API_KEY, GROQ_API_KEY, ...) reach those harnesses and the one
+//! family that signs in with each, never Claude Code, Codex or another agent.
 //!
 //! Every path that starts a harness's own program goes through here: an
 //! agent (`agent/command.rs`), a fork of a terminal's chat (`chat_fork.rs`),
@@ -76,7 +79,8 @@ pub(crate) struct LoginEnv {
     pub(crate) shared_with_others: bool,
 }
 
-/// The login keys a harness of `family` must not inherit.
+/// The login keys a harness of `family` must not inherit: another family's own login, and the
+/// provider keys only multi-provider harnesses read ([`provider_key_foreign`]).
 pub(crate) fn foreign_login_keys(family: &str) -> impl Iterator<Item = &'static str> + '_ {
     LOGIN_ENV_OWNERS
         .iter()
@@ -85,6 +89,32 @@ pub(crate) fn foreign_login_keys(family: &str) -> impl Iterator<Item = &'static 
                 && (!login.shared_with_others || SINGLE_LOGIN_FAMILIES.contains(&family))
         })
         .map(|login| login.key)
+        .chain(
+            crate::login_env::PROVIDER_KEYS
+                .iter()
+                .copied()
+                .filter(move |key| provider_key_foreign(key, family)),
+        )
+}
+
+/// Whether a provider key of `login_env::PROVIDER_KEYS` (the ones [`LOGIN_ENV_OWNERS`] does not
+/// already name) must not reach `family`: one list for the login shell's allow-list and this scrub,
+/// so a key in the daemon's own env reaches no more agents than one from the login shell. Kept by
+/// the multi-provider harnesses (`login_env::PROVIDER_FAMILIES`), the one family that signs in with
+/// the key, and an unknown command (`""`), as it keeps the shared keys above.
+fn provider_key_foreign(key: &str, family: &str) -> bool {
+    let own = match key {
+        "ANTHROPIC_BASE_URL" => "claude",
+        "OPENAI_BASE_URL" | "AZURE_OPENAI_API_KEY" => "codex",
+        "GOOGLE_API_KEY" | "GOOGLE_GENERATIVE_AI_API_KEY" => "gemini",
+        "XAI_API_KEY" => "grok",
+        "DEEPSEEK_API_KEY" => "deepseek",
+        _ => "",
+    };
+    !LOGIN_ENV_OWNERS.iter().any(|login| login.key == key)
+        && !family.is_empty()
+        && family != own
+        && !crate::login_env::PROVIDER_FAMILIES.contains(&family)
 }
 
 /// What a harness's command line runs, for the scrub.
@@ -332,6 +362,31 @@ mod tests {
         assert!(!gemini.contains(&"GEMINI_API_KEY") && !gemini.contains(&"GEMINI_CLI_HOME"));
         let muse: Vec<_> = foreign_login_keys("muse").collect();
         assert!(muse.contains(&"GEMINI_CLI_HOME") && !muse.contains(&"META_API_KEY"));
+    }
+
+    /// The provider keys a multi-provider harness reads (`login_env::PROVIDER_KEYS`) reach only
+    /// those harnesses and the one family that signs in with each, whatever env set them (the
+    /// daemon's own, from a shell holding OPENROUTER_API_KEY): Claude Code, Codex and every other
+    /// agent lose them. An unknown command keeps them, as it keeps the shared provider keys.
+    #[test]
+    fn provider_keys_reach_only_multi_provider_harnesses_and_their_own_family() {
+        let loses = |family: &str, key: &str| foreign_login_keys(family).any(|k| k == key);
+        for family in ["claude", "codex", "gemini", "muse", "cursor", "grok", "deepseek"] {
+            for key in ["OPENROUTER_API_KEY", "GROQ_API_KEY", "HF_TOKEN", "TOGETHER_API_KEY"] {
+                assert!(loses(family, key), "{key} reaches {family}");
+            }
+        }
+        for family in ["opencode", "pi", "omp", "prime", "hermes", ""] {
+            for key in ["OPENROUTER_API_KEY", "GROQ_API_KEY", "XAI_API_KEY", "OPENAI_BASE_URL"] {
+                assert!(!loses(family, key), "{family:?} loses {key}");
+            }
+        }
+        // Each family keeps the ones it signs in with.
+        assert!(!loses("claude", "ANTHROPIC_BASE_URL") && loses("claude", "OPENAI_BASE_URL"));
+        assert!(!loses("codex", "OPENAI_BASE_URL") && loses("codex", "ANTHROPIC_BASE_URL"));
+        assert!(!loses("gemini", "GOOGLE_API_KEY") && loses("claude", "GOOGLE_API_KEY"));
+        assert!(!loses("grok", "XAI_API_KEY") && loses("claude", "XAI_API_KEY"));
+        assert!(!loses("deepseek", "DEEPSEEK_API_KEY") && loses("codex", "DEEPSEEK_API_KEY"));
     }
 
     #[test]

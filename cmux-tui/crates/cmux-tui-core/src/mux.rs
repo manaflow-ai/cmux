@@ -22,8 +22,9 @@ use terminal_records::{
 mod terminal_host_records;
 #[cfg(any(unix, windows))]
 use terminal_host_records::{
-    acknowledge_exact_terminal_host_exit, cleanup_terminal_host_record,
-    terminal_host_record_liveness, terminate_discovered_terminal_host_in,
+    HostEnd, acknowledge_exact_terminal_host_exit, cleanup_terminal_host_record,
+    request_terminal_host_end, terminal_host_record_liveness,
+    terminate_discovered_terminal_host_in,
 };
 mod detached_terminals;
 pub(crate) use detached_terminals::DetachedTerminalSpawn;
