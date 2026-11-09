@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42690797433",
+  "recorded_at": "2026-11-09T20:22:12Z",
+  "reason": "cmux-tui 5d860a4ae60e changes the image's cmux-tui (pinned 130a2009e6d0)",
+  "dry_run": false,
+  "cmux_tui": "5d860a4ae60e26009245761fa479db1bcb63abfe",
+  "fixes": [
+    {
+      "sha": "70c3049623fb7c0a2abece9eb0961af36f20a132",
+      "mergedAt": "2026-11-09T19:40:59Z",
+      "subject": "Agent chat: other agents' messages read in place; +N more opens the whole thread (#39314)"
+    },
+    {
+      "sha": "22619a36b2ecba25bea53f57bff1625187bad689",
+      "mergedAt": "2026-11-09T19:40:40Z",
+      "subject": "cmux Live: one name everywhere, and cmux live status says what the app loads and why (#39253)"
+    },
+    {
+      "sha": "950adc1ac04ef0fcad5138bd85c63c60c201729f",
+      "mergedAt": "2026-11-09T19:40:18Z",
+      "subject": "cmux-tui-core: the start folds the agent roster for at most 1 s; a long replay finishes in the background (#39096)"
+    },
+    {
+      "sha": "e73ddc30dd6c1f4947f9650db1a9f186bb814ac5",
+      "mergedAt": "2026-11-09T11:39:56-08:00",
+      "subject": "acpmux: a fallback records cmux's rules it carries, and a fork cut before them does not inherit them (#39768)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T20:22:12Z",
+    "snapshot_id": "sh-f3ec2e08966a4708a7f12f07b6c167a6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42690797433): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a70b333dfd03564c6da4e50c7aa0428af8358d17",
+    "image": "cloud-native-auto-5d860a4a-42690797433-1",
+    "revision": "ci-42690797433-1",
+    "at": "2026-11-09T20:22:12Z"
+  },
+  "rolled_back": false
+}
