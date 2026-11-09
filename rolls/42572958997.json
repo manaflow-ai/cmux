@@ -1,0 +1,120 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42572958997",
+  "recorded_at": "2026-11-09T06:31:54Z",
+  "reason": "cmux-tui 15ef7dbc3e0b changes the image's cmux-tui (pinned 1dea36a86007)",
+  "dry_run": false,
+  "cmux_tui": "15ef7dbc3e0bbf4a20b37c06e279a67fe99e544d",
+  "fixes": [
+    {
+      "sha": "15ef7dbc3e0bbf4a20b37c06e279a67fe99e544d",
+      "mergedAt": "2026-11-08T22:12:34-08:00",
+      "subject": "acpmux: while a path is in doubt, send on two and take each answer and event once (one-link slice 3b) (#38390)"
+    },
+    {
+      "sha": "11fadaad939d2572a2a8cfc146d0964439af643f",
+      "mergedAt": "2026-11-08T22:12:24-08:00",
+      "subject": "Cloud chat path chip: a folder opens on the machine, a file reads through no symlink (#39225)"
+    },
+    {
+      "sha": "307a6b62621729e8ddeac55ed3fe54f77890326c",
+      "mergedAt": "2026-11-08T22:08:39-08:00",
+      "subject": "apps: the threads list reads on agent_chat.changed, not every 2 s"
+    },
+    {
+      "sha": "f9feb4789b70e53ea39dee825a3463ac1504f91e",
+      "mergedAt": "2026-11-08T22:08:37-08:00",
+      "subject": "apps: test, a provider tells subscribers its family changed"
+    },
+    {
+      "sha": "978dede77ba2fc51681c6401cd5ddd56fa59b974",
+      "mergedAt": "2026-11-08T22:06:59-08:00",
+      "subject": "acpmux: a move carries uncommitted work of any size; list the other acpmux bounds (send-path caps guard) (#38949)"
+    },
+    {
+      "sha": "b46883dff4b40b1e7a4187dc9722fd529ed05b6e",
+      "mergedAt": "2026-11-08T21:58:46-08:00",
+      "subject": "carrier tunnel: clean stop during a hung read, streak reset, owned hub signals (#39123)"
+    },
+    {
+      "sha": "61e4675fb4d16d1029f224be49c28db4776aa3d4",
+      "mergedAt": "2026-11-08T21:52:09-08:00",
+      "subject": "smoltcp SACK: cut to ssthresh without the three-segment inflation (#39255)"
+    },
+    {
+      "sha": "95f127f9119f7fe4b6846dd37eadff263ffd75a3",
+      "mergedAt": "2026-11-08T21:48:39-08:00",
+      "subject": "cmux-tui: daemon fault injection suite and a synthetic large-registry generator (#39193)"
+    },
+    {
+      "sha": "168c464bdc1a4b1ce3eadaafa9f2c98401cddb1e",
+      "mergedAt": "2026-11-08T21:46:35-08:00",
+      "subject": "fix(tui): a nested Claude leaves the pane to its outer Claude (any-launcher follow-up) (#38967)"
+    },
+    {
+      "sha": "e684fd046c973998aff489396823da14d53e8bd3",
+      "mergedAt": "2026-11-08T21:43:56-08:00",
+      "subject": "cmux-tui: the registry WAL shrinks back to 64 MiB once no reader pins it (#39160)"
+    },
+    {
+      "sha": "0d751722360ab0b09e1ed216c51318b73591bed9",
+      "mergedAt": "2026-11-08T21:43:40-08:00",
+      "subject": "cmux-tui CLI: give each new short timeout its reason (#38981)"
+    },
+    {
+      "sha": "bd4d9369cfb2c2c8275600da9dfcac776ae94f4c",
+      "mergedAt": "2026-11-08T21:41:41-08:00",
+      "subject": "Cloud upload: skip an unreadable excluded folder, heartbeat small writes, count every path left out (#39224)"
+    },
+    {
+      "sha": "94c25f3088caa5c68fd948f7723047734539150b",
+      "mergedAt": "2026-11-08T21:40:52-08:00",
+      "subject": "cmux next: five densities with Default at Codex size, Text Size joins Density (#37274)"
+    },
+    {
+      "sha": "ccf12d3648a49043490e72bd7b65e5b96d2e7391",
+      "mergedAt": "2026-11-08T21:40:01-08:00",
+      "subject": "cmux-tui: output cleanup bounds the tail sealed after staging, counts every segment, checks the staged size at the end (#39234)"
+    },
+    {
+      "sha": "9ff088ae7492e73703926745121cd8d59d51bf5f",
+      "mergedAt": "2026-11-08T21:39:05-08:00",
+      "subject": "cmux-wg: a quiet or probe-lost held path probes every other path at once (#39209)"
+    },
+    {
+      "sha": "958fd5286d04c24d68d20c4f573a315e9843d4c3",
+      "mergedAt": "2026-11-09T05:35:42Z",
+      "subject": "chore(next): base autofix at 0e1198eec3f8"
+    },
+    {
+      "sha": "b6a0bc4d95e5077abbd8cfefd40838f986d89e79",
+      "mergedAt": "2026-11-09T05:32:45Z",
+      "subject": "cmux-tui: seven writers write only on a real change (write-churn sweep) (#39205)"
+    },
+    {
+      "sha": "dda267c4a532f879b6fd8d811d95291eca8ba39a",
+      "mergedAt": "2026-11-09T05:31:57Z",
+      "subject": "cmux-tui journal: an agent roster replay reads only the kinds it folds (#39183)"
+    },
+    {
+      "sha": "5199a765dde8be18f312eefaab79e018893ec812",
+      "mergedAt": "2026-11-08T21:21:07-08:00",
+      "subject": "feat(chief): MCP hub: the Chief adds MCP servers itself and uses them in code mode"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-09T06:31:54Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
