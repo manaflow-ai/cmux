@@ -104,7 +104,8 @@ impl TailLine {
         let mut segments = bytes.split(|byte| matches!(byte, b'\n' | b'\r')).peekable();
         while let Some(segment) = segments.next() {
             let room = MAX_LINE_BYTES.saturating_sub(self.pending.len());
-            self.pending.extend_from_slice(&segment[..segment.len().min(room)]);
+            let kept = segment.get(..room).unwrap_or(segment);
+            self.pending.extend_from_slice(kept);
             if segments.peek().is_some() {
                 self.end_line();
             }

@@ -363,7 +363,7 @@ impl Mux {
         let workspace = self.surface_workspace(view)?;
         self.with_state(|state| {
             let index = state.workspace_index(workspace)?;
-            Some(state.workspaces[index].public_id.to_string())
+            Some(state.workspaces.get(index)?.public_id.to_string())
         })
     }
 }
