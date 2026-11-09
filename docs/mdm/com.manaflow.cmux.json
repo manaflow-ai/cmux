@@ -4114,6 +4114,12 @@
       "title" : "Keep Mac Awake While Agents Work",
       "type" : "string"
     },
+    "sessions.keepAwakeForCommands" : {
+      "default" : false,
+      "description" : "A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work.",
+      "title" : "Also While Terminal Commands Run",
+      "type" : "boolean"
+    },
     "sessions.promptSuggestions" : {
       "default" : true,
       "description" : "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it.",

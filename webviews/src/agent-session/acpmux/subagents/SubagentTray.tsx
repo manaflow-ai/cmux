@@ -108,7 +108,7 @@ import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { TrayAgentDetail, TrayLineFold } from "./TrayLineDetail";
 import { StopButton } from "./SubagentGroup";
-import { SubagentHarnessContext } from "./subagentGroupModel";
+import { SubagentHarnessContext, ticking } from "./subagentGroupModel";
 import { Elapsed } from "./Elapsed";
 import { commandStatus, itemStart, trayItemKey, type TrayItem } from "./runningTray";
 import { attentionFirst, type TrayCard } from "./trayAttention";
@@ -1312,7 +1312,14 @@ function commandTime(command: BackgroundCommand): ReactNode {
 /// How long a subagent has run, or ran (subagentGroupModel.ts `elapsed`): one waiting on background work
 /// of its own has not ended, so its time keeps going. Ticking in its own leaf (Elapsed.tsx).
 function agentTime(agent: Subagent): ReactNode {
-  return <Elapsed since={agent.startedAt} until={awaitsOwnWork(agent) ? undefined : agent.endedAt} />;
+  const live = ticking(agent);
+  return (
+    <Elapsed
+      since={agent.startedAt}
+      until={live ? undefined : agent.endedAt}
+      ended={!live && agent.endedAt === undefined}
+    />
+  );
 }
 
 /// A started chat's line: its turn runs, it waits on the person, its turn failed, or it is done.

@@ -11,6 +11,7 @@ import {
   ledgerLines,
   ledgerParams,
   readLedger,
+  tokensIn,
 } from "../src/agent-session/acpmux/ledger/ledgerModel";
 
 const HOUR = 3_600_000;
@@ -153,4 +154,9 @@ test("ranking a long list stays one sort: 10,000 sessions group in one pass", ()
   expect(performance.now() - started).toBeLessThan(500);
   expect(lines[0]!.totals.costUsd).toBe(96);
   expect(lines.at(-1)!.totals.costUsd).toBe(0);
+});
+
+test("tokens in counts uncached input and cache writes, never cache reads", () => {
+  expect(tokensIn(totals({ inputTokens: 120, cacheWriteTokens: 30, cacheReadTokens: 90_000 }))).toBe(150);
+  expect(tokensIn(totals())).toBe(0);
 });

@@ -1399,6 +1399,11 @@ export type SessionDetail = {
    * sandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.
    */
   harnessSandboxFailed?: (number | null);
+  /**
+   * Whether its harness refuses commands now for that reason; a completed command or a new
+   * harness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.
+   */
+  harnessSandboxFailing?: boolean;
   /** The status dot every client draws (`status_indicator`); null for none. */
   indicator?: (Indicator | null);
   /** Since when it waits on the person (`lane`); null while it does not. */
@@ -1710,6 +1715,11 @@ export type SessionSummary = {
    * sandbox did not start (`hub/harness_sandbox.rs`). Omitted for peers.
    */
   harnessSandboxFailed?: (number | null);
+  /**
+   * Whether its harness refuses commands now for that reason; a completed command or a new
+   * harness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.
+   */
+  harnessSandboxFailing?: boolean;
   /** The status dot every client draws (`status_indicator`); null for none. */
   indicator?: (Indicator | null);
   /** Since when it waits on the person (`lane`); null while it does not. */

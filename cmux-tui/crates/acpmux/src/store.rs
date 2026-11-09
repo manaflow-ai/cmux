@@ -390,6 +390,10 @@ pub struct SessionMeta {
     /// Classified harness attempts, projected from turn results; old stores default empty.
     #[serde(default)]
     pub harness_failures: crate::session_liveness::HarnessFailures,
+    /// Its harness's own command sandbox: first refusal and whether it refuses now
+    /// (`hub/harness_sandbox.rs`); old stores default to none.
+    #[serde(default, skip_serializing_if = "crate::session_liveness::HarnessSandbox::is_none")]
+    pub harness_sandbox: crate::session_liveness::HarnessSandbox,
     /// Created over a remote-origin connection (the WebSocket listener):
     /// its harness never spawns with a preset's args or system prompt.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

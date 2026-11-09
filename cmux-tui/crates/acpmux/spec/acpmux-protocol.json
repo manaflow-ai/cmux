@@ -5510,6 +5510,11 @@
             "null"
           ]
         },
+        "harnessSandboxFailing": {
+          "default": false,
+          "description": "Whether its harness refuses commands now for that reason; a completed command or a new\nharness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.",
+          "type": "boolean"
+        },
         "indicator": {
           "anyOf": [
             {
@@ -6191,6 +6196,11 @@
             "integer",
             "null"
           ]
+        },
+        "harnessSandboxFailing": {
+          "default": false,
+          "description": "Whether its harness refuses commands now for that reason; a completed command or a new\nharness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.",
+          "type": "boolean"
         },
         "indicator": {
           "anyOf": [
