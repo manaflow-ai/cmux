@@ -12,34 +12,29 @@ struct CustomSidebarToggleTests {
     }
 
     @Test func aShownSidebarHidesInOnePress() throws {
-        let state = CustomSidebarState(record: try record(), folderHasManifest: true)
+        let state = CustomSidebarState(record: try record())
         #expect(state == .shown)
         #expect(state.toggleChange == .hide(true))
     }
 
     @Test func aHiddenSidebarShowsInOnePress() throws {
-        let state = CustomSidebarState(record: try record(hidden: true), folderHasManifest: true)
+        let state = CustomSidebarState(record: try record(hidden: true))
         #expect(state == .hidden)
         #expect(state.toggleChange == AppChange(enabled: true, hidden: false))
     }
 
     /// Turned off in the App Store reads as hidden, and one press turns it back on too.
     @Test func aTurnedOffSidebarShowsAndTurnsOn() throws {
-        let state = CustomSidebarState(record: try record(enabled: false), folderHasManifest: true)
-        #expect(state == .hidden)
         let off = try record(enabled: false)
+        let state = CustomSidebarState(record: off)
+        #expect(state == .hidden)
         #expect(state.toggleChange?.applied(to: off).isVisible == true)
     }
 
-    @Test func noFolderOffersTheStarter() throws {
-        #expect(CustomSidebarState(record: nil, folderHasManifest: false) == .missing)
-        #expect(CustomSidebarState(record: try record(installed: false), folderHasManifest: false) == .missing)
+    @Test func noInstalledAppOffersTheStarter() throws {
+        #expect(CustomSidebarState(record: nil) == .missing)
+        #expect(CustomSidebarState(record: try record(installed: false)) == .missing)
         #expect(CustomSidebarState.missing.toggleChange == nil)
-    }
-
-    @Test func aManifestTheDaemonRefusedIsUnreadable() {
-        #expect(CustomSidebarState(record: nil, folderHasManifest: true) == .unreadable)
-        #expect(CustomSidebarState.unreadable.toggleChange == nil)
     }
 
     @Test func theFolderIsTheOneTheDaemonWatches() {
@@ -49,13 +44,12 @@ struct CustomSidebarToggleTests {
         #expect(CustomizeFolder(environment: [:]) == nil)
     }
 
-    @Test func theStarterIsAnInstallableSidebarSection() throws {
+    @Test func theStarterIsAnInstallableSidebarSection() async throws {
         let files = FileManager()
         let dir = files.temporaryDirectory.appending(path: "customize-\(UUID().uuidString)")
         defer { try? files.removeItem(at: dir) }
         let folder = CustomizeFolder(url: dir)
-        #expect(!folder.hasManifest(fileManager: files))
-        #expect(try folder.writeStarter(fileManager: files))
+        #expect(try await folder.writeStarter())
         let manifest = try #require(AppManifest.decode(try Data(contentsOf: folder.manifestURL)))
         #expect(manifest.id == "local/customize")
         #expect(manifest.implementations.contains { $0.interface == "cmux.section/1" })
@@ -63,17 +57,17 @@ struct CustomSidebarToggleTests {
         #expect(script.contains("__cmuxAppExports"))
     }
 
-    @Test func theStarterNeverOverwritesTheUsersFiles() throws {
+    @Test func theStarterNeverOverwritesTheUsersFiles() async throws {
         let files = FileManager()
         let dir = files.temporaryDirectory.appending(path: "customize-\(UUID().uuidString)")
         defer { try? files.removeItem(at: dir) }
         let folder = CustomizeFolder(url: dir)
         try files.createDirectory(at: dir, withIntermediateDirectories: true)
         try Data("mine".utf8).write(to: folder.scriptURL)
-        #expect(try folder.writeStarter(fileManager: files))
+        #expect(try await folder.writeStarter())
         #expect(try String(contentsOf: folder.scriptURL, encoding: .utf8) == "mine")
         try Data("{}".utf8).write(to: folder.manifestURL)
-        #expect(try folder.writeStarter(fileManager: files) == false)
+        #expect(try await folder.writeStarter() == false)
         #expect(try String(contentsOf: folder.manifestURL, encoding: .utf8) == "{}")
     }
 }
