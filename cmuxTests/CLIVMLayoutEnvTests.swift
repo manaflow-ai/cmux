@@ -1227,7 +1227,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "vm.list":
                 return [
-                    "vms": [],
+                    "vms": [[
+                        "id": "provider-vm-42",
+                        "slug": "brave-otter",
+                        "status": "running",
+                        "disk_total_mb": 32 * 1024,
+                    ]],
                     "limits": [
                         "planId": "go",
                         "maxDiskMb": 128 * 1024,
@@ -1243,7 +1248,40 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
         XCTAssertEqual(log.methods, ["vm.list", "vm.resize"], log.methods.description)
+        XCTAssertEqual(log.params(ofFirst: "vm.resize")?["id"] as? String, "provider-vm-42")
         XCTAssertEqual(log.params(ofFirst: "vm.resize")?["storage_mb"] as? Int, 64 * 1024)
+    }
+
+    func testVMResizePlusPlanStillRefusesShrinkingDisk() throws {
+        let (result, log) = try runVMCommandAgainstMock(
+            "vm-resize-plus-plan-shrink",
+            arguments: ["vm", "resize", "brave-otter", "--disk", "64G"]
+        ) { method, _ in
+            switch method {
+            case "vm.list":
+                return [
+                    "vms": [[
+                        "id": "provider-vm-42",
+                        "slug": "brave-otter",
+                        "status": "running",
+                        "disk_total_mb": 96 * 1024,
+                    ]],
+                    "limits": [
+                        "planId": "go",
+                        "maxDiskMb": 128 * 1024,
+                        "maxMemoryMb": 16 * 1024,
+                        "maxVcpus": 8,
+                    ],
+                ]
+            case "vm.resize":
+                return ["disk_total_mb": 64 * 1024]
+            default:
+                return nil
+            }
+        }
+        XCTAssertNotEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertEqual(log.methods, ["vm.list"], log.methods.description)
+        XCTAssertTrue(result.stderr.contains("choose a larger size"), result.stderr)
     }
 
     func testVMResizePlusPlanSuggestsMaxAboveProSizes() throws {

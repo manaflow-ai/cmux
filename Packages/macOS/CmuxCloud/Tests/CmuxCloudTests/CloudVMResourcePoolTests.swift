@@ -161,7 +161,7 @@ struct CloudVMResourcePoolTests {
         ])
         let go = try CloudVMResizePlanValidator().plan(from: [
             "planId": "go",
-            "maxDiskMb": 128 * 1_024,
+            "maxDiskMb": 256 * 1_024,
         ])
         #expect(pro.limits.maxDiskMb == 128 * 1_024)
         #expect(go.limits.maxDiskMb == 128 * 1_024)
