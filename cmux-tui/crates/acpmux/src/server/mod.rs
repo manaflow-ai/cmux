@@ -439,13 +439,34 @@ impl Conn {
                 || !self.may_be_owner_terminal())
     }
 
-    /// The refusal of a verb only the person's own terminal may use, for this connection: an old
-    /// acpmux CLI is told to use the daemon's own (`cli_caller::old_cli_refused`).
-    pub(super) fn person_only(&self, what: &str) -> crate::rpc::RpcError {
-        match self.declared().and_then(crate::cli_caller::Declared::old_client) {
+    /// Whether it proved no session and an agent may be behind it: neither the person's terminal
+    /// nor a proven agent (an old acpmux CLI, a shell that declared no terminal, a token this
+    /// daemon does not know). Such a connection gets no person verb (team messages, the
+    /// person's workflow runs) and no agent's either.
+    pub(super) fn unproven_agent(&self) -> bool {
+        self.caller().is_none() && self.agent_side()
+    }
+
+    /// The refusal of `what` for this connection: `otherwise`, or, for an old acpmux CLI that
+    /// proved no session, the one refusal that names it and says which CLI to run
+    /// (`cli_caller::old_cli_refused`). A proven agent on an old CLI is refused as any agent: an
+    /// update would not change its answer.
+    pub(super) fn refusal(
+        &self,
+        what: &str,
+        otherwise: crate::rpc::RpcError,
+    ) -> crate::rpc::RpcError {
+        let old = self.declared().and_then(crate::cli_caller::Declared::old_client);
+        match old.filter(|_| self.caller().is_none()) {
             Some(client) => crate::cli_caller::old_cli_refused(client, what),
-            None => crate::hub::person::person_required(what),
+            None => otherwise,
         }
+    }
+
+    /// The refusal of a verb only the person's own terminal may use, for this connection
+    /// ([`Conn::refusal`] of `person_required`).
+    pub(super) fn person_only(&self, what: &str) -> crate::rpc::RpcError {
+        self.refusal(what, crate::hub::person::person_required(what))
     }
 
     /// Whether this connection gets the person challenge: the unix socket or the proven local app.
