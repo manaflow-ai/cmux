@@ -1941,8 +1941,9 @@ mod fault;
 mod folder;
 use folder::local_folder;
 mod support;
-pub(super) use support::sections;
 use support::{at, last_turn, reply, words};
+// `cmux chat cd` reads the same guest script sections.
+pub(in crate::cli) use support::sections;
 
 #[cfg(test)]
 pub(in crate::cli) mod tests;
