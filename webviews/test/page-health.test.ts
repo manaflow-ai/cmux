@@ -1,6 +1,6 @@
 // The page's half of app health (pages/shared/pageHealth.ts): it beats at once and while visible,
-// never while hidden; it counts handled keys and presses; an app without the op stops the beats; it
-// keeps a focused textarea's draft for the reload and puts it back; it leaves an editor that keeps
+// never while hidden; it counts handled keys and presses; an app without the op stops the beats but
+// not the save on hide; it keeps a focused textarea's draft for the reload, per route, and puts it back; it leaves an editor that keeps
 // its own draft alone; and the hang injection exists only when the host allowed it.
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -123,6 +123,37 @@ test("an editor that keeps its own draft is left alone", () => {
   const { dom } = page(`<div data-cmux-restore-draft><div class="ProseMirror">${editor}</div></div>`);
   (dom.window.document.getElementById("composer") as HTMLElement).focus();
   expect(captureState(dom.window.document).draft).toBeUndefined();
+  dom.window.close();
+});
+
+test("a route change at the same place still saves under the new route", () => {
+  const { dom, handlers, client } = page(`<textarea id="note" data-cmux-restore-draft></textarea>`);
+  installPageHealth(client, dom.window.document);
+  const field = dom.window.document.querySelector("textarea")!;
+  field.value = "half a thought";
+  field.focus();
+  handlers.get(PAGE_SAVE_STATE_OP)?.({});
+  dom.window.location.hash = "#/other";
+  handlers.get(PAGE_SAVE_STATE_OP)?.({});
+  const kept = dom.window.sessionStorage.getItem("cmux.page.kept:https://cmux.settings/#/other");
+  expect(JSON.parse(kept!).draft).toMatchObject({ text: "half a thought" });
+  dom.window.close();
+});
+
+test("a page hidden on an app without the beat op still saves its place", async () => {
+  const { dom, calls, client, setVisible, refuse } = page(`<textarea id="note" data-cmux-restore-draft></textarea>`);
+  refuse();
+  installPageHealth(client, dom.window.document);
+  await Promise.resolve();
+  await Promise.resolve();
+  const field = dom.window.document.querySelector("textarea")!;
+  field.value = "half a thought";
+  field.focus();
+  setVisible(false);
+  const kept = dom.window.sessionStorage.getItem("cmux.page.kept:https://cmux.settings/#/general");
+  expect(JSON.parse(kept!).draft).toMatchObject({ text: "half a thought" });
+  setVisible(true);
+  expect(beats(calls)).toHaveLength(1);
   dom.window.close();
 });
 
