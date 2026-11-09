@@ -73,6 +73,38 @@ struct SidebarRowsPatchCostTests {
         return best
     }
 
+    /// The parts of one patch, timed apart: the model's write (`SidebarModel.patchWorkspaces`) and the live rows' write
+    /// (`SidebarSection.RowPlaces`), ns per patch over `count` workspaces.
+    static func partCosts(_ count: Int, patches: Int = 400) -> (model: Double, live: Double) {
+        let start = sections(count)
+        let model = SidebarModel(sections: [])
+        model.setSections(start)
+        var live = start
+        var places = SidebarSection.RowPlaces()
+        let target = start[0].workspaces[count / 2]
+        func timed(_ body: (Int) -> Void) -> Double {
+            var best = Double.infinity
+            for round in 0..<3 {
+                let begin = DispatchTime.now().uptimeNanoseconds
+                for i in 0..<patches { body(round * patches + i) }
+                best = min(best, Double(DispatchTime.now().uptimeNanoseconds - begin) / Double(patches))
+            }
+            return best
+        }
+        let modelCost = timed { i in var row = target; row.branch = "m\(i)"; _ = model.patchWorkspaces([row]) }
+        let liveCost = timed { i in var row = target; row.branch = "l\(i)"; places.patch([row], in: &live) }
+        return (modelCost, liveCost)
+    }
+
+    @Test func eachPartOfARowPatchCostsTheSameAt3000WorkspacesAsAt100() {
+        _ = Self.partCosts(100, patches: 50)
+        let small = Self.partCosts(100)
+        let large = Self.partCosts(3000)
+        print("sidebar-rows-patch-parts ns/patch model N=100 \(Int(small.model)) N=3000 \(Int(large.model)) live N=100 \(Int(small.live)) N=3000 \(Int(large.live))")
+        #expect(large.live < small.live * 4, "the live rows' write at 3,000 took \(Int(large.live)) ns, at 100 \(Int(small.live)) ns")
+        #expect(large.model < small.model * 4, "the model's write at 3,000 took \(Int(large.model)) ns, at 100 \(Int(small.model)) ns")
+    }
+
     @Test func oneRowsPatchCostsTheSameAt3000WorkspacesAsAt100() {
         _ = Self.patchCost(100, patches: 50) // warm up
         let small = Self.patchCost(100)

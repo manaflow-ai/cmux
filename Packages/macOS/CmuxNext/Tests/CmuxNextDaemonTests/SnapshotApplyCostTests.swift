@@ -170,13 +170,13 @@ import Testing
         }
     }
 
-    /// The list a move event wrote since the last snapshot is not the memo's: a snapshot in the memo's order puts it back.
-    @Test func aSnapshotInTheMemosOrderUndoesAMoveEventTheDaemonDidNotKeep() async {
+    /// A list written since the last snapshot (a move event, an intent) is not the memo's: a snapshot in the memo's
+    /// order puts it back, though it names no workspace as changed.
+    @Test func aSnapshotInTheMemosOrderUndoesAListWriteTheDaemonDidNotKeep() async {
         let store = DaemonStore()
         let tree = session(5)
         store.apply(snapshot: tree)
-        _ = store.apply(.workspaceMoved(WorkspaceDelta(workspace: WorkspaceHandle(rawValue: 4 * 100 + 3), index: 0,
-                                                       entity: workspace(4), workspaceRevision: 2)))
+        store.workspaces = store.workspaces.reversed()
         #expect(store.workspaces.first?.name == "w4")
         let diff = await store.snapshotDiff(of: tree)
         store.apply(snapshot: tree, diff: diff)
