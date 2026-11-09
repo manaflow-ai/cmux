@@ -59,7 +59,8 @@ mod person_key;
 use person_key::KEY_READY;
 #[cfg(unix)]
 pub(crate) use person_key::not_dumpable;
-#[cfg(unix)]
+// Only the Linux provisioning exec (provision::enroll_running) reads a key line from here.
+#[cfg(target_os = "linux")]
 pub(crate) use person_key::read_key_line;
 use person_key::read_person_key;
 #[cfg(unix)]
