@@ -1,4 +1,5 @@
 use super::*;
+#[cfg(unix)]
 use std::os::unix::net::UnixListener;
 
 /// A 1x1 PNG of one colour: fixtures for a before and an after.
@@ -16,6 +17,7 @@ fn png(red: u8) -> Vec<u8> {
 /// A browser host that answers one `browser.repl.eval`: it writes `picture` (when some) where the
 /// cell says and prints the marker, as the REPL's `screenshot(page, {path})` does. Returns the
 /// request it got.
+#[cfg(unix)]
 fn fake_host(socket: &Path, picture: Option<Vec<u8>>) -> std::thread::JoinHandle<Value> {
     let listener = UnixListener::bind(socket).unwrap();
     std::thread::spawn(move || {
@@ -63,8 +65,11 @@ fn the_cell_names_the_workspace_and_out_path_as_json_strings() {
     assert!(code.contains(r#"path: "/tmp/a\"b/before.png""#), "{code}");
     // Only a selected live web page: a hibernated tab is never woken for a picture.
     assert!(code.contains(r#"t.state === "live""#) && code.contains("t.active"), "{code}");
+    // Only tabs agents drive already: touching one the person alone used would rebuild its page.
+    assert!(code.contains("tabs.list()") && !code.contains("all:"), "{code}");
 }
 
+#[cfg(unix)]
 #[test]
 fn a_capture_writes_the_page_through_the_hosts_repl() {
     let dir = tempfile::tempdir().unwrap();
@@ -80,6 +85,7 @@ fn a_capture_writes_the_page_through_the_hosts_repl() {
     assert_eq!(std::fs::read(&out).unwrap(), png(1));
 }
 
+#[cfg(unix)]
 #[test]
 fn no_page_or_no_host_takes_no_picture() {
     let dir = tempfile::tempdir().unwrap();
@@ -90,6 +96,18 @@ fn no_page_or_no_host_takes_no_picture() {
     assert!(!capture(&socket, dir.path(), "ws_ab", &out), "the workspace shows no page");
     host.join().unwrap();
     assert!(!out.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_picture_over_the_cap_is_not_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("bh.sock");
+    let host = fake_host(&socket, Some(vec![1; MAX_SHOT_BYTES + 1]));
+    let out = dir.path().join("after.png");
+    assert!(!capture(&socket, dir.path(), "ws_ab", &out));
+    host.join().unwrap();
+    assert!(!out.exists(), "the disk cap holds");
 }
 
 #[test]
@@ -151,5 +169,19 @@ async fn a_read_waits_only_on_a_settled_turns_pair() {
     // A turn that failed before its result never gets an after: the read answers at once.
     let read = tokio::time::timeout(Duration::from_secs(2), turn_shots(&key.0, &key.1)).await;
     assert!(read.is_ok_and(|reply| reply.get("after").is_none()));
+    finish(&key);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_pair_still_being_taken_reads_as_pending_not_as_none() {
+    let key = ("turn-shots-test-pending".to_owned(), "t1".to_owned());
+    let (phase, _) = watch::channel(Phase::Ready);
+    PENDING
+        .lock()
+        .unwrap()
+        .insert(key.clone(), Pending { workspace: "ws_ab".into(), phase, ended: true });
+    let reply = turn_shots(&key.0, &key.1).await;
+    assert_eq!(reply.get("pending"), Some(&json!(true)));
+    assert!(reply.get("after").is_none());
     finish(&key);
 }

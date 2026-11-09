@@ -9432,10 +9432,16 @@ export class AcpmuxDirectClient {
     const sessionId = this.selectedSession;
     if (!sessionId || this.capabilities?.has(TURN_SHOTS_CAPABILITY) !== true) return undefined;
     try {
-      return readTurnShots(await this.request("_acpmux/turn_shots", { sessionId, turnId }));
+      // A pair still being taken answers `pending` (acpmux waited 30 s): ask again, at most twice
+      // more, past the longest a turn's two captures take; never cache it as no pair.
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const reply = await this.request("_acpmux/turn_shots", { sessionId, turnId });
+        if (objectValue(reply)?.pending !== true) return readTurnShots(reply);
+      }
     } catch {
-      return undefined;
+      // No pair.
     }
+    return undefined;
   }
   async continueIn(harness: string): Promise<string | undefined> {
     if (!this.handoffSupported || this.turnOpen || this.summary?.status === "running" || this.queue.length > 0) return;

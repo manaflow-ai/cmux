@@ -7,8 +7,11 @@
 //! The capture is the browser host's own `screenshot` (cmux-browser-host, `js/api.js`), through one
 //! REPL session of this daemon on the `cef` engine: the app's tabs only, never a headless browser
 //! started for it, and the host masks typed secrets in every capture. The tab is the selected live
-//! http(s) tab of the chat's workspace (`tabs.list({all: true})`); a hibernated tab is never woken.
-//! No page, no host or no workspace: no capture, and the turn never waits on one.
+//! http(s) tab of the chat's workspace among the tabs agents already drive (`tabs.list()`: the ones an
+//! agent kept, such as a preview it opened): the app rebuilds a page the first time an agent touches
+//! it (no saved password stays filled), so a tab only the person used is never touched for a picture.
+//! A hibernated tab is never woken. No page, no host or no workspace: no capture, and the turn never
+//! waits on one. Unix only (the host's socket); elsewhere nothing is captured.
 //!
 //! Disk: `<ACPMUX_HOME>/turn-shots/<session>/<turn>/{before,after}.png`, at most [`KEEP_TURNS`]
 //! turns per chat and [`KEEP_CHATS`] chats (the oldest go first), each picture at most
@@ -112,24 +115,29 @@ fn host_socket() -> PathBuf {
     }
     let base = match env("XDG_RUNTIME_DIR") {
         Some(dir) => PathBuf::from(dir).join("cmux"),
+        #[cfg(unix)]
         // SAFETY: getuid(2) has no failure modes or memory effects.
         None => std::env::temp_dir().join(format!("cmux-{}", unsafe { libc::getuid() })),
+        #[cfg(not(unix))]
+        None => std::env::temp_dir().join("cmux"),
     };
     base.join("browser-host.sock")
 }
 
 /// The REPL cell that writes the workspace's page to `out`, printing `TURN_SHOT <json>` when it did.
+/// `tabs.list()` with no `all`: only tabs agents drive already, never one the person alone used.
 pub(crate) fn capture_code(workspace: &str, out: &Path) -> String {
     let workspace = json!(workspace_key(workspace));
     let out = json!(out.display().to_string());
     format!(
         r#"const key = (id) => String(id || "").replace(/^ws_/, "").replace(/-/g, "").toLowerCase();
-const tab = (await tabs.list({{ all: true }})).find((t) => t.active && t.state === "live" && key(t.workspace) === {workspace} && /^https?:\/\//.test(t.url || ""));
+const tab = (await tabs.list()).find((t) => t.active && t.state === "live" && key(t.workspace) === {workspace} && /^https?:\/\//.test(t.url || ""));
 if (tab) {{ await screenshot(await tabs.get(tab.id), {{ path: {out} }}); console.log("TURN_SHOT " + JSON.stringify({{ url: tab.url }})); }}"#
     )
 }
 
 /// One request to the browser host, answered by its `result`.
+#[cfg(unix)]
 fn host_call(socket: &Path, method: &str, params: Value) -> Option<Value> {
     let mut stream = std::os::unix::net::UnixStream::connect(socket).ok()?;
     stream.set_read_timeout(Some(CAPTURE_LIMIT)).ok()?;
@@ -157,7 +165,14 @@ fn host_call(socket: &Path, method: &str, params: Value) -> Option<Value> {
     }
 }
 
-/// Captures the workspace's page into `out`. Blocking, bounded by [`CAPTURE_LIMIT`] per call.
+/// The host listens on a unix socket only.
+#[cfg(not(unix))]
+fn host_call(_socket: &Path, _method: &str, _params: Value) -> Option<Value> {
+    None
+}
+
+/// Captures the workspace's page into `out`; false, with no file left, when it took none (or one
+/// over [`MAX_SHOT_BYTES`]). Blocking, bounded by [`CAPTURE_LIMIT`] per call.
 fn capture(socket: &Path, base: &Path, workspace: &str, out: &Path) -> bool {
     if !socket.exists() {
         return false;
@@ -177,7 +192,12 @@ fn capture(socket: &Path, base: &Path, workspace: &str, out: &Path) -> bool {
                 .and_then(Value::as_str)
                 .is_some_and(|text| text.lines().any(|l| l.starts_with("TURN_SHOT ")))
     });
-    taken && std::fs::metadata(out).is_ok_and(|m| m.len() > 0 && m.len() as usize <= MAX_SHOT_BYTES)
+    let kept = taken
+        && std::fs::metadata(out).is_ok_and(|m| m.len() > 0 && m.len() as usize <= MAX_SHOT_BYTES);
+    if !kept {
+        let _ = std::fs::remove_file(out);
+    }
+    kept
 }
 
 /// Keeps a turn's pair when it shows a change: the after differs from the before. Then at most
@@ -297,6 +317,7 @@ pub(super) fn turn_ended(session: &Session, turn: &str) {
         let _ = tokio::task::spawn_blocking(move || {
             let base = root();
             if let Some(dir) = turn_dir(&base, &key.0, &key.1) {
+                // No after (or one too large): `settle` drops the lone before.
                 capture(&socket, &base, &workspace, &dir.join(AFTER));
                 settle(&base, &base.join(&key.0), &dir);
             }
@@ -308,11 +329,16 @@ pub(super) fn turn_ended(session: &Session, turn: &str) {
 
 /// `_acpmux/turn_shots {sessionId, turnId}`: the turn's kept pair as `{mimeType, data}` pictures,
 /// or no `before` and `after` when it has none. A pair still being taken is waited for, at most
-/// [`READ_WAIT`].
+/// [`READ_WAIT`]; past that the reply says `pending: true` (ask again), never that there is none.
 pub(crate) async fn turn_shots(session: &str, turn: &str) -> Value {
     // Only a settled turn's after is coming: a turn that failed before its result never gets one.
+    let mut pending = false;
     if let Some(mut phase) = pending_phase(&(session.to_owned(), turn.to_owned())) {
-        let _ = tokio::time::timeout(READ_WAIT, phase.wait_for(|p| *p == Phase::Done)).await;
+        let waited = tokio::time::timeout(READ_WAIT, phase.wait_for(|p| *p == Phase::Done)).await;
+        pending = waited.is_err();
+    }
+    if pending {
+        return json!({"sessionId": session, "turnId": turn, "pending": true});
     }
     let dir = turn_dir(&root(), session, turn);
     let read = move || {
