@@ -661,7 +661,7 @@ impl Health {
             }
             (State::Stuck, Mode::Hold) => {
                 if !r.held {
-                    if let Some(out) = actions.as_deref_mut() {
+                    if let Some(out) = actions.as_mut() {
                         r.held = true;
                         r.attempt += 1;
                         r.action = RepairAction::HoldReplace;
