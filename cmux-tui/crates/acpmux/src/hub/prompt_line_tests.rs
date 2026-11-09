@@ -320,3 +320,39 @@ async fn context_inventory_a_fork_waits_for_the_rules_its_parents_written_prompt
     assert!(parent.meta().cmux_rules_in_transcript);
     assert!(fork.meta().cmux_rules_in_transcript, "the fork lost the rules its copy holds");
 }
+
+/// An agent that never answers `session/fork` stalls only its fork: the parent's next prompt is
+/// written and answered meanwhile, since the fork holds `input_handoff` only until its request
+/// is written, not for its answer (review of #39841).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn context_inventory_a_fork_the_agent_never_answers_does_not_hold_its_parents_prompts() {
+    let hub = hub();
+    hub.config
+        .write()
+        .await
+        .harnesses
+        .get_mut("fake")
+        .unwrap()
+        .env
+        .insert("FAKE_FORK_SILENT".into(), "1".into());
+    let parent = hub
+        .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..Default::default() })
+        .await
+        .unwrap();
+    hub.prompt(&parent, vec![json!({"type":"text", "text":"first"})], "test", false).await.unwrap();
+    let fork = {
+        let (hub, parent) = (hub.clone(), parent.clone());
+        tokio::spawn(async move {
+            hub.fork(&parent, None, None, Default::default(), None, None, true).await
+        })
+    };
+    // The fork's request reaches the agent, which keeps it unanswered.
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    assert!(!fork.is_finished(), "the agent answered the fork");
+    let next = hub.prompt(&parent, vec![json!({"type":"text", "text":"second"})], "test", false);
+    tokio::time::timeout(std::time::Duration::from_secs(10), next)
+        .await
+        .expect("the parent's prompt waited on the unanswered fork")
+        .unwrap();
+    fork.abort();
+}
