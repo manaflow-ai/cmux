@@ -49,7 +49,13 @@ struct WorkspaceFoldLineModel: Equatable {
     var typeSize: DynamicTypeSize
     var canReconnect: Bool
     var sameNames: MacNameDisambiguation
-    var now: Date
+}
+
+/// A view that reads the minute clock in its own body, so a tick redraws it and not the list
+/// that holds it (a Mac line's "Last seen 4m ago").
+struct OnMinute<Content: View>: View {
+    let content: (Date) -> Content
+    var body: some View { content(MinuteClock.shared.now) }
 }
 
 /// The Workspaces list's sections and items, as the collection shows them.
