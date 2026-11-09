@@ -110,6 +110,6 @@ final class NestedRunLoopWatch: Sendable {
     /// Whether the main run loop's current mode is the default mode (main thread, inside a run).
     static func mainLoopInDefaultMode() -> Bool {
         guard let mode = CFRunLoopCopyCurrentMode(CFRunLoopGetMain()) else { return false }
-        return CFEqual(mode, CFRunLoopMode.defaultMode.rawValue)
+        return mode == .defaultMode
     }
 }
