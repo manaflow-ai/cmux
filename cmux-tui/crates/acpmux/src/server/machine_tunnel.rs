@@ -39,7 +39,9 @@ async fn run(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError>
     let record = |key: &str| crate::cli::cloud_join::record_wg_public_key(&machine.id, key);
     match m {
         method::MUX_MACHINE_TUNNEL_ATTACH => {
-            // A rekey whose answer was lost goes first, so the peer map gets the key in use.
+            // Another team's network is refused before anything changes here; then a rekey
+            // whose answer was lost goes first, so the peer map gets the key in use.
+            machine_tunnel::same_network(&machine, params)?;
             let pending = machine_tunnel::finish_pending_rekey(
                 &machine_tunnel::REKEYS,
                 &machine,

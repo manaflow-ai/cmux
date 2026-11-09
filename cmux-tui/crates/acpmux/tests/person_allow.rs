@@ -1676,6 +1676,28 @@ async fn only_the_person_moves_this_macs_cloud_tunnel() {
     let mut app = Rpc::person(&daemon.socket, KEY).await;
     let missing = app.call("_acpmux/machine.tunnel.attach", json!({})).await;
     assert_eq!(reason(&missing), "token_required", "{missing}");
+    // A rekey whose answer was lost left its candidate key behind.
+    use base64::Engine as _;
+    let public_of = |key: [u8; 32]| {
+        let public = x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from(key));
+        base64::engine::general_purpose::STANDARD.encode(public.to_bytes())
+    };
+    let pending = daemon.dir.join("node.wg.pending");
+    std::fs::write(&pending, [5u8; 32]).unwrap();
+    std::fs::set_permissions(&pending, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let node_before = std::fs::read(daemon.dir.join("node.wg.key")).ok();
+    // Another team's network is refused before the pending rekey is finished.
+    let mismatch = app
+        .call(
+            "_acpmux/machine.tunnel.attach",
+            json!({"token": "person-token", "networkId": "team_other"}),
+        )
+        .await;
+    assert_eq!(reason(&mismatch), "network_mismatch", "{mismatch}");
+    assert!(seen.lock().unwrap().is_empty(), "a mismatched attach reached the platform");
+    assert_eq!(std::fs::read(&pending).unwrap(), [5u8; 32], "the candidate waits");
+    assert_eq!(std::fs::read(daemon.dir.join("node.wg.key")).ok(), node_before);
+    // The team's own network: the pending key goes to the platform and into place first.
     let attached = app
         .ok(
             "_acpmux/machine.tunnel.attach",
@@ -1683,31 +1705,33 @@ async fn only_the_person_moves_this_macs_cloud_tunnel() {
         )
         .await;
     assert_eq!(attached["tunnel_id"], "machine_test");
+    let candidate = public_of([5u8; 32]);
+    assert_eq!(attached["pendingRekey"], json!({"finished": true, "wgPublicKey": candidate}));
+    assert!(!pending.exists());
     let rekeyed = app.ok("_acpmux/machine.tunnel.rekey", token.clone()).await;
     let new_key = rekeyed["wgPublicKey"].as_str().unwrap().to_owned();
+    assert_ne!(new_key, candidate);
     assert_eq!(rekeyed["restarted"], false, "no WireGuard transport runs in this daemon");
     let requests = seen.lock().unwrap().clone();
-    assert_eq!(requests.len(), 2, "{requests:?}");
-    assert!(
-        requests[0].0.starts_with("post /v1/mesh/nodes/machine_test/attach "),
-        "{}",
-        requests[0].0
-    );
-    assert!(
-        requests[1].0.starts_with("post /v1/machines/credentials/machine_test/wg-key "),
-        "{}",
-        requests[1].0
-    );
-    assert_eq!(requests[1].2["wgPublicKey"], new_key.as_str());
+    assert_eq!(requests.len(), 3, "{requests:?}");
+    for (index, route) in [
+        "post /v1/machines/credentials/machine_test/wg-key ",
+        "post /v1/mesh/nodes/machine_test/attach ",
+        "post /v1/machines/credentials/machine_test/wg-key ",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        assert!(requests[index].0.starts_with(route), "{}", requests[index].0);
+    }
+    assert_eq!(requests[0].2["wgPublicKey"], candidate.as_str());
+    assert_eq!(requests[2].2["wgPublicKey"], new_key.as_str());
     for (_, headers, _) in &requests {
         assert!(headers.contains("authorization: bearer person-token"), "{headers}");
         assert!(headers.contains("x-cmux-team: team_test"), "{headers}");
     }
     let key = std::fs::read(daemon.dir.join("node.wg.key")).unwrap();
-    let key: [u8; 32] = key.try_into().unwrap();
-    let public = x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from(key));
-    use base64::Engine as _;
-    assert_eq!(base64::engine::general_purpose::STANDARD.encode(public.to_bytes()), new_key);
+    assert_eq!(public_of(key.try_into().unwrap()), new_key);
     let record: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     assert_eq!(record["wgPublicKey"], new_key.as_str());
     assert!(

@@ -76,6 +76,18 @@ pub(crate) fn token(params: &Value) -> Result<Zeroizing<String>, RpcError> {
     Ok(Zeroizing::new(token.to_owned()))
 }
 
+/// A `networkId` in `params` names this Mac's own team (or is absent): refused
+/// `network_mismatch` otherwise, before anything else an attach does.
+pub(crate) fn same_network(machine: &Machine, params: &Value) -> Result<(), RpcError> {
+    match params.get("networkId").and_then(Value::as_str) {
+        Some(network) if !network.is_empty() && network != machine.team => Err(refusal(
+            "network_mismatch",
+            "this Mac's tunnel is in its own team's network; pass that team's id or none",
+        )),
+        _ => Ok(()),
+    }
+}
+
 /// Attach (or with `detach`, detach) this Mac in its team's peer map. A `networkId` in `params`
 /// must name the Mac's own team: the peer map is the team's.
 pub(crate) async fn attach(
@@ -84,15 +96,7 @@ pub(crate) async fn attach(
     token: &str,
     detach: bool,
 ) -> Result<Value, RpcError> {
-    if let Some(network) = params.get("networkId").and_then(Value::as_str)
-        && !network.is_empty()
-        && network != machine.team
-    {
-        return Err(refusal(
-            "network_mismatch",
-            "this Mac's tunnel is in its own team's network; pass that team's id or none",
-        ));
-    }
+    same_network(machine, params)?;
     let path = if detach {
         format!("/v1/mesh/nodes/{}/detach", machine.id)
     } else {
