@@ -885,6 +885,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
+ "cmux-daemon-launch-core",
  "cmux-json",
  "cmux-pty",
  "futures-util",

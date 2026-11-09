@@ -22,6 +22,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use cmux_daemon_launch_core::ensure::{REAP_GRACE_OPTION, lists_reap_grace, reap_grace_probes};
 use cmux_pty::{MasterPty, PtySize};
 use sha2::{Digest, Sha256};
 
@@ -32,8 +33,6 @@ use crate::pty::{
 };
 
 const DAEMON_SOCKET_WAIT_MS: u64 = 5_000;
-/// The option that makes an owner end a terminal left with no tab after a grace.
-const REAP_GRACE_OPTION: &str = "--terminal-reap-grace-seconds";
 /// The reap grace of the owner the relay starts, in seconds: the default every owner `ensure`
 /// starts gets (`cmux_tui_core::DEFAULT_TERMINAL_REAP_GRACE`). Its socket is the session's default
 /// one, so a later `cmux` client reuses this owner, and a tab closed in the relay's `cmux-tui
@@ -864,16 +863,15 @@ async fn socket_exists(path: &Path) -> bool {
     tokio::fs::metadata(path).await.is_ok()
 }
 
-/// Whether `cmux_tui` accepts `--terminal-reap-grace-seconds`: its root help (older binaries) or
-/// `help start` (current ones) lists the option as a line's first word, the probe the app's
-/// launcher runs (`cmux_daemon_launch_core::ensure::reap_grace_probes`). A cmux-tui that does not
-/// list it would refuse the option and never start, and an owner that never reaps is better than
-/// no owner, so a failed probe answers false.
+/// Whether `cmux_tui` accepts `--terminal-reap-grace-seconds`: the probe the app's launcher runs
+/// (`cmux_daemon_launch_core::ensure`: root help for older binaries, `help start` for current
+/// ones, the option as a line's first word). A cmux-tui that does not list it would refuse the
+/// option and never start, and an owner that never reaps is better than no owner, so a probe that
+/// fails, exits non-zero or outlasts `REAP_GRACE_PROBE_TIMEOUT` answers false.
 async fn accepts_reap_grace(cmux_tui: &CmuxTui, env: &HashMap<String, String>) -> bool {
-    const PROBES: [&[&str]; 2] = [&["--help"], &["help", "start"]];
-    for probe in PROBES {
+    for probe in reap_grace_probes() {
         let mut command = tokio::process::Command::new(&cmux_tui.file);
-        command.args(&cmux_tui.prefix).args(probe).env_clear().envs(env).current_dir("/");
+        command.args(&cmux_tui.prefix).args(&probe).env_clear().envs(env).current_dir("/");
         command.stdin(std::process::Stdio::null());
         command.stdout(std::process::Stdio::piped());
         command.stderr(std::process::Stdio::null());
@@ -882,10 +880,7 @@ async fn accepts_reap_grace(cmux_tui: &CmuxTui, env: &HashMap<String, String>) -
         else {
             continue;
         };
-        let help = String::from_utf8_lossy(&output.stdout);
-        let lists =
-            help.lines().any(|line| line.split_whitespace().next() == Some(REAP_GRACE_OPTION));
-        if output.status.success() && lists {
+        if output.status.success() && lists_reap_grace(&String::from_utf8_lossy(&output.stdout)) {
             return true;
         }
     }
@@ -1207,6 +1202,35 @@ mod tests {
     async fn w5o_an_older_cmux_tui_starts_without_the_reap_option() {
         let (session, args) = owner_arguments(
             "case \"$1\" in --help|help) exit 0 ;; esac\n\
+             printf '%s\\n' \"$@\" > \"$0.args\"\n",
+        )
+        .await;
+        assert!(args.starts_with(&["--headless".to_owned(), "--session".to_owned(), session]));
+        assert!(!args.iter().any(|arg| arg == REAP_GRACE_OPTION), "{args:?}");
+    }
+
+    /// A help probe that hangs ends at its bound and the owner still starts, without the option:
+    /// the relay never waits on a stuck binary longer than `REAP_GRACE_PROBE_TIMEOUT` per probe.
+    #[tokio::test]
+    async fn w5o_a_hanging_help_probe_starts_the_owner_without_the_reap_option() {
+        let started = Instant::now();
+        let (session, args) = owner_arguments(
+            "case \"$1\" in --help|help) exec /bin/sleep 60 ;; esac\n\
+             printf '%s\\n' \"$@\" > \"$0.args\"\n",
+        )
+        .await;
+        assert!(args.starts_with(&["--headless".to_owned(), "--session".to_owned(), session]));
+        assert!(!args.iter().any(|arg| arg == REAP_GRACE_OPTION), "{args:?}");
+        // Two bounded probes and the owner's socket wait, far less than the stand-in's sleep.
+        assert!(started.elapsed() < Duration::from_secs(40), "{:?}", started.elapsed());
+    }
+
+    /// A help probe that lists the option but exits non-zero is not trusted: the owner starts
+    /// without the option, as the app's launcher decides.
+    #[tokio::test]
+    async fn w5o_a_failing_help_probe_starts_the_owner_without_the_reap_option() {
+        let (session, args) = owner_arguments(
+            "case \"$1\" in --help|help) printf '%s\\n' '--terminal-reap-grace-seconds <n>'; exit 2 ;; esac\n\
              printf '%s\\n' \"$@\" > \"$0.args\"\n",
         )
         .await;
