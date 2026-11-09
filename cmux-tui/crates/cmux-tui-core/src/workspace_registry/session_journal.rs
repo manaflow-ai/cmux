@@ -1863,50 +1863,23 @@ pub(super) struct DecodedJournalSegment {
     pub(super) records: Vec<SessionJournalRecord>,
 }
 
-/// A segment that output cleanup re-encoded keeps its sequence range but
-/// holds fewer records: every missing run must be a pruned range of
-/// `connection` (see `output_cleanup::pruned`). Any other gap is an error.
-pub(super) fn decode_journal_segment(
-    connection: &Connection,
-    row: JournalSegmentRow,
-) -> anyhow::Result<DecodedJournalSegment> {
-    let (
-        segment_id,
-        start_sequence,
-        end_sequence,
-        record_count,
-        codec,
-        compressed,
-        expected_bytes,
-        expected_digest,
-    ) = row;
-    anyhow::ensure!(
-        compressed.len() <= MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES,
-        "journal segment {segment_id} exceeds the compressed size limit"
-    );
-    let start_sequence = u64::try_from(start_sequence)?;
-    let end_sequence = u64::try_from(end_sequence)?;
-    let record_count = usize::try_from(record_count)?;
-    anyhow::ensure!(codec == "gzip-json-v1", "journal segment {segment_id} codec is invalid");
-    anyhow::ensure!(record_count > 0, "journal segment {segment_id} record count is invalid");
-    anyhow::ensure!(
-        start_sequence <= end_sequence,
-        "journal segment {segment_id} sequence range is invalid"
-    );
-    let expected_bytes = usize::try_from(expected_bytes)?;
-    anyhow::ensure!(
-        expected_bytes <= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES,
-        "journal segment {segment_id} exceeds the uncompressed size limit"
-    );
+/// The records of a `gzip-json-v1` segment, streamed from the gzip reader
+/// into the JSON decoder without a second buffer the size of the segment.
+fn decode_gzip_segment(
+    segment_id: &str,
+    compressed: &[u8],
+    expected_bytes: usize,
+    expected_digest: &[u8],
+) -> anyhow::Result<Vec<SessionJournalRecord>> {
     // Feed the in-memory slice directly to the buffered decoder so its
     // returned reader is the exact unread compressed suffix.
-    let decoder = GzDecoder::new(compressed.as_slice());
+    let decoder = GzDecoder::new(compressed);
     // Decode directly from the bounded gzip stream. This avoids allocating a
     // second buffer the size of the complete segment before JSON parsing.
     let mut reader = BufReader::new(DigestReader::new(
         decoder.take(u64::try_from(expected_bytes)?.saturating_add(1)),
     ));
-    let mut records: Vec<SessionJournalRecord> = serde_json::from_reader(&mut reader)
+    let records: Vec<SessionJournalRecord> = serde_json::from_reader(&mut reader)
         .with_context(|| format!("decode journal segment {segment_id}"))?;
     // Force the bounded gzip reader to reach EOF. This validates the gzip
     // trailer even when the JSON decoder stops after the top-level value.
@@ -1933,6 +1906,65 @@ pub(super) fn decode_journal_segment(
         digest.as_slice() == expected_digest.as_slice(),
         "journal segment {segment_id} digest is invalid"
     );
+    Ok(records)
+}
+
+/// A segment that output cleanup re-encoded keeps its sequence range but
+/// holds fewer records: every missing run must be a pruned range of
+/// `connection` (see `output_cleanup::pruned`). Any other gap is an error.
+pub(super) fn decode_journal_segment(
+    connection: &Connection,
+    row: JournalSegmentRow,
+) -> anyhow::Result<DecodedJournalSegment> {
+    let (
+        segment_id,
+        start_sequence,
+        end_sequence,
+        record_count,
+        codec,
+        compressed,
+        expected_bytes,
+        expected_digest,
+    ) = row;
+    anyhow::ensure!(
+        compressed.len() <= MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES,
+        "journal segment {segment_id} exceeds the compressed size limit"
+    );
+    let start_sequence = u64::try_from(start_sequence)?;
+    let end_sequence = u64::try_from(end_sequence)?;
+    let record_count = usize::try_from(record_count)?;
+    anyhow::ensure!(
+        super::segment_codec::is_known(&codec),
+        "journal segment {segment_id} codec is invalid"
+    );
+    anyhow::ensure!(record_count > 0, "journal segment {segment_id} record count is invalid");
+    anyhow::ensure!(
+        start_sequence <= end_sequence,
+        "journal segment {segment_id} sequence range is invalid"
+    );
+    let expected_bytes = usize::try_from(expected_bytes)?;
+    anyhow::ensure!(
+        expected_bytes <= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES,
+        "journal segment {segment_id} exceeds the uncompressed size limit"
+    );
+    let mut records = if codec == super::segment_codec::GZIP_JSON_V1 {
+        decode_gzip_segment(&segment_id, &compressed, expected_bytes, &expected_digest)?
+    } else {
+        // A zstd segment is decoded whole: its JSON is at most 16 MiB, and
+        // the frame's own checks run before a single record is parsed.
+        let json = super::segment_codec::decode(&codec, &compressed, expected_bytes)
+            .with_context(|| format!("decode journal segment {segment_id}"))?;
+        anyhow::ensure!(
+            json.len() == expected_bytes,
+            "journal segment {segment_id} length is invalid"
+        );
+        anyhow::ensure!(
+            Sha256::digest(&json).as_slice() == expected_digest.as_slice(),
+            "journal segment {segment_id} digest is invalid"
+        );
+        serde_json::from_slice::<Vec<SessionJournalRecord>>(&json)
+            .with_context(|| format!("decode journal segment {segment_id}"))?
+    };
     for record in &mut records {
         normalize_terminal_output(record, None)
             .with_context(|| format!("validate journal segment {segment_id}"))?;

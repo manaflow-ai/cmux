@@ -25,6 +25,7 @@
 //! pointing at the same records. The journal readers accept a missing run of
 //! sequences exactly when one pruned range covers it ([`pruned_gap`]).
 
+mod chunks;
 mod codec;
 mod pruned;
 mod stage;

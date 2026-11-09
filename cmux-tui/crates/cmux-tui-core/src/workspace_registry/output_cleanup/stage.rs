@@ -15,11 +15,14 @@ use super::super::{
     open_registry_database, open_registry_database_read_only, open_registry_database_with_flags,
     required_meta,
 };
+use super::chunks::{CHUNK_SCHEMA, StagedRecord, insert_chunk};
 use super::codec::{inflate_segment, split_records};
 use super::{OUTPUT_KIND, copied_bytes, free_space_refusal, remove_staging, staging_path};
 use crate::platform;
 
-const STAGING_FORMAT: &str = "2";
+/// Format 3 stores kept records compressed (`chunks.rs`); a format 2 file
+/// (plain JSON per record) is discarded and staged again.
+const STAGING_FORMAT: &str = "3";
 /// Free space is checked again after this many staged segments.
 const SEGMENTS_PER_SPACE_CHECK: u64 = 256;
 const PROGRESS_LOG_INTERVAL: Duration = Duration::from_secs(10);
@@ -180,12 +183,6 @@ pub(super) fn open_staging(db_path: &Path, registry_id: &str) -> anyhow::Result<
            key TEXT PRIMARY KEY NOT NULL,
            value TEXT NOT NULL
          );
-         CREATE TABLE output_cleanup_records (
-           sequence INTEGER PRIMARY KEY CHECK(sequence > 0),
-           kind TEXT NOT NULL,
-           record_json BLOB NOT NULL,
-           actor TEXT
-         );
          CREATE TABLE output_cleanup_segments (
            start_sequence INTEGER PRIMARY KEY,
            end_sequence INTEGER NOT NULL,
@@ -196,6 +193,7 @@ pub(super) fn open_staging(db_path: &Path, registry_id: &str) -> anyhow::Result<
            CHECK(record_count = end_sequence - start_sequence + 1)
          );",
     )?;
+    connection.execute_batch(CHUNK_SCHEMA)?;
     let tx = connection.unchecked_transaction()?;
     for (key, value) in [
         ("format", STAGING_FORMAT),
@@ -315,13 +313,7 @@ pub(super) fn stage_segments(
                 record_count - i64::try_from(kept.len())?
             ],
         )?;
-        for record in &kept {
-            tx.execute(
-                "INSERT INTO output_cleanup_records(sequence, kind, record_json, actor)
-                 VALUES(?1, ?2, ?3, ?4)",
-                params![i64::try_from(record.0)?, record.1, record.2, record.3],
-            )?;
-        }
+        insert_chunk(&tx, &kept)?;
         tx.execute(
             "UPDATE output_cleanup_state SET value = ?1 WHERE key = 'staged_through'",
             [end.to_string()],
@@ -408,8 +400,6 @@ fn count_live_rows(source: &Connection, staging: &Connection) -> anyhow::Result<
     Ok(())
 }
 
-type KeptRecord = (u64, String, Vec<u8>, Option<String>);
-
 /// The non-output records of one sealed segment with their stored actors.
 /// Every segment is inflated: its kind map is not proof that it holds only
 /// output, since a legacy kind backfill killed partway leaves a mixed
@@ -420,7 +410,7 @@ fn kept_segment_records(
     start: u64,
     end: u64,
     record_count: i64,
-) -> anyhow::Result<Vec<KeptRecord>> {
+) -> anyhow::Result<Vec<StagedRecord>> {
     let (codec, content, uncompressed_bytes, sha256, actors_json) = source.query_row(
         "SELECT codec, content, uncompressed_bytes, sha256, actors_json
          FROM journal_segments WHERE segment_id = ?1",
