@@ -133,6 +133,14 @@ import Testing
         withExtendedLifetime(pane.window) {}
     }
 
+    /// A fetched title reads as the page shows it: swift.org's card said "Redirecting&hellip;".
+    @Test func aCardTitleDecodesItsEntities() {
+        #expect(LinkPreviews.decode("Redirecting&hellip;") == "Redirecting…")
+        #expect(LinkPreviews.decode("Swift &#8212; Docs &#x2019;26 &mdash; A&amp;B") == "Swift — Docs ’26 — A&B")
+        // One pass: an escaped entity stays escaped; an unknown or bare ampersand is kept as written.
+        #expect(LinkPreviews.decode("a &amp;lt; b &bogus; & c &#xZZ;") == "a &lt; b &bogus; & c &#xZZ;")
+    }
+
     @Test func theHandShowsOverALinkAndTheArrowOverText() throws {
         let pane = pane()
         let controller = pane.controller
