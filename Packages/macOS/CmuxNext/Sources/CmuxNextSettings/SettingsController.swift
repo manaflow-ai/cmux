@@ -134,7 +134,8 @@ public final class SettingsController {
     /// person about a value it ignores (`SettingsDiagnosticToasts`); tests leave it off.
     /// `rotatingFavoriteThemes`: the app's launch turns to the next starred theme when Rotate Starred
     /// Themes says so (`rotateFavoriteThemeAtLaunch`); tests leave it off.
-    public func start(announcingDiagnostics: Bool = false, rotatingFavoriteThemes: Bool = false) {
+    /// `freshInstall`: the Mac's first launch, whose window starts on Glass (`startFreshInstallOnGlass`).
+    public func start(announcingDiagnostics: Bool = false, rotatingFavoriteThemes: Bool = false, freshInstall: Bool = false) {
         guard watcher == nil else { return }
         if announcingDiagnostics, diagnosticToasts == nil {
             let toasts = SettingsDiagnosticToasts(registry: applier.registry)
@@ -150,6 +151,8 @@ public final class SettingsController {
         watchThemeFiles(named: ThemeFileSetting.name(in: snapshot.root))
         if loadCount == 0 { loadNow() } else { requestReload() }
         if rotatingFavoriteThemes { rotateFavoriteThemeAtLaunch(root: snapshot.root) }
+        // A task, so it reads the Ghostty blur after the launch that called this set its reader.
+        if freshInstall { Task { [weak self] in try? await self?.startFreshInstallOnGlass() } }
     }
 
     public func stop() {
