@@ -173,11 +173,14 @@ fn same_file(a: &Path, b: &Path) -> bool {
 /// could not be written leaves its part of the pane environment alone.
 pub(crate) fn configure_pane(options: &mut cmux_tui_core::SurfaceOptions) {
     let Ok(executable) = crate::claude_wrapper::current_executable() else { return };
+    cmux_tui_core::startup_timings::process_mark("process.helpers.executable");
     if let Some(cli) = own_cli(&executable).and_then(|cli| cli.into_os_string().into_string().ok())
     {
         options.extra_env.push((CLI_ENV.into(), cli));
     }
+    cmux_tui_core::startup_timings::process_mark("process.helpers.cli");
     let helper = hook_helper(&executable);
+    cmux_tui_core::startup_timings::process_mark("process.helpers.hook_helper");
     if let Some(helper) =
         helper.clone().and_then(|helper| helper.into_os_string().into_string().ok())
     {
@@ -186,9 +189,12 @@ pub(crate) fn configure_pane(options: &mut cmux_tui_core::SurfaceOptions) {
     if let Some(dirs) = helper.and_then(|helper| claude_plugin_dirs(&executable, &helper)) {
         options.extra_env.push((crate::claude_plugin::PLUGIN_DIRS_ENV.into(), dirs));
     }
+    cmux_tui_core::startup_timings::process_mark("process.helpers.claude_plugin");
     let Some(dir) = shim_dir(&executable) else { return };
     let claude = crate::claude_wrapper::install_shim(&dir, &executable).is_ok();
+    cmux_tui_core::startup_timings::process_mark("process.helpers.claude_shim");
     let codex = crate::codex_wrapper::install_shim(&dir, &executable).is_ok();
+    cmux_tui_core::startup_timings::process_mark("process.helpers.codex_shim");
     let inherited = std::env::var_os("PATH").unwrap_or_default();
     let (Some(text), Some(path)) = (
         dir.to_str(),
