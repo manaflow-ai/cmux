@@ -184,6 +184,7 @@ try {
       target: 5,
       floor: 2,
       clock: "cpu",
+      version: 2,
     });
     // Let the last repeat's frame land before the next phase.
     await page.waitForTimeout(500);
