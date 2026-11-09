@@ -300,17 +300,90 @@ async fn link_ready(fd: &Option<AsyncFd<Fd>>) {
     }
 }
 
+/// One piece of the carrier stream's input.
+pub(super) struct Chunk {
+    pub payload: Bytes,
+    /// The host finished or reset the stream.
+    pub finished: bool,
+}
+
+/// The carrier stream, as the bridge uses it.
+#[allow(async_fn_in_trait)]
+pub(super) trait Remote {
+    async fn send(&self, bytes: Bytes) -> Result<(), BridgeError>;
+    async fn receive(&self) -> Result<Option<Chunk>, BridgeError>;
+    async fn close(&self) -> Result<(), BridgeError>;
+    /// Resolves when the stream failed.
+    async fn failed(&self) -> BridgeError;
+}
+
+impl Remote for Arc<ServiceStream> {
+    async fn send(&self, bytes: Bytes) -> Result<(), BridgeError> {
+        Ok(ServiceStream::send(self, bytes).await?)
+    }
+    async fn receive(&self) -> Result<Option<Chunk>, BridgeError> {
+        Ok(ServiceStream::receive(self)
+            .await?
+            .map(|c| Chunk { finished: c.finished || c.reset, payload: c.payload }))
+    }
+    async fn close(&self) -> Result<(), BridgeError> {
+        Ok(ServiceStream::close(self).await?)
+    }
+    async fn failed(&self) -> BridgeError {
+        self.wait_for_failure().await.into()
+    }
+}
+
+/// Bytes queued for one direction above which the bridge stops reading that
+/// direction's source; the other direction keeps going.
+const QUEUE_LIMIT: usize = 4 << 20;
+
+/// What the stream's writer does next.
+enum ToHost {
+    Bytes(Vec<u8>),
+    /// The viewer closed its input: close the stream after what is queued.
+    Close,
+}
+
+/// One direction's queue: what is waiting, and a wakeup when it shrinks.
+struct Queue {
+    bytes: std::sync::atomic::AtomicUsize,
+    drained: tokio::sync::Notify,
+}
+
+impl Queue {
+    fn new() -> Self {
+        Self { bytes: 0.into(), drained: tokio::sync::Notify::new() }
+    }
+    fn open(&self) -> bool {
+        self.bytes.load(std::sync::atomic::Ordering::Relaxed) < QUEUE_LIMIT
+    }
+    fn add(&self, n: usize) {
+        self.bytes.fetch_add(n, std::sync::atomic::Ordering::Relaxed);
+    }
+    fn done(&self, n: usize) {
+        self.bytes.fetch_sub(n, std::sync::atomic::Ordering::Relaxed);
+        self.drained.notify_one();
+    }
+}
+
 /// Copies the desktop between the viewer (`reader`, `writer`) and the
 /// carrier stream, with the datagram link spliced in when `stun` is `Some`
 /// (the platform turned it on). Ends as `bridge_raw_stream` does.
-pub(super) async fn bridge<R, W>(
-    remote: Arc<ServiceStream>,
+///
+/// Three parts run at once: one reads the viewer, the stream and the link,
+/// and one writer per direction drains its own queue. A viewer that stops
+/// reading stalls only what goes to the viewer: the viewer's feedback and
+/// input keep reaching the host, and a stream failure still ends the bridge.
+pub(super) async fn bridge<C, R, W>(
+    remote: C,
     mut reader: R,
     mut writer: W,
     stun: Option<Vec<String>>,
     log: impl Fn(&str),
 ) -> Result<(), BridgeError>
 where
+    C: Remote,
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
@@ -325,73 +398,106 @@ where
         None => None,
     };
     let mut splice = Splice::new(offer, SocketAddr::from(([0, 0, 0, 0], 0)));
-    let (mut from_viewer, mut from_host) = (Frames::default(), Frames::default());
-    let mut link_fd: Option<AsyncFd<Fd>> = None;
-    let mut buffer = vec![0_u8; 64 * 1024];
-    let mut viewer_open = true;
-    let failure = remote.wait_for_failure();
-    tokio::pin!(failure);
-    loop {
-        let mut out = Vec::new();
-        let mut finished = false;
-        tokio::select! {
-            biased;
-            error = &mut failure => return Err(error.into()),
-            read = reader.read(&mut buffer), if viewer_open => {
-                let size = read?;
-                if size == 0 {
-                    viewer_open = false;
-                    remote.close().await?;
-                } else {
-                    from_viewer.push(&buffer[..size]);
-                    while let Some((ty, payload)) = from_viewer.next()? {
-                        splice.on_viewer(ty, payload, &mut out);
-                    }
-                }
-            }
-            chunk = remote.receive() => {
-                match chunk? {
-                    Some(chunk) => {
-                        from_host.push(&chunk.payload);
-                        while let Some((ty, payload)) = from_host.next()? {
-                            splice.on_host(ty, payload, &mut out);
+    let (host_q, viewer_q) = (Queue::new(), Queue::new());
+    let (to_host, mut host_rx) = tokio::sync::mpsc::unbounded_channel::<ToHost>();
+    let (to_viewer, mut viewer_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+    let (remote, host_q, viewer_q) = (&remote, &host_q, &viewer_q);
+
+    // Owns both senders: when it returns, the writers finish what is queued and end.
+    let read = async move {
+        let (mut from_viewer, mut from_host) = (Frames::default(), Frames::default());
+        let mut link_fd: Option<AsyncFd<Fd>> = None;
+        let mut buffer = vec![0_u8; 64 * 1024];
+        let mut viewer_open = true;
+        let failure = remote.failed();
+        tokio::pin!(failure);
+        loop {
+            let mut out = Vec::new();
+            let mut finished = false;
+            tokio::select! {
+                biased;
+                error = &mut failure => return Err(error),
+                read = reader.read(&mut buffer), if viewer_open && host_q.open() => {
+                    let size = read?;
+                    if size == 0 {
+                        viewer_open = false;
+                        let _ = to_host.send(ToHost::Close);
+                    } else {
+                        from_viewer.push(&buffer[..size]);
+                        while let Some((ty, payload)) = from_viewer.next()? {
+                            splice.on_viewer(ty, payload, &mut out);
                         }
-                        finished = chunk.finished || chunk.reset;
                     }
-                    None => finished = true,
                 }
+                chunk = remote.receive(), if viewer_q.open() => {
+                    match chunk? {
+                        Some(chunk) => {
+                            from_host.push(&chunk.payload);
+                            while let Some((ty, payload)) = from_host.next()? {
+                                splice.on_host(ty, payload, &mut out);
+                            }
+                            finished = chunk.finished;
+                        }
+                        None => finished = true,
+                    }
+                }
+                () = link_ready(&link_fd), if viewer_q.open() => splice.poll(&mut out),
+                // A full queue shrank: its source may read again.
+                () = host_q.drained.notified(), if !host_q.open() => {}
+                () = viewer_q.drained.notified(), if !viewer_q.open() => {}
             }
-            () = link_ready(&link_fd) => splice.poll(&mut out),
-        }
-        // The writes stay under the failure watch: a viewer that stops reading
-        // must not hide a carrier reset.
-        let deliver = async {
             for item in out {
                 match item {
-                    Out::Host(bytes) => remote.send(Bytes::from(bytes)).await?,
-                    Out::Viewer(bytes) => writer.write_all(&bytes).await?,
+                    Out::Host(bytes) => {
+                        host_q.add(bytes.len());
+                        let _ = to_host.send(ToHost::Bytes(bytes));
+                    }
+                    Out::Viewer(bytes) => {
+                        viewer_q.add(bytes.len());
+                        let _ = to_viewer.send(bytes);
+                    }
                     Out::Note(note) => log(&note),
                 }
             }
+            // The link starts after an answer and ends on failure: follow its descriptor.
+            let fd = splice.link_fd();
+            if fd != link_fd.as_ref().map(|f| f.get_ref().of) {
+                link_fd = fd.and_then(Fd::dup).and_then(|fd| AsyncFd::new(fd).ok());
+            }
+            if finished {
+                // Dropping the senders ends both writers once their queues are written.
+                return Ok::<(), BridgeError>(());
+            }
+        }
+    };
+    let host_writer = async move {
+        while let Some(item) = host_rx.recv().await {
+            match item {
+                ToHost::Bytes(bytes) => {
+                    let n = bytes.len();
+                    remote.send(Bytes::from(bytes)).await?;
+                    host_q.done(n);
+                }
+                ToHost::Close => remote.close().await?,
+            }
+        }
+        Ok::<(), BridgeError>(())
+    };
+    let viewer_writer = async move {
+        while let Some(bytes) = viewer_rx.recv().await {
+            writer.write_all(&bytes).await?;
+            viewer_q.done(bytes.len());
+            while let Ok(more) = viewer_rx.try_recv() {
+                writer.write_all(&more).await?;
+                viewer_q.done(more.len());
+            }
             writer.flush().await?;
-            Ok::<(), BridgeError>(())
-        };
-        tokio::select! {
-            biased;
-            error = &mut failure => return Err(error.into()),
-            delivered = deliver => delivered?,
         }
-        // The link starts after a welcome and ends on failure: follow its descriptor.
-        let fd = splice.link_fd();
-        if fd != link_fd.as_ref().map(|f| f.get_ref().of) {
-            link_fd = fd.and_then(Fd::dup).and_then(|fd| AsyncFd::new(fd).ok());
-        }
-        if finished {
-            break;
-        }
-    }
-    writer.shutdown().await?;
-    Ok(())
+        writer.flush().await?;
+        writer.shutdown().await?;
+        Ok::<(), BridgeError>(())
+    };
+    tokio::try_join!(read, host_writer, viewer_writer).map(|_| ())
 }
 
 #[cfg(test)]
@@ -584,6 +690,58 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         assert!(got_input && got_frame, "input {got_input} frame {got_frame}");
+    }
+
+    /// A carrier stream in memory: what the bridge sends, and what the host says.
+    struct FakeRemote {
+        sent: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
+        incoming: tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>>,
+    }
+
+    impl Remote for FakeRemote {
+        async fn send(&self, bytes: Bytes) -> Result<(), BridgeError> {
+            let _ = self.sent.send(bytes.to_vec());
+            Ok(())
+        }
+        async fn receive(&self) -> Result<Option<Chunk>, BridgeError> {
+            Ok(self
+                .incoming
+                .lock()
+                .await
+                .recv()
+                .await
+                .map(|payload| Chunk { payload: Bytes::from(payload), finished: false }))
+        }
+        async fn close(&self) -> Result<(), BridgeError> {
+            Ok(())
+        }
+        async fn failed(&self) -> BridgeError {
+            std::future::pending().await
+        }
+    }
+
+    #[tokio::test]
+    async fn a_viewer_that_stops_reading_still_gets_its_feedback_to_the_host() {
+        let (sent_tx, mut sent) = tokio::sync::mpsc::unbounded_channel();
+        let (host, incoming) = tokio::sync::mpsc::unbounded_channel();
+        let remote = FakeRemote { sent: sent_tx, incoming: tokio::sync::Mutex::new(incoming) };
+        // The viewer's output pipe holds 64 bytes and nobody reads it.
+        let (viewer_out, _never_read) = tokio::io::duplex(64);
+        let (mut viewer_in, bridge_in) = tokio::io::duplex(64 * 1024);
+        let bridge = super::bridge(remote, bridge_in, viewer_out, None, |_| {});
+        tokio::pin!(bridge);
+        let test = async {
+            // The host sends more than the pipe holds: the write to the viewer blocks.
+            host.send(frame(FRAME_DATAGRAM, &vec![7u8; 16 * 1024])).unwrap();
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            // The viewer's feedback still reaches the host.
+            viewer_in.write_all(&frame(FRAME_DATAGRAM, b"feedback")).await.unwrap();
+            tokio::time::timeout(Duration::from_secs(2), sent.recv()).await
+        };
+        tokio::select! {
+            ended = &mut bridge => panic!("the bridge ended: {:?}", ended.err().map(|e| e.to_string())),
+            got = test => assert_eq!(got.ok().flatten(), Some(frame(FRAME_DATAGRAM, b"feedback"))),
+        }
     }
 
     #[test]
