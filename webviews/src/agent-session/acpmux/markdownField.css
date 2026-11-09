@@ -442,10 +442,14 @@
 /* An oversized paste's chip in the text (composer/PastedTextChip.tsx): as wide as its label needs,
    never wider than the line. Its width is its own fit (`auto`); the node's box around it is capped at
    the line, so the chip's percentage cap measures the line less its room: on a narrow line the chip
-   narrows and its label drops trailing parts whole, never pushing past the field to be cut. */
+   narrows and its label drops trailing parts whole, never pushing past the field to be cut. While the
+   node sizes to its content that percentage is cyclic and counts as no cap, so the node would take
+   the label's whole width and the chip, capped inside it, would leave more than its room after it
+   (the caret one chip gap off: composer-inline-caret-gap.browser.test.ts). The node's own cap is
+   the chip's cap plus the room, so its content ends where the room does. */
 .acpmux-md-inline:has(> .acpmux-md-inline-chip[data-preview="text"]),
 .acpmux-md-inline:has(> .acpmux-attachment-menu > .acpmux-md-inline-chip[data-preview="text"]) {
-  max-width: 100%;
+  max-width: min(100%, calc(320px + var(--acpmux-inline-room, 8px)));
 }
 .acpmux-md-inline-chip[data-preview="text"] {
   justify-content: stretch;

@@ -162,7 +162,7 @@ export default componentEntry<Props>({
                 <div className="acpmux-shell" style={{ padding: 24, display: "block", height: "auto" }}>
                   {paste ? null : (
                     <div className="cv-user" style={{ marginBottom: 16 }}>
-                      <div className="cv-user__bubble">
+                      <div className="ui-glass cv-user__bubble">
                         <div className="cv-user__text">
                           <PromptTyped text={sent} show={(text) => text} />
                         </div>
