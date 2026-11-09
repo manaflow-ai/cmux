@@ -99,12 +99,13 @@ impl Hub {
         let mut last_user: Option<(u64, String)> = None;
         let mut result: Option<(u64, String)> = None;
         let mut found = Vec::new();
+        let shown_through = shown_through(&meta);
         self.store
             .scan_strict(&source.id, 0, &mut |event| {
                 if event.seq > meta.last_seq {
                     return false;
                 }
-                if event.seq != next {
+                if event.seq != next && !skips_shown(event.seq, next, shown_through) {
                     complete = false;
                 }
                 next = event.seq + 1;
@@ -208,13 +209,14 @@ impl Hub {
             let mut next = 1;
             let mut origin = false;
             let mut complete = true;
+            let shown_through = shown_through(&ancestor);
             if self
                 .store
                 .scan_strict(parent, 0, &mut |event| {
                     if event.seq > ancestor.last_seq {
                         return false;
                     }
-                    complete &= event.seq == next;
+                    complete &= event.seq == next || skips_shown(event.seq, next, shown_through);
                     next = event.seq + 1;
                     if event.dir == "mux" {
                         origin |= matches!(event.kind.as_str(), "created" | "forked");
@@ -268,5 +270,43 @@ impl Hub {
         (msg.get("text").and_then(Value::as_str).is_some_and(|s| !s.is_empty())
             || images.is_some_and(|images| !images.is_empty()))
             && images.is_none_or(|images| images.iter().all(image))
+    }
+}
+
+/// The seq through which a fork shows its chat's history by reference (`store/fork_view.rs`), or
+/// holds it since it was written into its log (`history_kept_through`), or 0: those records are
+/// the chat's history kinds under the chat's own seqs, so they skip seqs, and `complete_ancestry`
+/// proves the chat's own log whole.
+fn shown_through(meta: &SessionMeta) -> u64 {
+    meta.history_from.as_ref().map(|r| r.through_seq).or(meta.history_kept_through).unwrap_or(0)
+}
+
+/// Whether `seq`, read where `next` was due, is a skip inside the history a fork shows by
+/// reference: forward only, and no further than the fork's own first record.
+fn skips_shown(seq: u64, next: u64, shown_through: u64) -> bool {
+    seq > next && seq <= shown_through + 1
+}
+
+#[cfg(test)]
+mod shown_tests {
+    use super::*;
+
+    /// A fork whose referenced history was written into its log keeps that history under the
+    /// chat's seqs, and Edit and resend still proves its log whole after a restart, when its meta
+    /// names no chat any more (review of #37020: the proof refused it).
+    #[test]
+    fn history_written_into_a_fork_keeps_its_skips_allowed() {
+        let mut meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "fork", "name": "fork", "harness": "fake",
+            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        assert_eq!(shown_through(&meta), 0);
+        meta.history_kept_through = Some(20);
+        assert_eq!(shown_through(&meta), 20);
+        // The chat's records at 2, 4, 5, ... through 20, then the fork's own at 21.
+        assert!(skips_shown(4, 3, shown_through(&meta)));
+        assert!(skips_shown(21, 19, shown_through(&meta)));
+        assert!(!skips_shown(23, 21, shown_through(&meta)), "a skip past them is a gap");
     }
 }

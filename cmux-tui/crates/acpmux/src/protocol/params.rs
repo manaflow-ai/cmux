@@ -84,6 +84,8 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "argv",
     "author",
     "beforePromptId",
+    "callerKind",
+    "callerProtocol",
     "callerSession",
     "cancelToken",
     "class",
@@ -180,6 +182,8 @@ keyed! {
     BookmarkGetParams: ["sessionId"];
     /// `_acpmux/bookmark_set`.
     BookmarkSetParams: ["sessionId", "seq", "bookmarked"];
+    /// `_acpmux/memory_resolve`.
+    MemoryResolveParams: ["sessionId", "offerId", "file", "accept", "dismiss"];
     /// `_acpmux/btw`.
     BtwParams: ["sessionId", "question", "model", "inline", "targetHarness"];
     /// `_acpmux/chat/route.set`.

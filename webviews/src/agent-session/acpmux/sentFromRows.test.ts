@@ -22,6 +22,7 @@ type Feed = {
 };
 
 const settle = async (check: () => boolean) => {
+  // timeout: test-only bound; a row that never shows fails the test instead of hanging it.
   const deadline = performance.now() + 2_000;
   while (!check()) {
     if (performance.now() > deadline) throw new Error("timed out waiting for the sent-from row");

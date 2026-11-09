@@ -43,7 +43,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.metrics.tabMinInactiveWidth` | real |  | 16 to 320 | Minimum Tab Width. Narrowest the other tabs get before the strip scrolls. Never wider than the selected tab's minimum. |
 | `appearance.metrics.tabPinnedWidth` | real |  | 24 to 120 | Pinned Tab Width. Width of a pinned tab. |
 | `newTerminal.opensWorkspace` | boolean | `false` |  | New Terminal Opens a Workspace. Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click. |
-| `tabs.cmdWClosesPinnedTabs` | boolean | `true` |  | Cmd-W Closes Pinned Tabs. When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu. |
 | `tabs.verticalTabs` | boolean | `false` |  | Use Vertical Tabs for All Workspaces. Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu. |
 | `tabs.verticalTabsExpandOnHover` | boolean | `true` |  | Expand Collapsed Vertical Tabs on Hover. When the vertical tab list is collapsed to icons, show the titles while the pointer is over it. |
 | `tabs.hideLoneChatTab` | boolean | `false` |  | Hide the Tab of a Chat Alone in Its Pane. When a pane holds only one chat, hide its tab so the chat fills the tab bar. A second tab brings the tab bar back. |
@@ -54,7 +53,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `layout.defaultColumnWidth` | real | `0.6666666666666666` | 0.1 to 1 | Fixed Column Width. A share of the window width, for Fixed Width new columns. |
 | `layout.centerFocusedColumn` | string | `"never"` | `never`, `always`, `on-overflow` | Center Focused Column |
 | `layout.stripScrollbar` | string | `"system"` | `system`, `auto`, `always`, `off` | Column Scroll Bar. A thin bar under the columns that shows and moves the visible range. |
-| `layout.closeFocus` | string | `"previousNeighbor"` | `previousNeighbor`, `mostRecent` | Focus After Closing a Pane. Which pane gets focus when the focused pane closes. |
+| `layout.closeFocus` | string | `"mostRecent"` | `previousNeighbor`, `mostRecent` | Focus After Closing a Pane. Which pane gets focus when the focused pane closes. |
 | `shortcuts.showModifierHoldHints` | boolean | `true` |  | Show Shortcuts When Holding a Modifier. Hold Command or Control for 0.30 seconds to show shortcut hints. |
 | `updates.channel` | string | `"nightly"` | `stable`, `nightly`, `canary`, `dev` | Update Channel. Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while. |
 | `updates.checkAutomatically` | boolean | `true` |  | Check for Updates Automatically |
@@ -79,9 +78,11 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `computerUse.livePreview` | boolean | `true` |  | Live Preview in Chat. While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity. |
 | `freeModel.enabled` | boolean | `true` |  | Free AI Model Without Sign-In. Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits. |
 | `sessions.keepAwake` | string | `"pluggedIn"` | `off`, `pluggedIn`, `always` | Keep Mac Awake While Agents Work. Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep. |
+| `sessions.keepAwakeForCommands` | boolean | `false` |  | Also While Terminal Commands Run. A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work. |
 | `sessions.resumeAgents` | boolean | `true` |  | Resume Agents After Restart. Terminal agents reopen their session after a crash or restart. |
 | `sessions.allowFullAccess` | boolean | `true` |  | Allow Full-Access Modes. Off, cmux won't switch an agent into a mode that skips approvals. |
 | `sessions.promptSuggestions` | boolean | `true` |  | Suggest Follow-Up Tasks. Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it. |
+| `agents.promptSuggestions` | boolean | `true` |  | Suggest Next Prompt. After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change. |
 | `phone.allowConnections` | boolean | `false` |  | Let Your Phone Use This Mac. So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active. |
 | `phone.startSessions` | boolean | `true` |  | Let Your Phone Start New Workspaces. Off, your phone can still follow, type into and answer what's already running. |
 | `phone.keepAwake` | string | `"pluggedIn"` | `off`, `pluggedIn`, `always` | Keep Mac Awake for Your Phone. A sleeping Mac can't be reached from your phone until it wakes. Closing the lid still puts the Mac to sleep. |
@@ -185,11 +186,11 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.glassTransparency` | real | `0` | 0 to 1 | Glass Transparency. How much of the desktop or wallpaper shows through the glass. |
 | `appearance.hue` | real | `0.5` | 0 to 1 | Hue. Shift the tint color around the hue wheel. |
 | `appearance.saturation` | real | `1` | 0 to 2 | Saturation. Increase or reduce the tint color intensity. |
-| `appearance.density` | string | `"compact"` | `ultraCompact`, `compact`, `cozy`, `comfortable`, `spacious` | Density. Row height, padding, corners, icons and text size together. Compact is the default. |
+| `appearance.density` | string | `"cozy"` | `ultraCompact`, `compact`, `cozy`, `comfortable`, `spacious` | Density. Row height, padding, corners, icons and text size together. |
 | `appearance.customDensity` | string |  |  | Custom Density |
 | `appearance.customDensities` | string | `[]` |  | Custom Densities |
-| `app.uiScale` | real | `1` | 0.85 to 1.5 | Interface Scale |
-| `appearance.metrics.chromeFontSize` | real |  | 10 to 16 | Interface Size. Text size of tabs, the sidebar and other controls. Terminal text has its own size. |
+| `app.uiScale` | real | `1` | 0.85 to 1.5 | App Zoom. Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app. |
+| `appearance.metrics.chromeFontSize` | real |  | 10 to 16 | Text Size. Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size. |
 | `appearance.interfaceScale` | real |  | 0.9 to 1.25 | Interface Size. Text size of tabs, the sidebar and other controls. Terminal text has its own size. |
 | `appearance.metrics.sidebarWidth` | real |  | 160 to 420 | Sidebar Width |
 | `appearance.metrics.columnGap` | real |  | 0 to 24 | Column Gap |
@@ -301,7 +302,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.senderIcon.badge` | string | `"diamond"` | `diamond`, `robot`, `none` | Sender Badge. The small colored glyph on a sender's icon that tells sessions of one model family apart. |
 | `agentPane.display.senderIcon.corner` | string | `"bottom-right"` | `bottom-right`, `bottom-left`, `top-right`, `top-left` | Sender Badge Corner. Where the small glyph sits on a sender's icon. |
 | `agentPane.display.font.preset` | string | `"markdown"` | `markdown`, `system`, `serif`, `mono` | Chat Font |
-| `agentPane.display.font.ui` | string | `"inter-tuned"` | `inter-tuned`, `inter`, `verdana`, `roboto`, `plex`, `source-sans`, `geist`, `cmux-sans`, `hanken`, `atkinson`, `system-ui`, `system-ui-tight` | Chat Interface Font. The font of the whole chat: replies, the composer, cards and menus. |
+| `agentPane.display.font.ui` | string | `"system-ui"` | `system-ui`, `system-ui-tight`, `inter-tuned`, `inter`, `verdana`, `roboto`, `plex`, `source-sans`, `geist`, `cmux-sans`, `hanken`, `atkinson` | Chat Interface Font. The font of the whole chat: replies, the composer, cards and menus. |
 | `agentPane.display.font.size` | real | `14` | 10 to 28 | Chat Font Size |
 | `agentPane.display.font.lineHeight` | real | `1.625` | 1.2 to 2.4 | Chat Line Height |
 | `agentPane.display.code.family` | string |  |  | Chat Code Font. The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font. |
@@ -386,6 +387,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.sideBySide` | boolean | `false` |  | Workspaces Side by Side. A press on a workspace row switches only when you release it, so you can hold and drag the row onto a pane's edge to show that workspace beside the current one. Workspaces on screen are highlighted. |
 | `sidebar.noFade` | boolean | `false` |  | Show Whole Sidebar Without Fade. The sidebar's edges stop fading and the whole list shows. It also hides the bottom profile and search bar. Off, the edges fade and the bar shows. |
 | `sidebar.controlsOnHover` | boolean | `false` |  | Show Sidebar Controls Only on Hover. The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show. |
+| `sidebar.floatOnHover` | boolean | `true` |  | Float Hidden Sidebar on Hover. With the sidebar hidden, rest the pointer on the window's sidebar edge to show the sidebar over your content. It hides again when the pointer leaves it. Off, the sidebar shows only when you show it. |
 | `sidebar.minimal` | boolean | `false` |  | Minimal Mode. Workspace rows show only their icon, name and unread mark, and section titles become thin lines. |
 | `sidebar.style` | string | `"standard"` | `standard`, `rail` | Sidebar Style. Rail shrinks the sidebar to a thin strip with a mark for each workspace. Point at the strip to open the full sidebar over your work. |
 | `sidebar.density` | string | `"compact"` | `compact`, `comfortable`, `expanded` | Sidebar Density. Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer. |
@@ -593,6 +595,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `home.chiefPetEnabled` | boolean | `false` |  | Show Chief Pet. A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app. |
 | `home.chiefPetMascot` | string | `"orb"` | `fox`, `machine`, `machine-cyan`, `machine-blue`, `moon`, `moon-blue`, `mochi`, `captain`, `sprout`, `bolt`, `fox-arctic`, `machine-violet`, `machine-gold`, `moon-rose`, `orb`, `orb-spark`, `orb-hood` | Character |
 | `home.chiefDock.edge` | string | `"left"` | `left`, `right`, `top`, `bottom` | Dock Edge. The window edge the Chief goes to when you dock it. The rest of the window shows the workspace you pick. |
+| `home.chiefPanel.style` | string | `"composeBar"` | `composeBar`, `pill`, `card`, `panel`, `bubble`, `seeThrough`, `seeThroughBar` | Floating Chief Style. How the Chief looks when it floats over a workspace. Compose Bar, Pill and Bubble stay small until you click them, then show the whole chat. Drag any style by its grip. |
+| `home.chiefPanel.seesScreen` | boolean | `true` |  | Chief Sees Your Screen When It Opens. Opening the floating Chief gives it one look at the screen behind cmux and the window in front, so you can ask about what you see. It uses the Computer Use helper's Screen Recording permission and never asks for it. The eye in the panel turns it off. It looks only while Computer Use is on. |
 | `home.chiefDock.openBeside` | boolean | `true` |  | Show Chief When Opening Workspaces. A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it. |
 | `home.chiefEngine` | string | `"auto"` | `auto`, `local`, `hosted` | Engine. Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud. |
 | `chief.reactionsCanWake` | boolean | `true` |  | Reactions Can Wake the Chief. A reaction you put on a Chief message can start a turn when it asks for one, such as a question mark on a question or a thumbs down on a plan. A cheap model decides first, so a reaction that needs no answer never shows the typing dots. Off, reactions are only noted. |
@@ -678,9 +682,11 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.promptCache` | string | `"1h"` | `1h`, `5m` | Prompt Cache. How long Claude Code keeps a chat's prompt cached. One hour keeps replies after a pause cheap; its cache writes cost a little more. |
 | `agents.modelRouter.model` | string | `"deepseek/deepseek-v4.1-flash-1017"` | `deepseek/deepseek-v4.1-flash-1017`, `deepseek/deepseek-v4.1-flash`, `deepseek/deepseek-v4-flash`, `deepseek/deepseek-v4-pro` | cmux Model Router Model. The model a new chat on the cmux model router starts on. A model you pick in a chat applies to that chat only. |
 | `diagnostics.hangReports` | boolean | `false` |  | Send Hang Reports. Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent. |
+| `developerTools.appPages` | boolean | `true` |  | Developer Tools for cmux Pages. Inspect Element in the right-click menu and Toggle Developer Tools (⌥⌘I) work in agent chats, Home, Markdown and Settings. Browser tabs always have them. |
 | `macScreen.systemShortcuts` | boolean | `false` |  | Send System Shortcuts to the Remote Mac. While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility. |
 | `macScreen.debug.relayOnly` | boolean | `false` |  | Relay Only. Mac Screen tabs connect through the TURN relay only, never directly, to check the relay path. Tabs that are connected reconnect. |
 | `remote.endSharingOnQuit` | boolean | `false` |  | End Sharing When cmux Quits. Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit. |
+| `remote.ultraMode` | boolean | `false` |  | Ultra Connection Mode. Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection. |
 | `deviceHub.url` | string | `""` |  | Device Hub Address. Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub. |
 | `contextMenus.showCustomizeItem` | boolean | `true` |  | Show Customize Menu…. Adds Customize Menu… to the end of every right-click menu. |
 | `imessage.enabled` | boolean | `false` |  | Connect iMessage. Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click. |

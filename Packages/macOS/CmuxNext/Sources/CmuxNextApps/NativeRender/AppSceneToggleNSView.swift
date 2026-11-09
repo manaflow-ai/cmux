@@ -6,7 +6,7 @@ import CmuxNextDesign
 /// the next `value` the app sends wins; without it the switch only shows the app's value, disabled.
 final class AppSceneToggleNSView: AppSceneNodeNSView {
     private let label = ChromeLabel(labelWithString: "")
-    private let control = NSSwitch()
+    private let control = DisplayOnlySwitch()
 
     override init(id: String, node: AppSceneNode) {
         super.init(id: id, node: node)
@@ -51,4 +51,13 @@ final class AppSceneToggleNSView: AppSceneNodeNSView {
     }
 
     override func paint() { label.textColor = Palette.textPrimary }
+}
+
+/// A switch that a programmatic or accessibility press leaves alone while it is disabled: `NSSwitch.performClick`
+/// flips a disabled switch's state, so a display-only toggle would show a value the app never sent.
+private final class DisplayOnlySwitch: NSSwitch {
+    override func performClick(_ sender: Any?) {
+        guard isEnabled else { return }
+        super.performClick(sender)
+    }
 }

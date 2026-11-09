@@ -16,7 +16,7 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct TabCloseSelectsBeforeTests {
     /// One pane: its terminal tab, then `count` browser tabs. Returns the pane and the tab ids in strip order.
-    private static func pane(_ services: AppServices, _ connection: DaemonConnection, browsers count: Int) async throws -> (PaneController, [String], [String: SurfaceID]) {
+    static func pane(_ services: AppServices, _ connection: DaemonConnection, browsers count: Int) async throws -> (PaneController, [String], [String: SurfaceID]) {
         let store = services.daemon.store
         let content = try #require(services.windows.active?.workspaceContent)
         let model = try #require(store.workspaces.first?.screens.first?.panes.first)
@@ -42,13 +42,13 @@ struct TabCloseSelectsBeforeTests {
         return (pane, ids, surfaceOf)
     }
 
-    private static func select(_ id: String, in pane: PaneController) async throws {
+    static func select(_ id: String, in pane: PaneController) async throws {
         pane.select(TabID(id))
         try await PinnedPageTests.until({ pane.stripModel.selectedID?.rawValue == id })
     }
 
     /// Waits until `closed` is gone and `pane` selects `selected`.
-    private static func expect(_ pane: PaneController, _ services: AppServices, closed: [String], selects selected: String,
+    static func expect(_ pane: PaneController, _ services: AppServices, closed: [String], selects selected: String,
                                _ what: String, sourceLocation: SourceLocation = #_sourceLocation) async throws {
         let store = services.daemon.store
         try await PinnedPageTests.until({ closed.allSatisfy { store.tab(id: $0) == nil } && pane.stripModel.selectedID?.rawValue == selected },

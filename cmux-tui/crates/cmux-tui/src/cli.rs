@@ -9,7 +9,13 @@ mod action_hint;
 mod agent_input_hint;
 mod agent_message;
 #[cfg(unix)]
+mod agent_names;
+#[cfg(unix)]
+mod agent_start;
+#[cfg(unix)]
 mod agent_view;
+#[cfg(unix)]
+mod agent_vocabulary;
 #[cfg(unix)]
 mod agents;
 #[cfg(unix)]
@@ -40,6 +46,8 @@ mod billing;
 #[cfg(unix)]
 mod caller_browser;
 mod capability_cache;
+#[cfg(unix)]
+mod chat_cd;
 #[cfg(unix)]
 mod chat_send;
 #[cfg(unix)]
@@ -80,6 +88,7 @@ mod command;
 #[cfg(unix)]
 mod dev;
 mod docs;
+mod event_match;
 mod extra_help;
 mod federation;
 mod fix_command;
@@ -92,10 +101,13 @@ mod inference_gateway;
 #[cfg(unix)]
 mod inference_setup;
 mod internal;
+mod keys_help;
 mod launch_credential;
 mod lifecycle;
 #[cfg(unix)]
 mod live_code;
+#[cfg(unix)]
+mod repo_hold;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
 mod sandbox_run;
@@ -140,6 +152,8 @@ mod older_daemon;
 mod pane_context;
 #[cfg(unix)]
 mod pane_identify;
+#[cfg(unix)]
+mod pane_move;
 mod raw;
 #[cfg(unix)]
 mod remote_host;
@@ -159,6 +173,7 @@ mod skew;
 mod skill;
 #[cfg(unix)]
 mod status;
+mod stream_output;
 mod surface;
 mod tab_capabilities;
 #[cfg(unix)]
@@ -603,6 +618,11 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     if let Some(code) = chat_send::run_if_requested(args) {
         return code;
     }
+    // `chat cd SESSION DIR|--repo R`: a Cloud chat goes on in another folder (chat_cd.rs).
+    #[cfg(unix)]
+    if let Some(code) = chat_cd::run_if_requested(args) {
+        return code;
+    }
     // `chat send` from a coding agent is the agent's message, not the owner's
     // (chief/chat_scope.rs): a Chief's chat is sent here, any other chat runs
     // the app action with its text labelled.
@@ -617,8 +637,22 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `terminal alpha send …`: an agent name or a unique tab name becomes
+    // its id before any command reads the words (agent_names.rs).
     #[cfg(unix)]
-    if let Some(code) = chat_start::run_if_requested(args)
+    let named_args;
+    #[cfg(unix)]
+    let args = match agent_names::rewrite_args(args) {
+        Ok(Some(rewritten)) => {
+            named_args = rewritten;
+            named_args.as_slice()
+        }
+        Ok(None) => args,
+        Err(code) => return code,
+    };
+    #[cfg(unix)]
+    if let Some(code) = agent_start::run_if_requested(args)
+        .or_else(|| chat_start::run_if_requested(args))
         .or_else(|| mcp::run_if_requested(args))
         .or_else(|| workflow::run_if_requested(args))
         .or_else(|| agents::run_if_requested(args))
@@ -902,7 +936,9 @@ fn parse_command(
     if command_args[0] == "help" {
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
-            Some(scope) if matches!(scope.as_str(), "start" | "shorthands" | "docs" | "run") => {
+            Some(scope)
+                if matches!(scope.as_str(), "start" | "shorthands" | "docs" | "run" | "keys") =>
+            {
                 Ok(ParsedCommand::Help(Some(scope.clone())))
             }
             Some(scope) if surface.accepts(shorthand::scope(scope)) => {
@@ -1288,8 +1324,19 @@ fn scope_help_for(
     scope: &str,
     catalog: &'static crate::localization::Catalog,
 ) -> Cow<'static, str> {
+    scope_help_with_keys(scope, catalog, || crate::config::load().keys)
+}
+
+/// [`scope_help_for`] with the key bindings `help keys` lists read from
+/// `keys` (the person's config in the CLI; fixed bindings in a test).
+fn scope_help_with_keys(
+    scope: &str,
+    catalog: &'static crate::localization::Catalog,
+    keys: impl FnOnce() -> crate::config::Keys,
+) -> Cow<'static, str> {
     let text = code_mode::scope_help(scope).unwrap_or_else(|| match scope {
         "shorthands" => Cow::Owned(shorthand::help(&catalog.local_server)),
+        "keys" => Cow::Owned(keys_help::help(&keys(), catalog)),
         machine_server::HELP_TOPIC => Cow::Owned(machine_server::help()),
         "docs" => Cow::Borrowed(docs::help()),
         "server" => Cow::Borrowed(catalog.local_server.help),
@@ -1475,6 +1522,10 @@ USAGE
 
 const AGENT_HELP: &str = "\
 USAGE
+  cmux agent start NAME [--cmd <launcher>] [--harness H] [--pane <selector>]
+                  [--split right|down|left|up] [--cwd DIR] [--no-focus]
+                  [--timeout 90s] [--no-wait] [-- ARGS...]
+  cmux agent resume NAME [the same options]
   cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP] [--placement top] [--focus]
   cmux agent open-tab <session id> [--target PANE_OR_TAB] [--host HOST] [--focus]
   cmux agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
@@ -1482,16 +1533,33 @@ USAGE
   cmux agent message release <message-id> --recipient <agent> --approve|--decline
   cmux agent message unsend <message-id> [--recipient <agent>]
   cmux agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
-  cmux agent list [--needs-me] [--state <state>] [--terminal <id>]
-                  [--sort needs-me|recent|none] [--limit <n>] [--counts]
+  cmux agent list [--needs-me] [--state working|blocked|done|idle|unknown|ended]
+                  [--terminal <id>] [--sort needs-me|recent|none] [--limit <n>] [--counts]
+                  (done: idle with an unread notification; ended: the session
+                  ended, which --state done selected before; rows carry name
+                  and status, and state is a deprecated alias of status; an
+                  ended agent of a closed terminal is listed only with
+                  --state ended)
   cmux agent <agent> focus
-  cmux agent report --terminal <selector> --state <value> --source <value>
+  cmux agent report --terminal <selector> --state working|blocked|idle|ended|unknown --source <value>
   cmux agent hook install|uninstall|status [provider...]
   cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]
   cmux agent plugin list
   cmux agent plugin install <git-url> [--name <value>] [--force]
   cmux agent plugin use|update|remove <name-or-id>
   cmux agent plugin use --builtin
+
+agent start runs the launcher (--cmd, else $CMUX_AGENT_COMMAND, else claude;
+sr2 claude and codex work) in a new tab named NAME, split right of your pane
+unless --pane or --split say otherwise, and waits until the agent can take a
+message. It prints the ids and state: ready (exit 0), blocked with the dialog
+and a reason, such as Claude's folder-trust question (exit 4; cmux never
+answers it), timeout (exit 124) or exited (exit 1). NAME is a lowercase
+letter, then up to 31 lowercase letters, digits, - or _, unique among running
+tabs; it works wherever a terminal, tab or pane selector goes
+(cmux terminal NAME send --text ... --wait idle).
+agent resume NAME starts an agent that exited again with its recorded harness
+session (claude --resume <id>, codex resume <id>) in the same pane.
 ";
 
 const SIDEBAR_HELP: &str = "\

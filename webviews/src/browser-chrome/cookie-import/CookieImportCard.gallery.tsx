@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample lines the host localizes in the app), not shipped UI.
-// The Import Cookies card in its three looks, over a sample page bottom. The app draws `split`
-// (design/browser-chrome.md, "Import Cookies card"). The stage shows the last answer instead of
-// closing, so every button can be clicked through.
+// The Import Cookies card in its looks, on the toast glass over a sample page bottom. The app draws
+// `toast` (design/browser-chrome.md, "Import Cookies card"). The stage shows the last answer instead
+// of closing, so every button can be clicked through.
 import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import { CookieImportCard } from "./CookieImportCard";
@@ -16,23 +16,41 @@ const ICON = `data:image/svg+xml,${encodeURIComponent(
 
 const chrome: CookieImportCardModel = {
   title: "Import cookies from Google Chrome",
-  detail: "Stay signed in to your sites. Nothing leaves this Mac.",
   importTitle: "Import…",
   notNowTitle: "Not Now",
   neverTitle: "Don't Show Again",
   icon: ICON,
-  keepInSyncTitle: "Keep in sync",
-  keepInSync: true,
 };
 
-function CookieImportFixture({ model, look, width = 460 }: Props) {
+// Lines of a page under the card, so the glass shows what it blurs.
+const PAGE = Array.from(
+  { length: 7 },
+  (_, i) => ["Release notes", "Fixed the sign-in loop on the account page.", "Build 1842 · 3 files changed"][i % 3],
+);
+
+function CookieImportFixture({ model, look, width = 560 }: Props) {
   const [answer, setAnswer] = useState<CookieImportCommand | null>(null);
   return (
-    <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ width, maxWidth: "100%" }}>
+    <div data-ci-stage style={{ position: "relative", padding: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div aria-hidden style={{ position: "absolute", inset: 0, padding: "4px 16px", overflow: "hidden" }}>
+        {PAGE.map((line, i) => (
+          <div
+            key={i}
+            style={{
+              font: "var(--weight-emphasis) var(--text-title)/var(--text-title--line-height) var(--font-ui)",
+              color: i % 3 === 1 ? "var(--ds-color-accent)" : "var(--ds-color-fg)",
+            }}
+          >
+            {line}
+          </div>
+        ))}
+      </div>
+      <div style={{ position: "relative", width, maxWidth: "100%" }}>
         <CookieImportCard model={model} look={look} onChoice={setAnswer} />
       </div>
-      <span style={{ font: "var(--text-caption) var(--font-ui)", color: "var(--ds-color-faint)" }}>
+      <span
+        style={{ position: "relative", font: "var(--text-caption) var(--font-ui)", color: "var(--ds-color-faint)" }}
+      >
         {answer ? `Answered: ${JSON.stringify(answer)}` : " "}
       </span>
     </div>
@@ -43,10 +61,10 @@ export default componentEntry<Props>({
   id: "browser-chrome.cookie-import",
   title: "Import Cookies card",
   area: "Browser chrome",
-  height: 200,
+  height: 160,
   widths: { narrow: 360, normal: 520, wide: 640 },
   covers: ["browser-chrome/cookie-import/CookieImportCard.tsx"],
-  keywords: ["import cookies", "banner", "chrome", "sign in", "don't show again", "not now"],
+  keywords: ["import cookies", "toast", "chrome", "sign in", "don't show again", "not now"],
   load: async () => CookieImportFixture,
   options: [
     {
@@ -54,69 +72,67 @@ export default componentEntry<Props>({
       label: "Look",
       kind: "choice",
       choices: [
-        { value: "split", label: "Split (picked)" },
-        { value: "trailing", label: "Trailing" },
-        { value: "inline", label: "Inline" },
+        { value: "toast", label: "Toast (picked)" },
+        { value: "buttons", label: "Buttons" },
+        { value: "stacked", label: "Stacked" },
       ],
-      defaultValue: "split",
+      defaultValue: "toast",
     },
   ],
   variants: {
-    split: {
-      props: { model: chrome, look: "split" },
-      note: "Picked. Don't Show Again on the title's column, Not Now and Import matched at the end.",
+    toast: {
+      props: { model: chrome, look: "toast" },
+      note: "Picked. A toast: one line, Don't Show Again quiet and Import bold as clear text, the close button is Not Now.",
     },
-    trailing: {
-      props: { model: chrome, look: "trailing" },
-      note: "All three answers grouped at the end; the link reads as a third button.",
+    buttons: {
+      props: { model: chrome, look: "buttons", width: 640 },
+      note: "One row of buttons; wider than a toast, and the three answers outweigh the line.",
     },
-    inline: {
-      props: { model: chrome, look: "inline", width: 620 },
-      note: "One row for wide panes; in a narrow pane the buttons squeeze the text.",
+    stacked: {
+      props: { model: chrome, look: "stacked" },
+      note: "The previous two-row layout without its detail and checkbox: still a card, not a toast.",
     },
-    "split-narrow": {
-      props: { model: chrome, look: "split", width: 320 },
-      note: "A narrow pane: the detail wraps to two lines, the row keeps its alignment.",
+    "toast-narrow": {
+      props: { model: chrome, look: "toast", width: 320 },
+      note: "A narrow pane: the answers wrap under the line, at the trailing edge.",
     },
-    "split-no-never": {
-      props: { model: { ...chrome, neverTitle: null }, look: "split" },
-      note: "No Don't Show Again: only the two buttons, at the end.",
+    "toast-min": {
+      props: { model: chrome, look: "toast", width: 184 },
+      note: "The narrowest pane (200 pt less the insets): every answer stays inside the card.",
     },
-    "split-no-sync": {
-      props: { model: { ...chrome, keepInSyncTitle: null }, look: "split" },
-      note: "A browser whose cookies cannot be kept in sync (Safari, Firefox): no checkbox.",
-    },
-    "split-no-icon": {
-      props: { model: { ...chrome, icon: null }, look: "split" },
-    },
-    "split-long-labels": {
+    "toast-min-long-labels": {
       props: {
         model: {
           ...chrome,
           title: "Cookies aus Google Chrome importieren",
-          detail: "Bleiben Sie bei Ihren Websites angemeldet. Nichts verlässt diesen Mac.",
           importTitle: "Importieren …",
           notNowTitle: "Jetzt nicht",
           neverTitle: "Nicht mehr anzeigen",
         },
-        look: "split",
+        look: "toast",
+        width: 184,
       },
-      note: "Longer labels: the two buttons stay one width.",
+      note: "The narrowest pane with longer labels: a label too long ends in an ellipsis inside the card.",
     },
-    "split-narrow-long-labels": {
+    "toast-no-never": {
+      props: { model: { ...chrome, neverTitle: null }, look: "toast" },
+      note: "No Don't Show Again: Import and the close button.",
+    },
+    "toast-no-icon": {
+      props: { model: { ...chrome, icon: null }, look: "toast" },
+    },
+    "toast-long-labels": {
       props: {
         model: {
           ...chrome,
           title: "Cookies aus Google Chrome importieren",
-          detail: "Bleiben Sie bei Ihren Websites angemeldet. Nichts verlässt diesen Mac.",
           importTitle: "Importieren …",
           notNowTitle: "Jetzt nicht",
           neverTitle: "Nicht mehr anzeigen",
         },
-        look: "split",
-        width: 300,
+        look: "toast",
       },
-      note: "Longer labels in a narrow pane: the buttons go to their own line at the end, inside the card.",
+      note: "Longer labels: the line wraps before the answers leave the row.",
     },
   },
 });

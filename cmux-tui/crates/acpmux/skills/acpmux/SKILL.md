@@ -1,6 +1,6 @@
 ---
 name: acpmux
-description: "Drive coding agents through acpmux, a daemon that keeps ACP agent sessions (Claude Code, Codex, OpenCode, pi, Gemini) alive as named sessions on this machine and on other machines you added. Use when a task says to run, prompt, wait on, or inspect an acpmux session, when ACPMUX_ENV=1, or when you need a second agent (a Claude, a Codex, an open model) for a subtask. Every command has --json."
+description: "Drive coding agents through acpmux, which keeps Claude Code, Codex, OpenCode, pi and Gemini sessions alive by name on this machine and others: run, prompt, wait on or inspect a session, or start a second agent for a subtask (also when ACPMUX_ENV=1). Every command has --json."
 ---
 
 # acpmux guide
@@ -20,6 +20,14 @@ test "${ACPMUX_ENV:-}" = 1 && echo "I am session $ACPMUX_SESSION_NAME ($ACPMUX_S
 
 When set, `@` names your own session (`acpmux last @`, `acpmux history @`).
 Sessions you start are siblings, not children: they outlive you.
+
+Inside a session, run the daemon's own CLI: `"$ACPMUX_BIN"` is one absolute
+path that runs it, also inside cmux. Use it in place of `acpmux` in every
+command, as in `"$ACPMUX_BIN" send NAME "text"`. The `acpmux` on your PATH can
+be another, older build (a login profile puts `~/.local/bin` first). A CLI
+older than the daemon does not say who runs it: the daemon records its sends as
+an unverified program, not as you or the person, and refuses it what only the
+person's terminal may do (`caller.old_client`).
 
 Inside cmux your `cmux-subsessions` MCP server starts children instead:
 `start_session` (with `worktree: true` for a worktree of its own, or `fork: true` for a
@@ -104,7 +112,7 @@ not restarted. If the daemon predates this command, install the new binary and r
 when you can safely do so; after that, use reload for configuration changes.
 
 Explicit flags always win: `-m`, `-e low|medium|high|xhigh|max`,
-`--policy ask|approve-reads|approve-edits|approve-all|deny-all`, `--cwd DIR`,
+`--policy ask|approve-reads|approve-edits|approve-all|deny-all|review`, `--cwd DIR`,
 `--machine MACHINE`. A model the harness rejects fails the creation with the ids it
 knows; the session is not created.
 
@@ -117,7 +125,7 @@ acpmux exec -m claude "…"                          # run, then delete the sess
 acpmux ensure NAME -m codex --cwd DIR --tag task=review # get it, or create it with a label
 acpmux send NAME "next step"                       # the person's send: stream the reply; -q for the final text only
 acpmux send NAME "…"                               # from an agent (or with --class): queued here and returns in ms, delivered in the background even while the peer is down; prints the delivery id
-acpmux send NAME --wait "…"                        # an agent's send that waits: steers into a running turn and prints that turn's reply
+acpmux send NAME --wait "…"                        # an agent's send that waits: a question (wakes an idle receiver), steers into a running turn and prints that turn's reply
 acpmux send --status [ID]                          # one delivery's state, or every message this daemon still delivers or delivered today
 acpmux send NAME --no-wait "…"                     # a message: steers into the running turn when the harness steers (read at its next tool boundary; never stops it), else queues; returns at once
 acpmux send NAME --no-wait --no-steer "…"          # queue behind the running turn instead
@@ -147,6 +155,61 @@ acpmux session stop NAME --if-idle [--expect-revision LASTSEQ]   # stop only if 
 
 `send` on a busy or blocked session never refuses: the prompt queues and the
 output says `queued behind …`.
+
+### Messages between agents
+
+In a chat with acpmux's MCP tools, message with the `send` tool
+(`mcp__acpmux__send`; `cmux.acpmux_send` in a cmux_exec script), not
+`acpmux send` in Bash: one call, or `messages` for several, with `file`,
+`attach`, `class`, `pr`, `notice` and `supersede`, through the same outbox as
+`send --no-wait`. The CLI is for shells and scripts.
+
+From inside a session (`ACPMUX_ENV=1`) your send is your session's message, not
+the person's prompt. What the receiver gets depends on who you are to it:
+
+| You are | It gets | Wakes it when idle | The reply |
+| --- | --- | --- | --- |
+| the session that started it or first gave it work | a prompt, its own turn | yes | `send --wait` prints it |
+| another session, with `--wait` | a question in its inbox | yes | `send --wait` prints that turn's reply |
+| another session, with `--no-wait` | an action in its inbox | no: it goes with its next turn | it answers with `inbox_reply` or `acpmux send YOU` |
+| another session, `--no-wait --class question` or `block` | a question in its inbox | yes | that turn's report comes back to you (to your subagent, if one asked); not to a session on another machine |
+| the person, in a plain terminal | the person's prompt | yes | streamed |
+
+- `--class question` or `block` always wakes the receiver; `result` (an
+  action, the `--no-wait` default) only from its starter; `fyi` never.
+- A `--wait` send that would not wake an idle receiver (`--class result` from
+  a session that did not start it) fails at once with exit 1,
+  `send.not_woken`: nothing was delivered. `send --status` says `held in its
+  inbox` for such a `--no-wait` message.
+- Every agent send prints `sending as NAME` on stderr. A Claude Code subagent
+  sends as its lead's session, named `LEAD's TYPE subagent ID`, and so do its
+  `acpmux run` and `acpmux new` with a prompt. The reply to its own `run` or
+  `send --wait` reaches only it: the lead gets no lane report of that turn.
+  Its calls through the MCP tools (`mcp__acpmux__send`, `bg_start`, and cmux's
+  `acpmux_send`, `acpmux_bg_start`, `cmux_exec`) name it the same way. The
+  report of a turn it asked for without waiting comes to it only after its
+  next Bash command or one of those MCP calls: a subagent that makes no such
+  call any more does not get it. Once it has ended, the report goes to the
+  lead, saying `This report is for your TYPE subagent ID`. If it ended with no
+  `SubagentStop` hook, its reports wait until no subagent of the lead runs. The
+  end message of a background task it started (`bg_start`, `run_wait`) takes
+  the same rule. On a path that names no subagent (a cmux workflow script), a
+  subagent passes `notify: false` and reads the task
+  with `bg_output`. The receiver reads `From another agent (LEAD's TYPE
+  subagent ID)` and ends its turn with its answer; it does not send it to the
+  lead.
+  `acpmux send LEAD` reaches the lead.
+  A Codex subagent is named `LEAD's codex subagent THREAD` (its own
+  `CODEX_THREAD_ID`); when acpmux does not know the lead's thread, the line
+  says `LEAD (subagent identity not available for codex)`.
+- An agent keeps its proven identity across a daemon restart or update: the
+  daemon keeps digests of its caller tokens, so `no proven session` after a
+  restart is a bug, not a step to fix by hand.
+- An inbox notice ends with how to reply. Answer in your turn, with
+  `inbox_reply` or the `send` tool (`acpmux send NAME` without them); never
+  with your harness's own SendMessage, which reaches no acpmux session.
+- `wait` right after `send --no-wait` waits for the turn the message brings;
+  it never answers with the idle state from before the message.
 
 Start an agent for a task (its own worktree and brief) with one command; running
 it again reuses the session and worktree and sends nothing:
@@ -201,6 +264,20 @@ was not delivered: run `acpmux last NAME` and `acpmux history NAME` before
 sending it again. Add `--timeout` to `send`/`run` to cancel a runaway turn
 cooperatively.
 
+To try a build or a daemon restart, use a daemon of your own, never the one
+every session on this machine shares. Point `ACPMUX_HOME` and `ACPMUX_SOCKET`
+at a folder you made (acpmux never creates a missing `ACPMUX_HOME`), and unset
+`ACPMUX_SESSION_ID` and `ACPMUX_SESSION_TOKEN` there, so your sends are the
+person's and not your session's:
+
+```bash
+mkdir -p /tmp/try-acpmux
+export ACPMUX_HOME=/tmp/try-acpmux ACPMUX_SOCKET=/tmp/try-acpmux/acpmux.sock
+acpmux daemon status                        # this home's sessions and live agents: check before a restart
+acpmux daemon restart                       # the new daemon adopts every live agent; they keep their conversation
+acpmux daemon shutdown --end-agents         # done: end its agents too
+```
+
 ## 5. Permissions
 
 ```bash
@@ -224,7 +301,13 @@ size on click. Two images in one paragraph, such as
 `hq#N`, commit SHAs and `path/to/file.ts:42` become links.
 
 `--policy ask` sends every request to a human or to you; the other policies
-answer locally. Rules sit above the policy and match tool kind, title, and
+answer locally. For a reviewer, use `--policy review`: reads, searches and
+read-only shell commands (`git log`, `git diff`, `git show`, `grep`, `rg`,
+`ls`, `cat`, `sed -n '1,40p'`) run without asking, and every write or other
+command is denied at once, so the reviewer never waits for a person:
+`acpmux run -m claude --cwd ~/proj --policy review "review the diff of HEAD~1"`.
+A build or test run writes, so review cannot compile: give the reviewer the
+build output, or run it in a lane with `approve-edits`. Rules sit above the policy and match tool kind, title, and
 name, case-insensitively. File writes a harness delegates to acpmux (ACP
 `fs/write_text_file`) are gated the same way and show as `Write PATH [edit]`.
 
@@ -321,7 +404,9 @@ turn was denied · 6 `session stop --if-idle` refused (`busy` or
 
 ## 8. Rules
 
-- Read ids and names from `--json` output. Never guess them.
+- Read ids and names from `--json` output. Never guess them. `new --json` and
+  `ensure --json` leave out the command, tool and option catalogs; add `--full`
+  for the whole record.
 - `wait` with no flags is enough. Add `--until` only for a state-specific step.
 - `-m HARNESS[/MODEL]` is the target. Pass a model, `-e`, or `--policy` only when the
   task needs something other than the defaults. Prefer a preset when one exists.

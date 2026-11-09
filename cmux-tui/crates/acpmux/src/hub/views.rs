@@ -108,7 +108,8 @@ fn sidebar_requires_open(summary: &Value) -> bool {
 /// The session's status dot, decided here once so every client draws the
 /// same one (cx-zlox). First match wins:
 ///
-/// - `input`: a permission or question waits for the person.
+/// - `input`: a permission or question waits for the person, here or in an
+///   open sub-session below it (`subsessionsWaiting`, `asks_below.rs`).
 /// - `working`: a turn runs.
 /// - `failed`: the last turn failed (also when the agent then exited).
 /// - `lost`: the agent process is gone (`disconnected`, or a peer's
@@ -144,6 +145,9 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         "disconnected" if !summary["turn"].is_null() => Some("lost"),
         "waiting" => Some("input"),
         _ if pending => Some("input"),
+        // A sub-session below it waits on the person: its run stalls there until someone answers,
+        // so the parent's own row says so, whatever its own turn does (`asks_below.rs`).
+        _ if summary["subsessionsWaiting"].as_u64().unwrap_or(0) > 0 => Some("input"),
         "running" => Some("working"),
         _ if last == Some("failed") => Some("failed"),
         "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
@@ -229,7 +233,13 @@ pub fn lane(summary: &Value) -> Value {
             "working",
             summary["turn"]["startedAt"].as_u64().or(summary["subagentsWorkingSince"].as_u64()),
         ),
-        Some("input") => ("input", summary["inputSince"].as_u64().or(updated)),
+        Some("input") => (
+            "input",
+            summary["inputSince"]
+                .as_u64()
+                .or(summary["subsessionsWaitingSince"].as_u64())
+                .or(updated),
+        ),
         Some("failed") => ("failed", ended),
         Some("lost") if in_turn => ("lost", updated),
         Some("lost") => ("lost", summary["lastTurn"]["endedAt"].as_u64().or(updated)),
@@ -414,6 +424,37 @@ impl Hub {
         self.summary_with_tools(session, true)
     }
 
+    /// Fold a chat's journal once, then keep the reducer current at the append seam. The append
+    /// lock makes the seed and the next record one ordered view for Session Info.
+    fn time_breakdown_of(
+        &self,
+        session: &Session,
+    ) -> Option<crate::hub::time_breakdown::TimeBreakdown> {
+        let _append = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+        if !state.initialized {
+            let scanned = self.store.scan(&session.id, 0, &mut |record| {
+                state.record(&record);
+                true
+            });
+            if scanned.is_err() {
+                return None;
+            }
+            state.initialized = true;
+        }
+        Some(state.snapshot(crate::store::now_ms()))
+    }
+
+    /// Return the breakdown only after a detail/attach read has seeded it. Summary and census
+    /// paths must never scan a journal or take the append lock just to decorate a row.
+    fn cached_time_breakdown(
+        &self,
+        session: &Session,
+    ) -> Option<crate::hub::time_breakdown::TimeBreakdown> {
+        let state = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+        state.initialized.then(|| state.snapshot(crate::store::now_ms()))
+    }
+
     /// Census rows omit the inventory and cut a long title (`TITLE_CHARS`); `_acpmux/info` and
     /// attach keep both.
     pub(crate) fn session_list_summary(&self, session: &Session) -> Value {
@@ -434,6 +475,17 @@ impl Hub {
         let heard_at = session.last_model_at.load(Ordering::Relaxed);
         // After `turn`: a retry's turn that started since is seen there (`retry_row`).
         let (retry, retry_deciding) = self.retry_row(session, m.last_turn.as_ref());
+        let loop_episode = if m.status == SessionStatus::Closed
+            || turn.as_ref().is_none_or(|current| {
+                session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()).as_deref()
+                    != Some(current.turn_id.as_str())
+            }) {
+            None
+        } else {
+            session.loop_detector.lock().unwrap_or_else(|e| e.into_inner()).active().cloned()
+        };
+        // Harness failure state has scheduling meaning beyond the UI. A tool loop remains a
+        // running turn and is reported separately as `loopEpisode`.
         let stuck =
             (m.status != SessionStatus::Closed).then(|| m.harness_failures.stuck()).flatten();
         let stopping = turn.as_ref().is_some_and(|t| {
@@ -459,6 +511,17 @@ impl Hub {
             stuck_reason: stuck.map(|s| s.0),
             stuck_since: stuck.map(|s| s.1),
             stuck_error: stuck.map(|s| s.2.to_owned()),
+            loop_episode: loop_episode.map(|episode| {
+                crate::protocol::session::LoopEpisodeSummary {
+                    episode_id: episode.episode_id,
+                    since: episode.since,
+                    count: episode.count,
+                    diagnosis: episode.diagnosis,
+                    hint: episode.hint,
+                }
+            }),
+            harness_sandbox_failed: m.harness_sandbox.first_at,
+            harness_sandbox_failing: m.harness_sandbox.failing,
             agent_session_id: m.agent_session_id.clone(),
             retired_agent_session_ids: m.retired_agent_session_ids.clone(),
             created_at: m.created_at,
@@ -601,6 +664,9 @@ impl Hub {
             tags: live_tags(&m),
             state_seq: session.state_seq.load(Ordering::SeqCst),
             unread: m.unread,
+            unread_turns: m.unread_turns,
+            seen_seq: m.seen_seq,
+            last_return: m.last_return,
             last_turn: m.last_turn.clone(),
             // A retry of its failed last turn waits, or is being decided (`auto_resume.rs`).
             retry,
@@ -615,6 +681,8 @@ impl Hub {
             peer: None,
             // What its harness spent and holds, as the last read found it (`usage_view.rs`).
             usage_stats: self.usage_stats_of(session, &m),
+            // A detail/attach read seeds this lazily; census rows never scan journals.
+            time_breakdown: with_tools.then(|| self.cached_time_breakdown(session)).flatten(),
         };
         let receipt = SessionReceipt::new(
             LOCAL_HOST_ID,
@@ -633,6 +701,10 @@ impl Hub {
         }
         // Since when work it started runs on past its own turn (`work_below.rs`).
         summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
+        // How many open sub-sessions below it wait on the person, and since when (`asks_below.rs`).
+        let waiting = self.subsessions_waiting(session);
+        summary.set("subsessionsWaiting", json!(waiting.map_or(0, |(count, _)| count)));
+        summary.set("subsessionsWaitingSince", json!(waiting.map(|(_, since)| since)));
         // What runs below it now (the sidebar hover card, Leo 2026-11-01: "this hover preview
         // being able to see the # of associated subagents and whatnot"): its running subagents,
         // their first names, and its running background commands (`running_work`).
@@ -672,6 +744,9 @@ impl Hub {
     }
 
     pub fn session_detail(&self, session: &Session) -> Value {
+        // Session Info/attach is the explicit opt-in for the journal-backed chart. Seed before
+        // building the summary so the typed optional field carries the first snapshot.
+        let _ = self.time_breakdown_of(session);
         let m = session.meta();
         let mut v = self.session_summary(session);
         v.set("modes", m.modes.clone().unwrap_or(Value::Null));
@@ -861,4 +936,86 @@ fn daemon_login_session() -> Value {
     };
     #[cfg(not(target_os = "macos"))]
     Value::Null
+}
+
+#[cfg(test)]
+mod time_breakdown_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn test_hub() -> Arc<Hub> {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut cfg: crate::config::Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .unwrap();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        Hub::new(cfg, store)
+    }
+
+    #[tokio::test]
+    async fn time_breakdown_is_lazy_and_updates_after_append() {
+        let hub = test_hub();
+        let session = hub
+            .new_session(NewRequest {
+                harness: Some("fake".into()),
+                name: Some("time-breakdown".into()),
+                cwd: Some(std::env::temp_dir()),
+                ..NewRequest::default()
+            })
+            .await
+            .unwrap();
+
+        assert!(!session.time_breakdown.lock().unwrap().initialized);
+        assert!(hub.session_list_summary(&session).get("timeBreakdown").is_none());
+        assert!(!session.time_breakdown.lock().unwrap().initialized);
+        assert!(hub.session_summary(&session).get("timeBreakdown").is_none());
+        assert!(!session.time_breakdown.lock().unwrap().initialized);
+
+        hub.append_at(
+            &session,
+            "mux",
+            "turn_started",
+            json!({"turnSeq": 1, "turnId": "turn-1"}),
+            None,
+            Some(100),
+        );
+        hub.append_at(
+            &session,
+            "mux",
+            "turn_result",
+            json!({"turnSeq": 1, "turnId": "turn-1", "totalTokens": 5}),
+            None,
+            Some(200),
+        );
+
+        let detail = hub.session_detail(&session);
+        assert!(session.time_breakdown.lock().unwrap().initialized);
+        assert_eq!(detail["timeBreakdown"]["totalMs"], 100);
+        assert_eq!(detail["timeBreakdown"]["totalTokens"], 5);
+
+        hub.append_at(
+            &session,
+            "mux",
+            "turn_started",
+            json!({"turnSeq": 2, "turnId": "turn-2"}),
+            None,
+            Some(300),
+        );
+        hub.append_at(
+            &session,
+            "mux",
+            "turn_result",
+            json!({"turnSeq": 2, "turnId": "turn-2", "totalTokens": 7}),
+            None,
+            Some(450),
+        );
+
+        let summary = hub.session_summary(&session);
+        assert!(session.time_breakdown.lock().unwrap().initialized);
+        assert_eq!(summary["timeBreakdown"]["totalMs"], 250);
+        assert_eq!(summary["timeBreakdown"]["totalTokens"], 12);
+    }
 }

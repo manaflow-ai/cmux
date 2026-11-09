@@ -890,14 +890,14 @@ fn side_policy(chat: PermissionPolicy, inline: bool) -> PermissionPolicy {
         // Inline fallbacks have no pane to answer a permission card. Read-only
         // questions must therefore allow reads automatically, while DenyAll
         // remains a deliberate refusal from the parent chat.
-        return if chat == PermissionPolicy::DenyAll {
+        return if matches!(chat, PermissionPolicy::DenyAll | PermissionPolicy::Review) {
             chat
         } else {
             PermissionPolicy::ApproveReads
         };
     }
     match chat {
-        PermissionPolicy::Ask | PermissionPolicy::DenyAll => chat,
+        PermissionPolicy::Ask | PermissionPolicy::DenyAll | PermissionPolicy::Review => chat,
         _ => PermissionPolicy::ApproveReads,
     }
 }

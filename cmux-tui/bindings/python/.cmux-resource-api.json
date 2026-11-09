@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "ba4ddde68b6c1cd5799e21e4d06dd2d57684a7364d11a324ba120f2b92e266c3",
+  "catalog_sha256": "c9c1e4098cce1ceee0e28747dc454aea0bc7d9477563fe0e7388819d09292e54",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -139,6 +139,12 @@
     "chief.stop": {
       "class": "mutation"
     },
+    "classic_import.plan": {
+      "class": "read"
+    },
+    "classic_import.record": {
+      "class": "mutation"
+    },
     "client.cell_pixels.set": {
       "class": "connection_control"
     },
@@ -223,9 +229,6 @@
     "cloud.runs.wait": {
       "class": "read"
     },
-    "cloud.vm.delete_snapshot": {
-      "class": "mutation"
-    },
     "cloud.vm.domains": {
       "class": "read"
     },
@@ -241,9 +244,6 @@
     "cloud.vm.firewall_list": {
       "class": "read"
     },
-    "cloud.vm.fork": {
-      "class": "mutation"
-    },
     "cloud.vm.networks": {
       "class": "read"
     },
@@ -256,23 +256,11 @@
     "cloud.vm.publications": {
       "class": "read"
     },
-    "cloud.vm.resize": {
-      "class": "mutation"
-    },
-    "cloud.vm.restore": {
-      "class": "mutation"
-    },
     "cloud.vm.revoke_publication_api_key": {
       "class": "mutation"
     },
     "cloud.vm.scp_endpoint": {
       "class": "mutation"
-    },
-    "cloud.vm.snapshot": {
-      "class": "mutation"
-    },
-    "cloud.vm.snapshots": {
-      "class": "read"
     },
     "cloud.vm.tunnel_attach": {
       "class": "mutation"

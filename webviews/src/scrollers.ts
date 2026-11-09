@@ -213,6 +213,15 @@ export type UserInput = { at: number; target: EventTarget | null; path?: readonl
 /** The user's last input in each document. */
 const lastUserInput = new WeakMap<Document, UserInput>();
 
+/** The element that scrolled last in each document (<html> for the page's own scroller). */
+const lastScrolled = new WeakMap<Document, Element>();
+
+/** The element that scrolled last in `document`, however it scrolled, or null before any scroll
+    (or before `installScrollingMarks`). A reload keeps its position (pages/shared/pageHealth.ts). */
+export function lastScrolledElement(document: Document): Element | null {
+  return lastScrolled.get(document) ?? null;
+}
+
 /** Keys that scroll whatever the page scrolls by keyboard, wherever focus is (outside a text field).
     "Spacebar" is an older engine's name for " ". */
 const SCROLLING_KEYS = new Set([
@@ -304,6 +313,8 @@ export function installScrollingMarks(document: Document, timers: ScrollTimers =
     "scroll",
     (event) => {
       const target = event.target;
+      if (target === document) lastScrolled.set(document, document.documentElement);
+      else if (target && "setAttribute" in target) lastScrolled.set(document, target as Element);
       // The page's own scroller is <html>, and it answers to the same rule as every other.
       if (target === document) {
         if (isUserScroll(document.documentElement, lastUserInput.get(document), now()))
@@ -663,6 +674,31 @@ export function scrollEdges(box: { scrollTop: number; clientHeight: number; scro
     above: box.scrollTop > 0.5,
     below: box.scrollTop + box.clientHeight < box.scrollHeight - 0.5,
   };
+}
+
+/** On a sideways scroller (a wide table, an unwrapped code box) while content lies past its left
+    edge (it was scrolled) or its right edge. The stylesheet fades that edge out with a mask, so the
+    fade takes whatever background the box sits on, light or dark (user 2026-11-07: "markdown
+    missing fade now"). */
+export const MORE_LEFT_ATTRIBUTE = "data-more-left";
+export const MORE_RIGHT_ATTRIBUTE = "data-more-right";
+
+/** Which side edges of a scroller have content past them (a half pixel of slack for zoomed pages). */
+export function sidewaysEdges(box: { scrollLeft: number; clientWidth: number; scrollWidth: number }): {
+  left: boolean;
+  right: boolean;
+} {
+  return {
+    left: box.scrollLeft > 0.5,
+    right: box.scrollLeft + box.clientWidth < box.scrollWidth - 0.5,
+  };
+}
+
+/** Sets `MORE_LEFT_ATTRIBUTE` and `MORE_RIGHT_ATTRIBUTE` on `box` from where it is scrolled now. */
+export function markSidewaysEdges(box: Element): void {
+  const edges = sidewaysEdges(box);
+  if (box.hasAttribute(MORE_LEFT_ATTRIBUTE) !== edges.left) box.toggleAttribute(MORE_LEFT_ATTRIBUTE, edges.left);
+  if (box.hasAttribute(MORE_RIGHT_ATTRIBUTE) !== edges.right) box.toggleAttribute(MORE_RIGHT_ATTRIBUTE, edges.right);
 }
 
 /**

@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1374,
-    "shortcuts": 189
+    "entries": 1382,
+    "shortcuts": 188
   },
   "sections": [
     {
@@ -26,6 +26,12 @@
           "title": "Agent Messages Playground",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "home.archiveChief",
+          "title": "Archive Chief",
+          "shortcut": null,
+          "command": "cmux home archive-chief"
         },
         {
           "id": "home.attachFiles",
@@ -128,6 +134,12 @@
           "title": "Conversation Info…",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "home.deleteChief",
+          "title": "Delete Chief…",
+          "shortcut": null,
+          "command": "cmux home delete-chief"
         },
         {
           "id": "home.hideConversation",
@@ -248,6 +260,12 @@
           "title": "Location History…",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "home.setPrimaryChief",
+          "title": "Make Primary Chief",
+          "shortcut": null,
+          "command": "cmux home primary-chief"
         },
         {
           "id": "home.mcpConnectPlayground",
@@ -1338,7 +1356,7 @@
         {
           "id": "space.next",
           "title": "Next Space",
-          "shortcut": "⌃⌥⌘",
+          "shortcut": "⌃⌥⌘L",
           "command": "cmux space next"
         },
         {
@@ -1404,7 +1422,7 @@
         {
           "id": "space.previous",
           "title": "Previous Space",
-          "shortcut": "⌃⌥⌘",
+          "shortcut": "⌃⌥⌘H",
           "command": "cmux space previous"
         },
         {
@@ -5440,6 +5458,12 @@
           "command": "cmux sidebar enable-minimal-mode"
         },
         {
+          "id": "sidebar.floatOnHover.on",
+          "title": "Float Hidden Sidebar on Hover",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "focusRightSidebar",
           "title": "Focus Right Sidebar",
           "shortcut": "⇧⌘E",
@@ -5550,6 +5574,12 @@
         {
           "id": "fileExplorerMoveToTrash",
           "title": "Move to Trash",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "sidebar.floatOnHover.off",
+          "title": "Never Float Hidden Sidebar",
           "shortcut": null,
           "command": null
         },
@@ -6058,12 +6088,6 @@
           "command": "cmux notification preview-sound"
         },
         {
-          "id": "feed.show",
-          "title": "Show Feed",
-          "shortcut": "⇧⌘I",
-          "command": null
-        },
-        {
           "id": "showNotifications",
           "title": "Show Notifications",
           "shortcut": null,
@@ -6496,6 +6520,12 @@
           "command": null
         },
         {
+          "id": "palette.newCloudChat",
+          "title": "New Cloud Chat",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "tasks.new",
           "title": "New Task",
           "shortcut": null,
@@ -6686,6 +6716,12 @@
           "title": "Start Agent…",
           "shortcut": "⌃⌘\r",
           "command": "cmux agent quick"
+        },
+        {
+          "id": "home.startQueuedAgent",
+          "title": "Start Queued Agent Now",
+          "shortcut": null,
+          "command": "cmux home start-agent"
         },
         {
           "id": "agentPane.stopTurn",
@@ -7541,13 +7577,13 @@
         },
         {
           "id": "appearance.uiScale.decrease",
-          "title": "Decrease Interface Scale",
+          "title": "Decrease App Zoom",
           "shortcut": "⌃⇧⌘-",
           "command": null
         },
         {
           "id": "appearance.interfaceSize.decrease",
-          "title": "Decrease Interface Size",
+          "title": "Decrease Text Size",
           "shortcut": null,
           "command": null
         },
@@ -7565,7 +7601,7 @@
         },
         {
           "id": "appearance.density.cozy",
-          "title": "Density: Cozy",
+          "title": "Density: Default",
           "shortcut": null,
           "command": "cmux density use-cozy"
         },
@@ -7673,13 +7709,13 @@
         },
         {
           "id": "appearance.uiScale.increase",
-          "title": "Increase Interface Scale",
+          "title": "Increase App Zoom",
           "shortcut": "⌃⇧⌘=",
           "command": null
         },
         {
           "id": "appearance.interfaceSize.increase",
-          "title": "Increase Interface Size",
+          "title": "Increase Text Size",
           "shortcut": null,
           "command": null
         },
@@ -7864,6 +7900,12 @@
           "command": "cmux settings toggle-pane-padding"
         },
         {
+          "id": "appearance.personalize",
+          "title": "Personalization…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "agentPane.display.railOnRight",
           "title": "Prompt Rail on Right Edge",
           "shortcut": null,
@@ -7876,10 +7918,22 @@
           "command": "cmux settings reload-configuration"
         },
         {
+          "id": "app.reloadCustomViews",
+          "title": "Reload Custom Views",
+          "shortcut": null,
+          "command": "cmux apps reload"
+        },
+        {
           "id": "app.remove",
           "title": "Remove App…",
           "shortcut": null,
           "command": "cmux apps remove"
+        },
+        {
+          "id": "appearance.uiScale.reset",
+          "title": "Reset App Zoom",
+          "shortcut": "⌃⇧⌘0",
+          "command": null
         },
         {
           "id": "appearance.reset",
@@ -7888,20 +7942,14 @@
           "command": "cmux appearance reset"
         },
         {
-          "id": "appearance.uiScale.reset",
-          "title": "Reset Interface Scale",
-          "shortcut": "⌃⇧⌘0",
-          "command": null
-        },
-        {
-          "id": "appearance.interfaceSize.reset",
-          "title": "Reset Interface Size",
+          "id": "debug.blockingCalls.reset",
+          "title": "Reset Main-Thread Blocking Counts",
           "shortcut": null,
           "command": null
         },
         {
-          "id": "debug.blockingCalls.reset",
-          "title": "Reset Main-Thread Blocking Counts",
+          "id": "appearance.interfaceSize.reset",
+          "title": "Reset Text Size",
           "shortcut": null,
           "command": null
         },

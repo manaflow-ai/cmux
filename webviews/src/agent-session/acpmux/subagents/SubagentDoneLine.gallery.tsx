@@ -41,6 +41,10 @@ type Props = {
   replyLook?: ReplyLook;
   report?: string;
   arm?: DoneReportLook;
+  /** `capped`: the report reaches the line only as acpmux's 240-character `lastMessage`; `whole`
+   * says where its whole reply is: the subagent's own transcript (`view`), its own records read on
+   * Show more (`log`), or nowhere (`none`). */
+  capped?: "view" | "log" | "none";
 };
 
 const CHILD_ID = "optchat-5e2a91c4b7d0-3f";
@@ -55,8 +59,25 @@ const REPORT = `Found the drift: the settings schema generator reads \`defaults.
 
 Fixed the read order in \`gen-schema.ts\`, regenerated the golden files and the docs page, and added a test that compares the generator's output with the app's defaults. All 214 settings tests pass.`;
 
+// Leo's report (2026-11-09), whose 240-character preview acpmux cut inside `**24 clean, f`.
+const LONG_REPORT = [
+  "I freed about 7 GiB on build-box. Free space is now **39 GiB**, still about 1 GiB under the 40 GiB floor. It read 22 GiB when you briefed me, but 32 GiB when I started deleting; I didn't cause that 10 GiB drop.",
+  "",
+  "**Deleted:**",
+  "",
+  "- **24 clean, finished worktrees** under ~/Projects/checkouts, each merged or closed.",
+  "- **3 stale build dirs** from lanes that ended last week.",
+  "",
+  "Nothing else was touched.",
+].join("\n");
+/// acpmux's `lastMessage` of it (subagents.rs `truncate_last_message`).
+const LONG_PREVIEW = `${Array.from(LONG_REPORT).slice(0, 239).join("")}…`;
+
+// A line with a report is the one message row (AgentMessageRow.tsx): its line opens the report.
+const REPORT_TOGGLE = ".cv-subagent-report-row .cv-agentmsg__toggle";
+
 const openReport: Play = async (ctx) => {
-  await ctx.click({ selector: ".cv-subagent-done__disclose" });
+  await ctx.click({ selector: REPORT_TOGGLE });
   await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-done__report") !== null);
 };
 
@@ -72,6 +93,7 @@ const done = (
   subsession = false,
   reply?: string,
   report?: string,
+  capped = false,
 ): AcpmuxRow => {
   const agent: Subagent = {
     id: subsession ? `${CHILD_ID}/start-${index}` : `agent-done-${index}`,
@@ -84,7 +106,7 @@ const done = (
     ...(failed && { error: ERROR }),
     startedAt: minutesAgo(12),
     endedAt: minutesAgo(10.6),
-    ...(report && !failed && { result: report }),
+    ...(report && !failed && (capped ? { lastMessage: LONG_PREVIEW } : { result: report })),
   };
   return {
     id: `done-${index}`,
@@ -107,6 +129,7 @@ export default componentEntry<Props>({
     "agent-session/acpmux/subagents/SubagentDoneLine.tsx#SubagentDoneLine",
     "agent-session/acpmux/conversation/ReactionMark.tsx#ReactionReply",
     "agent-session/acpmux/subagents/doneReport.experiment.ts",
+    "agent-session/acpmux/subagents/WholeReportBody.tsx#WholeReportBody",
   ],
   experiment: {
     definition: doneReportLook,
@@ -115,8 +138,7 @@ export default componentEntry<Props>({
       {
         name: "Open the report",
         run: async (ctx) => {
-          if (ctx.document.querySelector(".cv-subagent-done__disclose"))
-            await ctx.click({ selector: ".cv-subagent-done__disclose" });
+          if (ctx.document.querySelector(REPORT_TOGGLE)) await ctx.click({ selector: REPORT_TOGGLE });
         },
       },
     ],
@@ -124,7 +146,8 @@ export default componentEntry<Props>({
   load: async () => {
     const { SubagentDoneLine } = await import("./SubagentDoneLine");
     const { DoneReportLookContext } = await import("./subagentDoneLineModel");
-    const { SubagentNavContext } = await import("./subagentGroupModel");
+    const { SubagentNavContext, SubagentViewsContext } = await import("./subagentGroupModel");
+    const { SubagentReplyContext } = await import("./wholeReport");
     const { SubsessionContext, SubsessionStore } = await import("./subsessions");
     // The sub-session's own chat, titled, as the session list has it.
     const store = new SubsessionStore();
@@ -151,35 +174,51 @@ export default componentEntry<Props>({
       replyLook,
       report,
       arm,
+      capped,
     }: Props) {
+      const view = (id: string) =>
+        capped === "view" && id === "agent-done-0"
+          ? [{ id: "reply", version: 1, at: 0, kind: "assistant", text: LONG_REPORT }]
+          : undefined;
+      const readReply = capped === "log" ? async () => LONG_REPORT : async () => undefined;
       return (
         <SubsessionContext.Provider value={subsessions}>
-          <SubagentNavContext.Provider value={() => undefined}>
-            <DoneReportLookContext.Provider value={arm}>
-              <main
-                className="acpmux-shell subagent-done-gallery"
-                data-subagent-done-gallery
-                data-look={look}
-                data-reply-look={replyLook}
-                style={{ padding: "16px", flexDirection: "column", gap: "0", ...(pane ? { width: `${pane}px` } : {}) }}
-              >
-                {names.map((name, index) => (
-                  <section key={index} className="acpmux-row">
-                    <SubagentDoneLine
-                      row={done(
-                        name,
-                        index,
-                        failed,
-                        subsession,
-                        index === 0 ? reply : undefined,
-                        index === 0 ? report : undefined,
-                      )}
-                    />
-                  </section>
-                ))}
-              </main>
-            </DoneReportLookContext.Provider>
-          </SubagentNavContext.Provider>
+          <SubagentViewsContext.Provider value={view}>
+            <SubagentReplyContext.Provider value={readReply}>
+              <SubagentNavContext.Provider value={() => undefined}>
+                <DoneReportLookContext.Provider value={arm}>
+                  <main
+                    className="acpmux-shell subagent-done-gallery"
+                    data-subagent-done-gallery
+                    data-look={look}
+                    data-reply-look={replyLook}
+                    style={{
+                      padding: "16px",
+                      flexDirection: "column",
+                      gap: "0",
+                      ...(pane ? { width: `${pane}px` } : {}),
+                    }}
+                  >
+                    {names.map((name, index) => (
+                      <section key={index} className="acpmux-row">
+                        <SubagentDoneLine
+                          row={done(
+                            name,
+                            index,
+                            failed,
+                            subsession,
+                            index === 0 ? reply : undefined,
+                            index === 0 ? report : undefined,
+                            capped !== undefined,
+                          )}
+                        />
+                      </section>
+                    ))}
+                  </main>
+                </DoneReportLookContext.Provider>
+              </SubagentNavContext.Provider>
+            </SubagentReplyContext.Provider>
+          </SubagentViewsContext.Provider>
         </SubsessionContext.Provider>
       );
     };
@@ -245,6 +284,34 @@ export default componentEntry<Props>({
       note: "The same line, its report opened under it in the transcript's Markdown, capped at 240px and scrolling past it.",
       height: 360,
       props: { names: ["Fix defaults-snapshot drift"], report: REPORT, arm: "disclosure" },
+      play: openReport,
+    },
+    "capped-open": {
+      note: "Leo's report, only acpmux's 240-character preview at hand: the card shows its whole blocks (no `**` drawn) and Show more under them.",
+      height: 220,
+      props: { names: ["Clean old repos on build-box"], report: LONG_REPORT, arm: "disclosure", capped: "log" },
+      play: openReport,
+    },
+    "capped-more": {
+      note: "The pick: Show more pressed, the whole report opens in place in the same card, its bold drawn as bold.",
+      height: 300,
+      props: { names: ["Clean old repos on build-box"], report: LONG_REPORT, arm: "disclosure", capped: "log" },
+      play: async (ctx) => {
+        await openReport(ctx);
+        await ctx.click({ selector: ".cv-subagent-done__more-row" });
+        await ctx.waitFor(() => !ctx.document.querySelector(".cv-subagent-done__more-row"));
+      },
+    },
+    "capped-from-view": {
+      note: "The subagent's own transcript holds its last reply: the card opens to the whole report at once, with no Show more.",
+      height: 300,
+      props: { names: ["Clean old repos on build-box"], report: LONG_REPORT, arm: "disclosure", capped: "view" },
+      play: openReport,
+    },
+    "capped-unreadable": {
+      note: "Nothing holds the rest: whole blocks, and Show more opens the subagent's view.",
+      height: 220,
+      props: { names: ["Clean old repos on build-box"], report: LONG_REPORT, arm: "disclosure", capped: "none" },
       play: openReport,
     },
     "arm-disclosure": {

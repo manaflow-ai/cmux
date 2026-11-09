@@ -27,8 +27,8 @@ import { sqlMeshStoreLayer } from "./db/mesh.ts";
 import { meshConfigLayer, parseMeshExperiment, parseReceiverPolicyLease } from "./mesh/config.ts";
 import { upstreamMeshLayer } from "./upstream/live-mesh.ts";
 import { sqlMembershipCacheLayer, sqlWebhookDeliveryStoreLayer } from "./db/identity.ts";
-import { recordedVmIds } from "./db/orphans.ts";
-import { sweepOrphanVms } from "./upstream/orphan-sweep.ts";
+import { recordedVmIds, sweepableTunnelDevices } from "./db/orphans.ts";
+import { sweepOrphanTunnels, sweepOrphanVms } from "./upstream/orphan-sweep.ts";
 
 /** The per-tenant counters Durable Object; wrangler binds it as TENANT_LIMITS. */
 export { TenantLimitsObject } from "./limits/durable-object.ts";
@@ -152,9 +152,10 @@ const notConfigured = (): Promise<Response> =>
 const unconfigured: Served = { handler: notConfigured, reap: () => Promise.resolve(), sweep: () => Promise.resolve() };
 
 /**
- * Deletes provider VMs of this environment that no ownership row records (src/upstream/orphan-sweep.ts). Staging and
- * production only: each is one Worker with its own database, while every preview Worker shares the environment name
- * "preview" (and its slugs) with the others, so one preview's sweep could see another's VMs as orphans.
+ * Deletes provider VMs of this environment that no ownership row records, and device tunnels nothing can use
+ * (src/upstream/orphan-sweep.ts). Staging and production only: each is one Worker with its own database, while every
+ * preview Worker shares the environment name "preview" (and its slugs) with the others, so one preview's sweep could
+ * see another's VMs as orphans.
  */
 const runOrphanSweep = async (env: Env) => {
   // The exact configured value: parseEnvironment reads a missing or unknown one as production.
@@ -162,16 +163,37 @@ const runOrphanSweep = async (env: Env) => {
   if (raw !== "staging" && raw !== "production") return;
   const environment = parseEnvironment(raw);
   const config = { baseUrl: env.UPSTREAM_API_URL, apiKey: Redacted.make(env.UPSTREAM_API_KEY), environment };
-  const report = await Effect.runPromise(
-    withRequestConnection(sweepOrphanVms(config, { nowMs: Date.now(), dryRun: false, recorded: recordedVmIds })).pipe(
+  // Device tunnels nothing can use (a create that landed after its attempt was resolved): its own run, so a failure of
+  // either sweep never skips the other.
+  const tunnels = Effect.runPromise(
+    withRequestConnection(sweepOrphanTunnels(config, { dryRun: false, sweepable: sweepableTunnelDevices })).pipe(
       Effect.provide(hyperdriveSqlLayer(env.HYPERDRIVE.connectionString)),
     ),
+  ).then(
+    (report) => {
+      if (report.orphans.length > 0 || report.skipped.length > 0) {
+        console.log(JSON.stringify({
+          event: "cmux_vm_tunnel_sweep", listed: report.listed, orphans: report.orphans.length, skipped: report.skipped,
+          deleted: report.deleted, failed: report.failed,
+        }));
+      }
+    },
+    () => console.error(JSON.stringify({ event: "cmux_vm_tunnel_sweep_failed" })),
   );
-  if (report.orphans.length > 0 || !report.complete) {
-    console.log(JSON.stringify({
-      event: "cmux_vm_orphan_sweep", listed: report.listed, complete: report.complete, orphans: report.orphans.length,
-      deleted: report.deleted, failed: report.failed,
-    }));
+  try {
+    const report = await Effect.runPromise(
+      withRequestConnection(sweepOrphanVms(config, { nowMs: Date.now(), dryRun: false, recorded: recordedVmIds })).pipe(
+        Effect.provide(hyperdriveSqlLayer(env.HYPERDRIVE.connectionString)),
+      ),
+    );
+    if (report.orphans.length > 0 || !report.complete) {
+      console.log(JSON.stringify({
+        event: "cmux_vm_orphan_sweep", listed: report.listed, complete: report.complete, orphans: report.orphans.length,
+        deleted: report.deleted, failed: report.failed,
+      }));
+    }
+  } finally {
+    await tunnels;
   }
 };
 

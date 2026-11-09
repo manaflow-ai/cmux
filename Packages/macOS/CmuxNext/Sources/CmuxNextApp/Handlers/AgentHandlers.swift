@@ -86,6 +86,7 @@ enum AgentHandlers {
         ChiefInspectorHandlers.bind(into: registry, context: context)
         AddHarnessHandler.bind(into: registry, context: context)
         AgentHarnessHandlers.bind(into: registry, context: context)
+        GitRepositoryActions(place: { gitPlace(context, $0) }, announce: { BrowserFileImport.toast(context.services, id: "git-repository-action", $0) }).bind(into: registry)
         // The front window's Home, else the Chief directly (HomeChiefActions).
         HomeChiefActions.bind(into: registry, context: context)
         // Start Agent: its key, the palette, the menu and the CLI toggle one floating panel, and so
@@ -126,6 +127,9 @@ enum AgentHandlers {
             _ = registry.perform("palette.newAgentChat", invocation: invocation)
             return .done
         })
+        registry.bindEffect("palette.newCloudChat", effect: { invocation in  // New Agent Chat's tab; its seed picks Cloud
+            withAgentPane(invocation, context: context, seed: AgentPaneSeed(picksCloud: true)) { $0.openAgentTab(seed: .picksCloud(after: $0.agentSeedFromSelectedTab())) }
+            return .done })
         registry.bindAgentPaneSessionInfo { invocation in
             focusedAgentView(.toggleSessionInfo, context, invocation)?.toggleSessionInfo()
         }
@@ -269,6 +273,12 @@ enum AgentHandlers {
                                              phase: { [weak services] in services?.onboarding.computerUseSetup.phase ?? .off },
                                              confirmRunning: { helper.confirmRunning() }),
             focus: AppComputerUseFocus(services: services))
+    }
+
+    /// The invocation's tab folder and its machine's git link (GitRepositoryActions).
+    static func gitPlace(_ context: AppActionContext, _ invocation: ActionInvocation) -> GitRepositoryActions.Place? {
+        guard let tab = context.scope(invocation).tab, let cwd = tab.pane.tab(tab.id)?.cwd else { return nil }
+        return GitRepositoryActions.Place(link: context.services.agentGit.link(for: tab.pane.daemon), cwd: cwd, tab: ActionTargetRef(kind: .tab, id: tab.id.rawValue), machineID: tab.pane.daemon.machineID)
     }
 
     private static let agentPaneZoomPath = AgentPaneZoomSetting.configPath

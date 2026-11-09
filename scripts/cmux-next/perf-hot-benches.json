@@ -1,6 +1,11 @@
 {
   "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after; never add it to CI.",
   "paths": {
+    "chats-window-query": {
+      "what": "one keystroke on the command palette's chats page: acpmux's query window (chats/window.rs ranked_rows) ranks every chat's title, then searches the held text of every chat for the words (chats/text.rs ChatText::search, one pass, its answer kept until the text changes) and builds the snippets of the rows it shows",
+      "bench": "cargo test -p acpmux --lib chats::text::tests::search_bench -- --ignored --nocapture (2,000 chats; prints p50/p95/max per keystroke)",
+      "owner": "acpmux"
+    },
     "daemon-request": {
       "what": "the app's daemon-request probe on every request to the daemon (DaemonRequestLatency.record: one bucket lookup and three relaxed atomics)",
       "bench": "scripts/cmux-next/austins-day (app_requests: the probe's own p99 under 80 agents)",
@@ -110,6 +115,16 @@
       "what": "one streamed token to one attached acpmux connection: the shared session/update line enqueued (one copy into the connection's queue); the line is built once per record",
       "bench": "cmux-tui-rust-check.sh test a_streamed_tokens_line_is_built_once_for_every_attached_connection (FANOUT-ENCODE line), then scripts/measure/acpmux-overhead.sh bench=daemon (STRESS token to client, 2 clients) on the fleet",
       "owner": "PL-acpmux (HOT PATH AUDIT area F: hpa-stream)"
+    },
+    "composer-draft-typing": {
+      "what": "one key in the agent chat composer: the prompt's markdown written from each top-level block's kept markdown (MarkdownField.tsx blockwiseMarkdown), so only the block the key changed is serialized",
+      "bench": "CMUX_LATENCY_DRAFTS=1 bun webviews/scripts/latency/run.ts --page \"chat draft typing\" (10k and 200k-character drafts, 3,000-turn chat)",
+      "owner": "agent chat composer"
+    },
+    "session-list-change": {
+      "what": "one session_changed while the agent pane is open (direct.ts sessionChanged, then App's per-snapshot projections of snapshot.sessions: hover info, sub-session store, Waiting on you, folders). Its cost must not grow with the number of listed sessions.",
+      "bench": "webviews/bench/update-one.bench.ts (update_one.<surface>.<kind>.n100|n1000|n3000 and .growth; cmux-ci test -- bun bench/update-one.bench.ts)",
+      "owner": "acpmux pane"
     }
   }
 }

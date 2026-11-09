@@ -15,6 +15,7 @@ import subprocess
 import tempfile
 import time
 import unittest
+import urllib.request
 
 
 def _load_git_fixture_env():
@@ -211,6 +212,7 @@ class PrePushGateTests(unittest.TestCase):
             INSTALLER,
             "scripts/web_lint_prepush.py",
             "scripts/ci/base_merge_warning.py",
+            "scripts/ci/github_release_download.py",
             "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
@@ -424,7 +426,7 @@ class PrePushGateTests(unittest.TestCase):
         self.commit("reserved-key data")
         self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
         self.git("fetch", "--quiet", "origin")
-        for number, name in enumerate(("check-leo-bans.py", "check-ghostty-reserved-keys.py")):
+        for number, name in enumerate(("check-ui-font.py", "check-ghostty-reserved-keys.py")):
             with self.subTest(name=name):
                 installed = snapshot.resolve() / name
                 if installed.exists():
@@ -1960,7 +1962,8 @@ let package = Package(
     # and it was red on every pull request until a fix landed (#31032, #31252).
     HIGHLIGHT_NO_LINK = ("title: Continue a stopped reply\ncategory: improved\n\n"
                          "Continue picks up a reply you stopped, and Retry asks again.\n")
-    HIGHLIGHT_WITH_DOCS = ("title: Continue a stopped reply\ncategory: improved\ndocs: https://cmux.com/docs/chief\n\n"
+    HIGHLIGHT_WITH_DOCS = ("title: Continue a stopped reply\ncategory: improved\ndocs: https://cmux.com/docs/chief\n"
+                           "gallery: agent-pane.continue/stopped\n\n"
                            "Continue picks up a reply you stopped, and Retry asks again.\n")
     HIGHLIGHTS = "release-notes/next/highlights"
 
@@ -2059,6 +2062,54 @@ let package = Package(
         self.assertEqual(self.remote_head(), before)
         self.assertIn(f"{self.HIGHLIGHTS}/continue-retry.md: is not UTF-8 text", output)
 
+    # What's New pictures (goal whats-new-pretty): on 2026-11-08, 61 of 166 New or Improved highlights in 21 days
+    # changed only Swift, got no gallery state and went out with no picture.
+    HIGHLIGHT_NO_PICTURE = ("title: Side chats from the command prompt\ncategory: new\n"
+                            "docs: https://cmux.com/docs/chief\n\nType /side to fork the chat into a side chat.\n")
+
+    def test_a_pushed_new_highlight_with_no_picture_source_is_refused_by_the_hook_only(self):
+        before = self.remote_head()
+        self.write(f"{self.HIGHLIGHTS}/side-chat.md", self.HIGHLIGHT_NO_PICTURE)
+        self.commit("adds a highlight with no picture source")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("What's New pictures", output)
+        self.assertIn(f"{self.HIGHLIGHTS}/side-chat.md: a new highlight with no picture source", output)
+        self.assertIn("release-notes/next/clips/<id>.json", output)
+        for args in (["--base", "HEAD~1", "--head", "HEAD"], ["--commits", "HEAD~1..HEAD"]):
+            with self.subTest(args=args):
+                ci = subprocess.run(["python3", "-I", GATE, *args], cwd=self.repo, env=self.env, text=True,
+                                    capture_output=True)
+                self.assertNotIn("What's New pictures", ci.stdout + ci.stderr)
+
+    def test_each_picture_source_lets_a_new_highlight_through(self):
+        sources = {
+            "gallery line": {f"{self.HIGHLIGHTS}/side-chat.md": self.HIGHLIGHT_NO_PICTURE.replace(
+                "category: new\n", "category: new\ngallery: agent-pane.side-chat/open\n")},
+            "clip spec": {f"{self.HIGHLIGHTS}/side-chat.md": self.HIGHLIGHT_NO_PICTURE,
+                          "release-notes/next/clips/side-chat.json": "{}\n"},
+            "gallery change": {f"{self.HIGHLIGHTS}/side-chat.md": self.HIGHLIGHT_NO_PICTURE,
+                               "webviews/src/side/SideChat.gallery.ts": "export {};\n"},
+            "fixed entry": {f"{self.HIGHLIGHTS}/side-chat.md": self.HIGHLIGHT_NO_PICTURE.replace(
+                "category: new", "category: fixed")},
+        }
+        for name, files in sources.items():
+            with self.subTest(source=name):
+                self.git("reset", "--quiet", "--hard", "origin/feat-cmux-next")
+                for path, text in files.items():
+                    self.write(path, text)
+                self.commit(f"adds a highlight with a {name}")
+
+                direct = subprocess.run(["python3", "-I", GATE, "--only", "pictures"], cwd=self.repo, env=self.env,
+                                        text=True, capture_output=True)
+
+                self.assertEqual(direct.returncode, 0, direct.stdout + direct.stderr)
+                self.assertNotIn("no picture source", direct.stdout + direct.stderr)
+
     def test_a_validator_warning_on_stderr_does_not_turn_a_refusal_into_a_pass(self):
         # The validator's result is read from its own file, never from its output: a warning it prints (a future
         # SyntaxWarning) must not make the check fail open (review of #31260).
@@ -2116,13 +2167,13 @@ class ToolDownloadFallbackTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             lock = Path(tmp) / "lint-tools.lock"
             lock.write_text(f"tool\t1.2.3\t{gate.platform_key()}\t{url}\t{hashlib.sha256(archive).hexdigest()}\ttool-bin\n")
-            old_dir, old_open = os.environ.get("CMUX_LINT_TOOLS_DIR"), gate.urllib.request.urlopen
+            old_dir, old_open = os.environ.get("CMUX_LINT_TOOLS_DIR"), urllib.request.urlopen
             os.environ["CMUX_LINT_TOOLS_DIR"] = str(Path(tmp) / "tools")
-            gate.urllib.request.urlopen = urlopen
+            urllib.request.urlopen = urlopen
             try:
                 path = gate.ensure_tool(lock, "tool")
             finally:
-                gate.urllib.request.urlopen = old_open
+                urllib.request.urlopen = old_open
                 if old_dir is None:
                     os.environ.pop("CMUX_LINT_TOOLS_DIR")
                 else:
@@ -2153,14 +2204,14 @@ class ToolDownloadFallbackTests(unittest.TestCase):
                 return io.BytesIO(jsonlib.dumps({"assets": [{"name": "tool-linux.zip", "url": asset}]}).encode())
             return io.BytesIO(b"archive")
 
-        old_open, old_token = gate.urllib.request.urlopen, os.environ.get("GH_TOKEN")
+        old_open, old_token = urllib.request.urlopen, os.environ.get("GH_TOKEN")
         os.environ["GH_TOKEN"] = "token-for-test"
-        gate.urllib.request.urlopen = urlopen
+        urllib.request.urlopen = urlopen
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 gate.download(url, Path(tmp) / "tool.zip")
         finally:
-            gate.urllib.request.urlopen = old_open
+            urllib.request.urlopen = old_open
             if old_token is None:
                 os.environ.pop("GH_TOKEN")
             else:
@@ -2170,9 +2221,46 @@ class ToolDownloadFallbackTests(unittest.TestCase):
             self.assertEqual(requests[api].unredirected_hdrs.get("Authorization"), "Bearer token-for-test")
             self.assertNotIn("Authorization", requests[api].headers)
         # The asset answers with a redirect to a signed storage URL: urllib's redirect copies only `headers`.
-        signed = gate.urllib.request.HTTPRedirectHandler().redirect_request(
+        signed = urllib.request.HTTPRedirectHandler().redirect_request(
             requests[asset], None, 302, "Found", {}, "https://objects.example/signed?sig=1")
         self.assertIsNone(signed.get_header("Authorization"))
+
+
+    def test_a_hook_copy_refreshed_without_the_helper_still_downloads_directly(self):
+        # An install from before github_release_download.py has the old refresh_checks.py, which rewrites the hook's
+        # cmux_next_prepush_gate.py from feat-cmux-next but copies nothing from scripts/ci. That gate must still fetch
+        # a tool (the direct download, as before #38349), not refuse every push that has no cached tool.
+        import io
+        url = "https://github.com/acme/tool/releases/download/1.2.3/tool-linux.zip"
+        asked = []
+
+        def urlopen(request, timeout=None):
+            asked.append(getattr(request, "full_url", request))
+            return io.BytesIO(b"archive")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            hook_dir = Path(tmp) / "hooks"
+            hook_dir.mkdir()
+            shutil.copyfile(SOURCE / GATE, hook_dir / "cmux_next_prepush_gate.py")
+            shutil.copyfile(SOURCE / "scripts/cmux-next/git_batch.py", hook_dir / "git_batch.py")
+            spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate_refreshed",
+                                                          hook_dir / "cmux_next_prepush_gate.py")
+            gate = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = gate
+            stashed = sys.modules.pop("cmux_github_release_download", None)
+            old_open = urllib.request.urlopen
+            urllib.request.urlopen = urlopen
+            try:
+                spec.loader.exec_module(gate)
+                gate.download(url, Path(tmp) / "tool.zip")
+            finally:
+                urllib.request.urlopen = old_open
+                sys.modules.pop(spec.name, None)
+                sys.modules.pop("cmux_github_release_download", None)
+                if stashed is not None:
+                    sys.modules["cmux_github_release_download"] = stashed
+            self.assertEqual((Path(tmp) / "tool.zip").read_bytes(), b"archive")
+        self.assertEqual(asked, [url])
 
 
 class StaleInstallTests(unittest.TestCase):
