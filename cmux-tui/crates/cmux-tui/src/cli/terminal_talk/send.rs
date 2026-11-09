@@ -488,27 +488,56 @@ pub(in crate::cli) fn sample(
     }
 }
 
-/// Whether the agent in `terminal` reports the prompt `request` sends: its
-/// hooks reported a harness session there (the daemon keeps the id on the
-/// terminal) and the roster still has the agent's own record (an agent that
-/// quit leaves the id but no record), the send waits for the turn (`idle`,
-/// no `--pattern`), and the message is no local `/` command of the
-/// harness, which runs no hook.
+/// Whether the agent in `terminal` reports the prompt `request` sends, so
+/// silence after Enter means the prompt was not taken (review B2/M2 on
+/// #39027):
+/// - its hooks reported a harness session there (the daemon keeps the id on
+///   the terminal);
+/// - the agent's own newest record for it is `idle` at send time: a working
+///   agent queues the message and reports nothing until its turn ends, and
+///   an agent that quit leaves the id but no record;
+/// - its harness has a hook that starts a turn (`UserPromptSubmit` and the
+///   like; Copilot, CodeBuddy, Factory and Qoder have none);
+/// - the send waits for the turn (`idle`, no `--pattern`);
+/// - the message is not a local `/` command, nor Claude Code's `!` shell or
+///   `#` memory input: none of them runs a prompt hook.
 fn reports_prompts(terminal: &Value, agents: &[Value], request: &SendRequest) -> bool {
     let hooked = terminal
         .pointer("/extra/agent_session_id")
         .and_then(Value::as_str)
         .is_some_and(|session| !session.is_empty());
-    let live = agents.iter().any(|record| {
-        record.get("terminal_id") == terminal.get("id")
-            && roster::reported_by_agent(record)
-            && !matches!(record.get("state").and_then(Value::as_str), Some("done" | "ended"))
+    let updated = |record: &Value| {
+        let value = record.get("updated_at_ms");
+        value
+            .and_then(Value::as_u64)
+            .or_else(|| value.and_then(Value::as_str).and_then(|text| text.parse().ok()))
+            .unwrap_or(0)
+    };
+    let own = agents
+        .iter()
+        .filter(|record| {
+            record.get("terminal_id") == terminal.get("id") && roster::reported_by_agent(record)
+        })
+        .max_by_key(|record| updated(record));
+    let idle =
+        own.is_some_and(|record| record.get("state").and_then(Value::as_str) == Some("idle"));
+    let harness = own
+        .and_then(|record| {
+            record.pointer("/extra/agent").or_else(|| record.get("agent")).and_then(Value::as_str)
+        })
+        .map(|harness| if harness == "claude-code" { "claude" } else { harness });
+    let starts_turns = harness.is_some_and(|harness| {
+        cmux_tui_hooks::provider_events(harness).is_some_and(|events| {
+            events.iter().any(|event| cmux_tui_core::agent_hook_event_starts_turn(harness, event))
+        })
     });
+    let local_input = request.text.trim_start().starts_with(['/', '!', '#']);
     hooked
-        && live
+        && idle
+        && starts_turns
         && request.wait == Wait::Idle
         && request.pattern.is_none()
-        && !request.text.trim_start().starts_with('/')
+        && !local_input
 }
 
 /// The terminal record's last finished shell command (`extra.last_command`).
