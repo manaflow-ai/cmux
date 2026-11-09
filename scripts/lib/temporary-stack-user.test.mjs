@@ -241,3 +241,41 @@ test("secure-file validation rejects group-readable credentials", (t) => {
   chmodSync(file, 0o640);
   assert.throws(() => assertSecureFile(file), /group or world/u);
 });
+
+test("cleanup deletes the account's personal team once it is empty, and keeps a team with members", async (t) => {
+  const directory = fixtureDirectory();
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const stateFile = path.join(directory, "account.json");
+  const credentialsFile = path.join(directory, "credentials.env");
+  const recoveryFile = path.join(directory, "cleanup.json");
+  const user = temporaryUser();
+  let present = true;
+  user.delete = async () => { present = false; };
+  user.listTeams = async () => [{ id: "personal" }, { id: "shared" }];
+  const deleted = [];
+  const team = (id, members) => ({
+    id,
+    async listUsers() { return id === "personal" && !present ? [] : members; },
+    async delete() { deleted.push(id); },
+  });
+  const stackApp = {
+    async createUser() { return user; },
+    async getUser() { return present ? user : null; },
+    async getTeam(id) { return id === "personal" ? team(id, [{ id: user.id }]) : team(id, [{ id: "someone" }]); },
+  };
+  await createTemporaryStackUser({ stackApp, stateFile, credentialsFile });
+
+  const result = await cleanupTemporaryStackUser({
+    stackApp,
+    stateFile,
+    credentialsFile,
+    recoveryFile,
+    apiBaseURL: "https://cmux.com",
+    fetchImpl: async () => new Response(null, { status: 204 }),
+  });
+
+  assert.equal(result.passed, true);
+  assert.deepEqual(deleted, ["personal"]);
+  assert.equal(result.teamsDeleted, 1);
+  assert.deepEqual(result.teamsKept, ["shared"]);
+});
