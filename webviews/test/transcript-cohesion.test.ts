@@ -221,15 +221,15 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
             });
             console.log(`transcript-cohesion ${variant} ${label}: ${JSON.stringify(measured)}`);
             if (process.env.CMUX_COHESION_MEASURE_ONLY !== "1") {
-              // Worked for's rule sits midway between its words and the next row, open or closed:
-              // 4 under its 22px line, 12 over the next row, and no stack gap after it (Codex parity,
-              // Lucas, 2026-11-07; conversation.css `.cv-worked.has-divider.is-toggle`, model.ts
-              // WORKED_GAP_PT, transcriptGrid.ts MARK_WORKED).
+              // Worked for's rule, open or closed: 4 under its 22px line (Codex parity, Lucas,
+              // 2026-11-07), the references' 16 over the next row (Leo, 2026-11-09: "we need to reduce
+              // the after"), and no stack gap after it (conversation.css
+              // `.cv-worked.has-divider.is-toggle`, model.ts WORKED_GAP_PT, transcriptGrid.ts MARK_WORKED).
               expect(measured.headerHeight).toBeCloseTo(22 + 4, 1);
               if (variant === "codex-closed") {
-                expect(measured.replyGap).toBeCloseTo(12, 1);
-                expect(Math.abs(measured.replyCenterGap - 38.375)).toBeLessThan(1);
-              } else expect(measured.nextGap).toBeCloseTo(12, 1);
+                expect(measured.replyGap).toBeCloseTo(16, 1);
+                expect(Math.abs(measured.replyCenterGap - 42.375)).toBeLessThan(1);
+              } else expect(measured.nextGap).toBeCloseTo(16, 1);
             }
           }
           if (process.env.FAST_CHECKS_OUT) {

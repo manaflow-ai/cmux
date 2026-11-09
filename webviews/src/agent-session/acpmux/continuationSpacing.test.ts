@@ -257,20 +257,43 @@ test("a finished work disclosure shares the activity rhythm when closed or opene
     [worked, run, answer],
   ]) {
     const layout = layoutConversation(rows, 720);
-    // The 22px activity line, 4 to its rule, then 12 to the next row, with no stack gap after it
-    // (Lucas, 2026-11-07).
-    expect(layout.heights[0]).toBe(38);
+    // The 22px activity line, 4 to its rule (Lucas, 2026-11-07), then the references' 16 to the next
+    // row (Leo, 2026-11-09), with no stack gap after it.
+    expect(layout.heights[0]).toBe(42);
     expect(layout.gaps?.[1]).toBe(0);
     const replyIndex = rows.length - 1;
     // A reply right under the line takes no gap of its own; under the opened fold's rows, the run gap.
     const replyGap = rows.length === 2 ? 0 : TRANSCRIPT_RUN_GAP;
     expect(layout.gaps?.[replyIndex]).toBe(replyGap);
-    if (rows.length === 3) expect(layout.tops[1]! - layout.tops[0]!).toBe(38);
+    if (rows.length === 3) expect(layout.tops[1]! - layout.tops[0]!).toBe(42);
     const placed = placeRows(layout, () => 22);
     expect(placed.tops[replyIndex]! - placed.tops[replyIndex - 1]! - 22).toBe(replyGap);
   }
   const prompt = row("prompt", "user", { text: "Go" });
   expect(layoutConversation([prompt, worked, answer], 720).gaps?.[1]).toBe(TRANSCRIPT_TURN_GAP);
+});
+
+// Leo, 2026-11-09: "ours looks like it still has a bit too much of a gap after the line tho lucas
+// fixed the before but we need to reduce the after". A turn the agent ran on its own (a scheduled
+// check's notice, then its work and reply) folds under its own "Worked for"; the rows under that line
+// carry the turn's `inBackground` and the line does not, so the reply, or the first opened run, read
+// as opening the turn and stood the turn gap (32) under the line's own room.
+test("the rows under a background turn's Worked for keep the line's room, with no turn gap", () => {
+  const notice = row("notice", "user", { text: "Start the re-review", incoming: { kind: "notice", text: "Start" } });
+  const worked = row("worked", "worked", { durationMs: 44_000 });
+  const run = row("run", "activity", {
+    inBackground: "bg",
+    items: [{ kind: "tool", text: "ls", tool: { id: "t", title: "ls", kind: "execute", status: "completed" } }],
+  });
+  const reply = row("reply", "assistant", { text: "Yes, there is something here.", inBackground: "bg" });
+  for (const rows of [
+    [{ ...notice, inBackground: "bg" }, worked, reply],
+    [{ ...notice, inBackground: "bg" }, worked, run, reply],
+  ]) {
+    const layout = layoutConversation(rows, 720);
+    expect(layout.heights[1]).toBe(42);
+    expect(layout.gaps?.[2]).toBe(0);
+  }
 });
 
 // Status lines ("Scheduled check", "Compacting the conversation…", a background task's end) and
