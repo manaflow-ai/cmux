@@ -949,6 +949,9 @@ workspace, then ends each running terminal that had a tab in it and has none
 after the close (they worked in the removed folder); a refused remove closes
 nothing. Each end is `terminal.close` with `if_unplaced`, so the session
 leaves a terminal running that is marked keep, is attached or got a tab since.
+A daemon that does not advertise `terminal-close-if-unplaced-v1` (an older
+build) refuses that field, so it gets the plain `terminal.close`, which also
+ends a kept or attached terminal.
 The caller's own terminal (`CMUX_TUI_TERMINAL_ID`) is not ended: the reply and
 the exit code go there, and the reaper ends it after its grace. The result is
 the close result plus `worktree`, the removal, and `ended_terminals`, the

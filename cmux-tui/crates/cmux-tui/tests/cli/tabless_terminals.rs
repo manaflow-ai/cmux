@@ -261,3 +261,63 @@ fn w5o_worktree_close_spares_the_callers_terminal_and_kept_terminals() {
     drop(server);
     let _ = fs::remove_dir_all(root);
 }
+
+/// Build skew (W5-O follow-up review): a daemon older than `terminal.close`
+/// `if_unplaced` refuses the field as an unknown parameter. The test daemon
+/// stands in for one by hiding the capability. The close still ends the
+/// shells it left with no tab, with the plain end (so a kept one ends too:
+/// an older daemon cannot spare it), and still spares the caller's terminal.
+#[test]
+fn w5o_worktree_close_on_a_daemon_without_if_unplaced_still_ends_the_shells() {
+    let root = unique_temp_dir("tabless-skew");
+    let home = root.join("home");
+    let repo = root.join("project");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "user.name", "cmux test"]);
+    git(&repo, &["config", "user.email", "cmux@example.invalid"]);
+    git(&repo, &["config", "commit.gpgsign", "false"]);
+    fs::write(repo.join("a.txt"), "one\n").unwrap();
+    git(&repo, &["add", "a.txt"]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let server = HeadlessServer::start_with_options(
+        "tabless-skew",
+        None,
+        None,
+        &[
+            ("HOME", home.to_str().unwrap()),
+            ("CMUX_TEST_DAEMON_HIDE_CAPABILITIES", "terminal-close-if-unplaced-v1"),
+        ],
+    );
+
+    let made = run(
+        &server,
+        &["workspace", "create", "--worktree", "skew", "--repo", repo.to_str().unwrap()],
+    );
+    let workspace = created(&made, "workspace_id");
+    let (pane, caller) = (created(&made, "pane_id"), created(&made, "terminal_id"));
+    let kept = created(&run(&server, &["pane", &pane, "split", "--right"]), "terminal_id");
+    run(&server, &["terminal", &kept, "keep", "on"]);
+    let plain = created(&run(&server, &["pane", &pane, "split", "--down"]), "terminal_id");
+
+    let closed = run_in(&server, &caller, &["workspace", &workspace, "close", "--remove-worktree"]);
+    let mut ended: Vec<String> = closed
+        .pointer("/ended_terminals")
+        .or_else(|| closed.pointer("/value/ended_terminals"))
+        .and_then(Value::as_array)
+        .unwrap_or_else(|| panic!("no ended_terminals in {closed}"))
+        .iter()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect();
+    ended.sort();
+    let mut expected = vec![kept.clone(), plain.clone()];
+    expected.sort();
+    assert_eq!(ended, expected, "the plain end of an older daemon: {closed}");
+    let record = terminal(&server, &caller);
+    assert_eq!(record["lifecycle"], "running", "the caller's terminal was ended: {record}");
+
+    drop(server);
+    let _ = fs::remove_dir_all(root);
+}

@@ -16,11 +16,17 @@ const WORKSPACE: &str = "ws_0123456789abcdef0123456789abcdef";
 struct FakeDaemon {
     answers: Vec<(&'static str, Result<Value, Value>)>,
     sent: RefCell<Vec<Value>>,
+    /// What its `identify` advertises: a current daemon's guarded close.
+    capabilities: Vec<&'static str>,
 }
 
 impl FakeDaemon {
     fn new(answers: Vec<(&'static str, Result<Value, Value>)>) -> Self {
-        Self { answers, sent: RefCell::new(Vec::new()) }
+        Self {
+            answers,
+            sent: RefCell::new(Vec::new()),
+            capabilities: vec![cmux_tui_core::server::TERMINAL_CLOSE_IF_UNPLACED_CAPABILITY],
+        }
     }
 
     fn operations(&self) -> Vec<String> {
@@ -51,6 +57,10 @@ impl FakeDaemon {
 }
 
 impl Daemon for FakeDaemon {
+    fn advertises(&self, capability: &str) -> bool {
+        self.capabilities.contains(&capability)
+    }
+
     fn request(&self, _session: Option<&str>, plan: RequestPlan) -> Result<Value, CallFailure> {
         let request = request_value(&plan).expect("a valid request");
         let operation = request["operation"].as_str().unwrap_or_default().to_owned();
@@ -342,4 +352,36 @@ fn w5o_worktree_close_reports_only_the_terminals_the_session_ended() {
     let result = close(&daemon, &request, "key-7").expect("the close stands");
     assert_eq!(daemon.params("terminal.close")["terminal"], HERE);
     assert_eq!(result["ended_terminals"], json!([]));
+}
+
+/// Build skew: a daemon older than `if_unplaced` refuses an unknown request
+/// parameter, so every guarded end would fail and leave the shells running.
+/// It gets the plain end; the caller's terminal is still spared.
+#[test]
+fn w5o_worktree_close_on_an_older_daemon_ends_without_if_unplaced() {
+    const HERE: &str = "term_11111111111111111111111111111111";
+    const CALLER: &str = "term_66666666666666666666666666666666";
+    let session = |here: Value, caller: Value| {
+        json!({
+            "screens": [{"id": "screen_a", "workspace_id": WORKSPACE}],
+            "panes": [{"id": "pane_a", "screen_id": "screen_a"}],
+            "tabs": [{"id": "tab_1", "pane_id": "pane_a"}, {"id": "tab_2", "pane_id": "pane_a"}],
+            "terminals": [{"id": HERE, "lifecycle": "running", "tab_ids": here},
+                          {"id": CALLER, "lifecycle": "running", "tab_ids": caller}],
+        })
+    };
+    let mut daemon = FakeDaemon::new(vec![
+        ("workspace.get", Ok(json!({"id": WORKSPACE, "extra": {"agent_folder": "/w"}}))),
+        ("git.worktree.remove", Ok(json!({"value": {"root": "/w"}}))),
+        ("session.snapshot", Ok(session(json!(["tab_1"]), json!(["tab_2"])))),
+        ("session.snapshot", Ok(session(json!([]), json!([])))),
+    ]);
+    daemon.capabilities.clear();
+    let mut request = parse_close(WORKSPACE, &strings(&["--remove-worktree"])).expect("parsed");
+    request.caller_terminal = Some(CALLER.to_owned());
+    let result = close(&daemon, &request, "key-8").expect("closed");
+    let end = daemon.params("terminal.close");
+    assert_eq!(end["terminal"], HERE);
+    assert!(end.get("if_unplaced").is_none(), "an older daemon refuses the field: {end}");
+    assert_eq!(result["ended_terminals"], json!([HERE]));
 }

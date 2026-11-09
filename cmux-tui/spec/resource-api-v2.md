@@ -30,7 +30,9 @@ without closing the terminal. `terminal.project` adds another view, and only
 `terminal.close` terminates and tombstones the terminal. With `if_unplaced:
 true` it does so only for a terminal with no view, no `keep` mark and no
 attach stream; any other fails with `operation.failed`
-(`extra.terminal_retained: true`) and changes nothing. A browser remains
+(`extra.terminal_retained: true`) and changes nothing. `identify` advertises
+`terminal-close-if-unplaced-v1` when the daemon takes the field; an older
+daemon refuses it as an unknown parameter. A browser remains
 single-view tab content. Sidebar extensions are session-scoped auxiliary
 resources and cannot become tabs.
 

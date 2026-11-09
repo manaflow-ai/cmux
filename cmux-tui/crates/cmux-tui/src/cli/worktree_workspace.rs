@@ -376,9 +376,13 @@ pub(in crate::cli) fn close<B: Daemon + ?Sized>(
     };
     // Each ends with `if_unplaced`: the session refuses a terminal that is
     // marked keep, is attached or got a tab since the read, and leaves it
-    // running. The caller's own terminal is not ended here. A refused or
-    // failed end leaves that terminal to the session's reaper; the close
-    // stands. Each end has its own key, so a retry replays its answer.
+    // running. An older daemon refuses the field itself (an unknown
+    // parameter), so it gets the plain end, which cannot spare a kept or
+    // attached terminal. The caller's own terminal is not ended here. A
+    // refused or failed end leaves that terminal to the session's reaper;
+    // the close stands. Each end has its own key, so a retry replays it.
+    let guarded = !tabless.is_empty()
+        && backend.advertises(cmux_tui_core::server::TERMINAL_CLOSE_IF_UNPLACED_CAPABILITY);
     let mut ended = Vec::new();
     for terminal in tabless {
         if request.caller_terminal.as_deref() == Some(terminal.as_str()) {
@@ -388,8 +392,10 @@ pub(in crate::cli) fn close<B: Daemon + ?Sized>(
         let Ok(mut end) = plan(&words(&["terminal", &terminal, "close"]), Some(key)) else {
             continue;
         };
-        let Some(params) = end.params.as_object_mut() else { continue };
-        params.insert("if_unplaced".into(), Value::Bool(true));
+        if guarded {
+            let Some(params) = end.params.as_object_mut() else { continue };
+            params.insert("if_unplaced".into(), Value::Bool(true));
+        }
         if backend.request(None, end).is_ok() {
             ended.push(terminal);
         }
