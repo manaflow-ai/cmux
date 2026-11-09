@@ -166,7 +166,7 @@ enum Holder {
 }
 
 async fn holder(harness: &str) -> Result<Holder> {
-    let get = run(&[harness, "mcp", "get", SERVER_NAME]).await?;
+    let get = run_cmd(&[harness, "mcp", "get", SERVER_NAME]).await?;
     Ok(match get {
         Err(_) => Holder::Nobody,
         Ok(out) if ours(&out) => Holder::Us,
@@ -247,22 +247,23 @@ async fn register(app: App, argv: &[String], env: &str, entry: &Value) -> Result
         // `codex mcp add` replaces a server of the same name in one write.
         let mut add = vec!["codex", "mcp", "add", SERVER_NAME, "--env", env, "--"];
         add.extend(argv.iter().map(String::as_str));
-        run(&add).await?.map_err(anyhow::Error::msg)?;
+        run_cmd(&add).await?.map_err(anyhow::Error::msg)?;
         return Ok(format!("added {SERVER_NAME} with `codex mcp add`."));
     }
     let old = if held == Holder::Us { claude_code_entry() } else { None };
     if held == Holder::Us {
-        run(&["claude", "mcp", "remove", "--scope", "user", SERVER_NAME])
+        run_cmd(&["claude", "mcp", "remove", "--scope", "user", SERVER_NAME])
             .await?
             .map_err(anyhow::Error::msg)?;
     }
     let json = serde_json::to_string(
         &json!({"type": "stdio", "command": entry["command"], "args": entry["args"], "env": entry["env"]}),
     )?;
-    let added = run(&["claude", "mcp", "add-json", "--scope", "user", SERVER_NAME, &json]).await?;
+    let added =
+        run_cmd(&["claude", "mcp", "add-json", "--scope", "user", SERVER_NAME, &json]).await?;
     if let Err(e) = added {
         let restored = match &old {
-            Some(old) => run(&[
+            Some(old) => run_cmd(&[
                 "claude",
                 "mcp",
                 "add-json",
@@ -295,7 +296,7 @@ fn shell_line(argv: &[String]) -> String {
 }
 
 /// Runs a harness CLI: `Err` when it cannot start, `Ok(Err(stderr))` when it fails.
-async fn run(argv: &[&str]) -> Result<Result<String, String>> {
+async fn run_cmd(argv: &[&str]) -> Result<Result<String, String>> {
     let (program, args) = argv.split_first().context("empty command")?;
     let out = tokio::process::Command::new(program)
         .args(args)
