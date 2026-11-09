@@ -57,6 +57,8 @@ const frames = (count = 2) =>
   });
 // fixed-wait: the deadline is the behavior under test (a surface the App has not drawn in time).
 const pastDeadline = () => new Promise((resolve) => setTimeout(resolve, HOST_GLASS_DEADLINE_MS + 20));
+/** The App's answer arriving as a task queued now: test input, behind any timer already due. */
+const answerInALaterTask = (answer: () => void) => void setTimeout(answer, 0);
 /** The App's answer settles on the microtask queue. */
 const settled = async () => {
   for (let i = 0; i < 3; i += 1) await Promise.resolve();
@@ -349,7 +351,7 @@ test("a deadline that ran late behind the page's own work leaves the queued answ
   while (performance.now() < busyUntil) {
     // busy: the page's own work
   }
-  setTimeout(() => answer!(), 0);
+  answerInALaterTask(() => answer!());
   await pastDeadline();
   await pastDeadline();
   expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
