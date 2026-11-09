@@ -1,0 +1,98 @@
+name: Cloud chat proof nightly dispatcher
+
+# Leo 2026-11-08: "he creates a new workspace ... he selects the cloud button ... He can just start up Opus or
+# Codex on cloud. Is that possible? Like right now, and it's just like, oh, okay, this works, and this just keeps
+# working ... suppose he picks some random folder." Once a day this file on main starts feat-cmux-next's
+# cloud-chat-proof.yml on the published NEXT DEV app, from a plain folder (from_folder), once for claude and once
+# for codex: sign in, start a Cloud chat from the folder on staging and production, read the reply back (it must
+# name a word only the folder's file holds), kill the machine. Scheduled workflows run only from the default
+# branch, and the proof lives on feat-cmux-next, so this dispatches it and waits for its verdict. A red run opens
+# one issue per agent, or comments on the open one; the next green run of that agent closes it.
+on:
+  schedule:
+    - cron: "23 15 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: cloud-chat-proof-nightly-dispatch
+  cancel-in-progress: false
+
+jobs:
+  proof:
+    if: github.repository == 'manaflow-ai/cmux'
+    strategy:
+      fail-fast: false
+      matrix:
+        agent: [claude, codex]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      actions: write
+      contents: read
+      issues: write
+    timeout-minutes: 180
+    steps:
+      - name: Start the published Cloud chat proof from a folder and wait for its verdict
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          AGENT: ${{ matrix.agent }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const agent = process.env.AGENT;
+            const workflow = 'cloud-chat-proof.yml';
+            const source = 'feat-cmux-next';
+            const requestId = `nightly-${context.runId}-${context.runAttempt}-${agent}`;
+            const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+            const since = new Date(Date.now() - 60_000).toISOString();
+            await github.rest.actions.createWorkflowDispatch({
+              owner, repo, workflow_id: workflow,
+              // Fully qualified: a tag named feat-cmux-next must never be picked.
+              ref: `refs/heads/${source}`,
+              inputs: { build: 'published', agent, from_folder: 'true', request_id: requestId },
+            });
+            // The run-name ends with request_id (cloud-chat-proof.yml run-name), so this finds its own run.
+            let run;
+            for (let tries = 0; !run && tries < 60; tries++) {
+              await sleep(10_000);
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                owner, repo, workflow_id: workflow, branch: source, event: 'workflow_dispatch',
+                created: `>=${since}`, per_page: 50,
+              });
+              run = data.workflow_runs.find((r) => (r.display_title || '').endsWith(` ${requestId}`));
+            }
+            if (!run) core.setFailed(`The dispatched proof (${requestId}) never appeared`);
+            const deadline = Date.now() + 160 * 60_000;
+            while (run && run.status !== 'completed' && Date.now() < deadline) {
+              await sleep(60_000);
+              run = (await github.rest.actions.getWorkflowRun({ owner, repo, run_id: run.id })).data;
+            }
+            const green = run?.status === 'completed' && run.conclusion === 'success';
+            const where = run ? run.html_url : `(no run found for ${requestId})`;
+            const verdict = !run ? 'never started' : run.status !== 'completed' ? 'still running past 160 min' : run.conclusion;
+            core.notice(`Cloud chat proof, ${agent} from a folder on the published app: ${verdict} ${where}`);
+
+            const title = `Cloud chat proof red: ${agent} from a folder on the published NEXT DEV app`;
+            const { data: found } = await github.rest.search.issuesAndPullRequests({
+              q: `repo:${owner}/${repo} is:issue is:open in:title "${title}"`, per_page: 5,
+            });
+            const open = found.items.find((issue) => issue.title === title);
+            if (green) {
+              if (open) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: open.number, body: `Green again: ${where}` });
+                await github.rest.issues.update({ owner, repo, issue_number: open.number, state: 'closed' });
+              }
+              return;
+            }
+            const body = [
+              `The daily Cloud chat proof (${agent}, published NEXT DEV app, chat started from a plain folder, staging then production) is ${verdict}: ${where}`,
+              '',
+              'The run summary names the step that failed. This closes on the next green run of the same agent.',
+            ].join('\n');
+            if (open) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: open.number, body });
+            } else {
+              await github.rest.issues.create({ owner, repo, title, body });
+            }
+            core.setFailed(`Cloud chat proof (${agent}) ${verdict}`);
