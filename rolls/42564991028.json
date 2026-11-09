@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42564991028",
+  "recorded_at": "2026-11-09T05:10:05Z",
+  "reason": "cmux-tui 8bd16018098c changes the image's cmux-tui (pinned 73b88a5cf8b1)",
+  "dry_run": false,
+  "cmux_tui": "8bd16018098c7eceb5d1583df60f6d23c71e70de",
+  "fixes": [
+    {
+      "sha": "8bd16018098c7eceb5d1583df60f6d23c71e70de",
+      "mergedAt": "2026-11-08T20:47:34-08:00",
+      "subject": "cmux-wg: SACK loss recovery for the tunnel TCP (#39085)"
+    },
+    {
+      "sha": "a710e7c3d9c61156b0bce0574a7e4d49db2891a7",
+      "mergedAt": "2026-11-09T04:47:29Z",
+      "subject": "cmux-tui: journal history at rest in zstd; output cleanup stages compressed and stops holding the seal (#39131)"
+    },
+    {
+      "sha": "6b6348ec2fcd4c66953dfffa18bbd0dfa63958b2",
+      "mergedAt": "2026-11-08T20:45:42-08:00",
+      "subject": "cmux-wg: mesh paths are ranked again when the interface table changes (#39196)"
+    },
+    {
+      "sha": "3ca81041cc99792977b853ab761e89a326eebe9d",
+      "mergedAt": "2026-11-08T20:42:08-08:00",
+      "subject": "rd: a UDP datagram link for the Cloud desktop, negotiated inside the carrier (takes over #39054) (#39099)"
+    },
+    {
+      "sha": "ac8bbe1e0bd8e064c4284eb4e76d4811c3f57b25",
+      "mergedAt": "2026-11-08T20:39:21-08:00",
+      "subject": "cmux-tui-core: refused_saves reads a poisoned apps lock (panic ratchet red on tip) (#39192)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T05:10:05Z",
+    "snapshot_id": "sh-4298161300c5462eabeab68ab7715a1f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42564991028): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "68c82b7d80cb8eff1fc9d354c8fb67ef740f9e18",
+    "image": "cloud-native-auto-8bd16018-42564991028-1",
+    "revision": "ci-42564991028-1",
+    "at": "2026-11-09T05:10:05Z"
+  },
+  "rolled_back": false
+}
