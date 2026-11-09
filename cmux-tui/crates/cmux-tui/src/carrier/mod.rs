@@ -32,6 +32,10 @@
 //!   file (never to stderr): how long the attempt spent on the ticket, the
 //!   relay, the park, the handshake and the mux open
 //!   ([`contract::phases_line`]).
+//! - With `CMUX_CARRIER_PROGRESS=1`, progress lines
+//!   (`{"progress":{"stage","text","eta_ms","deadline_ms"}}`) come before the
+//!   reply line, about once a second: the step the dial waits on and how
+//!   long is left ([`progress`]). Without it the reply line stays first.
 //! - `--service desktop` carries the machine's desktop instead: raw
 //!   `cmux.rd/1` bytes on stdin and stdout, through cmux-remote's
 //!   `local-socket` to `/run/cmux-rd/desktop.sock`. The daemon opens it only
@@ -106,6 +110,7 @@ pub(crate) mod drill;
 pub(crate) mod fault;
 mod held;
 mod noise_key;
+mod progress;
 mod rd_link;
 mod route_log;
 mod secrets;
@@ -490,11 +495,23 @@ pub(crate) fn run(args: &[String]) -> i32 {
         let (lines, mut queued) = tokio::sync::mpsc::unbounded_channel::<String>();
         let connect_log = route_log::default_path();
         let phases_log = connect_log.clone();
+        let deadline = tokio::time::Instant::now() + args.deadline;
+        // Progress lines go out before the reply line, so only for a caller
+        // that asked for them (`CMUX_CARRIER_PROGRESS=1`).
+        let progress = std::env::var(progress::ENV).is_ok_and(|v| v == "1").then(|| {
+            progress::Reporter::new(
+                progress::Expected::read(connect_log.as_deref()),
+                deadline,
+                args.service == DialService::Desktop,
+                reply,
+            )
+        });
+        let ticker = progress.as_ref().map(progress::Reporter::spawn);
         let plan = client::DialPlan {
             machine: args.machine.clone(),
             source,
             identity,
-            deadline: tokio::time::Instant::now() + args.deadline,
+            deadline,
             prefetched,
             log: Arc::new(move |line| {
                 if let Some(path) = &connect_log {
@@ -508,6 +525,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
                 }
             }),
             fresh_sessions: contract::FreshSessions::default(),
+            progress: progress.clone(),
         };
         // The desktop opens its stream before the reply, so a refusal (not
         // the owner, no desktop on the machine) is the dial's answer. The
@@ -518,6 +536,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
             let dialed = client::dial(&plan).await;
             match (dialed, args.service) {
                 (Ok(dialed), DialService::Desktop) => {
+                    if let Some(progress) = &progress {
+                        progress.desktop();
+                    }
                     match open_desktop(&dialed.multiplexer, plan.deadline).await {
                         Ok(stream) => break (Ok(dialed), Some(stream)),
                         Err(failure) => {
@@ -533,6 +554,13 @@ pub(crate) fn run(args: &[String]) -> i32 {
                 (dialed, _) => break (dialed, None),
             }
         };
+        // No progress line after the reply line.
+        if let Some(progress) = &progress {
+            progress.stop();
+        }
+        if let Some(ticker) = ticker {
+            ticker.abort();
+        }
         let code = match &dialed {
             Ok(dialed) => {
                 reply(&contract::connected_line(dialed.vmk));

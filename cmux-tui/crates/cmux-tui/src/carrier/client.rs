@@ -97,6 +97,9 @@ pub(super) struct DialPlan {
     pub phases: Arc<dyn Fn(String) + Send + Sync>,
     /// The dial's fresh sessions, shared with the caller's own retries.
     pub fresh_sessions: FreshSessions,
+    /// The dial's progress lines, when its caller asked for them
+    /// ([`super::progress`]): each attempt's marks say its stage.
+    pub progress: Option<Arc<super::progress::Reporter>>,
 }
 
 /// A failure of the connection step: a provider error is the relay's (or,
@@ -206,6 +209,11 @@ impl Progress {
 
     fn mark(&self, write: impl FnOnce(&mut Marks)) {
         write(&mut self.marks.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+    }
+
+    /// The attempt's marks so far.
+    pub(super) fn marks(&self) -> Marks {
+        *self.marks.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Every step's duration so far.
@@ -663,6 +671,9 @@ pub(super) async fn dial(plan: &DialPlan) -> Result<Dialed, Failure> {
                         attempts.current = Some((step.clone(), started));
                         attempts.count
                     };
+                    if let Some(progress) = &plan.progress {
+                        progress.attempt(step.clone());
+                    }
                     let result =
                         match tokio::time::timeout_at(plan.deadline, attempt(plan, &step, resume))
                             .await
@@ -672,6 +683,9 @@ pub(super) async fn dial(plan: &DialPlan) -> Result<Dialed, Failure> {
                         };
                     lock().current = None;
                     log_attempt(plan, number, result.as_ref().err(), &step, started.elapsed());
+                    if let (Err(_), Some(progress)) = (&result, &plan.progress) {
+                        progress.retrying();
+                    }
                     match result {
                         Ok(dialed) => DialOutcome::Ready(dialed),
                         Err(failure) if !failure.retryable => {

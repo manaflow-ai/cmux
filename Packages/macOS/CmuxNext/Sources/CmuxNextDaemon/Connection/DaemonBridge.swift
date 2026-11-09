@@ -31,7 +31,10 @@ public struct DaemonBridge: Hashable, Sendable {
     /// connected stream and the child, or why it failed (the child is then
     /// killed and reaped). `spawned` gets, once the child runs, a kill for it while it dials (an
     /// owner ending it early: the wait then fails as a dial that ended without an answer).
-    func open(spawned: (_ kill: @escaping @Sendable () -> Void) -> Void = { _ in }) throws(DaemonError) -> (fd: Int32, child: BridgeChild) {
+    /// `progress` gets the text of each progress line the child writes before its dial line
+    /// (`{"progress":{"text":…}}`, a carrier dial run with `CMUX_CARRIER_PROGRESS=1`), on this thread.
+    func open(spawned: (_ kill: @escaping @Sendable () -> Void) -> Void = { _ in },
+              progress: (String) -> Void = { _ in }) throws(DaemonError) -> (fd: Int32, child: BridgeChild) {
         guard executable.hasPrefix("/") else { throw .launchFailed("the bridge executable is not an absolute path") }
         var pair: [Int32] = [-1, -1]
         guard socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0 else { throw .launchFailed("socketpair: \(String(cString: strerror(errno)))") }
@@ -73,7 +76,16 @@ public struct DaemonBridge: Hashable, Sendable {
         let child = BridgeChild(pid: pid, stderr: errRead)
         spawned { [weak child] in child?.kill() }
         do {
-            try DaemonBridge.check(try Self.readLine(errRead, timeoutMs: replyTimeoutMs))
+            // The dial line's deadline holds across the progress lines before it.
+            let deadline = ContinuousClock.now + .milliseconds(replyTimeoutMs)
+            var line = try Self.readLine(errRead, timeoutMs: replyTimeoutMs)
+            while let text = Self.progressText(line) {
+                progress(text)
+                let left = (deadline - ContinuousClock.now).components
+                let ms = left.seconds * 1000 + left.attoseconds / 1_000_000_000_000_000
+                line = try Self.readLine(errRead, timeoutMs: Int32(clamping: max(ms, 1)))
+            }
+            try DaemonBridge.check(line)
         } catch {
             child.terminate()
             Darwin.close(mine)
@@ -99,6 +111,15 @@ public struct DaemonBridge: Hashable, Sendable {
             line.append(byte)
         }
         throw .endpointBlocked("the link dial's answer is too long")
+    }
+
+    /// The person-readable text of a progress line (`{"progress":{"text":…}}`), cut to
+    /// `maxDetailCharacters`; nil for any other line (the dial line).
+    static func progressText(_ line: Data) -> String? {
+        let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any]
+        guard let progress = object?["progress"] as? [String: Any], let text = progress["text"] as? String, !text.isEmpty
+        else { return nil }
+        return String(text.prefix(maxDetailCharacters))
     }
 
     /// The dial line: `"ok": true` passes; a refusal names its `error_code` (the stage) and its
