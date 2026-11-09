@@ -21,8 +21,9 @@
 //! - Phase B ([`swap_at_open`]) runs at the next owner start, inside
 //!   `WorkspaceRegistry::open` while the session locks are held and before
 //!   any connection writes the registry. It only finishes the built file:
-//!   the journal tail since the last catch-up (a start with a tail over
-//!   `SWAP_TAIL_LIMIT` records defers the swap), every other table copied,
+//!   the journal tail since the last catch-up (a start with a tail, plus
+//!   any records a stopped catch-up left unpacked, over `SWAP_TAIL_LIMIT`
+//!   records defers the swap), every other table copied,
 //!   a check, and the rename over the registry. The old file stays as
 //!   `workspace-registry.sqlite3.pre-output-cleanup` until the next start
 //!   that opens the new registry. A start that swaps used to build the whole

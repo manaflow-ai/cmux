@@ -21,8 +21,8 @@ use super::build::{Build, BuildControl, CaughtUp, build, catch_up, ensure_build_
 use super::chunks::{CHUNK_SCHEMA, StagedRecord, insert_chunk};
 use super::codec::{inflate_segment, split_records};
 use super::{
-    MAX_KEPT_RECORDS, OUTPUT_KIND, copied_bytes, free_space_refusal, kept_refusal, live_records,
-    remove_staging, staged_bytes_refusal, staging_path,
+    MAX_KEPT_RECORDS, OUTPUT_KIND, STAGED_WORK_CHANGED, copied_bytes, free_space_refusal,
+    kept_refusal, live_records, remove_staging, staged_bytes_refusal, staging_path,
 };
 use crate::platform;
 
@@ -189,18 +189,43 @@ fn stage_sealed(
     } else {
         eprintln!("cmux-tui: output cleanup: staging {}", staging_path(db_path).display());
     }
-    match stage_segments(source, staging, next_segment, Some((db_path, copied)))? {
-        Staged::Finished => {}
-        other => return Ok(other),
+    // The live rows are counted after the last staged segment only: a
+    // segment the owner seals between the staging pass and the count is
+    // staged first, then the rows are counted again.
+    let mut sealed_since: Option<u64> = None;
+    loop {
+        match stage_segments(source, staging, next_segment, Some((db_path, copied)))? {
+            Staged::Finished => {}
+            other => return Ok(other),
+        }
+        if let Some(end) = sealed_since {
+            anyhow::ensure!(
+                state_u64(staging, "staged_through")? >= end,
+                "the journal segments through sequence {end} were not staged"
+            );
+        }
+        let (staged_kept, staged_total) = staged_records(staging)?;
+        let (live_kept, live_total) = live_records(source)?;
+        if let Some(reason) = staged_bytes_refusal(staging)?
+            .or_else(|| kept_refusal(staged_kept + live_kept, staged_total + live_total))
+        {
+            return Ok(Staged::Abandoned(reason));
+        }
+        #[cfg(test)]
+        if let Some(seal) = BEFORE_LIVE_COUNT.with(|hook| hook.borrow_mut().take()) {
+            seal();
+        }
+        match count_live_rows(source, staging)? {
+            LiveCount::Counted => break,
+            LiveCount::Sealed(end) => {
+                eprintln!(
+                    "cmux-tui: output cleanup: segments through sequence {end} were sealed after \
+                     the staging pass; staging them before the live rows are counted"
+                );
+                sealed_since = Some(end);
+            }
+        }
     }
-    let (staged_kept, staged_total) = staged_records(staging)?;
-    let (live_kept, live_total) = live_records(source)?;
-    if let Some(reason) = staged_bytes_refusal(staging)?
-        .or_else(|| kept_refusal(staged_kept + live_kept, staged_total + live_total))
-    {
-        return Ok(Staged::Abandoned(reason));
-    }
-    count_live_rows(source, staging)?;
     set_state(staging, "complete", "1")?;
     eprintln!(
         "cmux-tui: output cleanup: phase A complete in {:.2} s: {} segments staged, {} records \
@@ -495,18 +520,45 @@ pub(super) fn stage_segments(
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Runs once between Phase A's staging pass and its live row count: a
+    /// test seals a segment there, as the owner can.
+    static BEFORE_LIVE_COUNT: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[derive(Debug)]
+enum LiveCount {
+    Counted,
+    /// The sealed journal ends past the staged segments, at this sequence:
+    /// nothing was recorded.
+    Sealed(u64),
+}
+
 /// Counts the live rows after the sealed segments in one read snapshot, in
 /// the background: that they are contiguous (the count equals the range) and
 /// how many are output. The swap then checks kept plus removed against these
-/// numbers and counts only rows that came later.
-fn count_live_rows(source: &Connection, staging: &Connection) -> anyhow::Result<()> {
+/// numbers and counts only rows that came later. The snapshot's sealed
+/// journal must end where the staged segments do, or the live step would
+/// skip the records of a segment no one staged.
+fn count_live_rows(source: &Connection, staging: &Connection) -> anyhow::Result<LiveCount> {
+    let staged_through = i64::try_from(state_u64(staging, "staged_through")?)?;
     source.execute_batch("BEGIN DEFERRED")?;
-    let counted = (|| -> anyhow::Result<(i64, i64, i64)> {
+    let counted = (|| -> anyhow::Result<Result<(i64, i64, i64), i64>> {
         let archive_end: i64 = source.query_row(
             "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
             [],
             |row| row.get(0),
         )?;
+        if archive_end != staged_through {
+            anyhow::ensure!(
+                archive_end > staged_through,
+                "{STAGED_WORK_CHANGED}: the sealed journal ends at sequence {archive_end}, \
+                 before the staged segments"
+            );
+            return Ok(Err(archive_end));
+        }
         let head: i64 = source.query_row(
             "SELECT COALESCE(MAX(sequence), ?1) FROM session_journal",
             [archive_end],
@@ -529,10 +581,13 @@ fn count_live_rows(source: &Connection, staging: &Connection) -> anyhow::Result<
             params![archive_end, head, OUTPUT_KIND],
             |row| row.get(0),
         )?;
-        Ok((archive_end, head, output))
+        Ok(Ok((archive_end, head, output)))
     })();
     source.execute_batch("COMMIT")?;
-    let (archive_end, head, output) = counted?;
+    let (archive_end, head, output) = match counted? {
+        Ok(counted) => counted,
+        Err(sealed_end) => return Ok(LiveCount::Sealed(u64::try_from(sealed_end)?)),
+    };
     let tx = staging.unchecked_transaction()?;
     for (key, value) in
         [("live_archive_end", archive_end), ("live_head", head), ("live_output", output)]
@@ -543,7 +598,7 @@ fn count_live_rows(source: &Connection, staging: &Connection) -> anyhow::Result<
         )?;
     }
     tx.commit()?;
-    Ok(())
+    Ok(LiveCount::Counted)
 }
 
 /// The non-output records of one sealed segment with their stored actors.

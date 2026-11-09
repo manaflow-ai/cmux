@@ -22,7 +22,7 @@ use super::super::{
 };
 use super::build::{
     STEP_BUILT, insert_chunks, journal_schema_digest, pack_rest, quote, schema_objects,
-    stage_range, table_columns,
+    segment_record_limit, stage_range, table_columns,
 };
 use super::stage::{open_existing_staging, state, state_u64};
 use super::{
@@ -554,11 +554,14 @@ fn build_and_swap(db_path: &Path, verify_open: VerifyOpen<'_>) -> anyhow::Result
     check_staged_prefix(&source, &staged)?;
     let built_head = state_u64(&staged, "built_head")?;
     let head = query_journal_head(&source)?;
+    // A catch-up stopped before it packed leaves staged records unpacked;
+    // this start would pack them too, so they count toward the limit.
     let tail = head.saturating_sub(built_head);
-    if tail > swap_tail_limit() {
+    let work = tail.saturating_add(unpacked_backlog(&staged)?);
+    if work > swap_tail_limit() {
         return Ok(Swap::Deferred(format!(
-            "{tail} journal records came after the background build (a start catches up at most \
-             {}); the cleanup thread catches up while this owner serves",
+            "{work} journal records came after the background build or are not packed yet (a \
+             start catches up at most {}); the cleanup thread catches up while this owner serves",
             swap_tail_limit()
         )));
     }
@@ -687,9 +690,16 @@ fn finish_committed(
 }
 
 /// The staged segments still describe the registry's archive: its last
-/// staged segment exists with the same id and end.
+/// staged segment exists with the same id and end, and the live rows were
+/// counted from that end (an earlier build could count past it).
 fn check_staged_prefix(source: &Connection, staged: &Connection) -> anyhow::Result<()> {
     let through = state_u64(staged, "staged_through")?;
+    let counted_after = state_u64(staged, "live_archive_end")?;
+    anyhow::ensure!(
+        counted_after == through,
+        "{STAGED_WORK_CHANGED}: the live rows were counted after sequence {counted_after}, the \
+         staged segments end at {through}"
+    );
     if through == 0 {
         return Ok(());
     }
@@ -701,6 +711,23 @@ fn check_staged_prefix(source: &Connection, staged: &Connection) -> anyhow::Resu
     )?;
     anyhow::ensure!(present, "{STAGED_WORK_CHANGED}");
     Ok(())
+}
+
+/// Staged records after the packed journal past the one partial segment a
+/// finished pack leaves, counted up to just over the tail limit.
+fn unpacked_backlog(staged: &Connection) -> anyhow::Result<u64> {
+    let partial = u64::try_from(segment_record_limit())?;
+    let bound = swap_tail_limit().saturating_add(partial).saturating_add(1);
+    let unpacked: i64 = staged.query_row(
+        "SELECT COUNT(*) FROM (
+           SELECT 1 FROM output_cleanup_records WHERE sequence > ?1 LIMIT ?2)",
+        params![
+            i64::try_from(state_u64(staged, "packed_through")?)?,
+            i64::try_from(bound).unwrap_or(i64::MAX)
+        ],
+        |row| row.get(0),
+    )?;
+    Ok(u64::try_from(unpacked)?.saturating_sub(partial))
 }
 
 /// Wall time of each Phase B step, for the swap log line.
