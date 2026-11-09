@@ -1,6 +1,6 @@
 //! `cmux host share|unshare|shares` for a cmux Cloud machine: a teammate's share lives on the cmux
 //! platform (`/v1/cloud/machines/{machine}/shares`, cmux-platform `CarrierShareRoute.ts`), not in
-//! `remote.json`. The platform then gives the teammate a team carrier grant that names the shared
+//! the host config. The platform then gives the teammate a team carrier grant that names the shared
 //! acpmux sessions (its `chats`), and the machine admits them by that grant alone.
 //!
 //! The machine is `--machine vm_...`, else this machine when it is a Cloud machine
@@ -255,7 +255,7 @@ pub(crate) fn narrowed(live: &PlatformShare, remove: &Sessions) -> anyhow::Resul
     Ok(Sessions::new(left).map_or(Narrowed::Revoke, Narrowed::Keep))
 }
 
-/// A local share left in `remote.json`, and why.
+/// A local share left in the host config, and why.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct Kept {
     pub login: String,
@@ -571,7 +571,7 @@ pub(super) fn run(verb: &str, flags: &Flags, target: &Target) -> anyhow::Result<
     Ok(())
 }
 
-/// [`move_local`] on `remote.json` under its lock. `None` when there was nothing to move.
+/// [`move_local`] on the host config under its lock. `None` when there was nothing to move.
 fn move_here(api: &dyn Api, machine: &str) -> anyhow::Result<Option<Value>> {
     let text = &crate::localization::catalog().host_share;
     if config::load()?.shares.is_empty() {

@@ -587,10 +587,17 @@ fn every_config_write_goes_through_commit() {
     }
     assert!(scanned >= 10, "read the remote_host sources ({scanned})");
     assert_eq!(callers, 2, "enable and disable each pass Listener::Caller once");
-    // allow/deny, grant, revoke, and share/unshare (`shares::run`) restart a running listener.
+    // allow/deny, grant, revoke, share/unshare (`shares::run`) and the move of local shares to
+    // the cmux platform (`platform_shares::move_here`) restart a running listener.
     assert_eq!(
         restarting.into_iter().collect::<Vec<_>>(),
-        ["mod.rs:edit_allow", "mod.rs:grant_access", "mod.rs:revoke_access", "shares.rs:run"],
+        [
+            "mod.rs:edit_allow",
+            "mod.rs:grant_access",
+            "mod.rs:revoke_access",
+            "platform_shares.rs:move_here",
+            "shares.rs:run"
+        ],
         "every verb but enable and disable commits with Listener::Restart"
     );
     // The scan catches a new verb's plain write, an unlocked write by path, and a moved Caller.
