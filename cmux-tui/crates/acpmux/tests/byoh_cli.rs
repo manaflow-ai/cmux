@@ -248,19 +248,38 @@ fn byo_endpoint_cli_adds_an_endpoint_profile_with_keychain_refs() {
         "qwen3",
     ]);
     assert!(out.status.success(), "add failed: {}", text(&out));
-    assert!(
-        text(&out).contains("cmux harness secret set local-oai CMUX_BYO_API_KEY"),
-        "no next step: {}",
-        text(&out)
-    );
-    // No key given or stored: the profile names no Keychain item (a keyless server's env
-    // resolves); `cmux harness secret set` points it at one later.
+    assert!(text(&out).contains("add it again with --key --force"), "no next step: {}", text(&out));
+    // No key given: the profile names no Keychain item (a keyless server's env resolves).
     let file = std::fs::read_to_string(dir.join("local-oai.toml")).unwrap();
     assert!(!file.contains("CMUX_BYO_API_KEY = {"), "{file}");
     // A keyless OpenCode config reads no key at all (a CMUX_BYO_API_KEY in some env never reaches
-    // it); a later `secret set` writes the profile again with one.
+    // it).
     assert!(!file.contains("{env:CMUX_BYO_API_KEY}"), "{file}");
     assert!(!file.contains("apiKey"), "{file}");
+    // `secret set` never writes an endpoint's key (it comes only with an add, for that URL): it
+    // is refused before any prompt, and the file stays as it was.
+    let out = user.run(&["harness", "secret", "set", "local-oai", "CMUX_BYO_API_KEY"]);
+    assert!(!out.status.success(), "{}", text(&out));
+    assert!(text(&out).contains("endpoint harness"), "{}", text(&out));
+    assert_eq!(std::fs::read_to_string(dir.join("local-oai.toml")).unwrap(), file);
+    // cmux's own Keychain service is never a --keychain-item, the bare service included.
+    for item in ["cmux-harness", "cmux-harness/acme/ANTHROPIC_AUTH_TOKEN"] {
+        let out = user.run(&[
+            "harness",
+            "add",
+            "stolen",
+            "--example",
+            "openai-endpoint",
+            "--base-url",
+            "http://127.0.0.1:11434/v1",
+            "--model",
+            "qwen3",
+            "--keychain-item",
+            item,
+        ]);
+        assert!(!out.status.success(), "{item}: {}", text(&out));
+        assert!(!dir.join("stolen.toml").exists());
+    }
 
     // Plain http to another host is refused, and nothing is written.
     let out = user.run(&[
