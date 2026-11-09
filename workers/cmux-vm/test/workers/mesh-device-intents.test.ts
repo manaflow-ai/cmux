@@ -231,9 +231,13 @@ it("never lets one member tombstone an intent another member claimed after it lo
   release();
   expect((await pending).status).toBe(201);
   expect(liveTunnels()).toBe(1);
-  // The other order is the intended one: an intent A tombstoned first is refused to B.
+  // The other order is the intended one: an intent A tombstoned first is refused to B, as an intent B cannot see (404,
+  // never the tombstone's 409), and B's enroll creates nothing; A still gets the tombstone.
   expect(Schema.decodeUnknownSync(Revocation)(await (await revoke(a, mesh, "first-a")).json())).toEqual({ deleted: false });
-  expect(await codeOf(await enroll(b, mesh, "first-a", KEY_2))).toBe("mesh.device.intent_revoked");
+  const creates = h.upstream.callsTo("POST", /^\/v5\/tunnels$/u).length;
+  expect((await enroll(b, mesh, "first-a", KEY_2)).status).toBe(404);
+  expect(h.upstream.callsTo("POST", /^\/v5\/tunnels$/u)).toHaveLength(creates);
+  expect(await codeOf(await enroll(a, mesh, "first-a", KEY_2))).toBe("mesh.device.intent_revoked");
 });
 
 it("refuses a revoke by an admin confined to other resources, in flight too, and writes nothing", async () => {
