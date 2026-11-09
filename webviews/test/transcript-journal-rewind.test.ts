@@ -174,7 +174,9 @@ test("the Mac's acpmux saying the machine's journal went back replaces the rows 
   for (const record of fresh) chat.live(record);
   await chat.until(() => chat.reply().includes("Fresh two."));
   expect(chat.reply()).toBe("Synced one. Synced two. Fresh one. Fresh two. ");
-  expect(chat.reads).toContain(4);
+  // It read on from the journal's new end, after reading back what it kept.
+  await chat.settle();
+  expect(chat.reads).toEqual([4]);
 });
 
 test("a notice of another chat or a journal that did not go back changes nothing", async () => {

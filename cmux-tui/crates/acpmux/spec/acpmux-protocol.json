@@ -2086,6 +2086,11 @@
       "params": true
     },
     {
+      "kind": "notification",
+      "name": "_acpmux/rewound",
+      "params": true
+    },
+    {
       "kind": "client_local",
       "name": "_acpmux/disconnected",
       "params": true

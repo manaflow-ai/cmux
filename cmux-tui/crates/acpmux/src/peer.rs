@@ -1726,7 +1726,9 @@ impl Peer {
             // A restored journal may be shorter than the copy we saw on
             // the previous link. Reset both cursors before requesting its
             // bounded pages, or every new live event below `after` is lost.
-            if let Some(last) = page.get("lastSeq").and_then(Value::as_u64).filter(|last| *last < after) {
+            if let Some(last) =
+                page.get("lastSeq").and_then(Value::as_u64).filter(|last| *last < after)
+            {
                 if rewound {
                     tracing::warn!(peer = %self.name, session = %sid, "the peer's journal kept moving backwards during replay");
                     self.clear_attached(&sid);

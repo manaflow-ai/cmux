@@ -7,7 +7,6 @@ use super::*;
 use crate::peer::{Peer, PeerNotice};
 use serde_json::json;
 use std::path::Path;
-use std::sync::Arc;
 
 #[test]
 fn a_peer_journal_that_went_backwards_reaches_the_chat_readers() {
