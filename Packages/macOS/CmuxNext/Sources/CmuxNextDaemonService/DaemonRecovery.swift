@@ -188,11 +188,13 @@ public final class DaemonRecovery {
     /// claims it (the toggle on, the same owner still stuck), then the button's restart with no
     /// confirm. No suspension between the claim and `restart` setting ``isRestarting``.
     private func restartUnresponsive(_ claim: @Sendable () -> Bool) async -> Bool {
-        guard launcher != nil, !isRestarting, claim() else { return false }
+        guard launcher != nil, !isRestarting else { return false }
+        // Before the claim, which spends the watch's allowance for this owner.
         if holdsReplace() {
             logger.notice("cmux-tui automatic restart held: the owner is restoring and still makes progress")
             return false
         }
+        guard claim() else { return false }
         return await restart(automatic: true)
     }
 

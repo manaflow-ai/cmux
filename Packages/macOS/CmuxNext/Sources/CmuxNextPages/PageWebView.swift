@@ -167,6 +167,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// holds the person's state (the agent chat: an open menu, the caret, an IME composition) sets it
     /// false: every crash shows its notice, and only its Reload button reloads.
     public var reloadsAfterCrash = true
+    /// Whether the page holds edits its host has not saved (a file page's document). App health never
+    /// reloads or restarts such a page by itself: a reload would read the file again and drop them.
+    /// They stay in the recovery draft and the quit hook; the person closes or saves the tab.
+    public var holdsUnsavedEdits: () -> Bool = { false }
     /// The surface whose web theme the page gets (`--cmux-*`; nil: the scope's own), for a page that
     /// shows a surface with its own overrides (the agent pane: new tab page, then agent chat).
     /// `data-*` attributes of `<html>` the host keeps current (`setDocumentAttribute`): set again

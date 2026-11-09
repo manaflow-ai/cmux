@@ -366,8 +366,9 @@ public struct DaemonLauncher: Sendable {
         let arguments = Self.ensureArguments(configuration, reapGrace: await reapGrace, progress: progress)
         DaemonLaunchTimings.shared.mark("daemon.ensure_start")
         defer { DaemonLaunchTimings.shared.mark("daemon.ensure_end") }
-        // App health reads each ensure (read-only; nothing here changes what the launcher does).
-        health?.note(.started)
+        // App health reads each ensure (read-only; nothing here changes what the launcher does). The
+        // start counts from the first restore progress, so probing a wedged owner is no start.
+        let note = health.map(EnsureProgressNote.init)
         do {
             let result = try await ProcessRunner.run(
                 executable: configuration.binary,
@@ -376,7 +377,7 @@ public struct DaemonLauncher: Sendable {
                 stdin: configuration.installKey?.payload,
                 timeout: progress ? Self.ensureRestoreCap : max(ensureTimeout, Self.ensureRestoreCap),
                 progressIdle: progress ? ensureTimeout : nil,
-                progressed: health.map { sink in { @Sendable in sink.note(.restoring) } },
+                progressed: note.map { note in { @Sendable in note.progressed() } },
                 clock: clock
             )
             let ensured = try Self.parseEnsure(result)

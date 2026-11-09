@@ -8,7 +8,8 @@ import CmuxNextCompat
 /// services exist (the launch's first connect attempt) keeps its first signals until it is bound.
 public final class DaemonHealthSink: Sendable {
     public enum Signal: Sendable, Equatable {
-        /// `server ensure` runs with no owner answering `server status`: it starts one.
+        /// The owner an ensure waits on reported its first restore progress: a start that counts
+        /// toward a restart loop. A probe of an owner that is up but not answering never sends it.
         case started
         /// An owner answers (`server status` found it, or `server ensure` returned it).
         case ready(pid: Int32)
@@ -70,5 +71,23 @@ public final class DaemonHealthSink: Sendable {
             return true
         }
         if changed { note(timedOut ? .requestTimedOut : .requestAnswered) }
+    }
+}
+
+/// One ensure's progress for app health: its first progress write is the start (``DaemonHealthSink/Signal/started``),
+/// then each write is ``DaemonHealthSink/Signal/restoring``.
+final class EnsureProgressNote: Sendable {
+    private let sink: DaemonHealthSink
+    private let started = Mutex(false)
+
+    init(_ sink: DaemonHealthSink) { self.sink = sink }
+
+    func progressed() {
+        let first = started.withLock { started in
+            defer { started = true }
+            return !started
+        }
+        if first { sink.note(.started) }
+        sink.note(.restoring)
     }
 }

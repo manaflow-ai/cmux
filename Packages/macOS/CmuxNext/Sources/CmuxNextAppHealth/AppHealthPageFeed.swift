@@ -142,6 +142,8 @@ final class AppHealthPageFeed: PageHealthFeed {
 
     static func repair(_ action: AppHealth.Action) async -> Bool {
         guard let page = page(forPart: action.id) else { return false }
+        // Unsaved edits a reload would drop: refuse, and the status says the repair did not run.
+        guard !page.holdsUnsavedEdits() else { return false }
         switch action.action {
         case .reloadPage:
             await page.reloadKeepingState()
