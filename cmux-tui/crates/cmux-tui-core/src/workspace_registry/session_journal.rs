@@ -1077,6 +1077,34 @@ fn append_resource_journal_record_at(
     Ok(())
 }
 
+/// The registry journal's write budget per kind (`cmux_tui_platform::write_budget`): a kind past
+/// 2 MiB or 1,200 rows an hour, or one whose rows mostly repeat (a ping-pong), is a writer to fix.
+static JOURNAL_BUDGET: std::sync::LazyLock<cmux_tui_platform::write_budget::WriteBudget> =
+    std::sync::LazyLock::new(|| {
+        cmux_tui_platform::write_budget::WriteBudget::new(
+            "registry journal",
+            cmux_tui_platform::write_budget::WriteLimits {
+                bytes: 2 << 20,
+                records: 1_200,
+                repeat_percent: 50,
+                repeat_floor: 50,
+            },
+        )
+    });
+
+/// Counts a journal row against [`JOURNAL_BUDGET`] where budgets count (debug builds, tests,
+/// `CMUX_WRITE_BUDGET=1`), and warns once its kind is over.
+fn note_write_budget(append: &JournalAppend<'_>, payload_json: &str, now_ms: u64) {
+    if !cmux_tui_platform::write_budget::WriteBudget::enabled() {
+        return;
+    }
+    let bytes = payload_json.len() + append.content.map_or(0, <[u8]>::len);
+    if let Some(warning) = JOURNAL_BUDGET.note(append.kind, bytes, payload_json.as_bytes(), now_ms)
+    {
+        eprintln!("cmux-tui: {warning}");
+    }
+}
+
 pub(crate) fn append_journal_record(
     transaction: &Transaction<'_>,
     append: &JournalAppend<'_>,
@@ -1098,6 +1126,8 @@ pub(crate) fn append_journal_record(
     );
     let committed_at_ms = unix_epoch_ms()?;
     let subjects_json = canonical_json(&serde_json::to_value(append.subjects)?)?;
+    let payload_json = canonical_json(append.payload)?;
+    note_write_budget(append, &payload_json, committed_at_ms);
     transaction.execute(
         "INSERT INTO session_journal(
            event_id, schema_version, kind, class, replay_policy,
@@ -1127,7 +1157,7 @@ pub(crate) fn append_journal_record(
             i64::from(append.causation_depth),
             &subjects_json,
             append.sensitivity.as_str(),
-            canonical_json(append.payload)?,
+            &payload_json,
             append.content,
             append
                 .resource_revision
