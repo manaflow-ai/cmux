@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42613639416",
+  "recorded_at": "2026-11-09T12:11:00Z",
+  "reason": "cmux-tui 5cf33ecb3ff6 changes the image's cmux-tui (pinned 248129201889)",
+  "dry_run": false,
+  "cmux_tui": "5cf33ecb3ff66fd570f4007ffa956fe421952b9c",
+  "fixes": [
+    {
+      "sha": "5cf33ecb3ff66fd570f4007ffa956fe421952b9c",
+      "mergedAt": "2026-11-09T03:32:49-08:00",
+      "subject": "acpmux bridge: Claude Desktop and Codex Desktop message each other and cmux sessions (#39338)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T12:11:00Z",
+    "snapshot_id": "sh-18683b79b36542548535acc9bcbcb76f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42613639416): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "94e8eeaee26a503470c5d6dda22a4dc236322bff",
+    "image": "cloud-native-auto-5cf33ecb-42613639416-1",
+    "revision": "ci-42613639416-1",
+    "at": "2026-11-09T12:11:00Z"
+  },
+  "rolled_back": false
+}
