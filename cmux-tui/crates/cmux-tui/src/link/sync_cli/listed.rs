@@ -214,10 +214,13 @@ fn add_in(
 }
 
 /// The bytes of the git file `name` (at `path`) that a copy rewrites before
-/// it goes (config, a reflog): a regular file read through `dir`, or the file
-/// a symlink there names, through every link of its chain wherever it leads,
-/// as a plain read would. Gone since it was listed: `None`, so the file is
-/// left out and the machine's copy stays. Any other failure fails the sync:
+/// it goes (config, a reflog), read only through `dir`: a regular file opened
+/// there, or for a config, the file its symlink's text names, opened from
+/// `dir`'s descriptor (a relative text starts at the folder listed, never at
+/// whatever is at `path` now) to the end of its chain, as git reads it. A
+/// symlinked reflog (git never makes one) and a config whose file is a key or
+/// in a credential folder are left out: `None`, as is one gone since it was
+/// listed, so the machine keeps its own. Any other failure fails the sync:
 /// empty bytes in its place would overwrite the machine's config.
 pub(super) fn git_text(
     dir: &place::Dir,
@@ -226,19 +229,29 @@ pub(super) fn git_text(
     path: &Path,
 ) -> anyhow::Result<Option<Vec<u8>>> {
     use std::io::Read as _;
-    let read = match entry {
-        place::Entry::File { .. } => dir.open_file(name).and_then(|mut file| {
-            if !file.metadata()?.is_file() {
-                return Err(std::io::Error::other("not a regular file"));
-            }
-            let mut bytes = Vec::new();
-            file.read_to_end(&mut bytes).map(|_| bytes)
-        }),
-        place::Entry::Link => std::fs::read(path),
+    let opened = match entry {
+        place::Entry::File { .. } => dir.open_file(name).map(Some),
+        place::Entry::Link if matches!(name, "config" | "config.worktree") => {
+            dir.read_link(name).and_then(|text| dir.open_link_text(&text)).map(|(file, at)| {
+                let at = at.to_string_lossy();
+                let secret = skips::credential_folder_of(&at).is_some()
+                    || at.rsplit('/').next().and_then(skips::secret).is_some();
+                (!secret).then_some(file)
+            })
+        }
+        place::Entry::Link => Ok(None),
         _ => Err(std::io::Error::other("not a file or a symlink")),
     };
+    let read = opened.and_then(|file| {
+        let Some(mut file) = file else { return Ok(None) };
+        if !file.metadata()?.is_file() {
+            return Err(std::io::Error::other("not a regular file"));
+        }
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).map(|_| Some(bytes))
+    });
     match read {
-        Ok(bytes) => Ok(Some(bytes)),
+        Ok(bytes) => Ok(bytes),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error).with_context(|| format!("cannot read {}", path.display())),
     }
@@ -263,5 +276,38 @@ mod tests {
         let env = set.files.get(".env").expect("listed");
         assert_eq!(env.permissions, 0o600);
         assert!(env.id.is_some() && set.files.contains_key("a.txt"));
+    }
+
+    /// A git file's symlink is followed from the folder listed, through its
+    /// descriptor: with that folder swapped since for a symlink to another
+    /// (`~/.ssh`), a relative text never reaches a file there. A symlinked
+    /// reflog is left out, and so is a config whose file is in a credential
+    /// folder.
+    #[test]
+    fn a_git_file_symlink_is_read_from_the_folder_listed_never_its_path() {
+        use super::super::place;
+        use super::git_text;
+        let root = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(root.path()).unwrap();
+        let (git, ssh) = (root.join("repo/.git"), root.join("home/.ssh"));
+        std::fs::create_dir_all(&git).unwrap();
+        std::fs::create_dir_all(&ssh).unwrap();
+        std::fs::write(git.join("config.real"), "[core]\n\tmine = 1\n").unwrap();
+        std::fs::write(ssh.join("config.real"), "PRIVATE KEY\n").unwrap();
+        for name in ["config", "id_rsa"] {
+            std::os::unix::fs::symlink("config.real", git.join(name)).unwrap();
+        }
+        let held = place::Dir::open(&git).unwrap();
+        std::fs::rename(&git, root.join("repo/.git-old")).unwrap();
+        std::os::unix::fs::symlink(&ssh, &git).unwrap();
+        let read =
+            |name: &str| git_text(&held, name, &place::Entry::Link, &git.join(name)).unwrap();
+        assert_eq!(read("config").as_deref(), Some(&b"[core]\n\tmine = 1\n"[..]));
+        assert_eq!(read("id_rsa"), None, "a symlinked reflog or other git file is left out");
+        let secret = place::Dir::open(&root.join("repo/.git-old")).unwrap();
+        std::fs::remove_file(root.join("repo/.git-old/config")).unwrap();
+        std::os::unix::fs::symlink(ssh.join("config.real"), root.join("repo/.git-old/config"))
+            .unwrap();
+        assert_eq!(git_text(&secret, "config", &place::Entry::Link, &git).unwrap(), None);
     }
 }

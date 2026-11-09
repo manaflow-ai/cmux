@@ -10,7 +10,7 @@ use std::fs::File;
 use std::io;
 use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd};
 use std::os::unix::ffi::OsStringExt as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, bail};
 use sha2::{Digest as _, Sha256};
@@ -36,6 +36,23 @@ fn c_name(name: &str) -> io::Result<CString> {
 
 fn c_name_text(text: &str) -> io::Result<CString> {
     CString::new(text).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))
+}
+
+/// The path an open file is at now, from its descriptor.
+fn fd_path(file: &File) -> io::Result<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut buffer = vec![0u8; libc::PATH_MAX as usize];
+        // SAFETY: a valid descriptor and a buffer of PATH_MAX bytes, as F_GETPATH wants.
+        check(unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, buffer.as_mut_ptr()) })?;
+        let end = buffer.iter().position(|byte| *byte == 0).unwrap_or(buffer.len());
+        buffer.truncate(end);
+        Ok(PathBuf::from(OsString::from_vec(buffer)))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))
+    }
 }
 
 /// A `mode_t` (u16 on macOS, u32 on Linux) as u32.
@@ -274,6 +291,26 @@ impl Dir {
     }
 
     /// The text of the symlink `name` (never followed).
+    /// Opens `text` (a symlink's text read from this folder) for reading as the kernel resolves
+    /// it from this folder's descriptor, never through this folder's path: a relative text
+    /// starts here even when this folder was moved or swapped since it was opened. Answers the
+    /// file and the path it ended at.
+    pub(super) fn open_link_text(&self, text: &str) -> io::Result<(File, PathBuf)> {
+        let c = c_name_text(text)?;
+        // SAFETY: a valid descriptor and C string; the result is checked.
+        let fd = check(unsafe {
+            libc::openat(
+                self.0.as_raw_fd(),
+                c.as_ptr(),
+                libc::O_RDONLY | libc::O_NONBLOCK | libc::O_CLOEXEC,
+            )
+        })?;
+        // SAFETY: a new descriptor the file owns.
+        let file = unsafe { File::from_raw_fd(fd) };
+        let at = fd_path(&file)?;
+        Ok((file, at))
+    }
+
     pub(super) fn read_link(&self, name: &str) -> io::Result<String> {
         let c = c_name(name)?;
         let mut buffer = vec![0u8; 4096];

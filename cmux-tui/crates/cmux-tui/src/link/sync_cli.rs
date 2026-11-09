@@ -1565,7 +1565,7 @@ fn open(file: &LocalFile) -> anyhow::Result<Box<dyn std::io::Read>> {
 
 fn size(file: &LocalFile) -> anyhow::Result<u64> {
     Ok(match &file.source {
-        Source::File(path) => std::fs::metadata(path)?.len(),
+        Source::File(path) => local::open_listed(path, file.id)?.metadata()?.len(),
         Source::Checked(checked) => {
             place::open_beneath(&checked.root, &checked.relative)?.0.metadata()?.len()
         }
