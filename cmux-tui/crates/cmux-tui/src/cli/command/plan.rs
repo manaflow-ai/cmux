@@ -31,6 +31,9 @@ pub(in crate::cli) enum ResponseView {
     /// screen's `text` alone, as it shows; `--json` keeps the whole record.
     ScreenText,
     AgentRoster(AgentRosterView),
+    /// `agent report`: the reported record says `ended` where the daemon
+    /// says `done` (a session that ended), as every CLI agent list does.
+    AgentReport,
 }
 
 /// How `agent list` orders and trims its rows.
@@ -67,6 +70,15 @@ impl ResponseView {
             // wire/agent_roster.rs shapes the roster once it has the
             // terminals' titles and folders.
             Self::Full | Self::AgentRoster(_) | Self::ScreenText => result,
+            Self::AgentReport => {
+                let mut result = result;
+                if let Some(state) = result.pointer_mut("/value/state")
+                    && *state == "done"
+                {
+                    *state = Value::from("ended");
+                }
+                result
+            }
             Self::TerminalProgramStatus => match result.pointer("/extra/program_status") {
                 Some(Value::Array(records)) => Value::Array(records.clone()),
                 _ => Value::Array(Vec::new()),
@@ -152,6 +164,17 @@ impl super::CommandPlan {
         match self {
             Self::Protocol(mut plan) => {
                 plan.view = ResponseView::ScreenText;
+                Self::Protocol(plan)
+            }
+            other => other,
+        }
+    }
+
+    /// `agent report`: the reported record with the CLI's `ended` word.
+    pub(super) fn agent_report(self) -> Self {
+        match self {
+            Self::Protocol(mut plan) => {
+                plan.view = ResponseView::AgentReport;
                 Self::Protocol(plan)
             }
             other => other,

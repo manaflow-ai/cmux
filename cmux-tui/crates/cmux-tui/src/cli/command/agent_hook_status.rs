@@ -4,24 +4,27 @@
 //! `agent hook install` writes one shared helper per user and points the
 //! harness configs at it; that helper runs whichever build installed it
 //! last. An agent started in a cmux terminal runs this daemon build's own
-//! helper instead (`CMUX_TUI_HOOK`, own_build_helpers.rs). The status names
-//! that one as `helper`, and the shared one as `installed_helper`.
+//! helper instead (`CMUX_TUI_HOOK`, own_build_helpers.rs). In a cmux pane the
+//! status names that one as `helper`, and the shared one as
+//! `installed_helper`; outside a pane it is unchanged. Unix only, as the
+//! own-build helpers are.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
 
 use serde_json::{Value, json};
 
-/// The hook helper an agent started here runs: the `CMUX_TUI_HOOK` the
-/// pane carries (its daemon's own build), else this build's own helper.
+/// The hook helper an agent started in this pane runs: the `CMUX_TUI_HOOK`
+/// the pane carries (its daemon's own build). Outside a cmux pane there is
+/// none, and the status keeps the installed helper.
 pub(super) fn pane_helper() -> Option<PathBuf> {
     pane_helper_from(std::env::var_os("CMUX_TUI_HOOK"))
 }
 
-/// [`pane_helper`] for the `CMUX_TUI_HOOK` value `inherited`.
+/// [`pane_helper`] for the `CMUX_TUI_HOOK` value `inherited`. It only reads:
+/// a status call never writes a launcher file.
 pub(super) fn pane_helper_from(inherited: Option<OsString>) -> Option<PathBuf> {
-    let executable = crate::claude_wrapper::current_executable().ok()?;
-    crate::own_build_helpers::launch_hook_helper(&executable, inherited)
+    crate::own_build_helpers::inherited_hook_helper(inherited)
 }
 
 /// The status `value` with `helper` naming `pane_helper` and the shared

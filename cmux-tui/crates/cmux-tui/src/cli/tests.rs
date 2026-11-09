@@ -1378,11 +1378,15 @@ fn w5q_help_keys_lists_the_tui_key_bindings() {
         };
         assert_eq!(topic, "keys");
     }
-    let keys = crate::config::Keys::default();
-    let split = keys.shortcut_label(crate::config::Action::SplitRight).expect("split is bound");
-    let english = scope_help_for("keys", crate::localization::catalog_for_locale("en_US.UTF-8"));
+    // Fixed bindings, not the person's config: a changed `split-right` on
+    // the machine must not change this result.
+    let keys = crate::config::Keys::default;
+    let split = keys().shortcut_label(crate::config::Action::SplitRight).expect("split is bound");
+    let english =
+        scope_help_with_keys("keys", crate::localization::catalog_for_locale("en_US.UTF-8"), keys);
     assert!(english.contains("Split right"), "{english}");
     assert!(english.contains(&split), "{split}: {english}");
-    let japanese = scope_help_for("keys", crate::localization::catalog_for_locale("ja_JP.UTF-8"));
+    let japanese =
+        scope_help_with_keys("keys", crate::localization::catalog_for_locale("ja_JP.UTF-8"), keys);
     assert!(japanese.contains("右に分割"), "{japanese}");
 }

@@ -564,6 +564,19 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         Verdict::Exited => ("exited", false),
         Verdict::Pending => (AgentState::Working.as_str(), true),
     };
+    // `status` is the word `terminal list --agents` says for this turn: a
+    // finished turn nobody viewed yet (an unread notification, read after
+    // the wait) is `done`; `state` keeps the wait's own word.
+    let status = match waited.verdict {
+        Verdict::Done(state) => {
+            let after = self::snapshot(backend, session).ok();
+            let unseen = roster::unseen(after.as_ref().unwrap_or(&snapshot), &id);
+            roster::status_of(state.as_str(), unseen)
+                .map_or(state.as_str(), |status| status.as_str())
+        }
+        Verdict::Exited => AgentState::Ended.as_str(),
+        Verdict::Pending => AgentState::Working.as_str(),
+    };
     receipt.set("sent", Value::Bool(true));
     if let Some(code) = waited.finished.as_ref().and_then(exit_status) {
         receipt.set("exit_status", json!(code));
@@ -572,6 +585,7 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         receipt.set("matched", Value::Bool(waited.matched));
     }
     receipt.set("state", Value::String(state.to_owned()));
+    receipt.set("status", Value::String(status.to_owned()));
     receipt.set("timed_out", Value::Bool(timed_out));
     receipt.set("waited_ms", json!(sent_at.elapsed().as_millis().to_string()));
     receipt.set("anchored", Value::Bool(anchored));
