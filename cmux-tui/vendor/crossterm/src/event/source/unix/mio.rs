@@ -66,6 +66,9 @@ impl UnixInternalEventSource {
 
 impl EventSource for UnixInternalEventSource {
     fn try_read(&mut self, timeout: Option<Duration>) -> io::Result<Option<InternalEvent>> {
+        // cmux patch: held Alt+] digits become keys after a quiet time
+        // (`InputParser`), so the poll waits no longer than that.
+        self.parser.release_if_quiet(Instant::now());
         if let Some(event) = self.parser.next() {
             return Ok(Some(event));
         }
@@ -73,7 +76,8 @@ impl EventSource for UnixInternalEventSource {
         let timeout = PollTimeout::new(timeout);
 
         loop {
-            if let Err(e) = self.poll.poll(&mut self.events, timeout.leftover()) {
+            let wait = self.parser.wait_limit(timeout.leftover(), Instant::now());
+            if let Err(e) = self.poll.poll(&mut self.events, wait) {
                 // Mio will throw an interrupted error in case of cursor position retrieval. We need to retry until it succeeds.
                 // Previous versions of Mio (< 0.7) would automatically retry the poll call if it was interrupted (if EINTR was returned).
                 // https://docs.rs/mio/0.7.0/mio/struct.Poll.html#notes
@@ -85,8 +89,16 @@ impl EventSource for UnixInternalEventSource {
             };
 
             if self.events.is_empty() {
-                // No readiness events = timeout
-                return Ok(None);
+                // No readiness events = timeout: the caller's, or the held
+                // Alt+] digits' quiet time (cmux patch).
+                self.parser.release_if_quiet(Instant::now());
+                if let Some(event) = self.parser.next() {
+                    return Ok(Some(event));
+                }
+                if timeout.elapsed() {
+                    return Ok(None);
+                }
+                continue;
             }
 
             for token in self.events.iter().map(|x| x.token()) {

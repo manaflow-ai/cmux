@@ -291,7 +291,9 @@ fn with_build(
         Reach::Tunnel { socket } => super::skew::remote_skew(daemon, own, socket),
         Reach::Local { pane_cli } => {
             let cli = daemon.cli_path.display().to_string();
-            let run = match pane_cli.filter(|path| Path::new(path).is_absolute()) {
+            // A pane's `CMUX_TUI_CLI` is its own session's `cmux`; a `--socket`
+            // to another session's daemon needs that daemon's `cmux`.
+            let run = match pane_cli.filter(|path| same_file(Path::new(path), &daemon.cli_path)) {
                 Some(_) => format!("\"$CMUX_TUI_CLI\" ({cli})"),
                 None => cli,
             };
@@ -306,12 +308,25 @@ fn with_build(
     object.insert("warning".into(), json!(warning));
 }
 
+/// Whether absolute path `path` names the file `target` names (the same
+/// path, or a link to it).
+fn same_file(path: &Path, target: &Path) -> bool {
+    if !path.is_absolute() {
+        return false;
+    }
+    match (std::fs::canonicalize(path), std::fs::canonicalize(target)) {
+        (Ok(path), Ok(target)) => path == target,
+        _ => path == target,
+    }
+}
+
 /// How the CLI reached the daemon that answered, as [`with_build`] words its
 /// warning.
 #[derive(Clone, Copy, Debug)]
 enum Reach<'a> {
     /// The daemon itself answered on a local socket; `pane_cli` is the
-    /// `CMUX_TUI_CLI` this process has (set in a cmux pane), when absolute.
+    /// `CMUX_TUI_CLI` this process has (set in a cmux pane). The warning
+    /// names it only when it is the daemon's own `cmux` file.
     Local { pane_cli: Option<&'a str> },
     /// The socket tunnels to a daemon on another machine; its `cmux` is a
     /// path there.

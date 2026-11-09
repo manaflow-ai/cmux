@@ -117,7 +117,7 @@ fn agent_rows_carry_the_shared_status_and_done_until_seen() {
     ended["agents"][0]["state"] = json!("done");
     let ended = roster::agent_rows(&ended);
     let last = ended.last().unwrap();
-    assert_eq!((last.status_word(), last.to_json(0)["status"].clone()), ("ended", Value::Null));
+    assert_eq!((last.status_word(), last.to_json(0)["status"].clone()), ("ended", json!("ended")));
 }
 
 #[test]

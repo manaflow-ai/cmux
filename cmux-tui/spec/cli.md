@@ -1285,16 +1285,18 @@ plugin names are slugs matching `[a-z0-9-_]+`.
 rows, so the wire value is unchanged. `--state` and `--terminal` are the
 read's own filters. Every row has `status`, one of the words `terminal list
 --agents` and `agent wait` use: `blocked`, `done` (idle with an unread
-notification on its terminal), `working`, `idle` or `unknown`, and `null` for
-an agent whose session ended. The CLI writes the row's `state` over with
-the same word (`ended` for an ended session), as a deprecated alias of
-`status`. The daemon's wire does not change: `agent.list` and
+notification on its terminal), `working`, `idle` or `unknown`, and `ended` for
+an agent whose session ended (the word the `send` receipt says; it was
+`null`). The CLI writes the row's `state` over with the same word, as a
+deprecated alias of `status`. The daemon's wire does not change: `agent.list` and
 `session.snapshot` still say `state: done` for an ended session, and the CLI
 maps that `done` to `ended` in every output (`agent list`, `agent report`,
 `terminal list --agents`, the `send` receipt). In the CLI, `done` means only a
 finished turn that nobody viewed yet. The CLI leaves out the ended agents of
 terminals that closed (the snapshot has no such terminal); `--state ended`
-shows them. `--state` takes
+shows them. `hidden_ended` (in `--json --counts`) counts the rows it left out,
+and the text output ends with a line that says how many (localized).
+`--state` takes
 the status words and `ended` and asks the daemon for its state: `done` and
 `idle` ask for `idle` (the CLI then keeps the rows with that status), `ended`
 asks for the daemon's `done`, the others for themselves. `--state done` used to

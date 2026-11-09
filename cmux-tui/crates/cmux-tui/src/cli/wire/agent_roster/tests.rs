@@ -355,7 +355,10 @@ fn json_stays_the_bare_ranked_array_unless_counts_is_asked_for() {
 
     let counted = list_plan(AgentRosterView { counts: true, ..AgentRosterView::default() });
     let shown = machine_view(&counted, &result, OutputMode::Json);
-    assert_eq!(shown.as_object().unwrap().keys().collect::<Vec<_>>(), ["agents", "counts"]);
+    assert_eq!(
+        shown.as_object().unwrap().keys().collect::<Vec<_>>(),
+        ["agents", "counts", "hidden_ended"]
+    );
     assert_eq!(shown["counts"]["total"], 9);
     // --jsonl is one agent per line either way.
     assert!(machine_view(&counted, &result, OutputMode::JsonLines).is_array());
@@ -378,7 +381,7 @@ fn w4j_agent_list_rows_and_counts_use_the_shared_status_words() {
     };
     assert_eq!(row("agent_idle")["status"], "idle");
     assert_eq!(row("agent_blocked")["status"], "blocked");
-    assert_eq!(row("agent_ended")["status"], Value::Null);
+    assert_eq!(row("agent_ended")["status"], "ended");
     assert_eq!(row("agent_ended")["state"], "ended", "state is an alias of status (W5-Q)");
     assert_eq!(
         result["counts"],
@@ -426,7 +429,7 @@ fn w4j_an_unseen_idle_agent_is_done_and_ranks_after_blocked() {
     assert_eq!(result["counts"]["total"], 1);
 
     // `--state ended` asks the daemon for its `done` (a session that
-    // ended) and keeps those rows: `status` null.
+    // ended) and keeps those rows: `status` ended.
     let ended_rows = json!([
         agent("agent_gone", "done", NOW - 3_000, "term_5"),
         agent("agent_seen", "idle", NOW - 2_000, "term_3"),
@@ -434,7 +437,7 @@ fn w4j_an_unseen_idle_agent_is_done_and_ranks_after_blocked() {
     let ended = AgentRosterView { status: Some("ended"), ..AgentRosterView::default() };
     let result = shape(ended_rows, &[], &unseen, ended, NOW);
     assert_eq!(ids(&result), ["agent_gone"]);
-    assert_eq!(result["agents"][0]["status"], Value::Null);
+    assert_eq!(result["agents"][0]["status"], "ended");
     assert_eq!(result["counts"]["ended"], 1);
 }
 
@@ -497,8 +500,7 @@ fn w5q_agent_list_state_is_the_one_status_word() {
         ("agent_blocked", "blocked"),
     ] {
         assert_eq!(row(id)["state"], word, "{id}: {result}");
-        let status = if word == "ended" { Value::Null } else { json!(word) };
-        assert_eq!(row(id)["status"], status, "{id}: {result}");
+        assert_eq!(row(id)["status"], word, "{id}: {result}");
     }
 }
 

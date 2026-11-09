@@ -113,12 +113,20 @@ impl EventSource for UnixInternalEventSource {
             make_pollfd(&self.wake_pipe.receiver),
         ];
 
+        // cmux patch: held Alt+] digits become keys after a quiet time
+        // (`InputParser`), so the poll waits no longer than that.
+        self.parser.release_if_quiet(Instant::now());
+        if let Some(event) = self.parser.next() {
+            return Ok(Some(event));
+        }
+
         while timeout.leftover().map_or(true, |t| !t.is_zero()) {
             // check if there are buffered events from the last read
             if let Some(event) = self.parser.next() {
                 return Ok(Some(event));
             }
-            match poll(&mut fds, timeout.leftover()) {
+            let wait = self.parser.wait_limit(timeout.leftover(), Instant::now());
+            match poll(&mut fds, wait) {
                 Err(filedescriptor::Error::Poll(e)) | Err(filedescriptor::Error::Io(e)) => {
                     match e.kind() {
                         // retry on EINTR
@@ -134,6 +142,10 @@ impl EventSource for UnixInternalEventSource {
                 }
                 Ok(_) => (),
             };
+            self.parser.release_if_quiet(Instant::now());
+            if let Some(event) = self.parser.next() {
+                return Ok(Some(event));
+            }
             if fds[0].revents & POLLIN != 0 {
                 loop {
                     let read_count = read_complete(&self.tty, &mut self.tty_buffer)?;

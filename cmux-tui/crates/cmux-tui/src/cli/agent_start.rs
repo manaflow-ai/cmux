@@ -602,7 +602,7 @@ fn exited_target(snapshot: &Value, target: &ResumeTarget) -> Result<Exited, Fail
         ResumeTarget::Terminal(selector) => send::find_terminal(snapshot, selector)?,
     };
     let id = terminal["id"].as_str().unwrap_or_default().to_owned();
-    if terminal["lifecycle"] != "exited" {
+    if !super::terminal_lifecycle::is_exited(terminal) {
         return Err(Failure::local(
             "agent.running",
             format!(

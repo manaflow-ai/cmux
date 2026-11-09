@@ -42,7 +42,7 @@ pub(crate) struct PaneCliMessages {
     /// `cmux identify` from a `cmux` of another build than the session
     /// daemon on this machine: `{own}` this build, `{daemon}` the daemon's,
     /// `{run}` how to run the daemon's own `cmux` (`"$CMUX_TUI_CLI" (path)`
-    /// in a pane, else the path).
+    /// when the pane's `CMUX_TUI_CLI` is that file, else the path).
     pub build_mismatch: &'static str,
     /// The `agent list` text line for the ended agents of closed terminals
     /// it left out: `{count}` of them.
