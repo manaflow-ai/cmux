@@ -30,6 +30,7 @@ type Frame = {
   ghosts: Ghost[];
   bubble?: Box & { shown: boolean; ink: number };
   preview?: Box & { shown: boolean; ink: number };
+  row?: string;
 };
 
 await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
@@ -162,6 +163,8 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
             })),
             bubble: bubble ? drawn(bubble, row) : undefined,
             preview: preview ? drawn(preview, row) : undefined,
+            // What drew the row, for a failure's message: its id and classes.
+            row: row ? `${row.closest<HTMLElement>("[data-row-id]")?.dataset.rowId ?? "?"} ${row.className}` : undefined,
           });
           // raf-read: every frame of the send (above).
           if (performance.now() - start < ms) requestAnimationFrame(tick);
@@ -370,7 +373,10 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
       const drawn = seen.filter((frame) => frame.bubble);
       expect(drawn.length, "the sent row was never drawn").toBeGreaterThan(2);
       expect(drawn[0]!.bubble!.shown, "the bubble draws in its place").toBe(true);
-      expect(drawn[0]!.bubble!.ink, "the bubble fades in in place").toBeLessThan(0.6);
+      expect(
+        drawn[0]!.bubble!.ink,
+        `the bubble fades in in place (${JSON.stringify(drawn.slice(0, 4).map((frame) => [frame.at, frame.row, frame.bubble!.ink]))})`,
+      ).toBeLessThan(0.6);
       expect(drawn.at(-1)!.bubble!.ink).toBeGreaterThan(0.99);
     } finally {
       await page.close();
@@ -393,7 +399,10 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
       const drawn = seen.filter((frame) => frame.bubble);
       expect(drawn.length, "the sent row was never drawn").toBeGreaterThan(2);
       expect(drawn[0]!.bubble!.shown, "the bubble draws in its place").toBe(true);
-      expect(drawn[0]!.bubble!.ink, "the bubble fades in in place").toBeLessThan(0.6);
+      expect(
+        drawn[0]!.bubble!.ink,
+        `the bubble fades in in place (${JSON.stringify(drawn.slice(0, 4).map((frame) => [frame.at, frame.row, frame.bubble!.ink]))})`,
+      ).toBeLessThan(0.6);
       expect(drawn.at(-1)!.bubble!.ink).toBeGreaterThan(0.99);
     } finally {
       await page.close();
