@@ -107,7 +107,26 @@ impl HostAttachment {
         let deadline = Instant::now()
             .checked_add(HOST_LAUNCH_ROLLBACK_WAIT)
             .ok_or_else(|| anyhow::anyhow!("terminal-host termination timeout overflow"))?;
-        self.terminate().context("send terminal-host termination")?;
+        if let Err(error) = self.terminate() {
+            // A host that already ended cannot take the request. Its queued
+            // Exit frame or its durable exit record still answers below.
+            if !host_link_closed(&error) {
+                return Err(error.context("send terminal-host termination"));
+            }
+        }
+        self.wait_for_exit_until(deadline)
+    }
+
+    /// After [`Self::request_termination`]: the host's exit receipt, waited
+    /// for as long as [`Self::terminate_and_wait_for_exit`] waits.
+    pub(crate) fn wait_for_requested_exit(&mut self) -> anyhow::Result<TerminalHostExitRecord> {
+        let deadline = Instant::now()
+            .checked_add(HOST_LAUNCH_ROLLBACK_WAIT)
+            .ok_or_else(|| anyhow::anyhow!("terminal-host termination timeout overflow"))?;
+        self.wait_for_exit_until(deadline)
+    }
+
+    fn wait_for_exit_until(&mut self, deadline: Instant) -> anyhow::Result<TerminalHostExitRecord> {
         let identity = self.identity();
         let record_path = self.record_path.clone();
         let protocol_version = self.protocol_version;
@@ -168,14 +187,15 @@ impl HostAttachment {
     }
 }
 
-/// Sets the read timeout of a host link, where a link the host already closed
-/// counts as set. macOS fails setsockopt with EINVAL (or ENOTCONN) once both
-/// directions of the socket are shut down, as after the host ended. A read on
-/// that link returns its queued frames and then EOF without a wait, so no
-/// timeout is needed, and the exit frame or record still decides the result.
-fn set_link_read_timeout(link: &HostStream, timeout: Option<Duration>) -> std::io::Result<()> {
-    match link.set_read_timeout(timeout) {
-        Err(error) if matches!(error.raw_os_error(), Some(libc::EINVAL | libc::ENOTCONN)) => Ok(()),
-        result => result,
-    }
+/// True when an error says the host's end of the link is gone: a write or
+/// shutdown on a socket whose peer closed (EPIPE, ECONNRESET, ENOTCONN).
+fn host_link_closed(error: &anyhow::Error) -> bool {
+    error.chain().filter_map(|cause| cause.downcast_ref::<std::io::Error>()).any(|cause| {
+        matches!(
+            cause.kind(),
+            std::io::ErrorKind::BrokenPipe
+                | std::io::ErrorKind::ConnectionReset
+                | std::io::ErrorKind::NotConnected
+        )
+    })
 }

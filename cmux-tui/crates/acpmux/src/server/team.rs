@@ -87,8 +87,10 @@ pub(super) async fn authorize(hub: &Arc<Hub>, conn: &Arc<Conn>) -> Result<(), Rp
             "team messaging requires the local socket or the app",
         ));
     }
-    if conn.unproven_caller.get().is_some() && !conn.is_person() {
-        return Err(forbidden());
+    // No proven session and maybe an agent behind it (an old acpmux CLI, a shell that declared
+    // no terminal, an unknown token): never the owner's identity (review of #39020, B1).
+    if conn.unproven_agent() {
+        return Err(conn.refusal("team messaging", forbidden()));
     }
     let enabled =
         hub.config.read().await.mesh_relay.as_ref().is_some_and(|relay| relay.team_messaging);
@@ -168,7 +170,12 @@ async fn inbox(
 /// Local session identity, not a mutable address tag, scopes agent access. The hub
 /// authorizes this daemon's recipient addresses before returning any page or receipt.
 pub(super) fn may_read(conn: &Conn, to: &Target) -> bool {
-    conn.is_person() || conn.caller().is_none_or(|id| to.session_id.as_deref() == Some(id))
+    conn.is_person()
+        || match conn.caller() {
+            Some(id) => to.session_id.as_deref() == Some(id),
+            // Every address only for the owner's terminal, never an unproven agent.
+            None => !conn.unproven_agent(),
+        }
 }
 
 async fn read(

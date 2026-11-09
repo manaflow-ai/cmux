@@ -228,6 +228,59 @@ export default diffPageEntry({
         await ctx.waitFor(() => ctx.document.querySelector("#comments-send"), { capMs: 10_000 });
       },
     },
+    "review-brief": {
+      note: "An agent's diff with the chat's brief open: its goal, the spot it undid and redid and its hedge, the approach it dropped. A spot opens its hunk.",
+      height: 640,
+      files: [
+        { path: "src/net/client.ts", before, after },
+        { path: "src/net/retry.ts", after: retry },
+      ],
+      reviewBrief: {
+        sessionId: "gallery",
+        seq: 42,
+        brief: {
+          goal: "Make requests retry with a bounded number of attempts, and keep getJSON's signature.",
+          planText: "",
+          plan: [
+            { content: "Find where requests are sent", status: "completed" },
+            { content: "Add withRetry", status: "completed" },
+            { content: "Back off between attempts", status: "pending" },
+          ],
+          rejected: [
+            {
+              text: "Retrying inside getJSON didn't work because request() is called directly in two places.",
+              seq: 12,
+            },
+          ],
+          unsure: [
+            {
+              kind: "redone",
+              path: "src/net/client.ts",
+              snippet: "return withRetry(() => fetch(url).then((response) => response.json()), attempts);",
+              seq: 20,
+            },
+            {
+              kind: "hedge",
+              text: "I'm not sure three attempts is right for uploads; it may need to come from config.",
+              path: "src/net/client.ts",
+              seq: 31,
+            },
+            {
+              kind: "hedge",
+              text: "withRetry is untested against a rejected promise that never settles.",
+              path: "src/net/retry.ts",
+              seq: 31,
+            },
+          ],
+        },
+      },
+      play: async (ctx) => {
+        const row = () => ctx.document.querySelector<HTMLButtonElement>(".review-brief-row:not(:disabled)");
+        await ctx.waitFor(row, { capMs: 10_000 });
+        row()?.click();
+        await ctx.waitFor(() => ctx.document.querySelector('.review-brief[data-open="true"]'), { capMs: 5_000 });
+      },
+    },
     "collapsed-files": {
       note: "Three files, the first collapsed from its header: the bar stays, its chevron turns.",
       layout: "unified",
