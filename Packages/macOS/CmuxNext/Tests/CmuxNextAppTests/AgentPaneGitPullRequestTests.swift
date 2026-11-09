@@ -249,8 +249,14 @@ struct AgentPaneGitPullRequestTests {
             repo: #"{"url":"https://github.com/upstream/repo","defaultBranchRef":{"name":"main"}}"#,
             git: { arguments in
                 switch arguments {
+                case ["config", "--get", "branch.feature.pushRemote"]:
+                    return AgentPaneGitProcess.Outcome(status: 1, text: "")
+                case ["config", "--get", "remote.pushDefault"]:
+                    return AgentPaneGitProcess.Outcome(status: 1, text: "")
                 case ["config", "--get", "branch.feature.remote"]:
                     return AgentPaneGitProcess.Outcome(status: 0, text: "origin\n")
+                case ["config", "--get", "branch.feature.merge"]:
+                    return AgentPaneGitProcess.Outcome(status: 0, text: "refs/heads/feature\n")
                 case ["remote", "get-url", "origin"]:
                     return AgentPaneGitProcess.Outcome(status: 0, text: "https://github.com/fork/repo.git\n")
                 default:
@@ -258,6 +264,27 @@ struct AgentPaneGitPullRequestTests {
                 }
             })
         #expect(form == "https://github.com/upstream/repo/compare/main...fork/repo:feature?expand=1")
+    }
+
+    @Test func compareFormUsesPushRemoteForTriangularTracking() async {
+        let form = await AgentPaneGitPullRequest.formURL(
+            branch: "local-feature", base: nil,
+            repo: #"{"url":"https://github.com/upstream/repo","defaultBranchRef":{"name":"main"}}"#,
+            git: { arguments in
+                switch arguments {
+                case ["config", "--get", "branch.local-feature.pushRemote"]:
+                    return AgentPaneGitProcess.Outcome(status: 0, text: "origin\n")
+                case ["config", "--get", "branch.local-feature.remote"]:
+                    return AgentPaneGitProcess.Outcome(status: 0, text: "upstream\n")
+                case ["config", "--get", "branch.local-feature.merge"]:
+                    return AgentPaneGitProcess.Outcome(status: 0, text: "refs/heads/published-feature\n")
+                case ["remote", "get-url", "origin"]:
+                    return AgentPaneGitProcess.Outcome(status: 0, text: "https://github.com/fork/repo.git\n")
+                default:
+                    return AgentPaneGitProcess.Outcome(status: 1, text: "")
+                }
+            })
+        #expect(form == "https://github.com/upstream/repo/compare/main...fork/repo:local-feature?expand=1")
     }
 
     /// A worktree chat's branch (cx-lyqio.6) opens its pull request against the branch it was made

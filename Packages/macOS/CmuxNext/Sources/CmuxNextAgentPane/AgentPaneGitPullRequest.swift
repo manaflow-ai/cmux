@@ -102,27 +102,46 @@ public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
     }
 
     /// The compare URL that `gh pr create --web` opens without printing. `repo` comes from
-    /// `gh repo view`; the branch's tracking remote supplies the fork owner when it differs from
-    /// the base repository. This is only a link for the result wire: gh has already opened it.
+    /// `gh repo view`; the configured push remote supplies the fork owner, and a tracked branch
+    /// name is reused only when it is on that same remote. This is only a link for the result
+    /// wire: gh has already opened it.
     static func formURL(branch: String, base: String?, repo: String,
                         git: (_ arguments: [String]) async -> AgentPaneGitProcess.Outcome) async -> String? {
         guard let object = try? JSONSerialization.jsonObject(with: Data(repo.utf8)) as? [String: Any],
               let baseURL = object["url"] as? String,
               isPullRequestURL(baseURL),
               let defaultBase = (object["defaultBranchRef"] as? [String: Any])?["name"] as? String else { return nil }
-        let remoteOutcome = await git(["config", "--get", "branch.\(branch).remote"])
-        guard remoteOutcome.status == 0 else { return nil }
-        let remote = remoteOutcome.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let remote = await configuredPushRemote(branch: branch, git: git)
         guard !remote.isEmpty else { return nil }
         let remoteURL = await git(["remote", "get-url", remote])
         guard remoteURL.status == 0 else { return nil }
-        let head = AgentPaneGitHubRepository.parse(remoteURL.text).map { "\($0):\(branch)" } ?? branch
+        let trackingRemote = await configValue("branch.\(branch).remote", git: git)
+        let trackingMerge = await configValue("branch.\(branch).merge", git: git)
+            .flatMap { $0.hasPrefix("refs/heads/") ? String($0.dropFirst("refs/heads/".count)) : nil }
+        let destination = trackingRemote == remote ? (trackingMerge ?? branch) : branch
+        let head = AgentPaneGitHubRepository.parse(remoteURL.text).map { "\($0):\(destination)" } ?? destination
         let base = base ?? defaultBase
         guard !base.isEmpty, !base.contains(where: \.isWhitespace),
               !head.contains(where: \.isWhitespace),
               let encodedBase = base.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
               let encodedHead = head.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return nil }
         return "\(baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/compare/\(encodedBase)...\(encodedHead)?expand=1"
+    }
+
+    /// The remote Rust's `git.push` selects, in the same order, for the compare URL.
+    static func configuredPushRemote(branch: String,
+                                    git: (_ arguments: [String]) async -> AgentPaneGitProcess.Outcome) async -> String {
+        if let remote = await configValue("branch.\(branch).pushRemote", git: git) { return remote }
+        if let remote = await configValue("remote.pushDefault", git: git) { return remote }
+        return await configValue("branch.\(branch).remote", git: git) ?? ""
+    }
+
+    static func configValue(_ key: String,
+                            git: (_ arguments: [String]) async -> AgentPaneGitProcess.Outcome) async -> String? {
+        let outcome = await git(["config", "--get", key])
+        guard outcome.status == 0 else { return nil }
+        let value = outcome.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 
     /// The remote name of the branch `branch` was made from (`branch.<b>.cmuxBase`, recorded by the
