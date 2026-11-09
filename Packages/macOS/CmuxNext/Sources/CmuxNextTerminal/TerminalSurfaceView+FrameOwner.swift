@@ -28,6 +28,9 @@ struct TerminalFrameOwnership {
     /// The presenter's refresh in which `ahead` and its grid went (``TerminalFramePresenter/currentEpoch``): the hold for
     /// the program's redraw at that grid counts from it (RESIZE P0 12).
     var aheadSentEpoch: UInt64?
+    /// The presenter's refresh in which this view's last grid went to the PTY owner (``TerminalGridReporter``): a grid
+    /// the coalescer held to a later refresh than its request's starts the hold's bound there (RESIZE P0 23).
+    var gridSentEpoch: UInt64?
 }
 
 /// FRAME OWNER REFACTOR S4, cmux-ad m18, m19 (no switch) and m26 (draw ahead): a terminal's bounds change only in the
@@ -236,6 +239,8 @@ extension TerminalSurfaceView {
         applyHeldScale()
         frameOwnership.ahead = nil
         frameOwnership.pendingAhead = nil
+        // Epochs are the old window's presenter's: the next hold counts from a send in the new window.
+        frameOwnership.gridSentEpoch = nil
         guard frameOwnership.inFlight != nil, let wanted = frameOwnership.wanted else { return }
         frameOwnership.inFlight = nil
         if frame != wanted { frame = wanted }

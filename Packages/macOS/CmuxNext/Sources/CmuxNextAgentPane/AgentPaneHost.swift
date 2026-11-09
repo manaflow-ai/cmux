@@ -198,7 +198,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 startOwner: (@Sendable () async -> Bool)? = nil, peerApprover: AgentPanePeerApprover? = nil) {
         self.resolveEnvironment = { environment }
         self.computerUse = { [:] }
-        self.offersSessionTools = { environment?.offersSessionTools ?? false }
+        // The setting, as the resolving initializer reads it: an environment never carries it.
+        self.offersSessionTools = { AgentPaneSuggestedTasks.forNextDaemon.isOn }
         self.agentPairGuard = { environment?.agentPairGuard ?? true }
         self.agentPairCap = { (environment?.agentPairCap ?? 20, environment?.agentPairWindowSeconds ?? 600) }
         self.daemonReady = { _ in }

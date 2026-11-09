@@ -1072,6 +1072,23 @@ export function sessionSummary(session: MockSession, now: number, turnCount: num
   };
 }
 
+/// Listed session `index` of a large list (bench/update-one.bench.ts): an idle finished chat with a
+/// title, a status dot and a cost, no history; every tenth one unread. Five wait on the person at every
+/// size from 100 (the first hundred hold them), so the lists the home draws stay the same as it grows.
+export function listedSession(index: number, now: number): Record<string, unknown> {
+  const waiting = index < 100 && index % 20 === 7;
+  return {
+    ...newSessionSummary(`listed-${index}`, `~/code/listed-${index % 40}`, now - (index + 10) * 60_000),
+    title: `Listed chat ${index}`,
+    status: waiting ? "waiting" : "idle",
+    indicator: waiting ? "input" : "done",
+    inputSince: waiting ? now - index * 1000 : null,
+    unread: index % 10 === 3,
+    turnCount: 1 + (index % 7),
+    usageStats: { costUsd24h: (index % 97) / 10, tokens24h: 1000 * (index % 31), updatedAt: now },
+  };
+}
+
 /// The status dot acpmux would name for a fixture session: a disconnected one left mid-answer.
 function fixtureIndicator(session: MockSession): string {
   if (session.status === "waiting" || (session.pendingPermissions ?? 0) > 0) return "input";

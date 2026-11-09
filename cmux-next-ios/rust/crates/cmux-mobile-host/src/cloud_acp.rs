@@ -179,7 +179,10 @@ impl Adapter {
                 if text.trim().is_empty() {
                     return Ok(error(id, -32602, "A text prompt is required"));
                 }
-                if params.pointer("/_meta/acpmux/steer") == Some(&json!(true)) {
+                // The relay can't steer: a steer runs after the turn, as acpmux runs one an agent
+                // can't steer, so the phone's Send never loses a message to a running Cloud turn.
+                // Only a prompt that must steer or not run is refused.
+                if params.pointer("/_meta/acpmux/steerOnly") == Some(&json!(true)) {
                     return Ok(error(id, -32602, "Steering is not supported by the Cloud chat relay"));
                 }
                 (
@@ -638,6 +641,34 @@ mod tests {
         assert_eq!(accepted.to_phone[0]["method"], "_acpmux/prompt_accepted");
         assert_eq!(accepted.to_phone[1]["id"], 2);
         assert_eq!(accepted.to_phone[1]["result"], json!({}));
+    }
+
+    /// The phone's Send and Return ask to steer a running turn. A Cloud chat can't steer, so the
+    /// prompt runs after the turn, as acpmux runs one an agent can't steer; only a prompt that
+    /// must steer or not run (`steerOnly`) is refused, and nothing typed is lost.
+    #[test]
+    fn a_steer_runs_after_the_turn_and_only_a_steer_only_prompt_is_refused() {
+        let mut a = adapter();
+        directory(&mut a);
+        let params = json!({"sessionId":"sess_a","prompt":[{"type":"text","text":"go"}],
+            "_meta":{"acpmux":{"promptId":"phone-steer-1","steer":true}}});
+        let asked = phone(&mut a, 2, "session/prompt", params);
+        assert!(asked.to_phone.is_empty(), "a steer was refused: {:?}", asked.to_phone);
+        assert_eq!(asked.to_native[0]["cmd"], "agent-session-attach");
+        let ready = respond(
+            &mut a,
+            &asked.to_native[0],
+            json!({"session":{"sessionId":"sess_a","harness":"claude","currentModeId":"default",
+                "enforcement":{"policy":"ask"}},"events":[]}),
+        );
+        assert_eq!(ready.to_native[0]["cmd"], "agent-session-prompt");
+        assert_eq!(ready.to_native[0]["prompt_id"], "phone-steer-1");
+
+        let only = json!({"sessionId":"sess_a","prompt":[{"type":"text","text":"now"}],
+            "_meta":{"acpmux":{"promptId":"phone-steer-2","steer":true,"steerOnly":true}}});
+        let refused = phone(&mut a, 3, "session/prompt", only);
+        assert!(refused.to_native.is_empty());
+        assert_eq!(refused.to_phone[0]["error"]["code"], -32602);
     }
 
     #[test]

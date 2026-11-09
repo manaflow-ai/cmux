@@ -3,7 +3,8 @@
 //! destructive actions, answering permissions, and help.
 //!
 //! Keys (also shown with `?`)
-//!   Enter        send prompt        Ctrl-s   send as steer (interrupt)
+//!   Enter        send prompt; steers a running turn when the agent steers
+//!   Ctrl-s       queue the prompt for after the running turn
 //!   Ctrl-t / n   new session        Ctrl-g   cancel turn
 //!   Ctrl-n/p     next / prev        Tab      focus sidebar
 //!   Ctrl-l       pick model         Ctrl-o   pick mode
@@ -640,6 +641,22 @@ impl App {
         }
     }
 
+    /// Enter steers a prompt into the running turn when the agent steers, as the app's composer does
+    /// (Leo, 2026-11-05: "wt* like no these default enters became queues?"); Ctrl-s queues it. A
+    /// slash command still waits for the turn, so it runs as its own turn, never as a steer.
+    pub(super) fn enter_steers(&self) -> bool {
+        let running = self.selected_session().and_then(|s| s.get("status")).and_then(Value::as_str)
+            == Some("running")
+            || self
+                .selected_id()
+                .and_then(|id| self.transcripts.get(&id))
+                .is_some_and(|t| t.status == "running");
+        running
+            && !self.on_draft()
+            && self.selected_supports_steer()
+            && !self.editor().text().trim_start().starts_with('/')
+    }
+
     pub(super) fn send_prompt(&mut self, steer: bool) {
         if self.editor().text().trim().is_empty() && self.prompt_images().is_empty() {
             return;
@@ -846,6 +863,61 @@ pub(super) mod interaction_tests {
         assert!(app.selected_supports_steer(), "a steering session does not offer steer");
         app.selected = app.drafts.len() + 1;
         assert!(!app.selected_supports_steer(), "a session that cannot steer offers it");
+    }
+
+    /// Enter on a running turn steers when the agent steers and queues only when it cannot; Ctrl-s
+    /// queues (Leo, 2026-11-05: "wt* like no these default enters became queues?").
+    #[tokio::test]
+    async fn enter_steers_a_running_turn_and_ctrl_s_queues() {
+        let (mut app, mut requests) = app().await;
+        app.sessions = vec![
+            json!({"sessionId": "steers", "status": "running", "steering": true}),
+            json!({"sessionId": "stops", "status": "running", "steering": false}),
+            json!({"sessionId": "idle", "status": "idle", "steering": true}),
+        ];
+        async fn sent(
+            app: &mut App,
+            requests: &mut mpsc::UnboundedReceiver<Value>,
+            row: usize,
+            text: &str,
+            key: KeyEvent,
+        ) -> bool {
+            app.selected = app.drafts.len() + row;
+            app.editor_mut().clear();
+            app.editor_mut().insert_str(text);
+            app.on_key(key);
+            loop {
+                let msg = tokio::time::timeout(std::time::Duration::from_secs(5), requests.recv())
+                    .await
+                    .unwrap()
+                    .unwrap();
+                if msg["method"] == "session/prompt" {
+                    return msg["params"]["_meta"]["acpmux"]["steer"].as_bool().unwrap();
+                }
+            }
+        }
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        let ctrl_s = KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL);
+        assert!(
+            sent(&mut app, &mut requests, 0, "also this", enter).await,
+            "Enter queued on a steering agent"
+        );
+        assert!(
+            !sent(&mut app, &mut requests, 0, "after this", ctrl_s).await,
+            "Ctrl-s did not queue"
+        );
+        assert!(
+            !sent(&mut app, &mut requests, 0, "/compact", enter).await,
+            "a slash command steered"
+        );
+        assert!(
+            !sent(&mut app, &mut requests, 1, "also this", enter).await,
+            "steered an agent that cannot"
+        );
+        assert!(
+            !sent(&mut app, &mut requests, 2, "hello", enter).await,
+            "steered with no turn running"
+        );
     }
 
     #[tokio::test]
