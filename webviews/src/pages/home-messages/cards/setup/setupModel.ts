@@ -17,13 +17,18 @@ export interface SetupAgent {
 export interface SetupState {
   agents: readonly SetupAgent[];
   account: { signedIn: boolean; email?: string };
-  /** `missing`: no `cmux` on the login PATH; `other`: a `cmux` that runs another app (classic, a moved copy). */
-  cli: "missing" | "other" | "installed";
+  /** `missing`: no `cmux` on the login PATH; `other`: another cmux app's CLI (classic, a moved copy), which
+   * Replace overwrites; `foreign`: a `cmux` that is no cmux app's, never touched; `fromImage`: cmux runs from
+   * its disk image, so nothing installs until it runs from Applications. */
+  cli: "missing" | "other" | "installed" | "foreign" | "fromImage";
+  /** Chats from other agents on this Mac (the host found some): the row opens the history import; `done` once
+   * that page showed or the row was dismissed. Null or absent: none found (the row does not show). */
+  history?: { done: boolean } | null;
   /** Classic's saved session, when one was found and not answered yet; null: none (the row does not show). */
   classic: { workspaces: number; saved: string; answered?: "imported" | "declined" } | null;
 }
 
-export type SetupStepID = "agents" | "account" | "cli" | "classic";
+export type SetupStepID = "agents" | "history" | "account" | "cli" | "classic";
 
 /** What a row's button asks the host to do. */
 export type SetupAction =
@@ -31,6 +36,8 @@ export type SetupAction =
   | { kind: "signInAgent"; id: string }
   | { kind: "signInAccount" }
   | { kind: "installCLI" }
+  | { kind: "importHistory" }
+  | { kind: "declineHistory" }
   | { kind: "importClassic" }
   | { kind: "declineClassic" };
 
@@ -54,7 +61,7 @@ function leadAgent(agents: readonly SetupAgent[]): SetupAgent | undefined {
 }
 
 /** The rows in their order: classic first when found (its answer decides what Home holds), then
- * agents, account and the command line. */
+ * agents, the chat history when found, account and the command line. */
 export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
   const { t, format } = strings;
   const steps: SetupStep[] = [];
@@ -103,6 +110,19 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
               },
       }),
   });
+  if (state.history) {
+    const { done } = state.history;
+    steps.push({
+      id: "history",
+      done,
+      title: t("home.setup.history"),
+      detail: t("home.setup.history.detail"),
+      ...(!done && {
+        action: { label: t("home.setup.import"), run: { kind: "importHistory" } as const },
+        secondary: { label: t("home.setup.notNow"), run: { kind: "declineHistory" } as const },
+      }),
+    });
+  }
   steps.push({
     id: "account",
     done: state.account.signedIn,
@@ -116,8 +136,15 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
     id: "cli",
     done: state.cli === "installed",
     title: t("home.setup.cli"),
-    detail: state.cli === "other" ? t("home.setup.cli.other") : t("home.setup.cli.detail"),
-    ...(state.cli !== "installed" && {
+    detail:
+      state.cli === "other"
+        ? t("home.setup.cli.other")
+        : state.cli === "foreign"
+          ? t("home.setup.cli.foreign")
+          : state.cli === "fromImage"
+            ? t("home.setup.cli.fromImage")
+            : t("home.setup.cli.detail"),
+    ...((state.cli === "missing" || state.cli === "other") && {
       action: {
         label: t(state.cli === "other" ? "home.setup.replace" : "home.setup.install"),
         run: { kind: "installCLI" } as const,

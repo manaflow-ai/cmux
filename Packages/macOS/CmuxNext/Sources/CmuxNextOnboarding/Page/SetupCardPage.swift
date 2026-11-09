@@ -23,7 +23,8 @@ public struct SetupCardEnvironment {
     public var account: @MainActor () -> (signedIn: Bool, email: String?)
     /// Runs the account sign-in (the person's click).
     public var signInAccount: @MainActor () -> Void
-    /// The `cmux` a new login shell runs: "installed" (this app's), "other" (another app's or a file), "missing".
+    /// The `cmux` a new login shell runs (``CLIInstallReport/setupRow(_:)``): "installed", "missing", "other" (another
+    /// cmux app's: Replace), "fromImage" or "foreign" (no action).
     public var cliState: @MainActor () async -> String
     /// Installs this app's `cmux` (`replacing` another), the person's click; returns once its toast showed.
     public var installCLI: @MainActor (_ replacing: Bool) async -> Void
@@ -31,17 +32,24 @@ public struct SetupCardEnvironment {
     public var openAgents: @MainActor () -> Void
     /// Whether VoiceOver runs now.
     public var screenReader: @MainActor () -> Bool
+    /// Whether this Mac has chats from other agents to bring in (the memory offer's read).
+    public var historySources: @MainActor () async -> Bool
+    /// Shows Bring your history (the person's click); false when it did not show.
+    public var importHistory: @MainActor () -> Bool
 
     public init(account: @escaping @MainActor () -> (signedIn: Bool, email: String?), signInAccount: @escaping @MainActor () -> Void,
                 cliState: @escaping @MainActor () async -> String, installCLI: @escaping @MainActor (_ replacing: Bool) async -> Void,
                 openAgents: @escaping @MainActor () -> Void,
-                screenReader: @escaping @MainActor () -> Bool = { NSWorkspace.shared.isVoiceOverEnabled }) {
+                screenReader: @escaping @MainActor () -> Bool = { NSWorkspace.shared.isVoiceOverEnabled },
+                historySources: @escaping @MainActor () async -> Bool = { false }, importHistory: @escaping @MainActor () -> Bool = { false }) {
         self.account = account
         self.signInAccount = signInAccount
         self.cliState = cliState
         self.installCLI = installCLI
         self.openAgents = openAgents
         self.screenReader = screenReader
+        self.historySources = historySources
+        self.importHistory = importHistory
     }
 }
 
@@ -108,6 +116,9 @@ public final class SetupCardPageProvider: PageProvider {
     @ObservationIgnored private let environment: SetupCardEnvironment
     /// The `cmux` a new login shell runs, read at start, on focus and after an install; nil before the first read.
     private(set) var cli: String?
+    /// Whether this Mac has chats to bring in; nil before the one read.
+    private(set) var history: Bool?
+    @ObservationIgnored private var historyRead: Task<Void, Never>?
     @ObservationIgnored var onSize: ((CGFloat) -> Void)?
     @ObservationIgnored private var spentGesture: TimeInterval?
     @ObservationIgnored private var cliRead: Task<Void, Never>?
@@ -118,11 +129,18 @@ public final class SetupCardPageProvider: PageProvider {
         self.environment = environment
         self.agents.start()
         readCLI()
+        // task-owner: one read of the chat sources at start; stop() cancels it.
+        historyRead = Task { [weak self, environment] in
+            let found = await environment.historySources()
+            guard let self, !Task.isCancelled else { return }
+            history = found
+        }
     }
 
     func stop() {
         agents.stop()
         cliRead?.cancel()
+        historyRead?.cancel()
     }
 
     private func readCLI() {
@@ -149,12 +167,14 @@ public final class SetupCardPageProvider: PageProvider {
         let account = environment.account()
         var wire: [String: JSONValue] = ["signedIn": .bool(account.signedIn)]
         if account.signedIn, let email = account.email { wire["email"] = .string(email) }
-        return ["agents": .array(rows), "account": .object(wire), "cli": .string(cli ?? "missing"), "classic": .null]
+        return ["agents": .array(rows), "history": history == true ? ["done": .bool(setup.historyDone)] : .null,
+                "account": .object(wire), "cli": .string(cli ?? "missing"), "classic": .null]
     }
 
-    /// Every row is done: an agent signed in, the account signed in, this app's `cmux` on PATH.
+    /// Every row is done: an agent signed in, the chat history answered (when found), the account signed in,
+    /// this app's `cmux` on PATH.
     var allDone: Bool {
-        agents.agents.contains { Self.agentIDs.contains($0.id) && $0.auth == .signedIn }
+        agents.agents.contains { Self.agentIDs.contains($0.id) && $0.auth == .signedIn } && (history != true || setup.historyDone)
             && environment.account().signedIn && cli == "installed"
     }
 
@@ -199,7 +219,12 @@ public final class SetupCardPageProvider: PageProvider {
         case "installAgent" where Self.agentIDs.contains(id): agents.install(id)
         case "signInAgent" where Self.agentIDs.contains(id): agents.signIn(id)
         case "signInAccount": environment.signInAccount()
+        case "importHistory": if environment.importHistory() { setup.historyAnswered() }
+        case "declineHistory": setup.historyAnswered()
         case "installCLI":
+            // Only the row's own offer: Install when missing, Replace for another cmux app's CLI; never over a
+            // `cmux` that is no cmux app's.
+            guard cli == "missing" || cli == "other" else { throw PageError.invalidParams("nothing to install") }
             let replacing = cli == "other"
             // task-owner: one install the person asked for, ended by its toast; then the PATH is read again.
             Task { [weak self, environment] in

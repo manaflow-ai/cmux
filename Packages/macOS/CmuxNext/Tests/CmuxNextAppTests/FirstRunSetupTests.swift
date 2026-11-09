@@ -6,10 +6,11 @@ import Foundation
 import Testing
 
 /// Home's Set Up cmux card replaces the first-run windows (goal next-first-run-setup): a first run starts
-/// it and marks the Agents window, Bring your history and the CLI toast shown, so none opens beside it;
+/// it and marks the Agents window and the CLI toast shown, so neither opens beside it (Bring your history opens
+/// from the card's chat history row, which keeps that page's once flag);
 /// an upgrade, or a channel that already showed the Agents window, never gets it; Hide ends it for good.
 @MainActor @Suite(.serialized) struct FirstRunSetupTests {
-    static let replaced = [OnboardingWindowPresenter.historyShownKey, "cli.install.offeredAtLaunch"]
+    static let replaced = ["cli.install.offeredAtLaunch"]
 
     func defaults() throws -> UserDefaults {
         let suite = "cmux-first-run-setup-\(UUID().uuidString)"
@@ -25,6 +26,8 @@ import Testing
         #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
         #expect(setup.shows)
         for key in [OnboardingWindowPresenter.agentsShownKey] + Self.replaced { #expect(defaults.bool(forKey: key), "\(key) counts as shown") }
+        #expect(!defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey), "Bring your history waits for the card's row")
+        #expect(!OnboardingWindowPresenter.isFirstLaunch(defaults: defaults), "a started card is a finished first launch")
 
         // The Agents window, asked for after the card started, does not open even with an agent installed.
         var shown: [OnboardingModel.Step] = []
@@ -39,6 +42,7 @@ import Testing
         #expect(!setup.begin(isFirstRun: true, replacedKeys: Self.replaced), "never twice")
         setup.end()
         #expect(!setup.shows)
+        #expect(defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey), "Hide dismisses the chat history row with the card")
         #expect(!FirstRunSetup(defaults: defaults).shows)
         #expect(!FirstRunSetup(defaults: defaults).begin(isFirstRun: true, replacedKeys: Self.replaced))
     }
@@ -53,6 +57,76 @@ import Testing
         let setup = FirstRunSetup(defaults: earlier)
         #expect(!setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
         #expect(!setup.shows)
+    }
+
+    /// Chats found on this Mac: the card's chat history row opens Bring your history on a click, and its once flag
+    /// is set only once that page showed or the row was dismissed. None found: no row.
+    @Test func theChatHistoryRowOpensBringYourHistory() async throws {
+        let defaults = try defaults()
+        let setup = FirstRunSetup(defaults: defaults)
+        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+        let mac = PressLog()
+        let environment = SetupCardEnvironment(account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in },
+                                               openAgents: {}, screenReader: { false }, historySources: { true },
+                                               importHistory: { mac.imports += 1; return mac.importShows })
+        let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: environment)
+        defer { provider.stop() }
+        await until { provider.history != nil }
+        #expect(provider.state["history"] == ["done": false])
+        let importIt: JSONValue = ["action": ["kind": "importHistory"]]
+        let click = { (at: TimeInterval) in PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: at) }
+
+        // The page did not show (a top page refused): the row stays.
+        _ = try await provider.call("cmux.setup.run", params: importIt, context: click(1))
+        #expect(mac.imports == 1 && !setup.historyDone && !defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey))
+        mac.importShows = true
+        _ = try await provider.call("cmux.setup.run", params: importIt, context: click(2))
+        #expect(mac.imports == 2 && setup.historyDone && defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey))
+        #expect(provider.state["history"] == ["done": true])
+        #expect(setup.shows, "the rest of the card stays")
+
+        let none = SetupCardPageProvider(setup: setup, agents: nil, environment: SetupCardEnvironment(
+            account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in }, openAgents: {}))
+        defer { none.stop() }
+        await until { none.history != nil }
+        #expect(none.state["history"] == .null)
+    }
+
+    /// A `cmux` that is no cmux app's ("foreign", ``CLIInstallReport/setupRow(_:)``) is never installed over, even
+    /// when the page asks on a real click.
+    @Test func aForeignCmuxIsNeverReplaced() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        let mac = PressLog()
+        let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: SetupCardEnvironment(
+            account: { (false, nil) }, signInAccount: {}, cliState: { "foreign" }, installCLI: { _ in mac.installs += 1 }, openAgents: {}))
+        defer { provider.stop() }
+        await until { provider.cli != nil }
+        #expect(provider.state["cli"] == "foreign")
+        await #expect(throws: PageError.self) {
+            try await provider.call("cmux.setup.run", params: ["action": ["kind": "installCLI"]],
+                                    context: PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: 1))
+        }
+        #expect(mac.installs == 0)
+    }
+
+    /// Not Now on the chat history row answers it for good.
+    @Test func notNowDismissesTheChatHistoryRow() async throws {
+        let defaults = try defaults()
+        let setup = FirstRunSetup(defaults: defaults)
+        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+        let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: SetupCardEnvironment(
+            account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in }, openAgents: {}, historySources: { true }))
+        defer { provider.stop() }
+        _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": "declineHistory"]],
+                                    context: PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: 1))
+        #expect(setup.historyDone && defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey))
+        #expect(FirstRunSetup(defaults: defaults).historyDone)
+    }
+
+    private func until(_ done: () -> Bool) async {
+        let deadline = ContinuousClock.now + .seconds(5)
+        // test-only: waits for the provider's one async read, bounded by the deadline
+        while !done(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(10)) }
     }
 
     /// VoiceOver presses the Agents window's Chromium page but not the card's WebKit one (manaflow-ai/cmux#37809).
@@ -99,4 +173,7 @@ import Testing
     var voiceOver = false
     var opened = 0
     var signIns = 0
+    var imports = 0
+    var installs = 0
+    var importShows = false
 }

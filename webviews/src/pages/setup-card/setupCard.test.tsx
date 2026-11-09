@@ -50,6 +50,16 @@ describe("the Set Up cmux page", () => {
     expect(renderToStaticMarkup(<SetupCardPage store={store} />)).toContain('data-look="rows"');
   });
 
+  test("chats found: the chat history row, never named as the first-run probe's separate Bring your history ask", async () => {
+    const { client } = host({ ...fresh, history: { done: false } });
+    const store = new SetupCardStore(client);
+    await store.start();
+    const words = text(renderToStaticMarkup(<SetupCardPage store={store} />));
+    expect(words).toContain("Your chat history");
+    expect(words).toContain("Chats from Claude Code and Codex");
+    expect(words.toLowerCase()).not.toContain("bring your history");
+  });
+
   test("draws nothing before the host answers, then follows its stream", async () => {
     const { client, push } = host(fresh);
     const store = new SetupCardStore(client);

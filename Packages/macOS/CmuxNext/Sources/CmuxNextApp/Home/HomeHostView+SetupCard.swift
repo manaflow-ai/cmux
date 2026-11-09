@@ -1,10 +1,12 @@
 import AppKit
 import CmuxNextAccounts
 import CmuxNextActions
+import CmuxNextChiefMemory
 import CmuxNextCLIInstall
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextHome
+import CmuxNextHomeEngine
 import CmuxNextOnboarding
 
 extension HomeHostView {
@@ -34,15 +36,12 @@ extension HomeHostView {
         let environment = SetupCardEnvironment(
             account: { (auth.isSignedIn, auth.user?.primaryEmail) },
             signInAccount: { _ = registry.perform("palette.auth.signIn", invocation: ActionInvocation(origin: .user)) },
-            cliState: {
-                switch await CLIInstallHandlers.pathCheck(CLIPathInstaller().source).status {
-                case .thisApp: "installed"
-                case .otherApp, .foreign: "other"
-                case .missing, .dangling: "missing"
-                }
-            },
+            cliState: { CLIInstallReport.setupRow(await CLIInstallHandlers.pathCheck(CLIPathInstaller().source)) },
             installCLI: { await CLIInstallHandlers.install(.cmux, replacing: $0, in: NSApp.keyWindow) },
-            openAgents: { [weak services] in services?.onboarding.show(step: .agents) })
+            openAgents: { [weak services] in services?.onboarding.show(step: .agents) },
+            historySources: { [muxHome = HomeBrainHost.muxHome(tag: services.environment.tag).path] in
+                MemorySource.offerTitle(await ChiefMemoryImportHandlers.detectForOffer(muxHome: muxHome)) != nil },
+            importHistory: { [weak services] in services.map { TopPages.show(.page(.importHistory), services: $0) != nil } ?? false })
         guard setupCard == nil, let card = SetupCardHost(setup: services.onboarding.setup, agents: services.onboarding.signInHarnesses,
                                                          environment: environment, overlayProcess: services.overlayProcess) else { return }
         setupCard = card
