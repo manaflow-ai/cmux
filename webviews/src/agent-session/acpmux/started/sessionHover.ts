@@ -117,6 +117,9 @@ export class SessionHoverStore {
   /// (direct.ts `sessionEntryList`), so an entry seen last time keeps its card and key unread, and
   /// one session's change costs one card, not one per listed chat.
   private from = new Map<string, AcpmuxSessionEntry>();
+  /// The entries in the last list, a session listed twice counted twice: with ``from``'s size it
+  /// shows a list that held a duplicate, which the patch path cannot read.
+  private count = -1;
   private readonly listeners = new Set<() => void>();
 
   /// Replaces the cards with `sessions`'; a card whose content did not change keeps its object.
@@ -159,6 +162,7 @@ export class SessionHoverStore {
     this.agentSessions = agentSessions;
     this.hosts = hosts;
     this.from = from;
+    this.count = sessions.length;
     if (changed) for (const listener of this.listeners) listener();
   }
 
@@ -166,7 +170,7 @@ export class SessionHoverStore {
   /// again, in place. False (nothing done) when a session came or went, a page lists one twice, or a
   /// change moved what the link indexes read (its agent link, its machine): `set` rebuilds them.
   private patch(sessions: readonly AcpmuxSessionEntry[]): boolean {
-    if (sessions.length !== this.from.size) return false;
+    if (sessions.length !== this.from.size || sessions.length !== this.count) return false;
     const changed: AcpmuxSessionEntry[] = [];
     const seen = new Set<string>();
     for (const entry of sessions) {
