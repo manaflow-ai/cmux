@@ -34,6 +34,8 @@ pub(crate) struct PaneCliMessages {
     pub folder_trust_keys: &'static str,
     /// Added when `{label}` also lets the agent act without approval.
     pub folder_trust_no_approval: &'static str,
+    /// Between the folder-trust reason and its warning.
+    pub folder_trust_separator: &'static str,
 }
 
 pub(super) const ENGLISH: PaneCliMessages = PaneCliMessages {
@@ -56,6 +58,7 @@ pub(super) const ENGLISH: PaneCliMessages = PaneCliMessages {
     folder_trust_ask: "the agent asks whether you trust this folder; ask the person, then answer it with cmux terminal {who} keys (cmux never answers it on its own)",
     folder_trust_keys: "the agent asks whether you trust this folder; ask the person, and when they agree to \"{label}\" run cmux terminal {who} keys {keys} (cmux never answers it on its own)",
     folder_trust_no_approval: "warning: \"{label}\" also lets the agent act without asking for approval; tell the person",
+    folder_trust_separator: "; ",
 };
 
 pub(super) const JAPANESE: PaneCliMessages = PaneCliMessages {
@@ -78,4 +81,5 @@ pub(super) const JAPANESE: PaneCliMessages = PaneCliMessages {
     folder_trust_ask: "エージェントがこのフォルダーを信頼するか尋ねています。本人に確認してから cmux terminal {who} keys で答えてください (cmux が自動で答えることはありません)",
     folder_trust_keys: "エージェントがこのフォルダーを信頼するか尋ねています。本人に確認し、「{label}」に同意したら cmux terminal {who} keys {keys} を実行してください (cmux が自動で答えることはありません)",
     folder_trust_no_approval: "警告: 「{label}」を選ぶと、エージェントは承認を求めずに操作します。本人に伝えてください",
+    folder_trust_separator: "。",
 };

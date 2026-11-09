@@ -12,7 +12,8 @@
 //! other pane of the row (the chain of splits in the same direction around
 //! it) keeps its width, so a person's column keeps its width. The agent
 //! panes next to the new one in that row (each tab's terminal has the
-//! daemon's `extra.agent_start` mark; a tab's name does not count) then
+//! daemon's `extra.agent_start` mark and runs; a tab's name does not count,
+//! and an exited agent's pane keeps its width) then
 //! share their space equally, so the third agent of a row is not an eighth
 //! of it (W5-Q, bench round 4 orchestration friction 6). A screen of
 //! viewport columns keeps each column's width.
@@ -399,14 +400,18 @@ fn balance<D: Daemon + ?Sized>(daemon: &D, screen: Option<&str>, pane: &str) {
     }
 }
 
-/// Whether agent start made `pane`: it has tabs, and each one's terminal
-/// carries the daemon's `extra.agent_start` mark (its stored spawn argv is
-/// the agent start launch, cmux_tui_core::agent_start_launch). A person's
-/// tab never has the mark, whatever its name; nothing reads a process.
+/// Whether `pane` holds running agents agent start made: it has tabs, and
+/// each one's terminal carries the daemon's `extra.agent_start` mark (its
+/// stored spawn argv is the agent start launch,
+/// cmux_tui_core::agent_start_launch) and has not exited. A person's tab
+/// never has the mark, whatever its name; an exited agent kept with
+/// `--on-exit keep` keeps its mark but counts as the person's pane, so its
+/// width stays. Nothing reads a process.
 fn started_agents(snapshot: &Value, pane: &str) -> bool {
     let marked: std::collections::HashSet<&str> = list(snapshot, "terminals")
         .iter()
         .filter(|terminal| terminal.pointer("/extra/agent_start") == Some(&Value::Bool(true)))
+        .filter(|terminal| terminal.get("lifecycle").and_then(Value::as_str) != Some("exited"))
         .filter_map(|terminal| terminal["id"].as_str())
         .collect();
     let mut tabs = list(snapshot, "tabs").iter().filter(|tab| tab["pane_id"] == pane).peekable();

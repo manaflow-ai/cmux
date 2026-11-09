@@ -10,9 +10,12 @@
 /// The `$0` of the launch script: the word that marks an agent start launch.
 pub const ARG0: &str = "cmux-agent";
 
+/// The shell flag of the launch: a login shell (`-l`) runs the script (`-c`).
+pub const SHELL_FLAG: &str = "-lc";
+
 /// Whether `argv` is an agent start launch: `<shell> -lc <script> cmux-agent ...`.
 pub fn is_agent_start_argv(argv: &[String]) -> bool {
-    matches!(argv, [_, flag, _, arg0, ..] if flag == "-lc" && arg0 == ARG0)
+    matches!(argv, [_, flag, _, arg0, ..] if flag == SHELL_FLAG && arg0 == ARG0)
 }
 
 #[cfg(test)]

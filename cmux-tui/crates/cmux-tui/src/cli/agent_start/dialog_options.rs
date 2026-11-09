@@ -39,7 +39,12 @@ fn option(row: &str) -> Option<DialogOption> {
     };
     let digits = rest.find(|character: char| !character.is_ascii_digit())?;
     let number = rest.get(..digits)?.parse().ok()?;
-    let label = rest.get(digits..)?.strip_prefix(". ")?.trim();
+    // A dialog drawn in a box ends the row with `│`.
+    let label = rest
+        .get(digits..)?
+        .strip_prefix(". ")?
+        .trim_end_matches(|character: char| character.is_whitespace() || character == '│')
+        .trim();
     (!label.is_empty()).then(|| DialogOption { number, label: label.to_owned(), selected })
 }
 
@@ -124,7 +129,7 @@ pub(in crate::cli) fn folder_trust_reason(
         .replace("{label}", label);
     let lower = label.to_lowercase();
     if NO_APPROVAL.iter().any(|words| lower.contains(words)) {
-        reason.push_str("; ");
+        reason.push_str(messages.folder_trust_separator);
         reason.push_str(&messages.folder_trust_no_approval.replace("{label}", label));
     }
     reason

@@ -1381,7 +1381,8 @@ The new agent's pane splits the caller's pane (or the `--pane` pane) and takes
 its width only from that pane: every pane that existed before keeps its width
 (or height for a vertical row), so a person's 0.7 column stays 0.7. The agent
 panes next to the new one in that row (panes whose tabs' terminals all have
-the snapshot's `extra.agent_start` mark; a tab's name does not count) then
+the snapshot's `extra.agent_start` mark and still run; a tab's name does not
+count, and an exited agent kept with `--on-exit keep` keeps its width) then
 share their space equally, so the third agent of a row is not an
 eighth of it.
 
