@@ -244,22 +244,36 @@ pub async fn import() -> bool {
     changed
 }
 
-/// Before a multi-provider harness (`PROVIDER_FAMILIES`) starts: when the
-/// daemon started from the cache, whose provider keys are names only
-/// (`save_cache`), and the login shell has not answered since, wait for that
-/// read (at most `TIMEOUT`), so OpenCode or pi never start without the key
-/// the person exported. Every other family starts at once; Claude's own wait
-/// is `Plan::wait`.
-pub async fn provider_keys_before_spawn(family: Option<&str>) {
-    if family.is_some_and(|f| PROVIDER_FAMILIES.contains(&f)) {
-        wait_while(provider_keys_pending, TIMEOUT).await;
+/// Before any local spawn, after `machine_env_fresh_before_spawn`: when the
+/// daemon started from the cache, which holds provider keys and base URLs by
+/// name only (`save_cache`), and the login shell has not answered since, wait
+/// for that read (at most `TIMEOUT`) if `family` would get one of those
+/// values. A multi-provider harness (`PROVIDER_FAMILIES`) waits for any of its
+/// keys; Claude, Codex and the rest wait only for a base URL they read
+/// (`ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`), which the cache held by value
+/// before, so a chat never starts on the default endpoint. Their own keys stay
+/// with `Plan::wait`. A name the profile's env sets never waits. Every spawn
+/// path calls it: `agent.rs`, the pool, agent hosts and chat forks.
+pub async fn provider_keys_before_spawn(family: &str, profile: Option<&BTreeMap<String, String>>) {
+    if !ENABLED.load(Ordering::SeqCst) {
+        return;
     }
+    wait_while(|| provider_keys_pending(family, profile), TIMEOUT).await;
 }
 
-/// The cache stands in for the shell, and a provider key's value is missing.
-fn provider_keys_pending() -> bool {
+/// The cache stands in for the shell, and a value `family` gets from it is missing.
+fn provider_keys_pending(family: &str, profile: Option<&BTreeMap<String, String>>) -> bool {
     outcome() == Outcome::Cached
-        && missing_secret_names().iter().any(|n| PROVIDER_KEYS.contains(&n.as_str()))
+        && missing_secret_names().iter().any(|n| reads_from_cache(family, n, profile))
+}
+
+/// `family` gets `name` from the login shell, and only the shell holds its value.
+fn reads_from_cache(family: &str, name: &str, profile: Option<&BTreeMap<String, String>>) -> bool {
+    if !PROVIDER_KEYS.contains(&name) || profile.is_some_and(|env| env.contains_key(name)) {
+        return false;
+    }
+    PROVIDER_FAMILIES.contains(&family)
+        || (!is_secret(name, "") && allowed_with(name, "", Some(family), profile))
 }
 
 /// Wait while `pending`, each time until a login shell read ends, at most `limit` in all.
@@ -1548,11 +1562,40 @@ mod machine_file_tests {
         super::wait_while(move || waiting.load(Ordering::SeqCst), super::TIMEOUT).await;
         let waited = start.elapsed();
         assert_eq!(waited, std::time::Duration::from_millis(200), "it goes on when the read ends");
-        let start = tokio::time::Instant::now();
-        for family in [Some("claude"), Some("codex"), Some("gemini"), None] {
-            super::provider_keys_before_spawn(family).await;
+    }
+
+    /// Which names a spawn waits for after a cached start: a multi-provider
+    /// harness any provider key or base URL; Claude and Codex the base URL
+    /// they read, never a key (their own wait is `Plan::wait`); a name the
+    /// profile sets, never.
+    #[test]
+    fn a_spawn_waits_only_for_values_it_gets_from_the_shell() {
+        use super::reads_from_cache;
+        for family in ["opencode", "opencode-v2", "pi", "prime", "cmux-harness", "hermes"] {
+            for key in ["OPENROUTER_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_BASE_URL"] {
+                assert!(reads_from_cache(family, key, None), "{family} waits for {key}");
+            }
         }
-        assert_eq!(start.elapsed(), std::time::Duration::ZERO, "other families never wait");
+        assert!(reads_from_cache("claude", "ANTHROPIC_BASE_URL", None));
+        assert!(reads_from_cache("codex", "OPENAI_BASE_URL", None));
+        for (family, key) in [
+            ("claude", "OPENAI_BASE_URL"),
+            ("claude", "ANTHROPIC_API_KEY"),
+            ("claude", "ANTHROPIC_AUTH_TOKEN"),
+            ("claude", "OPENROUTER_API_KEY"),
+            ("codex", "ANTHROPIC_BASE_URL"),
+            ("codex", "OPENAI_API_KEY"),
+            ("gemini", "OPENAI_BASE_URL"),
+            ("gemini", "GOOGLE_API_KEY"),
+            ("deepseek", "OPENAI_BASE_URL"),
+            ("opencode", "GITHUB_TOKEN"),
+        ] {
+            assert!(!reads_from_cache(family, key, None), "{family} never waits for {key}");
+        }
+        let profile: std::collections::BTreeMap<String, String> =
+            [("ANTHROPIC_BASE_URL".to_owned(), "https://route.invalid".to_owned())].into();
+        assert!(!reads_from_cache("claude", "ANTHROPIC_BASE_URL", Some(&profile)));
+        assert!(!reads_from_cache("pi", "ANTHROPIC_BASE_URL", Some(&profile)));
     }
 
     /// A provider key exported in the login shell reaches the harnesses that

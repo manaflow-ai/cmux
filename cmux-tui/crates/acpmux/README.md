@@ -1269,7 +1269,9 @@ Muse: MUSE_*, META_*. OpenCode, OpenCode v2, pi, omp, Prime, cmux Harness and He
 list of provider keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, GROQ_API_KEY,
 DEEPSEEK_API_KEY, HF_TOKEN and the rest of `PROVIDER_KEYS` in `src/login_env.rs`, plus
 ANTHROPIC_BASE_URL and OPENAI_BASE_URL), exact names only; the cache keeps only their names, so after a cached start such a harness waits
-for the shell (at most 3 s) while a key's value is missing. The same list keeps these keys in the
+for the shell (at most 3 s) while a key's value is missing. Claude and Codex wait the same way for
+the base URL they read (ANTHROPIC_BASE_URL, OPENAI_BASE_URL) unless their profile sets it, on every
+spawn path (direct, agent host, pool, chat fork). The same list keeps these keys in the
 daemon's own environment from Claude, Codex and every other agent (`agent/foreign_login.rs`). Nothing else (GITHUB_TOKEN,
 GH_TOKEN, NPM_TOKEN, ...) unless `loginEnvAllow` in config.json names it (exact names or `PREFIX_*`;
 default empty), or (for local launches only, never a remote-origin one) it is a machine declaration below or a name delivered to this machine in `~/.config/cmux/machine-secrets.env`
