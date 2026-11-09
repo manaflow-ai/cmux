@@ -230,13 +230,13 @@ fn unchanged_screenshot_has_no_image() {
     let d = Arc::new(FakeDesktop::standard());
     let e = engine(d.clone(), PolicyConfig::default());
     let a = e.call(&ctx(None), "screenshot", &json!({"window_id": "1"}));
-    assert!(a.png_base64.is_some());
+    assert!(a.image.is_some());
     let b = e.call(&ctx(None), "screenshot", &json!({"window_id": "1"}));
     assert_eq!(b.body["unchanged"], true);
-    assert!(b.png_base64.is_none());
+    assert!(b.image.is_none());
     *d.paint.lock().unwrap() = 10;
     let c = e.call(&ctx(None), "screenshot", &json!({"window_id": "1"}));
-    assert!(c.png_base64.is_some());
+    assert!(c.image.is_some());
 }
 
 #[test]
@@ -297,10 +297,15 @@ fn off_refuses_everything_but_status() {
 #[test]
 fn mcp_shape() {
     let mut out = ToolOutput::ok(json!({"a": 1}));
-    out.png_base64 = Some("AAAA".into());
+    out.image = Some(Image { mime: frame::MIME_JPEG.into(), base64: "AAAA".into() });
     let v = out.to_mcp();
     assert_eq!(v["content"][1]["type"], "image");
+    assert_eq!(v["content"][1]["mimeType"], "image/jpeg");
     assert_eq!(v["isError"], false);
+    assert_eq!(ToolOutput::from_json(&out.to_json()), Some(out));
+    // A worker from before JPEG frames sends `png`.
+    let old = json!({"is_error": false, "code": null, "body": {}, "png": "AAAA"});
+    assert_eq!(ToolOutput::from_json(&old).unwrap().image.unwrap().mime, frame::MIME_PNG);
 }
 
 #[test]
