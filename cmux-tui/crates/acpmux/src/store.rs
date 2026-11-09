@@ -307,6 +307,10 @@ pub struct SessionMeta {
     /// True only after a harness writer accepts the captured first-turn context.
     #[serde(default)]
     pub cmux_context_delivered: bool,
+    /// True once cmux's rules on a system-level channel went into the transcript instead,
+    /// because a start did not carry them (`context_inventory::append_owed_rules`): once.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cmux_rules_in_transcript: bool,
     /// The account's plan usage limits (`claude_stdio::usage_limits`), newest per window, from
     /// Claude Code's `rate_limit_event`; none from any other harness.
     #[serde(default, skip_serializing_if = "Option::is_none")]
