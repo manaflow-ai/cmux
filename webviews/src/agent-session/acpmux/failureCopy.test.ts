@@ -3,10 +3,12 @@ import {
   failureCopy,
   failureKind,
   failureRecovery,
+  isAuthenticationFailure,
   isCloudRejectedCredential,
   isTeamMachineSignIn,
+  offersOwnRoute,
 } from "./failureCopy";
-import type { Translate } from "./i18n";
+import { type Translate, translatorFor } from "./i18n";
 
 test("only the Cloud provider rejection is eligible for cached-login recovery", () => {
   const route = { hostKind: "cloud" as const, harness: "claude" };
@@ -106,4 +108,78 @@ test("Codex's own settings that fail to load name what to fix", () => {
   expect(failureKind("failed to load workspace requirements: cloud config: authentication failed (HTTP 401)")).toBe(
     "auth",
   );
+});
+
+// An own API key whose account ran out of credit read as "rate limited ... try again in a moment"
+// (OpenAI sends it as a 429 naming a quota) or as an unknown failure (Anthropic's 400). Waiting does
+// not help: the card says to add credit to the account the key belongs to, with Switch model first.
+test("an own key's account out of credit reads as no-credit, not a rate limit", () => {
+  const t = translatorFor("en");
+  const claude = { name: "Claude Code", harness: "claude" };
+  for (const message of [
+    'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."}}',
+    "Credit balance too low",
+    'unexpected status 429 Too Many Requests: {"error":{"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota","code":"insufficient_quota"}}',
+    '{"error":{"message":"Billing hard limit has been reached","type":"invalid_request_error","code":"billing_hard_limit_reached"}}',
+    "AI_APICallError: Insufficient credits. Add more using https://example.com/credits",
+    "402 Payment Required",
+  ]) {
+    expect(failureKind(message, claude), message).toBe("no-credit");
+    expect(failureCopy(t, message, claude), message).toBe(t("turn.failure.noCredit", { harness: "Claude Code" }));
+    expect(isAuthenticationFailure(message)).toBe(false);
+  }
+  expect(failureKind(undefined, claude, "insufficient_quota")).toBe("no-credit");
+  expect(failureRecovery("no-credit")).toBe("switch-model");
+  expect(offersOwnRoute("no-credit", claude)).toBe(true);
+  expect(t("turn.failure.noCredit", { harness: "Claude Code" })).toContain("Add credit to that account");
+  // A plain rate limit still reads as one, and the cmux model router's refusal as needs-credits.
+  for (const message of [
+    "429 Too Many Requests",
+    "API Error: 429 rate_limit_error: This request would exceed your account's rate limit.",
+    "unexpected status 429 Too Many Requests: Rate limit reached for gpt-5.5",
+    "usage limit reached, resets in 3h",
+    "API Error: 529 overloaded_error",
+  ])
+    expect(failureKind(message, claude), message).toBe("rate-limited");
+  expect(failureKind(undefined, claude, "rate_limited")).toBe("rate-limited");
+  expect(failureKind("Not enough cmux credits for this call. Add credits or use your own API key.")).toBe(
+    "needs-credits",
+  );
+});
+
+// A Bedrock or Vertex chat whose cloud sign-in expired read as "sign in again" (the agent's own login,
+// which is fine) or as a bare 403. The card names the command that refreshes the cloud sign-in.
+test("an expired cloud provider sign-in names the command that refreshes it", () => {
+  const t = translatorFor("en");
+  const claude = { name: "Claude Code", harness: "claude" };
+  const aws = [
+    "API Error: 403 ExpiredTokenException: The security token included in the request is expired",
+    "ExpiredToken: The provided token has expired.",
+    "UnrecognizedClientException: The security token included in the request is invalid.",
+    "CredentialsProviderError: Could not load credentials from any providers",
+    "Error loading SSO Token: The SSO session associated with this profile has expired or is otherwise invalid.",
+    "Token has expired and refresh failed",
+  ];
+  const google = [
+    "Reauthentication is needed. Please run `gcloud auth application-default login` to reauthenticate.",
+    "Error: Could not load the default credentials. Browse to https://cloud.google.com/docs/authentication for more information.",
+    "('invalid_grant: Bad Request', {'error': 'invalid_grant', 'error_description': 'Bad Request'}) from https://oauth2.googleapis.com/token",
+    "google.auth.exceptions.RefreshError: invalid_grant: reauth related error (invalid_rapt)",
+  ];
+  for (const [messages, command] of [
+    [aws, "aws sso login"],
+    [google, "gcloud auth application-default login"],
+  ] as const)
+    for (const message of messages) {
+      expect(failureKind(message, claude), message).toBe("cloud-auth-expired");
+      expect(failureCopy(t, message, claude), message).toBe(
+        t("turn.failure.cloudSignInExpired", { harness: "Claude Code", command }),
+      );
+      expect(isAuthenticationFailure(message)).toBe(false);
+    }
+  expect(failureRecovery("cloud-auth-expired")).toBe("retry");
+  // The agent's own expired login keeps its Sign in again.
+  expect(failureKind("OAuth token refresh failed: invalid_grant")).toBe("subscription-login");
+  expect(failureKind("Not logged in · Please run /login")).toBe("subscription-login");
+  expect(failureKind("401 Unauthorized: token expired")).toBe("auth");
 });
