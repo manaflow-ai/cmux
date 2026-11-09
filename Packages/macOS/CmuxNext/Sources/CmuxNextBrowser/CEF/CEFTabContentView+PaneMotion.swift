@@ -120,20 +120,24 @@ extension CEFTabContentView {
 /// sizes come after the pane has moved. So that page lays out once, at the size it rests at, when the spring starts, and
 /// keeps that size to the landing (``holdPageAtRest(_:)``): its pixels, in the window's own layers, ride the pane's
 /// top-left corner, clipped by the pane, beside the page's own backdrop while the pane is larger. Its window takes one
-/// size in the motion and its keys, first responder and focus ask stay as they were.
+/// size in the motion and its keys, first responder and focus ask stay as they were. A retarget (a key press during the
+/// spring, or a second close) ends the hold, and the page follows its pane for the rest of the motion.
 extension CEFTabContentView: PaneMotionTargeting {
     func paneMotionWillRest(sizeChange: CGSize) -> PaneMotionAnchor {
         // A drag (its release spring included) and a key resize run their own motion, begun before the spring's rest.
         guard window != nil, pageSyncReasons.isDisjoint(with: [.drag, .keyResize]), pageMotionHold == nil else { return .top }
-        // Decided at the spring's start (a retarget keeps the choice): the page that holds the keys waits at its rest.
-        if pageRestHold || (!pageSyncReasons.contains(.paneSpring) && pageHoldsKeys) {
+        if pageRestHold {
+            // A retarget: a key press that caught the spring (its pane's host starts no key resize on a running spring,
+            // so ``holdPage(for:)`` never comes) or another close. The page follows its pane from here, as any page does.
+            endRestHold()
+        } else if !pageSyncReasons.contains(.paneSpring), pageHoldsKeys {
+            // Decided at the spring's start: the page that holds the keys waits at its rest.
             let rest = CGSize(width: bounds.width + sizeChange.width, height: bounds.height + sizeChange.height)
             if holdPageAtRest(rest) {
                 pageRestHold = true
                 return .top
             }
             // It cannot hold (DevTools docked, a side panel, a fit): it follows its pane, as before.
-            endRestHold()
         }
         beginPageSync(.paneSpring)
         return .top

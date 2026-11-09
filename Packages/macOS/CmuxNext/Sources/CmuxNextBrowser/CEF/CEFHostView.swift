@@ -393,7 +393,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     var motionHosting: CEFLayerHosting?
     /// A split's, close's or zoom's spring found the page holding the keys: its window stays a page window through the
     /// motion, and the page waits at the size it rests at instead of laying out at every frame's size
-    /// (``CEFTabContentView/paneMotionWillRest(sizeChange:)``). True from the spring's start to its landing.
+    /// (``CEFTabContentView/paneMotionWillRest(sizeChange:)``). True from the spring's start to its landing or first retarget.
     var pageRestHold = false
 
     override init(frame: NSRect) {

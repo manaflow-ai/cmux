@@ -263,10 +263,13 @@ import Testing
         #expect(off.isEmpty, "the page's pixels left its pane's top-left corner: \(off.prefix(3))")
         #expect(first.container.layer?.masksToBounds == true, "the page at its rest size is not clipped by its smaller pane")
 
-        // A second close mid-spring retargets it: the page lays out once more, at the new rest.
+        // A retarget mid-spring (a key press that caught it, a second close) ends the hold: the page follows its pane's
+        // page area at each frame's size from here, as every page does.
         first.container.notifyPaneMotionWillRest(sizeChange: CGSize(width: 100, height: 0))
+        #expect(!first.container.pageRestHold, "a retarget kept the rest hold")
+        first.container.frame = NSRect(x: 50, y: 0, width: 850, height: 500)
         first.container.layoutSubtreeIfNeeded()
-        #expect(page.frame.size == CGSize(width: 900, height: 500), "a retarget did not lay the page out at its new rest")
+        #expect(page.frame == first.container.bounds, "after a retarget the page does not follow its pane: \(page.frame)")
         first.container.frame = NSRect(x: 0, y: 0, width: 900, height: 500)
         first.container.layoutSubtreeIfNeeded()
 
