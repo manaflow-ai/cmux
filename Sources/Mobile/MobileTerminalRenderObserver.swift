@@ -33,6 +33,7 @@ final class MobileTerminalRenderObserver {
     var terminalConfigThemesBySurfaceID: [UUID: TerminalTheme] = [:]
     private var runtimeSurfaceGenerationsBySurfaceID: [UUID: UInt64] = [:]
     private var reconciledSurfaceTopologyGeneration: UInt64?
+    private var deviceTerminalGrids = DeviceTerminalGridPublisher()
     private var cachedTerminalTheme: TerminalTheme = .monokai
     private var hasLoadedTerminalTheme = false
     private var terminalThemeRevision: UInt64 = 0
@@ -114,6 +115,7 @@ final class MobileTerminalRenderObserver {
     }
 
     func stop() {
+        deviceTerminalGrids.reset()
         for observer in observers {
             NotificationCenter.default.removeObserver(observer)
         }
@@ -166,12 +168,22 @@ final class MobileTerminalRenderObserver {
 
     private var hasAnyRenderEventSubscribers: Bool {
         MobileHostService.hasEventSubscribers(topic: "terminal.updated") ||
+            MobileHostService.hasEventSubscribers(topic: DeviceTerminalGridPublisher.eventTopic) ||
             MobileHostService.hasEventSubscribers(topic: "terminal.render_grid")
     }
 
     private func refreshNotificationDemand() {
         let shouldRetainDemand = hasAnyRenderEventSubscribers
         let hasRenderGridSubscribers = MobileHostService.hasEventSubscribers(topic: "terminal.render_grid")
+        let hasDeviceTerminalGridSubscribers = MobileHostService.hasEventSubscribers(
+            topic: DeviceTerminalGridPublisher.eventTopic
+        )
+        if hasDeviceTerminalGridSubscribers {
+            hasPendingGlobalUpdate = true
+            scheduleTerminalUpdateFlush()
+        } else {
+            deviceTerminalGrids.reset()
+        }
         if hasRenderGridSubscribers, !hasLoadedTerminalTheme {
             refreshTerminalTheme()
         } else if !hasRenderGridSubscribers {
@@ -186,6 +198,7 @@ final class MobileTerminalRenderObserver {
                 releaseTickDemand = GhosttyApp.retainTickNotifications()
             }
         } else {
+            deviceTerminalGrids.reset()
             releaseFrameDemand?()
             releaseFrameDemand = nil
             releaseTickDemand?()
@@ -263,6 +276,28 @@ final class MobileTerminalRenderObserver {
                 }
                 MobileHostService.emitEvent(topic: "terminal.updated", payload: payload)
             }
+        }
+
+        if MobileHostService.hasEventSubscribers(topic: DeviceTerminalGridPublisher.eventTopic) {
+            let registry = GhosttyApp.terminalSurfaceRegistry
+            deviceTerminalGrids.refresh(updatedSurfaceIDs: surfaceIDs, global: shouldEmitGlobal,
+                topologyGeneration: registry.topologyGeneration,
+                allSurfaceIDs: { Set(registry.allSurfaces().map(\.id)) },
+                sample: { id in
+                    guard let model = registry.terminalSurface(id: id),
+                          let surface = model.liveSurfaceForGhosttyAccess(reason: "device.terminal.grid") else { return nil }
+                    // Read the parsed screen, not the size request that can lead
+                    // Ghostty's asynchronous IO resize and its replay snapshot.
+                    var metrics = ghostty_surface_grid_metrics_s()
+                    guard ghostty_surface_grid_metrics(surface, &metrics) else { return nil }
+                    return DeviceTerminalGridPublisher.Grid(columns: Int(metrics.columns), rows: Int(metrics.rows),
+                        generation: model.runtimeSurfaceGeneration)
+                }, publish: { id, grid in
+                    MobileHostService.emitEvent(topic: DeviceTerminalGridPublisher.eventTopic,
+                        payload: ["surface_id": id.uuidString, "columns": grid.columns, "rows": grid.rows])
+                })
+        } else {
+            deviceTerminalGrids.reset()
         }
 
         guard shouldEmitRenderGridEvents else {

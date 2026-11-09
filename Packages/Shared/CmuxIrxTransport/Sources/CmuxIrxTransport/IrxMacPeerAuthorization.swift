@@ -4,8 +4,10 @@ public import Foundation
 public struct IrxMacPeerAuthorization: Sendable {
     /// The missing or invalid permission that prevented a Mac connection.
     public enum Failure: Error, Equatable, Sendable {
-        /// No enabled host matches the selected endpoint.
+        /// No current directory record matches the selected endpoint.
         case unavailable
+        /// The exact authenticated Mac has not opted into Mac-to-Mac hosting.
+        case notDiscoverable
         /// The complete directory is missing or expired.
         case staleDirectory
         /// The local authority or selected device was revoked.
@@ -58,7 +60,7 @@ public struct IrxMacPeerAuthorization: Sendable {
               identity.deviceID.lowercased() != localIdentity.deviceID.lowercased(),
               peer.revision <= directory.revision else { throw Failure.identityMismatch }
         guard device.metadata.capabilities.contains("cmux.mac-host.v1") else {
-            throw Failure.unavailable
+            throw Failure.notDiscoverable
         }
         return peer
     }

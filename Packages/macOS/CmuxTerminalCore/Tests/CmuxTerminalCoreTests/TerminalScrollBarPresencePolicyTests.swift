@@ -21,6 +21,14 @@ import CmuxTerminalCore
         #expect(Policy(allowedBySettings: true, scrollerStyle: .overlay, hasScrollback: nil).isPresent)
     }
 
+    @Test("A manual mirror shows local scrolling when its source grid overflows the pane")
+    func manualMirrorOverflowShowsOverlayScroller() {
+        #expect(Policy(allowedBySettings: true, scrollerStyle: .overlay, hasScrollback: false,
+            hasManualMirrorOverflow: true).isPresent)
+        #expect(!Policy(allowedBySettings: true, scrollerStyle: .overlay, hasScrollback: false,
+            hasManualMirrorOverflow: false).isPresent)
+    }
+
     @Test("Settings that disallow the scroller win over every style")
     func settingsWin() {
         #expect(!Policy(allowedBySettings: false, scrollerStyle: .legacy, hasScrollback: true).isPresent)

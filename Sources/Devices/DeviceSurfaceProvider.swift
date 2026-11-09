@@ -225,6 +225,16 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         at destination: SurfaceDestination,
         focus: Bool
     ) async throws -> SurfaceProjection {
+        try await materialize(resource, remoteView: remoteView, at: destination, focus: focus, adopting: nil)
+    }
+
+    func materialize(
+        _ resource: SurfaceResource,
+        remoteView: SurfaceRemoteView?,
+        at destination: SurfaceDestination,
+        focus: Bool,
+        adopting reservation: CloudTerminalPaneReservation?
+    ) async throws -> SurfaceProjection {
         guard resource.kind == .terminal else {
             throw SurfaceCatalogError.unsupported(
                 String(localized: "devices.open.browserUnsupported", defaultValue: "Browsers on another Mac can’t be opened here yet.")
@@ -241,16 +251,28 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         let session = DeviceTerminalMirrorSession(link: link, remoteWorkspaceID: workspaceID, remoteSurfaceID: surfaceID)
         let router = session.inputRouter
         let created: (workspaceID: UUID, panelID: UUID, surface: TerminalSurface)
+        var adoptedRelay: CloudOptimisticInputRelay?
         do {
             guard let workspace = Workspace.liveWorkspace(id: destination.workspaceID) else {
                 throw SurfaceCatalogError.destinationNotFound(destination.workspaceID.uuidString)
             }
-            created = try workspace.performRemoteTmuxMirrorMutation {
-                try SurfacePaneFactory.makeCloudManualMirrorPane(
-                    at: destination, focus: false,
-                    onInput: { input in router.enqueue(input) }, keyNameResolver: nil,
-                    onResize: { _ in }, onRuntimeReady: {}, onFocus: {}
-                )
+            if let reservation,
+               let adopted = workspace.adoptPendingDeviceTerminalPane(
+                   reservation, machine: machine, remoteWorkspaceID: workspaceID, resource: resource
+               ) {
+                // The reservation was created before the Device provider had
+                // a session. Hand its queued/next input to the real device
+                // router before the pane becomes interactive.
+                created = adopted
+                adoptedRelay = reservation.inputRelay
+            } else {
+                created = try workspace.performRemoteTmuxMirrorMutation {
+                    try SurfacePaneFactory.makeCloudManualMirrorPane(
+                        at: destination, focus: false,
+                        onInput: { input in router.enqueue(input) }, keyNameResolver: nil,
+                        onResize: { _ in }, onRuntimeReady: {}, onFocus: {}
+                    )
+                }
             }
             if focus { SurfacePaneFactory.focus(panelID: created.panelID, in: created.workspaceID) }
         } catch {
@@ -273,6 +295,9 @@ final class DeviceSurfaceProvider: SurfaceProvider {
             }
         }
         session.bind(surface: created.surface)
+        // Only a pane this session actually adopted writes into the relay. A
+        // reservation that fell through to a new pane keeps its own owner.
+        if let adoptedRelay { session.adopt(adoptedRelay) }
         sessions[created.panelID] = session
         session.start()
         Self.setInitialTitle(resource.title, panelID: created.panelID, workspaceID: created.workspaceID)

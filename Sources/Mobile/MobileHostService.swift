@@ -529,7 +529,7 @@ final class MobileHostService {
             frame,
             topic: topic,
             coalesceKey: eventCoalesceKey(topic: topic, payload: payload),
-            isFullRenderGridFrame: topic == MobileHostEventTopicPolicy.renderGridTopic
+            isFullRenderGridFrame: topic == MobileHostEventTopicPolicy().renderGridTopic
                 && payload["full"] as? Bool == true
         )
     }
@@ -546,7 +546,7 @@ final class MobileHostService {
         surfaceID: String,
         stateSeq: UInt64
     ) {
-        let topic = MobileHostEventTopicPolicy.renderGridTopic
+        let topic = MobileHostEventTopicPolicy().renderGridTopic
         guard !framesByAnchor.isEmpty,
               MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic) else {
             return
@@ -593,9 +593,9 @@ final class MobileHostService {
     /// on. `nil` for topics without per-surface recovery semantics.
     nonisolated static func eventCoalesceKey(topic: String, payload: [String: Any]) -> String? {
         switch topic {
-        case MobileHostEventTopicPolicy.renderGridTopic, "terminal.bytes":
+        case MobileHostEventTopicPolicy().renderGridTopic, "terminal.bytes", DeviceTerminalGridPublisher.eventTopic:
             return payload["surface_id"] as? String
-        case MobileHostEventTopicPolicy.simulatorFrameTopic:
+        case MobileHostEventTopicPolicy().simulatorFrameTopic:
             return payload["panel_id"] as? String
         case DeviceWorkspaceLayoutHost.eventTopic:
             return payload["workspace_id"] as? String
@@ -664,11 +664,12 @@ final class MobileHostService {
                 )
             }
             resyncSurfaceIDs.formUnion(result.renderGridResyncSurfaceIDs)
+            // An overflow is closed by the drain, which consumes it first.
+            // The hop runs once per claimed drain, not per event.
             if result.startDrain {
                 let lane = result.drainLane
-                Task { await connection.drainQueuedEvents(lane: lane) }
+                Task { await connection.startEventDrain(lane: lane) }
             }
-
         }
         if !resyncSurfaceIDs.isEmpty {
             MobileTerminalRenderObserver.requestRenderGridFullResync(
@@ -1462,6 +1463,15 @@ actor MobileHostConnection {
     private var orderedRequestWorkerTasksBySurfaceKey: [String: Task<Void, Never>] = [:]
     private var orderedRequestRunningFrameByteCountsBySurfaceKey: [String: Int] = [:]
     private var receiveTask: Task<Void, Never>?
+    private struct EventDrainTask: Sendable {
+        let token: UInt64
+        let task: Task<Void, Never>
+    }
+
+    /// The drain each lane's queue claim admitted, kept so `close()` cancels
+    /// it. Tokens let a finished drain clear only its own handle.
+    private var eventDrainTasksByLane: [MobileHostEventLane: EventDrainTask] = [:]
+    private var nextEventDrainToken: UInt64 = 0
     private var independentEventRevision: UInt64 = 0
     private var independentEventNegotiationInProgress = false
     /// Whether the event queue currently routes render-grid frames onto
@@ -1611,9 +1621,15 @@ actor MobileHostConnection {
         firstFrameTimeoutTask = nil
         receiveTask?.cancel()
         receiveTask = nil
-        // Rejects all future admissions and releases every queued payload; the
-        // drain loop observes the closed queue and exits on its own.
+        // Rejects all future admissions and claims and releases every queued
+        // payload. A drain parked in a write is cancelled rather than left to
+        // outlive the connection; one between writes exits on its own.
         eventQueue.close()
+        let drainTasks = eventDrainTasksByLane.values.map(\.task)
+        eventDrainTasksByLane.removeAll()
+        for task in drainTasks {
+            task.cancel()
+        }
         let tasks = responseTasks.values.map(\.task)
         responseTasks.removeAll()
         for task in tasks {
@@ -1984,8 +2000,15 @@ actor MobileHostConnection {
             } else {
                 selectedTransport = .control
             }
+            // Lane negotiation suspends, and the connection can close meanwhile
+            // (a queue overflow closes it mid-probe). Close already released
+            // this connection's subscriptions, so registering one now would
+            // leak a process-wide topic count that nothing releases.
+            guard !isClosed else {
+                return .failure(MobileHostRPCError(code: "unavailable", message: "connection closed"))
+            }
             let grantsSurfaceEventLanes = selectedTransport == .irohServerEvents
-                && topics.contains(MobileHostEventTopicPolicy.renderGridTopic)
+                && topics.contains(MobileHostEventTopicPolicy().renderGridTopic)
                 && request.params[IrxSurfaceEventLaneProtocol().subscribeParameterKey] as? String
                     == IrxSurfaceEventLaneProtocol().subscribeParameterValue
                 && (independentEventWriter?.maximumSurfaceEventLaneCount ?? 0) > 0
@@ -2158,7 +2181,7 @@ actor MobileHostConnection {
             nextTopics: topics
         )
         await syncSurfaceEventLanes()
-        if currentSubscribedTopics().contains(MobileHostEventTopicPolicy.simulatorFrameTopic) {
+        if currentSubscribedTopics().contains(MobileHostEventTopicPolicy().simulatorFrameTopic) {
             await dispatchPendingSimulatorFrameReplay()
         }
     }
@@ -2225,7 +2248,7 @@ actor MobileHostConnection {
         let result = eventQueue.enqueue(
             topic: topic,
             coalesceKey: MobileHostService.eventCoalesceKey(topic: topic, payload: payload),
-            isFullRenderGridFrame: topic == MobileHostEventTopicPolicy.renderGridTopic
+            isFullRenderGridFrame: topic == MobileHostEventTopicPolicy().renderGridTopic
                 && payload["full"] as? Bool == true,
             stateSeq: nil,
             frame: frame
@@ -2241,9 +2264,12 @@ actor MobileHostConnection {
                 shedByteCount: result.shedByteCount
             )
         }
+        if result.overflowed {
+            await close(reason: "event queue overflow")
+            return false
+        }
         if result.startDrain {
-            let lane = result.drainLane
-            Task { await self.drainQueuedEvents(lane: lane) }
+            startEventDrain(lane: result.drainLane)
         }
         return result.admitted
     }
@@ -2281,7 +2307,7 @@ actor MobileHostConnection {
         defer {
             independentEventNegotiationInProgress = false
             for lane in eventQueue.claimDrains() {
-                Task { await self.drainQueuedEvents(lane: lane) }
+                startEventDrain(lane: lane)
             }
         }
         let probePayload = Data(#"{"kind":"event_stream_probe"}"#.utf8)
@@ -2305,6 +2331,36 @@ actor MobileHostConnection {
         return false
     }
 
+    /// The only place a drain starts. Every queue claim (the fan-out's,
+    /// `sendEvent`'s, lane negotiation's) lands here, so the handle is
+    /// recorded in the same actor turn that checks `isClosed`: a claim that
+    /// arrives after `close()` is released instead of starting a drain that
+    /// `close()` can no longer cancel. The claim admits one drain per lane at
+    /// a time.
+    func startEventDrain(lane: MobileHostEventLane) {
+        guard !isClosed else {
+            eventQueue.abandonDrain(lane: lane)
+            return
+        }
+        nextEventDrainToken &+= 1
+        let token = nextEventDrainToken
+        eventDrainTasksByLane[lane] = EventDrainTask(
+            token: token,
+            task: Task { [weak self] in
+                await self?.runEventDrain(lane: lane, token: token)
+            }
+        )
+    }
+
+    /// Runs one lane's drain, then clears its handle unless `close()` or a
+    /// newer drain for the lane already replaced it.
+    private func runEventDrain(lane: MobileHostEventLane, token: UInt64) async {
+        await drainQueuedEvents(lane: lane)
+        if eventDrainTasksByLane[lane]?.token == token {
+            eventDrainTasksByLane.removeValue(forKey: lane)
+        }
+    }
+
     /// Single-writer drain loop per lane: at most one instance runs per lane
     /// (enforced by the queue's drain claim), pulling that lane's events from
     /// the bounded queue and writing them to the lane's stream. Lanes drain
@@ -2314,7 +2370,18 @@ actor MobileHostConnection {
     /// unusable control session).
     func drainQueuedEvents(lane: MobileHostEventLane = .shared) async {
         while true {
-            if isClosed || independentEventNegotiationInProgress {
+            if isClosed {
+                eventQueue.abandonDrain(lane: lane)
+                return
+            }
+            // Fan-out that overflows while a drain runs cannot start another
+            // one, so a running drain owns the close. Check it before yielding
+            // to lane negotiation, which can wait out a probe.
+            if eventQueue.consumeOverflow() {
+                await close(reason: "event queue overflow")
+                return
+            }
+            if independentEventNegotiationInProgress {
                 eventQueue.abandonDrain(lane: lane)
                 return
             }
@@ -2357,7 +2424,7 @@ actor MobileHostConnection {
     /// subscription. Actor reentrancy can run unsubscribe during the awaited
     /// producer callback, so debt is restored unless ownership survives it.
     private func dispatchPendingSimulatorFrameReplay() async {
-        let topic = MobileHostEventTopicPolicy.simulatorFrameTopic
+        let topic = MobileHostEventTopicPolicy().simulatorFrameTopic
         let panelIDs = eventQueue.takeSimulatorFrameReplayAfterDrainRequests()
         guard !panelIDs.isEmpty else { return }
         guard isSubscribed(to: topic) else {
@@ -2437,7 +2504,7 @@ actor MobileHostConnection {
         let desired = subscriptions.values.contains {
             $0.surfaceEventLanes
                 && $0.transport == .irohServerEvents
-                && $0.topics.contains(MobileHostEventTopicPolicy.renderGridTopic)
+                && $0.topics.contains(MobileHostEventTopicPolicy().renderGridTopic)
         }
         guard desired != surfaceEventLanesActive else { return }
         // Flip the flag and the queue's routing before any suspension so a

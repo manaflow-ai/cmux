@@ -66,6 +66,40 @@ struct CloudTerminalPaneReservationTests {
         #expect(relay.pendingCount == 4_096)
     }
 
+    @Test
+    func relayHandsQueuedInputToAnAdoptingDeviceRouterInOrder() async {
+        let relay = CloudOptimisticInputRelay()
+        relay.send(.bytes(Data("ls".utf8)))
+        relay.send(.bytes(Data("\r".utf8)))
+
+        let recorder = DeviceInputRecorder()
+        let router = DeviceTerminalInputRouter(
+            send: { await recorder.append($0) },
+            onFailure: { _ in }
+        )
+        // A device mirror adopting a reserved pane must receive what was typed
+        // before its terminal attached, then everything typed after.
+        relay.attach(router)
+        #expect(relay.pendingCount == 0)
+        relay.send(.bytes(Data("pwd\r".utf8)))
+
+        let expected = Data("ls\rpwd\r".utf8)
+        let deadline = ContinuousClock.now + .seconds(2)
+        while await recorder.bytes != expected, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(await recorder.bytes == expected)
+    }
+
+    @Test @MainActor
+    func devicePaneReservationsLeaveNamedKeysToGhostty() {
+        // The device router sends bytes only, so a named-key resolver on a
+        // device reservation would silently drop Enter, arrows and Tab.
+        let device = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: "other-mac", tag: "default"))
+        #expect(Workspace.reservationKeyNameResolver(for: device) == nil)
+        #expect(Workspace.reservationKeyNameResolver(for: .cloud("reservation-fixture")) != nil)
+    }
+
     @Test @MainActor
     func storeRoutesFailureToTheReservedPaneAndReplaysTheSameRequestOnRetry() async throws {
         let store = CloudPaneCreationFailureStore()
@@ -300,5 +334,13 @@ struct CloudTerminalPaneReservationTests {
             try await Task.sleep(for: .milliseconds(5))
         }
         try #require(condition())
+    }
+}
+
+private actor DeviceInputRecorder {
+    private(set) var bytes = Data()
+
+    func append(_ data: Data) {
+        bytes.append(data)
     }
 }

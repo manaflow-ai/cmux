@@ -1,4 +1,5 @@
 import CmuxMobileRPC
+import CmuxMobileHost
 import CoreFoundation
 import Foundation
 
@@ -25,7 +26,7 @@ enum DeviceTerminalEvent: Equatable, Sendable {
             guard let event = MobileTerminalBytesEvent.decode(payload),
                   let surfaceID = UUID(uuidString: event.surfaceID) else { return nil }
             return (surfaceID, .bytes(sequence: event.sequence, data: event.bytes))
-        case "terminal.updated":
+        case "terminal.updated", DeviceTerminalGridPublisher.eventTopic:
             guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
                   let raw = object["surface_id"] as? String,
                   let surfaceID = UUID(uuidString: raw) else { return nil }
@@ -73,6 +74,13 @@ final class DeviceLinkTerminalEvents {
     }
 
     var hasSubscribers: Bool { continuations.values.contains { !$0.isEmpty } }
+
+    /// Deliver a host envelope to the sessions attached to its surface.
+    /// Topics that `DeviceTerminalEvent` does not decode are ignored.
+    func receive(_ envelope: MobileEventEnvelope) {
+        guard let decoded = DeviceTerminalEvent.decode(envelope) else { return }
+        send(decoded.event, surfaceID: decoded.surfaceID)
+    }
 
     func send(_ event: DeviceTerminalEvent, surfaceID: UUID) {
         for (id, continuation) in continuations[surfaceID] ?? [:] {

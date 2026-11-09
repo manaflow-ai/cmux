@@ -16,6 +16,7 @@ public struct TerminalScrollBarPresencePolicy: Sendable {
     private let allowedBySettings: Bool
     private let scrollerStyle: TerminalScrollerStyle
     private let hasScrollback: Bool?
+    private let hasManualMirrorOverflow: Bool
 
     /// Creates a snapshot of the scrollbar layout inputs.
     ///
@@ -25,14 +26,18 @@ public struct TerminalScrollBarPresencePolicy: Sendable {
     ///   - scrollerStyle: How the host's scroller participates in layout.
     ///   - hasScrollback: Whether the surface has rows above its viewport, or
     ///     nil while the runtime has not published its first scrollbar state.
+    ///   - hasManualMirrorOverflow: Whether a source Mac grid is taller than
+    ///     the local mirror pane and therefore needs local scrolling.
     public init(
         allowedBySettings: Bool,
         scrollerStyle: TerminalScrollerStyle,
-        hasScrollback: Bool?
+        hasScrollback: Bool?,
+        hasManualMirrorOverflow: Bool = false
     ) {
         self.allowedBySettings = allowedBySettings
         self.scrollerStyle = scrollerStyle
         self.hasScrollback = hasScrollback
+        self.hasManualMirrorOverflow = hasManualMirrorOverflow
     }
 
     /// Whether the snapshot requires a scroller.
@@ -44,6 +49,6 @@ public struct TerminalScrollBarPresencePolicy: Sendable {
         // The runtime reports scrollback asynchronously. Until the first
         // packet arrives, keep the scroller so restored or reattached
         // surfaces with existing scrollback do not appear broken.
-        return hasScrollback ?? true
+        return hasScrollback == true || hasManualMirrorOverflow || hasScrollback == nil
     }
 }

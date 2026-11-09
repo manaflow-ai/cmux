@@ -22,7 +22,11 @@ extension Workspace {
         }
         guard layout.placements.allSatisfy({ tabs[$0] != nil }) else { return }
         if cloudLayoutMatches(layout, live: bonsplitController.treeSnapshot(), tabs: tabs) {
-            applyCloudDividerRatios(layout, live: bonsplitController.treeSnapshot())
+            // External ratios suppress Bonsplit's geometry callback. Reconcile
+            // AppKit and Ghostty even when the terminal membership is unchanged.
+            if applyCloudDividerRatios(layout, live: bonsplitController.treeSnapshot()) {
+                scheduleTerminalGeometryReconcile()
+            }
             return
         }
         let focused = focusedPanelId.flatMap { surfaceIdFromPanelId($0) }
@@ -79,12 +83,15 @@ extension Workspace {
         }
     }
 
-    private func applyCloudDividerRatios(_ layout: SurfaceProjectionLayout, live: ExternalTreeNode) {
-        guard case .split(_, let ratio, let first, let second) = layout, case .split(let split) = live else { return }
+    @discardableResult
+    private func applyCloudDividerRatios(_ layout: SurfaceProjectionLayout, live: ExternalTreeNode) -> Bool {
+        guard case .split(_, let ratio, let first, let second) = layout, case .split(let split) = live else { return false }
+        var changed = false
         if let id = UUID(uuidString: split.id), abs(split.dividerPosition - ratio) > 0.0001 {
-            _ = bonsplitController.setDividerPosition(CGFloat(ratio), forSplit: id, fromExternal: true)
+            changed = bonsplitController.setDividerPosition(CGFloat(ratio), forSplit: id, fromExternal: true)
         }
-        applyCloudDividerRatios(first, live: split.first)
-        applyCloudDividerRatios(second, live: split.second)
+        let firstChanged = applyCloudDividerRatios(first, live: split.first)
+        let secondChanged = applyCloudDividerRatios(second, live: split.second)
+        return changed || firstChanged || secondChanged
     }
 }

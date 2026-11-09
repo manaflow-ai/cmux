@@ -15348,6 +15348,10 @@ class TerminalController {
         if hasViewportReportFields, v2String(params, "client_id") == nil || v2Int(params, "viewport_columns") == nil || v2Int(params, "viewport_rows") == nil {
             return .err(code: "invalid_params", message: "Invalid mobile viewport report", data: nil)
         }
+        // A hibernated agent has no runtime, so this replay would be empty and
+        // no output would follow: the viewer would stay blank. Once resumed,
+        // the runtime's output streams to the viewer like any live terminal.
+        terminalTarget.resumeAgentHibernationForRemoteAttach()
         let expectedViewport = applyMobileViewportReport(
             params: params,
             terminalTarget: terminalTarget,

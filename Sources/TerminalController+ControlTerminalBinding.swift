@@ -33,6 +33,13 @@ struct ControlTerminalSocketTarget {
         return surface.sendInputResult(text)
     }
 
+    /// Resumes a hibernated agent for a remote viewer's attach. Like explicit
+    /// input, this goes through the panel only when both owners agree.
+    func resumeAgentHibernationForRemoteAttach() {
+        guard surface === panel.surface else { return }
+        panel.resumeAgentHibernationForRemoteAttach()
+    }
+
     /// Sends a bracketed-paste payload through the canonical surface.
     func sendText(_ text: String) -> Bool {
         sendTextResult(text).accepted
