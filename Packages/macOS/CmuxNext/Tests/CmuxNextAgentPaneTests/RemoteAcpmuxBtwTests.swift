@@ -77,7 +77,8 @@ import Testing
         #expect(Self.error(frames, 3)?["reason"] as? String == "btw.no_read_only_mode")
         #expect(Self.error(frames, 3)?["code"] as? String == RemoteAcpmuxWire.btwRefused)
         for id in 4...7 { #expect(Self.error(frames, id)?["code"] as? String == RemoteAcpmuxWire.unsupported) }
-        #expect(client.questions.withLock { $0 } == ["why?", "no read-only mode"])
+        // Each question runs in its own task: either may reach the daemon first.
+        #expect(client.questions.withLock { $0 }.sorted() == ["no read-only mode", "why?"])
     }
 
     @Test func anObserverNeverAsks() async throws {

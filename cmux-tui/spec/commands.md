@@ -9769,12 +9769,14 @@ its agent in. The code and key are never logged.
 `agent-session-btw-v1` (advertised with `agent-session-attach-v1`): the
 composer's `/btw <question>` on a Cloud chat. On an attached tab, `{id,
 cmd:"agent-session-btw", surface, question}` sends acpmux's `_acpmux/btw
-{sessionId, question, inline:true}` (the question trimmed) and may wait up to
-120 seconds: acpmux answers `{text}` from a read-only side question about the
+{sessionId, question, inline:true}` (the question trimmed), marked `via:"app"`
+so acpmux holds it by the folder's trust as it holds the app's own, and may wait
+up to 120 seconds: acpmux answers `{text}` from a read-only side question about the
 chat (`hub/btw.rs`), which never changes the chat. `sessionId` is always the
 tab's own session. acpmux's refusal comes back as an answer, `{refused:{reason}}`
 with its `data.reason` (`btw.no_read_only_mode`, `trust.pending`, `unsupported`
-from an acpmux without the method). An empty question, one over 16 KiB, or any
+from an acpmux without the method, or from an older one that opened a side
+session instead of answering inline; that side session is killed). An empty question, one over 16 KiB, or any
 other param (a session, a model, `inline`, `_meta`) is `agent_session.bad_request`.
 The side question approves reads on this machine, so only the chat's owner asks
 one: an observation attachment gets `agent_session.read_only`, and a teammate's

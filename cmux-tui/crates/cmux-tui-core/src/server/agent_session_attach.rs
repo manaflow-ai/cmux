@@ -592,14 +592,28 @@ fn login(attachment: &Attachment, params: LoginParams) -> Result<Value, Refusal>
 /// acpmux's refusal is an answer, as a login step's is: `{"refused": {"reason": ...}}` with its
 /// `data.reason` (`btw.no_read_only_mode`, `trust.pending`, `unsupported` from an acpmux without
 /// the method). acpmux's message stays in this daemon.
+///
+/// It is the app's pane asking (`via: app`), so acpmux's folder-trust gate holds it as it holds
+/// the app's own inline `/btw` (`trust_gate.rs`): no side question starts an agent in a folder
+/// that is pending or untrusted. An acpmux from before inline answers ignores `inline` and opens
+/// a lasting side session (`{sessionId}`): that session is ended at once and the answer is
+/// `unsupported`, so no hidden work is left running.
 fn btw(attachment: &Attachment, question: String) -> Result<Value, Refusal> {
     let question = question.trim();
     if question.is_empty() || question.len() > MAX_QUESTION_BYTES {
         return Err(Refusal::BadRequest);
     }
-    let params = json!({"sessionId": attachment.session, "question": question, "inline": true});
+    let params = json!({"sessionId": attachment.session, "question": question, "inline": true,
+                        "_meta": {"acpmux": {"via": "app"}}});
     match attachment.link.call("_acpmux/btw", attachment.stamp(params), BTW_TIMEOUT) {
-        Ok(result) => Ok(result),
+        Ok(result) if result.get("text").is_some_and(Value::is_string) => Ok(result),
+        Ok(result) => {
+            if let Some(side) = result.get("sessionId").and_then(Value::as_str) {
+                let kill = json!({"sessionId": side, "purge": true});
+                let _ = attachment.link.call("_acpmux/kill", kill, CALL_TIMEOUT);
+            }
+            Ok(json!({"refused": {"reason": "unsupported"}}))
+        }
         Err(LinkError::Rpc(_, data)) => {
             let reason = data.get("reason").and_then(Value::as_str).unwrap_or("failed");
             Ok(json!({"refused": {"reason": reason}}))

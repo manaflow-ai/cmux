@@ -288,6 +288,15 @@ fn serve(
             "_acpmux/btw" if params["question"] == json!("no read-only mode") => Some(json!({
                 FAKE_ERROR: "this agent has no read-only mode",
                 FAKE_ERROR_DATA: {"reason": "btw.no_read_only_mode"}})),
+            // The folder is not trusted yet: acpmux's trust gate refuses it.
+            "_acpmux/btw" if params["question"] == json!("untrusted folder") => Some(json!({
+                FAKE_ERROR: "trust the folder first",
+                FAKE_ERROR_DATA: {"reason": "trust.pending"}})),
+            // An acpmux from before inline answers opens a lasting side session.
+            "_acpmux/btw" if params["question"] == json!("old acpmux") => {
+                Some(json!({"sessionId": "acp_side", "model": null, "readOnly": "mode"}))
+            }
+            "_acpmux/kill" => Some(json!({"sessionId": params["sessionId"], "purged": true})),
             "_acpmux/btw" => Some(json!({"text": "It flaked on a timeout."})),
             // A Cloud chat's sign-in: a wrong code is refused with acpmux's reason.
             "_acpmux/agent_login/start" => Some(json!({"loginId": "login_1",
@@ -1186,6 +1195,7 @@ fn a_side_question_goes_inline_to_the_pinned_session() {
             "no read-only mode",
             json!({"refused": {"reason": "btw.no_read_only_mode"}}),
         ),
+        ("untrusted folder", "untrusted folder", json!({"refused": {"reason": "trust.pending"}})),
     ] {
         let reply = client
             .request(json!({"cmd":"agent-session-btw","surface":surface,"question":question}));
@@ -1195,10 +1205,19 @@ fn a_side_question_goes_inline_to_the_pinned_session() {
         assert_eq!(frame["method"], json!("_acpmux/btw"));
         assert_eq!(
             frame["params"],
-            json!({"sessionId": SESSION, "question": sent, "inline": true}),
-            "the session is the tab's own and the answer inline; nothing else is passed"
+            json!({"sessionId": SESSION, "question": sent, "inline": true,
+                   "_meta": {"acpmux": {"via": "app"}}}),
+            "the tab's own session, inline, held to the app's folder-trust gate; nothing else"
         );
     }
+    // An older acpmux opened a lasting side session instead: it is ended, and the answer says so.
+    let reply = client
+        .request(json!({"cmd":"agent-session-btw","surface":surface,"question":"old acpmux"}));
+    assert_eq!(reply["data"], json!({"refused": {"reason": "unsupported"}}), "{reply}");
+    assert_eq!(fake.frame()["method"], json!("_acpmux/btw"));
+    let kill = fake.frame();
+    assert_eq!(kill["method"], json!("_acpmux/kill"));
+    assert_eq!(kill["params"], json!({"sessionId": "acp_side", "purge": true}));
     for bad in [
         json!({"cmd":"agent-session-btw","surface":surface}),
         json!({"cmd":"agent-session-btw","surface":surface,"question":"  "}),
