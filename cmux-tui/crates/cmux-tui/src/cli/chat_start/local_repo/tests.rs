@@ -164,3 +164,42 @@ fn reusing_a_clone_writes_nothing_beside_it() {
     assert_eq!(names(&dir), before);
     assert_eq!(names(&parent), vec![std::ffi::OsString::from("dir")]);
 }
+
+#[test]
+fn a_repository_that_tracks_a_cmux_clone_clones_and_is_reused() {
+    let root = tempfile::tempdir().unwrap();
+    let url = origin(root.path());
+    let source = root.path().join("source");
+    std::fs::create_dir_all(source.join(super::CLAIM)).unwrap();
+    std::fs::write(source.join(super::CLAIM).join("tracked"), "mine").unwrap();
+    git(&source, &["add", "."]);
+    git(&source, &["commit", "-qm", "two"]);
+    let dir = root.path().join("dir");
+    assert_eq!(ensure(&url, None, &dir), Ok(Ready::Cloned));
+    assert_eq!(std::fs::read_to_string(dir.join(super::CLAIM).join("tracked")).unwrap(), "mine");
+    assert!(dir.join("AGENTS.md").is_file());
+    // Nothing of the claim is left beside it.
+    let names: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
+    assert_eq!(names.len(), 3, "{names:?}");
+    assert_eq!(ensure(&url, None, &dir), Ok(Ready::Reused));
+}
+
+#[test]
+fn a_clone_that_appears_while_claiming_is_reused_not_written_over() {
+    let root = tempfile::tempdir().unwrap();
+    let url = origin(root.path());
+    let dir = root.path().join("dir");
+    assert_eq!(ensure(&url, None, &dir), Ok(Ready::Cloned));
+    std::fs::write(dir.join("AGENTS.md"), "edited").unwrap();
+    // Another start's clone is there, but no `.git` is in view yet when this start looks: the
+    // check under the claim finds the files and leaves them.
+    let git_dir = dir.join(".git");
+    let hidden = root.path().join("hidden-git");
+    std::fs::rename(&git_dir, &hidden).unwrap();
+    std::fs::create_dir(dir.join(super::CLAIM)).unwrap();
+    assert!(!super::only_claim(&dir));
+    std::fs::remove_dir(dir.join(super::CLAIM)).unwrap();
+    std::fs::rename(&hidden, &git_dir).unwrap();
+    assert_eq!(ensure(&url, None, &dir), Ok(Ready::Reused));
+    assert_eq!(std::fs::read_to_string(dir.join("AGENTS.md")).unwrap(), "edited");
+}

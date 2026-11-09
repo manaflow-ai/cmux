@@ -60,6 +60,11 @@ pub(super) const CLAIM: &str = ".cmux-clone";
 /// nothing.
 pub(super) fn ensure(url: &str, reference: Option<&str>, dir: &Path) -> Result<Ready, Value> {
     let claim = dir.join(CLAIM);
+    // A folder with its own `.git` is a finished clone (`.git` moves in last), whatever else it
+    // holds: a repository may track a `.cmux-clone` of its own.
+    if dir.join(".git").exists() {
+        return reuse(url, dir);
+    }
     if claim.exists() {
         return Err(cloning(dir, &claim));
     }
@@ -74,11 +79,21 @@ pub(super) fn ensure(url: &str, reference: Option<&str>, dir: &Path) -> Result<R
         }
         Err(err) => return Err(failed(dir, format!("could not claim {}: {err}", dir.display()))),
     }
+    // Checked again under the claim: another start may have cloned and let its claim go between
+    // the check above and this claim. Its clone is reused, never written over.
+    if !only_claim(dir) {
+        let _ = std::fs::remove_dir(&claim);
+        return reuse(url, dir);
+    }
+    // A clone that made it lets its claim go itself (`clone_into`); one that did not is taken away
+    // with its claim.
     let result = clone_into(url, reference, dir, &claim);
-    let _ = std::fs::remove_dir_all(&claim);
-    if result.is_err() && made {
-        // Only when nothing else is in it: `remove_dir` leaves a folder that is not empty.
-        let _ = std::fs::remove_dir(dir);
+    if result.is_err() {
+        let _ = std::fs::remove_dir_all(&claim);
+        if made {
+            // Only when nothing else is in it: `remove_dir` leaves a folder that is not empty.
+            let _ = std::fs::remove_dir(dir);
+        }
     }
     result.map(|()| Ready::Cloned)
 }
@@ -139,15 +154,48 @@ fn clone_into(url: &str, reference: Option<&str>, dir: &Path, claim: &Path) -> R
     }
     let entries = std::fs::read_dir(&work)
         .map_err(|err| failed(dir, format!("could not read the clone: {err}")))?;
-    let mut names: Vec<_> = entries.flatten().map(|entry| entry.file_name()).collect();
-    // `.git` last: a start that reads the folder meanwhile sees no clone, never half of one.
-    names.sort_by_key(|name| name == ".git");
-    for name in names {
-        std::fs::rename(work.join(&name), dir.join(&name)).map_err(|err| {
+    let names: Vec<_> = entries.flatten().map(|entry| entry.file_name()).collect();
+    let publish = |name: &OsStr, from: &Path| {
+        let to = dir.join(name);
+        // Never over anything: the claim keeps other starts out, so a path that is there now is
+        // someone else's.
+        if std::fs::symlink_metadata(&to).is_ok() {
+            return Err(failed(dir, format!("{} appeared while cloning", to.display())));
+        }
+        std::fs::rename(from.join(name), &to).map_err(|err| {
             failed(dir, format!("could not move {} into place: {err}", name.to_string_lossy()))
-        })?;
+        })
+    };
+    let (last, first): (Vec<_>, Vec<_>) =
+        names.iter().partition(|name| *name == ".git" || *name == CLAIM);
+    for name in first {
+        publish(name, &work)?;
     }
+    // A `.cmux-clone` the repository tracks takes the claim's place: the claim moves aside first
+    // (a start reading the folder meanwhile sees files and no `.git`, and is refused, never let
+    // in). `.git` last: no start sees a clone before the rest of it is in place.
+    let mut from = work.clone();
+    if last.iter().any(|name| *name == CLAIM) {
+        let aside = dir.join(format!("{CLAIM}-{}", std::process::id()));
+        std::fs::rename(claim, &aside)
+            .map_err(|err| failed(dir, format!("could not move the claim aside: {err}")))?;
+        from = aside.join("checkout");
+        let result = publish(OsStr::new(CLAIM), &from);
+        if result.is_err() {
+            let _ = std::fs::rename(&aside, claim);
+        }
+        result?;
+    }
+    publish(OsStr::new(".git"), &from)?;
+    // The claim (or the claim moved aside) holds only the emptied checkout now.
+    let _ = std::fs::remove_dir_all(from.parent().unwrap_or(&from));
     Ok(())
+}
+
+/// Whether `dir` holds nothing but the claim.
+fn only_claim(dir: &Path) -> bool {
+    std::fs::read_dir(dir)
+        .is_ok_and(|entries| entries.flatten().all(|entry| entry.file_name() == CLAIM))
 }
 
 fn cloning(dir: &Path, claim: &Path) -> Value {
