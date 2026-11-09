@@ -104,4 +104,22 @@ import Testing
         #expect(Self.row("Fix sidebar insets (v2)", in: root) == nil)
         #expect(Self.row("Native new tab page", in: root) != nil)
     }
+
+    /// A section whose script does not parse (the customize app's QuickJS: `init: main: Error:
+    /// expecting ';' at eval_script:2:12`) says what happened and where, in plain words; the
+    /// engine's own words stay out of the row until Details opens them (Lawrence 2026-11-07:
+    /// "we need better error messages").
+    @Test func aScriptErrorSaysWhatHappenedAndWhereNotTheEnginesWords() throws {
+        let raw = "init: main: Error: expecting ';' at eval_script:2:12"
+        let (window, root) = Self.host(AppSceneModel(status: .failed(raw)))
+        defer { window.contentView = nil; window.close() }
+        let shown = Self.all(in: root).filter { !$0.isHiddenOrHasHiddenAncestor }
+        let texts = shown.compactMap { ($0 as? ChromeLabel)?.stringValue }
+        #expect(texts.contains("This section's script has an error"))
+        #expect(texts.contains("Line 2, column 12: expecting ';'"))
+        #expect(!texts.contains { $0.contains("eval_script") }, "the raw words wait under Details")
+        let titles = shown.compactMap { ($0 as? NSButton)?.title }
+        #expect(titles.contains("Copy Error"))
+        #expect(titles.contains("Details"))
+    }
 }
