@@ -379,7 +379,9 @@ async fn a_hub_that_ends_by_itself_restarts_after_a_fresh_read() {
         assert!(tokio::time::Instant::now() < deadline, "a second hub in time");
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    assert_eq!(rig.vm.requests("/signed/tunnel").len(), 1);
+    // The crash counts as a failure, so the restarted hub reads again on the
+    // retry backoff (milliseconds here): count at least the fresh read.
+    assert!(!rig.vm.requests("/signed/tunnel").is_empty(), "a fresh read before the restart");
     assert_eq!(rig.platform.requests("/attach").len(), 2, "no re-attach for a crash");
     handle.stop().await;
 }
