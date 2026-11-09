@@ -23,7 +23,8 @@ use anyhow::{Context, Result, anyhow, ensure};
 use base64::Engine;
 use cmux_link::key_holder::{self, KeyFile, KeyHolder, KeyHolderError};
 use cmux_wg::{
-    InterfaceAddress, IpNetwork, WgMesh, WgMeshConfig, WgMeshListener, WgPeer, WgStream,
+    InterfaceAddress, IpNetwork, PeerCandidate, WgMesh, WgMeshConfig, WgMeshListener, WgPeer,
+    WgStream,
 };
 use serde::{Deserialize, Serialize};
 use tokio::net::{TcpStream, UdpSocket};
@@ -59,7 +60,7 @@ pub struct Transport {
     bridge: Mutex<Option<JoinHandle<()>>>,
     local: SocketAddr,
     /// This machine's WireGuard key lock, released when the transport stops.
-    key: Mutex<Option<KeyHolder>>,
+    key: Mutex<Option<Arc<KeyHolder>>>,
 }
 
 /// Where acpmux takes the lock for its node key, beside the cmux link whose state directory is
@@ -216,14 +217,25 @@ impl Transport {
                     && !peer.address.ip().is_multicast(),
                 "invalid WireGuard peer service address"
             );
-            let mut endpoints = tokio::time::timeout(
+            let endpoints = tokio::time::timeout(
                 CONNECT_BOUND,
                 tokio::net::lookup_host(peer.endpoint.as_str()),
             )
             .await
             .context("WireGuard endpoint lookup timed out")??;
-            let endpoint = endpoints
-                .find(|a| a.is_ipv4() == local.is_ipv4() && a.port() != 0)
+            // Every address the name resolves to is a path: the mesh probes
+            // each one and the path selector picks (LAN before routed).
+            let mut usable: Vec<SocketAddr> = Vec::new();
+            for address in endpoints {
+                if address.is_ipv4() == local.is_ipv4()
+                    && address.port() != 0
+                    && !usable.contains(&address)
+                {
+                    usable.push(address);
+                }
+            }
+            let endpoint = *usable
+                .first()
                 .context("WireGuard endpoint has no address matching the UDP socket family")?;
             mesh.add_peer(WgPeer {
                 public_key,
@@ -233,6 +245,7 @@ impl Transport {
                     host_prefix(peer.address.ip()),
                 )?],
                 route: Some(endpoint.into()),
+                candidates: usable.into_iter().map(PeerCandidate::from).collect(),
                 persistent_keepalive: None,
             })
             .await?;
@@ -247,8 +260,15 @@ impl Transport {
             stop,
             bridge: Mutex::new(Some(bridge)),
             local,
-            key: Mutex::new(Some(key)),
+            key: Mutex::new(Some(Arc::new(key))),
         }))
+    }
+
+    /// This machine's WireGuard key lock while the transport runs: the daemon's other user of
+    /// the node key (the hub carrier) shares it, since a second lock in one process is refused.
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) fn key_holder(&self) -> Option<Arc<KeyHolder>> {
+        self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     pub fn local_addr(&self) -> SocketAddr {
@@ -327,7 +347,7 @@ fn public_key(text: &str) -> Result<[u8; 32]> {
     Ok(key)
 }
 
-fn local_websocket(mut address: SocketAddr) -> Result<SocketAddr> {
+pub(crate) fn local_websocket(mut address: SocketAddr) -> Result<SocketAddr> {
     if address.ip().is_unspecified() {
         address.set_ip(if address.is_ipv4() {
             IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)

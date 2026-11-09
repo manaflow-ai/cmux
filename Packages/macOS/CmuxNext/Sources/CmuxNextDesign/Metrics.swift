@@ -192,11 +192,26 @@ public struct Metrics {
     public static var corners: ConcentricCorners { ConcentricCorners(outer: cornerRadius, padding: cornerPadding) }
     /// Corner radius of a pane's rounded rect: ``cornerRadius``, or 0 (square)
     /// when panes are edge to edge (no padding and no border), where neighbors
-    /// meet with no gap for a curve to show in.
+    /// meet with no gap for a curve to show in. Floating panes (the floating and
+    /// blocks styles) have no main pane card around them, so the panes in the
+    /// window's corners meet it: ``floatingPaneCornerRadius``.
     public static var paneCornerRadius: CGFloat {
         if panePadding == 0 && paneBorder == .none { return 0 }
-        return cornerRadius
+        return floatingPanes ? floatingPaneCornerRadius : cornerRadius
     }
+    /// Corner radius of every pane card under Floating Panes: concentric with the window's corner
+    /// across the corner pane's inset (``floatingPaneWindowInset``), so 12 pt in a 16 pt window at
+    /// compact density; `layout.paneCornerRadius` still sets it, at most the window's radius
+    /// (``windowConcentricCornerRadius(windowCornerRadius:edgeInset:setting:)``). Lawrence 2026-11-07:
+    /// "make it all concentric with macos windows by default (but still configurable)".
+    public static var floatingPaneCornerRadius: CGFloat {
+        windowConcentricCornerRadius(windowCornerRadius: standardWindowCornerRadius, edgeInset: floatingPaneWindowInset,
+                                     setting: DesignSettings.shared.paneChrome.cornerRadius.map(scale))
+    }
+    /// How far a corner pane's card sits inside the window under Floating Panes: the gutter (at
+    /// least the window's lit rim, ``windowEdgeInset(_:in:)``) to the pane's cell, then the pane
+    /// padding to its card.
+    public static var floatingPaneWindowInset: CGFloat { max(mainPaneGutter, PaneTabRowRim.height) + panePadding }
     /// The radius of a shape `inset` points inside a pane, `size` big: concentric with the
     /// pane's corner (``paneCornerRadius``, or the one ``cornerRadius`` where panes are square
     /// inside the rounded main pane), at most half the shape's shorter side.

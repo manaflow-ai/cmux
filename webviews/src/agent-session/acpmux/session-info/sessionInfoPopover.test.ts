@@ -49,10 +49,8 @@ describe("sessionInfoPopover", () => {
   // UNDERSTAND"), never narrowing the transcript's column (Leo, 2026-11-03: "if it would need to be
   // then session info should be an overlay", #33037). So each width a drag passes through only moves
   // the stage on from float to push to overlay, and while it pushes, the pinned column (its whole-pane
-  // width) fits in the chat and ends left of the panel. Where the pinned column fits beside the whole
-  // panel, the push takes that whole room and the chat is centered beside the panel (Lucas, 2026-11-06:
-  // "we need to make sure that the chat is centered when the session info is open"); past that it takes
-  // the least room that clears the panel, so the room can step down once there.
+  // width) fits in the chat and ends left of the panel. A push takes only the least room that clears
+  // the panel (Leo, 2026-11-09: "You only push when you don't have any space left").
   // Odd panel widths and content past the column take an odd room at the snap to the whole room: the
   // stage still only moves on, one pixel of drag at a time.
   test("no pixel of a drag moves the stage back, at any overflow", () => {
@@ -71,7 +69,7 @@ describe("sessionInfoPopover", () => {
     }
   });
 
-  test("dragging the edge wider pushes the chat left, centered beside the panel while it fits", () => {
+  test("dragging the edge wider pushes the chat left by only what the gutter lacks", () => {
     const order = ["float", "push", "overlay"];
     for (const paneWidth of [760, 900, 1100, 1200, 1400, 1600, 2000]) {
       const pane = { width: paneWidth, height: 960 };
@@ -87,13 +85,8 @@ describe("sessionInfoPopover", () => {
         const chat = paneWidth - room;
         expect(pinnedFits(paneWidth, chat)).toBe(true);
         expect(pinnedEnd(paneWidth, chat)).toBeLessThanOrEqual(paneWidth - panel - 2 * FLOAT_MARGIN);
-        if (pinnedFits(paneWidth, paneWidth - panel - FLOAT_MARGIN)) {
-          // Centered: the column's left gap is its gap to the chat's right edge, the panel's margin.
-          expect(room).toBe(panel + FLOAT_MARGIN);
-          expect(room).toBeGreaterThanOrEqual(lastRoom);
-          const left = (chat - transcriptColumn(paneWidth).width) / 2;
-          expect(chat - pinnedEnd(paneWidth, chat)).toBeCloseTo(left, 5);
-        }
+        // A wider panel never gives the chat back room it took.
+        expect(room).toBeGreaterThanOrEqual(lastRoom);
         lastRoom = room;
       }
     }
@@ -108,15 +101,15 @@ describe("sessionInfoPopover", () => {
   });
 
   // The stage at each pane width the browser suites open (thread-minimap-left-rail-stays,
-  // session-info-overlay-toggle), at the panel's default width in a tall pane: by default it pushes
-  // wherever the pinned column fits beside it, a wide pane too, so the chat is centered beside the panel
-  // (1600px down to 1160px, where Chat Text Width's 800px column still fits beside it; Lucas, 2026-11-06:
-  // the chat shifts left as Codex's does), and lies over the chat elsewhere, at 1100px and 1084px too. Push always pushes at the same widths.
+  // session-info-overlay-toggle), at the panel's default width in a tall pane: by default it floats where
+  // the gutter holds it (1600px), pushes where the gutter lacks room and the pinned column still fits
+  // beside it (1200px), and lies over the chat elsewhere, at 1100px and 1084px too. Push always pushes at
+  // 1600px and 1200px.
   test("pins the stage at each width the browser suites open", () => {
     const widths = [1600, 1200, 1100, 1084, 800, 780, 760];
     const stages = (placement: "overlay" | "push") =>
       widths.map((width) => sessionInfoStage(placement, { width, height: 900 }, SESSION_INFO_WIDTH.fallback));
-    expect(stages("overlay")).toEqual(["push", "push", "overlay", "overlay", "overlay", "overlay", "overlay"]);
+    expect(stages("overlay")).toEqual(["float", "push", "overlay", "overlay", "overlay", "overlay", "overlay"]);
     expect(stages("push")).toEqual(["push", "push", "overlay", "overlay", "overlay", "overlay", "overlay"]);
   });
 });

@@ -62,6 +62,42 @@ const harnesses = [
 /// The seeded project's own harness profiles (`<folder>/.cmux/harnesses/<id>.toml`), one in each
 /// state a folder profile can be in. Acme waits for the user's Enable.
 const MOCK_PROFILE_FOLDER = "~/code/cmux";
+/// The runs a mock plan build starts: a Claude one, and a Codex one beside it for a compare.
+function mockPlanBuilds(count: number) {
+  const runs = [
+    {
+      harness: "claude",
+      added: 142,
+      removed: 31,
+      files: [
+        { path: "src/sync/queue.ts", added: 96, removed: 18 },
+        { path: "src/sync/queue.test.ts", added: 46, removed: 13 },
+      ],
+    },
+    {
+      harness: "codex",
+      added: 88,
+      removed: 40,
+      files: [
+        { path: "src/sync/queue.ts", added: 61, removed: 33 },
+        { path: "src/sync/retry.ts", added: 27, removed: 7 },
+      ],
+    },
+  ];
+  return runs.slice(0, count).map((run, index) => ({
+    sessionId: `mock-plan-build-${index + 1}`,
+    name: `build-plan-${run.harness}`,
+    harness: run.harness,
+    status: "idle",
+    archived: false,
+    branch: `cmux/build-plan-${run.harness}`,
+    base: "main",
+    root: `~/.cmux/worktrees/cmux/build-plan-${run.harness}`,
+    added: run.added,
+    removed: run.removed,
+    files: run.files,
+  }));
+}
 const mockFolderProfiles = [
   { id: "acme", displayName: "Acme Agent", state: "needs-enable" },
   { id: "lint-bot", displayName: "Lint Bot", state: "needs-trust" },
@@ -382,12 +418,31 @@ export class MockAcpmuxSocket {
   /// No reply text streams, so whatever the transcript draws past the running turn is waste.
   async tickLoadTurn(
     target: string,
-    options: { seconds: number; tickMs: number; sidebarMs: number; lineSuffix?: string },
+    options: { seconds: number; tickMs: number; sidebarMs: number; lineSuffix?: string; backgroundCommands?: number },
   ): Promise<{ ticks: number; sidebar: number }> {
     const turn = Number(this.sessions.find((entry) => entry.sessionId === target)?.turnCount ?? 0) + 1;
     this.touch(target, { turnCount: turn, status: "running", indicator: "working" });
     this.emit(target, { mux: "user_message", msg: { text: `Turn ${turn}: run the long check` } });
     this.emit(target, { mux: "turn_started" });
+    // Shells sent to the background first, as Claude's Bash `run_in_background` does: each call ends at
+    // once and its shell keeps running, so the composer's hat (SubagentTray.tsx) shows it with its
+    // time ticking for the whole run. They are left running when the turn ends.
+    for (let index = 0; index < (options.backgroundCommands ?? 0); index += 1) {
+      const shell = `load-tick-${turn}-background-${index}`;
+      const command = `bun run dev --port ${4300 + index}`;
+      this.emit(target, {
+        update: tool(shell, "execute", command, "in_progress", {
+          rawInput: { command, run_in_background: true },
+        }),
+      });
+      this.emit(target, {
+        update: done(shell, {
+          content: [
+            { type: "content", content: { type: "text", text: `Command running in background with ID: ${shell}` } },
+          ],
+        }),
+      });
+    }
     const call = `load-tick-${turn}`;
     this.emit(target, {
       update: tool(call, "execute", "Run bun test --watch", "in_progress", {
@@ -699,6 +754,61 @@ export class MockAcpmuxSocket {
       case "_acpmux/permission_respond":
         this.closeSeededTurn(target, "completed", String(params.optionId ?? "").startsWith("allow"));
         return {};
+      // A plan build (`_acpmux/plan/build`): here approves; a worktree or a compare answers the ask
+      // with a deny and records the runs it started on the chat, as acpmux does.
+      case "_acpmux/plan/build": {
+        const where = String(params.target ?? "");
+        if (where === "here") {
+          this.closeSeededTurn(target, "completed", true);
+          return { target: "here", buildId: null, builds: [] };
+        }
+        const buildId = `mock-build-${this.events.length}`;
+        const builds = mockPlanBuilds(where === "compare" ? 2 : 1);
+        this.closeSeededTurn(target, "completed", false);
+        this.emit(target, {
+          mux: "plan_build",
+          msg: {
+            event: "started",
+            buildId,
+            target: where,
+            permissionId: params.permissionId,
+            builds: builds.map(({ sessionId, name, harness, branch, root, base }) => ({
+              sessionId,
+              name,
+              harness,
+              branch,
+              root,
+              base,
+            })),
+          },
+        });
+        return {
+          target: where,
+          buildId,
+          builds: builds.map(({ sessionId, name, harness, branch, root, base }) => ({
+            sessionId,
+            name,
+            harness,
+            worktree: { root, branch, base },
+          })),
+        };
+      }
+      case "_acpmux/plan/compare":
+        return { buildId: params.buildId, target: "compare", keptSessionId: null, builds: mockPlanBuilds(2) };
+      case "_acpmux/plan/keep": {
+        const keep = String(params.keep ?? "");
+        const builds = mockPlanBuilds(2).map((build) => ({ ...build, archived: build.sessionId !== keep }));
+        this.emit(target, {
+          mux: "plan_build",
+          msg: {
+            event: "kept",
+            buildId: params.buildId,
+            keptSessionId: keep,
+            archived: builds.filter((build) => build.archived).map((build) => build.sessionId),
+          },
+        });
+        return { buildId: params.buildId, target: "compare", keptSessionId: keep, builds };
+      }
       case "session/new": {
         // A gallery state whose folder is not trusted yet: the start waits on the Trust question.
         if ((globalThis as MockAuthGlobals).cmuxAcpmuxMockTrustPending && !this.trustGranted)

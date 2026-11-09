@@ -115,6 +115,7 @@ impl ResourceOperation {
                 | Self::PaletteUsageGet
                 | Self::PaletteRank
                 | Self::StashList
+                | Self::ClassicImportPlan
                 | Self::ConductorImportPlan
                 | Self::CloudVmFirewallList
                 | Self::CloudVmFirewallGet

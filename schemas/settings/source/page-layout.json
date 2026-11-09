@@ -21,6 +21,7 @@
     {"id": "mobile"},
     {"id": "devices"},
     {"id": "chiefPet"},
+    {"id": "personalization", "note": "Personalization, the profile menu's fast path to every visual choice: the theme studio, the background picker, the Chief's look, chat text and density, and sounds, each drawing the same keys as its home category."},
     {"id": "density", "note": "The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md)."},
     {"id": "importSuggestions", "note": "What this Mac has that cmux can bring over (CmuxNextImportCards), every card found."},
     {"id": "channels", "note": "Every release channel's recent builds, with the one this Mac runs (Settings > Updates)."},
@@ -123,6 +124,14 @@
       "id": "look",
       "title": {"key": "settings.sidebarSection.lookAndFeel", "text": "Look and Feel"},
       "categories": [
+        {
+          "id": "personalization",
+          "title": {"key": "settings.category.personalization", "text": "Personalization"},
+          "symbol": "wand.and.stars",
+          "note": "Leo 2026-11-07: the profile menu's Personalization is a fast jump into the look of the app. Its one card draws rows whose homes stay in Theme, Appearance, Chief and Notifications, so it holds no group and claims no key.",
+          "lead": ["personalization"],
+          "groups": []
+        },
         {
           "id": "theme",
           "title": {"key": "settings.category.theme", "text": "Theme"},

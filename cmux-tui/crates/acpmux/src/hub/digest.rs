@@ -494,8 +494,8 @@ impl Hub {
             if let Some(display_parts) = &q.run.display_parts {
                 queued.set("displayParts", display_parts.clone());
             }
+            let mut queued = crate::prompt_provenance::marked(queued, q.run.provenance.as_ref());
             super::session::mark_pasted(&mut queued, &q.run.blocks);
-            let queued = crate::prompt_provenance::marked(queued, q.run.provenance.as_ref());
             self.append(session, "mux", "queued", queued);
         }
         // Held: by this failure, or before an inbox digest took them. Their retry is scheduled
