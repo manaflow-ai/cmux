@@ -1311,13 +1311,24 @@ fn ssh_bootstrap_failure_is_retryable(error: &anyhow::Error) -> bool {
 
 /// What ssh prints when it reached the host and was refused: a failed authentication or a host
 /// key it will not accept. ssh exits 255 for these as for an unreachable host, but no redial can
-/// fix them, so a link that outlives a failed first connect must not redial them.
+/// fix them, so a link that outlives a failed first connect must not redial them. Matched without
+/// regard to case. The app names the same lines as an authentication or host key failure
+/// (`SSHFailure.hostKeyNeedles` and `authNeedles`), so every one of those is here too.
 const SSH_PERMANENT_REFUSALS: &[&str] = &[
+    // Authentication.
     "Permission denied",
-    "Host key verification failed",
     "Too many authentication failures",
     "No more authentication methods",
+    "Authentication failed",
+    "no mutual signature algorithm",
+    "sign_and_send_pubkey",
+    // Host keys.
+    "Host key verification failed",
     "REMOTE HOST IDENTIFICATION HAS CHANGED",
+    "host key is known for",
+    "No matching host key type",
+    "Host key for",
+    "has changed and you have requested strict checking",
 ];
 
 fn ssh_refused_permanently(error: &BootstrapError) -> bool {
@@ -1325,7 +1336,8 @@ fn ssh_refused_permanently(error: &BootstrapError) -> bool {
     else {
         return false;
     };
-    SSH_PERMANENT_REFUSALS.iter().any(|refusal| stderr.contains(refusal))
+    let stderr = stderr.to_lowercase();
+    SSH_PERMANENT_REFUSALS.iter().any(|refusal| stderr.contains(&refusal.to_lowercase()))
 }
 
 /// Returns when the owner asks the runtime to stop or a termination signal

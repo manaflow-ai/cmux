@@ -295,6 +295,14 @@ fn ssh_refusals_are_permanent_and_unreachable_hosts_are_not() {
         "leo@build: Permission denied (publickey).",
         "Host key verification failed.",
         "Received disconnect from 10.0.0.2 port 22:2: Too many authentication failures",
+        // A host key type the client does not accept: no redial changes the server's keys.
+        "Unable to negotiate with 10.0.0.2 port 22: no matching host key type found. Their offer: ssh-dss",
+        "Host key for build has changed and you have requested strict checking.",
+        "ECDSA host key for build has changed and you have requested strict checking.",
+        "Warning: the ED25519 host key for 'build' differs from the key for the IP address '10.0.0.2'\nOffending key for IP in /Users/leo/.ssh/known_hosts:3\nMatching host key in /Users/leo/.ssh/known_hosts:4\nAre you sure you want to continue connecting (yes/no)? Host key verification failed.",
+        "The ED25519 host key is known for build but not for 10.0.0.3",
+        "sign_and_send_pubkey: signing failed for ED25519 \"/Users/leo/.ssh/id_ed25519\" from agent: agent refused operation",
+        "send_pubkey_test: no mutual signature algorithm",
     ] {
         assert!(!ssh_bootstrap_failure_is_retryable(&failure(refused)), "{refused}");
     }

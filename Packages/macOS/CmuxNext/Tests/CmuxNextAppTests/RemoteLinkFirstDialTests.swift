@@ -211,6 +211,24 @@ import Testing
         #expect(fixture.spawns == 1, "Reconnect restarted the link (\(fixture.spawns) spawns)")
     }
 
+    /// Review of #39103, F1: a cold open sends its `await-ready` before the link process exists, so the
+    /// request was dropped and the person's deadline never reached the link. It is now kept with its
+    /// original deadline until the link answers, and goes to it with what is left.
+    @Test func aColdOpenKeepsThePersonsDeadlineUntilTheLinkAnswers() async throws {
+        let fixture = try Fixture(["up-on-wake"])
+        defer { fixture.close() }
+        fixture.session.connect(deadline: .seconds(4))
+        try await Self.waitUntil("the person's wait reached the link and brought it up") { fixture.session.linkStatus == .connected }
+        let waits = fixture.lines("admin.log").compactMap { line -> Int? in
+            guard let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
+                  object["method"] as? String == "await-ready" else { return nil }
+            return object["within_ms"] as? Int
+        }
+        #expect(waits.count == 1, "\(fixture.lines("admin.log"))")
+        #expect(waits.allSatisfy { $0 > 0 && $0 <= 4000 }, "the original deadline, less the time before the link answered: \(waits)")
+        #expect(fixture.spawns == 1)
+    }
+
     /// The network drops and returns under a running link: the machine reads reconnecting, then the
     /// link's own recovery wakes the daemon connection, over the same process.
     @Test func aDropAndReturnRecoversOverTheSameLink() async throws {
