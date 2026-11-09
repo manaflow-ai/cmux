@@ -17,21 +17,6 @@ pub(crate) struct LeaderExit {
     fd: Option<tokio::io::unix::AsyncFd<OwnedFd>>,
 }
 
-/// Tests only: this thread's agents start as if the kernel had no exit event, so their readers
-/// keep the timed check (`agent_idle_tests.rs`).
-#[cfg(test)]
-pub(crate) mod timed_check_only {
-    thread_local! {
-        static ON: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-    }
-    pub(crate) fn set(on: bool) {
-        ON.with(|o| o.set(on));
-    }
-    pub(super) fn on() -> bool {
-        ON.with(std::cell::Cell::get)
-    }
-}
-
 impl LeaderExit {
     /// The exit event of child `pid`, unreaped; `None` when this kernel has none.
     pub(crate) fn open(pid: u32) -> Option<Self> {
@@ -97,5 +82,20 @@ impl LeaderExit {
         if let Some(fd) = &self.fd {
             let _ = fd.readable().await;
         }
+    }
+}
+
+/// Tests only: this thread's agents start as if the kernel had no exit event, so their readers
+/// keep the timed check (`agent_idle_tests.rs`).
+#[cfg(test)]
+pub(crate) mod timed_check_only {
+    thread_local! {
+        static ON: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+    pub(crate) fn set(on: bool) {
+        ON.with(|o| o.set(on));
+    }
+    pub(super) fn on() -> bool {
+        ON.with(std::cell::Cell::get)
     }
 }
