@@ -389,6 +389,9 @@ jsonschema = { version = "0.34", default-features = false }
 # lets the host count every byte the VM allocates (32 MiB limit per app).
 rquickjs = { version = "=0.14.0", default-features = false, features = ["std", "allocator"] }
 flate2 = "1"
+# Journal segments at rest (`zstd-json-v1`). No dictionary builder: whole-segment
+# frames compress the repeated records better than per-record dictionaries.
+zstd = { version = "0.13", default-features = false }
 bindgen = "0.72"
 smallvec = "1"
 getrandom = "0.3"
