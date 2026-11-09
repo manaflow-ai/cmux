@@ -234,12 +234,9 @@ pub(super) struct OtherLook {
 
 impl OtherLook {
     pub(super) fn start(paths: &Paths, offset_now: i128) -> OtherLook {
-        let _ = (paths, offset_now);
-        OtherLook {
-            watch: crate::agent::PauseWatch::new(),
-            handled: AtomicU64::new(0),
-            offset: Mutex::new(None),
-        }
+        let watch = crate::agent::PauseWatch::load(&paths.at(super::PAUSE_FILE));
+        let handled = AtomicU64::new(watch.pause_seq());
+        OtherLook { watch, handled, offset: Mutex::new(Some(offset_now)) }
     }
 
     pub(super) fn looks(&self) -> Looks<'_> {
