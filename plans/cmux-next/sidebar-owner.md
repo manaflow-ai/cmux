@@ -1,7 +1,7 @@
 # cmux-next sidebar: owner note
 
-- 2026-11-09: a multi-selection drags as one stack of its rows, as Edge's and Chrome's vertical tabs do. Leo,
-  verbatim (2026-11-08, ask-2ba1bed2e4, screen recordings of ours beside Edge's): "ours vs edge's group moving i
+- 2026-11-09: a multi-selection drags as one stack of its rows, as a browser's vertical tabs do. Leo,
+  verbatim (2026-11-08, ask-2ba1bed2e4, screen recordings of ours beside a browser's): "ours vs edge's group moving i
   think we need to make ours more like edge and chrome". The card carried only the pressed row and a count badge
   while the list opened a gap for every selected row, so the card rode over rows that had not made way and the gap
   stood empty below it. The card now carries every selected row in drop order (`SidebarListLift.stack`), closed up

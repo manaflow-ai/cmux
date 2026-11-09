@@ -62,7 +62,7 @@ extension SidebarListViewComponents {
         let rowFrame: NSRect, content: NSView, count: Int, head: CGFloat?
         var stacked = false
         if case let .workspaces(ids) = payload, let stack = SidebarListLift.stack(self, ids: ids, pressed: key) {
-            // A selection lifts as the stack it drops as, as in Edge and Chrome: every row on the card, the gap its
+            // A selection lifts as the stack it drops as, as in a browser's vertical tabs: every row on the card, the gap its
             // height. The count badge and stacked backs stay only for rows the card cannot show.
             // Its drops resolve against the whole card, as a one-row card's do against its one-row gap: cut to its
             // first row, the probe would stay inside the gap until the stack had moved its whole height.

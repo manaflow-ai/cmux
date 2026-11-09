@@ -4,8 +4,8 @@ import AppKit
 import CmuxNextTestSupport
 import Testing
 
-/// Leo 2026-11-08 (ask-2ba1bed2e4), our sidebar beside Edge's vertical tabs moving a selection: "ours vs edge's group
-/// moving i think we need to make ours more like edge and chrome". Edge lifts every selected tab, stacked, under the
+/// Leo 2026-11-08 (ask-2ba1bed2e4), our sidebar beside a browser's vertical tabs moving a selection: "ours vs edge's group
+/// moving i think we need to make ours more like edge and chrome". The browser lifts every selected tab, stacked, under the
 /// pointer, and the list opens one gap that tall. Ours lifted only the pressed row with a count badge, while the list
 /// opened a gap for all the selected rows: the one-row card rode over rows that had not made way, and the gap below it
 /// stood empty. The card carries every selected row in the order the drop lays them out, the pressed row stays under
