@@ -65,6 +65,8 @@ import Testing
         var cardWidth: CGFloat
         var cardMinWidth: CGFloat
         var tabRowHeight: CGFloat
+        /// Whether the measured tab row draws a detail line (a two-line row); the fixture's first tab has none.
+        var tabHasDetail: Bool
         var tabTitle: CGFloat
         var tabIcon: CGFloat
         var disclosureHeight: CGFloat
@@ -127,7 +129,7 @@ import Testing
                 listRowHeight: listRow.bounds.height, listTitle: listRow.title.font.pointSize, listGlyph: listGlyph,
                 cardPadding: card.kindIconFrame.minX, cardIcon: card.kindIconFrame.width,
                 cardTitle: card.drawnTitleFont?.pointSize ?? 0, cardCaption: card.drawnCaptionFont?.pointSize ?? 0,
-                cardWidth: widest, cardMinWidth: narrowest, tabRowHeight: tab.frame.height, tabTitle: tab.titleFont?.pointSize ?? 0,
+                cardWidth: widest, cardMinWidth: narrowest, tabRowHeight: tab.frame.height, tabHasDetail: tab.hasDetail, tabTitle: tab.titleFont?.pointSize ?? 0,
                 tabIcon: tab.iconFrame.width, disclosureHeight: card.detailsToggle.fittingSize.height)
             print("PINNEDSIZE|\(setting)|row \(measured.pinnedRowHeight) vs \(measured.listRowHeight)|title \(measured.pinnedTitle) vs \(measured.listTitle)"
                 + "|glyph \(measured.pinnedGlyph) vs \(measured.listGlyph)|card pad \(measured.cardPadding) icon \(measured.cardIcon)"
@@ -160,7 +162,10 @@ import Testing
         #expect(m.cardCaption == card.captionSize, "\(setting): caption \(m.cardCaption), token \(card.captionSize)")
         #expect(m.cardWidth == card.maxWidth, "\(setting): widest \(m.cardWidth), token \(card.maxWidth)")
         #expect(m.cardMinWidth == card.minWidth, "\(setting): narrowest \(m.cardMinWidth), token \(card.minWidth)")
-        #expect(m.tabRowHeight == card.tabRowHeightTwoLines, "\(setting): tab row \(m.tabRowHeight), token \(card.tabRowHeightTwoLines)")
+        // A tab with no detail line is one row tall (#37176, Leo 2026-11-06: "you got all these empty things"); the
+        // fixture's shell tab has no command, place or state, so it takes the one-line token.
+        #expect(!m.tabHasDetail, "\(setting): the shell tab drew a detail line")
+        #expect(m.tabRowHeight == card.tabRowHeight, "\(setting): tab row \(m.tabRowHeight), token \(card.tabRowHeight)")
         #expect(m.tabTitle == card.titleSize, "\(setting): tab title \(m.tabTitle), token \(card.titleSize)")
         #expect(m.tabIcon == card.iconSide, "\(setting): tab icon \(m.tabIcon), token \(card.iconSide)")
         #expect(m.disclosureHeight == card.disclosureHeight, "\(setting): disclosure \(m.disclosureHeight), token \(card.disclosureHeight)")
