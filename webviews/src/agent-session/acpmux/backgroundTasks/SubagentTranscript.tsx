@@ -1,7 +1,11 @@
 // A subagent's transcript inside the Background tasks panel (BackgroundTasksPanel.tsx): its replies,
-// its thoughts folded under "Thought process" and its tool calls one line each, which open to what
-// they ran and said, with the shared spinner under the last row while it runs. Claude Desktop's
-// drill-in, in our type.
+// and between them its work: a stretch of two or more tool calls folds under one quiet line, "Ran 11
+// commands, read a file, 2 failed", which opens to its steps, each thought under "Thought process" and
+// each call on a line that opens to what it ran and said; a lone call keeps its own line. The shared
+// spinner sits under the last row while it runs. Claude Code's drill-in, in our type (Leo, 2026-11-09:
+// "this claude background tasks thing and being able to click into subagents'/helpers' stuff is really
+// good"); before, every call and every thought drew a line of its own (transcriptRuns.experiment.ts
+// keeps that as its `lines` arm).
 //
 // It draws on the click with no blank frame and no jump (Leo, 2026-10-29: "i also like the way it
 // just loads in the subagent stuff instantly :("):
@@ -18,14 +22,27 @@
 // a task) are the only observers here: each disconnects when it fires, once every row on its side is
 // mounted, and on unmount.
 import { Button } from "../../../ui/Button";
-import { memo, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { experimentArm } from "../../../experiments/experiment";
+import { entranceAllowed } from "../../shared/pageReveal";
+import { useFold } from "../conversation/fold";
 import { Markdown } from "../conversation/Markdown";
 import { Spinner } from "../conversation/icons";
+import { toolRunSummary } from "../conversation/toolRunSummary";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { SUBAGENTS } from "../subagents/subagentFold";
-import { WINDOW, MOUNTED, windowRange, NestedAgents } from "./subagentTranscriptModel";
+import {
+  WINDOW,
+  MOUNTED,
+  windowRange,
+  NestedAgents,
+  runFold,
+  transcriptBlocks,
+  type TranscriptBlock,
+} from "./subagentTranscriptModel";
+import { transcriptRunsLook } from "./transcriptRuns.experiment";
 /// A tool call's output shown when opened, at most (the full output stays in the transcript).
 const OUTPUT_CHARS = 4000;
 /// How close to the bottom counts as at the bottom, in px.
@@ -73,6 +90,12 @@ export function SubagentTranscript({
   const scroller = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
+  // Read once per transcript: the arm is the gallery's override or a dogfood key, never a per-row read.
+  const [look] = useState(() => experimentArm(transcriptRunsLook));
+  // Which runs the reader opened or shut, by their rows' ids: a run is the same run however the
+  // mounted window cuts it, and the task opened from the list opens the run that holds it.
+  const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set(anchor ? [anchor] : []));
+  const [shut, setShut] = useState<ReadonlySet<string>>(() => new Set());
   const [range, setRange] = useState(() => windowRange(rows, anchor));
   // Opened before acpmux streamed any of its rows: the window is taken from the first rows that
   // arrive, so a long transcript still mounts one window, not every row.
@@ -110,6 +133,8 @@ export function SubagentTranscript({
   const first = Math.min(range.start, Math.max(0, rows.length - 1));
   const last = range.end === undefined || range.end >= rows.length ? undefined : range.end;
   const shown = rows.slice(first, last);
+  const blocks = useMemo(() => transcriptBlocks(rows.slice(first, last), runFold(look)), [rows, first, last, look]);
+  const lastRun = blocks.at(-1)?.type === "run" ? blocks.at(-1)!.id : undefined;
   const loadOlder = onLoadOlder;
 
   // Before the first paint: at the bottom, or the opened task's row in view.
@@ -207,9 +232,25 @@ export function SubagentTranscript({
     >
       {notice && <p className="acpmux-bg__notice">{notice}</p>}
       {(first > 0 || loadOlder) && <div ref={top} className="acpmux-bg__sentinel" aria-hidden="true" />}
-      {shown.map((row) => (
-        <TranscriptRow key={row.id} row={row} version={row.version} />
-      ))}
+      {blocks.map((block) => {
+        if (block.type === "row") return <TranscriptRow key={block.row.id} row={block.row} version={block.row.version} />;
+        const ids = block.rows.map((row) => row.id);
+        const isOpen =
+          !ids.some((id) => shut.has(id)) &&
+          (ids.some((id) => opened.has(id)) || (look === "live" && block.running && block.id === lastRun));
+        return (
+          <RunLine
+            key={block.id}
+            run={block}
+            open={isOpen}
+            onToggle={() => {
+              const without = (set: ReadonlySet<string>) => new Set([...set].filter((id) => !ids.includes(id)));
+              setOpened((now) => (isOpen ? without(now) : new Set([...now, ...ids])));
+              setShut((now) => (isOpen ? new Set([...now, ...ids]) : without(now)));
+            }}
+          />
+        );
+      })}
       {last !== undefined && <div ref={bottom} className="acpmux-bg__sentinel" aria-hidden="true" />}
       {running && last === undefined && (
         <div className="acpmux-bg__working">
@@ -267,6 +308,53 @@ const TranscriptRow = memo(
   // A reply settles (`streaming` goes false) without a new version when its agent completes.
   (a, b) => a.row.id === b.row.id && a.version === b.version && a.row.streaming === b.row.streaming,
 );
+
+/// A run of work between two replies: one quiet line naming what it did, "Ran 11 commands, read a file,
+/// 2 failed" (the failures in the danger colour), that opens in place to its steps on the shared fold.
+/// Folded, it carries its first row's id, so the panel's scroll hold and the opened task find it.
+function RunLine({
+  run,
+  open,
+  onToggle,
+}: {
+  run: Extract<TranscriptBlock, { type: "run" }>;
+  open: boolean;
+  onToggle(): void;
+}) {
+  const t = useT();
+  const fold = useFold(open, entranceAllowed);
+  return (
+    <div className="acpmux-bg__run" data-run-id={run.id} data-row-id={open ? undefined : run.id}>
+      <Button
+        variant="ghost"
+        size="sm"
+        type="button"
+        className="acpmux-bg__line acpmux-bg__line--fold"
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        {run.running ? <Spinner size={12} loading /> : null}
+        <span className="acpmux-bg__label">
+          {toolRunSummary(t, run.items)}
+          {run.failed > 0 && (
+            <>
+              {t("toolRun.separator")}
+              <span className="acpmux-bg__failed">{t("backgroundTasks.failed", { n: run.failed })}</span>
+            </>
+          )}
+        </span>
+        <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} row />
+      </Button>
+      {fold.present && (
+        <div ref={fold.ref} className="acpmux-bg__run-steps" inert={!open || undefined}>
+          {run.rows.map((row) => (
+            <TranscriptRow key={row.id} row={row} version={row.version} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function NestedAgent({ id, name, running, opens }: { id: string; name: string; running: boolean; opens: boolean }) {
   const { open: openAgent, stop } = useContext(NestedAgents);

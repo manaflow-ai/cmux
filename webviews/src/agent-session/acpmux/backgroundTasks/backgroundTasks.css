@@ -406,6 +406,11 @@
 .acpmux-bg__tool[data-failed] .acpmux-bg__line--fold.ui-btn {
   color: var(--agent-status-failure);
 }
+/* A run's steps, opened under its line (SubagentTranscript.tsx `RunLine`): set in one step, as Claude
+   Code's drill-in nests a run's calls under its summary. */
+.acpmux-bg__run-steps {
+  padding-inline-start: var(--ds-space-3);
+}
 .acpmux-bg__thought-text {
   margin: var(--ds-space-1) 0 0;
   color: var(--agent-muted);
