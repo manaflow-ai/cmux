@@ -471,7 +471,17 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     // Another branch keeps the pull request's commits, so no `--discard`: the
     // removal checks the checkout is clean.
     git(&checkout, &["branch", "kept", &head]);
-    // Its HEAD detached since: it is still a review's checkout.
+    // On its review branch the fsmonitor is live (a plain status starts it),
+    // and the removal's checks and `git worktree remove` still never do.
+    let attached = PathBuf::from(review_root.as_str());
+    git(&attached, &["status", "--porcelain"]);
+    assert!(fsmonitor_ran.exists(), "the branch's fsmonitor is not configured");
+    fs::remove_file(&fsmonitor_ran).unwrap();
+    let removed = git_cli(&server, &attached, &["worktree", "remove", "--idempotency-key", "rm-on"]);
+    assert_success(&removed);
+    assert!(!attached.exists(), "the review's worktree was not removed");
+    assert!(!fsmonitor_ran.exists(), "an fsmonitor ran removing a review's checkout");
+    // The other's HEAD detached since: it is still a review's checkout.
     git(&other_root, &["update-ref", "--no-deref", "HEAD", &head]);
     let remove = ["worktree", "remove", "--idempotency-key", "rm"];
     let removed = git_cli(&server, &other_root, &remove);
