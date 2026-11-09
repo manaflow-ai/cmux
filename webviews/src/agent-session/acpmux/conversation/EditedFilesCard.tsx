@@ -290,7 +290,11 @@ function Card({
           </div>
         );
       })}
-      {row.ended === true && <TurnShots rowId={row.id} />}
+      {/* The turn's page pictures show with the card's contents: collapsed, they wait until it opens
+          (a one-file card's with its diff). */}
+      {row.ended === true && (single ? settings.show !== "collapsed" || diffOpen : open) && (
+        <TurnShots rowId={row.id} />
+      )}
       {open && (more > 0 || showAll) && !single && total > limit && (
         <button
           type="button"

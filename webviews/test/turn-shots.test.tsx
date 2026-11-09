@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { setEditedFilesSettings } from "../src/agent-session/acpmux/turnChanges/settings";
 import { PAGE_AFTER, PAGE_BEFORE } from "../src/agent-session/acpmux/turnChanges/turnShotFixtures";
 import {
   readTurnShots,
@@ -188,4 +189,15 @@ test("no pair, or a turn still running, draws no pictures", async () => {
   act(() => root?.unmount());
   await renderCard(edit(false), reader({ before: PAGE_BEFORE, after: PAGE_AFTER }));
   expect(host.querySelector(".acpmux-turn-shots")).toBeNull();
+});
+
+test("a card the setting collapses shows its pictures only once opened", async () => {
+  // The edit fixture is a one-file card: its pictures go with its diff.
+  setEditedFilesSettings({ show: "collapsed" });
+  try {
+    await renderCard(edit(true), reader({ before: PAGE_BEFORE, after: PAGE_AFTER }));
+    expect(host.querySelector(".acpmux-turn-shots")).toBeNull();
+  } finally {
+    setEditedFilesSettings({ show: "always" });
+  }
 });

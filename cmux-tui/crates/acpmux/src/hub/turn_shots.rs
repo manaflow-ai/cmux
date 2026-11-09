@@ -50,9 +50,11 @@ pub(crate) enum Phase {
     Done,
 }
 
-/// A turn whose pair is not done: its phase, and its workspace for the after.
+/// A turn whose pair is not done: its phase, and its workspace and before's tab for the after.
 struct Pending {
     workspace: String,
+    /// The tab the before shows: the after is of that tab or none.
+    tab: Option<String>,
     phase: watch::Sender<Phase>,
     /// The turn settled (`turn_ended` took its after).
     ended: bool,
@@ -124,18 +126,22 @@ fn host_socket() -> PathBuf {
     base.join("browser-host.sock")
 }
 
-/// The REPL cell that writes the workspace's page to `out`, printing `TURN_SHOT <json>` when it did.
+/// The REPL cell that writes the workspace's page to `out`, printing `TURN_SHOT {url, id}` when it
+/// did. With `tab` (the before's), only that tab: a turn whose selection moved to another page
+/// gets no after, never two unrelated pages as its change.
 /// `tabs.list()` with no `all` names the tabs agents drive already (never one the person alone
 /// used); only `{all: true}` carries each tab's workspace, so the cell reads both and takes a tab in
 /// both. Listing attaches nothing; only `tabs.get` does, on the chosen tab.
-pub(crate) fn capture_code(workspace: &str, out: &Path) -> String {
+pub(crate) fn capture_code(workspace: &str, out: &Path, tab: Option<&str>) -> String {
     let workspace = json!(workspace_key(workspace));
+    let tab = json!(tab);
     let out = json!(out.display().to_string());
     format!(
         r#"const key = (id) => String(id || "").replace(/^ws_/, "").replace(/-/g, "").toLowerCase();
 const driven = new Set((await tabs.list()).map((t) => t.id));
-const tab = (await tabs.list({{ all: true }})).find((t) => driven.has(t.id) && t.active && t.state === "live" && key(t.workspace) === {workspace} && /^https?:\/\//.test(t.url || ""));
-if (tab) {{ await screenshot(await tabs.get(tab.id), {{ path: {out} }}); console.log("TURN_SHOT " + JSON.stringify({{ url: tab.url }})); }}"#
+const only = {tab};
+const tab = (await tabs.list({{ all: true }})).find((t) => driven.has(t.id) && (only === null || t.id === only) && t.active && t.state === "live" && key(t.workspace) === {workspace} && /^https?:\/\//.test(t.url || ""));
+if (tab) {{ await screenshot(await tabs.get(tab.id), {{ path: {out} }}); console.log("TURN_SHOT " + JSON.stringify({{ url: tab.url, id: tab.id }})); }}"#
     )
 }
 
@@ -174,33 +180,52 @@ fn host_call(_socket: &Path, _method: &str, _params: Value) -> Option<Value> {
     None
 }
 
-/// Captures the workspace's page into `out`; false, with no file left, when it took none (or one
-/// over [`MAX_SHOT_BYTES`]). Blocking, bounded by [`CAPTURE_LIMIT`] per call.
-fn capture(socket: &Path, base: &Path, workspace: &str, out: &Path) -> bool {
+/// Captures the workspace's page (with `tab`, only that tab) into `out`: the tab's id, or none,
+/// with no file left, when it took none (or one over [`MAX_SHOT_BYTES`]). Blocking, bounded by
+/// [`CAPTURE_LIMIT`] per call.
+fn capture(
+    socket: &Path,
+    base: &Path,
+    workspace: &str,
+    tab: Option<&str>,
+    out: &Path,
+) -> Option<String> {
     if !socket.exists() {
-        return false;
+        return None;
     }
     let params = json!({
         "session": REPL_SESSION,
         "engine": "cef",
         "label": "Turn pictures",
         "cwd": base.display().to_string(),
-        "code": capture_code(workspace, out),
+        "code": capture_code(workspace, out, tab),
         "timeoutMs": CAPTURE_LIMIT.as_millis() as u64 - 2_000,
     });
-    let taken = host_call(socket, "browser.repl.eval", params).is_some_and(|result| {
-        result.get("error").is_none_or(Value::is_null)
-            && result
-                .get("output")
-                .and_then(Value::as_str)
-                .is_some_and(|text| text.lines().any(|l| l.starts_with("TURN_SHOT ")))
+    let taken = host_call(socket, "browser.repl.eval", params)
+        .filter(|result| result.get("error").is_none_or(Value::is_null))
+        .and_then(|result| {
+            let text = result.get("output")?.as_str()?;
+            let marker = text.lines().find_map(|l| l.strip_prefix("TURN_SHOT "))?;
+            let shown: Value = serde_json::from_str(marker).ok()?;
+            Some(shown.get("id")?.as_str()?.to_owned())
+        });
+    let kept = taken.filter(|_| {
+        std::fs::metadata(out).is_ok_and(|m| m.len() > 0 && m.len() as usize <= MAX_SHOT_BYTES)
     });
-    let kept = taken
-        && std::fs::metadata(out).is_ok_and(|m| m.len() > 0 && m.len() as usize <= MAX_SHOT_BYTES);
-    if !kept {
+    if kept.is_none() {
         let _ = std::fs::remove_file(out);
     }
     kept
+}
+
+/// Drops a turn's pictures, and its chat's folder once that holds none, so a chat with no pair
+/// never counts toward [`KEEP_CHATS`].
+fn drop_turn(turn_dir: &Path) {
+    let _ = std::fs::remove_dir_all(turn_dir);
+    if let Some(chat) = turn_dir.parent() {
+        // Fails, keeping it, while another turn's pictures are in it.
+        let _ = std::fs::remove_dir(chat);
+    }
 }
 
 /// Keeps a turn's pair when it shows a change: the after differs from the before. Then at most
@@ -210,7 +235,7 @@ pub(crate) fn settle(base: &Path, session_dir: &Path, turn_dir: &Path) {
     let changed =
         matches!((read(BEFORE), read(AFTER)), (Some(before), Some(after)) if before != after);
     if !changed {
-        let _ = std::fs::remove_dir_all(turn_dir);
+        drop_turn(turn_dir);
     }
     prune(session_dir, KEEP_TURNS);
     prune(base, KEEP_CHATS);
@@ -264,22 +289,26 @@ pub(super) fn turn_began(session: &Session, turn: &str) {
                 let _ = old_pending.phase.send_replace(Phase::Done);
             }
             if let Some(old_dir) = turn_dir(&base, &old.0, &old.1) {
-                let _ = std::fs::remove_dir_all(old_dir);
+                drop_turn(&old_dir);
             }
         }
         let (phase, _) = watch::channel(Phase::Before);
-        pending.insert(key.clone(), Pending { workspace: workspace.clone(), phase, ended: false });
+        let pending_turn = Pending { workspace: workspace.clone(), tab: None, phase, ended: false };
+        pending.insert(key.clone(), pending_turn);
     }
     let socket = host_socket();
     tokio::task::spawn_blocking(move || {
-        let taken = std::fs::create_dir_all(&dir).is_ok()
-            && capture(&socket, &base, &workspace, &dir.join(BEFORE));
-        if !taken {
-            let _ = std::fs::remove_dir_all(&dir);
+        let taken = std::fs::create_dir_all(&dir)
+            .ok()
+            .and_then(|()| capture(&socket, &base, &workspace, None, &dir.join(BEFORE)));
+        let Some(tab) = taken else {
+            drop_turn(&dir);
             finish(&key);
             return;
-        }
-        if let Some(pending) = PENDING.lock().unwrap_or_else(PoisonError::into_inner).get(&key) {
+        };
+        if let Some(pending) = PENDING.lock().unwrap_or_else(PoisonError::into_inner).get_mut(&key)
+        {
+            pending.tab = Some(tab);
             let _ = pending.phase.send_replace(Phase::Ready);
         }
     });
@@ -302,17 +331,17 @@ pub(super) fn turn_ended(session: &Session, turn: &str) {
             tokio::time::timeout(CAPTURE_LIMIT * 2, phase.wait_for(|p| *p != Phase::Before))
                 .await
                 .map(|seen| seen.map(|p| *p));
-        let workspace = match ready {
+        let shown = match ready {
             Ok(Ok(Phase::Ready)) => PENDING
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .get(&key)
-                .map(|pending| pending.workspace.clone()),
+                .and_then(|pending| Some((pending.workspace.clone(), pending.tab.clone()?))),
             _ => None,
         };
-        let Some(workspace) = workspace else {
+        let Some((workspace, tab)) = shown else {
             if let Some(dir) = turn_dir(&root(), &key.0, &key.1) {
-                let _ = tokio::fs::remove_dir_all(dir).await;
+                let _ = tokio::task::spawn_blocking(move || drop_turn(&dir)).await;
             }
             finish(&key);
             return;
@@ -320,8 +349,9 @@ pub(super) fn turn_ended(session: &Session, turn: &str) {
         let _ = tokio::task::spawn_blocking(move || {
             let base = root();
             if let Some(dir) = turn_dir(&base, &key.0, &key.1) {
-                // No after (or one too large): `settle` drops the lone before.
-                capture(&socket, &base, &workspace, &dir.join(AFTER));
+                // No after (the tab gone or no longer shown, or a picture too large): `settle`
+                // drops the lone before.
+                let _ = capture(&socket, &base, &workspace, Some(&tab), &dir.join(AFTER));
                 settle(&base, &base.join(&key.0), &dir);
             }
             finish(&key);
