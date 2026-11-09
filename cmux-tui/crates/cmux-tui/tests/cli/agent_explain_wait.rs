@@ -221,5 +221,9 @@ fn w5t_terminal_wait_any_and_all_return_on_the_agents_they_name() {
     );
     assert!(started.elapsed() >= Duration::from_secs(1), "the wait ended before its timeout");
     assert_eq!(output.status.code(), Some(124), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(json_error(&output)["code"], "wait.timeout");
+    let error = json_error(&output);
+    assert_eq!(error["code"], "wait.timeout");
+    // The timeout says where each agent stood at the end.
+    assert_eq!(error["details"]["agents"][0]["terminal"], first.as_str(), "{error}");
+    assert_eq!(error["details"]["agents"][0]["status"], "working", "{error}");
 }
