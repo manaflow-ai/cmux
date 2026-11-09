@@ -552,6 +552,70 @@ mod tests {
         }
     }
 
+    /// SQLite VM steps the rehome of a registry with `records` journal
+    /// records takes, after a copy to another machine.
+    fn rehome_steps(records: usize) -> u64 {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        use super::super::session_journal::kind_read_tests::TestJournalRecord;
+        let root = temp_root("rehome-cost");
+        as_machine(Some("0123456789abcdef0123456789abcdef"));
+        let registry = WorkspaceRegistry::open(&root, SESSION).unwrap();
+        let copied = registry.registry_id().to_string();
+        let records = (0..records)
+            .map(|index| TestJournalRecord {
+                kind: "personal.session.put".into(),
+                producer: JournalProducer { kind: "presentation".into(), id: "cmux-tui".into() },
+                subjects: vec![JournalSubject {
+                    kind: "session".into(),
+                    id: format!("sess_{:032x}", index % 64),
+                }],
+                payload: serde_json::json!({"index": index}),
+            })
+            .collect::<Vec<_>>();
+        registry.append_journal_records_for_test(&records);
+        drop(registry);
+        as_machine(Some("fedcba9876543210fedcba9876543210"));
+        let connection = Connection::open(registry_file(&root)).unwrap();
+        let steps = std::sync::Arc::new(AtomicU64::new(0));
+        let counter = std::sync::Arc::clone(&steps);
+        connection
+            .progress_handler(
+                16,
+                Some(move || {
+                    counter.fetch_add(16, Ordering::Relaxed);
+                    false
+                }),
+            )
+            .unwrap();
+        rehome_registry(&connection).unwrap();
+        connection.progress_handler(0, None::<fn() -> bool>).unwrap();
+        assert_ne!(required_meta(&connection, "registry_id").unwrap(), copied, "rehomed");
+        drop(connection);
+        fs::remove_dir_all(root).unwrap();
+        steps.load(Ordering::Relaxed)
+    }
+
+    /// The rehome costs the registry's state, not its history: 10x the
+    /// journal records adds less than one VM step each. It used to scan
+    /// every text column of the journal's event index (a row per record)
+    /// and took 5.5 s of a 7.4 s first start of a 58.7 GB registry on its
+    /// new machine (2026-11-09).
+    #[test]
+    fn the_rehome_cost_does_not_grow_with_the_journal() {
+        let sizes = [2_000, 20_000];
+        let steps = sizes.map(rehome_steps);
+        let per_record = steps[1].saturating_sub(steps[0]) / (sizes[1] - sizes[0]) as u64;
+        assert!(
+            per_record < 1,
+            "the rehome costs {per_record} VM steps per journal record ({} at {}, {} at {})",
+            steps[0],
+            sizes[0],
+            steps[1],
+            sizes[1]
+        );
+    }
+
     #[test]
     fn ids_written_before_the_stamp_or_without_an_os_identity_are_kept() {
         let root = temp_root("unstamped");
