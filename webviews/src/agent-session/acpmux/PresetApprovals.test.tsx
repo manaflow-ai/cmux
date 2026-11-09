@@ -72,7 +72,8 @@ const machines = ["gcp-agent-lane-1", "gcp-agent-lane-2"];
 type Call = { name: string; approve: boolean; digest?: string };
 function fakeClient(
   replies: (() => Promise<unknown>)[],
-  approve: (call: Call) => Promise<unknown> = async (call) => needs({ approval: call.approve ? approved.approval : null }),
+  approve: (call: Call) => Promise<unknown> = async (call) =>
+    needs({ approval: call.approve ? approved.approval : null }),
 ) {
   const calls: Call[] = [];
   let reads = 0;
@@ -160,10 +161,10 @@ test("Cancel leaves the confirmation without sending", async () => {
 });
 
 test("an approved preset shows its runs and revokes in one click", async () => {
-  const { client, calls } = fakeClient(
-    [async () => ({ presets: [approved], machines })],
-    async () => ({ ...approved, approval: null }),
-  );
+  const { client, calls } = fakeClient([async () => ({ presets: [approved], machines })], async () => ({
+    ...approved,
+    approval: null,
+  }));
   const container = await render(client);
   expect(container.textContent).toContain("Approved by leoli on cosmic-gray · Runs: 3 · Last run 10m ago");
   await click(button(container, "Revoke"));
@@ -185,7 +186,10 @@ test("a preset changed since the read is read again, its new contents shown, and
     ],
     async () =>
       Promise.reject(
-        Object.assign(new Error("changed"), { data: { reason: "preset_approval.changed" }, reason: "preset_approval.changed" }),
+        Object.assign(new Error("changed"), {
+          data: { reason: "preset_approval.changed" },
+          reason: "preset_approval.changed",
+        }),
       ),
   );
   const container = await render(client);
@@ -203,9 +207,8 @@ test("a preset changed since the read is read again, its new contents shown, and
 });
 
 test("a refusal names its reason on the row", async () => {
-  const { client } = fakeClient(
-    [async () => ({ presets: [needs()], machines })],
-    async () => Promise.reject(Object.assign(new Error("no"), { data: { reason: "permission.person_required" } })),
+  const { client } = fakeClient([async () => ({ presets: [needs()], machines })], async () =>
+    Promise.reject(Object.assign(new Error("no"), { data: { reason: "permission.person_required" } })),
   );
   const container = await render(client);
   await click(button(container, "Approve"));
@@ -213,12 +216,12 @@ test("a refusal names its reason on the row", async () => {
   expect(container.querySelector("[role=alert]")!.textContent).toBe("Only you can approve this, from the cmux app.");
 });
 
-test("the page shown again reads again; nothing polls", async () => {
+test("a switch away and back reads nothing; nothing polls", async () => {
   const { client, reads } = fakeClient([async () => ({ presets: [needs()], machines })]);
   await render(client);
   expect(reads()).toBe(1);
   await act(async () => {
     dom!.window.document.dispatchEvent(new dom!.window.Event("visibilitychange"));
   });
-  expect(reads()).toBe(2);
+  expect(reads()).toBe(1);
 });

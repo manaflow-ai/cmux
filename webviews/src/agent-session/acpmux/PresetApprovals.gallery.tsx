@@ -75,7 +75,7 @@ function GalleryPresetApprovals({ look, scenario }: Props) {
         rows[index] = {
           ...rows[index]!,
           approval: approve ? { by: "leoli", host: "cosmic-gray", at: minutesAgo(0) } : null,
-        } as (typeof needs);
+        } as typeof needs;
         return rows[index];
       },
     };

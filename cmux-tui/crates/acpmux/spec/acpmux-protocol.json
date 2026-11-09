@@ -1731,6 +1731,20 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/preset_approvals",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/preset_approve",
+      "params": {
+        "$ref": "#/types/PresetApproveParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/models",
       "params": {
         "$ref": "#/types/ModelsParams"
@@ -4607,6 +4621,18 @@
         "participants",
         "sessionId"
       ],
+      "type": "object"
+    },
+    "PresetApproveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "approve": true,
+        "digest": true,
+        "name": true
+      },
       "type": "object"
     },
     "PrewarmParams": {

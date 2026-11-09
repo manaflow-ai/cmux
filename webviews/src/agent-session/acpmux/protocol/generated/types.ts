@@ -969,6 +969,13 @@ export type PresenceNote = {
   sessionId: string;
 } & Record<string, unknown>;
 
+export interface PresetApproveParams {
+  _meta?: RequestMeta;
+  approve?: unknown;
+  digest?: unknown;
+  name?: unknown;
+}
+
 export interface PrewarmParams {
   _meta?: RequestMeta;
   cwd?: unknown;

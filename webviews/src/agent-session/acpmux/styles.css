@@ -584,7 +584,7 @@
 /* Unattended runs (PresetApprovals.tsx): the inbox's rows, with the preset's details under its name and a two-step Approve in place. Its head opens nothing, so it takes no hover. */
 .acpmux-presets .acpmux-presets-head:hover{background:none}
 .acpmux-presets .acpmux-home-inbox-where[data-blocked],.acpmux-presets .acpmux-home-inbox-detail[data-blocked]{white-space:normal}
-.acpmux-presets-confirm{display:flex;flex-direction:column;gap:var(--ds-space-1);min-width:0}
+.acpmux-presets-confirm{display:flex;flex-direction:column;gap:var(--ds-space-1);min-width:0;margin:0;padding:0;border:0}
 .acpmux-presets-consequence{margin:0;padding:0 var(--ds-space-2) 0 var(--ds-space-6);color:var(--agent-text);font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-presets[data-look=compact] .acpmux-presets-confirm{flex-basis:100%;padding:0 0 var(--ds-space-1)}
 .acpmux-presets[data-look=compact] .acpmux-presets-confirm .acpmux-home-inbox-answers{padding:0 var(--ds-space-2) 0 var(--ds-space-6)}

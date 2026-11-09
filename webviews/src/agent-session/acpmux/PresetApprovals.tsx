@@ -4,9 +4,9 @@
 // them (`_acpmux/preset_approvals`); a preset someone tried to dispatch while it was not approved
 // waits here with an Approve, which takes a second, plainly worded click. An approved one shows who
 // approved it and its runs, with Revoke. One that cannot be carried to another machine exactly
-// says why and offers nothing. The card reads when it mounts, when the page is shown again and
-// after each approve or revoke; it never polls. An acpmux without the method, or no presets,
-// draws nothing.
+// says why and offers nothing. The card reads when it mounts and after each approve or revoke; a
+// switch away and back reads nothing (plans/cmux-next/shared-projections.md), and it never polls.
+// An acpmux without the method, or no presets, draws nothing.
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AgentMark } from "../shared/AgentMark";
@@ -74,12 +74,7 @@ export function PresetApprovals({
   }, [client]);
   useEffect(() => {
     read();
-    const shown = () => {
-      if (document.visibilityState !== "hidden") read();
-    };
-    document.addEventListener("visibilitychange", shown);
     return () => {
-      document.removeEventListener("visibilitychange", shown);
       turn.current += 1;
     };
   }, [read]);
@@ -178,9 +173,7 @@ function PresetItem({
     );
   };
   const runs = [harness, row.model, row.effort].filter(Boolean).join(" · ");
-  const policy = POLICY_WORDS[row.policy]
-    ? t(POLICY_WORDS[row.policy]!)
-    : t(POLICY_OTHER, { policy: row.policy });
+  const policy = POLICY_WORDS[row.policy] ? t(POLICY_WORDS[row.policy]!) : t(POLICY_OTHER, { policy: row.policy });
   const where = machines.length
     ? t("presetApprovals.where", { machines: machines.join(", ") })
     : t("presetApprovals.whereNone");
@@ -247,7 +240,7 @@ function PresetItem({
         </div>
       )}
       {state === "needs" && confirming && (
-        <div className="acpmux-presets-confirm" role="group" aria-label={t("presetApprovals.confirmLabel")}>
+        <fieldset className="acpmux-presets-confirm" aria-label={t("presetApprovals.confirmLabel")}>
           <p className="acpmux-presets-consequence">
             {t(CONFIRM_WORDS[row.policy] ?? CONFIRM_OTHER, { name: row.name, policy: row.policy })}{" "}
             {t("presetApprovals.withdraw")} {t("presetApprovals.guards", { harness })}
@@ -271,7 +264,7 @@ function PresetItem({
               {t("presetApprovals.cancel")}
             </button>
           </div>
-        </div>
+        </fieldset>
       )}
       {state === "approved" && (
         <div className="acpmux-home-inbox-answers">

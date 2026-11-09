@@ -46,8 +46,7 @@ export type PresetApprovalsClient = {
 
 export const NO_PRESET_APPROVALS: PresetApprovals = { presets: [], machines: [] };
 
-const text = (value: unknown): string | undefined =>
-  typeof value === "string" && value.trim() ? value : undefined;
+const text = (value: unknown): string | undefined => (typeof value === "string" && value.trim() ? value : undefined);
 const time = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isFinite(value) ? value : undefined;
 const record = (value: unknown): Record<string, unknown> | undefined =>
