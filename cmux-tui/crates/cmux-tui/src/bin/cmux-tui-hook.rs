@@ -80,15 +80,44 @@ pub(crate) fn run_cli(arguments: Vec<String>, exe_prefix: &[&str]) -> ExitCode {
 }
 
 fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
-    if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
+    if plugin_copy::stands_down(&args.source, &args.native_event, |name| env::var_os(name)) {
         drain_native_payload()?;
         return Ok(());
+    }
+    let context =
+        session_context::applies(&args.source, &args.native_event, |name| env::var_os(name));
+    let route = deliver(&args, exe_prefix)?;
+    if context {
+        // After the handoff: the read connects from a helper thread, which
+        // must not exist when the detached child forks.
+        let (socket, terminal) = route.unzip();
+        // Inside cmux-tui (`exe_prefix` re-enters it) this executable is the
+        // build's CLI; the standalone helper is not.
+        let cli = (!exe_prefix.is_empty())
+            .then(env::current_exe)
+            .and_then(Result::ok)
+            .map(|path| path.canonicalize().unwrap_or(path));
+        session_context::print(socket.as_deref(), terminal.flatten().as_deref(), cli.as_deref());
+    }
+    Ok(())
+}
+
+/// Hands the event to the session journal; the route it used, `None` when
+/// this hook posts nothing.
+fn deliver(args: &Args, exe_prefix: &[&str]) -> anyhow::Result<Option<(PathBuf, Option<String>)>> {
+    if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
+        drain_native_payload()?;
+        return Ok(None);
+    }
+    if inherited_route_is_untrusted(&args.source, |name| env::var_os(name)) {
+        drain_native_payload()?;
+        return Ok(None);
     }
     let (socket, terminal) = match session_route() {
         Some(route) => route,
         None => {
             drain_native_payload()?;
-            return Ok(());
+            return Ok(None);
         }
     };
     let native = read_native_payload(io::stdin().lock())?;
@@ -102,12 +131,32 @@ fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
     let (request_id, encoded) = encode_request(event)?;
     let handoff = handoff_wait(&args.source, &args.native_event);
     match detach::append_detached(&socket, &request_id, &encoded, handoff, exe_prefix)? {
-        Handoff::Sent => Ok(()),
+        Handoff::Sent => Ok(Some((socket, terminal))),
         Handoff::ChildExited => bail!("hook child gave up before writing the journal request"),
         Handoff::TimedOut => {
             bail!("journal request handoff was not confirmed within {} ms", handoff.as_millis())
         }
     }
+}
+
+/// Set to `launch` by a hook command that carries its own route (the Codex
+/// wrapper's per-launch hooks), as opposed to one inherited from a process
+/// environment.
+pub(crate) const HOOK_ROUTE_ENV: &str = "CMUX_TUI_HOOK_ROUTE";
+
+/// Codex 0.162 runs hooks in a shared app-server daemon that keeps the
+/// environment of whichever shell started it. An installed hook there would
+/// read that shell's `CMUX_TUI_*` (or `TMUX`) values and post every Codex
+/// session's events, from any terminal or none, to that one cmux terminal, so
+/// it posts nothing. The wrapper's hooks name their own terminal and still
+/// route.
+fn inherited_route_is_untrusted(
+    source: &str,
+    getenv: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> bool {
+    source == "codex"
+        && getenv(HOOK_ROUTE_ENV).is_none_or(|value| value != "launch")
+        && cmux_tui_core::platform::descends_from_codex_app_server_daemon()
 }
 
 /// The session socket and terminal that receive this event: the terminal's
@@ -344,8 +393,18 @@ fn settle_detached_child(mut child: DetachedChildGuard, reader: std::thread::Joi
     }
 }
 
+/// Where the agent runs, for the model at session start.
+#[path = "cmux-tui-hook/session_context.rs"]
+pub(crate) mod session_context;
+
+/// The Claude Code plugin's copy of the hooks, beside an installed copy.
+#[path = "cmux-tui-hook/plugin_copy.rs"]
+pub(crate) mod plugin_copy;
+
 fn handoff_wait(source: &str, native_event: &str) -> Duration {
-    if source == "codex" && native_event == "SessionEnd" {
+    // Codex SessionStart also reads the session context after the handoff
+    // (session_context.rs, 1.5 s), all inside the 5 s hook timeout.
+    if source == "codex" && matches!(native_event, "SessionEnd" | "SessionStart") {
         CODEX_SESSION_END_HANDOFF_WAIT
     } else {
         HANDOFF_WAIT
@@ -518,6 +577,12 @@ fn append_once(
     on_sent: &dyn Fn(),
 ) -> Result<(), AppendAttemptError> {
     let mut stream = connect_before(socket, deadline)?;
+    // Bound the receipt read now, while the peer is surely still connected:
+    // once a server has answered and closed, macOS refuses SO_RCVTIMEO with
+    // EINVAL although the answer is still readable.
+    stream
+        .set_read_timeout(Some(remaining_before(deadline)?))
+        .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
     write_before(&mut *stream, encoded, deadline)?;
     on_sent();
     let response = read_before(stream, deadline)?;
@@ -638,9 +703,10 @@ fn write_before(
         }
     }
     loop {
-        stream
-            .set_write_timeout(Some(remaining_before(deadline)?))
-            .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+        // The request is fully written. A fast server may already have
+        // answered and closed, which makes macOS refuse the option; the
+        // timeout set for the writes still bounds the flush.
+        let _ = stream.set_write_timeout(Some(remaining_before(deadline)?));
         match stream.flush() {
             Ok(()) => return Ok(()),
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
@@ -656,10 +722,10 @@ fn read_before(
     let mut reader = BufReader::new(stream);
     let mut response = Vec::new();
     loop {
-        reader
-            .get_ref()
-            .set_read_timeout(Some(remaining_before(deadline)?))
-            .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+        // Shrink the bound toward the deadline. A refusal means the server
+        // already closed (macOS EINVAL), so the read cannot block; the
+        // timeout set before the request was written still applies.
+        let _ = reader.get_ref().set_read_timeout(Some(remaining_before(deadline)?));
         let available =
             reader.fill_buf().map_err(|error| AppendAttemptError::Retryable(error.into()))?;
         if available.is_empty() {
@@ -968,6 +1034,25 @@ fn random_identifiers() -> anyhow::Result<(String, String)> {
 mod tests {
     use super::*;
 
+    /// A server may answer and close before the hook child reads. macOS then
+    /// refuses `setsockopt(SO_RCVTIMEO)` with EINVAL although the receipt is
+    /// still readable; treating that as a failed attempt re-sent the event,
+    /// so the journal received it twice and out of order.
+    #[cfg(unix)]
+    #[test]
+    fn codex_hook_receipt_from_a_server_that_already_closed_is_still_read() {
+        let (client, mut server) = std::os::unix::net::UnixStream::pair().unwrap();
+        server.write_all(b"{\"type\":\"response\"}\n").unwrap();
+        drop(server);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        match read_before(Box::new(client), deadline) {
+            Ok(response) => assert_eq!(response, b"{\"type\":\"response\"}\n"),
+            Err(AppendAttemptError::Retryable(error) | AppendAttemptError::Fatal(error)) => {
+                panic!("the written receipt was not read: {error:#}")
+            }
+        }
+    }
+
     fn cmux_environ(pid: u32) -> Option<std::collections::HashMap<String, String>> {
         let environment = |terminal: &str| {
             Some(
@@ -1014,6 +1099,8 @@ mod tests {
     #[test]
     fn codex_session_end_handoff_stays_below_the_codex_hook_cap() {
         assert!(handoff_wait("codex", "SessionEnd") < Duration::from_secs(3));
+        // The session context read (session_context.rs) still fits in 5 s.
+        assert!(handoff_wait("codex", "SessionStart") < Duration::from_secs(3));
         assert!(handoff_wait("codex", "Stop") > SOCKET_TIMEOUT);
         assert!(handoff_wait("claude", "SessionEnd") > SOCKET_TIMEOUT);
     }

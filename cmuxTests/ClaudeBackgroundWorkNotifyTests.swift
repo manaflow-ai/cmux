@@ -227,6 +227,15 @@ struct ClaudeBackgroundWorkNotifyTests {
         sessionId: String,
         stdin: String
     ) throws -> (snapshot: [String], cachedPending: Bool?) {
+        let result = try runStopHookRecordingCrons(name: name, sessionId: sessionId, stdin: stdin)
+        return (result.snapshot, result.cachedPending)
+    }
+
+    private func runStopHookRecordingCrons(
+        name: String,
+        sessionId: String,
+        stdin: String
+    ) throws -> (snapshot: [String], cachedPending: Bool?, cachedCrons: Bool?) {
         let harness = ClaudeHookSurfaceResolutionSwiftTests()
         let context = try harness.makeClaudeHookContext(name: name)
         let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
@@ -253,17 +262,18 @@ struct ClaudeBackgroundWorkNotifyTests {
         harness.assertSuccessfulHook(result)
         let snapshot = context.state.snapshot()
         // Read the cached flag from the store BEFORE cleanup deletes the temp dir.
-        let cached = cachedPending(storeURL, sessionId: sessionId)
+        let cached = cachedFlag("hadPendingBackgroundWorkAtStop", storeURL, sessionId: sessionId)
+        let crons = cachedFlag("hadSessionCronsAtStop", storeURL, sessionId: sessionId)
         context.cleanup()
-        return (snapshot, cached)
+        return (snapshot, cached, crons)
     }
 
-    private func cachedPending(_ storeURL: URL, sessionId: String) -> Bool? {
+    private func cachedFlag(_ key: String, _ storeURL: URL, sessionId: String) -> Bool? {
         guard let data = try? Data(contentsOf: storeURL),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let sessions = obj["sessions"] as? [String: Any],
               let record = sessions[sessionId] as? [String: Any] else { return nil }
-        return record["hadPendingBackgroundWorkAtStop"] as? Bool
+        return record[key] as? Bool
     }
 
     @Test func stopWithRunningBackgroundTaskTagsPendingAndCaches() throws {
@@ -316,9 +326,35 @@ struct ClaudeBackgroundWorkNotifyTests {
         let stdin = #"""
         {"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[],"session_crons":[{"id":"c1"}]}
         """#
-        let (snapshot, _) = try runStopHook(name: "bg-cron", sessionId: session, stdin: stdin)
-        #expect(notifyLine(snapshot, containing: "c=turn-complete;p=1") != nil,
-                "A pending scheduled wakeup must tag pending=1; saw \(snapshot)")
+        let result = try runStopHookRecordingCrons(name: "bg-cron", sessionId: session, stdin: stdin)
+        #expect(notifyLine(result.snapshot, containing: "c=turn-complete;p=1") != nil,
+                "A pending scheduled wakeup must tag pending=1; saw \(result.snapshot)")
+        // The app's drain check must never settle a pane parked on a cron.
+        #expect(result.cachedCrons == true)
+    }
+
+    @Test func stopWithOnlyABackgroundTaskRecordsNoSessionCrons() throws {
+        let session = "bg-task-no-cron-session"
+        let stdin = #"""
+        {"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[{"id":"t1","type":"shell","status":"running","description":"sleep","command":"sleep 20"}],"session_crons":[]}
+        """#
+        let result = try runStopHookRecordingCrons(name: "bg-task-no-cron", sessionId: session, stdin: stdin)
+        #expect(result.cachedPending == true)
+        // Recorded false, so the app may settle the pane once the task ends.
+        // https://github.com/manaflow-ai/cmux/issues/26358
+        #expect(result.cachedCrons == false)
+    }
+
+    @Test func stopThatDoesNotReportCronsRecordsThemAsPossible() throws {
+        let session = "bg-task-unknown-cron-session"
+        let stdin = #"""
+        {"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[{"id":"t1","type":"shell","status":"running","description":"sleep","command":"sleep 20"}]}
+        """#
+        let result = try runStopHookRecordingCrons(name: "bg-task-unknown-cron", sessionId: session, stdin: stdin)
+        #expect(result.cachedPending == true)
+        // No `session_crons` key says nothing about crons, so the app must
+        // not settle this pane on transcript evidence.
+        #expect(result.cachedCrons == true)
     }
 
     @Test func stopWithoutBackgroundKeysOldClientTagsNotPending() throws {

@@ -78,6 +78,13 @@ struct NewMachineModelTests {
         #expect(MachinePlanSnapshot.isPaidPlanID("go"))
     }
 
+    @Test func plusHasProSizesAndOneMachineSlot() {
+        let (model, _) = makeModel(plan: MachinePlanSnapshot(activeCount: 0, maxActiveVms: 1, planId: "go"))
+        #expect(model.memoryOptions == [4096, 8192, 16384])
+        #expect(model.lockedMemoryOptions == [24576, 32768, 65536])
+        #expect(model.memoryUpgradePlanId == "max")
+    }
+
     private final class Box<Value> {
         var value: Value
         init(_ value: Value) { self.value = value }
@@ -172,7 +179,7 @@ struct NewMachineModelTests {
         #expect(NewMachineModel.maxMemoryMb(planId: "pro") == 16384)
         #expect(NewMachineModel.maxMemoryMb(planId: "team") == 16384)
         #expect(NewMachineModel.maxMemoryMb(planId: "founders") == 16384)
-        #expect(NewMachineModel.maxMemoryMb(planId: "go") == 4096)
+        #expect(NewMachineModel.maxMemoryMb(planId: "go") == 16384)
         #expect(NewMachineModel.maxMemoryMb(planId: "free") == 8192)
         #expect(NewMachineModel.maxMemoryMb(planId: nil) == 8192)
         #expect(NewMachineModel.maxMemoryMb(planId: "max") == 65536)

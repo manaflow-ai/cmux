@@ -50,5 +50,10 @@ extension CMUXCLI {
         return previous[right.count]
     }
 
-    static let topLevelCommandNames: Set<String> = CmuxCommand.declaredCommandNames
+    static let topLevelCommandNames: Set<String> = {
+        var names = CmuxCommand.declaredCommandNames
+        // Chief remains a legacy-routed command until its facade migration.
+        names.insert("chief")
+        return names
+    }()
 }

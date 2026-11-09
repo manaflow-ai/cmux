@@ -90,6 +90,7 @@ describe("client config env validation", () => {
     // A retired override would pin checkout to a grandfathered Price, so the
     // deployment must fail loudly rather than sell at the old amount.
     const retired = [
+      ["STRIPE_STARTER_MONTHLY_20_PRICE_ID", "STRIPE_STARTER_MONTHLY_15_PRICE_ID"],
       ["STRIPE_PRO_MONTHLY_PRICE_ID", "STRIPE_PRO_MONTHLY_50_PRICE_ID"],
       ["STRIPE_PRO_YEARLY_PRICE_ID", "STRIPE_PRO_YEARLY_480_PRICE_ID"],
       ["STRIPE_PRO_YEARLY_288_PRICE_ID", "STRIPE_PRO_YEARLY_480_PRICE_ID"],
@@ -110,6 +111,7 @@ describe("client config env validation", () => {
   test("accepts the current Stripe price overrides", async () => {
     const result = await importEnv({
       ...requiredEnv,
+      STRIPE_STARTER_MONTHLY_15_PRICE_ID: "price_starter_15",
       STRIPE_PRO_MONTHLY_50_PRICE_ID: "price_pro_50",
       STRIPE_PRO_YEARLY_480_PRICE_ID: "price_pro_480",
       STRIPE_MAX_MONTHLY_200_PRICE_ID: "price_max_200",

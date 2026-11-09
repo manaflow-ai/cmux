@@ -1,0 +1,50 @@
+--- a/Sources/MessagesLabHome/Vendor/appkit-native/HeaderBackdrop.swift
++++ b/Sources/MessagesLabHome/Vendor/appkit-native/HeaderBackdrop.swift
+@@ -72,12 +72,18 @@
+     }
+ 
+     let params = Params.fromArguments()
+-    private let root = CALayer()
++    /// cmux: internal, for the top fade (HeaderFade.swift).
++    let root = CALayer()
+     private var a: CALayer?, b: CALayer?
+     private let tint = CALayer()
+     private let edgeLine = CALayer()
+     private let fadeMask = CAGradientLayer()
+     private(set) var available = false
++    /// cmux: the light top fade that replaces the blur (HeaderFade.swift);
++    /// nil keeps MessagesLab's always-on blurred header.
++    var topFade: CAGradientLayer?
++    /// cmux: the length of the last show or hide of the top fade.
++    var lastFadeDuration: TimeInterval = 0
+ 
+     override init(frame: NSRect) {
+         super.init(frame: frame)
+@@ -130,7 +136,7 @@
+     override func layout() {
+         super.layout()
+         CATransaction.begin(); CATransaction.setDisableActions(true)
+-        for l in [a, b, tint].compactMap({ $0 }) { l.frame = bounds }
++        for l in [a, b, tint, topFade].compactMap({ $0 }) { l.frame = bounds }
+         // One device pixel at the header's bottom (the view's scale: a window on a 1x display draws 1 pt).
+         let px = 1 / max(1, window?.backingScaleFactor ?? 2)
+         edgeLine.frame = CGRect(x: 0, y: params.height - px, width: bounds.width, height: px)
+@@ -141,6 +147,18 @@
+         CATransaction.commit()
+     }
+ 
++    /// cmux: the tint in the theme's background, so the header over empty
++    /// transcript is the background itself (Messages' grey `c` read as a
++    /// lighter band on a darker cmux pane); rows under it keep the fitted
++    /// gain (1 - a) and blur. A clear background (see-through window)
++    /// leaves the blur alone.
++    func setTint(_ color: NSColor) {
++        CATransaction.begin(); CATransaction.setDisableActions(true)
++        tint.backgroundColor = color.withAlphaComponent(1).cgColor
++        tint.opacity = Float(params.a * color.alphaComponent)
++        CATransaction.commit()
++    }
++
+     /// The view's height: the header plus its fade.
+     var totalHeight: CGFloat { params.height + params.fade }
+ 

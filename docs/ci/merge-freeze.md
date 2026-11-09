@@ -37,10 +37,15 @@ freeze.
 ## Where it's enforced
 
 - `scripts/ci/merge_freeze.py check` reads the open freezes and the pull request's label events
-  through the GitHub API, so every host sees the same freezes. Exit 1 means frozen, and 2 means
-  GitHub couldn't be read, which counts as frozen.
+  through the GitHub API, so every host sees the same freezes. Exit 1 means frozen, 2 means
+  GitHub couldn't be read, and 3 means GitHub's rate limit stopped the read. Both 2 and 3 count
+  as frozen wherever a merge happens. `--rate-limit-retry SECONDS` waits and reads once more
+  before it gives 3.
 - `.github/workflows/merge-freeze.yml` shows a `merge freeze` check on each pull request into
-  `main` and `feat-cmux-next`. Every hour it also closes lapsed freeze issues with a comment.
+  `main` and `feat-cmux-next`. A read the rate limit refused twice (two minutes apart) shows a
+  "merge freeze not checked" warning instead of a red: the rate limit says nothing about the pull
+  request, and the merge paths below read the freezes again. Every hour it also closes lapsed
+  freeze issues with a comment.
 - At merge time, `scripts/gh-merge-green` runs the same check on every base branch and refuses
   on exit 1 (frozen) or any other failure (freeze state unknown). `--override` doesn't lift a
   freeze. The old `--freeze-token` and `--window-token` flags print a warning and are ignored.

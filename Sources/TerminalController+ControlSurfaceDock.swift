@@ -34,6 +34,15 @@ extension TerminalController {
         )
     }
 
+    /// Surface types a Dock create accepts: terminal and browser, plus Chief
+    /// while Chief is on.
+    static func dockAcceptsSurfaceType(
+        _ panelType: PanelType,
+        chiefEnabled: Bool = ChiefSettings.isEnabled
+    ) -> Bool {
+        panelType == .terminal || panelType == .browser || (panelType == .chief && chiefEnabled)
+    }
+
     func validateDockCreateRouting<Resolution>(
         routing: ControlRoutingSelectors,
         tabManager: TabManager,
@@ -42,7 +51,8 @@ extension TerminalController {
         workspaceNotFound: Resolution,
         conflictingSelectors: (String) -> Resolution
     ) -> Resolution? {
-        guard panelType == .terminal || panelType == .browser else {
+        // Refused here, before any Dock reveal, while Chief is off.
+        guard Self.dockAcceptsSurfaceType(panelType) else {
             return unsupportedType(panelType.rawValue, dockUnsupportedSurfaceTypeMessage())
         }
         guard let dockOwnerId = windowDockOwnerIdForCreateRouting(routing, tabManager: tabManager) else {
@@ -78,7 +88,14 @@ extension TerminalController {
     }
 
     func dockUnsupportedSurfaceTypeMessage() -> String {
-        String(localized: "dock.error.unsupportedSurfaceType", defaultValue: "Dock placement supports only terminal and browser surfaces")
+        // Name Chief only while it's on.
+        guard ChiefSettings.isEnabled else {
+            return String(
+                localized: "dock.error.unsupportedSurfaceType.terminalBrowser",
+                defaultValue: "Dock placement supports terminal and browser surfaces"
+            )
+        }
+        return String(localized: "dock.error.unsupportedSurfaceType", defaultValue: "Dock placement supports terminal, browser, and Chief surfaces")
     }
 
     func dockUnavailableMessage() -> String {
@@ -116,7 +133,7 @@ extension TerminalController {
             return .paneNotFound
         }
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
-        let kind: DockSurfaceKind = (panelType == .browser) ? .browser : .terminal
+        let kind: DockSurfaceKind = panelType == .browser ? .browser : (panelType == .chief ? .chief : .terminal)
         if focus {
             // Creation is authoritative; revealing its secondary focus request
             // is best-effort when the Dock host is still mounting.
@@ -133,7 +150,8 @@ extension TerminalController {
             initialInput: kind == .terminal ? inputs.initialInput : nil,
             focus: false,
             preferredProfileID: kind == .browser ? preferredProfileID : nil,
-            preloadInitialNavigationInBackground: kind == .browser
+            preloadInitialNavigationInBackground: kind == .browser,
+            conversationID: nil
         )
         guard let newPanelId else {
             return .createFailed

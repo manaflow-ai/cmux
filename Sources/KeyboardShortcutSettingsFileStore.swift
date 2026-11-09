@@ -493,6 +493,7 @@ final class CmuxSettingsFileStore {
             parseFileExplorerSection(fileExplorerSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
         if let section = root["agentMessages"] as? [String: Any] { parseAgentMessagesSection(section, sourcePath: sourcePath, snapshot: &snapshot) }
+        if let section = root["chief"] as? [String: Any] { parseChiefSection(section, sourcePath: sourcePath, snapshot: &snapshot) }
         if let workspaceGroupsSection = root["workspaceGroups"] as? [String: Any] {
             parseWorkspaceGroupsSection(workspaceGroupsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }

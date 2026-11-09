@@ -520,7 +520,7 @@ struct CloudWelcomeMediaCarousel: View {
     /// what is on screen; the wall clock for a GIF or a placeholder.
     private func progress(at date: Date) -> Double {
         if reduceMotion || !autoplays { return 1 }
-        if let fraction = playback.fraction { return fraction }
+        if let fraction = playback.fraction(at: date) { return fraction }
         return min(playback.elapsed(at: date) / max(duration, 0.1), 1)
     }
 
@@ -671,8 +671,8 @@ struct CloudWelcomeMediaCarousel: View {
     /// moves ~10 px a second; SwiftUI rounds sizes and offsets to whole pixels,
     /// so it stepped. A layer placed at fractional points is drawn antialiased
     /// between pixels, so it glides. Horizontal grows left to right, vertical
-    /// top to bottom.
-    private struct RailFill: NSViewRepresentable {
+    /// top to bottom. Internal so tests can lay out the shipped fill view.
+    struct RailFill: NSViewRepresentable {
         let fraction: Double
         let vertical: Bool
         var minimumLength: CGFloat = 0
@@ -712,7 +712,10 @@ struct CloudWelcomeMediaCarousel: View {
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
                 let length = vertical ? bounds.height : bounds.width
-                let visible = minimumLength + (length - minimumLength) * CGFloat(fraction)
+                // Core Animation raises on a NaN frame, and min/max pass NaN
+                // through, so an unknown playhead draws as not started.
+                let progress = fraction.isNaN ? 0 : min(max(fraction, 0), 1)
+                let visible = minimumLength + (length - minimumLength) * CGFloat(progress)
                 // Full length, slid in by a fractional amount (AppKit's y is up,
                 // so a top-down fill slides down from above the top edge).
                 fill.frame = vertical
@@ -887,6 +890,15 @@ extension CloudWelcomeMediaCarousel {
         @ObservationIgnored private(set) var loopCompletions: AsyncStream<Void>
         @ObservationIgnored private let loopContinuation: AsyncStream<Void>.Continuation
         private weak var player: AVPlayer?
+        /// The movie's playhead as last reported by AVFoundation. The pager
+        /// extrapolates from it every frame instead of asking the player, whose
+        /// `currentTime()` takes an AVFoundation lock that can stall the main
+        /// thread for seconds inside a TimelineView body.
+        private(set) var playhead: Playhead?
+        @ObservationIgnored private var playheadObservation: CloudWelcomePlayheadObservation?
+        /// Every looped item shares the template's duration, so it is read from
+        /// the player only until it is known, never on each loop wrap.
+        @ObservationIgnored private var movieDuration: Double?
         private(set) var index = 0
         private var manuallyPaused = false
         private var reduceMotion = false
@@ -950,6 +962,7 @@ extension CloudWelcomeMediaCarousel {
 
         func attach(_ player: AVPlayer) {
             self.player = player
+            observePlayhead(of: player)
             if isPaused { player.pause() } else { player.play() }
         }
 
@@ -957,6 +970,47 @@ extension CloudWelcomeMediaCarousel {
         func detach(_ candidate: AVPlayer? = nil) {
             guard candidate == nil || player === candidate else { return }
             player = nil
+            playheadObservation?.cancel()
+            playheadObservation = nil
+            playhead = nil
+            movieDuration = nil
+        }
+
+        /// AVFoundation calls back on the main queue a few times a second and
+        /// whenever the playhead jumps, starts or stops (seek, loop, pause).
+        private func observePlayhead(of player: AVPlayer) {
+            playheadObservation?.cancel()
+            playhead = nil
+            movieDuration = nil
+            let interval = CMTime(seconds: Self.playheadSampleInterval, preferredTimescale: 600)
+            let observed = ObjectIdentifier(player)
+            let token = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
+                // The observer is registered on the main queue, matching Playback's actor.
+                MainActor.assumeIsolated {
+                    guard let self, let player = self.player, ObjectIdentifier(player) == observed else { return }
+                    let rate = player.timeControlStatus == .playing ? Double(player.rate) : 0
+                    let duration = self.movieDuration ?? player.currentItem?.duration.seconds ?? .nan
+                    if duration.isFinite, duration > 0 { self.movieDuration = duration }
+                    self.recordPlayhead(
+                        seconds: time.seconds,
+                        duration: duration,
+                        rate: rate,
+                        at: Date()
+                    )
+                }
+            }
+            playheadObservation = CloudWelcomePlayheadObservation(player: player, token: token)
+        }
+
+        static let playheadSampleInterval: Double = 0.25
+
+        /// Stores one playhead sample; the pager extrapolates between samples.
+        func recordPlayhead(seconds: Double, duration: Double, rate: Double, at date: Date) {
+            guard seconds.isFinite, duration.isFinite, duration > 0, rate.isFinite else {
+                playhead = nil
+                return
+            }
+            playhead = Playhead(seconds: seconds, duration: duration, rate: rate, sampledAt: date)
         }
 
         func didFinish(_ candidate: AVPlayer) {
@@ -1037,11 +1091,46 @@ extension CloudWelcomeMediaCarousel {
         }
 
         /// How far through its current play the movie is, or nil without one.
-        var fraction: Double? {
-            guard let item = player?.currentItem else { return nil }
-            let total = item.duration.seconds
-            guard total.isFinite, total > 0 else { return nil }
-            return min(max(item.currentTime().seconds / total, 0), 1)
+        /// Reads only the cached sample, never the player.
+        func fraction(at date: Date) -> Double? {
+            guard player != nil else { return nil }
+            return playhead?.fraction(at: date)
         }
     }
+
+    /// One AVFoundation playhead sample, advanced by the wall clock at the
+    /// rate the movie was playing when it was taken.
+    struct Playhead: Equatable {
+        let seconds: Double
+        let duration: Double
+        let rate: Double
+        let sampledAt: Date
+
+        func fraction(at date: Date) -> Double {
+            let now = seconds + max(date.timeIntervalSince(sampledAt), 0) * rate
+            return min(max(now / duration, 0), 1)
+        }
+    }
+}
+
+/// Owns a periodic playhead observer and removes it when the playback model
+/// moves to another movie or is released. It keeps the player alive until
+/// then: AVFoundation requires every periodic observer to be removed from the
+/// player that added it.
+private final class CloudWelcomePlayheadObservation {
+    private let player: AVPlayer
+    private var token: Any?
+
+    init(player: AVPlayer, token: Any) {
+        self.player = player
+        self.token = token
+    }
+
+    func cancel() {
+        guard let token else { return }
+        self.token = nil
+        player.removeTimeObserver(token)
+    }
+
+    deinit { cancel() }
 }

@@ -2,8 +2,8 @@ import { and, asc, eq, gt } from "drizzle-orm";
 import { cloudDb } from "../../../../../db/client";
 import { runEvents } from "../../../../../db/schema";
 import { jsonResponse } from "../../../../../services/vms/routeHelpers";
-import { withRunRoute, validRunId, runNotFound, RunHttpError } from "../../../../../services/runs/http";
-import { readRunSnapshot } from "../../../../../services/runs/repository";
+import { withRunRoute, validRunId, runNotFound, RunHttpError } from "../../../../../services/runs/legacy/http";
+import { readRunSnapshot } from "../../../../../services/runs/legacy/repository";
 
 export function GET(request: Request, context: { params: Promise<{ id: string }> }): Promise<Response> {
   return withRunRoute(request, "/api/runs/:id/events", async (scope) => {
