@@ -586,10 +586,12 @@ bottleneck without sampling the process: registry mutex contention with the
 source site that holds it, journal writer batch shape and commit latency, and
 control-socket admission. Counters accumulate since daemon start. The command
 reads atomics (and, for `hook_queue`, the small hook queue files) and never
-touches SQLite or the journal, so it is safe to poll.
+touches SQLite or the journal, so it is safe to poll. The opt-in `disk`
+section is the exception: it reads the registry on its own read-only
+connection, with a bounded cost (below).
 
 Params: `{include?: array<string>|null}`. `include` names optional result
-sections: `resource_projection`, `write_path`, `locks` and `hook_queue`;
+sections: `resource_projection`, `write_path`, `locks`, `hook_queue` and `disk`;
 unknown names are ignored.
 An optional section is absent unless requested, because SDK decoders refuse
 unknown result fields.
@@ -632,7 +634,27 @@ object{
     registry_wal_file_bytes?:uint64, registry_wal_file_high_water_bytes?:uint64
   },
   locks?:object{registry:lock_detail, state:lock_detail},
-  hook_queue?:object{queued_events:uint64,reset_dropped_events:uint64,undeliverable_events:uint64}
+  hook_queue?:object{queued_events:uint64,reset_dropped_events:uint64,undeliverable_events:uint64},
+  disk?:object{
+    registry_bytes:uint64, wal_bytes:uint64, shm_bytes:uint64,
+    page_size:uint64, page_count:uint64, freelist_pages:uint64,
+    files:array<object{name:string,bytes:uint64,files:uint64}>,
+    files_unlisted:uint64, files_truncated:boolean,
+    journal:object{
+      first_sequence:uint64, head_sequence:uint64, live_rows:uint64,
+      sample_rows:uint64, sample_bytes:uint64, sample_span_ms:uint64,
+      estimated_live_bytes:uint64,
+      kinds:array<object{kind:string,sample_rows:uint64,sample_bytes:uint64,
+        bytes_per_day:uint64|null,budget_bytes_per_day:uint64,over_budget:boolean}>
+    }|null,
+    segments:object{
+      segments:uint64, records:uint64, compressed_bytes:uint64, uncompressed_bytes:uint64,
+      by_codec:array<object{codec:string,segments:uint64,records:uint64,
+        compressed_bytes:uint64,uncompressed_bytes:uint64}>,
+      kinds:array<object{kind:string,segments:uint64}>
+    }|null,
+    error:string|null
+  }
 }
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
 lock_detail = object{
@@ -724,6 +746,26 @@ so their senders gave them up and the agent's later events went on. Unlike
 the other sections,
 it reads these small files. It is present only when the session serves a
 socket.
+
+`disk` says what the session's registry keeps on disk and which journal
+kinds write it. `registry_bytes`, `wal_bytes` and `shm_bytes` are the sizes
+of `workspace-registry.sqlite3` and its `-wal` and `-shm`; `page_count`,
+`page_size` and `freelist_pages` are its committed pages and the free ones.
+`files` lists the registry's directory, largest first (at most 32; a
+directory such as `terminal-output/` or an `.output-cleanup` staging folder
+counts every file under it), so a sidecar that outgrows the registry shows.
+`journal` covers the live (unsealed) journal: `live_rows` from its first
+and last sequence, and per kind the bytes of the newest 1024 rows (every
+text and blob column plus 64 bytes a row), the rate they were written at
+(`bytes_per_day`), the kind's entry in the daemon's disk budget table and
+whether the rate is over it. `segments` sums the sealed segments by codec,
+compressed and uncompressed, and counts the segments holding each kind.
+Cost: one directory listing (at most 20000 entries), a few header pragmas,
+two rowid seeks and the newest 1024 rows on a read-only connection with no
+registry lock, never a scan of the journal; segment sums are kept between
+requests and add only segments sealed since the last one. `journal` and
+`segments` are `null` and `error` says why when the registry cannot be
+read. It is present only for a registry on disk.
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at
@@ -9840,6 +9882,24 @@ another agent, another `op` or any other param is `agent_session.bad_request`.
 An observation attachment gets `agent_session.read_only`, and a teammate's or
 link guest's attachment `agent_session.not_trusted`: only the chat's owner signs
 its agent in. The code and key are never logged.
+
+### agent-session-btw
+
+`agent-session-btw-v1` (advertised with `agent-session-attach-v1`): the
+composer's `/btw <question>` on a Cloud chat. On an attached tab, `{id,
+cmd:"agent-session-btw", surface, question}` sends acpmux's `_acpmux/btw
+{sessionId, question, inline:true}` (the question trimmed), marked `via:"app"`
+so acpmux holds it by the folder's trust as it holds the app's own, and may wait
+up to 120 seconds: acpmux answers `{text}` from a read-only side question about the
+chat (`hub/btw.rs`), which never changes the chat. `sessionId` is always the
+tab's own session. acpmux's refusal comes back as an answer, `{refused:{reason}}`
+with its `data.reason` (`btw.no_read_only_mode`, `trust.pending`, `unsupported`
+from an acpmux without the method, or from an older one that opened a side
+session instead of answering inline; that side session is killed). An empty question, one over 16 KiB, or any
+other param (a session, a model, `inline`, `_meta`) is `agent_session.bad_request`.
+The side question approves reads on this machine, so only the chat's owner asks
+one: an observation attachment gets `agent_session.read_only`, and a teammate's
+or link guest's attachment, or the Cloud mobile carrier's, `agent_session.not_trusted`.
 
 ### agent-session-context
 
