@@ -328,8 +328,13 @@ impl ProviderEngine {
             _ => None,
         };
         // The automation lease: any call that is not a read acts (and takes
-        // the lease when the tab has none) before it runs.
-        let reads = OBSERVE_METHODS.contains(&method);
+        // the lease when the tab has none) before it runs. A host-world
+        // evaluate is the gate's own (it refuses one from a session): the
+        // secret mask of a screenshot and the focus checks, parts of a read,
+        // so a capture never takes a tab from the next agent (#39163 F1).
+        let host_world = method == "frame.evaluate"
+            && params.get("world").and_then(Value::as_str) == Some("host");
+        let reads = OBSERVE_METHODS.contains(&method) || host_world;
         // A handler registration, and the answer to a dialog or chooser the
         // source routed to this session, are neither inputs nor reads: they
         // never take, block or refresh a lease (the session that listens for
