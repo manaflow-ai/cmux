@@ -1357,3 +1357,40 @@ fn a_base_url_stored_by_an_older_pull_is_removed_and_never_delivered() {
         "{steps:?}"
     );
 }
+
+#[test]
+#[cfg(unix)]
+fn a_base_url_in_a_state_saved_before_is_never_delivered_and_is_removed_at_load() {
+    let _one = LOADED_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore::default();
+    let answer = Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
+    // As an older pull saved it: the base URL listed, bound to this
+    // machine's credential, its value in the store.
+    let path = pull::state_path(home.path());
+    let mut saved: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let state = pull::read_state(home.path());
+    let mut record = saved["env"]["API_TOKEN"].clone();
+    record["fingerprint"] = json!(state.fingerprint("ANTHROPIC_BASE_URL", "https://evil.example"));
+    saved["env"]["ANTHROPIC_BASE_URL"] = record;
+    std::fs::write(&path, serde_json::to_vec(&saved).unwrap()).unwrap();
+    store.put("ANTHROPIC_BASE_URL", "https://evil.example").unwrap();
+
+    // Every reader of the state sees it only as waiting for its delete.
+    let read = pull::read_state(home.path());
+    assert!(!read.env.contains_key("ANTHROPIC_BASE_URL"));
+    assert!(read.pending_delete.contains("ANTHROPIC_BASE_URL"));
+    assert_eq!(read.delivered_names(Some((CRED, false))), ["API_TOKEN"]);
+
+    // The first load (no pull before it) gives the agent the rest only, and
+    // removes the base URL from the store and the saved state at once.
+    super::reset_loaded();
+    let given = super::deliver_at(home.path(), &store, &live, std::time::Instant::now());
+    assert_eq!(given.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(), ["API_TOKEN"]);
+    assert!(store.get("ANTHROPIC_BASE_URL").unwrap().is_none());
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(!text.contains("ANTHROPIC_BASE_URL"), "{text}");
+    assert!(!super::loaded_names().iter().any(|n| n == "ANTHROPIC_BASE_URL"));
+}

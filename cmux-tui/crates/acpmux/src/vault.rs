@@ -65,6 +65,40 @@ pub const REFUSED_NAMES: &[&str] = &["CLAUDE_CODE_OAUTH_TOKEN"];
 /// here with its name logged, and a copy stored by an older pull is removed.
 pub const REROUTING_NAMES: &[&str] = &["ANTHROPIC_BASE_URL", "OPENAI_BASE_URL"];
 
+/// Whether `name` is one of [`REROUTING_NAMES`], in any case.
+pub fn rerouting(name: &str) -> bool {
+    REROUTING_NAMES.iter().any(|n| n.eq_ignore_ascii_case(name))
+}
+
+/// Removes, now, a base URL a state saved by an older pull still lists: its
+/// store item and its record. `State::parse` already moved it to
+/// `pending_delete`, so no reader gives it to an agent; this does not wait
+/// for the next pull (a daemon with a saved state skips the first one).
+/// While a pull or `forget` holds the lock, that run deletes it instead.
+fn scrub_rerouting(home: &std::path::Path, store: &dyn SecretStore) {
+    let listed = |state: &State| -> Vec<String> {
+        state.pending_delete.iter().filter(|n| rerouting(n)).cloned().collect()
+    };
+    if listed(&pull::read_state(home)).is_empty() {
+        return;
+    }
+    let Ok(_lock) = pull::lock(home, false) else { return };
+    let mut state = pull::read_state(home);
+    let names = listed(&state);
+    for name in names {
+        match store.delete(&name) {
+            Ok(()) => {
+                state.pending_delete.remove(&name);
+                tracing::warn!(name = %name, "vault entry removed: a base URL would reroute agents");
+            }
+            Err(code) => tracing::warn!(name = %name, code, "vault entry not removed yet"),
+        }
+    }
+    if let Err(code) = pull::write_state(home, &state) {
+        tracing::warn!(code, "vault state not saved");
+    }
+}
+
 /// Set by the daemon's worker: only a daemon gives agents the vault.
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 
@@ -138,6 +172,9 @@ pub fn load_values_by(
 ) -> (Vec<(String, Zeroizing<String>)>, Vec<(String, &'static str)>) {
     let (mut vars, mut skipped) = (Vec::new(), Vec::new());
     for (name, record) in &state.env {
+        if rerouting(name) {
+            continue;
+        }
         if Instant::now() >= deadline {
             skipped.push((name.clone(), "vault.load_timeout"));
             continue;
@@ -183,6 +220,9 @@ fn refresh_at(path: &std::path::Path, store: &dyn SecretStore, at: std::time::In
         (loaded.seen.is_some(), loaded.incomplete_at.is_none())
     };
     let home = path.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
+    scrub_rerouting(&home, store);
+    // The scrub may have saved the state: what is read now is what was seen.
+    let now = stamp_of(path);
     let state = pull::read_state(&home);
     let signature = state.signature();
     // The same entries as the last load: an unchanged state keeps its
@@ -336,7 +376,7 @@ fn given(loaded: &Loaded, current: Option<(String, bool)>) -> Vec<Given> {
     loaded
         .vars
         .iter()
-        .filter(|(k, _)| names.contains(k))
+        .filter(|(k, _)| names.contains(k) && !rerouting(k))
         .map(|(k, v)| Given {
             name: k.clone(),
             value: v.clone(),

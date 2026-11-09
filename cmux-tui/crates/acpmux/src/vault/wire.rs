@@ -135,7 +135,7 @@ fn env_item(item: &Value) -> Option<EnvItem> {
     if !crate::login_env::machine_env_name_allowed(name) || super::REFUSED_NAMES.contains(&name) {
         return None;
     }
-    if super::REROUTING_NAMES.iter().any(|n| n.eq_ignore_ascii_case(name)) {
+    if super::rerouting(name) {
         tracing::warn!(name, "vault entry not delivered: a base URL would reroute agents");
         return None;
     }
