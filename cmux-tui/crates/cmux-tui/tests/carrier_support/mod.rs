@@ -662,7 +662,8 @@ pub fn world_ssh(relay_up: bool) -> SshWorld {
     let ssh_cut = dir.path().join("ssh-cut");
     // sshd runs the key's forced command whatever the client asks; this
     // stand-in does the same, without the network or the ProxyCommand. The
-    // link ends when `ssh_cut` appears (stdin goes to the command through
+    // link ends when `ssh_cut` appears (by SIGKILL, so it ends whatever
+    // remote-link makes of a SIGTERM; stdin goes to the command through
     // fd 3: a background command's own stdin is /dev/null).
     std::fs::write(
         &fake_ssh,
@@ -674,7 +675,7 @@ pub fn world_ssh(relay_up: bool) -> SshWorld {
              '{BIN}' remote-link --stdio --session carrier-ssh --link-socket '{link}' <&3 &\n\
              child=$!\n\
              while kill -0 \"$child\" 2>/dev/null; do\n\
-             if [ -e '{cut}' ]; then kill \"$child\"; exit 255; fi\n\
+             if [ -e '{cut}' ]; then kill -9 \"$child\"; exit 255; fi\n\
              sleep 0.05\n\
              done\n\
              wait \"$child\"\n",
