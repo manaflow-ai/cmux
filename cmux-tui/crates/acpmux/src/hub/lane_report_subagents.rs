@@ -25,11 +25,11 @@
 //!
 //! A subagent that calls acpmux through MCP tools (`mcp__acpmux__send`, cmux's
 //! `acpmux_bg_start`, a `cmux_exec` script) and not through Bash is named by its call's tool use
-//! id (`crate::subagent_call`). Not covered: a cmux workflow script's calls (they carry no tool
-//! use id), `run_wait`, and a send the MCP server hands to the send relay; their reports go to
-//! the lead. A background task's end message (`bg_notify.rs`) goes to the lead's chat whoever
-//! started it. A subagent that makes no Bash or acpmux MCP call after its report came keeps it until
-//! it ends.
+//! id (`crate::subagent_call`). The end of a background task such a call started (`bg_start`,
+//! `run_wait`) takes the same rule as a report (`bg_notify.rs`). Not covered: a cmux workflow
+//! script's calls (they carry no tool use id) and a send the MCP server hands to the send relay;
+//! their reports and task ends go to the lead. A subagent that makes no Bash or acpmux MCP call
+//! after its report came keeps it until it ends.
 //! A subagent that ends with no `SubagentStop` keeps its reports until no subagent of the lead
 //! runs. A message steered into a running turn, or one that joined another message's turn
 //! (`digest.rs`), reports with that turn; one Claude Code carried into a turn of its own
@@ -107,26 +107,37 @@ impl Hub {
     /// left for it, false when the subagent has stopped or no subagent of `p` runs, so the
     /// report goes to `p` itself.
     pub(super) fn lane_report_to_subagent(&self, p: &Session, report: &Report) -> bool {
-        let Some(id) =
-            report.for_subagent.as_ref().and_then(|s| s.get("id")).and_then(Value::as_str)
-        else {
-            return false;
-        };
+        let Some(sub) = report.for_subagent.as_ref() else { return false };
+        let notice = json!({
+            "text": notice_text(report),
+            "lane": report.session,
+            "report": report,
+        });
+        self.subagent_notice_leave(p, sub, &report.prompt_id, &notice)
+    }
+
+    /// Leaves `notice` (named `name`) for subagent `sub` (`{id, type}`) of parent `p`: true
+    /// when it is left for it, false when the subagent has stopped or no subagent of `p` runs,
+    /// so it goes to `p` itself. A lane's report ([`Hub::lane_report_to_subagent`]) and a
+    /// background task's end (`bg_notify.rs`) take this one rule.
+    pub(super) fn subagent_notice_leave(
+        &self,
+        p: &Session,
+        sub: &Value,
+        name: &str,
+        notice: &Value,
+    ) -> bool {
+        let Some(id) = sub.get("id").and_then(Value::as_str) else { return false };
         let running = || p.subagents.lock().unwrap_or_else(|e| e.into_inner()).running_count() > 0;
         let home = crate::config::home();
         let Some(dir) = crate::subagent_notice::agent_dir(&home, &p.id, id) else { return false };
         if !running() || crate::subagent_notice::stopped(&dir) {
             return false;
         }
-        let notice = json!({
-            "text": notice_text(report),
-            "lane": report.session,
-            "report": report,
-        });
-        let path = match crate::subagent_notice::leave(&dir, &report.prompt_id, &notice) {
+        let path = match crate::subagent_notice::leave(&dir, name, notice) {
             Ok(path) => path,
             Err(e) => {
-                tracing::warn!(parent = %p.id, "lane report not left for its subagent: {e}");
+                tracing::warn!(parent = %p.id, "a notice was not left for its subagent: {e}");
                 return false;
             }
         };
@@ -182,6 +193,11 @@ impl Hub {
         let parent = session.id.clone();
         runtime.spawn(async move {
             for (dir, notice) in notices {
+                // A background task's end (`bg_notify.rs`): to the parent, saying whose it was.
+                if notice.get("bgTask").is_some() {
+                    hub.bg_end_swept(&parent, &notice).await;
+                    continue;
+                }
                 let report = notice.get("report").cloned().map(serde_json::from_value::<Report>);
                 let (Some(Ok(mut report)), Some(lane)) =
                     (report, notice.get("lane").and_then(Value::as_str))
