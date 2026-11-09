@@ -455,10 +455,31 @@ public final class DaemonStore: StateResourceQueries {
     /// (`DaemonConnection.observeRetriesSpent`): its header reads offline, not connecting (HQ
     /// #4877 G4). Cleared by the next connect and by a new attempt.
     public private(set) var retriesSpent = false
+    /// The reconnect parked while the store still read connected: its disconnect drains on a later
+    /// frame, which then applies the mark (``DaemonConnectionChange``). Cleared by the next connect.
+    private(set) var parkedBeforeDisconnect = false
+    /// Connections the store applied (``DaemonConnectionChange/connected(_:_:)``).
+    public private(set) var connects = 0
 
     public func noteRetriesSpent(_ spent: Bool) {
-        if spent, case .connected = connectionState { return }
+        if spent, case .connected = connectionState {
+            parkedBeforeDisconnect = true
+            return
+        }
+        if !spent { parkedBeforeDisconnect = false }
         if retriesSpent != spent { retriesSpent = spent }
+    }
+
+    /// The disconnect drained: a park noted before it applies now.
+    func applyParkedBeforeDisconnect() {
+        guard parkedBeforeDisconnect else { return }
+        parkedBeforeDisconnect = false
+        noteRetriesSpent(true)
+    }
+
+    func noteConnected() {
+        connects += 1
+        noteRetriesSpent(false)
     }
 
     // MARK: Derived state

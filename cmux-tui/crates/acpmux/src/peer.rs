@@ -30,6 +30,9 @@ mod features;
 #[path = "peer_health.rs"]
 mod health;
 
+#[cfg(feature = "hub-carrier")]
+#[path = "peer_hub.rs"]
+mod hub_path;
 #[path = "peer_ssh.rs"]
 mod ssh_errors;
 #[path = "peer_tokens.rs"]
@@ -166,6 +169,10 @@ pub struct Peer {
     /// The `ssh -W` process carrying an `ssh://` peer's current connection.
     tunnel: Mutex<Option<tokio::process::Child>>,
     wireguard: std::sync::OnceLock<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)>,
+    /// The daemon's hub carrier and the hub `daemonId` this peer's config names (its WireGuard
+    /// key), if any (`peer_hub.rs`).
+    #[cfg(feature = "hub-carrier")]
+    hub_carrier: std::sync::OnceLock<(crate::hub_carrier::HubCarrierSlot, Option<String>)>,
     /// The paired install the cmux link dials for this peer (`peer_carriers.rs`).
     link_host: std::sync::OnceLock<String>,
     /// The cmux link's socket when known ahead of its registration (tests); else read per dial.
@@ -422,6 +429,8 @@ impl Peer {
             peer_token,
             tunnel: Mutex::new(None),
             wireguard: std::sync::OnceLock::new(),
+            #[cfg(feature = "hub-carrier")]
+            hub_carrier: std::sync::OnceLock::new(),
             link_host: std::sync::OnceLock::new(),
             link_socket: std::sync::OnceLock::new(),
             paths: StdMutex::new(None),
