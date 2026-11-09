@@ -10151,7 +10151,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             <ShellActionsContext.Provider value={shellActions}>
               <TurnActionsContext.Provider value={turnActions}>
                 <SkillWordsContext.Provider value={skillWords}>
-                  <SteerChatContext.Provider value={snapshot.sessionId ?? ""}>
                   <NewestSteerContext.Provider value={snapshot.newestOwnSteer}>
                     <RunInBackgroundContext.Provider value={backgroundHint}>
                       <TurnCountsContext.Provider value={turnCountsFor}>
@@ -10343,7 +10342,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       </TurnCountsContext.Provider>
                     </RunInBackgroundContext.Provider>
                   </NewestSteerContext.Provider>
-                  </SteerChatContext.Provider>
                 </SkillWordsContext.Provider>
               </TurnActionsContext.Provider>
             </ShellActionsContext.Provider>
@@ -10354,7 +10352,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   const transcript = (
     <PresentationContext.Provider value={chatPresentation}>
-      <ThinkingVerbsContext.Provider value={thinkingVerbs}>{transcriptContent}</ThinkingVerbsContext.Provider>
+      <ThinkingVerbsContext.Provider value={thinkingVerbs}>
+        <SteerChatContext.Provider value={snapshot.sessionId ?? ""}>{transcriptContent}</SteerChatContext.Provider>
+      </ThinkingVerbsContext.Provider>
     </PresentationContext.Provider>
   );
   // Folder trust's question heads the bottom stack, and the chat's other asks stay under it
