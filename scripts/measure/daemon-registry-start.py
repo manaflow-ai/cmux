@@ -9,6 +9,7 @@ so the owner re-folds the whole journal. One DRS {json} line per start on stdout
 """
 
 import argparse
+import fcntl
 import json
 import os
 import socket
@@ -170,9 +171,20 @@ def main():
     # without opening a registry. Two `--version` execs before the timed starts pay it and
     # show it (the first against the second), so the starts time only the owner.
     # The generator's writes are still going to disk; a first start's fsyncs (its build's
-    # helper files, F_FULLFSYNC on macOS) would wait for them. Flush them first, timed.
+    # helper files, F_FULLFSYNC on macOS) would wait for them. Flush them first, timed: sync,
+    # then one full fsync (on macOS sync returns before the drive has the data).
     sync_started = time.monotonic()
     os.sync()
+    flush = os.path.join(args.home, ".drs-flush")
+    with open(flush, "wb") as handle:
+        handle.write(b"flush")
+        handle.flush()
+        full_fsync = getattr(fcntl, "F_FULLFSYNC", None)
+        if full_fsync is not None:
+            fcntl.fcntl(handle.fileno(), full_fsync)
+        else:
+            os.fsync(handle.fileno())
+    os.unlink(flush)
     sync_ms = round((time.monotonic() - sync_started) * 1000, 1)
     print("DRS-SYNC " + json.dumps({"sync_ms": sync_ms}), flush=True)
     execs = []
