@@ -512,6 +512,49 @@ fn many_small_clock_syncs_never_start_a_restore_hold() {
     assert!(!role::restore_look(&mut last, offset + 3600 * 1_000_000_000 + step));
 }
 
+/// A claimed spare is a paused machine resumed, and on Freestyle the boot
+/// clock runs through the pause (every production probe machine, 2026-11-07
+/// to 11-08, reports one boot at 2026-10-31T03:02Z), so `realtime - boottime`
+/// never moves and neither the supervisor's `Resumed` nor the restore look
+/// fires. The worker's 60 s wait ends at once on the resume and its hold ran
+/// out before the pause: 17 of 45 production chat runs flipped 1 to 184 s
+/// after the create. A wait or a check that took far more wall time than it
+/// could have is a stop, and it starts the connect hold.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_pause_during_the_wait_starts_the_connect_hold() {
+    use std::time::Duration;
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let gate = gate::Gate::new(&paths);
+    let minute = Duration::from_secs(60);
+    // An ordinary wait, a few seconds late: no hold.
+    assert!(!role::hold_if_stopped(&paths, T0_MS, T0_MS + 65_000, minute));
+    assert_eq!(gate.held_left(T0_MS + 65_000), None);
+    // Paused 40 minutes in its pool, then claimed: the wait comes back 40 minutes late.
+    let resumed = T0_MS + 40 * 60_000;
+    assert!(role::hold_if_stopped(&paths, T0_MS, resumed, minute));
+    assert_eq!(gate.held_left(resumed), Some(role::CONNECT_HOLD));
+}
+
+/// A pause that lands inside a check (its download, its busy look) is seen
+/// at the flip: a check that took longer than [`role::CHECK_BOUND`] holds its
+/// own flip, and the next check, with the binaries staged, goes after the hold.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_pause_during_a_check_holds_its_flip() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let gate = gate::Gate::new(&paths);
+    let quick = T0_MS + 20_000;
+    assert!(!role::hold_if_stopped(&paths, T0_MS, quick, role::CHECK_BOUND));
+    assert_eq!(gate.held_left(quick), None);
+    let late = T0_MS + role::CHECK_BOUND.as_millis() as u64 + role::STOP_SLACK.as_millis() as u64 + 1;
+    assert!(role::hold_if_stopped(&paths, T0_MS, late, role::CHECK_BOUND));
+    assert!(gate.held_left(late).is_some(), "the flip after a stopped check is held");
+}
+
 /// Review F2 of #38326: the health timeout's rollback waits while carrier
 /// sessions are attached, looking again every minute, and stops waiting when
 /// the role stops.

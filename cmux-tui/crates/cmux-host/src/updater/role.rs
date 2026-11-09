@@ -142,6 +142,22 @@ fn hold_after_restore(paths: &Paths) {
     }
 }
 
+/// Slack past a wait's own timeout before the worker counts the overrun as a stop.
+pub(super) const STOP_SLACK: Duration = Duration::from_secs(30);
+/// The most wall time one check spends before its flip without counting as a stop.
+pub(super) const CHECK_BOUND: Duration = super::gate::CONNECT_HOLD;
+
+/// Starts the connect hold when more wall time passed from `started_ms` to
+/// `now_ms` than the worker could have spent in a step allowed `allowed`.
+pub(super) fn hold_if_stopped(
+    _paths: &Paths,
+    _started_ms: u64,
+    _now_ms: u64,
+    _allowed: Duration,
+) -> bool {
+    false
+}
+
 /// How much of the connect hold is left now.
 pub(super) fn held_for(paths: &Paths) -> Option<Duration> {
     Gate::new(paths).held_left(wall_ms())
