@@ -455,7 +455,7 @@ impl Mux {
                 // The roster only folds journal events, so a direct report
                 // records its intent in the log; the fold recognizes the
                 // echo adapter and applies it roster-only.
-                let echo = super::agent_roster_fold::ReportEcho {
+                let echo = ReportEcho {
                     terminal_id: agent.terminal_id.clone(),
                     state: agent.state,
                     source: agent.source,
