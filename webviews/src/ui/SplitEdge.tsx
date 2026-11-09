@@ -124,8 +124,7 @@ export function SplitEdge({ side, property, storageKey, unit = "px", min, max, o
         event.currentTarget.setPointerCapture?.(event.pointerId);
         const rect = pane.getBoundingClientRect();
         const rtl = getComputedStyle(pane).direction === "rtl";
-        const physical =
-          side === "start" ? (rtl ? "right" : "left") : side === "end" ? (rtl ? "left" : "right") : side;
+        const physical = side === "start" ? (rtl ? "right" : "left") : side === "end" ? (rtl ? "left" : "right") : side;
         drag.current = { pane: rect, side: physical, value: 0, frame: 0, moved: false };
         pane.dataset.splitResizing = "";
         // The page's too: the resize cursor holds over the other pane and its frames while dragging.
