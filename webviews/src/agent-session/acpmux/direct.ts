@@ -184,7 +184,7 @@ import {
   promptCoachFromRecord,
 } from "./conversation/promptCoach";
 import { promptCoachDismissed, rememberPromptCoachDismissed } from "./conversation/promptCoachDismissed";
-import { promptCoachEnabled } from "./chatDisplay";
+import { onChatDisplayChange, promptCoachEnabled } from "./chatDisplay";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -7191,7 +7191,9 @@ export class AcpmuxDirectClient {
         const sessionId = this.selectedSessionId ?? "";
         const draws = !this.fedMode && (this.supportsPromptCoach || this.replayThrough !== undefined);
         const coach = draws ? promptCoachFromRecord(msg, sessionId) : undefined;
-        if (coach && promptCoachEnabled() && !promptCoachDismissed(sessionId)) {
+        // Kept with the setting off too: its row and its height estimate follow the setting
+        // (rows/PromptCoachRow.tsx, model.ts), so turning it on shows the card at once.
+        if (coach && !promptCoachDismissed(sessionId)) {
           const id = coachRowId(coach.coachId);
           this.rows.set(id, { id, version: 1, at: event.at, kind: PROMPT_COACH, coach });
         }
@@ -11091,12 +11093,35 @@ export class AcpmuxDirectClient {
     if (this.closed || this.disposed) return;
     for (const [coachId, sessionId] of waiting) {
       if (this.coachMade.has(coachId) || this.coachAsked.has(coachId)) continue;
-      if (!promptCoachEnabled() || promptCoachDismissed(sessionId)) continue;
+      if (promptCoachDismissed(sessionId)) continue;
+      if (!promptCoachEnabled()) {
+        this.holdCoach(coachId, sessionId);
+        continue;
+      }
       this.coachAsked.add(coachId);
       this.typed("_acpmux/prompt_coach", { sessionId, coachId }).catch((error: unknown) =>
         console.debug("cmux: prompt coach request failed", error),
       );
     }
+  }
+  /// Offers that came while Prompt Coach was off, by coach id, with their chat: asked for once it
+  /// is turned on in this page (`coachSettingChanged`).
+  private readonly coachHeld = new Map<string, string>();
+  /// Stops listening to the display settings; set only while `coachHeld` holds an offer.
+  private stopCoachWatch: (() => void) | undefined;
+  private holdCoach(coachId: string, sessionId: string): void {
+    this.coachHeld.set(coachId, sessionId);
+    this.stopCoachWatch ??= onChatDisplayChange(() => this.coachSettingChanged());
+  }
+  /// The display settings changed: with Prompt Coach on, the held offers are considered again and
+  /// the listener stops (it has nothing left to wait for).
+  private coachSettingChanged(): void {
+    if (!promptCoachEnabled()) return;
+    const held = [...this.coachHeld];
+    this.coachHeld.clear();
+    this.stopCoachWatch?.();
+    this.stopCoachWatch = undefined;
+    for (const [coachId, sessionId] of held) this.considerCoach(coachId, sessionId);
   }
   /// The prompt coach card's ×: the chat never draws one again on this device, and its row goes. The
   /// row goes only when it is that chat's, not a card a switch drew since.
@@ -12083,6 +12108,8 @@ export class AcpmuxDirectClient {
     this.rejectPending();
   }
   private stopPageListeners(): void {
+    this.stopCoachWatch?.();
+    this.stopCoachWatch = undefined;
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
     if (typeof window !== "undefined") window.removeEventListener("pagehide", this.pageWentAway);
   }

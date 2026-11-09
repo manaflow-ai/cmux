@@ -2037,7 +2037,7 @@ async fn dispatch_request_with_identity(
             };
             // A correction from the person, at the app or their own terminal (`prompt_coach.rs`).
             if !agent_message && (person_asks(conn) || owner_terminal(conn, &params)) {
-                hub.coach_prompt(&s, &sent_text);
+                hub.coach_prompt(&s, &sent_text, opts.prompt_id.as_deref());
             }
             // The person's answer to the suggestion the chat showed, if any (`suggestion_gate.rs`).
             if !agent_message && person_asks(conn) {
