@@ -32,6 +32,11 @@ public struct SetupFlow: View {
     let signOut: () -> Void
     let finish: () -> Void
     @State private var path: [Step] = []
+    /// `steps` as of the latest update. A page's `next` can run on a copy of
+    /// this view from before the plan was fixed (the fleet's push probe: plan
+    /// [team, pairMac, notifications] logged, yet Connect your Mac ended setup
+    /// on the default [team, pairMac]); state reads the current value.
+    @State private var plan: [Step]?
     @State private var confirmsSignOut = false
 
     public init(
@@ -75,6 +80,7 @@ public struct SetupFlow: View {
             }
         }
         .tint(theme.colors.label.color)
+        .onChange(of: steps, initial: true) { _, steps in plan = steps }
         #if DEBUG
         .onChange(of: DemoDirector.shared.serial) {
             switch DemoDirector.shared.command {
@@ -151,6 +157,7 @@ public struct SetupFlow: View {
     }
 
     private func advance(from step: Step) {
+        let steps = plan ?? self.steps
         let next = Self.step(after: step, in: steps)
         let said = "setup: after \(step), \(next.map { "\($0)" } ?? "done") (plan \(steps))"
         log.info("\(said, privacy: .public)")

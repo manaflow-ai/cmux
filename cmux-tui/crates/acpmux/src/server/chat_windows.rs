@@ -64,6 +64,10 @@ struct Windows {
     task: bool,
 }
 
+/// How many times each window (by name) was recomputed in this process (tests).
+#[cfg(test)]
+pub(super) static RECOMPUTES: StdMutex<BTreeMap<String, usize>> = StdMutex::new(BTreeMap::new());
+
 /// Window tasks alive in this process (tests check that none outlives its connection).
 static LIVE_TASKS: AtomicUsize = AtomicUsize::new(0);
 
@@ -164,12 +168,14 @@ pub(super) fn close(conn: &Conn, params: &Value) -> Result<Value, RpcError> {
 /// and any record once a tag the window's rows read has expired (an `archived` or `spawnedBy`
 /// lapses with no record and folds or unfolds another chat) recompute every window. A recompute
 /// under way may have read the activity before this record, so it is always followed by
-/// another; else the windows' last rows decide.
+/// another; else the windows' last rows decide. `folds` reads whether a chat folds under a parent
+/// now, once, only for a window that ranks a query or counts its total.
 pub(super) fn activity_changed(
     conn: &Conn,
     session: &str,
     kind: &str,
     chat: impl FnOnce() -> Option<String>,
+    folds: impl FnOnce(&str) -> bool,
 ) {
     if lock(&conn.chat_windows.windows).by_name.is_empty() {
         // Nothing is shown: what each session continued is learned again once a window opens.
@@ -193,12 +199,19 @@ pub(super) fn activity_changed(
         .insert(session.to_owned(), chat.clone())
         .is_none_or(|before| before != chat);
     let running = conn.chat_windows.refreshing.try_lock().is_err();
+    let (mut folds, mut folded) = (Some(folds), None);
+    let mut folds_now = || {
+        *folded.get_or_insert_with(|| {
+            let read = folds.take();
+            chat.as_deref().zip(read).is_some_and(|(chat, read)| read(chat))
+        })
+    };
     let shown = moved
         || running
         || lock(&conn.chat_windows.windows)
             .by_name
             .values()
-            .any(|state| state.shows_activity_of(chat.as_deref(), kind));
+            .any(|state| state.shows_activity_of(chat.as_deref(), kind, &mut folds_now));
     if shown {
         conn.chat_windows.wake.notify_one();
     }
@@ -267,6 +280,10 @@ async fn refresh(
         lock(&conn.chat_windows.windows).by_name.values().map(|state| state.spec.clone()).collect();
     if specs.is_empty() {
         return Ok(());
+    }
+    #[cfg(test)]
+    for spec in &specs {
+        *lock(&RECOMPUTES).entry(spec.window.clone()).or_default() += 1;
     }
     let activity = hub.chat_activity();
     let read_with = activity.clone();
