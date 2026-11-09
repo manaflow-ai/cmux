@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42555352653",
+  "recorded_at": "2026-11-09T03:25:46Z",
+  "reason": "cmux-tui 41847d8bace0 changes the image's cmux-tui (pinned 0ee67db0f28d)",
+  "dry_run": false,
+  "cmux_tui": "41847d8bace06606b464f9cd2c003d0c61be2b25",
+  "fixes": [
+    {
+      "sha": "41847d8bace06606b464f9cd2c003d0c61be2b25",
+      "mergedAt": "2026-11-08T19:01:37-08:00",
+      "subject": "Cloud phone channel: a phone's carrier stream reaches only hostd's adapter commands, a chat start included (#38880)"
+    },
+    {
+      "sha": "166c16a2b9276030db578644f09545baa4fa7e88",
+      "mergedAt": "2026-11-08T19:00:01-08:00",
+      "subject": "acpmux: ledger first load is crash safe, recreated chats are audited again, Request changes keeps its comment (#38990)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T03:25:46Z",
+    "snapshot_id": "sh-831541ed7c524bc5a0dce15c00fbd1e8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42555352653): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "02183e63cf628acc5cfd876554c53c4cf7ffabcd",
+    "image": "cloud-native-auto-41847d8b-42555352653-1",
+    "revision": "ci-42555352653-1",
+    "at": "2026-11-09T03:25:46Z"
+  },
+  "rolled_back": false
+}
