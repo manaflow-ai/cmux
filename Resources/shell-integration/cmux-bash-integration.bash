@@ -1325,16 +1325,16 @@ _cmux_terminal_history_prompt() {
 }
 
 # Bash before 4.4: find the command line this shell just ran, without PS0.
-# A hook such as `history -n` in PROMPT_COMMAND adds other terminals' commands
-# to this shell's history, so "the newest history entry" is not necessarily
-# ours. _cmux_bash_pr_history_mark therefore runs after the other prompt hooks
-# and records the newest history number. Between that mark and the next prompt
-# only the user's command line runs, and bash adds it to history before any
-# prompt hook, so the entry right after the mark is this shell's own command
-# even when a hook ahead of _cmux_prompt_command pulls in more entries. Until a
-# trusted mark exists (the first prompt, or after the mark had to be moved),
-# fall back to the number this hook saw last. $HISTCMD cannot be used: bash
-# suspends history while PROMPT_COMMAND runs, so it reads 1 there.
+# Bash adds the user's command line to history before any prompt hook runs, but
+# a hook such as `history -n` can add other terminals' commands too, before or
+# after cmux's. So two snapshots of the newest history entry bracket the user's
+# command line: _cmux_bash_pr_history_mark runs after the other prompt hooks,
+# and _cmux_bash_pr_history_premark runs before any of them. Only an entry that
+# the premark sees right after the previous prompt's mark is this shell's own
+# command. When either snapshot cannot be trusted (the first prompt, a moved
+# mark, or another hook ahead of cmux's), nothing is reported: a missed report
+# is better than marking the wrong PR. $HISTCMD cannot be used: bash suspends
+# history while PROMPT_COMMAND runs, so it reads 1 there.
 
 # Sets _CMUX_BASH_HISTORY_NUMBER and _CMUX_BASH_HISTORY_TEXT from `history 1`
 # without a subshell. An empty list (after `history -c`) reads as number 0, so
@@ -1355,77 +1355,91 @@ _cmux_bash_read_last_history_entry() {
     _CMUX_BASH_HISTORY_TEXT="${BASH_REMATCH[2]}"
 }
 
-# Sets _CMUX_BASH_HISTORY_TEXT to the first line of history entry $1, which
-# the caller has checked is in range (`fc -l` clamps an out-of-range number to
-# the newest entry instead of failing).
-_cmux_bash_read_history_entry_text() {
-    _CMUX_BASH_HISTORY_TEXT=""
-    [[ -n "${_CMUX_BASH_HISTORY_ENTRY_FILE:-}" ]] || return 1
-    local line=""
-    builtin fc -ln "$1" "$1" >| "$_CMUX_BASH_HISTORY_ENTRY_FILE" 2>/dev/null || return 1
-    IFS= read -r line < "$_CMUX_BASH_HISTORY_ENTRY_FILE" || line=""
-    [[ "$line" =~ ^[[:space:]]*(.*)$ ]] && line="${BASH_REMATCH[1]}"
-    _CMUX_BASH_HISTORY_TEXT="$line"
+# Runs before every other prompt hook: from _cmux_prompt_command when that is
+# the first PROMPT_COMMAND entry, or as bash-preexec's first precmd function.
+_cmux_bash_pr_history_premark() {
+    local last_status=$?
+    _CMUX_BASH_PR_HISTORY_PRE=""
+    _CMUX_BASH_PR_HISTORY_PRE_TEXT=""
+    if _cmux_bash_read_last_history_entry; then
+        _CMUX_BASH_PR_HISTORY_PRE="$_CMUX_BASH_HISTORY_NUMBER"
+        _CMUX_BASH_PR_HISTORY_PRE_TEXT="$_CMUX_BASH_HISTORY_TEXT"
+    fi
+    return "$last_status"
+}
+
+# Succeeds when _cmux_prompt_command is the first PROMPT_COMMAND entry.
+_cmux_bash_prompt_command_is_first() {
+    local pc="${PROMPT_COMMAND-}"
+    while [[ "$pc" == [[:space:]\;]* ]]; do pc="${pc#?}"; done
+    [[ "$pc" == "_cmux_prompt_command" || "$pc" == "_cmux_prompt_command"[[:space:]\;]* ]]
 }
 
 _cmux_bash_pr_history_prompt() {
-    local base="${_CMUX_BASH_PR_HISTORY_HEAD:-}" base_text="${_CMUX_BASH_PR_HISTORY_HEAD_TEXT-}"
-    if [[ -n "${_CMUX_BASH_PR_HISTORY_TAIL:-}" ]]; then
-        base="$_CMUX_BASH_PR_HISTORY_TAIL"
-        base_text="${_CMUX_BASH_PR_HISTORY_TAIL_TEXT-}"
-    fi
-    local cmd="" newest="" newest_text=""
+    local tail="${_CMUX_BASH_PR_HISTORY_TAIL:-}" tail_text="${_CMUX_BASH_PR_HISTORY_TAIL_TEXT-}"
+    local pre="${_CMUX_BASH_PR_HISTORY_PRE:-}" pre_text="${_CMUX_BASH_PR_HISTORY_PRE_TEXT-}"
+    local cmd=""
     _CMUX_BASH_PR_HISTORY_TAIL=""
     _CMUX_BASH_PR_HISTORY_TAIL_TEXT=""
-    _cmux_bash_read_last_history_entry
-    newest="$_CMUX_BASH_HISTORY_NUMBER"
-    newest_text="$_CMUX_BASH_HISTORY_TEXT"
-    if [[ "$newest" =~ ^[0-9]+$ && "$base" =~ ^[0-9]+$ ]]; then
-        if (( newest > base + 1 )); then
-            # Later entries came from a hook; ours is the first after the mark.
-            _cmux_bash_read_history_entry_text "$(( base + 1 ))" && cmd="$_CMUX_BASH_HISTORY_TEXT"
-        elif (( newest == base + 1 )); then
-            cmd="$newest_text"
-        elif (( newest == base )) && [[ "$newest_text" != "$base_text" ]]; then
+    _CMUX_BASH_PR_HISTORY_PRE=""
+    _CMUX_BASH_PR_HISTORY_PRE_TEXT=""
+    if [[ "$pre" =~ ^[0-9]+$ && "$tail" =~ ^[0-9]+$ ]]; then
+        if (( pre == tail + 1 )); then
+            cmd="$pre_text"
+        elif (( pre == tail )) && [[ "$pre_text" != "$tail_text" ]]; then
             # HISTCONTROL=erasedups removed an older copy of this command, so
             # the newest number did not move but the newest entry changed.
-            cmd="$newest_text"
+            cmd="$pre_text"
         fi
     fi
-    # The first prompt only primes the number; anything earlier is restored history.
-    _CMUX_BASH_PR_HISTORY_HEAD="$newest"
-    _CMUX_BASH_PR_HISTORY_HEAD_TEXT="$newest_text"
     _cmux_record_pr_command_hint "$cmd"
-    _cmux_bash_pr_history_keep_mark_last
+    _cmux_bash_pr_history_keep_marks
 }
 
-# The mark runs after every other prompt hook except bash-preexec's
-# `__bp_interactive_mode`, which must stay last because it arms the DEBUG trap
-# for the user's next command; a command after it would fire preexec early.
+# A hook that must stay last because it arms a DEBUG-trap preexec for the
+# user's next command: bash-preexec's `__bp_interactive_mode`, or starship's
+# own `starship_precmd`. A command after it would fire preexec early.
+_cmux_bash_pr_history_epilogue_re=$'\n''(__bp_interactive_mode|starship_precmd)$'
+
 # The mark sits on its own line so a user entry ending in `&` or a comment
 # cannot swallow or break it.
 _cmux_bash_pr_history_mark_is_last() {
     local pc="${PROMPT_COMMAND-}"
     while [[ "$pc" == *[[:space:]\;] ]]; do pc="${pc%?}"; done
-    [[ "$pc" == *$'\n'"_cmux_bash_pr_history_mark" ||
-       "$pc" == *$'\n'"_cmux_bash_pr_history_mark"$'\n'"__bp_interactive_mode" ]]
+    if [[ "$pc" =~ $_cmux_bash_pr_history_epilogue_re ]]; then
+        pc="${pc%"${BASH_REMATCH[1]}"}"
+        pc="${pc%$'\n'}"
+    fi
+    [[ "$pc" == *$'\n'"_cmux_bash_pr_history_mark" ]]
 }
 
-# Move only cmux's own mark; the user's PROMPT_COMMAND entries keep their order.
-_cmux_bash_pr_history_keep_mark_last() {
+# Keeps the premark ahead of every other prompt hook and the mark after them.
+# Moves only cmux's own entries; the user's keep their order.
+_cmux_bash_pr_history_keep_marks() {
+    local -a fns
+    local fn
+    if [[ "${PROMPT_COMMAND-}" == __bp_precmd_invoke_cmd* ]]; then
+        if [[ "${precmd_functions[0]-}" != "_cmux_bash_pr_history_premark" ]]; then
+            fns=(_cmux_bash_pr_history_premark)
+            for fn in "${precmd_functions[@]}"; do
+                [[ "$fn" == "_cmux_bash_pr_history_premark" ]] || fns+=("$fn")
+            done
+            precmd_functions=("${fns[@]}")
+        fi
+    fi
     _cmux_bash_pr_history_mark_is_last && return 0
     local pc="${PROMPT_COMMAND-}" epilogue=""
+    [[ "$pc" == *$'\n'_cmux_bash_pr_history_mark* ]] && _CMUX_BASH_PR_HISTORY_MOVED=1
     pc="${pc//$'\n'_cmux_bash_pr_history_mark/}"
     while [[ "$pc" == *[[:space:]\;] ]]; do pc="${pc%?}"; done
-    if [[ "$pc" == *[$'\n'\;]"__bp_interactive_mode" ]]; then
-        pc="${pc%__bp_interactive_mode}"
+    if [[ "$pc" =~ $_cmux_bash_pr_history_epilogue_re ]]; then
+        epilogue=$'\n'"${BASH_REMATCH[1]}"
+        pc="${pc%"${BASH_REMATCH[1]}"}"
         while [[ "$pc" == *[[:space:]\;] ]]; do pc="${pc%?}"; done
-        epilogue=$'\n'"__bp_interactive_mode"
     fi
+    # Bash already copied this prompt's PROMPT_COMMAND, so if this prompt had
+    # a mark, it still runs at its old place and must not be trusted.
     PROMPT_COMMAND="${pc}"$'\n'"_cmux_bash_pr_history_mark${epilogue}"
-    # Bash already copied this prompt's PROMPT_COMMAND, so this prompt's mark
-    # (if any) still runs at its old place and must not be trusted.
-    _CMUX_BASH_PR_HISTORY_MOVED=1
 }
 
 _cmux_bash_pr_history_mark() {
@@ -1444,6 +1458,10 @@ _cmux_bash_pr_history_mark() {
 
 _cmux_prompt_command() {
     local last_status=$?
+    # Snapshot history before anything changes it (see _cmux_bash_pr_history_premark).
+    if [[ "${_CMUX_BASH_PROMPT_HISTORY:-0}" == "1" ]] && _cmux_bash_prompt_command_is_first; then
+        _cmux_bash_pr_history_premark
+    fi
     _cmux_terminal_history_prompt
     _cmux_tmux_sync_cmux_environment
 
