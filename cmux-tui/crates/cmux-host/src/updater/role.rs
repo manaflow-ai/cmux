@@ -36,6 +36,7 @@ const BOOT_DELAY: Duration = Duration::from_secs(30);
 const INTERVAL: Duration = Duration::from_secs(60);
 /// An update waiting for a turn to end looks again this soon.
 const BUSY_RETRY: Duration = Duration::from_secs(60);
+#[cfg(test)]
 pub(super) use super::gate::CONNECT_HOLD;
 /// The new build has this long to serve after its restart: a session host
 /// replays its journal before it listens (minutes for a large one).
@@ -129,6 +130,12 @@ pub(super) fn restored_between(before: Option<i128>, now: i128) -> bool {
 /// `Resumed` comes only after a metadata read, and this worker's next
 /// look could flip first (production probe, 2026-11-08: a new machine
 /// flipped 10 s after its create and the app's first link ended).
+///
+/// This covers a provider whose boot clock stops while the machine is
+/// stopped, and reads the clocks itself: the supervisor's record of the same
+/// clock set ([`crate::agent::PauseWatch::found`]) waits on its own dispatch.
+/// A boot clock that runs through the pause moves nothing here; the pause
+/// watch's record covers that ([`hold_if_paused`]).
 fn hold_after_restore(paths: &Paths) {
     #[cfg(target_os = "linux")]
     {
@@ -141,48 +148,70 @@ fn hold_after_restore(paths: &Paths) {
     }
 }
 
-/// Slack past a step's own bound before the worker counts the overrun as a stop.
-pub(super) const STOP_SLACK: Duration = Duration::from_secs(30);
-/// The most wall time one check spends before its flip without counting as a
-/// stop. A slower one (a slow download) only waits one connect hold more: its
-/// binaries are staged, so the next check is quick.
-pub(super) const CHECK_BOUND: Duration = CONNECT_HOLD;
+/// Now on the boot clock and the wall clock: `(boot ns, wall ms)`.
+pub(super) type Clock<'a> = &'a dyn Fn() -> (i128, u64);
 
-/// Starts the connect hold at `now_ms` when more wall time passed since
-/// `started_ms` than a step bounded by `allowed` takes: the machine was
-/// stopped (paused, restored or forked) in between.
+fn clocks() -> (i128, u64) {
+    (crate::linux::boottime_ns(), wall_ms())
+}
+
+/// The pause count ([`crate::agent::PauseWatch::pause_seq`]) this process's
+/// updater last handled, kept across its waits and checks. The role start
+/// takes the count then: a pause before it is covered by the start's hold.
+static HANDLED: AtomicU64 = AtomicU64::new(0);
+
+/// Starts the connect hold at `now` when `watch` counted a pause after the
+/// last one `handled` holds (which it then takes), or is still waking from
+/// one: the machine was stopped (paused, restored, forked).
 ///
-/// The restore look ([`hold_after_restore`]) and the supervisor's `Resumed`
-/// count on `realtime - boottime` jumping, but a Freestyle machine's boot
-/// clock runs through a pause: a claimed spare (a paused machine resumed)
-/// moved neither, its 60 s wait ended at once and it flipped 1 to 184 s
-/// after its create (production chat probe, 17 of 45 runs, 2026-11-07 to
-/// 11-08). Wall time against the worker's own steps sees every stop.
-pub(super) fn hold_if_stopped(
+/// The updater reads the supervisor's pause watch at its own steps rather
+/// than wait for the `Resumed` it leads to. That event comes after the
+/// watch's next wake and a metadata read, while this worker's wait or check
+/// ends at the resume itself: a claimed spare (a paused machine resumed)
+/// flipped 1 to 184 s after its create (production chat probe, 17 of 45
+/// runs, 2026-11-07 to 11-08). A count, not a time against the step's start,
+/// so a pause found between two steps is never missed.
+pub(super) fn hold_if_paused(
     paths: &Paths,
-    started_ms: u64,
-    now_ms: u64,
-    allowed: Duration,
+    watch: &crate::agent::PauseWatch,
+    handled: &AtomicU64,
+    now: (i128, u64),
 ) -> bool {
-    let bound = allowed.saturating_add(STOP_SLACK);
-    if now_ms.saturating_sub(started_ms) <= u64::try_from(bound.as_millis()).unwrap_or(u64::MAX) {
+    let seq = watch.pause_seq();
+    let counted = seq > handled.fetch_max(seq, Ordering::SeqCst);
+    if !counted && !watch.waking(now.0) {
         return false;
     }
-    super::gate::hold_connects(paths, now_ms);
-    log(&format!(
-        "the machine was stopped for {} s (a pause or restore): no flip during the connect hold",
-        now_ms.saturating_sub(started_ms).saturating_sub(allowed.as_millis() as u64) / 1000
-    ));
+    super::gate::hold_connects(paths, now.1);
+    log("the machine was stopped (a pause or restore): no flip during the connect hold");
     true
 }
 
-/// [`wait`], and a wait that comes back later than it could have (the machine
-/// was stopped during it) starts the connect hold ([`hold_if_stopped`]).
+/// The last look before a flip: a pause the watch counted or is waking from
+/// ([`hold_if_paused`]), or a restore `realtime - boottime` shows from `last`
+/// to `offset_now` ([`restore_look`]), starts the connect hold. True when it did.
+pub(super) fn flip_look(
+    paths: &Paths,
+    watch: &crate::agent::PauseWatch,
+    handled: &AtomicU64,
+    last: &mut Option<i128>,
+    offset_now: i128,
+    now: (i128, u64),
+) -> bool {
+    let paused = hold_if_paused(paths, watch, handled, now);
+    let restored = restore_look(last, offset_now);
+    if restored {
+        super::gate::hold_connects(paths, now.1);
+        log("a snapshot restore: no flip during the connect hold");
+    }
+    paused || restored
+}
+
+/// [`wait`], then the pause look over it ([`hold_if_paused`]).
 fn wait_watching(paths: &Paths, rx: &Receiver<Msg>, d: Duration) -> bool {
-    let started = wall_ms();
     let go_on = wait(rx, d);
     if go_on {
-        hold_if_stopped(paths, started, wall_ms(), d);
+        hold_if_paused(paths, &crate::agent::PAUSES, &HANDLED, clocks());
     }
     go_on
 }
@@ -270,6 +299,7 @@ impl Role for UpdaterRole {
         }
         hold_connects(&self.paths);
         hold_after_restore(&self.paths);
+        HANDLED.store(crate::agent::PAUSES.pause_seq(), Ordering::SeqCst);
         let (tx, rx) = mpsc::channel();
         let (done_tx, done) = mpsc::channel::<()>();
         let paths = self.paths.clone();
@@ -413,7 +443,8 @@ pub fn check(paths: &Paths) -> Outcome {
     let Some(_lock) = Lock::take(paths, false) else {
         return Outcome::Failed("another update check runs".to_owned());
     };
-    let outcome = check_inner(paths);
+    let outcome =
+        check_step(paths, &crate::agent::PAUSES, &HANDLED, &clocks, || check_inner(paths));
     let mut state = load_state(paths);
     let line = outcome.line();
     if state.last.as_deref() != Some(line.as_str()) {
@@ -425,8 +456,25 @@ pub fn check(paths: &Paths) -> Outcome {
     outcome
 }
 
+/// Runs one check (`inner`), then the pause look over it on every way out
+/// but a flip (which looked right before it): a check that returned early
+/// after a pause (a busy look that timed out across it) starts the connect
+/// hold, or a flip could follow a minute later.
+pub(super) fn check_step(
+    paths: &Paths,
+    watch: &crate::agent::PauseWatch,
+    handled: &AtomicU64,
+    clock: Clock<'_>,
+    inner: impl FnOnce() -> Outcome,
+) -> Outcome {
+    let outcome = inner();
+    if !matches!(outcome, Outcome::Updating(_)) {
+        hold_if_paused(paths, watch, handled, clock());
+    }
+    outcome
+}
+
 fn check_inner(paths: &Paths) -> Outcome {
-    let started = wall_ms();
     if let Some(why) = off_reason(paths) {
         return Outcome::Off(why);
     }
@@ -488,9 +536,18 @@ fn check_inner(paths: &Paths) -> Outcome {
         },
     };
     let commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
-    hold_after_restore(paths);
     // A stop during this check (its download, its busy look) holds its flip.
-    hold_if_stopped(paths, started, wall_ms(), CHECK_BOUND);
+    {
+        let mut last = CLOCK_OFFSET.lock().unwrap_or_else(|e| e.into_inner());
+        flip_look(
+            paths,
+            &crate::agent::PAUSES,
+            &HANDLED,
+            &mut last,
+            crate::linux::realtime_minus_boottime_ns(),
+            clocks(),
+        );
+    }
     let last =
         last.or_else(|| stopped().then(|| Outcome::Failed("the updater stopped".to_owned())));
     if let Some(outcome) = last {

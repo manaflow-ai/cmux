@@ -26,6 +26,8 @@ pub(super) enum OperationOwner {
     OpenUrl,
     /// `stash.*` (state/stash_router.rs).
     Stash,
+    /// `classic_import.*` (state/classic_import_router.rs).
+    ClassicImport,
     /// `conductor_import.*` (state/conductor_import_router.rs).
     ConductorImport,
     /// `palette.rank` (resource_router/palette_rank.rs): stateless.
@@ -178,6 +180,9 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::StashRestore
         | ResourceOperation::StashDelete
         | ResourceOperation::StashImport => OperationOwner::Stash,
+        ResourceOperation::ClassicImportPlan | ResourceOperation::ClassicImportRecord => {
+            OperationOwner::ClassicImport
+        }
         ResourceOperation::ConductorImportPlan | ResourceOperation::ConductorImportRecord => {
             OperationOwner::ConductorImport
         }

@@ -92,6 +92,7 @@
     "pages/markdown/linkOverlays.tsx#LinkEditView",
     "pages/markdown/linkOverlays.tsx#LinkOverlayHost",
     "pages/mobile-pairing/MobilePairingPage.tsx#MobilePairingPage",
+    "pages/server-cards/add-machine/AddMachineCardHost.tsx#AddMachineCardHost",
     "pages/settings/components/AppearanceBar.tsx#AppearanceBar",
     "pages/settings/components/DensityCard.tsx#DensityCard",
     "pages/settings/components/DensityCard.tsx#DensityPreview",

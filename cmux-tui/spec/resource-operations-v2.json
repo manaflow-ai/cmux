@@ -14697,6 +14697,135 @@
       },
       "extra": false
     },
+    "ClassicImportPlanResult": {
+      "kind": "object",
+      "fields": {
+        "ledger": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "none",
+              "ledger",
+              "newer",
+              "unreadable",
+              "failed"
+            ]
+          },
+          "description": "What the ledger file held before this read; failed is a ledger that is there but could not be read, which is left as it is."
+        },
+        "decision": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "With automatic: whether the launch's run starts ({decision: first_run | resume | merge | skip, reason}); null with manual."
+        },
+        "source": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "The save read: path, bundleID, size, modifiedAt, createdAt; null when classic saved nothing readable."
+        },
+        "backups": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The file read, then the other candidates: what begin backs up."
+        },
+        "error": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Why the only session file did not read, or why a manual run has no plan."
+        },
+        "plan": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "What the run makes (the cmux-classic-import crate's Plan: windows with their workspaces, groups, cleanup, skipped); null when nothing is read or the run does not start."
+        },
+        "preview": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "The plan's counts for the confirmation (the crate's Preview)."
+        }
+      },
+      "extra": false
+    },
+    "ClassicImportRecordResult": {
+      "kind": "object",
+      "fields": {
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "enum",
+              "values": [
+                "inProgress",
+                "completed"
+              ]
+            }
+          }
+        },
+        "runs": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Runs started, after this step."
+        },
+        "workspaces": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Classic workspaces the ledger records."
+        },
+        "changed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Whether the ledger exists after this step."
+        }
+      },
+      "extra": false
+    },
     "ConductorImportFound": {
       "kind": "object",
       "fields": {
@@ -19089,6 +19218,234 @@
         "chief-brains-v1: with chief naming a live Chief other than the default, the daemon forwards to that Chief's own brain (the tools socket in its brain directory under the daemon's Chief home) and to no other; absent, null or agent_mux reaches the default Chief's brain as before. A Chief that does not exist: operation.failed details.reason not_found. A daemon that runs no Chief brains: not_configured. A Chief whose brain does not run now (never started here, stopped after 30 minutes idle, or between restarts): unavailable; a read or stop never starts a brain (chief.engine.set does). With agents off in the build session: the agents-disabled refusal, as for the default Chief.",
         "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does). Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason the brain's code (unknown_harness, invalid_effort, engine_unavailable, write_failed, bad_request, unavailable, internal) and extra.message its text.",
         "Stops the Chief's running turn as a newer message would: a running tool call finishes first, the turn posts its partial reply and then '(turn stopped)'. replayed is always false; a retry after the turn ended stops nothing (stopped false). With name, only that subagent stops (its report says the user stopped it); an unknown or still-starting name answers stopped false."
+      ]
+    },
+    "classic_import.plan": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "bundle_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 255
+            },
+            "description": "This app's bundle id: the ledger is kept per app, in ~/Library/Application Support/cmux-next/<bundle id>/classic-migration."
+          },
+          "mode": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "automatic",
+                "manual"
+              ]
+            },
+            "description": "automatic for the launch's own run, manual for Import Workspaces from Classic cmux."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Reads classic's session files under the daemon's HOME, never a path from the caller: the classic channel matching bundle_id, else the one saved last, trying its session file, -previous copy and newest archive in turn.",
+          "Plans against the ledger, the workspaces open now and the workspace groups that exist now: a workspace recorded done stays left out unless a manual run finds its cmux workspace closed.",
+          "A ledger from a newer cmux stops both modes (decision ledger_not_usable, or error \"ledger from a newer cmux\"); it is left as it is. An unreadable ledger is moved aside."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ClassicImportPlanResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "classic_import.record": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "bundle_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 255
+            },
+            "description": "This app's bundle id: the ledger is kept per app, in ~/Library/Application Support/cmux-next/<bundle id>/classic-migration."
+          },
+          "event": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "seen",
+                "baseline",
+                "begin",
+                "workspace",
+                "group",
+                "finish"
+              ]
+            },
+            "description": "seen and baseline record a launch's first contact (nothing made); begin starts a confirmed run; workspace and group record what was made; finish completes the run."
+          },
+          "source": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "The plan's source, as classic_import.plan returned it. Required with begin; with finish it records the save the run read."
+          },
+          "backups": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 4096
+              },
+              "max_items": 16
+            },
+            "description": "With begin: the plan's backups, copied into the migration's backups folder (five kept). Only classic's own session files are taken."
+          },
+          "cloud_vm_keys": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 256
+              },
+              "max_items": 1000
+            },
+            "description": "With begin or finish: the Cloud VM workspaces the plan leaves, recorded as skipped."
+          },
+          "app_version": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The app version that wrote the ledger."
+          },
+          "key": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "With workspace: the classic workspace's key."
+          },
+          "stage": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "pending",
+                "created",
+                "done",
+                "skipped"
+              ]
+            },
+            "description": "With workspace: pending before the app makes it, created once it exists, done once made."
+          },
+          "next_workspace": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "With workspace: the cmux workspace made for it; required with created and done."
+          },
+          "reason": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "With workspace: why it was skipped."
+          },
+          "classic_group": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "With group: the classic group's id."
+          },
+          "next_group": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "With group: the cmux workspace group made for it."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The ledger is the file earlier builds kept, written atomically inside the commit; a newer cmux's ledger is refused with validation.invalid and not written over."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ClassicImportRecordResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
       ]
     },
     "client.cell_pixels.set": {

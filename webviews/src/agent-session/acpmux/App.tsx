@@ -255,7 +255,7 @@ import {
   useSessionInfoOpen,
   sessionInfoPaneKey,
 } from "./session-info/sessionInfoState";
-import { openCommand, opensProcessTerminal } from "./processTerminal";
+import { chatProcessesHere, openCommand, opensProcessTerminal } from "./processTerminal";
 import {
   descendants,
   subagentChangesFolder,
@@ -550,7 +550,14 @@ import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
 import { useTranscriptView, type TranscriptView } from "./conversation/transcriptView";
 import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversation/viewFolds";
 import { readWakeFolds, wakeFolds, type PaneFolds } from "./conversation/wakeFolds";
-import { callsToHold, foldsToHold, linedCallOf, withHeldFolds, withoutHeldCalls } from "./conversation/turnEndHold";
+import {
+  callsToHold,
+  foldsToHold,
+  linedCallOf,
+  oneKeyPerMessageRun,
+  withHeldFolds,
+  withoutHeldCalls,
+} from "./conversation/turnEndHold";
 import { HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type HarnessHealth, type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
 import { Notice, NoticeSlot } from "./NoticeSlot";
@@ -2785,8 +2792,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       if (inView) {
         const held = foldsToHold(rows, turns.rows, last?.turns.rows, turns.reusedRows, inView, folds);
         if (held.length > 0) {
-          heldFolds.current = { session: shownSessionId, keys: new Set([...heldFolds.current.keys, ...held]) };
+          const kept = heldFolds.current.keys;
+          heldFolds.current = { session: shownSessionId, keys: new Set([...kept, ...held]) };
           turns = shape(withHeldFolds(folds, heldFolds.current.keys));
+          // One key per message run, the one its line closes by (turnEndHold.ts): the line and its
+          // rows draw the same with it alone.
+          const one = oneKeyPerMessageRun(held, turns.rows, turns.reusedRows);
+          if (one.length !== held.length)
+            heldFolds.current = { session: shownSessionId, keys: new Set([...kept, ...one]) };
         }
       }
       // A command the live line named out of its run, which it no longer names, stays out of the
@@ -5384,7 +5397,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     showToolRow,
     previewChips,
   ]);
-  // A tray command opens its terminal beside the chat; where none opens (a peer's or Cloud chat, or
+  // A tray command opens its terminal beside the chat; where none opens (a peer's chat, or
   // a command only the transcript knows), the Bash call that started it in the transcript; with no
   // call loaded either, the summary card, which lists it, or, while the Inspector takes the card's
   // place, its section that lists it (Background tasks, a dev server's included).
@@ -5594,7 +5607,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             onOpenCommand={openTrayCommand}
             canOpenTerminal={opensProcessTerminal(snapshot.summary)}
             canReadTail={
-              opensProcessTerminal(snapshot.summary) &&
+              chatProcessesHere(snapshot.summary) &&
               clientEpoch > 0 &&
               directClient.current !== undefined &&
               backgroundTaskOutput !== undefined
@@ -12115,7 +12128,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               <BackgroundTasksPanel
                 groups={backgroundList}
                 readsOutput={
-                  opensProcessTerminal(snapshot.summary) &&
+                  chatProcessesHere(snapshot.summary) &&
                   clientEpoch > 0 &&
                   directClient.current !== undefined &&
                   backgroundTaskOutput !== undefined

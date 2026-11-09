@@ -99,8 +99,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextIcons/Icon.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextIcons/IconCanvas.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextIcons/View+Icon.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextResources/TaskManager/TaskManagerView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineCard.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerAppearance.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerComponents.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/Views/ServerTextField.swift

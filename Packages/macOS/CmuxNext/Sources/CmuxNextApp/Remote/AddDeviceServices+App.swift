@@ -24,8 +24,7 @@ extension AddDeviceServices {
             addComputer: { [weak services] address, name in
                 guard let services else { return }
                 let card = services.addMachine
-                card.open(destination: address, name: name, over: NSApp.mainWindow)
-                card.model.perform(.add)
+                card.add(destination: address, name: name, over: NSApp.mainWindow)
                 // task-owner: ends with the enroll this click started
                 Task { @MainActor [weak services] in _ = await card.finished(); await services?.devices.refresh() }
             },

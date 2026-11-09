@@ -24,6 +24,8 @@ fn wire_name_round_trips_through_serde() {
         "origin.confirmation.issue",
         "chief.continue",
         "chief.retry",
+        "classic_import.plan",
+        "classic_import.record",
         "conductor_import.plan",
         "conductor_import.record",
         "cloud.vm.domains",

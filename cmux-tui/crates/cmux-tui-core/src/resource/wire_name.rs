@@ -268,6 +268,8 @@ impl ResourceOperation {
             Self::StashRestore => "stash.restore",
             Self::StashDelete => "stash.delete",
             Self::StashImport => "stash.import",
+            Self::ClassicImportPlan => "classic_import.plan",
+            Self::ClassicImportRecord => "classic_import.record",
             Self::ConductorImportPlan => "conductor_import.plan",
             Self::ConductorImportRecord => "conductor_import.record",
             Self::CloudVmScpEndpoint => "cloud.vm.scp_endpoint",

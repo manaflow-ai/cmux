@@ -49,6 +49,8 @@
     "chief.profile.update",
     "chief.retry",
     "chief.stop",
+    "classic_import.plan",
+    "classic_import.record",
     "client.cell_pixels.set",
     "client.detach",
     "client.get",
