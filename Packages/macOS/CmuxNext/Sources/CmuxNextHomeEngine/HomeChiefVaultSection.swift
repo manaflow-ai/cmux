@@ -1,5 +1,7 @@
 public import AppKit
+import CmuxNextCloud
 import CmuxNextDesign
+public import CmuxNextWakeups
 
 /// The Chief Settings card's Vault section (cmux issue 34263, building on 26412): the names of the
 /// credentials this Mac keeps for the Chief and its agents, never a value. The app reads them off the
@@ -71,5 +73,16 @@ public final class HomeChiefVaultSection: NSStackView {
         case let names?: HomeEngineStrings.vaultNames(names.count, names.joined(separator: ", "))
         }
         if summary.stringValue != before { onResize() }
+    }
+}
+
+extension HomeChiefVaultSection {
+    /// Reads the names in this Mac's Cloud secrets index (`~/.config/cmux/cloud-secrets.json`) on
+    /// `work`, off the main thread; nil when the index cannot be read.
+    public static func keychainNames(work: BackgroundWork) -> @Sendable () async -> [String]? {
+        {
+            let index = try? await work.run(.userVisible, mayBlock: .files) { CloudMachineSecrets.read(CloudMachineSecrets.indexURL().path) }
+            return index.flatMap(CloudMachineSecrets.index(from:)).map(CloudMachineSecrets.names(in:))
+        }
     }
 }

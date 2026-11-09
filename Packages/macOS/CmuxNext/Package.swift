@@ -71,8 +71,9 @@ import PackageDescription
 //     plans/cmux-next/react-pages.md)
 //   CmuxNextCodeRouter -> CmuxNextCloud (provider sign-in detection, the CodeRouter control-plane
 //     client, pasted-key Keychain store, account row state; no UI, no daemon; plans/cmux-next/coderouter.md)
-//   CmuxNextAccounts -> Actions, AgentPane, AgentUpdates, Cloud, CodeRouter, DaemonService, Design, Icons, Onboarding, Pages,
-//     Settings, Wakeups (Settings > Accounts, the GitHub App connection and the onboarding step; the App supplies
+//   CmuxNextAccounts -> Actions, AgentPane, AgentUpdates, Cloud, CodeRouter, DaemonService, Design, HomeEngine, Icons, Onboarding,
+//     Pages, Settings, Wakeups (Settings > Accounts, the GitHub App connection and the onboarding step, the Chief card's
+//     Gmail and Calendar rows; the App supplies
 //     AccountsServices; Settings > Agents > Harnesses, the provider accounts routing may use, and the first-run
 //     Agents step's sign-in source)
 //   CmuxNextAgentIntegrations -> Daemon, Pages, Settings (Settings > Agents > Agent integrations: relays the bundled
@@ -631,6 +632,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCodeRouter",
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
+                "CmuxNextHomeEngine",
                 "CmuxNextIcons",
                 "CmuxNextOnboarding",
                 "CmuxNextPages",

@@ -115,30 +115,10 @@ final class HomeHostView: PaneMotionFollowingView {
         petRows.install(in: self, addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) },
                         open: { [weak self] in self?.toggleChiefSettings(openOnly: true) ?? false })
         settingsView.computer.source = .init(directory: { [weak services] in (services?.machines.cloudLimits?.paysForCloud == true, services?.machines.cloud.map(\.machine) ?? []) },
-            frames: { [weak services] id, frame, ended in
-                // View only: the Computer section shows the screen and never sends input.
-                services?.cloudDesktopRdTransport(machine: id).map { make in CloudDesktopFrames.view(open: { make(false) }, frame: frame, ended: ended) }
-            })
+            frames: { [weak services] id, frame, ended in services?.cloudDesktopRdTransport(machine: id).map { make in CloudDesktopFrames.view(open: { make(false) }, frame: frame, ended: ended) } })
         // The Chief's vault (names only) and its Google connections (cmux issue 34263).
-        let work = services.work
-        settingsView.vault.names = {
-            let index = try? await work.run(.userVisible, mayBlock: .files) { CloudMachineSecrets.read(CloudMachineSecrets.indexURL().path) }
-            return index.flatMap(CloudMachineSecrets.index(from:)).map(CloudMachineSecrets.names(in:))
-        }
-        let connections = services.accounts.chiefConnections
-        settingsView.connections.source = .init(
-            rows: { [connections] in
-                (ChiefConnections.Provider.allCases.map { HomeChiefConnection(connections, $0) }, connections.failed)
-            },
-            refresh: { [connections] in
-                // task-owner: one list read per card open; the model drops an answer for a changed account
-                Task { await connections.refresh() }
-            },
-            act: { [connections] provider, connect in
-                guard let provider = ChiefConnections.Provider(rawValue: provider.rawValue) else { return }
-                // task-owner: one Connect or Disconnect gesture; the model refuses a second while it runs
-                Task { connect ? await connections.connect(provider) : await connections.disconnect(provider) }
-            })
+        settingsView.vault.names = HomeChiefVaultSection.keychainNames(work: services.work)
+        settingsView.connections.source = services.accounts.chiefConnections.section
         settingsView.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()
             // Each Chief's tile reads its own brain home: this re-reads them, so only the
@@ -626,20 +606,3 @@ extension HomeHostView: PrimaryInputTarget {
     }
 }
 extension HomeHostView: ChiefPanelContent { var chiefIsAnswering: Bool { isWorking }; var chiefShowsThrough: Bool { get { transcript.clearsBackground } set { transcript.clearsBackground = newValue } }; var chiefHeaderHeight: CGFloat { headerHeight } }
-
-extension HomeChiefConnection {
-    /// The Chief card's row for `provider` from the app's connection model (cmux issue 34263).
-    @MainActor
-    init(_ model: ChiefConnections, _ provider: ChiefConnections.Provider) {
-        let state: State = switch model.state(provider) {
-        case .signedOut: .signedOut
-        case .unavailable: .unavailable
-        case .notConnected: .notConnected
-        case .pending: .pending
-        case .connected(let account): .connected(account: account)
-        case .needsReauth: .needsReauth
-        }
-        self.init(provider: Provider(rawValue: provider.rawValue) ?? .gmail, state: state,
-                  canDisconnect: model.canDisconnect(provider), working: model.isWorking(provider))
-    }
-}
