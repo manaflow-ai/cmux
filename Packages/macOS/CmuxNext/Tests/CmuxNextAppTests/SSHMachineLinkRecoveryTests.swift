@@ -2,8 +2,9 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextCompat
 @testable import CmuxNextDaemon
-import CmuxNextDaemonService
+@testable import CmuxNextDaemonService
 import CmuxNextRemote
 import CmuxNextSidebar
 import CmuxNextWakeups
@@ -65,6 +66,77 @@ import Testing
         #expect(session.daemon.startup == .connecting, "the startup state is left as it was")
         #expect(session.linkStatus == .connected, "the running link client is kept")
         session.close()
+    }
+
+    /// Review of 0f69ab8, F1: Reconnect on an established machine whose link was `.connecting` (its restart
+    /// probe after an exit) fell through to a new startup attempt. The recovery came inside the existing
+    /// connection, so no didConnect cancelled the deadline, and the working machine later read as failed.
+    /// An established machine's Reconnect only wakes, whatever the link's status.
+    @Test(.timeLimit(.minutes(1))) func reconnectDuringARestartProbeKeepsTheStartupBookkeeping() async throws {
+        let log = "/private/tmp/cn-restart-probe-\(UUID().uuidString.prefix(8)).log"
+        defer { try? FileManager.default.removeItem(atPath: log) }
+        // Connection 0 drops 0.3 s after its handshake; later ones serve and stay.
+        let script = #"""
+        import json, os, sys, time
+        print('{"ok":true}', file=sys.stderr, flush=True)
+        log = sys.argv[1]
+        nth = None
+        for line in sys.stdin:
+            frame = json.loads(line)
+            data = {}
+            if frame.get('cmd') == 'identify':
+                nth = len(open(log).read().splitlines()) if os.path.exists(log) else 0
+                with open(log, 'a') as out:
+                    out.write('identify\n')
+                data = {'app': 'cmux-tui', 'protocol': 12, 'generation': 'restart-probe-%d' % nth, 'pid': 4242, 'capabilities': []}
+            print(json.dumps({'id': frame.get('id'), 'ok': True, 'data': data}), flush=True)
+            if frame.get('cmd') == 'subscribe' and nth == 0:
+                time.sleep(0.3)
+                sys.exit(0)
+        """#
+        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", script, log])
+        let socket = "/tmp/cn-restart-probe-\(UUID().uuidString.prefix(8)).sock"
+        let calls = Mutex(0)
+        let session = try Self.session()
+        defer { session.close() }
+        session.linkStatus = .connected
+        session.daemon.startupDeadline = .seconds(1)
+        session.daemon.start(remote: {
+            let nth = calls.withLock { $0 += 1; return $0 }
+            // The link exited; its restart probe takes a while, then the link runs again.
+            if nth == 2 { try await Task.sleep(for: .milliseconds(1200)) }
+            return socket
+        }, bridge: bridge, requiredCapabilities: [], followsLink: true)
+        let deadline = ContinuousClock.now + .seconds(15)
+        while calls.withLock({ $0 }) < 2, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
+        try #require(calls.withLock { $0 } == 2, "the drop's attempt (the restart probe) began")
+        #expect(session.daemon.startup == .connected)
+        // A person's Reconnect during the restart probe.
+        session.linkStatus = .connecting
+        Self.service().reconnect(session)
+        #expect(session.connectionAttemptID == 0, "a new startup attempt would arm a deadline no recovery cancels")
+        while !Self.recovered(session, log: log), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
+        try #require(Self.recovered(session, log: log), "recovered inside the existing connection")
+        // Past the startup deadline: no false startup failure.
+        try await Task.sleep(for: .milliseconds(1500))
+        #expect(!session.daemon.startup.isUnavailable, "the recovered machine read as failed to start")
+        #expect(session.daemonFailure == nil)
+    }
+
+    @Test func anEstablishedMachinesReconnectOnlyWakesWhateverTheLinksStatus() {
+        typealias S = SSHConnectionMachine.Status
+        for status: S in [.connecting, .reconnecting, .failed("x"), .unreachable("x")] {
+            #expect(status.reconnectStep(daemonConnected: false, daemonFailed: true, daemonDown: true, daemonEstablished: true) == .wake, "\(status)")
+        }
+        #expect(S.connected.reconnectStep(daemonConnected: true, daemonFailed: false, daemonDown: true, daemonEstablished: true) == .wake)
+        #expect(S.connected.reconnectStep(daemonConnected: true, daemonFailed: false, daemonEstablished: true) == .nothing)
+        #expect(S.connecting.reconnectStep(daemonConnected: false, daemonFailed: false) == .newAttempt, "no established connection: a new attempt")
+    }
+
+    private static func recovered(_ session: SSHMachineSession, log: String) -> Bool {
+        let identifies = ((try? String(contentsOfFile: log, encoding: .utf8)) ?? "").split(separator: "\n").count
+        guard identifies >= 2, case .connected = session.daemon.store.connectionState else { return false }
+        return true
     }
 
     // MARK: G5

@@ -120,7 +120,8 @@ private nonisolated final class RemoteLinkCalls: Sendable {
         #expect(wait == .milliseconds(9700), "the fourth drop waits for the first token back (\(String(describing: wait)))")
         #expect(budget.take(at: start + .seconds(10)) == nil, "one token back after 10 s")
         #expect(budget.take(at: start + .seconds(10) + .milliseconds(1)) != nil, "only one")
-        #expect(budget.isFull(at: start + .seconds(40)), "all back after the refills")
+        let full = budget.isFull(at: start + .seconds(40))
+        #expect(full, "all back after the refills")
     }
 
     @Test func anExplicitReconnectFillsIt() {

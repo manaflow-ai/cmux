@@ -8,7 +8,12 @@ extension SSHConnectionMachine.Status {
     /// (`daemonConnected`) and whose daemon handshake failed (`daemonFailed`). `daemonDown`: the
     /// daemon connection dropped and waits for an event; on a connected link a Reconnect wakes that
     /// connection's wait, over the same link client and with no new startup attempt (HQ #4877 G4).
-    public func reconnectStep(daemonConnected: Bool, daemonFailed: Bool, daemonDown: Bool = false) -> ReconnectStep {
+    /// `daemonEstablished`: the machine has a daemon connection that connected once. It recovers inside
+    /// that connection, so no didConnect would cancel a new startup deadline: whatever the link's
+    /// status (connecting during a restart probe, reconnecting, failed), Reconnect only wakes it.
+    public func reconnectStep(daemonConnected: Bool, daemonFailed: Bool, daemonDown: Bool = false,
+                              daemonEstablished: Bool = false) -> ReconnectStep {
+        if daemonEstablished { return self == .connected && !daemonDown ? .nothing : .wake }
         switch self {
         case .offline, .unreachable, .failed:
             // These failures leave the gate open for automatic backoff, so a user

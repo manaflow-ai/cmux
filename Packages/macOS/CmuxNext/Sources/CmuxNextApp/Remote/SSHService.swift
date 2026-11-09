@@ -230,7 +230,7 @@ final class SSHService {
         // recovery sheet copy the previous attempt while the link is working.
         session.lastError = nil
         switch session.linkStatus.reconnectStep(daemonConnected: session.daemon.startup == .connected, daemonFailed: session.daemonFailure != nil,
-                                                daemonDown: session.daemonDown) {
+                                                daemonDown: session.daemonDown, daemonEstablished: session.daemon.connection != nil) {
         case .connect: session.connect()
         case .reconnectDaemon: session.reconnectDaemon()
         case .wake: session.wake(.user)
