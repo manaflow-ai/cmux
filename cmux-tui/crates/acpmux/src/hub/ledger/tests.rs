@@ -581,8 +581,14 @@ fn a_recorded_zero_cache_saving_stays_zero_on_fold() {
     assert!((saved("y") - 1.5).abs() < 1e-9, "{}", saved("y"));
     // The read-only copy is never written: the line carries the field once, from its totals.
     let totals = Totals { cache_saved_usd: 2.0, ..Default::default() };
-    let spend =
-        Line::Spend { sid: "z".into(), at: D0, model: "m".into(), pv: "v".into(), totals, saved: Some(9.0) };
+    let spend = Line::Spend {
+        sid: "z".into(),
+        at: D0,
+        model: "m".into(),
+        pv: "v".into(),
+        totals,
+        saved: Some(9.0),
+    };
     let written = serde_json::to_string(&spend).unwrap();
     assert_eq!(written.matches("cacheSavedUsd").count(), 1, "{written}");
     assert!(written.contains(r#""cacheSavedUsd":2.0"#), "{written}");
