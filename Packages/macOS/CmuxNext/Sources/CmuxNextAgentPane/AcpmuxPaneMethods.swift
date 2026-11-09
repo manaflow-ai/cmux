@@ -44,14 +44,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/retry",
         "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
         // Take Over a View Only chat (direct.ts takeOver): the chat runs the conversation from then on.
-        "_acpmux/watch_take_over",
-        // The New Tab's New project (direct.ts newProject, newtab/newProject.ts): acpmux makes one new
-        // folder under the person's projects folder with an empty git repository and trusts it
-        // (server/project_new.rs). Only `name` (``knownParams``), one path component acpmux checks
-        // again. No gesture: the folder is new and empty, so its trust grants nothing an agent-home
-        // folder does not, and the Send that starts its chat keeps its one grant credit for the
-        // folder pick (`workspace.useFolder`) and the first prompt, as for any picked folder.
-        "_acpmux/project_new",
+        "_acpmux/watch_take_over", "_acpmux/project_new", // New project: AgentPaneProjectNewRelayTests.
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
         "_acpmux/status", "_acpmux/peers", "_acpmux/draft_get",
         // Session-scoped draft writes are kept separate from the filtered replies above.

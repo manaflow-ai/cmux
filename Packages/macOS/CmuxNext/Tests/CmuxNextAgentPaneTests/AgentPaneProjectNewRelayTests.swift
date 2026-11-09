@@ -5,6 +5,10 @@ import Testing
 /// The New Tab's New project at the relay boundary (the page's frames into ``AgentPaneTransport``,
 /// out to acpmux): `_acpmux/project_new` goes out only as `{name}`, and with no gesture of its own,
 /// so the Send that starts its chat keeps its grant for the folder pick and the first prompt.
+/// Why it is allowed (``AcpmuxPaneMethods/requests``): acpmux makes one new folder under the person's
+/// projects folder with an empty git repository and trusts it (server/project_new.rs), from one path
+/// component it checks again. The folder is new and empty, so its trust grants nothing an
+/// agent-home folder does not, and it needs no gesture of its own.
 @Suite(.serialized)
 @MainActor
 struct AgentPaneProjectNewRelayTests {
