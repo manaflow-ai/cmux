@@ -60,6 +60,19 @@ import Testing
         #expect(steers(store.turns.first).map(\.promptID) == ["p-2"])
     }
 
+    /// A steer the turn ended before the agent read it runs as the next turn's prompt, under the
+    /// same prompt id (acpmux `steer_end.rs`): it draws once, as that turn's prompt.
+    @MainActor @Test func aSteerTheTurnEndedBeforeReadingDrawsOnceAsTheNextPrompt() {
+        let store = AgentChatStore(source: Recorder())
+        store.apply(.userMessage(text: "Fix the grid", promptId: "p-1", turnId: "t-1", attachments: [], at: Date()))
+        store.apply(.turnStarted(turnId: "t-1", at: Date()))
+        store.apply(.userMessage(text: "also check the header", promptId: "p-2", turnId: "t-1", attachments: [], at: Date()))
+        store.apply(.turnResult(turnId: "t-1", status: .completed, errorText: nil, at: Date()))
+        store.apply(.userMessage(text: "also check the header", promptId: "p-2", turnId: "t-2", attachments: [], at: Date()))
+        #expect(store.turns.map(\.prompt) == ["Fix the grid", "also check the header"])
+        #expect(steers(store.turns.first).isEmpty)
+    }
+
     /// Another agent's message steered in keeps its sender: it draws as its card, and the turn's
     /// own prompt stays the person's.
     @MainActor @Test func anotherAgentsSteerKeepsItsSender() throws {
