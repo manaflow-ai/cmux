@@ -87,6 +87,26 @@ pub(super) fn add_entry(
     }
 }
 
+/// Adds the working file `path` of `folder` (`top` holds it open), reached
+/// through the folders on its way, each opened by descriptor without following
+/// a symlink; one gone or swapped since git listed it is left out.
+pub(super) fn add_working(
+    set: &mut LocalSet,
+    top: &place::Dir,
+    folder: &Path,
+    path: &str,
+) -> anyhow::Result<()> {
+    match place::parent_of(top, path) {
+        Ok(Some((dir, name))) => {
+            let entry = dir.entry(&name)?;
+            add_entry(set, path.to_string(), &folder.join(path), &dir, &name, entry)
+        }
+        Ok(None) => Ok(()),
+        Err(error) if swapped(&error) => Ok(()),
+        Err(error) => Err(error).with_context(|| format!("cannot read {path}")),
+    }
+}
+
 /// Calls `visit(relative, folder, name, entry)` for every entry but a folder
 /// below the folder `dir` holds open (`relative` under `prefix`). Each folder
 /// is entered by descriptor without following a symlink, so a folder swapped

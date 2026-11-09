@@ -394,10 +394,10 @@ pub fn without_subagent_mark(command: &str) -> &str {
     if marked { rest } else { command }
 }
 
-/// The answer to a subagent's `PostToolUse` (its Bash call ended): the notices the daemon left
-/// for it (`subagent_notice.rs`: reports of turns it asked for without waiting), taken once, as
-/// `additionalContext`, which Claude Code adds to that subagent's own context. None for the lead's
-/// own call (no `agent_id`) or when none waits.
+/// The answer to a subagent's `PostToolUse` (its Bash or acpmux MCP call ended): the notices the
+/// daemon left for it (`subagent_notice.rs`: reports of turns it asked for without waiting), taken
+/// once, as `additionalContext`, which Claude Code adds to that subagent's own context. None for
+/// the lead's own call (no `agent_id`) or when none waits.
 pub fn subagent_notices(home: &std::path::Path, session: &str, input: &Value) -> Option<Value> {
     let agent = input.get("agent_id").and_then(Value::as_str)?;
     let dir = crate::subagent_notice::agent_dir(home, session, agent)?;
@@ -414,12 +414,61 @@ pub fn subagent_notices(home: &std::path::Path, session: &str, input: &Value) ->
 }
 
 /// A subagent's `SubagentStop`: it reads no more notices, so the daemon gives the ones left for it
-/// to its lead (`hub/lane_report_subagents.rs`). Prints nothing: blocking the stop to hand one
-/// over would make the subagent's answer to it its last message, the result its lead reads.
+/// to its lead (`hub/lane_report_subagents.rs`), and none of its tool calls runs any more
+/// (`subagent_call.rs`). Prints nothing: blocking the stop to hand one over would make the
+/// subagent's answer to it its last message, the result its lead reads.
 pub fn subagent_stopped(home: &std::path::Path, session: &str, input: &Value) {
     let Some(agent) = input.get("agent_id").and_then(Value::as_str) else { return };
     if let Some(dir) = crate::subagent_notice::agent_dir(home, session, agent) {
         let _ = crate::subagent_notice::mark_stopped(&dir);
+    }
+    crate::subagent_call::end_agent(home, session, agent);
+}
+
+/// The MCP tools through which an agent reaches acpmux without Bash: acpmux's own server, and
+/// cmux's in front of it (its listed tools, and `cmux_exec`, whose script calls them). acpmux's
+/// hook runs on these for a subagent ([`mcp_matcher`]) and records which subagent makes each call
+/// (`subagent_call.rs`): the incident's subagent ran `acpmux run` and `acpmux send` through
+/// `cmux.acpmux_bg_start` in a `cmux_exec` script, so its lane reports went to its lead (W5-M,
+/// 2026-11-08).
+pub const MCP_CALLS: &[&str] = &[
+    "mcp__acpmux__bg_start",
+    "mcp__acpmux__send",
+    "mcp__cmux__acpmux_bg_start",
+    "mcp__cmux__acpmux_send",
+    "mcp__cmux__cmux_exec",
+];
+
+/// [`MCP_CALLS`] as one hooks.json matcher (a regex of alternatives).
+pub fn mcp_matcher() -> String {
+    MCP_CALLS.join("|")
+}
+
+/// Whether `input` is a call of one of [`MCP_CALLS`].
+fn mcp_call(input: &Value) -> bool {
+    input.get("tool_name").and_then(Value::as_str).is_some_and(|t| MCP_CALLS.contains(&t))
+}
+
+/// A subagent's [`MCP_CALLS`] call starts (`PreToolUse`): records which subagent makes it, by its
+/// tool use id, for acpmux's MCP server (`subagent_call.rs`). Nothing for the lead's own call (no
+/// `agent_id`). Prints nothing: the call runs as asked.
+pub fn subagent_call_starts(home: &std::path::Path, session: &str, input: &Value) {
+    let text = |key: &str| input.get(key).and_then(Value::as_str);
+    let (Some(agent), Some(call), true) = (text("agent_id"), text("tool_use_id"), mcp_call(input))
+    else {
+        return;
+    };
+    let kind =
+        text("agent_type").filter(|k| crate::cli::sender::subagent_word(k)).unwrap_or("subagent");
+    let _ = crate::subagent_call::record(home, session, call, agent, kind);
+}
+
+/// A subagent's [`MCP_CALLS`] call ended (`PostToolUse`, `PostToolUseFailure`): its id names
+/// nobody any more (`subagent_call.rs`).
+pub fn subagent_call_ends(home: &std::path::Path, session: &str, input: &Value) {
+    if let (Some(call), true) = (input.get("tool_use_id").and_then(Value::as_str), mcp_call(input))
+    {
+        crate::subagent_call::end(home, session, call);
     }
 }
 
@@ -435,13 +484,22 @@ pub fn main(home: Option<std::path::PathBuf>) -> anyhow::Result<()> {
     let home = home.unwrap_or_else(crate::config::home);
     match input.get("hook_event_name").and_then(Value::as_str) {
         Some("PostToolUse") => {
+            subagent_call_ends(&home, &session, &input);
             if let Some(answer) = subagent_notices(&home, &session, &input) {
                 println!("{answer}");
             }
             return Ok(());
         }
+        Some("PostToolUseFailure") => {
+            subagent_call_ends(&home, &session, &input);
+            return Ok(());
+        }
         Some("SubagentStop") => {
             subagent_stopped(&home, &session, &input);
+            return Ok(());
+        }
+        Some("PreToolUse") if mcp_call(&input) => {
+            subagent_call_starts(&home, &session, &input);
             return Ok(());
         }
         _ => {}
