@@ -255,11 +255,28 @@ fn segment_needs_reducer_records(
     Ok(mapped.iter().any(|kind| kept_for_reducers(kind) && !kept.contains(kind)))
 }
 
+/// The output cleanup's done marker (`output_cleanup::DONE_META_KEY`), which
+/// every build's swap rewrites with its time: the cursor keeps the one it was
+/// made under, so a cleanup since then shows.
+fn cleanup_marker(connection: &Connection) -> anyhow::Result<Value> {
+    let marker = connection
+        .query_row(
+            "SELECT value FROM meta WHERE key = ?1",
+            [output_cleanup::DONE_META_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    Ok(marker.map_or(Value::Null, Value::String))
+}
+
 /// The end sequence of the last segment the backfill finished. 0 (start
 /// over) when there is none, when it was made for another version of the
-/// reducer kinds, or when that segment is gone: an output cleanup rebuilt
-/// the segments under new ids, and an older build's cleanup copied the
-/// cursor across.
+/// reducer kinds, when an output cleanup swapped the registry since (its
+/// marker changed), or when that segment is gone. A cleanup of this build
+/// deletes the cursor itself ([`forget_backfill`]); an older build's copies
+/// it across, and repacks the segments under new ids, but a repacked
+/// segment can keep the id of the one it replaced, so the cursor's segment
+/// can survive while the earlier ones were rewritten without kept records.
 fn backfill_cursor(connection: &Connection) -> anyhow::Result<u64> {
     let raw = connection
         .query_row("SELECT value FROM meta WHERE key = ?1", [BACKFILL_META_KEY], |row| {
@@ -270,6 +287,9 @@ fn backfill_cursor(connection: &Connection) -> anyhow::Result<u64> {
     let Ok(value) = serde_json::from_str::<Value>(&raw) else { return Ok(0) };
     if value.get("version").and_then(Value::as_u64) != Some(u64::from(SEALED_REDUCER_KINDS_VERSION))
     {
+        return Ok(0);
+    }
+    if value.get("cleanup").unwrap_or(&Value::Null) != &cleanup_marker(connection)? {
         return Ok(0);
     }
     let (Some(through), Some(segment_id)) = (
@@ -312,6 +332,7 @@ fn write_backfill_cursor(
         "version": SEALED_REDUCER_KINDS_VERSION,
         "through": through.to_string(),
         "segment_id": segment_id,
+        "cleanup": cleanup_marker(connection)?,
     });
     connection.execute(
         "INSERT INTO meta(key, value) VALUES(?1, ?2)
