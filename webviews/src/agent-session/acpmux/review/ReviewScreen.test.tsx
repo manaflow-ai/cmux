@@ -198,3 +198,22 @@ test("a comment not sent yet stays with its row when the person opens another ro
   key(list(), "r");
   expect(doc.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("rename the flag");
 });
+
+test("a send that fails late never overwrites a newer draft on its row", async () => {
+  const sent: { fail(): void }[] = [];
+  const send = () => new Promise((_resolve, reject) => sent.push({ fail: () => reject(new Error("down")) }));
+  const { doc, list, key, type } = mount(sessions, { send });
+  await flush();
+  key(list(), "r");
+  key(type("first words"), "Enter");
+  // The row is back (its chat did more): the person writes again, then moves to B.
+  key(list(), "r");
+  type("second thoughts");
+  key(list(), "j");
+  key(list(), "r");
+  await act(async () => sent[0]!.fail());
+  await flush();
+  key(list(), "k");
+  key(list(), "r");
+  expect(doc.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("second thoughts");
+});

@@ -39,7 +39,7 @@ type Props = ReviewActions & {
 
 const SHOWN_FILES = 3;
 
-type Draft = { text: string; sent?: { sessionId: string; prompt: string; promptId: string } };
+type Draft = { text: string; sent?: { sessionId: string; signature: string; prompt: string; promptId: string } };
 
 const plain = (event: React.KeyboardEvent) => !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
 
@@ -74,6 +74,11 @@ export function ReviewScreen({
   /// `sent` is a send of them that failed: a retry of the same prompt to the same chat reuses its id,
   /// so acpmux delivers it once even if the first one got through.
   const [drafts, setDrafts] = useState<ReadonlyMap<string, Draft>>(() => new Map());
+  /// The drafts now, for a send's failure that lands after the person wrote more.
+  const latestDrafts = useRef(drafts);
+  useLayoutEffect(() => {
+    latestDrafts.current = drafts;
+  });
   const [failures, setFailures] = useState<ReadonlyMap<string, string>>(() => new Map());
   const list = useRef<HTMLDivElement>(null);
 
@@ -125,9 +130,11 @@ export function ReviewScreen({
   const sendComment = (row: ReviewRow, text: string) => {
     if (!text.trim()) return;
     const sessionId = row.owner.sessionId;
+    const signature = row.stat.signature;
     const prompt = changesPrompt(row, text);
     const retry = drafts.get(row.key)?.sent;
-    const promptId = retry && retry.sessionId === sessionId && retry.prompt === prompt ? retry.promptId : newPromptId();
+    const same = retry?.sessionId === sessionId && retry.signature === signature && retry.prompt === prompt;
+    const promptId = same ? retry.promptId : newPromptId();
     setComment(undefined);
     setDrafts((previous) => without(previous, row.key));
     decide(
@@ -135,9 +142,12 @@ export function ReviewScreen({
       "changes",
       (tag) => send(sessionId, prompt, tag, promptId),
       t("review.failed.send"),
-      // A send that failed keeps the person's words, and opens them again unless another comment is open.
+      // A send that failed keeps the person's words, and opens them again unless another comment is
+      // open. A draft the person wrote on the row since then is newer: it stays, and so does its box.
       () => {
-        setDrafts((previous) => new Map(previous).set(row.key, { text, sent: { sessionId, prompt, promptId } }));
+        const draft = latestDrafts.current.get(row.key);
+        if (draft !== undefined && draft.text !== text) return;
+        setDrafts((previous) => new Map(previous).set(row.key, { text, sent: { sessionId, signature, prompt, promptId } }));
         setComment((open) => open ?? { key: row.key, text });
       },
     );
