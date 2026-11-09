@@ -396,13 +396,7 @@ fn ranked_rows(
             rows.push((key.clone(), value));
         }
     }
-    WindowRows {
-        rows,
-        has_more: total > spec.filter.limit,
-        total: Some(total),
-        filling,
-        folded,
-    }
+    WindowRows { rows, has_more: total > spec.filter.limit, total: Some(total), filling, folded }
 }
 
 /// What a window last sent its client, so the next message is a diff against it.
@@ -683,10 +677,19 @@ mod tests {
         });
         assert!(state.shows_activity_of(Some("a:1"), "status", &mut || false), "a row it shows");
         assert!(state.shows_activity_of(Some("a:7"), "turn_end", &mut || false), "a row's parent");
-        assert!(state.shows_activity_of(Some("a:5"), "status", &mut || false), "folded or read past the page");
-        assert!(!state.shows_activity_of(Some("a:9"), "status", &mut || false), "a chat past the window");
+        assert!(
+            state.shows_activity_of(Some("a:5"), "status", &mut || false),
+            "folded or read past the page"
+        );
+        assert!(
+            !state.shows_activity_of(Some("a:9"), "status", &mut || false),
+            "a chat past the window"
+        );
         assert!(!state.shows_activity_of(None, "status", &mut || false), "a session with no chat");
-        assert!(state.shows_activity_of(Some("a:9"), "tags", &mut || false), "tags may fold or unfold rows");
+        assert!(
+            state.shows_activity_of(Some("a:9"), "tags", &mut || false),
+            "tags may fold or unfold rows"
+        );
         assert!(state.shows_activity_of(None, "purged", &mut || false));
         // A refresh that sends nothing still keeps the chats it folded.
         let parented = ("a:2".to_owned(), json!({"key": "a:2", "parent": "a:7"}));
@@ -698,8 +701,14 @@ mod tests {
             folded,
         };
         assert_eq!(state.next(same(HashSet::from(["a:6".to_owned()]))), None);
-        assert!(state.shows_activity_of(Some("a:6"), "status", &mut || false), "a chat folded since");
-        assert!(!state.shows_activity_of(Some("a:5"), "status", &mut || false), "a chat no longer folded");
+        assert!(
+            state.shows_activity_of(Some("a:6"), "status", &mut || false),
+            "a chat folded since"
+        );
+        assert!(
+            !state.shows_activity_of(Some("a:5"), "status", &mut || false),
+            "a chat no longer folded"
+        );
         let mut ranked =
             WindowState::new(spec(json!({"window": "q", "topLevel": true, "query": "x"})), 0);
         ranked.next(WindowRows {
