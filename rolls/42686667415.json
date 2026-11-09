@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42686667415",
+  "recorded_at": "2026-11-09T19:57:46Z",
+  "reason": "cmux-tui cf327683f68f changes the image's cmux-tui (pinned 0e43718c567f)",
+  "dry_run": false,
+  "cmux_tui": "cf327683f68f23884565aecc38359c543adc1676",
+  "fixes": [
+    {
+      "sha": "cf327683f68f23884565aecc38359c543adc1676",
+      "mergedAt": "2026-11-09T11:20:58-08:00",
+      "subject": "startup timings: a lap from the process start is a Step (base red after #39760 and #39773) (#39803)"
+    },
+    {
+      "sha": "c61bb698af855be2a935a5a6cb7348dee2c16505",
+      "mergedAt": "2026-11-09T11:00:44-08:00",
+      "subject": "acpmux: believe asksBeforeTools only from an unchanged config entry, and log each claim (W5-L) (#39648)"
+    },
+    {
+      "sha": "5e563626462486d2d73b6097d54647b69a5235de",
+      "mergedAt": "2026-11-09T10:58:05-08:00",
+      "subject": "tui: daemon pane.move keeps the pane id, one selector resolver in the daemon, public ids in raw replies (W5-P) (#38992)"
+    },
+    {
+      "sha": "e7b7e70633bf18db8cdc6c2f735c3f8375bb6de5",
+      "mergedAt": "2026-11-09T18:54:02Z",
+      "subject": "acpmux skill: name mcp__cmux__acpmux_send for a chat that lists every cmux tool (#39775)"
+    },
+    {
+      "sha": "50eb3cc58ec934558f7002d528e997477396f5e8",
+      "mergedAt": "2026-11-09T18:53:49Z",
+      "subject": "carrier capabilities reports ssh from the dial's own check; Cloud ssh fault row (G5) (#39743)"
+    },
+    {
+      "sha": "78b8dffe91a9c75a1c165b59cdf4f872320bb2b9",
+      "mergedAt": "2026-11-09T18:53:36Z",
+      "subject": "cmux-rd link: a STUN or TURN list that resolves after the link starts joins it (host and viewer) (#39739)"
+    },
+    {
+      "sha": "07144f6fc9d4863f26394568f7365f120bb58df6",
+      "mergedAt": "2026-11-09T10:36:39-08:00",
+      "subject": "Startup laps from the process start, and a start harness that measures the daemon, not a new binary's first run (#39760)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T19:57:46Z",
+    "snapshot_id": "sh-ec0ca30b31ac4dbf86b69fc13541be08",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42686667415): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "dbdf349f1f966544bad4d932ae0c0e50301960b4",
+    "image": "cloud-native-auto-cf327683-42686667415-1",
+    "revision": "ci-42686667415-1",
+    "at": "2026-11-09T19:57:46Z"
+  },
+  "rolled_back": false
+}
