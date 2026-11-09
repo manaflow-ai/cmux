@@ -35,8 +35,8 @@ public actor MobileTaskModelDiscovery {
     ///   - strategy: Provider-specific discovery implementation.
     ///   - now: Injected clock read.
     ///   - cacheTTL: Cache lifetime in seconds.
-    ///   - customClaudePath: Current host setting; an absent or invalid executable
-    ///     uses login-shell `PATH`.
+    ///   - customClaudePath: Current host setting; an absent, relative or invalid
+    ///     executable uses login-shell `PATH`.
     public init(
         strategy: MobileTaskModelProviderStrategy,
         now: @escaping Now = { Date() },
@@ -83,20 +83,12 @@ public actor MobileTaskModelDiscovery {
     public func models(
         for provider: MobileTaskModelProvider
     ) async -> MobileTaskModelListResult {
-        let configuredPath = provider == .claude
-            ? await customClaudePath()?.trimmingCharacters(in: .whitespacesAndNewlines)
-            : nil
-        let claudeExecutable: String
-        var isDirectory: ObjCBool = false
-        if let configuredPath,
-           !configuredPath.isEmpty,
-           FileManager.default.fileExists(atPath: configuredPath, isDirectory: &isDirectory),
-           !isDirectory.boolValue,
-           FileManager.default.isExecutableFile(atPath: configuredPath) {
-            claudeExecutable = configuredPath
-        } else {
-            claudeExecutable = "claude"
-        }
+        let configuredPath = provider == .claude ? await customClaudePath() : nil
+        // File checks on a user-chosen path can block on a stalled volume, so
+        // they run off this actor and never hold up other providers' requests.
+        let claudeExecutable = await Task.detached(priority: .utility) {
+            Self.resolvedClaudeExecutable(configuredPath: configuredPath)
+        }.value
         let key = CacheKey(provider: provider, claudeExecutable: claudeExecutable)
         let currentTime = await now()
         if let cached = cache[key],
@@ -121,5 +113,25 @@ public actor MobileTaskModelDiscovery {
         }
         inFlight[key] = nil
         return result
+    }
+
+    /// Returns the configured Claude path when it is an absolute, existing,
+    /// executable regular file, otherwise `claude` for login-shell lookup.
+    ///
+    /// Matches `AgentExecutableResolver` and the terminal wrapper's
+    /// `find_real_claude`. A relative path has no terminal working directory
+    /// to resolve against for a phone request, so it falls back as well.
+    nonisolated static func resolvedClaudeExecutable(configuredPath: String?) -> String {
+        guard let path = configuredPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              path.hasPrefix("/") else {
+            return "claude"
+        }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+              !isDirectory.boolValue,
+              FileManager.default.isExecutableFile(atPath: path) else {
+            return "claude"
+        }
+        return path
     }
 }
