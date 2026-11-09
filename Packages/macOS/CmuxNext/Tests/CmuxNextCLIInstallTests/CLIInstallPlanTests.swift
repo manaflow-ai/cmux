@@ -62,6 +62,16 @@ struct CLIInstallPlanTests {
         #expect(CLIInstallReport.setupRow(scratch.check()) == "installed")
     }
 
+    @Test func aLinkToThisAppRunningFromItsImageIsNotInstalledYet() throws {
+        let scratch = try Scratch()
+        let translocated = try Scratch.bundle(
+            scratch.root.appendingPathComponent("AppTranslocation/ID/d/cmux NIGHTLY.app"), id: "com.cmuxterm.app.nightly")
+        try scratch.link(scratch.early, to: translocated.path)
+        let check = CLIPathCheck(path: scratch.path, source: translocated)
+        #expect(check.status == .thisApp)
+        #expect(CLIInstallReport.setupRow(check) == "fromImage", "the link dangles once the image is gone")
+    }
+
     @Test func missingOffersInstallWithoutReplacing() throws {
         let offer = try #require(CLIInstallReport.launchOffer(try Scratch().check()))
         #expect(offer.button == .install)
