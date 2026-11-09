@@ -1,0 +1,425 @@
+{
+  "version": 1,
+  "build": "4260019039701",
+  "notes": "notes/4260019039701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 39250,
+      "title": "test(app): the live-app harness hands over the app once a pane is focused",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39339,
+      "title": "Settings › Cloud Environments: edit an environment's setup script and variables",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39467,
+      "title": "cmux-next: the action exports regeneration hands lanes one patch (OUT.patch)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39409,
+      "title": "New Tab page: the refused-open labels are typed as string keys, so webviews typecheck again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39389,
+      "title": "ghostty-vt-sys: build libghostty-vt with the Zig the tree pins",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39304,
+      "title": "cmux-tui: a stale layout undo whose revision read fails no longer deadlocks the registry",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39451,
+      "title": "fix(tui): termination of a host that already closed its link reports its exit (macOS EINVAL)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39472,
+      "title": "notices: package-notices license_tree names the ghostty-next pin b3a5ebfdf",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38677,
+      "title": "feat: show where chat time went",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39403,
+      "title": "webviews: New Tab's open-failed labels are StringKeys (base red: typecheck)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39460,
+      "title": "Table split edge scene: drag the chat's Chromium page through DevTools",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39380,
+      "title": "Motion: the settle and the send resolve on the standard step, 180 ms",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39271,
+      "title": "Agent chat: tool calls, thoughts, subagents and steers come in without jumps and rest within 90 ms",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39416,
+      "title": "Settings: Float Hidden Sidebar on Hover joins the Sidebar Layout card (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39029,
+      "title": "acpmux: a subagent's background task end goes to that subagent, not the lead",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39149,
+      "title": "Sidebar: keep the order drawn at launch until the owner serves (Rust rule)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39397,
+      "title": "iPhone: a pairing link that cold-launches the app waits for the account's teams",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39328,
+      "title": "agent pane: out-of-credit and expired cloud sign-in errors say what to do",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39350,
+      "title": "cmux-action-catalog: cloud start-session --from-folder, as in the app (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39396,
+      "title": "billing: Cloud machine time joins the usage pool (cloud.machine_usd)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39372,
+      "title": "AppStoreFeaturesTests: pressing the default density off stores no key",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39430,
+      "title": "agent pane: the New Tab page's refused-open labels type as catalog keys (base type red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38666,
+      "title": "Mac terminal: predictive local echo for remote shells",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39298,
+      "title": "Glass menus and hover cards: content in the first frame, glass leaves with it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39393,
+      "title": "protocol: CloudPlan usage gains vm_hours_used_by_you",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39455,
+      "title": "acpmux tests: one daemon_env::bg_runner() for the in-process hub's bg runner",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38828,
+      "title": "test(cmux-next): the socket settings round trip proves a stored value for every setting",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39456,
+      "title": "cmux-tui-core test: a journal checkpoint keeps no agent last_reply",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37658,
+      "title": "Toasts: a top toast holds while hovered; a failed fork is a toast (review of #37629)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39343,
+      "title": "test(settings): the chat's interface font defaults to the system font",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39461,
+      "title": "cloud journey: read back the Cloud desktop's UDP link from a Mac behind NAT (dispatchable)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39040,
+      "title": "cmux-tui: late host color replies are never input, CMUX_TUI_CLI, session peers in the agent context, identify build warning, resize redraw is not work (W5-Q B)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39427,
+      "title": "ci(nightly-next): the GitHub release upload runs hosted, off the signing Mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39412,
+      "title": "TerminalResizeProgramHoldTests: press the keys of the new Ctrl-Shift-HJKL rule (#38206 x 135982129dd)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39218,
+      "title": "cmux NEXT: a renamed workspace or tab title rolls in as a chat's tool calls do",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39399,
+      "title": "acpmux: a worktree revive takes the per-repository lock for its worktree changes",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39404,
+      "title": "web db tests: a force-dropped scratch database's session end is not an unhandled error",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39360,
+      "title": "cmux-tui: a terminal no cmux has served for a week ends itself, in every build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39368,
+      "title": "Background tasks: a helper's work between replies folds into one line, as in Claude Code",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39308,
+      "title": "test(webviews): the hat header width test folds the hat and cuts its names, as the capture did",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39410,
+      "title": "ci: list TabDragGhostFollowsThemeTests among the display suites (base red)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38740,
+      "title": "Markdown viewer: Run buttons on shell blocks and Run all for runbooks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39336,
+      "title": "Debug click: reveal a control shown only on hover before pressing it; table split edge scene",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39342,
+      "title": "cmux-tui-core: the agent roster replay inflates sealed segments in parallel",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39315,
+      "title": "cmux mcp: the .items hint names cmux's own tools; a folded server's tool keeps its shape",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39200,
+      "title": "remote: every permanent ssh refusal stops the redial; a cold open keeps the person's deadline",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38923,
+      "title": "cmux-terminal-prediction tests: neutral host name in the simulated prompt",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39359,
+      "title": "cmux NEXT iPhone: an unnamed workspace takes its agent chat's name, not workspace-N",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39151,
+      "title": "Composer hat: the chat's goal heads the hat, opens and edits in place, with a hover preview",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39217,
+      "title": "cmux-tui: keep journal checkpoints bounded",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39327,
+      "title": "Composer: an attachment's placeholder takes its final place at once and loads there",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39303,
+      "title": "web-ui-suite: a busy runner's ms rows are divided by the host's CPU contention",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39353,
+      "title": "perf cron: the diff sidecar's medians of short reads keep their measured value (#39309 F1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39326,
+      "title": "Costs: cache savings, spend by account, and a CSV export for audits",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39316,
+      "title": "acpmux: multi-provider harnesses get provider keys exported in the login shell",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39319,
+      "title": "billing: usage price set v2, Team included usage per seat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39284,
+      "title": "cmux-tui: delete the unused cmux-mux2 research crate",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39295,
+      "title": "agent pane: a capture state that reads the Subagent finished report card in the real app",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39111,
+      "title": "cmux NEXT: Keep Mac Awake is found under \"keep awake\" and \"prevent sleep\", and Keeping Mac awake opens it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39262,
+      "title": "NEXT keeps its per-build folder under Application Support/cmux-next, moved once from classic's cmux",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39122,
+      "title": "Agent context: a chat lists only the skills its tools need",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39301,
+      "title": "cmux chat cd: point a running Cloud chat at another folder or repo",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39199,
+      "title": "cloud: a Mac folder seed opens the chat at its head (Mac side)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39233,
+      "title": "ci: every build on the fleet compile cache retries once on the local cache",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38206,
+      "title": "perf(terminal): key resizes and divider drags show a new size only with the program's redraw (RESIZE P0 12 hold)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39032,
+      "title": "cmux-host: update check --skip-resume-hold for the spare refresh",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39169,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-ca4bae15b07db886a79d8f31ac51e0933fb384ab",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39309,
+      "title": "perf cron: the diff-viewer part divides its rows by the runner's CPU contention",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39227,
+      "title": "ci: manual dev deploy for the mobile Worker",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
