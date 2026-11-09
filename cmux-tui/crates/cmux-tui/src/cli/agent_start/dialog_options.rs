@@ -81,6 +81,34 @@ pub(in crate::cli) fn accept_keys(options: &[DialogOption]) -> Option<Vec<&'stat
     Some(keys)
 }
 
+/// The label of the option [`accept_keys`] picks; `None` without one.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(in crate::cli) fn accept_label(_options: &[DialogOption]) -> Option<&str> {
+    None
+}
+
+/// The folder-trust `reason` for the terminal `who`: ask the person, then
+/// answer with `cmux terminal WHO keys`. With `accept` (the keys and the
+/// label they pick) it names both, and it warns when that label also turns
+/// approvals off.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(in crate::cli) fn folder_trust_reason(
+    _messages: &crate::localization::PaneCliMessages,
+    who: &str,
+    accept: Option<(&[&str], &str)>,
+) -> String {
+    match accept {
+        Some((keys, _)) => format!(
+            "the agent asks whether you trust this folder; ask the person, and when they \
+             agree run cmux terminal {who} keys {} (cmux never answers it on its own)",
+            keys.join(" ")
+        ),
+        None => "the agent asks whether you trust this folder; ask the person, then answer \
+                 it with cmux terminal NAME keys (cmux never answers it on its own)"
+            .to_owned(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,5 +130,43 @@ mod tests {
         assert_eq!(accept_keys(&none_yes), None);
         let below = options(" ❯ 1. No, exit\n   2. Later\n   3. Yes, I trust this folder");
         assert_eq!(accept_keys(&below), Some(vec!["down", "down", "enter"]));
+    }
+
+    /// W5-Q review (PR C): the person approves the exact text the keys
+    /// pick, so the result names it (`accept_label`).
+    #[test]
+    fn w5q_the_accept_label_is_the_option_the_keys_pick() {
+        let below = options(" ❯ 1. No, exit\n   2. Later\n   3. Yes, I trust this folder");
+        assert_eq!(accept_label(&below), Some("Yes, I trust this folder"));
+        assert_eq!(accept_label(&options(" ❯ 1. No, exit\n   2. Maybe")), None);
+    }
+
+    /// W5-Q review (PR C): the folder-trust reason is localized, names the
+    /// terminal (never the placeholder `NAME`), names the option the keys
+    /// pick, and warns when that option also turns approvals off (a Codex
+    /// "... without asking for approval" choice).
+    #[test]
+    fn w5q_the_folder_trust_reason_names_the_choice_and_warns_on_no_approval() {
+        let english = &crate::localization::catalog_for_locale("en_US.UTF-8").pane_cli;
+        let japanese = &crate::localization::catalog_for_locale("ja_JP.UTF-8").pane_cli;
+        let plain = "Yes, I trust this folder";
+        let risky = "Yes, allow Codex to work in this folder without asking for approval";
+        let keys: &[&str] = &["up", "enter"];
+        for messages in [english, japanese] {
+            let asked = folder_trust_reason(messages, "beta", None);
+            assert!(!asked.contains("NAME"), "{asked}");
+            assert!(asked.contains("cmux terminal beta keys"), "{asked}");
+            let named = folder_trust_reason(messages, "beta", Some((keys, plain)));
+            assert!(named.contains("cmux terminal beta keys up enter"), "{named}");
+            assert!(named.contains(plain), "{named}");
+        }
+        let en = folder_trust_reason(english, "beta", Some((keys, plain)));
+        let ja = folder_trust_reason(japanese, "beta", Some((keys, plain)));
+        assert_ne!(en, ja, "the Japanese reason is Japanese");
+        assert!(!en.contains("warning:"), "{en}");
+        let warned = folder_trust_reason(english, "beta", Some((keys, risky)));
+        assert!(warned.contains("warning:"), "{warned}");
+        let warned = folder_trust_reason(japanese, "beta", Some((keys, risky)));
+        assert!(warned.contains("警告"), "{warned}");
     }
 }

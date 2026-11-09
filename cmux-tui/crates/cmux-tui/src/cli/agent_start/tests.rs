@@ -697,14 +697,28 @@ fn w5q_folder_trust_result_lists_the_options_and_the_keys_that_accept_it() {
         "{report}"
     );
     assert_eq!(report["accept_keys"], json!(["up", "enter"]), "{report}");
+    assert_eq!(report["accept_label"], "Yes, I trust this folder", "{report}");
     let reason = report["reason"].as_str().unwrap_or_default();
-    assert!(reason.contains("ask the person"), "{reason}");
     assert!(reason.contains("cmux terminal beta keys up enter"), "{reason}");
+    assert!(reason.contains("Yes, I trust this folder"), "{reason}");
 
     // The cursor already on "Yes": Enter alone accepts.
     let report = start_at_trust(TRUST);
     assert_eq!(report["options"][0]["selected"], true, "{report}");
     assert_eq!(report["accept_keys"], json!(["enter"]), "{report}");
+}
+
+/// W5-Q review (PR C): a folder-trust dialog whose options cmux cannot read
+/// still names the terminal to answer, never the placeholder `NAME`.
+#[test]
+fn w5q_folder_trust_without_options_names_the_terminal() {
+    let report = start_at_trust(
+        " Do you trust the files in this folder?\n\n /Users/me/new-project\n\n Enter to confirm",
+    );
+    assert_eq!(report["dialog"], "folder_trust", "{report}");
+    let reason = report["reason"].as_str().unwrap_or_default();
+    assert!(!reason.contains("NAME"), "{reason}");
+    assert!(reason.contains("cmux terminal beta keys"), "{reason}");
 }
 
 /// W5-Q: a ready agent has no dialog options.
@@ -760,9 +774,141 @@ fn halved_layout() -> Value {
     })
 }
 
-/// W5-Q (bench round 4 orchestration friction 6): a start that splits a
-/// pane gives every pane of that row the same width, so the third agent
-/// pane is not a quarter of the screen (beta got 21 columns).
+/// The widths along the row after a start: `ratios` set on the splits of a
+/// row `caller | (alpha | beta)` laid out by [`halved_layout`].
+fn row_widths(ratios: &std::collections::BTreeMap<String, f64>) -> [f64; 3] {
+    let outer = ratios.get(OUTER_SPLIT).copied().unwrap_or(0.5);
+    let inner = ratios.get(INNER_SPLIT).copied().unwrap_or(0.5);
+    [outer, (1.0 - outer) * inner, (1.0 - outer) * (1.0 - inner)]
+}
+
+/// The `pane.split_ratio.set` ratios a start sent, by split id.
+fn sent_ratios<F: Fn(&str, &Value, usize) -> Value>(
+    daemon: &Fake<F>,
+) -> std::collections::BTreeMap<String, f64> {
+    daemon
+        .sent("pane.split_ratio.set")
+        .iter()
+        .map(|set| {
+            let split = set["split_id"].as_str().unwrap_or_default().to_owned();
+            (split, set["ratio"].as_f64().unwrap_or(f64::NAN))
+        })
+        .collect()
+}
+
+/// W5-Q review (PR C, the column rule): a new agent pane takes its width
+/// only from the pane it splits. The person's 0.7 editor column keeps 0.7
+/// when the orchestrator next to it starts an agent.
+#[test]
+fn w5q_start_split_keeps_the_persons_column_width() {
+    // The editor tab has no agent name: the person made it.
+    let snapshot = snapshot_with_tab_name(ALPHA_PANE, None);
+    let daemon = Fake::new(move |operation, _params, _count| match operation {
+        "session.snapshot" => snapshot.clone(),
+        "pane.split" => created(
+            BETA_PANE,
+            "tab_50505050505050505050505050505050",
+            "term_5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e",
+        ),
+        "pane.run" => created(BETA_PANE, "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0", NEW),
+        // editor 0.7 | (orchestrator | beta), the orchestrator split in half.
+        "screen.layout.export" => json!({"version": 1, "root": {
+            "kind": "split", "split_id": OUTER_SPLIT, "direction": "horizontal", "ratio": 0.7,
+            "first": {"kind": "leaf", "pane_id": ALPHA_PANE, "tab_ids": []},
+            "second": {"kind": "split", "split_id": INNER_SPLIT, "direction": "horizontal",
+                "ratio": 0.5,
+                "first": {"kind": "leaf", "pane_id": CALLER_PANE, "tab_ids": []},
+                "second": {"kind": "leaf", "pane_id": BETA_PANE, "tab_ids": []}}}}),
+        "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
+        "terminal.screen.read" => json!({"text": COMPOSER}),
+        "agent.list" => json!([]),
+        _ => json!({}),
+    });
+    let options = Options { cmd: Some("sr2 claude".into()), ..Options::default() };
+    let (report, exit) =
+        run_with_clock(|clock| start(&daemon, &env(), clock, "beta", &options)).expect("start");
+    assert_eq!(exit, 0, "{report}");
+    let ratios = sent_ratios(&daemon);
+    assert_eq!(ratios.get(OUTER_SPLIT), None, "the editor column changed: {ratios:?}");
+}
+
+/// [`snapshot`] with the tab in `pane` named `name`.
+fn snapshot_with_tab_name(pane: &str, name: Option<&str>) -> Value {
+    let mut snapshot = snapshot();
+    if let Some(tabs) = snapshot["tabs"].as_array_mut() {
+        for tab in tabs.iter_mut().filter(|tab| tab["pane_id"] == pane) {
+            tab["name"] = json!(name);
+        }
+    }
+    snapshot
+}
+
+/// W5-Q review (PR C): agent panes that agent start made in one row share
+/// their space equally, and the person's pane keeps its width: the third
+/// agent pane is not an eighth of the screen.
+#[test]
+fn w5q_start_split_evens_only_the_agent_panes_of_its_row() {
+    const GAMMA_PANE: &str = "pane_44444444444444444444444444444444";
+    const BETA_SPLIT: &str = "split_000000000000000000000000000000a3";
+    // The beta pane is an agent pane an earlier start made.
+    let mut snapshot = snapshot();
+    if let Some(panes) = snapshot["panes"].as_array_mut() {
+        panes.push(json!({"id": BETA_PANE, "screen_id": "screen_d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+            "focused": false}));
+    }
+    if let Some(tabs) = snapshot["tabs"].as_array_mut() {
+        tabs.push(json!({"id": "tab_b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1", "name": "beta",
+            "content_id": "term_b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1", "pane_id": BETA_PANE}));
+    }
+    let daemon = Fake::new(move |operation, _params, _count| match operation {
+        "session.snapshot" => snapshot.clone(),
+        "pane.split" => created(
+            GAMMA_PANE,
+            "tab_50505050505050505050505050505050",
+            "term_5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e",
+        ),
+        "pane.run" => created(GAMMA_PANE, "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0", NEW),
+        // caller 1/2 | (alpha 1/4 | (beta 1/8 | gamma 1/8)).
+        "screen.layout.export" => json!({"version": 1, "root": {
+            "kind": "split", "split_id": OUTER_SPLIT, "direction": "horizontal", "ratio": 0.5,
+            "first": {"kind": "leaf", "pane_id": CALLER_PANE, "tab_ids": []},
+            "second": {"kind": "split", "split_id": INNER_SPLIT, "direction": "horizontal",
+                "ratio": 0.5,
+                "first": {"kind": "leaf", "pane_id": ALPHA_PANE, "tab_ids": []},
+                "second": {"kind": "split", "split_id": BETA_SPLIT, "direction": "horizontal",
+                    "ratio": 0.5,
+                    "first": {"kind": "leaf", "pane_id": BETA_PANE, "tab_ids": []},
+                    "second": {"kind": "leaf", "pane_id": GAMMA_PANE, "tab_ids": []}}}}}),
+        "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
+        "terminal.screen.read" => json!({"text": COMPOSER}),
+        "agent.list" => json!([]),
+        _ => json!({}),
+    });
+    let options = Options {
+        cmd: Some("sr2 claude".into()),
+        pane: Some(BETA_PANE.into()),
+        split: Some("right".into()),
+        ..Options::default()
+    };
+    let (report, exit) =
+        run_with_clock(|clock| start(&daemon, &env(), clock, "gamma", &options)).expect("start");
+    assert_eq!(exit, 0, "{report}");
+    let ratios = sent_ratios(&daemon);
+    let outer = ratios.get(OUTER_SPLIT).copied().unwrap_or(0.5);
+    let inner = ratios.get(INNER_SPLIT).copied().unwrap_or(0.5);
+    let beta = ratios.get(BETA_SPLIT).copied().unwrap_or(0.5);
+    let rest = 1.0 - outer;
+    let widths =
+        [outer, rest * inner, rest * (1.0 - inner) * beta, rest * (1.0 - inner) * (1.0 - beta)];
+    assert!((widths[0] - 0.5).abs() < 0.001, "the caller's pane changed: {widths:?}");
+    for width in &widths[1..] {
+        assert!((width - 1.0 / 6.0).abs() < 0.01, "alpha, beta, gamma widths {widths:?}");
+    }
+}
+
+/// W5-Q (bench round 4 orchestration friction 6), as the column rule
+/// reads it: the second agent splits the first agent's pane, and the two
+/// agent panes share that pane's width; the caller's pane keeps its half.
 #[test]
 fn w5q_start_split_gives_each_pane_of_its_row_the_same_width() {
     let snapshot = snapshot();
@@ -789,16 +935,10 @@ fn w5q_start_split_gives_each_pane_of_its_row_the_same_width() {
     let (report, exit) =
         run_with_clock(|clock| start(&daemon, &env(), clock, "beta", &options)).expect("start");
     assert_eq!(exit, 0, "{report}");
-    let mut ratios = std::collections::BTreeMap::new();
-    for set in daemon.sent("pane.split_ratio.set") {
-        let ratio = set["ratio"].as_f64().unwrap_or(f64::NAN);
-        ratios.insert(set["split_id"].as_str().unwrap_or_default().to_owned(), ratio);
-    }
-    let outer = ratios.get(OUTER_SPLIT).copied().unwrap_or(0.5);
-    let inner = ratios.get(INNER_SPLIT).copied().unwrap_or(0.5);
-    let widths = [outer, (1.0 - outer) * inner, (1.0 - outer) * (1.0 - inner)];
-    for width in widths {
-        assert!((width - 1.0 / 3.0).abs() < 0.01, "caller, alpha, beta widths {widths:?}");
+    let widths = row_widths(&sent_ratios(&daemon));
+    assert!((widths[0] - 0.5).abs() < 0.001, "the caller's pane changed: {widths:?}");
+    for width in &widths[1..] {
+        assert!((width - 0.25).abs() < 0.01, "alpha, beta widths {widths:?}");
     }
 }
 
