@@ -49,11 +49,38 @@ struct SidebarPinFlight {
         if let layer = leavingGlyph?.layer { SidebarDragSpring.disappear(layer, token, now: now) }
         // The pin glyph and the title are one line of content: the glyph rides the title's offset on the same spring, so
         // the title never slides onto it (PIN7 films: at an unpin's start the title ran onto the fading pin).
+        glyph?.layer?.mask = nil
         if let title {
             for glyph in [glyph, leavingGlyph].compactMap(\.self) { SidebarDragSpring.offset(glyph, by: title.offset, token, now: now) }
+            if let glyph { Self.clipToPill(glyph, riding: title.offset, token, now: now) }
         }
         revealed.forEach(SidebarDragSpring.attach)
         for layer in revealed.compactMap(\.layer) { SidebarDragSpring.appear(layer, token, now: now) }
+    }
+
+    /// A pin's glyph rides the title from the list row's title, one icon column left of the item's (the item's title
+    /// sits after its pin), so on the first frames the glyph's place is left of the item's pill (PIN8 films, SB-PIN: the
+    /// pin drew outside the pill). The part outside the pill does not draw: the glyph's mask is the pill's sides, and it
+    /// rides the glyph's offset back on the same spring and begin, so the mask stays on the pill on every frame and the
+    /// pin comes out from under the pill's edge with the title. `landFlights` takes the mask off.
+    static func clipToPill(_ glyph: NSView, riding offset: CGPoint, _ token: MotionSpring, now: CFTimeInterval) {
+        guard offset.x != 0, let item = glyph.superview as? SidebarItemRowView, let layer = glyph.layer else { return }
+        let inset = item.fillInset, height = item.bounds.height
+        let pill = glyph.convert(NSRect(x: inset, y: 0, width: max(0, item.bounds.width - inset * 2), height: height), from: item)
+        // Only the sides clip: the glyph's whole height and the item's around it stay (a pin centers on its row).
+        let mask = CALayer()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        mask.backgroundColor = NSColor.black.cgColor
+        mask.frame = CGRect(x: pill.minX, y: -height, width: pill.width, height: layer.bounds.height + height * 2)
+        layer.mask = mask
+        CATransaction.commit()
+        let back = Motion.sidebar.springAnimation(token, "position", from: NSValue(point: CGPoint(x: -offset.x, y: 0)),
+                                                  to: NSValue(point: .zero))
+        back.isAdditive = true
+        back.beginTime = layer.convertTime(now, from: nil)
+        back.fillMode = .backwards
+        mask.add(back, forKey: "\(SidebarDragSpring.batchKey).pill")
     }
 
     /// The begin of a move with flights: the begin-frame time of the first frame that can show it, the next vsync of
@@ -391,6 +418,7 @@ extension SidebarListViewComponents {
             flight.leavingGlyph?.removeFromSuperview()
             if let item = flight.view as? SidebarItemRowView {
                 guard item.flightSerial == flight.serial else { continue }
+                flight.glyph?.layer?.mask = nil
                 item.landFlight()
             } else {
                 flight.view.layer?.zPosition = 0
