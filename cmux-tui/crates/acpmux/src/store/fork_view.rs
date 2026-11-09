@@ -376,6 +376,23 @@ impl Store for ForkView {
         }
         self.inner.scan(id, after.max(r.through_seq), visit)
     }
+    fn scan_matching(
+        &self,
+        id: &str,
+        after: u64,
+        may_match: &dyn Fn(&[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        let _held = self.shared();
+        let Some(r) = self.reference(id)? else {
+            return self.inner.scan_matching(id, after, may_match, visit);
+        };
+        // The history a fork reads from its source is read whole, as `scan` reads it.
+        if !self.prefix(&r, after, visit)? {
+            return Ok(());
+        }
+        self.inner.scan_matching(id, after.max(r.through_seq), may_match, visit)
+    }
     fn scan_strict(
         &self,
         id: &str,

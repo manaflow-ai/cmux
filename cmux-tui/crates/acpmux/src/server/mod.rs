@@ -2173,6 +2173,7 @@ pub(crate) mod machine_health;
 mod memory_inbox;
 mod models_fanout;
 mod new_worktree;
+mod project_new;
 mod outbound;
 mod plan_build;
 mod review_queue;
