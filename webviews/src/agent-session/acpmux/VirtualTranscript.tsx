@@ -3555,7 +3555,7 @@ function TranscriptView({
     }
     // The room a collapse kept follows the view's end, and goes once the rows reach it.
     if (node) trimFoldRoom(node);
-    tailGlide.current?.place(thread.current, tailGlides && chasing, tailAnchor);
+    tailGlide.current?.place(thread.current, tailGlides && chasing, tailAnchor, chasing && followingRef.current);
     previousLayout.current = layout;
     previousRows.current = rows;
     previousViewport.current = { height, width, dockSpace, dockCard };

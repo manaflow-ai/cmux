@@ -98,7 +98,10 @@ function tops(thread: HTMLElement): Map<string, { row: HTMLElement; top: number 
 export type TailGlide = {
   /// One placement pass is done: note where the rows lie, and when `glide` (a pass the follow chase
   /// takes), play each move against `anchor` (the row the chase measured from) since the last pass.
-  place(thread: HTMLElement | null, glide: boolean, anchor: string | undefined): void;
+  /// `track`: the view is followed with the chase on, so a later pass may glide. Otherwise the pass
+  /// reads nothing and forgets the tops (a token streamed while the reader holds an older turn open
+  /// runs no row reads: transcript-fold-anchor.test.tsx).
+  place(thread: HTMLElement | null, glide: boolean, anchor: string | undefined, track?: boolean): void;
   /// Ends what plays, the rows drawn at their places, and forgets where they were.
   stop(): void;
   /// The reader took the view: what plays holds where it is drawn (as the follow chase does).
@@ -123,11 +126,15 @@ export function createTailGlide(): TailGlide {
     resume() {
       for (const animation of playing) if (animation.playState === "paused") animation.play();
     },
-    place(thread, glide, anchor) {
+    place(thread, glide, anchor, track = true) {
+      if (!thread || !track || foldMs(thread) <= 0) {
+        last = undefined;
+        return;
+      }
       const before = last;
-      const now = thread ? tops(thread) : undefined;
+      const now = tops(thread);
       last = now;
-      if (!thread || !now || !before || !glide || anchor === undefined || foldMs(thread) <= 0) return;
+      if (!before || !glide || anchor === undefined) return;
       const from = before.get(anchor);
       const to = now.get(anchor);
       if (!from || !to) return;
