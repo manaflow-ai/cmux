@@ -109,9 +109,9 @@ mod noise_key;
 mod route_log;
 mod secrets;
 mod serve;
+mod source;
 pub(crate) mod tunnel;
 mod tunnel_cli;
-mod source;
 
 use std::io::Write as _;
 use std::path::PathBuf;
