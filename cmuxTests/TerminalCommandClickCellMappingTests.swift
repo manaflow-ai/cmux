@@ -69,6 +69,16 @@ struct TerminalCommandClickCellMappingTests {
         let runtime = try #require(panel.surface.surface)
         try #require(ghostty_surface_grid_metrics(runtime, &metrics))
         let surfaceView = panel.hostedView.surfaceView
+        // The pointer below comes from the same grid metrics the lookup uses,
+        // so pin their unit to sources outside them: a cell is the backing
+        // pixel cell divided by the window's scale, and the grid fits the view
+        // in points. A metrics scale error fails here on a 2x host.
+        let pixelSize = ghostty_surface_size(runtime)
+        let scale = Double(window.backingScaleFactor)
+        #expect(abs(metrics.cell_width * scale - Double(pixelSize.cell_width_px)) < 0.01, "scale=\(scale)")
+        #expect(abs(metrics.cell_height * scale - Double(pixelSize.cell_height_px)) < 0.01, "scale=\(scale)")
+        #expect(metrics.padding_top + Double(metrics.rows) * metrics.cell_height <= surfaceView.bounds.height + 0.5)
+        #expect(metrics.padding_left + Double(metrics.columns) * metrics.cell_width <= surfaceView.bounds.width + 0.5)
         // What Ghostty reports on a 2x display, whatever the test host's scale.
         surfaceView.cellSize = CGSize(width: metrics.cell_width * 2, height: metrics.cell_height * 2)
         let point = NSPoint(
