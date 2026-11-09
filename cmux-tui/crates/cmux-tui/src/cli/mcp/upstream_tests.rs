@@ -213,20 +213,17 @@ fn instructions_in_both_modes_tell_the_agent_never_to_ask_for_permission() {
     ] {
         assert!(rule.contains(phrase), "{phrase}: {rule}");
     }
-    for (code_mode, wrap_up, offers) in [
-        (false, false, false),
-        (true, false, false),
-        (true, true, false),
-        (true, false, true),
-        (true, true, true),
-    ] {
-        let init = initialize(&json!({}), false, code_mode, wrap_up, offers);
+    for code_mode in [false, true] {
+        let init = initialize(&json!({}), false, code_mode);
         let text = init["instructions"].as_str().unwrap();
         assert!(text.contains(rule), "code mode {code_mode}: {text}");
-        // The next-step box's line comes after the rule, only where acpmux is folded in, and the
-        // suggested-session line only where cmux-sessions is.
-        assert_eq!(text.contains(code_mode::WRAP_UP_INSTRUCTION), wrap_up, "{text}");
-        assert_eq!(text.ends_with(code_mode::OFFER_INSTRUCTION), offers, "{text}");
+        if code_mode {
+            // cmux_exec's description, always loaded, says each of these once.
+            for repeated in ["This chat runs in cmux", "acpmux_wrap_up", "sessions_offer_session"]
+            {
+                assert!(!text.contains(repeated), "{repeated}: {text}");
+            }
+        }
         // Claude Code may cut server instructions past 2048 characters, which would drop the rule.
         assert!(
             text.chars().count() <= 2048,
