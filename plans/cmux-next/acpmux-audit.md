@@ -303,3 +303,43 @@ changed, with no process scanning (`plans/cmux-next/pty-holder.md` section 4):
   with no caller, an unproven agent included. It is older code and never was a person-only check
   (proven agents use it under their own name), but it is the same class as review 1's B1. Proposed
   follow-up: `conn.unproven_agent()` -> `conn.refusal("mesh controls", ...)`.
+
+## Notice to PL-acpmux: a no-wait question's reply goes back to its asker (2026-11-08)
+
+From bench round 4 (tui-parity A5 defect 2, owner W5-S). A subagent sent `--no-wait --class
+question` to a session it did not start; the reply reached no one, and the receiver's notice said
+the subagent was "waiting for it" (the outbox's delivery keeps a request open, so
+`answer.receiver_count() > 0` was true). What changed:
+- `PromptOptions::reply_reader` (new): the connection's end watch of a caller that reads the reply
+  (`readsReply` or `wakeOrFail`, `server/requests.rs`); the inbox `Item` keeps it (`reader`).
+  `inbox::reader_waits` needs it, so "waiting for it" is said only of a caller that waits.
+- `hub/question_replies.rs` (new): when a notice that carried a question or block from a session
+  ends and no caller reads its reply, the receiver's turn reports to
+  the asker as a lane report (`lane_capture_reply`, `lane_report_to_parent`), or to the asking
+  subagent's notice folder (`lane_report_to_subagent(.., question: true)`); a sweep hands an
+  untaken one to the lead through `question_reply_deliver`, not `lane_deliver` (no lane link).
+  A steered notice reports at the end of the turn it went into (`Inbox::replies_due`, by turn id).
+- The receiver's notice says "End your turn with your answer: acpmux sends this turn's reply to
+  X when it ends". Guide table row added.
+- Limits: replies due at a turn end are memory only (a daemon restart drops them); one report per
+  asker and subagent per notice; an asker on another machine gets no reply (local sessions only).
+- Tests: `tests/question_replies.rs` (red first).
+- Review of #39055 (BLOCK at f051c4be, lead decisions):
+  - B1, the asker: `question_replies::asker_of` takes it only from the daemon-bound sender, the
+    `fromSessionId` of a verified `session_message` (a kind only the daemon writes) or of a
+    verified provenance whose `from` names that same session. `Item::asker` keeps it. A forged
+    `from: <victim>` routes no reply (the victim got a hub-made `lane_report` turn before).
+    `inbox::controls` and the transcript still read `from` as before (not changed here).
+  - B2, the turn: `ReplyDue` carries the prompt id and, once known, the turn id. It is due under
+    the prompt (its own, or the notice) until that prompt's turn starts (`turns.rs`, after every
+    refusal; joined digest parts too) or its steer is written (`steer_end.rs`); only that turn's
+    end sends it (`inbox_turn_ended(session, turn_id, turn, started)`), captured with `started`.
+    A prompt that reached no turn drops it (`PendingReply` guard; `question_replies_settled` at
+    a notice's end), and so does a steer refused or taken back unread after a Stop, also when it
+    was tied to the turn it was written into. At most 64 due per session.
+  - Also: the lane-link parent gets no question reply on the inbox path either; a caller still
+    reading the reply on its send gets no report; a dropped reply is logged at debug; the MCP
+    `send` tool says a question or block's answer comes back as a report.
+  - Tests: `w5s_a_forged_from_routes_no_reply_to_the_session_it_names` and
+    `hub/question_replies_tests.rs` (red first each), `w5s_a_waited_question_gets_its_reply_on_the_
+    call_and_no_report`, `w5s_a_question_steered_into_a_running_turn_reports_at_that_turns_end`.

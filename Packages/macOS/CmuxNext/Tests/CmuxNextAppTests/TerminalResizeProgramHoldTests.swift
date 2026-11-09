@@ -310,6 +310,60 @@ struct TerminalResizeProgramHoldTests {
         #expect(TerminalKeyResizeFrameTests.showsItsOwnFrame(session), "p2's terminal does not rest at its own frame")
     }
 
+    /// RESIZE P0 23 (P2 of RESIZE P0 22, trace of film 034647): the hold's bound counts from the refresh in which the
+    /// program got its grid, not from the size's request. A grid of a refresh that already sent one waits in the
+    /// coalescer for the next refresh (``TerminalGridReportCoalescer``); counted from the request, that program had 2 of
+    /// the bound's 3 refreshes to redraw before its last picture showed clipped or padded at the new size.
+    /// p1 | p2 full-screen programs that print nothing after a resize (each new size shows at the bound). A grid went to
+    /// each PTY earlier in the drag's first refresh (a forced report spends that refresh, as a landing's or a held size's
+    /// grid does), then the divider moves 30 pt: the drag's grids wait for the next refresh.
+    @Test func aGridCoalescedBehindAnEarlierSendGetsTheWholeBoundFromItsOwnSend() async throws {
+        let screen = try await Self.ringScreen(RingProgram(redraws: false))
+        defer { screen.close() }
+        let presenter = TerminalFramePresenter.forWindow(screen.window)
+        let owners = screen.sessions.compactMap { $0.io as? AnnouncingTerminalIO }
+        try #require(owners.count == screen.sessions.count, "SETUP: a terminal's IO does not record its reports")
+        let view = try #require(screen.root.screenViews["s"])
+        let handle = try #require(view.dividerViews[.split("x")])
+        let start = handle.convert(CGPoint(x: handle.bounds.midX, y: handle.bounds.midY), to: nil)
+
+        // Per terminal: the refresh its drag grid went in, and the refreshes from it to its first size-only present.
+        var waited: [String: (sent: UInt64, refreshes: UInt64)] = [:]
+        presenter.presentingHook = { [unowned screen] surface, state in
+            guard state == GHOSTTY_HOST_FRAME_READY, surface.programHoldTicks > 0,
+                  let index = screen.sessions.firstIndex(where: { $0.surfaceView === surface }),
+                  waited["p\(index + 1)"] == nil,
+                  let sent = owners[index].reports.withLock({ $0.last?.epoch }) else { return }
+            waited["p\(index + 1)"] = (sent, presenter.currentEpoch &- sent)
+        }
+        defer { presenter.presentingHook = nil }
+
+        view.handleDrag(kind: .split("x"), event: .began(start, []))
+        for session in screen.sessions {
+            let grid = try #require(session.surfaceView.fittedGrid, "SETUP: a terminal fits no grid")
+            session.surfaceView.gridReports.now(grid)
+        }
+        let spentIn = presenter.currentEpoch
+        view.handleDrag(kind: .split("x"), event: .moved(CGPoint(x: start.x - 30, y: start.y), []))
+        _ = screen.root.advanceFrame(1.0 / 120)
+        screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, in the forced report's turn
+        try #require(screen.sessions.allSatisfy { $0.surfaceView.gridReports.isWaiting },
+                     "SETUP: the drag's grids went at once (the forced reports did not spend the refresh)")
+        await Self.waitForShownSizes(screen)
+        presenter.presentingHook = nil
+        view.handleDrag(kind: .split("x"), event: .ended(CGPoint(x: start.x - 30, y: start.y), []))
+        screen.root.syncWithModel()
+        await TerminalKeyResizeFrameTests.settle(screen)
+
+        let names = screen.sessions.indices.map { "p\($0 + 1)" }
+        try #require(names.allSatisfy { waited[$0] != nil }, "SETUP: a terminal showed no size-only frame at the bound: \(waited)")
+        try #require(names.allSatisfy { (waited[$0]?.sent ?? 0) > spentIn },
+                     "SETUP: a drag grid went in the forced report's refresh \(spentIn), not the next: \(waited)")
+        let short = names.filter { (waited[$0]?.refreshes ?? 0) < TerminalFramePresenter.resizeHoldTicks }
+        #expect(short.isEmpty,
+                "\(short) showed the size only \(short.map { waited[$0]?.refreshes ?? 0 }) refreshes after the program got its grid, not \(TerminalFramePresenter.resizeHoldTicks): the hold counted from the request")
+    }
+
     /// Whether `color` is the sRGB colour `rgb` (to 1/255), opaque.
     static func sameColor(_ color: CGColor?, _ rgb: (UInt8, UInt8, UInt8)?) -> Bool {
         guard let rgb, let color, let srgb = NSColor(cgColor: color)?.usingColorSpace(.sRGB), srgb.alphaComponent == 1 else { return false }
