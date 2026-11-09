@@ -6816,6 +6816,7 @@ mod unix {
 
     #[cfg(test)]
     mod tests {
+        mod parser_order;
         use super::*;
         use cmux_pty::Child;
         use std::mem::size_of_val;
@@ -7049,12 +7050,20 @@ mod unix {
         }
 
         fn test_host_shared() -> Arc<HostShared> {
+            let (parser_commands, _parser_receiver) = sync_channel(1);
+            test_host_shared_with_parser(parser_commands)
+        }
+
+        /// [`test_host_shared`] whose parser queue is `parser_commands`, so a
+        /// test can hold the receiver and act as the parser worker.
+        fn test_host_shared_with_parser(
+            parser_commands: SyncSender<ParserCommand>,
+        ) -> Arc<HostShared> {
             let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
             term.resize(80, 24, u32::from(DEFAULT_CELL_PIXELS.0), u32::from(DEFAULT_CELL_PIXELS.1))
                 .unwrap();
             let (pty_drain_waker, _pty_drain_waiter) = UnixStream::pair().unwrap();
             let (exit_publish_requests, exit_publish_receiver) = mpsc_channel();
-            let (parser_commands, _parser_receiver) = sync_channel(1);
             let host = Arc::new(HostShared {
                 terminal_id: TerminalId::random().unwrap(),
                 incarnation: HostIncarnation::random().unwrap(),
