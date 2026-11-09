@@ -56,18 +56,22 @@ bounded() {
   local marker pid watchdog code
   marker="$(mktemp)"
   rm -f "$marker"
+  # Job control puts the attempt in its own process group, so the deadline ends bun and every lifecycle script it
+  # started (a postinstall can outlive bun and hold the step's log open), not bun alone.
+  set -m
   "$@" &
   pid=$!
+  set +m
   # The watchdog's own sleep goes with it (the trap), so nothing it started outlives the attempt or holds the log open.
   (
     trap 'kill "$nap" 2>/dev/null; exit 0' TERM
     sleep "$attempt_seconds" & nap=$!
     wait "$nap"
     : > "$marker"
-    kill -TERM "$pid" 2>/dev/null
+    kill -TERM -- "-$pid" 2>/dev/null
     sleep 15 & nap=$!
     wait "$nap"
-    kill -KILL "$pid" 2>/dev/null
+    kill -KILL -- "-$pid" 2>/dev/null
   ) >/dev/null 2>&1 &
   watchdog=$!
   wait "$pid"
@@ -76,6 +80,8 @@ bounded() {
   wait "$watchdog" 2>/dev/null
   if [ -e "$marker" ]; then
     rm -f "$marker"
+    # Whatever of the group ignored TERM and is still there.
+    kill -KILL -- "-$pid" 2>/dev/null
     return 124
   fi
   return "$code"

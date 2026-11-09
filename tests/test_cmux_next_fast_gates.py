@@ -1169,6 +1169,21 @@ class BunInstallScript(unittest.TestCase):
         passed = self.install('exit 0\n', no_timeout=True)
         self.assertEqual(passed.returncode, 0, passed.stdout + passed.stderr)
 
+    def test_without_timeout_the_deadline_ends_the_installs_children_too(self):
+        # A lifecycle script bun started must not outlive the attempt: it would hold the step's log open and race
+        # the retry. The fake starts a child that records its PID and outlives bun; the watchdog ends the group.
+        pids = Path(tempfile.mkdtemp(prefix="bun-install-children-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(pids)])
+        result = self.install(f'sleep 60 & echo $! >> "{pids}/child"; printf x >> "$COUNT"; sleep 60\n',
+                              no_timeout=True, BUN_INSTALL_ATTEMPT_SECONDS="1", BUN_INSTALL_ATTEMPTS="1")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("::error title=bun install stalled::", result.stdout)
+        children = [int(line) for line in (pids / "child").read_text(encoding="utf-8").split()]
+        self.assertEqual(len(children), 1)
+        for child in children:
+            with self.assertRaises(ProcessLookupError, msg=f"the install's child {child} outlived the deadline"):
+                os.kill(child, 0)
+
     def test_a_zero_bound_is_refused(self):
         # GNU `timeout 0` disables the deadline, so a zero would let a hung install run to the job limit again.
         result = self.install("exit 0\n", BUN_INSTALL_ATTEMPT_SECONDS="0")
