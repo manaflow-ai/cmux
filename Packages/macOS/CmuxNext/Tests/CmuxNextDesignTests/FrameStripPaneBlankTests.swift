@@ -22,10 +22,15 @@ struct FrameStripPaneBlankTests {
     static let leftPane = CGRect(x: 0, y: 0, width: 10, height: 10), rightPane = CGRect(x: 10, y: 0, width: 10, height: 10)
 
     @Test func aFlatColorNeitherBeforeNorFinalIsBlank() {
-        #expect(WindowFrame.PaneMeasure.isBlank(flatness: 1, vsBefore: 1, vsFinal: 1, tolerance: 0.002))
-        #expect(!WindowFrame.PaneMeasure.isBlank(flatness: 0.99, vsBefore: 1, vsFinal: 1, tolerance: 0.002))
-        #expect(!WindowFrame.PaneMeasure.isBlank(flatness: 1, vsBefore: 0, vsFinal: 1, tolerance: 0.002))
-        #expect(!WindowFrame.PaneMeasure.isBlank(flatness: 1, vsBefore: 1, vsFinal: 0.001, tolerance: 0.002))
+        #expect(WindowFrame.PaneMeasure.isBlank(flatness: 1, vsBefore: 1, vsFinal: 1, settledInk: 0, tolerance: 0.002))
+        #expect(!WindowFrame.PaneMeasure.isBlank(flatness: 0.99, vsBefore: 1, vsFinal: 1, settledInk: 0.01, tolerance: 0.002))
+        #expect(!WindowFrame.PaneMeasure.isBlank(flatness: 1, vsBefore: 0, vsFinal: 1, settledInk: 0, tolerance: 0.002))
+        #expect(!WindowFrame.PaneMeasure.isBlank(flatness: 1, vsBefore: 1, vsFinal: 0.001, settledInk: 0, tolerance: 0.002))
+        // Flat, unlike both, but it kept its ink (a prompt drawn where neither frame has it): drawn, not blank.
+        #expect(!WindowFrame.PaneMeasure.isBlank(flatness: 0.997, vsBefore: 0.01, vsFinal: 0.01, settledInk: 0.003, tolerance: 0.002))
+        #expect(WindowFrame.PaneMeasure.isBlank(flatness: 0.9995, vsBefore: 0.01, vsFinal: 0.01, settledInk: 0.003, tolerance: 0.002))
+        // A flash of another background color keeps its prompt yet differs almost everywhere: blank (#39072 review F1).
+        #expect(WindowFrame.PaneMeasure.isBlank(flatness: 0.9988, vsBefore: 1, vsFinal: 1, settledInk: 0.0012, tolerance: 0.002))
     }
 
     @Test func anUnfocusedPaneGoingBlankCounts() async {
@@ -46,6 +51,35 @@ struct FrameStripPaneBlankTests {
         let measures = await WindowFrame.measure([before, last], before: before, last: last, content: nil, strip: nil,
                                                  panes: [Self.rightPane])
         #expect(measures.allSatisfy { !$0.panes[0].isBlank(tolerance: 0.002) })
+    }
+
+    /// A 200x100 light frame with a dark 6x2 "prompt" at (`x`, `y`) in the pane on the right (x 100..<200), or none.
+    static func terminal(promptAt origin: (x: Int, y: Int)?) -> WindowFrame {
+        var pixels: [UInt8] = []
+        for y in 0..<100 {
+            for x in 0..<200 {
+                let ink = origin.map { x >= $0.x && x < $0.x + 6 && y >= $0.y && y < $0.y + 2 } ?? false
+                let value: UInt8 = ink ? 20 : 250
+                pixels += [value, value, value, 255]
+            }
+        }
+        return WindowFrame(milliseconds: 0, width: 200, height: 100, pixels: pixels)
+    }
+
+    @Test func aDrawnEmptyTerminalMovingIsNotBlank() async {
+        // An empty terminal's prompt (0.12% of the pane: flat) moves with its pane: mid-motion it sits where neither
+        // the frame before the key nor the last one has it, yet it is drawn. Without its prompt, the pane is blank.
+        let pane = CGRect(x: 100, y: 0, width: 100, height: 100)
+        let before = Self.terminal(promptAt: (110, 10)), last = Self.terminal(promptAt: (130, 50))
+        let moving = Self.terminal(promptAt: (120, 30)), empty = Self.terminal(promptAt: nil)
+        let measures = await WindowFrame.measure([before, moving, empty, last], before: before, last: last, content: pane,
+                                                 strip: nil, panes: [pane])
+        #expect(measures[1].flatness > WindowFrame.PaneMeasure.flatShare)
+        #expect(measures.map { $0.panes[0].isBlank(tolerance: 0.0005) } == [false, false, true, false])
+        #expect(measures.map {
+            WindowFrame.PaneMeasure.isBlank(flatness: $0.flatness, vsBefore: $0.insideBefore, vsFinal: $0.insideFinal,
+                                            settledInk: $0.settledInk, tolerance: 0.0005)
+        } == [false, false, true, false])
     }
 
     @Test func paneRectsDedupeAndCap() {
