@@ -28,8 +28,9 @@ struct StateFolderMoveTests {
         let move = StateFolderMove(applicationSupport: support)
         #expect(move.run(build: Self.nightly) == .moved)
         let new = support.appending(path: "cmux-next/tags/nightly", directoryHint: .isDirectory)
-        #expect(DaemonLauncher.appNames(build: Self.nightly, applicationSupport: support).stateDirectory?.path
-            == new.appending(path: "tui").path)
+        // The adoption moved with the folder: NIGHTLY still runs the session it adopted.
+        let names = DaemonLauncher.appNames(build: Self.nightly, applicationSupport: support)
+        #expect(names.session == LegacyChannelSession.session && names.stateDirectory == nil)
         #expect(try String(contentsOf: new.appending(path: "tui/cmux-app-nightly-1/workspace-registry.sqlite3"), encoding: .utf8) == "workspaces")
         #expect(FileManager.default.fileExists(atPath: new.appending(path: "legacy-session-adopted").path))
         // An older build (a rollback) still finds its state through the old path.
@@ -39,6 +40,13 @@ struct StateFolderMoveTests {
         #expect(try String(contentsOf: classicSession, encoding: .utf8) == "classic")
         // Once: the link left behind is not moved again.
         #expect(move.run(build: Self.nightly) == .nothing)
+    }
+
+    @Test func theDaemonsStateIsInNEXTsFolder() throws {
+        let support = try Self.support()
+        defer { try? FileManager.default.removeItem(at: support) }
+        #expect(DaemonLauncher.appNames(build: Self.nightly, applicationSupport: support).stateDirectory?.path
+            == support.appending(path: "cmux-next/tags/nightly/tui").path)
     }
 
     @Test func aFolderAlreadyAtTheNewPlaceIsNeverReplaced() throws {

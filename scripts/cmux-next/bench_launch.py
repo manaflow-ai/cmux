@@ -233,8 +233,12 @@ def start_fresh_state(tag):
         return
     roots = tag_state_roots(tag)
     for root in roots:
-        # The old folder's symlink to NEXT's folder: that one moves itself.
-        if not os.path.lexists(root) or (root != roots[0] and os.path.islink(root)):
+        if not os.path.lexists(root):
+            continue
+        # The old folder's symlink to NEXT's folder (moved aside above) would dangle, and a base build from before
+        # that folder could not make its state under it: drop it, so either build starts empty.
+        if root != roots[0] and os.path.islink(root):
+            os.unlink(root)
             continue
         prev = root + ".bench-prev"
         if os.path.lexists(prev):

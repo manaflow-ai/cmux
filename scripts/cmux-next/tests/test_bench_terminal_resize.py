@@ -112,11 +112,13 @@ class FreshState(unittest.TestCase):
             self.assertFalse(new.exists() or old.exists())
             self.assertTrue((support / "cmux-next/tags/split-spring.bench-prev/tui/run-new").exists())
             self.assertTrue((support / "cmux/tags/split-spring.bench-prev/tui/run-old").exists())
-            # A new build's link at the old path is left; NEXT's folder it names moves.
+            # A new build's link at the old path goes (it would dangle, and a base build could not make its state
+            # under it); NEXT's folder it names moves.
             write(new / "tui/run-2")
             old.symlink_to(new)
             bl.start_fresh_state("split-spring")
-            self.assertTrue(old.is_symlink())
+            self.assertFalse(os.path.lexists(old))
+            (old / "tui").mkdir(parents=True)  # a base build from before NEXT's folder starts its state
             self.assertTrue((support / "cmux-next/tags/split-spring.bench-prev/tui/run-2").exists())
 
 
