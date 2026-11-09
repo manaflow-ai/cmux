@@ -110,6 +110,12 @@ import Testing
         list.convert(CGPoint(x: frame.midX, y: frame.minY + baseline - capHeight / 2), from: row).y
     }
 
+    /// The capitals' center line of a band or pinned row's title, in the list.
+    static func capitalsMidY(_ list: SidebarListView, of item: SidebarItemRowView) throws -> CGFloat {
+        let font = try #require(item.title.font)
+        return capitalsMidY(list, frame: item.title.frame, baseline: item.title.firstBaselineOffsetFromTop, capHeight: font.capHeight, in: item)
+    }
+
     /// Each leading glyph sits on its own title's center line: the line through the middle of its capitals, where
     /// a row centers its title (#27598).
     @Test(arguments: HomePinnedRowAlignmentTests.cases)
@@ -120,17 +126,12 @@ import Testing
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
             let pin = try HomePinnedRowAlignmentTests.item(list, Self.pinned.id)
             let iconRow = try HomePinnedRowAlignmentTests.row(list, Self.icon)
-            func itemTitle(_ item: SidebarItemRowView) throws -> CGFloat {
-                let font = try #require(item.title.font)
-                return Self.capitalsMidY(list, frame: item.title.frame, baseline: item.title.firstBaselineOffsetFromTop,
-                                         capHeight: font.capHeight, in: item)
-            }
             // A marquee title draws its one line from its top, so its baseline is the font's ascender below it.
             let iconTitle = Self.capitalsMidY(list, frame: iconRow.title.frame, baseline: iconRow.title.font.ascender,
                                               capHeight: iconRow.title.font.capHeight, in: iconRow)
             let pairs: [(String, CGFloat, CGFloat)] = [
-                ("Home", Self.center(list, try #require(home.glyphInkFrame), in: home).y, try itemTitle(home)),
-                ("pin", Self.center(list, try #require(pin.pinInkFrame), in: pin).y, try itemTitle(pin)),
+                ("Home", Self.center(list, try #require(home.glyphInkFrame), in: home).y, try Self.capitalsMidY(list, of: home)),
+                ("pin", Self.center(list, try #require(pin.pinInkFrame), in: pin).y, try Self.capitalsMidY(list, of: pin)),
                 ("icon", Self.center(list, iconRow.icon.frame, in: iconRow).y, iconTitle),
             ]
             for (name, glyph, text) in pairs {
