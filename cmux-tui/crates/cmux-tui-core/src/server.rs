@@ -291,9 +291,12 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
 
 /// `identify`'s capabilities: [`advertised_capabilities`] plus
 /// [`TERMINAL_REAPER_ACTIVE_CAPABILITY`] while the unplaced-terminal reaper runs.
-fn identify_capabilities(_mux: &Mux) -> Vec<&'static str> {
-    // Red stub: the reaper is never advertised.
-    advertised_capabilities(cfg!(unix))
+fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
+    let mut capabilities = advertised_capabilities(cfg!(unix));
+    if mux.terminal_reaper_running() {
+        capabilities.push(TERMINAL_REAPER_ACTIVE_CAPABILITY);
+    }
+    capabilities
 }
 
 macro_rules! protocol_keys {

@@ -1619,6 +1619,26 @@ pub struct TerminalCloseResult {
     pub terminal_revision: u64,
 }
 
+/// A precondition checked atomically with a terminal close.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TerminalCloseGuard {
+    None,
+    /// The terminal has no tab placement (the unplaced-terminal reaper).
+    Unplaced,
+}
+
+/// The close guard did not hold, so nothing changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TerminalCloseGuardFailed;
+
+impl fmt::Display for TerminalCloseGuardFailed {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("terminal_close_guard_failed")
+    }
+}
+
+impl std::error::Error for TerminalCloseGuardFailed {}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TerminalResolution {
     pub surface: Option<SurfaceId>,
@@ -10667,6 +10687,28 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
     ) -> anyhow::Result<TerminalCloseResult> {
+        self.close_terminal_guarded(
+            terminal_id,
+            terminal_incarnation,
+            expected_generation,
+            expected_revision,
+            mutation,
+            TerminalCloseGuard::None,
+        )
+    }
+
+    /// Close a hosted terminal after checking `guard` under the registry
+    /// lock, which serializes every placement commit. A failed guard returns
+    /// [`TerminalCloseGuardFailed`] and changes nothing.
+    pub(crate) fn close_terminal_guarded(
+        &self,
+        terminal_id: &str,
+        terminal_incarnation: Option<&str>,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+        guard: TerminalCloseGuard,
+    ) -> anyhow::Result<TerminalCloseResult> {
         validate_terminal_hex(terminal_id, "invalid_terminal_id")?;
         if let Some(incarnation) = terminal_incarnation {
             validate_terminal_hex(incarnation, "invalid_terminal_incarnation")?;
@@ -10677,11 +10719,24 @@ impl Mux {
             expected_generation,
             expected_revision,
             mutation,
+            guard,
         )? {
             return Ok(result);
         }
         let (commit, terminal_incarnation, public_id, notify_public_id) = {
             let mut registry = self.workspace_registry.lock().unwrap();
+            if guard == TerminalCloseGuard::Unplaced {
+                let placed = {
+                    let state = self.state.lock().unwrap();
+                    state.surfaces.values().any(|surface| {
+                        self.resource_terminal_host_identity(surface)
+                            .is_some_and(|identity| identity.terminal_id == terminal_id)
+                    })
+                };
+                if placed {
+                    return Err(TerminalCloseGuardFailed.into());
+                }
+            }
             let public_id = registry.terminal_resource_id(terminal_id)?;
             let commit = registry.close_terminal(
                 mutation,

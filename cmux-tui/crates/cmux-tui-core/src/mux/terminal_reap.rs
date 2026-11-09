@@ -29,10 +29,6 @@
 //! terminal sooner after the restart, never one with a placement: the close
 //! re-checks placement atomically.
 
-// Red commit: the reaper API with stub bodies, so the tests compile and fail
-// on behavior. The fix commit replaces the stubs and removes this attribute.
-#![allow(dead_code)]
-
 use std::sync::mpsc::RecvTimeoutError;
 use std::thread::JoinHandle;
 
@@ -46,6 +42,13 @@ pub const DEFAULT_TERMINAL_REAP_GRACE: Duration = Duration::from_secs(30);
 pub(crate) const MAX_TERMINALS_IN_REAP_GRACE: usize = 16;
 /// Largest accepted reap grace period: one week.
 pub const MAX_TERMINAL_REAP_GRACE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+
+const TERMINAL_REAP_MUTATION_ORIGIN: &str = "cmux-tui-terminal-reap";
+
+/// The most reaps one pass runs at the same time. Each close waits for its
+/// host to exit, so a burst of due terminals ends in about the time of the
+/// slowest close instead of their sum.
+const MAX_PARALLEL_REAPS: usize = 16;
 
 /// Result of one reap attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -180,6 +183,20 @@ impl ReapSchedule {
     }
 }
 
+/// The closed terminals past [`MAX_TERMINALS_IN_REAP_GRACE`], longest closed first: each holds a PTY
+/// for its grace, and a burst of closes must not hold the machine's PTYs (feat STATUS 7998).
+fn over_grace_cap(reapable: &HashMap<String, Duration>) -> Vec<String> {
+    let Some(over) =
+        reapable.len().checked_sub(MAX_TERMINALS_IN_REAP_GRACE).filter(|over| *over > 0)
+    else {
+        return Vec::new();
+    };
+    let mut oldest: Vec<(&Duration, &String)> =
+        reapable.iter().map(|(terminal_id, unplaced_for)| (unplaced_for, terminal_id)).collect();
+    oldest.sort_by(|a, b| b.0.cmp(a.0).then_with(|| a.1.cmp(b.1)));
+    oldest.into_iter().take(over).map(|(_, terminal_id)| terminal_id.clone()).collect()
+}
+
 fn deadline_after(now: Instant, grace: Duration) -> Instant {
     now.checked_add(grace).unwrap_or_else(|| now + MAX_TERMINAL_REAP_GRACE)
 }
@@ -218,25 +235,180 @@ impl Mux {
         }
     }
 
-    /// Red stub: sees no terminal.
+    /// Host ids of every live hosted terminal that has no tab placement
+    /// (reapable), and of the other hosted terminals this owner serves
+    /// (placed), whose unplaced times are cleared.
     pub(crate) fn reapable_and_retained_terminals(
         &self,
     ) -> anyhow::Result<(HashSet<String>, HashSet<String>)> {
-        Ok((HashSet::new(), HashSet::new()))
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let placed_runtimes: HashSet<SurfaceId> =
+            state.surfaces.values().filter_map(|view| view.terminal_runtime_id()).collect();
+        let mut unplaced = HashSet::new();
+        let mut placed = HashSet::new();
+        for (public_id, runtime) in &state.terminal_catalog {
+            let Some(identity) = self.resource_terminal_host_identity(runtime) else {
+                continue;
+            };
+            let content_id = ContentPublicId::Terminal(public_id.clone());
+            if runtime.terminal_runtime_id().is_some_and(|id| placed_runtimes.contains(&id))
+                || !state.placements_of_content(&content_id).is_empty()
+            {
+                placed.insert(identity.terminal_id);
+            } else {
+                unplaced.insert(identity.terminal_id);
+            }
+        }
+        Ok((unplaced, placed))
     }
 
-    /// Red stub: ends nothing.
-    pub(crate) fn reap_unplaced_terminal(&self, _terminal_id: &str) -> anyhow::Result<ReapOutcome> {
-        Ok(ReapOutcome::Retained)
+    /// The reapable terminals, each with how long it has been unplaced,
+    /// counted from the durable time the owner (this one or an earlier one)
+    /// first saw it so (`terminal_unplaced_store.rs`).
+    /// A pass that sees no unplaced terminal while the registry holds no
+    /// unplaced time (`unplaced_rows_empty`) does not touch the registry.
+    pub(super) fn reapable_terminals_unplaced_for(
+        &self,
+        unplaced_rows_empty: &mut bool,
+    ) -> anyhow::Result<HashMap<String, Duration>> {
+        let (unplaced, retained) = self.reapable_and_retained_terminals()?;
+        if unplaced.is_empty() && *unplaced_rows_empty {
+            return Ok(HashMap::new());
+        }
+        let wall_ms = now_ms();
+        let synced = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .sync_terminal_unplaced(&unplaced, &retained, wall_ms)?;
+        *unplaced_rows_empty = !synced.rows_left;
+        Ok(synced
+            .since_ms
+            .into_iter()
+            .map(|(terminal_id, since_ms)| {
+                (terminal_id, Duration::from_millis(wall_ms.saturating_sub(since_ms)))
+            })
+            .collect())
     }
 
-    /// Red stub: ends nothing.
+    /// End one unplaced terminal. The placement check is repeated atomically
+    /// with the close, so a terminal that gained a view since the caller
+    /// looked is retained.
+    pub(crate) fn reap_unplaced_terminal(&self, terminal_id: &str) -> anyhow::Result<ReapOutcome> {
+        let runtime_view = {
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            state.terminal_catalog.values().find_map(|runtime| {
+                self.resource_terminal_host_identity(runtime)
+                    .is_some_and(|identity| identity.terminal_id == terminal_id)
+                    .then_some(runtime.id)
+            })
+        };
+        let Some(runtime_view) = runtime_view else { return Ok(ReapOutcome::Retained) };
+        if self.control_clients.attach_observation(&[runtime_view]).0 {
+            return Ok(ReapOutcome::Attached);
+        }
+        match self.close_terminal_guarded(
+            terminal_id,
+            None,
+            None,
+            None,
+            &WorkspaceMutation::local(TERMINAL_REAP_MUTATION_ORIGIN),
+            TerminalCloseGuard::Unplaced,
+        ) {
+            Ok(_) => Ok(ReapOutcome::Reaped),
+            Err(error) if error.downcast_ref::<TerminalCloseGuardFailed>().is_some() => {
+                Ok(ReapOutcome::Retained)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// One reaper step at `now`: reconcile `schedule` with the current
+    /// reapable set and end every terminal whose deadline passed, and the
+    /// longest-closed past [`MAX_TERMINALS_IN_REAP_GRACE`]. Several due
+    /// terminals are ended in parallel, so a burst of closed tabs is reaped
+    /// within the grace period plus the slowest single reap instead of their
+    /// sum. Returns the host ids it ended.
     pub(crate) fn reap_unplaced_terminals(
         &self,
-        _schedule: &mut ReapSchedule,
-        _now: Instant,
+        schedule: &mut ReapSchedule,
+        now: Instant,
     ) -> Vec<String> {
-        Vec::new()
+        // A daemon that is shutting down hands its terminals to the next
+        // owner; it must not end one on the way out.
+        if self.shutting_down.load(Ordering::Acquire) {
+            return Vec::new();
+        }
+        let grace = self.terminal_reap_grace();
+        let over_cap = match self.reapable_terminals_unplaced_for(&mut schedule.unplaced_rows_empty)
+        {
+            Ok(reapable) => {
+                schedule.observe_unplaced(now, grace, &reapable);
+                over_grace_cap(&reapable)
+            }
+            Err(error) => {
+                self.report_internal_diagnostic(format!("terminal reap scan failed: {error}"));
+                schedule.defer_due_after_failed_scan(now);
+                return Vec::new();
+            }
+        };
+        let mut due = schedule.due(now);
+        for terminal_id in over_cap {
+            if !due.contains(&terminal_id) {
+                due.push(terminal_id);
+            }
+        }
+        let outcomes = self.reap_in_parallel(&due);
+        let mut reaped = Vec::new();
+        for (terminal_id, outcome) in due.into_iter().zip(outcomes) {
+            let outcome = outcome
+                .inspect_err(|error| {
+                    self.report_internal_diagnostic(format!(
+                        "reap of unplaced terminal {terminal_id} failed: {error}"
+                    ));
+                })
+                .ok();
+            schedule.tried(&terminal_id, outcome, now, grace);
+            if outcome == Some(ReapOutcome::Reaped) {
+                reaped.push(terminal_id);
+            }
+        }
+        reaped
+    }
+
+    /// [`Self::reap_unplaced_terminal`] for each of `due`, at most
+    /// [`MAX_PARALLEL_REAPS`] at once, in the order of `due`.
+    fn reap_in_parallel(&self, due: &[String]) -> Vec<anyhow::Result<ReapOutcome>> {
+        if due.len() <= 1 {
+            return due
+                .iter()
+                .map(|terminal_id| self.reap_unplaced_terminal(terminal_id))
+                .collect();
+        }
+        let mut outcomes = Vec::with_capacity(due.len());
+        for chunk in due.chunks(MAX_PARALLEL_REAPS) {
+            std::thread::scope(|scope| {
+                let jobs: Vec<_> = chunk
+                    .iter()
+                    .map(|terminal_id| {
+                        std::thread::Builder::new()
+                            .name("mux-terminal-reap-job".into())
+                            .spawn_scoped(scope, move || self.reap_unplaced_terminal(terminal_id))
+                            .map_err(|error| (terminal_id, error))
+                    })
+                    .collect();
+                for job in jobs {
+                    outcomes.push(match job {
+                        Ok(handle) => handle
+                            .join()
+                            .unwrap_or_else(|_| Err(anyhow::anyhow!("reap job panicked"))),
+                        // No thread for this one: reap it on this thread.
+                        Err((terminal_id, _)) => self.reap_unplaced_terminal(terminal_id),
+                    });
+                }
+            });
+        }
+        outcomes
     }
 }
 

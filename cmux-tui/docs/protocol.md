@@ -157,6 +157,17 @@ closed for idleness). The owner closes the terminal, through the same path as
 that long. The idle clock restarts at every attach and when the owner restarts,
 so a restart can delay a close but never make it early.
 
+When `identify` advertises `terminal-reaper-active-v1`, the owner was started
+with `--terminal-reap-grace-seconds <n>` and ends a terminal that has had no
+tab placement for `n` seconds, through the same path as `close-terminal`
+(capability absent: a terminal whose last tab closed runs until
+`close-terminal` or the end of the session). The owner keeps the time it
+first saw each terminal without a tab in the workspace registry, so the grace
+goes on across owner restarts. A placement restored within the grace cancels
+the reap, a terminal with an attach stream is tried again one grace later, and
+at most 16 closed terminals wait out the grace (past that, the longest-closed
+ends at once).
+
 Then it sends ordered stream frames:
 
 ```json

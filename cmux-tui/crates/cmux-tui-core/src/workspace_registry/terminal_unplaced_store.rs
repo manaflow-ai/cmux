@@ -21,14 +21,11 @@
 //! Only a closed terminal with no attached client is affected; it loses the
 //! rest of its undo window.
 
-// Red commit: stub store (the fix commit keeps the rows and drops this).
-#![allow(dead_code)]
-
 use std::collections::{HashMap, HashSet};
 
-use rusqlite::Transaction;
+use rusqlite::{Transaction, params};
 
-use super::WorkspaceRegistry;
+use super::{WorkspaceRegistry, validate_terminal_identity};
 
 pub(super) fn create_terminal_unplaced_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
@@ -51,16 +48,79 @@ pub struct UnplacedSince {
 }
 
 impl WorkspaceRegistry {
-    /// Red stub: keeps nothing; every terminal is unplaced since `now_ms`.
+    /// Record what the reaper sees now and return, for each of `unplaced`,
+    /// the wall-clock time (Unix ms) it was first seen unplaced: a terminal
+    /// without a row gets `now_ms`. Rows of `placed` terminals (a placement
+    /// came back) and of terminals that are no longer live (exited,
+    /// tombstoned or unknown) are removed. A live terminal in neither set
+    /// (one a restarted owner is still adopting) keeps its row, so its grace
+    /// goes on counting. Writes only when a row changes.
     pub fn sync_terminal_unplaced(
         &mut self,
         unplaced: &HashSet<String>,
-        _placed: &HashSet<String>,
+        placed: &HashSet<String>,
         now_ms: u64,
     ) -> anyhow::Result<UnplacedSince> {
-        let since_ms = unplaced.iter().map(|terminal_id| (terminal_id.clone(), now_ms)).collect();
-        Ok(UnplacedSince { since_ms, rows_left: false })
+        let mut rows = read_unplaced_rows(&self.connection)?;
+        let stale: Vec<String> = rows.keys().filter(|id| placed.contains(*id)).cloned().collect();
+        let fresh: Vec<String> =
+            unplaced.iter().filter(|id| !rows.contains_key(*id)).cloned().collect();
+        let unseen = rows.keys().any(|id| !placed.contains(id) && !unplaced.contains(id));
+        if !stale.is_empty() || !fresh.is_empty() || unseen {
+            let stored = i64::try_from(now_ms).unwrap_or(i64::MAX);
+            let tx = self.connection.transaction()?;
+            for terminal_id in &stale {
+                tx.execute("DELETE FROM terminal_unplaced WHERE terminal_id = ?1", [terminal_id])?;
+            }
+            for terminal_id in &fresh {
+                validate_terminal_identity("terminal id", terminal_id)?;
+                tx.execute(
+                    "INSERT OR IGNORE INTO terminal_unplaced(terminal_id, since_ms)
+                     VALUES(?1, ?2)",
+                    params![terminal_id, stored],
+                )?;
+            }
+            let pruned = tx.execute(
+                "DELETE FROM terminal_unplaced
+                 WHERE terminal_id NOT IN (
+                   SELECT terminal_id FROM terminal_hosts
+                   WHERE lifecycle IN ('launching', 'adopting', 'running')
+                 )",
+                [],
+            )?;
+            tx.commit()?;
+            if pruned > 0 {
+                rows = read_unplaced_rows(&self.connection)?;
+            } else {
+                for terminal_id in stale {
+                    rows.remove(&terminal_id);
+                }
+                for terminal_id in fresh {
+                    rows.insert(terminal_id, now_ms);
+                }
+            }
+        }
+        let since_ms = unplaced
+            .iter()
+            .map(|terminal_id| {
+                (terminal_id.clone(), rows.get(terminal_id).copied().unwrap_or(now_ms))
+            })
+            .collect();
+        Ok(UnplacedSince { since_ms, rows_left: !rows.is_empty() })
     }
+}
+
+fn read_unplaced_rows(connection: &rusqlite::Connection) -> anyhow::Result<HashMap<String, u64>> {
+    let mut statement =
+        connection.prepare("SELECT terminal_id, since_ms FROM terminal_unplaced")?;
+    let rows =
+        statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?;
+    let mut map = HashMap::new();
+    for row in rows {
+        let (terminal_id, since_ms) = row?;
+        map.insert(terminal_id, u64::try_from(since_ms).unwrap_or(0));
+    }
+    Ok(map)
 }
 
 #[cfg(test)]
@@ -75,7 +135,7 @@ impl WorkspaceRegistry {
         let by = i64::try_from(by.as_millis()).unwrap_or(i64::MAX);
         let changed = self.connection.execute(
             "UPDATE terminal_unplaced SET since_ms = MAX(since_ms - ?2, 0) WHERE terminal_id = ?1",
-            rusqlite::params![terminal_id, by],
+            params![terminal_id, by],
         )?;
         anyhow::ensure!(changed == 1, "no unplaced time for {terminal_id}");
         Ok(())
