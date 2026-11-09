@@ -550,25 +550,90 @@ fn w5p_one_selector_selects_the_same_object_in_every_scope() {
     assert_ne!(focused, Some(pane));
 }
 
-/// W5-P (keeps W3-H): two live tabs with one name are `selector.ambiguous`
-/// with both tab ids in every scope, also when one is in the current
-/// screen; and an id prefix that two objects share is ambiguous with every
-/// candidate, never a guess.
+/// W5-P adds `focused`, bare ids and id prefixes as selectors without
+/// changing an old answer: a name that looks like one of them still
+/// selects the named object, and the new form applies only when no object
+/// has that name. A prefix was never a name (the old parser refused it and
+/// asked for `name:`), so `name:<prefix>` is the name and the bare prefix
+/// is the id.
 #[test]
-fn w5p_shared_names_and_shared_prefixes_are_ambiguous() {
+fn w5p_names_keep_their_old_answers_over_the_id_forms_they_look_like() {
+    let mux = test_mux();
+    let root = mux.new_workspace(Some("w5p-collide".into()), None).unwrap();
+    let root_pane = mux.with_state(|state| state.pane_of(root.id).unwrap());
+    let named = mux.split(root_pane, SplitDir::Right, None).unwrap();
+    assert!(mux.focus_pane(root_pane));
+    let tab_id = |surface| {
+        mux.with_state(|state| state.resource_indexes.tab_ids.get(&surface).unwrap().to_string())
+    };
+    let (root_tab, named_tab) = (tab_id(root.id), tab_id(named.id));
+    let tab_of = |selector: &str| {
+        w5p_resolve(&mux, "tab", selector).unwrap_or_else(|error| panic!("{selector}: {error:?}")).1
+    };
+
+    // No tab is named `focused`: it is the focused tab.
+    assert_eq!(tab_of("focused"), Some(root_tab.clone()));
+    // A tab named `focused` (not the focused one) is what `tab focused` selected.
+    assert!(mux.rename_surface(named.id, "focused".into()));
+    assert_eq!(tab_of("focused"), Some(named_tab.clone()), "the name wins over focus");
+
+    // A tab named with the 32 hex digits of another tab's id is the name.
+    let root_payload = root_tab.rsplit_once('_').unwrap().1.to_owned();
+    assert!(mux.rename_surface(named.id, root_payload.clone()));
+    assert_eq!(tab_of(&root_payload), Some(named_tab.clone()), "the name wins over the bare id");
+    // With no such name, the 32 hex digits are the id.
+    assert!(mux.rename_surface(named.id, "plain".into()));
+    assert_eq!(tab_of(&root_payload), Some(root_tab.clone()), "the bare id");
+
+    // A tab named with a prefix of another tab's id: `name:` selects it, as
+    // before; the prefix alone (refused before) is the id.
+    let prefix = root_tab.get(..root_tab.len() - 20).unwrap().to_owned();
+    assert!(mux.rename_surface(named.id, prefix.clone()));
+    assert_eq!(tab_of(&format!("name:{prefix}")), Some(named_tab));
+    assert_eq!(tab_of(&prefix), Some(root_tab));
+}
+
+/// W5-P keeps every old answer for a name two tabs share. A tab name
+/// (the daemon's old tab-name levels) selects the tab in the current
+/// screen before one elsewhere, and two at one level are
+/// `selector.ambiguous`; a terminal or pane selector (the CLI's old W3-H
+/// rule over the whole session) is ambiguous with both tab ids. An id
+/// prefix that two objects share is ambiguous with every candidate, never
+/// a guess.
+#[test]
+fn w5p_shared_names_and_shared_prefixes_keep_their_old_answers() {
     let mux = test_mux();
     let root = mux.new_workspace(Some("w5p-ambiguous".into()), None).unwrap();
     let root_pane = mux.with_state(|state| state.pane_of(root.id).unwrap());
     let left = mux.split(root_pane, SplitDir::Right, None).unwrap();
     let other = mux.new_workspace(Some("w5p-other".into()), None).unwrap();
+    let other_pane = mux.with_state(|state| state.pane_of(other.id).unwrap());
+    let other_split = mux.split(other_pane, SplitDir::Right, None).unwrap();
     assert!(mux.rename_surface(left.id, "dup".into()));
     assert!(mux.rename_surface(other.id, "dup".into()));
+    assert!(mux.rename_surface(other_split.id, "twin".into()));
+    let twin_peer = mux.new_tab(Some(other_pane), None, None).unwrap();
+    assert!(mux.rename_surface(twin_peer.id, "twin".into()));
     assert!(mux.focus_pane(root_pane));
-    for scope in ["terminal", "tab", "pane"] {
+    let tab_id = |surface| {
+        mux.with_state(|state| state.resource_indexes.tab_ids.get(&surface).unwrap().to_string())
+    };
+
+    // The same name in two screens: the tab in the current screen.
+    let (_, tab, _) = w5p_resolve(&mux, "tab", "dup").unwrap();
+    assert_eq!(tab, Some(tab_id(left.id)), "tab dup is the one in the current screen");
+    for scope in ["terminal", "pane"] {
         let error = w5p_resolve(&mux, scope, "dup").unwrap_err();
         assert_eq!(error.code, "selector.ambiguous", "{scope} dup: {error:?}");
         let candidates = error.details["candidates"].as_array().map(Vec::len);
         assert_eq!(candidates, Some(2), "{scope} dup: {error:?}");
+    }
+    // Two at one level (both in another workspace) are ambiguous everywhere.
+    for scope in ["terminal", "tab", "pane"] {
+        let error = w5p_resolve(&mux, scope, "twin").unwrap_err();
+        assert_eq!(error.code, "selector.ambiguous", "{scope} twin: {error:?}");
+        let candidates = error.details["candidates"].as_array().map(Vec::len);
+        assert_eq!(candidates, Some(2), "{scope} twin: {error:?}");
     }
 
     // 17 tabs: two of them share the first hex digit of their id.
@@ -597,7 +662,7 @@ fn w5p_shared_names_and_shared_prefixes_are_ambiguous() {
         tabs.iter().filter(|id| id.starts_with(shared.as_str())).cloned().collect::<Vec<_>>();
     expected.sort();
     assert_eq!(candidates, expected);
-    // A prefix of no object is not found (32 prefixes, 18 tabs).
+    // A prefix of no object is not found (32 prefixes, 20 tabs).
     let missing = (0..16u8)
         .flat_map(|first| (0..2u8).map(move |second| format!("tab_{first:x}{second:x}0")))
         .find(|prefix| !tabs.iter().any(|id| id.starts_with(prefix.as_str())))
