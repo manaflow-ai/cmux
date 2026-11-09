@@ -2,8 +2,8 @@
 // environments as the app serves them (`cmux.settings.environments.state`), each with its build
 // status, and Add, Edit, Build, Delete and Refresh (`cmux.settings.environments.run`). Build and Delete
 // ask natively first (the host's confirmation sheet); the page only draws and forwards. The list is read
-// when the card mounts and on Refresh; it does not poll. Add and Edit share one form, the environment
-// editor of the ChatGPT desktop app (Leo, 2026-11-09: "as for cloud, how about configuring
+// when the card mounts and on Refresh; it does not poll. Add and Edit share one form, like the Codex desktop
+// app's environment editor (Leo, 2026-11-09: "as for cloud, how about configuring
 // "environments" or whatever that stuff is in chatgpt desktop app"): name, repository, a multi-line
 // setup script and variables, each a plain value or a vault secret's name.
 import { useCallback, useEffect, useState } from "react";

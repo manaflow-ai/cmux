@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample repositories, scripts and variable names), not shipped UI.
-// Settings > Cloud Environments' editor (CloudEnvironmentsCard.tsx#EnvironmentForm), the ChatGPT
-// desktop app's environment editor (Leo, 2026-11-09: "as for cloud, how about configuring
+// Settings > Cloud Environments' editor (CloudEnvironmentsCard.tsx#EnvironmentForm), like the
+// Codex desktop app's environment editor (Leo, 2026-11-09: "as for cloud, how about configuring
 // "environments" or whatever that stuff is in chatgpt desktop app"). Each state the person meets:
 // a new environment, an edit with plain and vault variables, and a long multi-line setup script.
 import { componentEntry } from "../../../gallery/format";

@@ -968,7 +968,7 @@ mark {
 }
 
 /* Settings > Cloud Environments' editor: the setup script and the variables take the form's width
-   under their label, as the ChatGPT environment editor lays them out. */
+   under their label, as the Codex environment editor lays them out. */
 .environment-field {
   display: flex;
   flex-direction: column;
