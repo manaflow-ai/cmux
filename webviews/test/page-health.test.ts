@@ -12,6 +12,7 @@ import {
   PAGE_HEARTBEAT_OP,
   PAGE_SAVE_STATE_OP,
   restoreState,
+  markUnsavedEdits,
   UNSAVED_EDITS_ATTRIBUTE,
 } from "../src/pages/shared/pageHealth";
 
@@ -275,5 +276,18 @@ test("reports unsaved edits with the beat, at once after the input that marks th
   expect(beats(calls)).toHaveLength(2);
   field.removeAttribute(UNSAVED_EDITS_ATTRIBUTE);
   input(field);
+  expect(beats(calls).at(-1)).toEqual({ op: PAGE_HEARTBEAT_OP, params: { handled: 0 } });
+});
+
+// Review of #39247 at aebd2ef: an editor's keymap command (undo, a moved line) changes the text with no
+// `input` event, so the store's mark itself beats at once.
+test("a store marking unsaved edits beats at once, with no input event", () => {
+  const { dom, calls, client } = page();
+  installPageHealth(client, dom.window.document);
+  markUnsavedEdits(true, dom.window.document);
+  expect(beats(calls).at(-1)).toEqual({ op: PAGE_HEARTBEAT_OP, params: { handled: 0, edits: true } });
+  markUnsavedEdits(true, dom.window.document);
+  expect(beats(calls)).toHaveLength(2);
+  markUnsavedEdits(false, dom.window.document);
   expect(beats(calls).at(-1)).toEqual({ op: PAGE_HEARTBEAT_OP, params: { handled: 0 } });
 });

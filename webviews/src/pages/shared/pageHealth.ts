@@ -39,8 +39,14 @@ export const UNSAVED_EDITS_ATTRIBUTE = "data-cmux-unsaved-edits";
 /** Marks (or clears) the whole document as holding unsaved edits: a file page whose text is not on disk
  * yet (edited, saving, or its save failed). Synchronous, so the beat after the input sees it. */
 export function markUnsavedEdits(unsaved: boolean, doc: Document | undefined = globalThis.document): void {
-  doc?.documentElement?.toggleAttribute(UNSAVED_EDITS_ATTRIBUTE, unsaved);
+  const root = doc?.documentElement;
+  if (!doc || !root || root.hasAttribute(UNSAVED_EDITS_ATTRIBUTE) === unsaved) return;
+  root.toggleAttribute(UNSAVED_EDITS_ATTRIBUTE, unsaved);
+  // An edit with no `input` event (a keymap command: undo, a moved line) still beats at once.
+  doc.dispatchEvent(new (doc.defaultView ?? globalThis).Event(UNSAVED_EDITS_EVENT));
 }
+/** Sent on the document when ``markUnsavedEdits`` flips the mark. */
+export const UNSAVED_EDITS_EVENT = "cmux-unsaved-edits";
 /** sessionStorage key prefix; the page's URL follows. */
 export const KEPT_STATE_PREFIX = "cmux.page.kept:";
 /** How many frames a restore waits for its scroller and field to appear (about 2 s). */
@@ -128,6 +134,7 @@ export function installPageHealth(client: HealthClient, doc: Document = document
     if (!refused && doc.visibilityState === "visible" && holdsEdits() !== edits) beat();
   };
   view.addEventListener("input", () => view.setTimeout(editChanged, 0), { capture: true, passive: true });
+  doc.addEventListener(UNSAVED_EDITS_EVENT, editChanged);
   doc.addEventListener("visibilitychange", follow);
   view.addEventListener("pagehide", () => {
     stop();

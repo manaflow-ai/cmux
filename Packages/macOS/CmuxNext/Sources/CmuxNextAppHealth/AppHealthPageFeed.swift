@@ -51,13 +51,12 @@ final class AppHealthPageFeed: PageHealthFeed {
         } else {
             pageVisibilityChanged(page)
         }
-        let before = lastHandled[key] ?? 0
         lastHandled[key] = handled
         health.beat(id)
-        // Input sent since the last beat is answered only once the page's count passed the count it had
-        // then (Codex's review of #39247 at f02e048): a page that beats but ignores its input stays
-        // pending, and the model's input timer reaches it.
-        if handled > before, inputSinceBeat.remove(key) != nil { health.input(id, sent: handled, handled: handled) }
+        // A beat answers the input sent since the last one: the page's thread ran after it. Its count cannot
+        // decide (#39247 at aebd2ef): the host notes key ups, mouse ups, drags, scrollbar clicks and menu
+        // choices the page never counts, so a healthy page would read as ignoring them and be reloaded.
+        if inputSinceBeat.remove(key) != nil { health.input(id, sent: handled, handled: handled) }
     }
 
     func pageInput(_ page: PageWebView) {
