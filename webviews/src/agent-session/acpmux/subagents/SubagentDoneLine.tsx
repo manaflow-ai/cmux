@@ -54,6 +54,8 @@ import { AgentMessageRow } from "../conversation/AgentMessageRow";
 import { messagePreview } from "../conversation/agentMessageRowModel";
 import { doneReportLook } from "./doneReport.experiment";
 import { RetryAffordanceContext, DoneReportLookContext, doneReport, shortReason } from "./subagentDoneLineModel";
+import { useWholeReport, type WholeReport } from "./wholeReport";
+import { WholeReportBody } from "./WholeReportBody";
 
 const DONE_LABEL: Record<string, StringKey> = {
   completed: "subagents.ended.completed",
@@ -111,6 +113,11 @@ function DoneLine({
   const [reportOpen, setReportOpen] = useState(false);
   const reportId = useId();
   const open = pane ?? nav;
+  // The report whole while it shows (wholeReport.ts): `lastMessage` is only acpmux's preview.
+  const shownReport = useWholeReport(
+    agent?.state === "completed" ? agent : undefined,
+    reportOpen || (reportLook === "preview" && agent?.state === "completed"),
+  );
   if (!agent) return null;
   // The row's retry, as every surface reads it (retryState.ts ``subagentRetry``).
   const phase = subagentRetry(agent, retryCapabilities, child);
@@ -224,8 +231,14 @@ function DoneLine({
           time={time}
           actions={restartButton ? <span className="cv-subagent-done__actions">{restartButton}</span> : undefined}
           body={
-            <div className="cv-subagent-done__report cv-subagent-done__markdown selectable">
-              <Markdown commits="quiet">{report}</Markdown>
+            <div className="cv-subagent-done__report">
+              {shownReport && (
+                <WholeReportBody
+                  report={shownReport}
+                  className="cv-subagent-done__markdown selectable"
+                  onOpenView={open && (() => open(agent.id))}
+                />
+              )}
             </div>
           }
         />
@@ -340,14 +353,16 @@ function DoneLine({
           </span>
         )}
       </TranscriptActivityRowShell>
-      {disclose && reportOpen && (
+      {disclose && reportOpen && shownReport && (
         <div id={reportId} className="cv-subagent-done__report">
-          <div className="cv-subagent-done__markdown selectable">
-            <Markdown commits="quiet">{report}</Markdown>
-          </div>
+          <WholeReportBody
+            report={shownReport}
+            className="cv-subagent-done__markdown selectable"
+            onOpenView={open && (() => open(agent.id))}
+          />
         </div>
       )}
-      {preview && <ReportPreview text={report} />}
+      {preview && shownReport && <ReportPreview report={shownReport} />}
       {/* The chat's quiet reply to its end (ReactionMark.tsx), under the line as text Find reads,
           never only in a tooltip (cmux#33538). */}
       <ReactionReply reaction={agent.reaction} />
@@ -357,7 +372,8 @@ function DoneLine({
 
 /// The preview arm: the report's first two lines always under the line, Show more opening the rest
 /// (capped as an opened report is). Show more appears only when the cut hides lines.
-function ReportPreview({ text }: { text: string }) {
+function ReportPreview({ report }: { report: WholeReport }) {
+  const text = report.text;
   const t = useT();
   const [open, setOpen] = useState(false);
   const [long, setLong] = useState(false);
@@ -385,13 +401,17 @@ function ReportPreview({ text }: { text: string }) {
       >
         <Markdown commits="quiet">{text}</Markdown>
       </div>
-      {(long || open) && (
+      {(long || open || report.cut) && (
         <button
           type="button"
           className="cv-subagent-done__more"
           aria-expanded={open}
           aria-controls={id}
-          onClick={() => setOpen((value) => !value)}
+          onClick={() => {
+            // Opening a preview that is only part of the report reads the rest too (wholeReport.ts).
+            if (!open && report.cut && !report.away) report.more();
+            setOpen((value) => !value);
+          }}
         >
           {t(open ? "message.less" : "message.more")}
         </button>
