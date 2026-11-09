@@ -36,6 +36,7 @@ import CmuxNextScreenshots
 /// blurs the window under it, as on screen (composited apart, it came out grey). The
 /// async verb also paints each engine's own image of every shown page
 /// (`webviews`, `chromium_pages`, with `_composited` and `_failed` counts),
+/// and of their docked DevTools (`devtools_not_captured`: striped, Chromium gave no image),
 /// since the window server
 /// leaves out page content other processes draw unless the app has the
 /// Screen Recording grant. `webviews: false` skips the page images (the
@@ -159,22 +160,16 @@ enum DebugWindowSnapshot {
             let pages = chromiumPages(in: window, services: services)
             var pagesFailed = 0
             for (page, rect) in pages {
-                do {
-                    // The page window's holes (find bar, prompt bar, error
-                    // page, the whole New Tab page) show the window there, as
-                    // on screen.
-                    let holes = page.pageWindowHoles.map { page.contentView.convert($0, to: nil) }
-                    let clip = WindowImageClip(page.pageWindowClip)
-                    layers.append(.page(try await page.snapshot(), rect, holes: holes, clip: clip))
-                } catch {
-                    pagesFailed += 1
-                }
+                guard let image = try? await page.snapshot() else { pagesFailed += 1; continue }
+                // The page window's holes (find bar, prompt bar, error page, the whole New Tab page) show the window there, as on screen.
+                let holes = page.pageWindowHoles.map { page.contentView.convert($0, to: nil) }
+                layers += WindowImageLayer.chromiumPage(image, rect, holes: holes, clip: page.pageWindowClip, devTools: await page.dockedDevToolsPicture())
             }
             // React pages on the Chromium engine (the agent page, Settings) draw the same way.
             let reactPages = PageRegistry.shownChromiumPages(in: window)
             for (page, rect) in reactPages {
                 guard let image = await page.chromiumImage() else { pagesFailed += 1; continue }
-                layers.append(.page(image, rect, holes: page.chromiumWindowHoles, clip: WindowImageClip(page.chromiumWindowClip))) // a chat leaves its pane's tabs uncovered
+                layers += WindowImageLayer.chromiumPage(image, rect, holes: page.chromiumWindowHoles, clip: page.chromiumWindowClip, devTools: await page.chromiumDevTools()) // a chat leaves its pane's tabs uncovered
             }
             var floatingCount = together?.floating ?? 0
             if base.method == .composited {
@@ -208,6 +203,7 @@ enum DebugWindowSnapshot {
                 "chromium_pages": JSONValue(pages.count + reactPages.count),
                 "chromium_pages_composited": JSONValue(pages.count + reactPages.count - pagesFailed),
                 "chromium_pages_failed": JSONValue(pagesFailed),
+                "devtools_not_captured": JSONValue(layers.count(where: { if case .notCaptured = $0 { true } else { false } })),
                 "refusal_hud": hudMessage(services), "refusal_hud_count": JSONValue(services.refusalHUD.shownCount),
             ])
         } catch {
@@ -246,7 +242,7 @@ enum DebugWindowSnapshot {
     }
 
     /// The Chromium pages shown in `window`'s panes, with the page area in
-    /// window coordinates (beside a docked DevTools, which is not painted).
+    /// window coordinates (beside a docked DevTools, which has its own layer).
     @MainActor
     static func chromiumPages(in window: NSWindow, services: AppServices) -> [(CEFTab, NSRect)] {
         guard let controller = services.windows.controllers.first(where: { $0.window === window }) else { return [] }
