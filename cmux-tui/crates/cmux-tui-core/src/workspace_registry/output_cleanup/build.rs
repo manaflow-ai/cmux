@@ -55,6 +55,9 @@ const STEP_CHECK: &str = "check";
 pub(super) const STEP_BUILT: &str = "built";
 /// Live rows staged per transaction.
 const LIVE_ROWS_PER_STEP: i64 = 2_048;
+/// Payload bytes a live step holds before it stages them: 2,048 rows of
+/// 64 KiB would hold 128 MiB.
+const LIVE_BYTES_PER_STEP: usize = MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES;
 /// Journal records a catch-up reads per transaction.
 const CATCH_UP_RECORDS_PER_STEP: u64 = 8_192;
 /// Free pages one incremental vacuum step returns to the file system.
@@ -370,8 +373,16 @@ fn stage_live(
                 LIVE_ROWS_PER_STEP
             ])?;
             let mut kept = Vec::new();
+            let mut bytes = 0_usize;
             while let Some(row) = rows.next()? {
-                kept.push(archived_row(row)?);
+                let record = archived_row(row)?;
+                bytes += record.2.len();
+                kept.push(record);
+                // The cursor moves to the last staged row, so the next step
+                // reads on from there.
+                if bytes >= LIVE_BYTES_PER_STEP {
+                    break;
+                }
             }
             Ok(Some(kept))
         })();
@@ -428,22 +439,44 @@ pub(super) fn insert_chunks(
     records: Vec<StagedRecord>,
     by_kind: bool,
 ) -> anyhow::Result<()> {
-    let mut chunk: Vec<StagedRecord> = Vec::with_capacity(CHUNK_RECORD_LIMIT);
-    let mut chunk_bytes = 0_usize;
+    let mut writer = ChunkWriter::new(by_kind);
     for record in records {
-        if chunk.len() == CHUNK_RECORD_LIMIT
-            || (by_kind && chunk.last().is_some_and(|last| last.1 != record.1))
-            || chunk_bytes.saturating_add(record.2.len()).saturating_add(chunk.len() + 2)
+        writer.push(staging, record)?;
+    }
+    writer.finish(staging)
+}
+
+/// Writes records as [`insert_chunks`] does, one at a time, holding only
+/// the open chunk.
+struct ChunkWriter {
+    chunk: Vec<StagedRecord>,
+    bytes: usize,
+    by_kind: bool,
+}
+
+impl ChunkWriter {
+    fn new(by_kind: bool) -> Self {
+        Self { chunk: Vec::with_capacity(CHUNK_RECORD_LIMIT), bytes: 0, by_kind }
+    }
+
+    fn push(&mut self, staging: &Connection, record: StagedRecord) -> anyhow::Result<()> {
+        if self.chunk.len() == CHUNK_RECORD_LIMIT
+            || (self.by_kind && self.chunk.last().is_some_and(|last| last.1 != record.1))
+            || self.bytes.saturating_add(record.2.len()).saturating_add(self.chunk.len() + 2)
                 >= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES
         {
-            insert_chunk(staging, &chunk)?;
-            chunk.clear();
-            chunk_bytes = 0;
+            insert_chunk(staging, &self.chunk)?;
+            self.chunk.clear();
+            self.bytes = 0;
         }
-        chunk_bytes += record.2.len();
-        chunk.push(record);
+        self.bytes += record.2.len();
+        self.chunk.push(record);
+        Ok(())
     }
-    insert_chunk(staging, &chunk)
+
+    fn finish(self, staging: &Connection) -> anyhow::Result<()> {
+        insert_chunk(staging, &self.chunk)
+    }
 }
 
 /// Every record through the counted head is staged: checks that kept and
@@ -1022,21 +1055,31 @@ fn vacuum(staging: &Connection, next_step: &dyn Fn() -> bool) -> anyhow::Result<
     }
 }
 
-/// Every journal record in `after+1..=through`, wherever it is now (live
-/// rows, or segments sealed after the build), read in one snapshot: the
-/// non-output ones in sequence order, and how many were output. Fails
-/// unless every sequence in the range is there exactly once.
+/// Stages every journal record in `after+1..=through`, wherever it is now
+/// (live rows, or segments sealed after the build), read in one snapshot:
+/// the non-output ones go to `staging` as chunks in sequence order, with
+/// one chunk in memory at a time (a 100,000-record tail of 64 KiB payloads
+/// is over 6 GiB). Fails unless every sequence in the range is there
+/// exactly once, in order; the caller's transaction then drops the chunks.
 pub(super) fn stage_range(
     source: &Connection,
+    staging: &Connection,
     after: u64,
     through: u64,
-) -> anyhow::Result<(Vec<StagedRecord>, u64)> {
+) -> anyhow::Result<()> {
     source.execute_batch("BEGIN DEFERRED")?;
-    let read = (|| -> anyhow::Result<(Vec<StagedRecord>, u64)> {
+    let read = (|| -> anyhow::Result<()> {
         let (lo, hi) = (i64::try_from(after)?, i64::try_from(through)?);
-        let mut seen = Vec::new();
-        let mut kept = Vec::new();
-        let mut output = 0_u64;
+        let mut writer = ChunkWriter::new(false);
+        let mut next = after + 1;
+        let mut take = |sequence: u64| -> anyhow::Result<()> {
+            anyhow::ensure!(
+                sequence == next,
+                "the journal records after sequence {after} through {through} are not contiguous"
+            );
+            next += 1;
+            Ok(())
+        };
         let mut segments = source.prepare(
             "SELECT segment_id, start_sequence, end_sequence, record_count FROM journal_segments
              WHERE end_sequence > ?1 AND start_sequence <= ?2 ORDER BY start_sequence",
@@ -1056,11 +1099,9 @@ pub(super) fn stage_range(
             )?;
             for record in records {
                 if record.0 > after && record.0 <= through {
-                    seen.push(record.0);
-                    if record.1 == OUTPUT_KIND {
-                        output += 1;
-                    } else {
-                        kept.push(record);
+                    take(record.0)?;
+                    if record.1 != OUTPUT_KIND {
+                        writer.push(staging, record)?;
                     }
                 }
             }
@@ -1070,31 +1111,23 @@ pub(super) fn stage_range(
             "SELECT sequence, kind = ?3 FROM session_journal
              WHERE sequence > ?1 AND sequence <= ?2 ORDER BY sequence",
         )?;
-        let rows = live
-            .query_map(params![lo, hi, OUTPUT_KIND], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, bool>(1)?))
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
         let mut full = source
             .prepare(&format!("SELECT {columns} FROM session_journal WHERE sequence = ?1"))?;
-        for (sequence, is_output) in rows {
-            seen.push(u64::try_from(sequence)?);
-            if is_output {
-                output += 1;
-            } else {
+        let mut rows = live.query(params![lo, hi, OUTPUT_KIND])?;
+        while let Some(row) = rows.next()? {
+            let sequence = row.get::<_, i64>(0)?;
+            take(u64::try_from(sequence)?)?;
+            if !row.get::<_, bool>(1)? {
                 let mut rows = full.query([sequence])?;
                 let row = rows.next()?.context("a live journal row went away")?;
-                kept.push(archived_row(row)?);
+                writer.push(staging, archived_row(row)?)?;
             }
         }
-        seen.sort_unstable();
         anyhow::ensure!(
-            u64::try_from(seen.len())? == through - after
-                && seen.iter().zip(after + 1..).all(|(sequence, expected)| *sequence == expected),
+            next == through + 1,
             "the journal records after sequence {after} through {through} are not contiguous"
         );
-        kept.sort_unstable_by_key(|record| record.0);
-        Ok((kept, output))
+        writer.finish(staging)
     })();
     let _ = source.execute_batch("COMMIT");
     read
@@ -1129,9 +1162,8 @@ pub(super) fn catch_up(
             break;
         }
         let through = head.min(built + CATCH_UP_RECORDS_PER_STEP);
-        let (kept, _) = stage_range(source, built, through)?;
         let tx = staging.unchecked_transaction()?;
-        insert_chunks(&tx, kept, false)?;
+        stage_range(source, &tx, built, through)?;
         set_state(&tx, "built_head", &through.to_string())?;
         tx.commit()?;
         caught += through - built;

@@ -21,7 +21,7 @@ use super::super::{
     sqlite_filesystem_path,
 };
 use super::build::{
-    STEP_BUILT, insert_chunks, journal_schema_digest, pack_rest, quote, schema_objects,
+    STEP_BUILT, journal_schema_digest, pack_rest, quote, schema_objects,
     segment_record_limit, stage_range, table_columns,
 };
 use super::stage::{open_existing_staging, state, state_u64};
@@ -813,8 +813,7 @@ fn build_in(
     let from = state_u64(tx, "packed_through")?;
     let start = state_u64(tx, "pack_next_start")?;
     if head > built_head {
-        let (kept, _) = stage_range(source, built_head, head)?;
-        insert_chunks(tx, kept, false)?;
+        stage_range(source, tx, built_head, head)?;
     }
     let tail_kept = u64::try_from(tx.query_row(
         "SELECT COUNT(*) FROM main.output_cleanup_records WHERE sequence > ?1",
