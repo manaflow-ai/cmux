@@ -442,6 +442,8 @@
 .feed-code-text {
   font: inherit;
   font-size: var(--text-detail);
+  /* A command shows its own line breaks and spacing: collapsed, a second line reads as the first one's arguments. */
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
   user-select: text;
 }
