@@ -23,10 +23,15 @@ once at close, so no request and no lock holder waits for the disk;
 known on disk, and `registry_wal_frame_bytes` how many bytes their WAL frames
 took (two reads around one change give that change's bytes). A PASSIVE
 checkpoint never shrinks the WAL file, so each connection sets
-`journal_size_limit` to 64 MiB and, once a checkpoint copied the whole WAL,
-the syncer truncates a larger file (waiting at most 50 ms for a reader or
-writer, else trying at its next checkpoint); `registry_wal_file_bytes` and
-`registry_wal_file_high_water_bytes` show its size now and at its largest.
+`journal_size_limit` to 64 MiB: the file shrinks to that size only after a
+PASSIVE checkpoint copied the whole WAL (no reader still needs it) and a
+writer then commits, restarting the WAL from its first frame. A fully idle
+registry keeps its WAL at its size until its next commit. The syncer runs no
+TRUNCATE or RESTART checkpoint, which would hold the writer lock while it
+waited for readers and fail a transaction's read-to-write upgrade with
+SQLITE_BUSY. `registry_wal_file_bytes` and
+`registry_wal_file_high_water_bytes` show the file's size now and at its
+largest.
 A sync after each reply was measured and rejected: the next
 request waited for it. A power loss or kernel panic can take back the tail of
 commits since the last checkpoint that the kernel had not yet written, and it
