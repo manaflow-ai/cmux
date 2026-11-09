@@ -380,8 +380,13 @@ fn read_page(
     page: usize,
 ) -> anyhow::Result<(Vec<super::SessionJournalRecord>, u64)> {
     let transaction = source.unchecked_transaction()?;
-    let read =
-        query_session_journal_kinds_after(&transaction, cursor, head, AgentRoster::folds_kind, page);
+    let read = query_session_journal_kinds_after(
+        &transaction,
+        cursor,
+        head,
+        AgentRoster::folds_kind,
+        page,
+    );
     transaction.finish()?;
     read
 }
