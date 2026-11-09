@@ -334,7 +334,9 @@ fn complete(p: &Pending, record: &MachineCredential, report: Report) -> Result<(
     let record = &completed_record(p, record);
     let bytes = Zeroizing::new(serde_json::to_vec(record).map_err(|_| store_error())?);
     write_durable(&credential_path(), &bytes, true).map_err(|_| store_error())?;
-    configure_mesh_relay(&p.hub).map_err(|_| store_error())?;
+    let sign_in = p.joined_by.as_deref() == Some(super::enroll::JOINED_BY_SIGN_IN);
+    relay_for_join_at(&crate::config::Config::path(), &p.hub, sign_in)
+        .map_err(|_| store_error())?;
     // Remove the immutable recovery proof only after final + relay are durable.
     crate::config::private_state_file(&state_dir().join(FILE)).map_err(|_| store_error())?;
     std::fs::remove_file(state_dir().join(FILE)).map_err(|_| store_error())?;

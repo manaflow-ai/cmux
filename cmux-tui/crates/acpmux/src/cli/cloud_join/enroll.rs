@@ -68,6 +68,9 @@ pub(crate) enum EnrollOutcome {
     OtherUser,
     /// Joined to another hub: left alone.
     OtherHub,
+    /// A relay the person set up holds config.json (a `tokenCommand`, a credential of its own,
+    /// another hub's): no sign-in join replaces it, so none is made.
+    OwnRelay,
     /// The hub did not answer, refused, or another join held this machine: nothing changed.
     Unavailable,
 }
@@ -402,6 +405,15 @@ pub(super) async fn enroll_at(
             let _ = std::fs::remove_file(home.join(STALE_FILE));
         } else {
             tracing::warn!(machine = %stale.machine_id, "sign-in enroll: the stale row stayed");
+        }
+    }
+    // A relay the person set up stays theirs: a join here would replace it with the join's.
+    match own_relay_at(&home.join("config.json"), hub) {
+        Ok(false) => {}
+        Ok(true) => return EnrollOutcome::OwnRelay,
+        Err(e) => {
+            tracing::warn!("sign-in enroll: config.json was not read: {e:#}");
+            return EnrollOutcome::Unavailable;
         }
     }
     let token = match port.mint(name).await {
@@ -1389,6 +1401,63 @@ mod tests {
         let port = FakeHub::at(home.path());
         assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::AlreadyJoined);
         assert_eq!(relay_config(home.path()).unwrap()["url"], "https://own.example");
+    }
+
+    #[tokio::test]
+    async fn a_relay_the_person_set_up_survives_sign_in_enrollment_a_restart_and_sign_out() {
+        let own = |url: &str| json!({"url": url, "tokenCommand": ["mint"]});
+        let write = |home: &Path, relay: Value| {
+            std::fs::write(home.join("config.json"), json!({"meshRelay": relay}).to_string())
+                .unwrap();
+        };
+        // A working `tokenCommand` relay, to this hub or another, and no machine credential.
+        for relay in [own("https://own.example"), own(HUB)] {
+            let home = tempfile::tempdir().unwrap();
+            write(home.path(), relay.clone());
+            let port = FakeHub::at(home.path());
+            assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::OwnRelay);
+            assert_eq!(port.mints.load(Ordering::SeqCst), 0, "no join is made to replace it");
+            assert!(load_at(home.path()).unwrap().is_none());
+            assert_eq!(relay_config(home.path()), Some(relay.clone()));
+            // A restart: the start's leave and the next sign-in leave it as it is.
+            let at_start = leave_marked(home.path(), Some("box-a"), true, |_| async {
+                leave::HubAnswer::Revoked
+            })
+            .await;
+            assert!(relay_may_start(&at_start));
+            assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::OwnRelay);
+            assert_eq!(relay_config(home.path()), Some(relay.clone()));
+            // Signing out: it is as it was.
+            let left = sign_out(home.path(), leave::HubAnswer::Revoked).await;
+            assert_eq!(left.kept, Some("notJoined"));
+            assert_eq!(relay_config(home.path()), Some(relay));
+        }
+
+        // A sign-in's join the hub took before the relay was set up, finished after
+        // (`recovery::complete`): joined, the relay untouched, and its sign-out keeps it.
+        let home = tempfile::tempdir().unwrap();
+        let relay = own("https://own.example");
+        write(home.path(), relay.clone());
+        joined(home.path(), signed_in);
+        relay_for_join_at(&home.path().join("config.json"), HUB, true).unwrap();
+        assert_eq!(relay_config(home.path()), Some(relay.clone()));
+        let left = sign_out(home.path(), leave::HubAnswer::Revoked).await;
+        assert!(left.left, "{left:?}");
+        assert!(load_at(home.path()).unwrap().is_none());
+        assert_eq!(relay_config(home.path()), Some(relay.clone()));
+        // A join the person runs themselves writes the join's relay, as it always did.
+        relay_for_join_at(&home.path().join("config.json"), HUB, false).unwrap();
+        assert_eq!(relay_config(home.path()).unwrap()["credential"], "join");
+
+        // A stray join relay with no record is the join's own: a sign-in enrolls over it, and
+        // its sign-out removes only what it wrote.
+        let home = tempfile::tempdir().unwrap();
+        configure_mesh_relay_at(&home.path().join("config.json"), HUB).unwrap();
+        let port = FakeHub::at(home.path());
+        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::Joined);
+        relay_for_join_at(&home.path().join("config.json"), HUB, true).unwrap();
+        assert!(sign_out(home.path(), leave::HubAnswer::Revoked).await.left);
+        assert_eq!(relay_config(home.path()), None);
     }
 
     #[tokio::test]
