@@ -136,13 +136,16 @@ extension AgentVideo {
             guard let note = line.prefixMatch(of: #/Frames from the video (.+) \((\d+(?::\d{2}){1,2}), (\d+)×(\d+)\), in order, at: /#)
             else { continue }
             let name = String(note.output.1)
+            // A length or size no video has (a person's own text that reads like a note) leaves the
+            // link to the chip below, never a trap in the arithmetic.
             guard !seen.contains(name), let link = links.first(where: { $0.name == name }),
-                  let width = Int(note.output.3), let height = Int(note.output.4) else { continue }
+                  let width = Int(note.output.3), let height = Int(note.output.4),
+                  let durationMs = lengthMs(String(note.output.2)) else { continue }
             seen.insert(name)
             let poster = images.first { $0.name?.hasPrefix("\(name) frame at ") == true }
             videos.append(AgentAttachment(
                 id: recordedVideoPrefix + link.path, kind: .file, name: name,
-                video: AgentVideo(durationMs: lengthMs(String(note.output.2)), width: width, height: height, frames: []),
+                video: AgentVideo(durationMs: durationMs, width: width, height: height, frames: []),
                 macPath: link.path, posterID: poster?.id))
         }
         for link in links where isVideoName(link.name) && !seen.contains(link.name) {
@@ -152,9 +155,19 @@ extension AgentVideo {
         return videos
     }
 
-    /// Milliseconds of a length as the note says it (`m:ss` or `h:mm:ss`).
-    static func lengthMs(_ text: String) -> Int {
-        text.split(separator: ":").reduce(0) { $0 * 60 + (Int($1) ?? 0) } * 1000
+    /// The longest length a note may say: past it the note is not one this app wrote.
+    static let maxLengthMs = 10_000 * 3_600_000
+
+    /// Milliseconds of a length as the note says it (`m:ss` or `h:mm:ss`); nil for a part that is
+    /// not a number or a length past ``maxLengthMs``, so no arithmetic here can overflow.
+    static func lengthMs(_ text: String) -> Int? {
+        var seconds = 0
+        for part in text.split(separator: ":") {
+            guard let value = Int(part), value >= 0, seconds <= maxLengthMs / 60_000 else { return nil }
+            seconds = seconds * 60 + min(value, maxLengthMs)
+            guard seconds <= maxLengthMs / 1000 else { return nil }
+        }
+        return seconds * 1000
     }
 }
 
