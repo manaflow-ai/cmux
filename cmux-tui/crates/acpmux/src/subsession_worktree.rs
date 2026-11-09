@@ -138,14 +138,45 @@ fn git<'a>(dir: impl Into<Dir<'a>>, args: &[&str]) -> Result<String, String> {
 }
 
 /// [`git`] for a command that writes the repository's shared `.git/config` (a branch's
-/// `cmuxBase`, `branch -D`, which drops the branch's section): one at a time in this process.
-/// Git takes `config.lock` without waiting, so the two candidates of one model race that
-/// record their bases at once failed the second ("could not lock config file .git/config").
+/// `cmuxBase`, `branch -D`, which drops the branch's section). Git takes `config.lock` without
+/// waiting, so two writers at once fail the second ("could not lock config file"): the two
+/// candidates of one model race recording their bases at once did. Writers in this process wait
+/// for each other per repository; a lock that another process holds (the app's
+/// `git.worktree.create`, an agent's `git push -u`, the person's own git) is tried again a few
+/// times with a short backoff.
 fn git_config_write<'a>(dir: impl Into<Dir<'a>>, args: &[&str]) -> Result<String, String> {
-    // A plain std mutex: the callers are synchronous and it is held only for one git run.
-    static CONFIG_WRITE: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _held = CONFIG_WRITE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let dir = dir.into();
+    // Every worktree of a repository shares its common git folder's config.
+    let repository = git(dir, &["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .map_or_else(|_| dir.path.to_path_buf(), PathBuf::from);
+    let lock = config_lock(&repository);
+    // A std mutex, not an actor: the callers are synchronous (blocking threads), and it is held
+    // for one short git run on one repository.
+    let _held = lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut backoff = std::time::Duration::from_millis(20);
+    for _ in 0..CONFIG_LOCK_RETRIES {
+        match git(dir, args) {
+            Err(e) if e.contains("could not lock config file") => {
+                // A bounded wait for another process's config.lock, not a poll for a state.
+                std::thread::sleep(backoff);
+                backoff = backoff.saturating_mul(2).min(std::time::Duration::from_millis(200));
+            }
+            done => return done,
+        }
+    }
     git(dir, args)
+}
+
+/// How often [`git_config_write`] tries again when another process holds `config.lock`
+/// (about half a second in all).
+const CONFIG_LOCK_RETRIES: usize = 5;
+
+/// One `.git/config` writer at a time per repository (its common git folder) in this process.
+fn config_lock(repository: &Path) -> Lock {
+    static LOCKS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<PathBuf, Lock>>> =
+        std::sync::OnceLock::new();
+    let mut locks = LOCKS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    locks.entry(repository.to_path_buf()).or_default().clone()
 }
 
 /// Git that runs nothing from the repository at `dir` ([`hardened`]), ended at `by`.
