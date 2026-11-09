@@ -55,12 +55,17 @@ state="${CMUX_WEB_SLOT_STATE_DIR:-$HOME/Library/Caches/cmux-next/web-slot}"
 DEFAULT_PORT=4200
 
 # Sets keys of web-dev.json to JSON values in one write (`null` removes a key), keeping the others:
-# set_key KEY VALUE [KEY VALUE]...
+# set_key [--if-ours URL TOKEN] KEY VALUE [KEY VALUE]...
+# Every write holds .web-dev.lock beside it, so each writer's read and write are one step. With
+# --if-ours, it writes only while web-dev.json names server URL (`*`: any) with TOKEN (a non-empty
+# one), and otherwise fails, writing nothing.
 set_key() {
   mkdir -p "$config_dir"
   python3 - "$web_dev" "$@" <<'PY'
-import json, os, sys, tempfile
+import fcntl, json, os, sys, tempfile
 path, pairs = sys.argv[1], sys.argv[2:]
+lock = open(os.path.join(os.path.dirname(path), ".web-dev.lock"), "a")
+fcntl.flock(lock, fcntl.LOCK_EX)  # released when this process ends
 try:
     with open(path) as f:
         data = json.load(f)
@@ -68,6 +73,10 @@ try:
         data = {}
 except (OSError, ValueError):
     data = {}
+if pairs[:1] == ["--if-ours"]:
+    url, token, pairs = pairs[1], pairs[2], pairs[3:]
+    if not token or data.get("token") != token or url not in ("*", data.get("server")):
+        sys.exit(3)
 for key, raw in zip(pairs[::2], pairs[1::2]):
     value = json.loads(raw)
     if value is None:
@@ -206,7 +215,16 @@ stop_started() {
     fi
     rm -f "$state/$name.pid"
   done
-  rm -f "$state/dev-server.tree" "$state/follow.pr" "$state/dev-server.token"
+  # dev-server.token stays until the next pick: it says whether web-dev.json still names the server
+  # stopped here (forget_stopped).
+  rm -f "$state/dev-server.tree" "$state/follow.pr"
+}
+
+# Clears web-dev.json's server while it still names the server `server` picked last (by its token),
+# which no longer runs, and says why ($1) in dev-server.exit for `cmux live status`.
+forget_stopped() {
+  set_key --if-ours '*' "$(cat "$state/dev-server.token" 2>/dev/null)" server null >/dev/null 2>&1 || return 0
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $1" >"$state/dev-server.exit"
 }
 
 # A field of web-dev.json's "slot" (host or port), empty when unset.
@@ -264,6 +282,8 @@ start_local() {
   echo "$tree:$port" >"$state/dev-server.tree"
   # A server that another process holds the port for answers too; only ours, still running, counts.
   if ! answers "$port" 60 || ! ours_listens "$port"; then
+    # The server this one replaced is stopped: the app must not keep asking it.
+    forget_stopped "it did not start on port $port"
     echo "the dev server did not start; see $state/dev-server.log" >&2; exit 1
   fi
   echo "dev server: http://127.0.0.1:$port/ from $tree (log: $state/dev-server.log)"
@@ -281,23 +301,9 @@ watch_exit() {
   [[ "$(cat "$state/dev-server.pid" 2>/dev/null)" == "$pid" ]] || return 0
   rm -f "$state/dev-server.pid"
   # Nor is a server picked since (`server URL`, a slot): only web-dev.json still naming this one, with
-  # the token `point_at` wrote for it, is cleared.
-  points_here "http://127.0.0.1:$port/" "$(cat "$state/dev-server.token" 2>/dev/null)" || return 0
+  # the token `point_at` wrote for it, is cleared, checked and cleared in one locked write.
+  set_key --if-ours "http://127.0.0.1:$port/" "$(cat "$state/dev-server.token" 2>/dev/null)" server null >/dev/null 2>&1 || return 0
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) it served port $port" >"$state/dev-server.exit"
-  set_key server null >/dev/null
-}
-
-# Whether web-dev.json's server is $1 with token $2 (a non-empty one).
-points_here() {
-  [[ -n "$2" ]] || return 1
-  python3 - "$web_dev" "$1" "$2" <<'PY'
-import json, sys
-try:
-    data = json.load(open(sys.argv[1]))
-except (OSError, ValueError):
-    sys.exit(1)
-sys.exit(0 if isinstance(data, dict) and data.get("server") == sys.argv[2] and data.get("token") == sys.argv[3] else 1)
-PY
 }
 
 # A fresh token for web-dev.json on every `server`: the app sends each request a random nonce and
@@ -501,6 +507,7 @@ case "$cmd" in
       off)
         stop_started
         set_key server null
+        rm -f "$state/dev-server.token"
         ;;
       --local)
         tree="$ROOT" port="$(slot_field port)"; port="${port:-$DEFAULT_PORT}"
