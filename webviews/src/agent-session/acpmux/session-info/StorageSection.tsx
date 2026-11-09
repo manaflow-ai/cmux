@@ -23,6 +23,7 @@ import {
   keptSelection,
   parseStorageReport,
   previewLabel,
+  reclaimableBytes,
   storageBytes,
   storageFailure,
   storagePreview,
@@ -143,6 +144,11 @@ export function useStorage(
           setNotice("failed");
           return;
         }
+        if (report.staleUnknown) {
+          unsupported = true;
+          setHidden(true);
+          return;
+        }
         const rows = withRefused(storageRows(report), refused.current.rows, refused.current.failed);
         const next: Known = {
           ...(report.disk ? { disk: report.disk } : {}),
@@ -253,9 +259,11 @@ export function useStorage(
 export function useStorageMeta(view: StorageView): string {
   const t = useT();
   const language = usePaneLanguage();
-  const bytes = view.stale.reduce((sum, row) => sum + (row.bytes ?? 0), 0);
+  const { bytes, atLeast } = reclaimableBytes(view.stale, view.failed);
+  // "+": a row acpmux did not size counts, so the total is a lower bound.
+  const size = `${storageBytes(bytes, language)}${atLeast ? "+" : ""}`;
   return bytes > 0
-    ? `${t("sessionInfo.storage.thisMac")} · ${t("sessionInfo.storage.reclaimable", { size: storageBytes(bytes, language) })}`
+    ? `${t("sessionInfo.storage.thisMac")} · ${t("sessionInfo.storage.reclaimable", { size })}`
     : t("sessionInfo.storage.thisMac");
 }
 

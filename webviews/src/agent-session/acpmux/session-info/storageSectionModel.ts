@@ -38,6 +38,9 @@ export type StorageReport = {
   reclaimable: number;
   errors: string[];
   at?: number;
+  /// An acpmux from before `staleOnly` answers the same methods with no `stale` on its items: every
+  /// worktree would read as kept, so the section hides instead.
+  staleUnknown?: true;
 };
 
 const num = (value: unknown): number | undefined =>
@@ -96,6 +99,12 @@ export function parseStorageReport(reply: unknown): StorageReport | undefined {
     reclaimable: num(raw.reclaimable) ?? 0,
     errors: Array.isArray(raw.errors) ? raw.errors.filter((e): e is string => typeof e === "string" && !!e) : [],
     ...(num(raw.at) !== undefined ? { at: num(raw.at) } : {}),
+    ...(raw.items.some((value) => {
+      const item = (value ?? {}) as Record<string, unknown>;
+      return text(item.path) !== undefined && typeof item.stale !== "boolean";
+    })
+      ? { staleUnknown: true as const }
+      : {}),
   };
 }
 
@@ -268,4 +277,20 @@ export function storageFailure(error: unknown): "unsupported" | "busy" | "failed
   if (code === -32601 || code === "transport.method_refused" || code === "remote.unsupported") return "unsupported";
   if (typeof raw.message === "string" && /already running/i.test(raw.message)) return "busy";
   return "failed";
+}
+
+/// What the stale rows can free, for the section's title: the rows a clean refused don't count, and
+/// `atLeast` when a counted row has no size (acpmux did not reach it in its sizing budget).
+export function reclaimableBytes(
+  stale: readonly StaleRow[],
+  failed: ReadonlyMap<string, string>,
+): { bytes: number; atLeast: boolean } {
+  let bytes = 0;
+  let atLeast = false;
+  for (const row of stale) {
+    if (failed.has(row.path)) continue;
+    if (row.bytes === undefined) atLeast = true;
+    else bytes += row.bytes;
+  }
+  return { bytes, atLeast };
 }

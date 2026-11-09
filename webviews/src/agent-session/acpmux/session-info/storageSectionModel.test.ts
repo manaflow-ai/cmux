@@ -5,6 +5,7 @@ import {
   keptSelection,
   parseStorageReport,
   previewLabel,
+  reclaimableBytes,
   storageBytes,
   storageFailure,
   storagePreview,
@@ -173,4 +174,20 @@ test("method not found or a host refusal hides the section; a running pass is bu
   );
   expect(storageFailure(new Error("socket closed"))).toBe("failed");
   expect(storageFailure(undefined)).toBe("failed");
+});
+
+test("an acpmux that names no stale flag reads as one that has no Storage", () => {
+  expect(parseStorageReport(reply)?.staleUnknown).toBeUndefined();
+  const { stale: _, ...old } = item("/w/old");
+  expect(parseStorageReport({ report: { ...reply.report, items: [old] } })?.staleUnknown).toBe(true);
+});
+
+test("the title's total leaves out refused rows and is a lower bound past an unmeasured one", () => {
+  const { stale } = storageRows(parseStorageReport(reply)!);
+  expect(reclaimableBytes(stale, new Map())).toEqual({ bytes: 4 * GB, atLeast: true });
+  const measured = stale.filter((row) => row.bytes !== undefined);
+  expect(reclaimableBytes(measured, new Map([["/w/big", "it changed since the scan"]]))).toEqual({
+    bytes: 1 * GB,
+    atLeast: false,
+  });
 });

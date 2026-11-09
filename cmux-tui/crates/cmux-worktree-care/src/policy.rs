@@ -239,7 +239,7 @@ fn only_here_reason(facts: &crate::Facts) -> String {
     parts.join(", ")
 }
 
-fn inside(folder: &Path, root: &Path) -> bool {
+pub(crate) fn inside(folder: &Path, root: &Path) -> bool {
     folder.starts_with(root)
         || std::fs::canonicalize(folder)
             .ok()

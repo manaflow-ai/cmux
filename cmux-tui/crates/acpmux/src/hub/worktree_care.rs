@@ -233,12 +233,17 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let home = dirs::home_dir().ok_or_else(|| RpcError::internal("no home folder"))?;
         let live = self.care_sessions();
-        // Read again right before each removal: a chat may open in a
-        // worktree while the pass scans. Weak: a pass never keeps the hub.
-        let hub = Arc::downgrade(self);
-        let sessions_now: Arc<pass::SessionsNow> =
-            Arc::new(move || hub.upgrade().map(|hub| hub.care_sessions()).unwrap_or_default());
         let daemon_home = crate::config::home();
+        // Read again before each removal, this daemon's chats and every other
+        // daemon's on disk: a chat may open in a worktree while the pass
+        // scans or archives. Weak: a pass never keeps the hub.
+        let hub = Arc::downgrade(self);
+        let (now_home, now_daemon) = (home.clone(), daemon_home.clone());
+        let sessions_now: Arc<pass::SessionsNow> = Arc::new(move || {
+            let mut sessions = hub.upgrade().map(|hub| hub.care_sessions()).unwrap_or_default();
+            sessions.extend(crate::worktree_sessions::on_disk(&now_home, Some(&now_daemon)));
+            sessions
+        });
         let report = tokio::task::spawn_blocking(move || {
             let mut sessions = live;
             sessions.extend(crate::worktree_sessions::on_disk(&home, Some(&daemon_home)));
