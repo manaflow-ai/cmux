@@ -200,6 +200,9 @@ final class SidebarListView: NSView {
     /// Builds the right-click menu for a target (filled by the App from the
     /// action registry). Nil means no context menu.
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
+    /// Makes a row of a workspace's drive indicator menu from a registered action (filled by the App;
+    /// ``SidebarView/driveMenuItem``). Nil, or nil for a row, leaves the row out.
+    var driveMenuItem: ((WorkspaceID, SidebarDriveCommand, String) -> NSMenuItem?)?
     /// Opens a menu a row's button asked for at `anchor` (the button's frame in `view`):
     /// under the button, on the anchor's edge. Tests inject a recorder (popUp tracks modally).
     var menuPresenter: (NSMenu, PopupAnchor, NSView) -> Void = { menu, anchor, view in

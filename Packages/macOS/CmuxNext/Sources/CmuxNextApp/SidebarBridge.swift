@@ -11,6 +11,7 @@ import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextSidebarActions
 import Observation
 
 /// Feeds one window's sidebar from the daemon store and turns sidebar
@@ -57,6 +58,10 @@ final class SidebarBridge {
     }()
     let faceBuffers = SidebarFaceBatch() // the face rules' buffers its passes and band items reuse (`sections(faces:)`)
 
+    static func driveMenuItem(_ services: AppServices) -> (CmuxNextSidebar.WorkspaceID, SidebarDriveCommand, String) -> NSMenuItem? { // the agent's terminals from its tab's daemon
+        SidebarDriveMenuItems(registry: services.registry) { [weak services] tab in services?.machines.daemons.lazy.compactMap { $0.store.tab(id: tab.rawValue) }.first.map { [$0.terminalID?.rawValue, $0.terminalResourceID?.rawValue].compactMap(\.self) } ?? [] }.menuItem
+    }
+
     init(services: AppServices, state: WindowState) {
         self.services = services
         self.state = state
@@ -73,6 +78,7 @@ final class SidebarBridge {
             state?.focus.send(.sidebarVisibility(hidden: presentation == .hidden))
         }
         container.sidebarView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
+        container.sidebarView.driveMenuItem = Self.driveMenuItem(services)
         groupFlow.wireEditor()
         SidebarWorkspacePins.wire(self)
         // The Chief dropped beside the sidebar comes off it, as Remove from Sidebar does (Leo 2026-10-21), in a band,

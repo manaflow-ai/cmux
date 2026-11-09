@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextActions
+@testable import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextComputerUse
@@ -48,6 +48,8 @@ struct AgentDriveIndicatorTests {
         #expect(row.presence.isEmpty)
     }
 
+    /// The menu's rows are registered actions (scripts/cmux-next/check-menu-actions.py): Go to is Show Tab on
+    /// the agent's tab, Stop is Stop Computer Use on the agent's terminals, as the File menu and the CLI run them.
     @Test func theRowShowsTheDriverAndItsMenuGoesToItsTabAndStopsIt() throws {
         let presence = SidebarMapping.shared.row(try Self.workspace(.computerUse), machine: .local).presence
         let id = WorkspaceID("ws-drive")
@@ -55,9 +57,10 @@ struct AgentDriveIndicatorTests {
         var ws = SidebarWorkspace(id: id, title: "drive")
         ws.presence = presence
         let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [.workspace(ws)])], activeWorkspaceID: id)
-        var intents: [SidebarIntent] = []
-        model.onIntent = { intents.append($0) }
+        let services = ForkConversationTests.services()
+        AppActions.bind(services)
         let sidebar = SidebarView(model: model, design: DesignSettings())
+        sidebar.driveMenuItem = SidebarBridge.driveMenuItem(services)
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 400)
         sidebar.layoutSubtreeIfNeeded()
         sidebar.list.reload(animated: false)
@@ -71,16 +74,19 @@ struct AgentDriveIndicatorTests {
                 "a click reaches it, not the row")
         let menu = indicator.menu(for: presence[0])
         #expect(menu.items.map(\.title) == [Strings.driveGoTo(presence[0].name), Strings.driveStop(.screen)])
-        for item in menu.items { _ = item.target?.perform(item.action, with: item) }
         let tab = try #require(presence[0].tab)
-        #expect(intents.contains(.selectTab(workspace: id, tab: tab)))
-        #expect(intents.contains(.stopAgentDrive(workspace: id, tab: tab, drive: .screen)))
+        let runs = menu.items.compactMap { $0.representedObject as? ActionMenuPayload }
+        #expect(runs.map(\.id) == ["tab.focus", "computerUseStop"], "each row runs a registered action")
+        #expect(runs.first?.target == ActionTargetRef(kind: .tab, id: tab.rawValue), "Go to shows the agent's tab")
+        #expect(runs.last?.arguments["terminals"] != nil, "Stop names the agent's terminals")
+        #expect(menu.items.allSatisfy { $0.target is ActionMenuTarget }, "no row runs a handler of its own")
     }
 
     @Test(arguments: SidebarDriveIndicatorVariant.allCases)
     func everyLookDrawsAndNamesTheAgent(_ variant: SidebarDriveIndicatorVariant) {
         _ = NSApplication.shared
         let view = AgentDriveIndicatorView()
+        view.makeItem = { _, title in NSMenuItem(title: title, action: nil, keyEquivalent: "") }
         let driver = SidebarPresence(id: "claude-1", name: "Claude Code 2", activity: .browsing, tab: TabID("tab_1"))
         view.configure([driver, SidebarPresence(id: "x", name: "Codex", activity: .editing)], variant: variant)
         #expect(view.drivers == [driver], "only drivers show")
