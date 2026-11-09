@@ -1,5 +1,5 @@
-//! The held copy (`git-seed-hold-v1`): a start-chat copy of a folder the machine has
-//! nothing of opens the chat at its head, as a head-first seed does (cmuxterm-hq
+//! The held copy (`git-seed-hold-v1`): a start-chat copy of a folder outside git that the
+//! machine has nothing of opens the chat at its head, as a head-first seed does (cmuxterm-hq
 //! goals/cloud-no-network-wait.md, step 6).
 //!
 //! The push takes a hold on the machine folder (`git.seed.hold`: the machine holds the
@@ -37,20 +37,36 @@ pub(super) struct Hold {
     pub(super) job: String,
 }
 
-/// `git.seed.hold` on `remote` for a chat at `subpath`; None when the machine refuses it
-/// (the plain copy goes instead).
-pub(super) fn take(machine: &Machine<'_>, remote: &str, subpath: &str) -> Option<Hold> {
-    if !machine.holds {
-        return None;
+/// `git.seed.hold` on `remote` for a chat at `subpath`: None when the machine refuses it
+/// (the plain copy goes instead), and for a folder in git, whose head would hold a partial
+/// `.git` a starting harness reads. A request whose answer is lost is sent once more with
+/// the same key, which the machine answers with the same hold; one still unanswered fails
+/// the push, since a plain copy into a folder the machine may hold would end failed.
+pub(super) fn take(
+    machine: &Machine<'_>,
+    local: &Path,
+    remote: &str,
+    subpath: &str,
+) -> anyhow::Result<Option<Hold>> {
+    if !machine.holds || sync_cli::in_git(local) {
+        return Ok(None);
     }
     let mut params = json!({"folder": remote, "key": super::unique(),
                             "lease_ms": LEASE.as_millis() as u64});
     if !subpath.is_empty() {
         params["subpath"] = json!(subpath);
     }
-    let answer = sync_cli::machine_call(machine.socket, "git.seed.hold", params).ok()?;
-    let job = answer.get("job").and_then(Value::as_str)?.to_owned();
-    Some(Hold { job })
+    let mut asked = sync_cli::machine_call(machine.socket, "git.seed.hold", params.clone());
+    if asked.as_ref().is_err_and(|error| !sync_cli::is_refusal(error)) {
+        asked = sync_cli::machine_call(machine.socket, "git.seed.hold", params);
+    }
+    match asked {
+        Ok(answer) => {
+            Ok(answer.get("job").and_then(Value::as_str).map(|job| Hold { job: job.to_owned() }))
+        }
+        Err(error) if sync_cli::is_refusal(&error) => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 /// The held copy of `local` to `remote` (module docs).

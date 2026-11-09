@@ -411,7 +411,7 @@ pub(super) fn push(
     }
     eprintln!("{}", json!({ "progress": announce }));
     if let Some(subpath) = head_first
-        && let Some(hold) = held::take(&machine, remote, subpath)
+        && let Some(hold) = held::take(&machine, &local, remote, subpath)?
     {
         return held::copy(&machine, &local, remote, subpath, hold, Some(fallback));
     }

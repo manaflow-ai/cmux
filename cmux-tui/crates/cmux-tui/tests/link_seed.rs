@@ -533,6 +533,19 @@ fn a_held_head_that_would_start_mcp_servers_is_copied_whole_before_the_answer() 
 }
 
 #[test]
+fn a_git_folder_no_seed_can_take_gets_the_plain_copy() {
+    let w = World::new(Serves::Hold);
+    // In git, with no GitHub remote: a head would hold a partial `.git`.
+    git(&w.work, &["remote", "set-url", "origin", "https://gitlab.com/acme/widget.git"]);
+    let remote = w.remote("gitlab");
+    let (ok, copied) = w.push_head_first(&w.work, &remote, "");
+    assert!(ok, "{copied}");
+    assert_eq!(copied["fallback_code"], json!("not_github"), "{copied}");
+    assert!(copied.get("filling").is_none(), "{copied}");
+    assert!(remote.join(".git").is_dir());
+}
+
+#[test]
 fn a_folder_the_machine_already_has_gets_the_plain_copy() {
     let w = World::new(Serves::Hold);
     let plain = plain_project(&w.root);
