@@ -221,7 +221,9 @@ function GalleryNewChatPickers({ start, cloud }: NonNullable<Props["newChat"]>) 
       <div className="acpmux-composer-gallery-shell">
         <div className="acpmux-composer-gallery-copy">
           <strong>{cloud ? "New chat, Cloud picked" : "New chat on this Mac"}</strong>
-          <span>{cloud ? "The Cloud machine decides the start mode." : "acpmux on this Mac names the start mode."}</span>
+          <span>
+            {cloud ? "The Cloud machine decides the start mode." : "acpmux on this Mac names the start mode."}
+          </span>
         </div>
         {answered && (
           <ComposerPickers
