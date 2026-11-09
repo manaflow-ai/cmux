@@ -182,6 +182,13 @@ test("a row with no input says its share from cache is unknown, in every look", 
   const unknown = translate("ledger.row.fromCache", { share: UNKNOWN });
   for (const look of ["bars", "stacked", "table"] as const) {
     const container = installDom();
+    // The rows are virtualized: give the list a viewport, which JSDOM lays out at 0 by 0.
+    for (const [name, size] of [
+      ["offsetHeight", 600],
+      ["offsetWidth", 800],
+    ] as const) {
+      Object.defineProperty(dom!.window.HTMLElement.prototype, name, { configurable: true, get: () => size });
+    }
     root = createRoot(container);
     // ledger(1)'s one session reported no input tokens: no share to show, but the row says so.
     await act(async () => {
@@ -190,10 +197,10 @@ test("a row with no input says its share from cache is unknown, in every look", 
     await act(async () => undefined);
     if (look === "table") {
       const title = container.querySelector<HTMLElement>(".cst-label")?.title ?? "";
-      expect(title.endsWith(` · ${unknown}`)).toBe(true);
+      expect(title).toEndWith(` · ${unknown}`);
     } else {
       const detail = container.querySelector(".cst-detail")?.textContent ?? "";
-      expect(detail.endsWith(` · ${unknown}`)).toBe(true);
+      expect(detail).toEndWith(` · ${unknown}`);
     }
     await act(async () => root!.unmount());
     root = undefined;
