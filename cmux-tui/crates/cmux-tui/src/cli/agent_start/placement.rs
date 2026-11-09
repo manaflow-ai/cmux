@@ -406,7 +406,7 @@ fn balance<D: Daemon + ?Sized>(daemon: &D, screen: Option<&str>, pane: &str) {
 fn started_agents(snapshot: &Value, pane: &str) -> bool {
     let marked: std::collections::HashSet<&str> = list(snapshot, "terminals")
         .iter()
-        .filter(|terminal| terminal["extra"]["agent_start"] == true)
+        .filter(|terminal| terminal.pointer("/extra/agent_start") == Some(&Value::Bool(true)))
         .filter_map(|terminal| terminal["id"].as_str())
         .collect();
     let mut tabs = list(snapshot, "tabs").iter().filter(|tab| tab["pane_id"] == pane).peekable();

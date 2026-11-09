@@ -156,6 +156,18 @@ impl Mux {
             .map(|(reply, at_ms)| LastReply { text: reply.to_string(), at_ms: *at_ms })
     }
 
+    /// The kept replies an `agent.list` adds ([`with_agent_list_replies`]): every terminal's
+    /// folded reply and, for a one-terminal list (`terminal`), that terminal's reply whole.
+    pub(crate) fn agent_list_replies(
+        &self,
+        terminal: Option<&TerminalPublicId>,
+    ) -> AgentListReplies {
+        AgentListReplies {
+            folded: self.agent_last_replies(),
+            whole: terminal.and_then(|terminal| self.agent_last_reply_text(terminal)),
+        }
+    }
+
     /// Keeps `session_id` (and its `harness`) as the last harness session of `terminal`.
     pub(super) fn note_agent_session(
         &self,
@@ -306,6 +318,19 @@ pub(crate) fn with_last_reply_text(mut agent: Value, reply: Option<&LastReply>) 
         extra.insert("last_reply_at_ms".into(), Value::String(reply.at_ms.to_string()));
     }
     agent
+}
+
+/// The kept replies of one `agent.list` request ([`Mux::agent_list_replies`]).
+pub(crate) struct AgentListReplies {
+    folded: HashMap<String, String>,
+    whole: Option<LastReply>,
+}
+
+/// Adds the kept replies to a public agent value of `agent.list`: `extra.last_reply`
+/// ([`with_last_reply`]) and, for a one-terminal list, the reply whole
+/// ([`with_last_reply_text`]).
+pub(crate) fn with_agent_list_replies(agent: Value, replies: &AgentListReplies) -> Value {
+    with_last_reply_text(with_last_reply(agent, &replies.folded), replies.whole.as_ref())
 }
 
 /// Adds `extra.agent_session_id` (and `extra.agent`, the harness) to a public terminal value
