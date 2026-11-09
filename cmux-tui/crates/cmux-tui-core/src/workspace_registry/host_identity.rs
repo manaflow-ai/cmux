@@ -169,19 +169,26 @@ fn immutable_tables(connection: &Connection) -> anyhow::Result<HashSet<String>> 
 }
 
 /// Tables that describe journal records, one row (or more) per record or
-/// segment. The journal itself refuses updates, so it keeps the ids it
-/// recorded; these mirror it and keep them too. They are also the tables
-/// that grow with history: scanning them made the rehome cost the registry's
-/// age (5.5 s of a 7.4 s first start of a 58.7 GB registry on its new
-/// machine). What is left to scan is current state, which does not grow
-/// with history.
+/// segment, and the producers and hooks those records name by id. The
+/// journal itself refuses updates, so it keeps the ids it recorded; these
+/// keep them too. The history tables are also the ones that grow with
+/// history: scanning them made the rehome cost the registry's age (5.5 s of
+/// a 7.4 s first start of a 58.7 GB registry on its new machine). What is
+/// left to scan is current state, which does not grow with history.
+///
+/// The set is closed under foreign keys and joins: hook deliveries reference
+/// `journal_hooks`, ingress receipts reference `journal_producers`, and kind
+/// rows reference `journal_segments` (immutable); no table the rehome still
+/// rewrites references one of these or joins on their ids. A hook or
+/// producer id that equals the registry id is a coincidence, not a reference
+/// to it: no reader keys them by the registry id.
 ///
 /// The rewrite stays in start's transaction and is not moved to a lazy or
 /// background pass: until it commits, the registry would answer to two ids,
 /// and every reader that keys on the id (the session rows, the sidebar's
 /// `sec_m_<id>` sections, `itm_w_<id>_` items, `<id>/<key>` placements,
 /// `<id>:<workspace>` layout refs) would have to accept both.
-const JOURNAL_HISTORY_TABLES: [&str; 8] = [
+const JOURNAL_TABLES: [&str; 10] = [
     "journal_event_index",
     "legacy_journal_event_index",
     "journal_segment_kinds",
@@ -190,12 +197,14 @@ const JOURNAL_HISTORY_TABLES: [&str; 8] = [
     "journal_ingress_receipts",
     "journal_operation_receipts",
     "journal_hook_deliveries",
+    "journal_hooks",
+    "journal_producers",
 ];
 
-/// Every mutable table and its columns, less the journal's history.
+/// Every mutable table and its columns, less the journal's ([`JOURNAL_TABLES`]).
 fn mutable_columns(connection: &Connection) -> anyhow::Result<Vec<(String, Vec<String>)>> {
     let mut immutable = immutable_tables(connection)?;
-    immutable.extend(JOURNAL_HISTORY_TABLES.map(str::to_string));
+    immutable.extend(JOURNAL_TABLES.map(str::to_string));
     let tables: Vec<String> = connection
         .prepare(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
