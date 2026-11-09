@@ -156,7 +156,16 @@ describe("the build gate", () => {
   test("every :focus-visible is gated, inside :not() and :has() too, once", () => {
     expect(gateFocusVisible(".b:focus-visible")).toBe(`.b:focus-visible${FOCUS_RING_GATE}`);
     expect(gateFocusVisible(":focus:not(:focus-visible)")).toBe(`:focus:not(:focus-visible${FOCUS_RING_GATE})`);
-    expect(gateFocusVisible(".box:has(:focus-visible) .x")).toBe(`.box:has(:focus-visible${FOCUS_RING_GATE}) .x`);
+    // After the :has(), not inside it: WebKit does not restyle a :has() that holds the gate.
+    expect(gateFocusVisible(".box:has(:focus-visible) .x")).toBe(`.box:has(:focus-visible)${FOCUS_RING_GATE} .x`);
+    expect(gateFocusVisible(".o:has(:focus-visible)::before")).toBe(`.o:has(:focus-visible)${FOCUS_RING_GATE}::before`);
+    expect(gateFocusVisible(".a:is(:focus-visible, :has(:focus-visible)), .c:focus-visible > .d")).toBe(
+      `.a:is(:focus-visible${FOCUS_RING_GATE}, :has(:focus-visible)${FOCUS_RING_GATE}), .c:focus-visible${FOCUS_RING_GATE} > .d`,
+    );
+    // An alternative that is not focus keeps its own meaning (hover still lights the button).
+    expect(gateFocusVisible(".p:is(:hover, :focus-visible)")).toBe(`.p:is(:hover, :focus-visible${FOCUS_RING_GATE})`);
+    expect(gateFocusVisible(".r:not(:has(:focus-visible))")).toBe(`.r:not(:has(:focus-visible${FOCUS_RING_GATE}))`);
+    expect(gateFocusVisible('.x[data-a=")"]:has(:focus-visible)')).toBe(`.x[data-a=")"]:has(:focus-visible)${FOCUS_RING_GATE}`);
     const once = gateFocusVisible(".b:focus-visible");
     expect(gateFocusVisible(once)).toBe(once);
     expect(gateFocusVisible(".b:focus-within")).toBe(".b:focus-within");
