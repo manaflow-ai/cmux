@@ -917,6 +917,38 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    /// The open's startup laps name each table the rehome rewrote and the
+    /// rows it changed (`registry.migrations.rehome.<table>`), so a slow
+    /// first start on another machine names the table that cost it: the
+    /// rehome still took 1.7 s of a 3.9 s first start of a 58.7 GB registry
+    /// after the journal and receipts left its scan (2026-11-09).
+    #[test]
+    fn the_rehome_laps_name_the_tables_it_rewrote() {
+        let root = temp_root("rehome-laps");
+        as_machine(Some("0123456789abcdef0123456789abcdef"));
+        let copied = ids(&root).0;
+        plant(&root, &copied);
+        as_machine(Some("fedcba9876543210fedcba9876543210"));
+        let mut registry = WorkspaceRegistry::open(&root, SESSION).unwrap();
+        let line = registry.take_open_timings().to_line(1, 1);
+        let steps = line["steps"].as_array().unwrap();
+        let lap = |name: &str| steps.iter().find(|step| step["step"] == name).cloned();
+        let planted = lap("registry.migrations.rehome.user_text")
+            .unwrap_or_else(|| panic!("no lap for the planted table in {steps:?}"));
+        assert_eq!(planted["rows"], 1, "{planted}");
+        let sessions = lap("registry.migrations.rehome.sessions")
+            .unwrap_or_else(|| panic!("no lap for the session rows in {steps:?}"));
+        assert!(sessions["rows"].as_u64().unwrap() >= 1, "{sessions}");
+        assert!(lap("registry.migrations.rehome").is_some(), "the rest keeps its lap: {steps:?}");
+        let names: Vec<_> = steps.iter().filter_map(|step| step["step"].as_str()).collect();
+        assert!(
+            !names.iter().any(|name| name.starts_with("registry.migrations.rehome.journal_")),
+            "skipped tables have no lap: {names:?}"
+        );
+        drop(registry);
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn ids_written_before_the_stamp_or_without_an_os_identity_are_kept() {
         let root = temp_root("unstamped");
