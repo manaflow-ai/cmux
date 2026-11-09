@@ -496,6 +496,11 @@ pub(super) fn remote_kind(socket: &Path, path: &str) -> anyhow::Result<Option<St
     Remote::connect(socket)?.kind(path)
 }
 
+/// The file at `path` on the machine, read whole; None when it is not there.
+pub(super) fn remote_read(socket: &Path, path: &str) -> anyhow::Result<Option<Vec<u8>>> {
+    Remote::connect(socket)?.read(path)
+}
+
 /// Copies the one regular file at `local` (never through a symlink) to
 /// `target` on the machine, making its folder.
 pub(super) fn copy_file(socket: &Path, local: &Path, target: &str) -> anyhow::Result<()> {

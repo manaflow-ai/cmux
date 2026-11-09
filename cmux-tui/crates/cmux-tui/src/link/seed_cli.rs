@@ -37,8 +37,8 @@
 //! `done` as before. The [`record`] of such a push keeps the job's id
 //! (`filling`): a later `--since-last` waits for that job to be done before it
 //! sends a delta, since the machine refuses a delta into a checkout that is not
-//! whole yet; a job the machine forgot counts as done only without the fill's
-//! marker in the folder's git dir.
+//! whole yet; a job the machine forgot counts as done only when the folder's sync
+//! barrier says ready and no fill marker is left.
 //!
 //! `cmux link seed clone --socket PATH --repo OWNER/NAME [--ref REF] REMOTE`
 //! clones a GitHub repository on the machine with no folder of this Mac.
@@ -405,16 +405,11 @@ pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyh
     // The full seed answered at its head: its fill must be done before a delta builds on it.
     if record.filling.is_some() {
         // Read before any shortcut: an unchanged delta never reaches the machine's own check.
-        let marker = format!("{remote}/.git/{FILL_MARKER}");
-        let mut fill_left = || {
-            sync_cli::remote_kind(machine.socket, &marker)
-                .map(|kind| kind.is_some())
-                .map_err(|error| SeedError::of(&error))
-        };
+        let mut whole = || checkout_whole(machine.socket, remote);
         settle_fill(
             &mut machine_calls(machine.socket),
             &mut pause,
-            &mut fill_left,
+            &mut whole,
             &mut record,
             deadline(),
         )?;
@@ -692,8 +687,43 @@ fn deadline() -> Instant {
 const FILLING: &str = "seed.filling";
 
 /// The file in the machine folder's git dir from a head-first seed's head until its
-/// fill is whole (cmux-tui-core `git_seed::run`).
+/// fill's checkout is written (cmux-tui-core `git_seed::run`).
 const FILL_MARKER: &str = "cmux-seed-filling";
+
+/// Whether the machine's checkout at `remote` is whole: its sync barrier says ready
+/// and no fill marker is left. The barrier (cmux-git `sync_barrier`) is the file
+/// `.cmux-sync-<sha256 of the folder's name>` beside the folder, whose one byte is
+/// `1` only once its producer finished every checkout, submodule and LFS step; a
+/// seed whose daemon died before that leaves `0`. The fill marker alone is not
+/// enough: the machine removes it before its submodules and LFS.
+fn checkout_whole(socket: &Path, remote: &str) -> Result<bool, SeedError> {
+    let read = |path: &str| sync_cli::remote_read(socket, path).map_err(|e| SeedError::of(&e));
+    let Some(barrier) = barrier_marker(remote) else {
+        return Ok(false);
+    };
+    if !barrier_ready(read(&barrier)?.as_deref()) {
+        return Ok(false);
+    }
+    sync_cli::remote_kind(socket, &format!("{remote}/.git/{FILL_MARKER}"))
+        .map(|kind| kind.is_none())
+        .map_err(|error| SeedError::of(&error))
+}
+
+/// The sync barrier's file for the machine folder `remote` (cmux-git `sync_barrier::marker`).
+fn barrier_marker(remote: &str) -> Option<String> {
+    use sha2::Digest as _;
+    let (parent, name) = remote.trim_end_matches('/').rsplit_once('/')?;
+    (!name.is_empty()).then(|| {
+        let hash: String =
+            sha2::Sha256::digest(name.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
+        format!("{parent}/.cmux-sync-{hash}")
+    })
+}
+
+/// A barrier file's bytes say ready: exactly `1`. Missing, `0` or anything else is not.
+fn barrier_ready(bytes: Option<&[u8]>) -> bool {
+    bytes == Some(b"1")
+}
 
 /// `git.seed.start` with `start`, then its job's status until it ends (or,
 /// with `head_ready`, until its head is in place).
@@ -781,15 +811,15 @@ fn wait_job(
 
 /// Waits for the fill of a seed that answered at its head ([`Record::filling`])
 /// and clears it from `record` once the job is done. A job the machine no longer
-/// knows (it restarted, or dropped the finished job) is cleared only when
-/// `fill_left` finds no fill marker in the folder's git dir: a daemon that
-/// restarted mid-fill leaves it, and then this is `seed.filling` and the record
-/// stays unsettled, even when nothing changed on this Mac (an unchanged delta
-/// never asks the machine).
+/// knows (it restarted, or dropped the finished job) is cleared only when `whole`
+/// finds the machine's checkout whole ([`checkout_whole`]): a daemon that restarted
+/// mid-fill leaves it short, and then this is `seed.filling` and the record stays
+/// unsettled, even when nothing changed on this Mac (an unchanged delta never asks
+/// the machine). A missing answer is never taken for whole.
 fn settle_fill(
     call: &mut Call<'_>,
     pause: &mut dyn FnMut(),
-    fill_left: &mut dyn FnMut() -> Result<bool, SeedError>,
+    whole: &mut dyn FnMut() -> Result<bool, SeedError>,
     record: &mut Record,
     deadline: Instant,
 ) -> Result<(), SeedError> {
@@ -799,7 +829,7 @@ fn settle_fill(
     match wait_job(call, pause, &job, false, deadline) {
         Ok(_) => {}
         Err(error) if error.code == "seed.unknown_job" => {
-            if fill_left()? {
+            if !whole()? {
                 return Err(SeedError::new(
                     FILLING,
                     "the machine's last seed of this folder never finished filling it; start the \
@@ -892,8 +922,8 @@ mod tests {
 
     use super::plan::{Planned, SeedParams};
     use super::{
-        Command, Ended, LocalBundle, Record, SeedError, asks_head_first, parse, pull, seed_job,
-        seed_record, seeded, settle_fill,
+        Command, Ended, LocalBundle, Record, SeedError, asks_head_first, barrier_marker,
+        barrier_ready, parse, pull, seed_job, seed_record, seeded, settle_fill,
     };
 
     /// The ops a scripted machine was asked, in order.
@@ -1029,7 +1059,7 @@ mod tests {
         assert_eq!(pauses, 2);
 
         // A fill that failed keeps the record unsettled, and the delta does not run.
-        let mut whole = || Ok::<_, SeedError>(false);
+        let mut whole = || Ok::<_, SeedError>(true);
         let mut record = seed_record(Some("m".into()), &planned(), Some("j"));
         let (mut call, _) = machine(vec![Ok(json!({
             "state": "failed", "error_code": "seed.clone_failed", "error": "no"
@@ -1039,26 +1069,27 @@ mod tests {
         assert_eq!(error.code, "seed.clone_failed");
         assert_eq!(record.filling.as_deref(), Some("j"));
 
-        // A job the machine forgot after a finished fill (pruned): no marker, settled.
+        // A job the machine forgot after a finished fill (pruned): the checkout is whole.
         let mut record = seed_record(Some("m".into()), &planned(), Some("j"));
         let (mut call, _) = machine(vec![Err("seed.unknown_job")]);
         settle_fill(&mut call, &mut || {}, &mut whole, &mut record, later()).unwrap();
         assert_eq!(record.filling, None);
     }
 
-    /// The daemon restarted mid-fill and nothing changed on this Mac: the unchanged delta
-    /// would answer without asking the machine, so the fill marker decides first.
+    /// The daemon restarted mid-fill (or past its marker, in its submodules) and nothing
+    /// changed on this Mac: the unchanged delta would answer without asking the machine,
+    /// so the machine's barrier decides first.
     #[test]
     fn a_fill_cut_off_by_a_restart_is_not_settled_even_with_no_new_edits() {
         let mut record = seed_record(Some("m".into()), &planned(), Some("j"));
         let (mut call, _) = machine(vec![Err("seed.unknown_job")]);
         let mut read = 0;
-        let mut marker_left = || {
+        let mut short = || {
             read += 1;
-            Ok::<_, SeedError>(true)
+            Ok::<_, SeedError>(false)
         };
         let error =
-            settle_fill(&mut call, &mut || {}, &mut marker_left, &mut record, later()).unwrap_err();
+            settle_fill(&mut call, &mut || {}, &mut short, &mut record, later()).unwrap_err();
         assert_eq!(error.code, "seed.filling");
         assert_eq!(read, 1);
         assert_eq!(record.filling.as_deref(), Some("j"), "the next delta checks again");
@@ -1069,6 +1100,27 @@ mod tests {
             settle_fill(&mut call, &mut || {}, &mut unreadable, &mut record, later()).unwrap_err();
         assert_eq!(error.code, "sync_failed");
         assert_eq!(record.filling.as_deref(), Some("j"));
+    }
+
+    /// No fill marker is no proof: the machine removes it before its submodules and LFS,
+    /// and only the barrier's `1` says the whole checkout is there.
+    #[test]
+    fn only_a_ready_barrier_says_a_forgotten_fill_is_whole() {
+        assert!(barrier_ready(Some(b"1")));
+        for short in [None, Some(&b"0"[..]), Some(b""), Some(b"10"), Some(b"x")] {
+            assert!(!barrier_ready(short), "{short:?}");
+        }
+        // The same name cmux-git gives the barrier of a folder: its name's sha256 beside it.
+        let name = "paint-33f597";
+        let marker = barrier_marker(&format!("/home/cmux/work/chats/ab/{name}/")).unwrap();
+        let (parent, file) = marker.rsplit_once('/').unwrap();
+        assert_eq!(parent, "/home/cmux/work/chats/ab");
+        let digest = {
+            use sha2::Digest as _;
+            sha2::Sha256::digest(name.as_bytes())
+        };
+        assert_eq!(file, format!(".cmux-sync-{digest:x}"));
+        assert_eq!(barrier_marker("/"), None);
     }
 
     #[test]
