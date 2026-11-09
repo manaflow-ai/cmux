@@ -236,6 +236,39 @@ await requireBrowserLane("ui-pointer-overlay-browser.test.ts", async () => {
     await fresh.close();
   });
 
+  // Review of cmux#38447 at 9cd0e214: "Streaming text, resizing or style changes on the same element
+  // leave its snippet, dimensions and styles stale, even while the outline updates."
+  test("the label follows the outlined element's text, size and style while it stays outlined", async () => {
+    const page = await open();
+    await page.evaluate(() => (window as any).picker.start());
+    await hover(page, "mid");
+    expect(await outlined(page)).toBe("mid");
+    expect(await text(page, `${LABEL} [data-part="snippet"]`)).toBe("Middle row");
+    expect(await text(page, `${LABEL} [data-part="size"]`)).toBe("200×40");
+    const frames = () =>
+      page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    // Text streams in, the pointer still.
+    await page.evaluate(() => (document.getElementById("mid")!.textContent = "Middle row, streamed on"));
+    await frames();
+    expect(await text(page, `${LABEL} [data-part="snippet"]`)).toBe("Middle row, streamed on");
+    // It resizes: the size and the outline follow.
+    await page.evaluate(() => (document.getElementById("mid")!.style.width = "260px"));
+    await frames();
+    expect(await text(page, `${LABEL} [data-part="size"]`)).toBe("260×40");
+    expect(Math.round((await rect(page, "[data-cmux-ui-pointer-outline]"))!.width)).toBe(260);
+    // Its style changes: the label's style line follows.
+    await page.evaluate(() => (document.getElementById("mid")!.style.color = "rgb(200, 10, 20)"));
+    await frames();
+    expect(await text(page, `${LABEL} [data-part="styles"]`)).toContain("rgb(200, 10, 20)");
+    // Once another element is outlined, the first one's changes no longer touch the label.
+    await hover(page, "banner");
+    expect(await outlined(page)).toBe("banner");
+    await page.evaluate(() => (document.getElementById("mid")!.textContent = "changed after"));
+    await frames();
+    expect(await text(page, `${LABEL} [data-part="snippet"]`)).toBe("Banner");
+    await page.close();
+  });
+
   test("after a walk a small move keeps the walked element; a deliberate one resumes hovering", async () => {
     const page = await open();
     await page.evaluate(() => (window as any).picker.start());

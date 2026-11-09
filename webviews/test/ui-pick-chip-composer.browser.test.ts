@@ -42,7 +42,7 @@ await requireBrowserLane("ui-pick-chip-composer.browser.test.ts", async () => {
     await vite?.close();
   });
 
-  async function composer(): Promise<Page> {
+  async function composer(view: "inline" | "strip" = "inline"): Promise<Page> {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 1000, height: 760 } });
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: VARIANT, width: 1000 })}`);
@@ -50,11 +50,14 @@ await requireBrowserLane("ui-pick-chip-composer.browser.test.ts", async () => {
       timeout: 90_000,
     });
     // The pick, as the inspector pushes it, placed at the caret.
-    await page.evaluate((text) => {
-      window.cmuxAcpmuxComposer?.({ attachmentView: "inline" });
-      window.cmuxAcpmuxBridge!.designSelection!({ id: "ui-pointer-test", name: "UI: span", text });
-    }, REPORT);
-    await page.waitForSelector('.acpmux-md [data-chip-kind="ui"]');
+    await page.evaluate(
+      ({ text, view }) => {
+        window.cmuxAcpmuxComposer?.({ attachmentView: view });
+        window.cmuxAcpmuxBridge!.designSelection!({ id: "ui-pointer-test", name: "UI: span", text });
+      },
+      { text: REPORT, view },
+    );
+    await page.waitForSelector(`${view === "inline" ? ".acpmux-md" : ".acpmux-attachments"} [data-chip-kind="ui"]`);
     return page;
   }
 
@@ -108,6 +111,46 @@ await requireBrowserLane("ui-pick-chip-composer.browser.test.ts", async () => {
       );
       expect((await draft(page)).chips).toBe(1);
       expect((await draft(page)).user).toBe(before.user);
+    } finally {
+      await page.close();
+    }
+  });
+
+  // Review of cmux#38447 at 9cd0e214: "Selecting report text in an expanded strip chip starts
+  // attachment dragging when another attachment is present."
+  test("in the strip beside another attachment, a drag in the opened report selects its text", async () => {
+    const page = await composer("strip");
+    try {
+      // The scene's screenshot is the other attachment.
+      const order = () =>
+        page.evaluate(() =>
+          [...document.querySelectorAll(".acpmux-attachments [data-attachment-index]")].map(
+            (slot) => slot.querySelector(".acpmux-paste-chip__face")?.getAttribute("aria-label") ?? "",
+          ),
+        );
+      await page.waitForFunction(
+        () => document.querySelectorAll(".acpmux-attachments [data-attachment-index]").length === 2,
+      );
+      const before = await order();
+      const chip = page.locator('.acpmux-attachments [data-chip-kind="ui"]').first();
+      await chip.locator("button[aria-expanded]").click();
+      await page.waitForSelector('.acpmux-attachments [data-chip-kind="ui"][data-open]');
+      const text = chip.locator(".acpmux-paste-view__text");
+      await page.waitForFunction(() =>
+        document.getAnimations().every((animation) => animation.playState !== "running"),
+      );
+      await text.scrollIntoViewIfNeeded();
+      const box = (await text.boundingBox())!;
+      await page.mouse.move(box.x + 6, box.y + 8);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width - 10, box.y + 60, { steps: 8 });
+      expect(await page.locator(".acpmux-attachments [data-dragging]").count()).toBe(0);
+      await page.mouse.up();
+      expect(await order()).toEqual(before);
+      const selected = await page.evaluate(() => document.getSelection()?.toString() ?? "");
+      expect(selected.length).toBeGreaterThan(10);
+      // The report's own text, not the draft's.
+      expect(REPORT.startsWith(selected)).toBe(true);
     } finally {
       await page.close();
     }

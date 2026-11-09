@@ -340,3 +340,22 @@ test("a sent pick is estimated as its chip, not its report's lines", async () =>
   const placed = inlinePrompt(`Why is this cut off?\n${inlineToken(pick!.id)}`, [pick!])!;
   expect(height({ text: "Why is this cut off?", inlineParts: placed.parts })).toBeCloseTo(plain + chip, 0);
 });
+
+// Review of cmux#38447 at 9cd0e214: "Searching `UI: span` therefore produces an invisible result;
+// searching `span` counts an extra occurrence, shifting highlights and repeating the final match."
+test("Find reads a legacy prompt's pick as its chip draws it: the report, not its name and fence", async () => {
+  const { designSelectionChips } = await import("../src/agent-session/acpmux/designSelection");
+  const { promptText } = await import("../src/agent-session/acpmux/attachments");
+  const { findMatchesIncremental } = await import("../src/agent-session/acpmux/conversation/chatFind");
+  const [pick] = designSelectionChips(SELECTION);
+  const rows = [
+    { id: "legacy-pick", version: 1, at: 0, kind: "user", text: promptText("Why is this span cut off?", [pick!]) },
+  ];
+  const count = (query: string) => findMatchesIncremental(rows as never, query, undefined, "strip").matches.length;
+  // The name line and the fence draw nowhere (the chip's face is outside Find).
+  expect(count("UI: span")).toBe(0);
+  expect(count("```")).toBe(0);
+  // "span": once in the typed words, then each time in the report the chip opens to.
+  expect(count("span")).toBe(1 + REPORT.split("span").length - 1);
+  expect(count("Computed styles")).toBe(1);
+});

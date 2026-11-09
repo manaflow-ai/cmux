@@ -102,6 +102,53 @@ export function createOverlay(doc: Document, options: OverlayOptions): UiPointer
   host.append(outline, label, hint);
   doc.documentElement.append(host);
   let labelled: Element | null = null;
+  // The labelled element's facts change while it stays outlined (text streams in, it resizes, its
+  // style or class changes): observers on it alone mark them stale, and one frame later the label
+  // and outline are drawn again. They are disconnected as soon as another element (or none) is
+  // outlined, so nothing runs once the label moves on or the overlay goes; no timer of its own.
+  const view = doc.defaultView;
+  let stale = false;
+  let frame = 0;
+  let lastPointer: { x: number; y: number } | null = null;
+  let watching: { disconnect(): void }[] = [];
+  const unwatch = () => {
+    for (const observer of watching) observer.disconnect();
+    watching = [];
+    if (frame) view?.cancelAnimationFrame(frame);
+    frame = 0;
+    stale = false;
+  };
+  const changed = () => {
+    stale = true;
+    if (frame || !view) return;
+    frame = view.requestAnimationFrame(() => {
+      frame = 0;
+      if (labelled?.isConnected) overlay.show(labelled, lastPointer);
+    });
+  };
+  const watch = (element: Element) => {
+    unwatch();
+    if (!view) return;
+    if (typeof view.MutationObserver === "function") {
+      const mutations = new view.MutationObserver((records) => {
+        // The overlay's own redraw is never a change of the element (it may sit inside the element
+        // only when the element is the document's root).
+        if (records.some((record) => !host.contains(record.target))) changed();
+      });
+      mutations.observe(element, { subtree: true, childList: true, characterData: true, attributes: true });
+      watching.push(mutations);
+    }
+    if (typeof view.ResizeObserver === "function") {
+      // Its first report is the size it has now, already drawn.
+      let first = true;
+      const resizes = new view.ResizeObserver(() => {
+        if (first) first = false;
+        else changed();
+      });
+      resizes.observe(element);
+      watching.push(resizes);
+    }
+  };
 
   const viewport = () => ({ width: doc.documentElement.clientWidth, height: doc.documentElement.clientHeight });
   const placeHint = (obstacles: Box[]) => {
@@ -118,12 +165,15 @@ export function createOverlay(doc: Document, options: OverlayOptions): UiPointer
         placeHint(obstacles);
         return;
       }
+      lastPointer = pointer;
       const target = boxOf(element.getBoundingClientRect());
       const outlineAppearing = reveal(outline);
       outline.style.translate = `${target.x}px ${target.y}px`;
       outline.style.width = `${target.width}px`;
       outline.style.height = `${target.height}px`;
-      if (element !== labelled) fillLabel(label, element, options.density);
+      if (element !== labelled) watch(element);
+      if (element !== labelled || stale) fillLabel(label, element, options.density);
+      stale = false;
       labelled = element;
       const labelAppearing = reveal(label);
       const size = { width: label.offsetWidth, height: label.offsetHeight };
@@ -138,8 +188,11 @@ export function createOverlay(doc: Document, options: OverlayOptions): UiPointer
       outline.hidden = true;
       label.hidden = true;
       labelled = null;
+      unwatch();
     },
     remove() {
+      unwatch();
+      labelled = null;
       host.remove();
     },
   };

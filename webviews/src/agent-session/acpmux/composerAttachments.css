@@ -911,6 +911,10 @@ button.acpmux-attachment-pasted-open:hover {
   max-height: 200px;
   border-top: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   white-space: pre-wrap;
+  /* The opened content is for reading and copying, in the strip too (a press there never drags the
+     chip: stripReorder.ts), whatever the chip's host leaves selectable. */
+  -webkit-user-select: text;
+  user-select: text;
 }
 .acpmux-paste-chip__panel .acpmux-paste-view__actions {
   align-items: center;

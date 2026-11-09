@@ -9,7 +9,7 @@
 import { sliceWhole } from "../../../ui/wholeChars";
 import { agentText } from "../agentText";
 import type { PromptContentPart } from "../model";
-import { sentUIPick } from "./sentUIPickModel";
+import { sentPromptFindText, sentUIPick } from "./sentUIPickModel";
 
 /// A prompt taller than this many lines opens collapsed to them: twenty, twice the ten it was (Leo,
 /// 2026-11-07: "I feel like we should show more than we are showing right now"). conversation.css
@@ -239,7 +239,8 @@ export function bodyText(body: readonly { kind: string; text?: string }[]): stri
 export function findBodyText(body: readonly PromptContentPart[]): string {
   return body
     .flatMap((part) => {
-      if (part.kind === "text" || part.kind === "pasted") return part.text ?? [];
+      if (part.kind === "text") return sentPromptFindText(part.text);
+      if (part.kind === "pasted") return part.text ?? [];
       if (part.kind !== "file") return [];
       const stored = blockText(part);
       return stored === undefined ? [] : (sentUIPick(stored)?.text ?? stored);

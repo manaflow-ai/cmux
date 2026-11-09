@@ -41,3 +41,11 @@ export function sentUIPick(stored: string): Extract<SentPromptSegment, { kind: "
   const only = segments?.length === 1 ? segments[0] : undefined;
   return only?.kind === "pick" ? only : undefined;
 }
+
+/// A sent prompt's text as Find reads it where its picks draw as chips (SentUIPick.tsx): the text
+/// around each pick and the report its chip opens to, never the name and fence it went with, so a
+/// match never points at undrawn words. The text unchanged when it holds no pick.
+export function sentPromptFindText(text: string): string {
+  const segments = sentUIPickSegments(text);
+  return segments ? segments.map((segment) => segment.text).join("\n") : text;
+}
