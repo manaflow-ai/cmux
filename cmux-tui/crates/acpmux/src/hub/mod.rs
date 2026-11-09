@@ -694,6 +694,8 @@ pub struct Hub {
     pub(super) remote_sessions: StdMutex<remote_rows::RemoteRows>,
     /// The same person's machines and sessions the mesh hub lists (`mesh_book.rs`).
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
+    /// Read answers larger than one hub message, held for their asker (`mesh_read_parts.rs`).
+    pub(crate) mesh_read_parts: crate::server::mesh_relay::read::parts::ReadParts,
     /// Each parent's children by tag, for an approval card's label (`permissions/display.rs`).
     pub(super) child_tags: permissions::ChildTags,
     /// Leased peers by name, with the generation of the peer each lease
@@ -1119,6 +1121,7 @@ impl Hub {
             peers: StdMutex::new(HashMap::new()),
             remote_sessions: Default::default(),
             mesh_book: Default::default(),
+            mesh_read_parts: Default::default(),
             child_tags: Default::default(),
             peer_leases: StdMutex::new(HashMap::new()),
             peer_cache_writers: StdMutex::new(HashMap::new()),
