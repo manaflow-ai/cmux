@@ -9,6 +9,17 @@ This is distinct from `CmuxMobileBrowser`, the phone-local WKWebView pane.
 That pane browses on the phone with phone cookies; this surface mirrors the
 Mac's session, page state, and pixels.
 
+## Which mode a Mac browser tab opens in
+
+A Mac workspace's browser tab opens **On iPhone** (the phone-local
+`CmuxMobileBrowser` pane, loading through the Mac's browser tunnel) by default.
+Each tab's Browser Mode menu switches it to **Streamed** (this surface) and
+back, and the phone remembers that choice per tab for as long as the app
+runs. Settings > Browser > Open Mac Browser Tabs changes the default for tabs
+the user has not switched. When the Mac cannot serve On iPhone (an older cmux,
+or a connection without tunnel lanes), the tab stays Streamed. This is cmux's
+own choice of surface, not the system default browser.
+
 ## Why streaming, not URL sync
 
 Re-opening the Mac tab's URL in a phone WKWebView loses everything that makes

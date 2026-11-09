@@ -125,11 +125,16 @@ extension WorkspaceDetailView {
         }
     }
 
-    /// Opens a streamed tab "On iPhone" when that was its last mode.
-    /// Returns whether it did.
+    /// Opens a streamed tab "On iPhone" when that was its last mode, or, for
+    /// a tab never switched, when the default mode in Settings is "On
+    /// iPhone". Returns whether it did. A computer that cannot serve "On
+    /// iPhone" keeps the tab streamed.
     func openStreamPanelOnDeviceIfPreferred(_ panelID: String) -> Bool {
         guard (browserServerRoute != nil || isCloudWorkspace),
-              browserStore.prefersOnDevice(panelID: panelID) else { return false }
+              browserStore.prefersOnDevice(
+                  panelID: panelID,
+                  byDefault: displaySettings.browserTabsOpenOnDevice
+              ) else { return false }
         let url = browserStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue)
             .first { $0.panelID == panelID }?.url
         openStreamPanelOnDevice(panelID, url: url)

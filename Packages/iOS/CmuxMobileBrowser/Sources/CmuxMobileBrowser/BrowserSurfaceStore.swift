@@ -90,9 +90,23 @@ public final class BrowserSurfaceStore {
     /// the page last loaded on the phone.
     private var onDeviceSurfacesByPanel: [String: BrowserSurfaceState] = [:]
 
-    /// Whether the streamed tab `panelID` was last switched to "On iPhone".
-    public func prefersOnDevice(panelID: String) -> Bool {
-        onDeviceSurfacesByPanel[panelID] != nil
+    /// Streamed tabs the user switched back to "Streamed", keyed by panel id.
+    /// Their choice beats the default mode until they pick "On iPhone" again.
+    private var streamedPanels: Set<String> = []
+
+    /// Whether streamed tab `panelID` opens "On iPhone".
+    ///
+    /// The tab's own last choice wins. A tab the user never switched follows
+    /// `byDefault`, the user's default mode for Mac browser tabs ("On iPhone"
+    /// unless they picked "Streamed" in Settings).
+    ///
+    /// - Parameters:
+    ///   - panelID: The streamed tab's panel id.
+    ///   - byDefault: Whether a tab without its own choice opens "On iPhone".
+    public func prefersOnDevice(panelID: String, byDefault: Bool) -> Bool {
+        if onDeviceSurfacesByPanel[panelID] != nil { return true }
+        if streamedPanels.contains(panelID) { return false }
+        return byDefault
     }
 
     /// Shows streamed tab `panelID` "On iPhone" in a workspace and remembers
@@ -110,6 +124,7 @@ public final class BrowserSurfaceStore {
     /// - Returns: The workspace's active browser surface, linked to the tab.
     @discardableResult
     public func openOnDevice(for workspaceID: String, panelID: String, url: URL?) -> BrowserSurfaceState {
+        streamedPanels.remove(panelID)
         if let existing = onDeviceSurfacesByPanel[panelID] {
             surfacesByWorkspace[workspaceID] = existing
             return existing
@@ -122,10 +137,12 @@ public final class BrowserSurfaceStore {
         return surface
     }
 
-    /// Forgets streamed tab `panelID`'s "On iPhone" mode and page, so it
-    /// opens streamed again.
+    /// Switches streamed tab `panelID` to "Streamed": forgets its "On
+    /// iPhone" page and remembers the choice, so the tab opens streamed again
+    /// even when the default mode is "On iPhone".
     public func forgetOnDevice(panelID: String) {
         onDeviceSurfacesByPanel[panelID] = nil
+        streamedPanels.insert(panelID)
     }
 
     /// Close the browser pane for a workspace, returning the UI to its terminal.
