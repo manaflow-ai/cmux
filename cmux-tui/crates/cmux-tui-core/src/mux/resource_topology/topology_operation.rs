@@ -481,8 +481,9 @@ impl Mux {
                 self.resource_set_split_divider_hidden(
                     selectors,
                     required_str(&fields, "split_id")?,
-                    fields[DIVIDER_HIDDEN_FIELD]
-                        .as_bool()
+                    fields
+                        .get(DIVIDER_HIDDEN_FIELD)
+                        .and_then(Value::as_bool)
                         .context("field \"divider_hidden\" must be a boolean")?,
                     LayoutMutationContext {
                         coalesce: None,
