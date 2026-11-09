@@ -166,7 +166,11 @@ const ListedTunnel = Schema.Struct({
   displayName: Schema.optional(Schema.NullOr(Schema.String)),
   attachments: Schema.optional(Schema.NullOr(Schema.Array(Schema.Struct({ vpcId: Schema.optional(Schema.NullOr(Schema.String)) })))),
 });
-/** The tunnel listing's bounds: one tunnel (its WireGuard config and attachments) and the whole reply, in characters. */
+/**
+ * The tunnel listing's bounds, in characters: one tunnel (its WireGuard config and attachments) past the first is
+ * skipped and named in the report (never deleted, so one large tunnel does not stop the sweep of the others); a reply
+ * past the second fails the run and nothing is deleted.
+ */
 const MAX_TUNNEL_CHARS = 64 * 1024;
 const MAX_LISTING_CHARS = 512 * 1024 * 1024;
 const LIST_TIMEOUT_MS = 60_000;
@@ -196,6 +200,11 @@ export interface TunnelSweepReport {
   readonly deleted: ReadonlyArray<string>;
   /** Provider ids whose delete failed; the next run tries again. */
   readonly failed: ReadonlyArray<string>;
+  /**
+   * Listed tunnels whose entry was past MAX_TUNNEL_CHARS: skipped, never deleted, each with the provider id its first
+   * characters name (null when they name none) and its size in characters.
+   */
+  readonly oversized: ReadonlyArray<{ readonly upstreamId: string | null; readonly chars: number }>;
 }
 
 export interface TunnelSweepOptions<E, R> {
@@ -210,6 +219,16 @@ export interface TunnelSweepOptions<E, R> {
    */
   readonly sweepable: (owners: ReadonlyArray<TunnelOwner>) => Effect.Effect<ReadonlyMap<string, string>, E, R>;
 }
+
+/** `"id": "..."` and `"tunnelId": "..."` in the first characters of an oversized tunnel entry. */
+const OVERSIZED_ID = /"id"\s*:\s*"([^"\\]{1,200})"/u;
+const OVERSIZED_TUNNEL_ID = /"tunnelId"\s*:\s*"([^"\\]{1,200})"/u;
+
+/**
+ * The provider id the first characters of an oversized tunnel entry name (its `id`, else its `tunnelId`), for the
+ * report only: an oversized tunnel is never deleted, so a wrong match deletes nothing.
+ */
+const oversizedId = (head: string): string | null => OVERSIZED_ID.exec(head)?.[1] ?? OVERSIZED_TUNNEL_ID.exec(head)?.[1] ?? null;
 
 /** The tenant and device a listed tunnel's slug and display name name, when both are exactly what a device create sends. */
 const ownerOf = (environment: UpstreamConfig["environment"], tunnel: Schema.Schema.Type<typeof ListedTunnel>): TunnelOwner | null => {
@@ -246,6 +265,7 @@ const ownerOf = (environment: UpstreamConfig["environment"], tunnel: Schema.Sche
 export const sweepOrphanTunnels = <E, R>(config: UpstreamConfig, options: TunnelSweepOptions<E, R>) =>
   Effect.gen(function* () {
     const http = makeUpstreamHttp(config);
+    const oversized: Array<{ upstreamId: string | null; chars: number }> = [];
     // The provider does not page this listing: it is read as it streams, keeping only this environment's device tunnels.
     const listed = yield* http.items(
       "listOrphanTunnels",
@@ -259,7 +279,12 @@ export const sweepOrphanTunnels = <E, R>(config: UpstreamConfig, options: Tunnel
         if (owner === null || upstreamId === null) return null;
         return { ...owner, upstreamId, networks: (tunnel.value.attachments ?? []).map((attachment) => attachment.vpcId ?? null) };
       },
-      { timeoutMs: LIST_TIMEOUT_MS, maxItemChars: MAX_TUNNEL_CHARS, maxChars: MAX_LISTING_CHARS },
+      {
+        timeoutMs: LIST_TIMEOUT_MS,
+        maxItemChars: MAX_TUNNEL_CHARS,
+        maxChars: MAX_LISTING_CHARS,
+        onOversized: (item) => oversized.push({ upstreamId: oversizedId(item.head), chars: item.chars }),
+      },
     );
     const candidates = new Map<string, OrphanTunnel>();
     for (const tunnel of listed) if (tunnel !== null) candidates.set(tunnel.upstreamId, tunnel);
@@ -297,6 +322,6 @@ export const sweepOrphanTunnels = <E, R>(config: UpstreamConfig, options: Tunnel
         (outcome._tag === "Right" ? deleted : failed).push(tunnel.upstreamId);
       }
     }
-    const report: TunnelSweepReport = { listed: all.length, orphans, skipped, deleted, failed };
+    const report: TunnelSweepReport = { listed: all.length, orphans, skipped, deleted, failed, oversized };
     return report;
   });

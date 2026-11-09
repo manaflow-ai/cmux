@@ -171,10 +171,10 @@ const runOrphanSweep = async (env: Env) => {
       ),
     ).then(
       (report) => {
-        if (report.orphans.length > 0 || report.skipped.length > 0) {
+        if (report.orphans.length > 0 || report.skipped.length > 0 || report.oversized.length > 0) {
           console.log(JSON.stringify({
             event: "cmux_vm_tunnel_sweep", listed: report.listed, orphans: report.orphans.length, skipped: report.skipped,
-            deleted: report.deleted, failed: report.failed,
+            deleted: report.deleted, failed: report.failed, oversized: report.oversized,
           }));
         }
       },
