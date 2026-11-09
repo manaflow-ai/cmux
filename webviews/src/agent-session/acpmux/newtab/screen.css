@@ -1,12 +1,12 @@
 /* The new tab screen, variant B (plans/cmux-next/new-tab.md). Quiet: the theme's text tones over the shared page background, the composer's fill and edge (none under appearance.borders = none), the theme's red for a dropped chat; the theme accent only marks focus and the selected row. */
-.nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:var(--ds-space-3);--nt-screen-top:clamp(40px,14vh,140px);--nt-screen-inset:var(--cv-inset,max(var(--cv-edge,16px),round(nearest,(100% - var(--cv-column,720px))/2,1px)));padding:var(--nt-screen-top) var(--nt-screen-inset) 24px;box-sizing:border-box;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;container-type:inline-size}
+.nt-screen{flex:1;min-height:0;min-width:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior-x:none;display:flex;flex-direction:column;align-items:center;gap:var(--ds-space-3);--nt-screen-top:clamp(40px,14vh,140px);--nt-screen-inset:var(--cv-inset,max(var(--cv-edge,16px),round(nearest,(100% - var(--cv-column,720px))/2,1px)));padding:var(--nt-screen-top) var(--nt-screen-inset) 24px;box-sizing:border-box;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;container-type:inline-size}
 /* A short pane gives the location strip over the card (26px) back from the space above the card, so the
    All chats list keeps its room and stays the page's only scroller (new-tab-scroll): 12px at 360px tall
    and under, rising with the height to the 14vh above 480px. One continuous curve, so a window resized
    across that height moves the composer with it, never in a 55px jump (Leo 2026-10-20: "the new tab area
    resizing calculation is slow and wack"; new-tab-live-resize). */
 .nt-screen{padding-top:clamp(12px,calc(46vh - 154px),clamp(40px,14vh,140px))}
-.nt-screen>*{width:100%}
+.nt-screen>*{width:100%;min-width:0;max-width:100%}
 /* The box uses the same glass material as the chat composer (ComposerBox.tsx): the shared tint,
    backdrop and rim are owned by .ui-glass. Keep the composer's edge/elevation aliases so focus,
    borders-none and Reduce Transparency preserve the existing card contract. */
@@ -641,10 +641,10 @@
 .nt-extra-quote{flex:1 0 100%;margin:0;color:var(--agent-soft)}
 .nt-extra-quote blockquote{margin:0;font:inherit}
 .nt-extra-quote figcaption{margin-top:2px;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
-.nt-widgets{display:flex;flex-direction:column;gap:var(--ds-space-3);margin-top:var(--ds-space-2)}
+.nt-widgets{min-width:0;display:flex;flex-direction:column;gap:var(--ds-space-3);margin-top:var(--ds-space-2)}
 /* --nt-card-inset: the 6 px a widget or stage card holds its 14 px rows off its edge; its hairline rules
    run edge to edge by taking that inset back. */
-.nt-widget{--nt-card-inset:6px;display:flex;flex-direction:column;box-sizing:border-box;padding:var(--nt-card-inset);border-radius:20px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge)}
+.nt-widget{min-width:0;--nt-card-inset:6px;display:flex;flex-direction:column;box-sizing:border-box;padding:var(--nt-card-inset);border-radius:20px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge)}
 .nt-widget-row{display:flex;align-items:center;gap:var(--ds-space-3);min-width:0;height:36px;padding:0 var(--ds-space-3);box-sizing:border-box;border:0;border-radius:14px;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);text-align:left;letter-spacing:var(--text-body--letter-spacing)}
 button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 .nt-widget-row[aria-pressed=true]{color:var(--agent-text)}
@@ -676,7 +676,9 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-screen[data-layout="stage"] {
   /* The band under the composer: the page's bottom padding, and where the composer sticks (below). */
   --nt-stage-foot: var(--ds-space-4);
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-x: none;
   gap: 0;
   padding-top: 0;
   padding-bottom: var(--nt-stage-foot);
