@@ -268,7 +268,8 @@ _SHELL_BARE_SLEEP = re.compile(r"""(?x) (?:^|[;&|]) \s* sleep \s+ [\d.]""")
 
 # Loop-body markers: if the sleep line itself is a loop header or sits in an
 # obvious poll, we treat it as an allowed deadline-bounded poll, not a sync hack.
-_LOOP_HEADER = re.compile(r"^\s*(while|for|until)\b|\bwhile\s+\[|\bfor\s+\w+\s+in\b")
+# Swift's `repeat { ... } while cond` puts its condition at the bottom: the `repeat {` line is the header.
+_LOOP_HEADER = re.compile(r"^\s*(while|for|until)\b|^\s*repeat\s*\{|\bwhile\s+\[|\bfor\s+\w+\s+in\b")
 
 # A hardcoded public URL. We require a scheme and a dotted host that is NOT
 # loopback / private. data: and file: are excluded by requiring http(s).
@@ -3488,10 +3489,15 @@ def _network_target_ranges(
     return _direct_network_target_ranges(line, match, path_suffix)
 
 
-def detect_assert_on_duration(line: str) -> bool:
+def detect_assert_on_duration(line: str, path_suffix: str = "") -> bool:
     if not _is_assertion_line(line):
         return False
-    if not _DURATION_TOKEN.search(line):
+    # A duration word in the assertion's message string (`"duration \(t) s"`) measures nothing: only a token in
+    # the code counts.
+    executable = _executable_code_positions(line, path_suffix)
+    if not any(
+        match.start() < len(executable) and executable[match.start()] for match in _DURATION_TOKEN.finditer(line)
+    ):
         return False
     if not _NUMERIC_LITERAL.search(line):
         return False
@@ -3860,7 +3866,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         line_no = i + 1
         snippet = raw_lines[i].strip()
 
-        if detect_assert_on_duration(code):
+        if detect_assert_on_duration(code, suffix):
             findings.append(Finding(rel_posix, line_no, RULE_ASSERT_ON_DURATION, snippet))
         if line_no in live_network_lines:
             findings.append(Finding(rel_posix, line_no, RULE_LIVE_NETWORK_HOST, snippet))
