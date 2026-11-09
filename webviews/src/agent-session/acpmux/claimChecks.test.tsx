@@ -162,3 +162,43 @@ test("a turn's claim_checks mark its last reply, also on a page built from histo
     client.close?.();
   }
 });
+
+test("an older page loaded mid-turn does not take the live turn's claim_checks", async () => {
+  // Review of #39244 at b067810ba44: foldOlder replayed an older reply into the stamp target.
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const socket = new MockAcpmuxSocket(() => Promise.resolve());
+  const daemon = socket as unknown as Daemon & { emit: (target: string, step: unknown) => void };
+  const session = socket.seedLoadSession(30);
+  daemon.record(session, { mux: "user_message", msg: { text: "Fix it" } });
+  daemon.record(session, { mux: "turn_started", msg: { turnId: "live" } });
+  let rows: Row[] = [];
+  let canLoadOlder = false;
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => {
+      rows = snapshot.rows as Row[];
+      canLoadOlder = Boolean((snapshot as { canLoadOlder?: boolean }).canLoadOlder);
+    },
+    undefined,
+    () => socket as unknown as WebSocket,
+  );
+  try {
+    await client.select(session);
+    expect(canLoadOlder).toBe(true);
+    await client.loadOlder();
+    const replies = rows.filter((row) => row.kind === "assistant" && row.text);
+    expect(replies.length).toBeGreaterThan(0);
+    // Every older reply holds the phrase, so only the stamp target decides.
+    const text = replies.at(-1)!.text!.slice(0, 12);
+    daemon.emit(session, {
+      mux: "claim_checks",
+      msg: { turnId: "live", claims: [{ text, kind: "tests", verdict: "none" }] },
+    });
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(rows.filter((row) => row.claims).length).toBe(0);
+  } finally {
+    client.close?.();
+  }
+});

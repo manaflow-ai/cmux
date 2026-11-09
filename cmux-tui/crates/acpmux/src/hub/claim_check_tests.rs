@@ -250,3 +250,14 @@ fn a_background_step_or_a_build_only_test_run_backs_nothing() {
         assert!(check("All tests pass.", &runs).iter().all(|c| c.verdict == "none"), "{command}");
     }
 }
+
+#[test]
+fn a_failed_chain_blames_its_check_only_past_a_cd() {
+    // Review of #39244 at b067810ba44: the failure may be another step's.
+    for command in ["cargo test && false", "false && cargo test", "npm ci && npm test"] {
+        let runs = turn(&[("c1", command, 1)]);
+        assert!(check("All tests pass.", &runs).is_empty(), "{command}");
+    }
+    let runs = turn(&[("c1", "cd web && bun test", 1)]);
+    assert_eq!(check("All tests pass.", &runs)[0].verdict, "failed");
+}
