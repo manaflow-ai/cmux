@@ -419,7 +419,14 @@ try {
     )
     .join("\n");
   if (/<\/style/i.test(css)) throw new Error("a pane sheet closes the page's <style>");
-  index = index.replace("</head>", () => `<style id="${PAGE_STYLE_ID}">\n${css}\n</style>\n</head>`);
+  // Each inlined sheet keeps an inert link of its href, so vite's preload helper finds it there and
+  // links none of them again after the page's own sheet (the app's bundle links none): a sheet linked
+  // late wins rules the page sheet's order lost them (a 48 px quiet composer row instead of 28).
+  const placeholders = sheets.map((sheet) => `<link rel="stylesheet" media="not all" href="/${sheet}">`).join("\n");
+  index = index.replace(
+    "</head>",
+    () => `<style id="${PAGE_STYLE_ID}">\n${css}\n</style>\n${placeholders}\n</head>`,
+  );
   const ROOT = /<main id="root"><\/main>/;
   if (!ROOT.test(index)) throw new Error('the pane build has no <main id="root"></main>');
   index = index.replace(
