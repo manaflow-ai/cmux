@@ -17,10 +17,12 @@ name: cmux NEXT Computer Use helper (dev) signing
 #         (scripts/ci/signing-keychain.sh, deleted by an always() step), and
 #         main's scripts/ci/sign-cua-helper-dev.sh signs with a secure time
 #         stamp, verifies and writes the pin. Only main code runs while the key
-#         is present: the feat-cmux-next build is data. After the keychain is
-#         gone, upload-r2-object.py publishes it to R2 write-once.
+#         is present: the feat-cmux-next build is data.
 #         Blacksmith macOS, trusted like GitHub-hosted for release signing:
 #         the owned signing runners admit only nightly.yml's own signing jobs.
+# publish the cef-publish environment, the one that holds the cmux-cef-write
+#         token (release has none), and waits for one of its reviewers:
+#         main's upload-r2-object.py publishes the signed helper write-once.
 # pin-pr  opens the pin bump against feat-cmux-next as the glaeda-route App,
 #         so its CI runs. Without the App the pin stays in the run summary
 #         and the artifact.
@@ -183,9 +185,10 @@ jobs:
       contents: read
     outputs:
       sha256: ${{ steps.sign.outputs.sha256 }}
+      key: ${{ steps.sign.outputs.key }}
     steps:
-      # Every script this job runs comes from main: the keychain tool, the
-      # signer and the R2 upload.
+      # Every script this job runs comes from main: the keychain tool and the
+      # signer.
       - name: Checkout main's signing tools
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -247,9 +250,7 @@ jobs:
         if: always()
         run: ./scripts/ci/signing-keychain.sh delete --keychain cua-helper-dev.keychain
 
-      # Content-addressed and write-once; the second call reads the object back
-      # and checks its sha256 (an identical object is accepted, any other refused).
-      # Before publishing, so a failed upload still leaves the signed helper here.
+      # The publish job uploads it to R2; a failed upload still leaves it here.
       - name: Upload the pin and the signed helper
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -261,20 +262,54 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  publish:
+    name: Publish the helper
+    needs: sign
+    environment: cef-publish
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout main's R2 upload
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/ci/upload-r2-object.py
+          sparse-checkout-cone-mode: false
+
+      - name: Download the signed helper
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cua-helper-dev-signed
+          path: ${{ runner.temp }}/signed
+
+      - name: Check the signed helper's digest
+        env:
+          WANT: ${{ needs.sign.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$WANT" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::the sign job gave no digest" >&2; exit 1; }
+          echo "$WANT  $RUNNER_TEMP/signed/cmux-computer-use-dev-macos-arm64.zip" | sha256sum -c -
+
       # CMUX_CEF_R2_ACCESS_KEY_ID is the cmux-cef-read token (403 on a write,
-      # run 42028170328); the release environment's CMUX_CEF_R2_WRITE_* is the
-      # cmux-cef-write token (Object Read & Write, bucket cmux-cef only).
+      # run 42028170328); CMUX_CEF_R2_WRITE_* is the cmux-cef-write token
+      # (Object Read & Write, bucket cmux-cef only), held by cef-publish.
+      # Content-addressed and write-once; the second call reads the object back
+      # and checks its sha256 (an identical object is accepted, any other refused).
       - name: Publish to R2
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_WRITE_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: https://${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
-          KEY: ${{ steps.sign.outputs.key }}
+          KEY: ${{ needs.sign.outputs.key }}
         run: |
           set -euo pipefail
           if [[ -z "$AWS_ACCESS_KEY_ID" || -z "$AWS_SECRET_ACCESS_KEY" ]]; then
-            echo "::error::the release environment has no CMUX_CEF_R2_WRITE_ACCESS_KEY_ID / CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY (the cmux-cef-write token); the signed helper and its pin are in this run's cua-helper-dev-signed artifact" >&2
+            echo "::error::the cef-publish environment has no CMUX_CEF_R2_WRITE_ACCESS_KEY_ID / CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY (the cmux-cef-write token); the signed helper and its pin are in this run's cua-helper-dev-signed artifact" >&2
             exit 1
           fi
           for attempt in upload read-back; do
@@ -288,7 +323,7 @@ jobs:
 
   pin-pr:
     name: Open the pin bump
-    needs: [build, sign]
+    needs: [build, sign, publish]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:

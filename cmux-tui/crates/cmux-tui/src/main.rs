@@ -2295,6 +2295,20 @@ fn run_server(
                 start_local_owner_event_loop(&mux)
             }
         });
+    // The socket answers `identify` as soon as it is bound, before the
+    // reaper below starts: announce it first, so no client sees an owner
+    // started with `--terminal-reap-grace-seconds` without
+    // `terminal-reaper-active-v1`. The reaper itself starts only after the
+    // bind, once this owner holds the session.
+    if let Some(grace) = args.terminal_reap_grace {
+        match mux.set_terminal_reap_grace(grace) {
+            Ok(()) => mux.announce_terminal_reaper(),
+            Err(error) => crate::client_log::stderr_log!(
+                "startup",
+                "cmux-tui: unplaced terminal reaper unavailable: {error}"
+            ),
+        }
+    }
     let pending_server = match cmux_tui_core::server::serve_paused(mux.clone(), args.socket.clone())
     {
         Ok(server) => server,
@@ -2389,11 +2403,8 @@ fn run_server(
     // period (`terminal-reaper-active-v1`). Only an owner started with
     // `--terminal-reap-grace-seconds` reaps; without it a closed tab's
     // terminal runs until `terminal close` or the end of the session.
-    let terminal_reaper = match args.terminal_reap_grace {
-        Some(grace) => match mux
-            .set_terminal_reap_grace(grace)
-            .and_then(|()| cmux_tui_core::start_terminal_reaper(&mux).map_err(anyhow::Error::from))
-        {
+    let terminal_reaper = if mux.terminal_reaper_advertised() {
+        match cmux_tui_core::start_terminal_reaper(&mux) {
             Ok(reaper) => Some(reaper),
             Err(error) => {
                 crate::client_log::stderr_log!(
@@ -2402,8 +2413,9 @@ fn run_server(
                 );
                 None
             }
-        },
-        None => None,
+        }
+    } else {
+        None
     };
     // Closes terminals whose idle-close policy (`set-terminal-idle-policy`)
     // has elapsed with no attached view.
