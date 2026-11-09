@@ -8,6 +8,7 @@ pages from the shipped files) and writes `dev-server.exit` for `cmux live status
 ends the watch with the server and leaves no such note. A fake `bun` stands in for the dev server.
 """
 
+import fcntl
 import json
 import os
 import shutil
@@ -29,6 +30,8 @@ SCRIPT = ROOT / "scripts/cmux-next/web-overlay.sh"
 FAKE_BUN = """#!/usr/bin/env python3
 import ctypes, os, subprocess, sys
 ctypes.CDLL(None).prctl(15, b"bun", 0, 0, 0)
+if sys.argv[1:3] == ["run", "dev"] and os.path.exists(os.environ["FAKE_BUN_FAIL"]):
+    sys.exit(1)  # a server that dies before it serves
 if sys.argv[1:3] == ["run", "dev"]:
     os.makedirs("agent-pane", exist_ok=True)
     open("agent-pane/index.html", "w").write("<!doctype html>")
@@ -66,6 +69,7 @@ class WebOverlayExitWatchTests(unittest.TestCase):
             "CMUX_NEXT_CONFIG_FILE": str(self.tmp / "config/cmux-next.json"),
             "CMUX_WEB_SLOT_STATE_DIR": str(self.state),
             "FAKE_BUN_CHILD": str(self.tmp / "child.pid"),
+            "FAKE_BUN_FAIL": str(self.tmp / "fail"),
         }
         self.group = None
 
@@ -133,6 +137,37 @@ class WebOverlayExitWatchTests(unittest.TestCase):
         self.assertTrue(self.wait_for(lambda: (self.state / "dev-server.exit").exists()))
         self.start()
         self.assertFalse((self.state / "dev-server.exit").exists())
+
+    def test_a_pick_made_while_the_watch_waits_for_the_lock_is_kept(self):
+        # The watch checks that web-dev.json still names its server and clears it in one locked
+        # update, so a pick written in between (`server URL`, another start) is never lost.
+        self.start()
+        with open(self.web_dev.parent / ".web-dev.lock", "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            os.kill(int((self.tmp / "child.pid").read_text()), signal.SIGKILL)
+            time.sleep(3)  # longer than one watch interval
+            data = json.loads(self.web_dev.read_text())
+            self.assertIn("server", data, "the watch wrote web-dev.json while another writer held it")
+            data.update(server="http://127.0.0.1:1/", token="b" * 48)
+            self.web_dev.write_text(json.dumps(data))
+        self.assertTrue(self.wait_for(lambda: not self.group_alive()))
+        time.sleep(0.5)
+        self.assertEqual(json.loads(self.web_dev.read_text())["server"], "http://127.0.0.1:1/")
+        self.assertFalse((self.state / "dev-server.exit").exists())
+
+    def test_a_replacement_that_does_not_start_leaves_no_dead_pick(self):
+        # The new server dies before it is picked: web-dev.json must not keep naming the old one,
+        # which the new start stopped.
+        self.start()
+        old_group = self.group
+        (self.tmp / "fail").write_text("")
+        other = free_port()
+        result = subprocess.run(["bash", str(SCRIPT), "server", "--local", "--worktree", str(self.tree), "--port", str(other)],
+                                env=self.env, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
+        self.assertNotEqual(result.returncode, 0)
+        self.group = old_group
+        self.assertNotIn("server", json.loads(self.web_dev.read_text()))
+        self.assertIn(f"did not start on port {other}", (self.state / "dev-server.exit").read_text())
 
 
 if __name__ == "__main__":
