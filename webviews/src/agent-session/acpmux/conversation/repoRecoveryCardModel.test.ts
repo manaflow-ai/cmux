@@ -23,8 +23,7 @@ const needsGithub: RepoRecovery = {
 const needsGithubNoUrl: RepoRecovery = { code: "repo.needs_github", retry };
 
 const ids = (view: RepoRecoveryView | undefined) => view?.actions.map((action) => action.id);
-const key = (view: RepoRecoveryView | undefined) =>
-  view && "key" in view.message ? view.message.key : undefined;
+const key = (view: RepoRecoveryView | undefined) => (view && "key" in view.message ? view.message.key : undefined);
 
 describe("repository recovery: phase to next step", () => {
   test("needs GitHub with a link: explains the gap in task terms and offers Connect", () => {
@@ -95,18 +94,16 @@ describe("repository recovery: phase to next step", () => {
       message: { key: "cloudRepository.connectedAttached", values: { repo: "acme/demo" } },
       actions: [],
     });
-    expect(key(repoRecoveryView(needsGithub, { kind: "done", connected: false }))).toBe(
-      "cloudRepository.attachedRepo",
-    );
+    expect(key(repoRecoveryView(needsGithub, { kind: "done", connected: false }))).toBe("cloudRepository.attachedRepo");
   });
 
   test("no access keeps install and request access; ambiguous offers each repository", () => {
     expect(
-      ids(repoRecoveryView({ code: "repo.no_access", org: "acme", installUrl: needsGithub.installUrl }, { kind: "idle" })),
+      ids(
+        repoRecoveryView({ code: "repo.no_access", org: "acme", installUrl: needsGithub.installUrl }, { kind: "idle" }),
+      ),
     ).toEqual(["connect", "requestAccess"]);
-    expect(ids(repoRecoveryView({ code: "repo.no_access", org: "acme" }, { kind: "idle" }))).toEqual([
-      "requestAccess",
-    ]);
+    expect(ids(repoRecoveryView({ code: "repo.no_access", org: "acme" }, { kind: "idle" }))).toEqual(["requestAccess"]);
     const choices = repoRecoveryView(
       { code: "repo.ambiguous", choices: [{ fullName: "a/x" }, { fullName: "b/x" }] },
       { kind: "idle" },

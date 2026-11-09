@@ -130,7 +130,11 @@ export default componentEntry<Props>({
       note: "Rejected: a fixed up-to-1-min ceiling. True, but it doesn't move, so the wait looks stuck.",
       props: {
         recovery: needsGithub,
-        alt: { tone: "quiet", message: literal("Waiting for the GitHub install to finish (up to 1 min)"), actions: [reopen] },
+        alt: {
+          tone: "quiet",
+          message: literal("Waiting for the GitHub install to finish (up to 1 min)"),
+          actions: [reopen],
+        },
       },
     },
     "waiting-alt-bare": {

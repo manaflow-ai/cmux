@@ -91,7 +91,14 @@ export type RepoRecoveryPhase =
   | { kind: "done"; connected: boolean }
   | { kind: "failed" };
 
-export type RepoRecoveryActionId = "connect" | "getLink" | "reopen" | "checkAgain" | "retry" | "requestAccess" | "choose";
+export type RepoRecoveryActionId =
+  | "connect"
+  | "getLink"
+  | "reopen"
+  | "checkAgain"
+  | "retry"
+  | "requestAccess"
+  | "choose";
 
 /** The catalog keys this card uses. The component translates them, so this module stays free of i18n. */
 export type RepoRecoveryKey =

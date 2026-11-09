@@ -78,7 +78,11 @@ export function RepoRecoveryCardView({
       aria-live={view.tone === "quiet" ? "polite" : undefined}
     >
       <span>{message}</span>
-      {left !== undefined && <span className="cv-repo-recovery__eta" aria-hidden="true">{t("cloudRepository.waitLeft", { time: left })}</span>}
+      {left !== undefined && (
+        <span className="cv-repo-recovery__eta" aria-hidden="true">
+          {t("cloudRepository.waitLeft", { time: left })}
+        </span>
+      )}
       {view.actions.map((action) => (
         <button
           key={`${action.id}:${action.repo ?? ""}`}
@@ -127,7 +131,8 @@ export function RepoRecoveryCard({
       .then((value) => typedFailure(value))
       .then(
         () => set({ kind: "done", connected: connected.current }),
-        (error: unknown) => set(failureCode(error) === "repo.needs_github" ? { kind: "notConnected" } : { kind: "failed" }),
+        (error: unknown) =>
+          set(failureCode(error) === "repo.needs_github" ? { kind: "notConnected" } : { kind: "failed" }),
       );
   };
   /// Waits up to a minute for GitHub to report the install, then retries the held repository action.

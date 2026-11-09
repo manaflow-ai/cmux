@@ -97,7 +97,11 @@ test("a connect that didn't take says so; Check again verifies and ends in the c
   expect(calls[0]).toEqual({ method: "cloud.repo.wait_github", params: { timeout_ms: 60_000 } });
   expect(card.textContent).toContain(translate("cloudRepository.notConnectedYet"));
   await click(card, translate("cloudRepository.checkAgain"));
-  expect(calls.map((call) => call.method)).toEqual(["cloud.repo.wait_github", "cloud.repo.wait_github", "cloud.repo.add"]);
+  expect(calls.map((call) => call.method)).toEqual([
+    "cloud.repo.wait_github",
+    "cloud.repo.wait_github",
+    "cloud.repo.add",
+  ]);
   const chip = card.querySelector(".cv-repo-recovery__chip");
   expect(chip?.textContent).toBe(translate("cloudRepository.connectedAttached", { repo: "acme/demo" }));
 });
