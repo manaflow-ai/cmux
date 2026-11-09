@@ -57,3 +57,39 @@ struct SidebarGroupPinRowViewTests {
         window.close()
     }
 }
+
+/// Tinted Rows (`sidebar.groupPinMark` shelf) wash a pinned member in the color its group's header draws. Under the
+/// gradient palette that is the color at the group's place (`drawnTints`), not its stored token (review of #28708
+/// after the gradient palette landed).
+@MainActor @Suite(.serialized, .closesItsWindows)
+struct SidebarGroupPinPlacedTintTests {
+    @Test func aPinnedMemberTakesItsGroupsPlacedColor() {
+        let saved = DesignSettings.shared.sidebarSections
+        defer { DesignSettings.shared.sidebarSections = saved }
+        DesignSettings.shared.sidebarSections.groupPalette = .gradient
+        DesignSettings.shared.sidebarSections.groupGradient = .aurora
+        _ = NSApplication.shared
+        let groups = GroupGradientPlacementTests.groups
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: groups.map { .group($0) })],
+                                 activeWorkspaceID: nil)
+        model.groupPinMark = .shelf
+        let sidebar = SidebarView(model: model, design: DesignSettings())
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 260, height: 600), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = sidebar
+        sidebar.renderNow()
+        sidebar.list.reload(animated: false)
+        let ws = SidebarWorkspace(id: WorkspaceID("b-1"), title: "b")
+        let row = SidebarRow(key: .workspace(ws.id), y: 0, height: 28, section: .pinned, group: GroupID("b"), siblingIndex: 0,
+                             parentIndex: nil, isLastInGroup: true, isCollapsed: false, childCount: 0, groupColor: nil,
+                             content: SidebarLayoutOptions().rowContent(ws, machine: nil))
+        let placed = SidebarGroup.gradientTint(.aurora, at: 0.5)
+        #expect(sidebar.list.drawnTints[GroupID("b")] == placed)
+        let style = sidebar.list.groupPinStyle(row)
+        #expect(style.0 == .shelf)
+        #expect(style.1 == placed, "the wash follows the header's placed color, not the stored cyan")
+    }
+}
