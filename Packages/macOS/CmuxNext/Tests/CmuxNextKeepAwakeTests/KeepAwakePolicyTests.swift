@@ -1,5 +1,6 @@
 @testable import CmuxNextKeepAwake
 import CmuxNextSettings
+import Foundation
 import Testing
 
 /// Who keeps this Mac awake: the Keep Mac Awake action always; a working agent
@@ -62,5 +63,30 @@ struct KeepAwakePolicyTests {
 
     @Test func phoneAccessOffNeverHolds() {
         #expect(!KeepAwakePolicy(phoneServing: false, phone: .always).holds)
+    }
+
+    /// A long terminal command holds only with `sessions.keepAwakeForCommands` on, and then as
+    /// `sessions.keepAwake` allows: Off there turns it off too.
+    @Test func longCommandsHoldOnlyWhenTheirSettingIsOn() {
+        #expect(!KeepAwakePolicy(commandsRunning: 2).holds)
+        #expect(KeepAwakePolicy(commandsRunning: 2, commands: true).holds)
+        #expect(!KeepAwakePolicy(commandsRunning: 0, commands: true).holds)
+        #expect(!KeepAwakePolicy(commandsRunning: 1, commands: true, onBattery: true).holds)
+        #expect(KeepAwakePolicy(agents: .always, commandsRunning: 1, commands: true, onBattery: true).holds)
+        #expect(!KeepAwakePolicy(agents: .off, commandsRunning: 1, commands: true).holds)
+    }
+
+    /// The Rust rule through the app FFI: a printing command past a minute counts, an agent's
+    /// terminal and a young command do not, and the young one names the next look.
+    @Test func theRustRuleCountsLongPrintingCommands() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let ms = KeepAwakeCommands.ms(now)
+        let commands = KeepAwakeCommands(commands: [
+            .init(sinceMs: ms - 300_000, outputMs: ms - 1_000, agent: false, terminal: true),
+            .init(sinceMs: ms - 300_000, outputMs: ms, agent: true, terminal: true),
+            .init(sinceMs: ms - 20_000, outputMs: nil, agent: false, terminal: true),
+        ])
+        #expect(commands.plan(now: now) == .init(running: 1, quiet: [], recheckMs: 40_000))
+        #expect(KeepAwakeCommands().plan(now: now) == .init())
     }
 }

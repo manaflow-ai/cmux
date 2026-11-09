@@ -3,6 +3,7 @@
 // Removing an experiment (its winner shipped as the plain code path) removes its line.
 import { diffTreeDisclosure, treeNameFade } from "../agent-session/acpmux/changes/treeMotion.experiment";
 import { sessionReplay } from "../agent-session/acpmux/replay/replay.experiment";
+import { steerQueueExperiment } from "../agent-session/acpmux/steerQueue/steerQueue.experiment";
 import { chiefDock } from "../agent-session/acpmux/chiefDock.experiment";
 import { newTabHeadline } from "../agent-session/acpmux/newtab/headline.experiment";
 import { newTabComposerTrailingGap } from "../agent-session/acpmux/newtab/composerGap.experiment";
@@ -64,9 +65,8 @@ import { chatSwitchMotion } from "../agent-session/acpmux/chatSwitch.experiment"
 import { liveBackground } from "../ui/liveBackground/liveBackground.experiment";
 import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
 import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLook.experiment";
-import { composerDeeplinkLook } from "../agent-session/acpmux/composer/deeplinkLook.experiment";
-import { pastedAgentLook } from "../agent-session/acpmux/conversation/pastedAgentLook.experiment";
-import { sentPasteLook } from "../agent-session/acpmux/conversation/sentPasteLook.experiment";
+import { cmuxLinkLook } from "../agent-session/acpmux/chips/cmuxLinkLook.experiment";
+import { sentPasteJoin } from "../agent-session/acpmux/conversation/sentPasteJoin.experiment";
 import { sentMessageLook } from "../agent-session/acpmux/conversation/sentMessageLook.experiment";
 import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experiment";
 import { contextRingMotion } from "../agent-session/acpmux/contextRingMotion.experiment";
@@ -85,6 +85,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   diffTreeDisclosure,
   treeNameFade,
   sessionReplay,
+  steerQueueExperiment,
   chiefDock,
   hoverActions,
   startedSessionCards,
@@ -153,9 +154,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   liveBackground,
   composerPlusCommands,
   promptSuggestionLook,
-  composerDeeplinkLook,
-  pastedAgentLook,
-  sentPasteLook,
+  cmuxLinkLook,
+  sentPasteJoin,
   sentMessageLook,
   contextRingLook,
   contextRingMotion,

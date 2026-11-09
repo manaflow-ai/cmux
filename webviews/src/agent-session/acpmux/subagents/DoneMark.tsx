@@ -3,6 +3,7 @@
 // like there's something off about this ... I know that the thing is aligned, but it just doesn't look
 // that... Great." The default is a bare check stroke in a muted success colour and the total in tabular figures;
 // the word stays for screen readers. hatParts.experiment.ts holds the arms.
+import type { ReactNode } from "react";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 
@@ -38,7 +39,7 @@ export function DoneMark({
   place = "grid",
 }: {
   state: string;
-  time?: string;
+  time?: ReactNode;
   look: DoneLook;
   /// The `check` look draws its check in the Stop slot (`DoneCheck`), not before the time.
   checkInSlot?: boolean;

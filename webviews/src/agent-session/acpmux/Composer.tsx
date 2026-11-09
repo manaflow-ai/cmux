@@ -27,7 +27,7 @@ import type { SendGesture } from "./heldPrompt";
 import { awaitsOriginals } from "./promptBudget";
 import type { UploadProgressReport, UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
-import { opensProcessTerminal } from "./processTerminal";
+import { chatProcessesHere } from "./processTerminal";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
 import type { CloudMachine } from "./cloudMachines";
@@ -126,7 +126,7 @@ import {
 import { keepElsewhere, type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
-import { markPastes } from "./composer/pasteMarks";
+import { markPastes, unmarkPastes } from "./composer/pasteMarks";
 import { DropOverlay } from "./composer/DropOverlay";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
@@ -152,7 +152,6 @@ import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { EmojiMenu } from "./EmojiMenu";
 import { MachineLinkStatus } from "./MachineLinkStatus";
 import { peerLink, type PeerLink } from "./peerLink";
-import { noteSendOrigins } from "./conversation/sendMorph";
 import { composerHoldsDraft } from "./conversation/wakeFolds";
 import {
   emojiMatches,
@@ -741,7 +740,7 @@ function ComposerFrame({
     // the prompt to its new session.
     scope: sessionId,
     // A chat on this Mac (Quick Chat too): its attached videos show their posters.
-    localChat: opensProcessTerminal(snapshot.summary),
+    localChat: chatProcessesHere(snapshot.summary),
     elsewhere: (chat, chips) => {
       if (keptAttachments) void keepElsewhere(keptAttachments, chat, chips);
     },
@@ -877,9 +876,14 @@ function ComposerFrame({
         const picks = pickedSkillsOf(restoredText, commandsNow.current);
         if (!(field.current?.value() ?? "").trim()) pickedSkills.current = picks;
         else for (const name of picks) pickedSkills.current.add(name);
-        const restored = bindMarks(withoutSkillDollars(restoredText, commandsNow.current), restoredAttachments);
+        // A paste that went as a placed paste chip (markPastes) under the chip's size comes back as
+        // the text it was in the draft, remembered as a paste again; only a huge one stays a chip.
+        const restored = unmarkPastes(
+          bindMarks(withoutSkillDollars(restoredText, commandsNow.current), restoredAttachments),
+        );
         restoredText = restored.text;
         restoredAttachments = restored.attachments;
+        box.current?.rememberPastes(restored.pastes);
         // The editor parses tokens synchronously; make their payload IDs known before replacing its document.
         attachmentsRef.current = appendAttachments(attachmentsRef.current, restoredAttachments);
         // Put back, not typed: the Enter that sent it says nothing about this change.
@@ -1589,8 +1593,6 @@ function ComposerFrame({
     // (composer/pasteMarks.ts); a slash command's text stays the command.
     const marked = isCommand ? placed : markPastes(placed, box.current?.pastes() ?? []);
     const sent = marked.attachments;
-    // Where each chip is as it goes: its sent preview moves from there to its slot (sendMorph.ts).
-    noteSendOrigins(sent);
     const taken = onSend(marked.text, sent, steer, kept);
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
@@ -2446,6 +2448,9 @@ function ComposerFrame({
       {...{ [WEB_SWAP_FOCUS]: "composer" }}
       data-cmux-component="Composer"
       data-cmux-source="webviews/src/agent-session/acpmux/Composer.tsx:1420"
+      // It holds still while the chat streams, ticks and scrolls: the dev budgets warn when anything
+      // but its own events changes its nodes (devkit/perfBudgets.ts `still-surface`).
+      data-perf-still="composer"
       data-shell={shell ? "" : undefined}
       // Codex's look (composerLook.ts, composerLocation.css); none is Claude's, the default.
       data-composer-look={look === "codex" ? "codex" : undefined}

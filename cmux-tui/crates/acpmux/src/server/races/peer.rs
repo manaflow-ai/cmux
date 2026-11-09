@@ -22,7 +22,7 @@ fn allowed_method(m: &str) -> bool {
 fn owner_link(origin: Origin, auth: ConnAuth, params: &Value) -> bool {
     let control = crate::server::remote_guard::control_of(origin, auth, params);
     origin == Origin::Peer
-        && auth == ConnAuth::PeerToken
+        && auth.peer_daemon()
         && control == Control::Peer
         && crate::hub::vm_boundary::owner(auth, control, params)
         && !crate::server::remote_guard::cloud_mobile(params)

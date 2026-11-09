@@ -1,6 +1,6 @@
 ---
 name: cmux-cua
-description: "cmux Computer Use. Read this skill before the first step of any request, in a cmux chat, to do something in an app on the person's Mac (Calculator, Notes, Finder, Mail, Preview, any desktop app) or to look at their screen. In a cmux chat this is the computer use tool: the cua_* tools inside cmux_exec (listed directly: mcp__cmux__cua_*, or mcp__cmux-cua__* as its own server), attached by cmux in local chats when computer use is available. Use it, not another app's computer-use skill or tools (for example anthropic-skills:computer-use, whose tools a cmux chat does not have), and never osascript, AppleScript or System Events keystrokes, which macOS blocks and which skip cmux's setup card and blocked-app check. Covers setup, blocked apps and the steps that still wait for the person."
+description: "cmux Computer Use: the cua_* tools of a cmux chat (inside cmux_exec, or mcp__cmux-cua__* as their own server). Read it before the first step of any request to use an app on the person's Mac (Notes, Finder, Mail, Preview, any desktop app) or to look at their screen. Use these tools, not another app's computer-use skill, and never osascript or System Events keystrokes. Covers setup, blocked apps and the steps that wait for the person."
 ---
 
 # cmux-cua
@@ -262,6 +262,24 @@ Perceive, act in logical groups, then verify:
    `type_text` for entering text into text fields, and fall back to a pure
    keyboard sequence only when the user explicitly prefers speed over
    visibility.
+
+5. To wait for a result (a sheet's button appearing, a dialog's OK button
+   going away), call `wait_for_element` (`cua_wait_for_element` in `cmux_exec`)
+   instead of sleeping and taking another look. It takes `pid`, `window_id`,
+   `query` (the same match as `get_window_state`'s `query`: only rows with an
+   `element_index` count, so plain text or a spinner never matches) and/or `role`,
+   `gone: true` to wait for disappearance, and `timeout_ms` (default 10000, at
+   most 50000). It reads the accessibility tree only, with no screenshot, and
+   returns the matching elements with fresh `element_token`s; a wait that runs
+   out returns `timed_out: true` and the last count. A wait to appear matches
+   only elements you can act on (an `element_index`, not `display_only`, and not
+   `enabled: false` where the helper reports `enabled`; `actionable: false`
+   widens it). `gone` is never reported from a tree known to be cut: a
+   read bounded by `max_elements`/`max_depth` is checked again without them,
+   and a `truncated` tree ends in `gone_unconfirmed: true`, not gone. A gone
+   result says `tree: whole`, or `tree: unknown` when the helper did not report
+   whether its tree was whole. It is served by the
+   `upstream` driver's bridge (`acpmux cua-mcp`) only.
 
 Notes:
 - In the native profile, `launch_app` returns the pid and its windows; use

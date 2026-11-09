@@ -19,7 +19,7 @@ nonisolated enum AcpmuxPaneMethods {
     /// Requests (`id` present).
     public static let requests: Set<String> = [
         // Sessions (direct.ts).
-        "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option",
+        "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option", "chat.fix_from_link", "chat.fix_from_link.prepare",
         // acpmux extensions (direct.ts). `_acpmux/attachment` reads a sent prompt's image by content hash.
         "_acpmux/watch", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/typing", "_acpmux/warm",
         // The session list's later pages (sessionPages.ts, cx-2lv1k): the same summaries watch answers,
@@ -94,15 +94,30 @@ nonisolated enum AcpmuxPaneMethods {
         // `/btw` (direct.ts btw): a read-only `side` session beside a chat in scope whose first prompt is the
         // question, so it runs a turn; its reply's session becomes the pane's (``AcpmuxPaneSessions/starting``).
         "_acpmux/btw",
+        // New side chat and `/side [prompt]` of a chat on another machine (direct.ts
+        // sideChatOnMachine): that machine forks the chat in scope, tags the fork its side chat and
+        // sends it the prompt, there (``RemoteAcpmuxWire``, cmux-tui agent_session_side.rs). Only a
+        // remote chat's wire serves it; this Mac's acpmux answers it "Method not found". Its reply's
+        // session becomes the pane's (``AcpmuxPaneSessions/starting``), as a fork's does.
+        "_acpmux/side_chat",
         // Dismiss or Start on a chat's session offer chip (direct.ts dismissOffer, startOffer;
         // cx-807da): acpmux records the answer; Start names the child chat the pane just made.
         "_acpmux/offer_respond",
+        // Accept or Dismiss on a chat's memory offer card (direct.ts resolveMemory, #38571): acpmux
+        // adds the accepted facts to the offer's CLAUDE.md or AGENTS.md and records the answer. Only
+        // for a chat in scope, and only on a gesture (``gestureRules``).
+        "_acpmux/memory_resolve",
         // Session Info's View Prompt (context/ContextScreen.tsx; acpmux server/requests/context.rs):
         // `_acpmux/context` reads the chat's prompt inventory, `_acpmux/context_override` saves the
         // guidance new chats get, for every chat or the chat's own folder (no `cwd`: acpmux takes the
         // chat's). Both only for a chat in scope; the save only on the Save click. Neither changes a
         // running chat.
         "_acpmux/context", "_acpmux/context_override",
+        // History's Waiting on you and Costs (queue/, ledger/): acpmux's cost ledger index, the asks
+        // waiting on the person across agents and machines, and the approvals audit trail, all
+        // reads acpmux answers to this Mac's app only. `_acpmux/review_verdict` records a pull
+        // request item's Accept or Request changes, only on the person's click or key (``gestureRules``).
+        "_acpmux/ledger", "_acpmux/review_queue", "_acpmux/review_verdict", "_acpmux/audit",
         // The mode acpmux would start a new chat on a harness in (direct.ts startMode, cx-wx93i),
         // which a pending chat's access chip names. Read only.
         "_acpmux/start_mode",
@@ -148,6 +163,14 @@ nonisolated enum AcpmuxPaneMethods {
         // runs under its parent's policy), so no gesture; acpmux takes it only from a connection that
         // proved the person key (hub/subsessions.rs, `set_subsession_limits`).
         "_acpmux/subsession/limits",
+        // The plan approval card's Build menu (direct.ts planBuild, planCompare, planKeep; acpmux
+        // server/plan_build.rs) for a chat in the pane's scope. Build answers the chat's pending plan
+        // approval (here) or starts the plan as sub-sessions in new worktrees under the chat's own
+        // policy, so it needs the person's fresh click (``gestureRules``, ``answerAllowed``) and
+        // names no harness, folder or command. Compare reads the builds' diffs; Keep archives the
+        // other builds' chats, never their worktrees. acpmux takes all three only from a
+        // connection that proved the person key, never a remote device or a peer.
+        "_acpmux/plan/build", "_acpmux/plan/compare", "_acpmux/plan/keep",
         // Model races: candidates and reviewer run only under the selected parent chat's
         // existing authorization and isolated worktree guard (acpmux hub/races.rs).
         "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
@@ -271,10 +294,11 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/inbox_thread", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/queue_approve", "_acpmux/queue_decline", "_acpmux/queue_get",
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
-        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
+        "_acpmux/side_chat", "_acpmux/offer_respond", "_acpmux/memory_resolve", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
         "_acpmux/mcp/reconnect", "_acpmux/subsession/limits", "_acpmux/context", "_acpmux/context_override",
+        "_acpmux/plan/build", "_acpmux/plan/compare", "_acpmux/plan/keep",
         "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
     ]
 
@@ -317,9 +341,12 @@ nonisolated enum AcpmuxPaneMethods {
     /// card names that child chat, which the pane shows only as a card, so from outside the scope it
     /// takes the click's scope credit, as an attach of the child would; that attach would let the
     /// same click send it a prompt, which grants more than a Retry of its failed turn.
+    /// `_acpmux/review_verdict` (Waiting on you's Accept and Request changes, which can send the
+    /// chat a prompt) follows it too: History holds no chat, so the verdict's click is what brings
+    /// its chat in, and a click already spent bringing in another chat leaves it refused.
     public static let sourceScoped: Set<String> = [
         "acp.session.fork", "_acpmux/handoff_prepare", "_acpmux/handoff_draft", "_acpmux/handoff_start",
-        "_acpmux/handoff_discard", "_acpmux/retry",
+        "_acpmux/handoff_discard", "_acpmux/retry", "_acpmux/review_verdict",
     ]
 
     /// The error frame that answers a refused request, as the daemon would answer an unknown one.
@@ -349,14 +376,26 @@ nonisolated enum AcpmuxPaneMethods {
         case whenOptionAllows
         /// `_acpmux/permission_group_respond` whose `decision` is not `deny`.
         case whenDecisionAllows
+        /// A frame that carries a `prompt` (`/side <prompt>`: its side chat runs a turn).
+        case whenPrompting
     }
 
     public static let gestureRules: [String: GestureRule] = [
         "session/prompt": .always,
+        // Fixing a GitHub link creates a worktree and starts an agent turn; it is a person click,
+        // never a scriptable background launch.
+        "chat.fix_from_link": .always,
         // A side session's question is its first prompt.
         "_acpmux/btw": .always,
+        // `/side <prompt>`'s prompt runs a turn in the side chat, as `session/prompt` would; a side
+        // chat with no prompt only forks, as `acp.session.fork` does (no gesture).
+        "_acpmux/side_chat": .whenPrompting,
         // A saved guidance edit reaches every new chat's agent.
         "_acpmux/context_override": .always,
+        // An accepted memory fact reaches every later chat's agent in that folder, and acpmux does not
+        // match the facts against its offer, so Accept and Dismiss go only on the person's click
+        // (direct.ts resolveMemory sends with no await before it).
+        "_acpmux/memory_resolve": .always,
         // Every value until the host has a list of the permissive ones (bypass, auto-approve, yolo).
         "session/set_mode": .always,
         "session/set_config_option": .always,
@@ -376,12 +415,17 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/app_reply": .always,
         // Approve sends a guest's held prompt to the agent; Decline drops it: no gesture.
         "_acpmux/queue_approve": .always,
+        // A verdict on a pull request may send its chat a prompt (Request changes).
+        "_acpmux/review_verdict": .always,
         // A Cloud sign-in changes the machine's provider identity, so it starts only on the person's
         // click (Sign in), and a key is saved only on theirs (Save). Finish completes only a login
         // such a click started (acpmux keeps the login by its id); its Continue keeps its gesture
         // for the failed prompt's resend. Cancel stops work: none.
         "_acpmux/agent_login/start": .always,
         "_acpmux/agent_login/api_key": .always,
+        // Build answers the plan approval or starts the plan in new worktrees. Compare and Keep
+        // need none: Keep only archives chats the person's Build started.
+        "_acpmux/plan/build": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
         // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work
         // Start begins is its session/prompt, which has one).
@@ -396,6 +440,7 @@ nonisolated enum AcpmuxPaneMethods {
     /// the person's fresh click or permission shortcut, never a typing gesture (cx-ocdz).
     @MainActor static func answerAllowed(_ method: String?, _ gestures: AgentPaneUserGestures) -> Bool {
         let answers = method == "_acpmux/permission_respond" || method == "_acpmux/permission_group_respond"
+            || method == "_acpmux/plan/build"
         return !answers || gestures.hasFreshAnswerGesture
     }
 
@@ -420,6 +465,8 @@ nonisolated enum AcpmuxPaneMethods {
             return !options.isDeny(permissionId: permission, optionId: option)
         case .whenDecisionAllows:
             return params["decision"] as? String != "deny"
+        case .whenPrompting:
+            return params["prompt"] != nil
         }
     }
 

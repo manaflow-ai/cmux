@@ -287,3 +287,15 @@ since 915bab1 a PostToolUse/PostToolUseFailure of a working agent changed no sta
 fold returned before posting the notification, so "Claude reported an error" never reached the
 feed (`command_activity::an_error_notification_carries_the_error_text_for_the_feed`). The
 notification is posted now with no new state; the 915bab1 state rule is unchanged.
+
+## Notice to PL-daemon: indeterminate effects log their cause (2026-11-08)
+
+PR https://github.com/manaflow-ai/cmux/pull/39053 (port of main #39021). `resource_api.rs`
+(`session.open`), `mux/notifications.rs`, `mux/resource_effects.rs` and
+`mux/resource_topology/{effectful_operation,creation_settlement,unpublished_creation}.rs` now log one
+daemon-log line when an effect becomes `mutation.indeterminate`:
+`resource effect OP (idempotency key KEY) is indeterminate: CAUSE`, through
+`Mux::report_resource_effect_indeterminate`. Request hot path: no new cost. The format and the
+log write run only in the Err / Indeterminate arms; a success or committed-failure reply allocates
+nothing new. The replay cause is the constant `resource_api::EARLIER_ATTEMPT_CAUSE`. No reply
+shape changed.

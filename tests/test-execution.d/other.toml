@@ -294,10 +294,6 @@ path = "tests/test_layout_grid.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_leo_bans.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_list_macho_candidates.py"
 lane = "linux-guard"
 
@@ -759,6 +755,10 @@ lane = "manual"
 reason = "Run by the lane that changes try-pr.sh or scripts/live-code/patch.py (no new CI tests): python3 tests/test_try_pr_live_code.py; needs only bash, git and python3."
 
 [[test]]
+path = "tests/test_ui_font.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ui_review_advisory.py"
 lane = "linux-guard"
 
@@ -776,6 +776,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_verify_app_libintl.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_verify_cmux_tui_hosted.py"
 lane = "linux-guard"
 
 [[test]]

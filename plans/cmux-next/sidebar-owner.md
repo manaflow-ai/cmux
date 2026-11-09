@@ -26,6 +26,11 @@
   under the open card neither light nor open hover cards (`SidebarListView.hoverOccluded`), and the grown view takes
   clicks only on the glass. Regression: `UpdatedCardHoverPreviewTests`, webviews `updated-card-hover-preview.test.tsx`,
   `updated-card-native-glass.test.ts`.
+- 2026-11-07: the group editor follows its page's scale, review of #37274 (F1). The density change made the page's
+  `--cmux-interface-scale` `Typography.pageScale` (the chrome body size over the Default density's 13 pt, never
+  below 1), so the card is 240 x `pageScale` wide, not 240 x `userScale`: at Spacious and at Compact with Text Size
+  11 the swatch row and icon button were cut off. Regression: `GroupEditorServiceTests/theCardMatchesItsPageScaleAtEveryDensity`,
+  `theCardFollowsTheTextSizeLikeItsPage`.
 - 2026-11-07: a group drawn as its one row folds like any group. Leo, verbatim: "when you're collapsing a group, the
   text needs to fade faster". A group of one member titled as the group draws that row in the header's place
   (`standsForGroup`) and no header, so its collapse found no open header: the row faded over the whole `.move` spring and
@@ -897,7 +902,7 @@ A workspace close removes only the workspace. The daemon close path and remote-c
 | Favicons: a site with no favicon shows a globe | A site page (a browser tab on a host, not a New Tab page) whose favicon is missing or still loading shows a neutral globe (SF Symbol "globe", the secondary label colour) in the favicon's icon slot, so its title stays on the icon column: workspace rows (`WorkspaceIcon.pagePlaceholder`, mapped by `SidebarMapping.row`), band rows and tiles (`SidebarWorkspaceItems.workspaceInfo`, which now also shows the site's favicon once it loads), and the hover card's tab rows. The favicon replaces the globe when it loads; no layout change, nothing per frame. A terminal or agent workspace stays text only. Test: `SidebarFaviconPlaceholderTests`; crops: `AAFaviconPlaceholderGalleryTests`. | Lawrence default "a site with no favicon gets a placeholder (a neutral globe glyph in the same icon slot)" |
 
 | Pinned group header: hover Unpin | A hovered, keyboard-focused or editing pinned group header shows an Unpin button (the `statePinned` glyph in the bar's ink, label Unpin Group) left of its + (of its ⋮ when it has no +), fading with them; it runs the editor's `workspaceGroup.togglePin`. The bar's leading pin stays a mark, and a click elsewhere on the bar still only folds. An unpinned header shows no pin, at rest or on hover; Pin Group stays in its menu and editor, as for workspace rows (Leo 2026-10-21, "no empty pin symbol by default"). | Austin 2026-11-02 ("answer to the group headers thing SHOULD be YES", on https://github.com/manaflow-ai/cmux/issues/27700: pinned groups could only be unpinned from the menu or the editor; repeated header clicks folded the group); recommendation posted on https://github.com/manaflow-ai/cmux/issues/13742 |
-| One UI face | Every sidebar name draws in the UI face (`Typography.system(.default, ...)`, the bundled Inter): rows, group header names and their member counts, and a title with a decoration weight. None is made with `NSFont.systemFont`, so no SF header sits over Inter rows. Test: `SidebarUIFontFaceTests`. | Leo 2026-11-05, ask-5c88cea784 ("I just feel like the Apple system font, like especially for the sidebar, it just looks a little bit whack"); the face is his Inter pin of 2026-10-21 (`schemas/type-scale/leo-bans.json`) |
+| One UI face | Every sidebar name draws in the UI face (`Typography.system(.default, ...)`, the macOS system font since 2026-11-07; the bundled Inter before): rows, group header names and their member counts, and a title with a decoration weight. None is made with `NSFont.systemFont`, so no SF header sits over Inter rows. Test: `SidebarUIFontFaceTests`. | Leo 2026-11-05, ask-5c88cea784 ("I just feel like the Apple system font, like especially for the sidebar, it just looks a little bit whack"); the face is his Inter pin of 2026-10-21 (`schemas/type-scale/leo-bans.json`) |
 
 Default picked (title x): the 10-21 commit c779988d57d reserved an empty icon slot on every row so that
 rows with and without a favicon line up ("weird spacing"). On 11405 Lawrence asked for the text to sit
@@ -1780,6 +1785,20 @@ An empty group now keeps only its header at rest. The header's existing + appear
 - A dot drag keeps the marks: each moving dot's snapshot draws its ring or glyph too (`ProfileBarDotDragWindowMarkTests`).
 - Commits (carried from #30817): 991f4dae1cd, a90551963f2, 6a4ba590061, d052543bd1d, d9cef9ff37d, aa68b42fc71,
   9ba13003412.
+
+## Needs You and Priority rows answer a pending tool permission (2026-11-08, cmuxterm-hq#7794)
+
+- Leo 2026-11-08, on the dealbreakers: "The little minor things where it's like, oh, f***. Like, just because of this,
+  I'm out." The tray and the Priority rows could not answer a permission, so every Allow meant opening the chat.
+- A waiting item or row whose chat (this Mac's acpmux) has exactly one pending tool permission shows Allow (on a
+  `Palette.badgeFill` chip) and Deny (no fill, secondary ink), each with its key in the caption's tertiary ink (Y, N;
+  `SidebarAnswerButtons`). The tray puts them where the reason was, so its height stays; a Priority row gets one more
+  line under its preview (`SidebarPriorityRowView.height(_:)`), which opens on the panel's existing height motion. A
+  focused tray item or Priority row takes y (allow once) and n (deny) (`SidebarAnswerKey`); a tray item takes the
+  focus only while it can answer. Off by default with the tray (`sidebar.sessionTree`) and the Priority view.
+- The App reads and answers through the approval banners' `AcpmuxApprovalAnswerer` (`SidebarApprovals`, in
+  CmuxNextAgentLanes); a question, several prompts or another machine's chat keeps the old row. Tests:
+  `SidebarApprovalAnswerTests`.
 
 ## Reviewed behavior-only commits
 

@@ -44,15 +44,15 @@ enum BrowserHandlers {
         // Any focused web view (WebInspectorTarget): disabled with the reason while none is.
         registry.bind("toggleBrowserDeveloperTools", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: { invocation in
             let target = try DevToolsHandlers.target(invocation, context)
-            WebInspector.toggle(target)
+            target.toggle()
             // WebKit's inspector visibility is not observable; Chromium's is.
             if case .browser = target { (try? context.page(invocation))?.chrome?.toolbarButtons.refresh() }
         })
         registry.bind("showBrowserJavaScriptConsole", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: {
-            WebInspector.showConsole(try DevToolsHandlers.target($0, context))
+            try DevToolsHandlers.target($0, context).showConsole()
         })
         registry.bind("inspectBrowserElement", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: {
-            WebInspector.inspectElement(try DevToolsHandlers.target($0, context))
+            try DevToolsHandlers.target($0, context).inspectElement()
         })
         // Classic's Design Mode (plans/cmux-next/design-mode-DESIGN.md): highlights become cards in
         // an agent chat. The toolbar shows the mode (BrowserPageModes); a new document starts with it off.

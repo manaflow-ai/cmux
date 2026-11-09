@@ -42,6 +42,8 @@ pub(crate) mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
 pub(crate) use lane_reports::TAG as REPORTS_TO_TAG;
 pub(crate) use policy_mode::SetRequest;
+mod audit_entries;
+pub(crate) mod audit_log;
 mod bookmarks;
 pub(crate) mod cancel;
 mod catalog_reload;
@@ -61,9 +63,13 @@ mod fork;
 #[cfg(test)]
 mod host_notice_tests;
 #[cfg(test)]
+mod ledger_hub_tests;
+#[cfg(test)]
 mod peer_notice_cost_tests;
 #[cfg(test)]
 mod prompt_accept_tests;
+#[cfg(test)]
+mod review_queue_tests;
 #[cfg(test)]
 mod sender_claim_tests;
 #[cfg(test)]
@@ -135,10 +141,13 @@ mod new_request;
 pub use model_options::{
     current_effort, current_model, current_option, resolve_config_id, web_url, web_url_for_session,
 };
+pub mod ledger;
 mod model_hint;
+mod model_probe;
 mod models_view;
 mod paging;
 mod personal_stats;
+mod policy_gate;
 mod policy_mode;
 mod policy_source;
 mod pool;
@@ -184,9 +193,12 @@ pub(crate) use turn_errors::is_limit_error;
 mod elevation;
 mod git_watch;
 mod github_owner;
+mod harness_sandbox;
 mod lane_report_reads;
+mod lane_report_subagents;
 mod lane_report_text;
 mod lane_reports;
+mod loop_detector;
 mod loop_goal;
 #[cfg(test)]
 mod loop_goal_tests;
@@ -205,6 +217,7 @@ mod silent_listing;
 mod silent_turn;
 mod stalled_turn;
 mod start_retry;
+mod start_watch;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
 pub(super) use session::{newest_first, prompt_text, short_text};
@@ -233,6 +246,7 @@ mod tool_shell;
 mod tools;
 pub(crate) mod turn_cap;
 mod turn_retry;
+mod update_repeats;
 mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
@@ -270,6 +284,7 @@ pub(crate) mod questions;
 mod remote_cwd;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
+pub(crate) mod review_queue;
 mod touched;
 pub mod vm_boundary;
 pub use vm_boundary::vm_boundary_peer_approves;
@@ -307,6 +322,7 @@ pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
 mod background_cause;
 pub mod background_turn;
 mod goal_tools;
+pub mod plan_build;
 #[cfg(feature = "sim")]
 mod sim_startup;
 #[cfg(all(test, unix))]
@@ -593,6 +609,11 @@ pub struct Hub {
     pub(crate) workflow_runs: crate::workflow_runs::Service,
     pub config: RwLock<Config>,
     pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
+    /// The hub carrier once it starts (`hub_carrier.rs`); every peer holds this slot.
+    #[cfg(feature = "hub-carrier")]
+    pub hub_carrier: crate::hub_carrier::HubCarrierSlot,
+    /// Each peer's last-known-good path (`peer_last_good.rs`), beside the peer caches.
+    pub(crate) peer_paths: Arc<crate::peer_last_good::LastGood>,
     /// The daemon's store, read through each fork's referenced history (`store/fork_view.rs`).
     pub(super) store: Box<dyn Store>,
     pub(super) mailbox: Mailbox,
@@ -627,10 +648,16 @@ pub struct Hub {
     pub(crate) list_guard: list_guard::ListGuard,
     /// Each chat's spend and context as its harness recorded them (`usage_view.rs`).
     pub(crate) usage_stats: usage_view::UsageCache,
+    /// What every turn here cost, indexed by day and session (`hub/ledger`, `_acpmux/ledger`).
+    pub(crate) ledger: ledger::Ledger,
     /// `_acpmux/models` replies now asking peers for theirs
     /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
     /// daemon's own catalog, so mutual peers cannot ping-pong.
     pub models_fanouts: std::sync::atomic::AtomicUsize,
+    /// The sessions that may hold an ask, and those with pull requests (`review_queue.rs`).
+    pub(crate) review_index: review_queue::Index,
+    /// The approvals audit trail (`audit_log.rs`).
+    pub(crate) audit: audit_log::AuditLog,
     pub shutdown: Notify,
     /// Latched daemon restart and drain shared by TCP and embedded-tailnet listeners.
     pub(crate) ws_shutdown: crate::server::WsShutdown,
@@ -962,6 +989,17 @@ impl Hub {
         Self::build(config, store, mailbox, true, true, None)
     }
 
+    /// A hub whose configured peers may dial over `wireguard` first, as a daemon's do: for tests
+    /// that run two daemons in one process and cut that carrier (`tests/carrier_faults.rs`).
+    #[doc(hidden)]
+    pub fn new_with_wireguard(
+        config: Config,
+        store: Box<dyn Store>,
+        wireguard: Arc<crate::wireguard::Transport>,
+    ) -> Arc<Self> {
+        Self::build(config, store, Mailbox::memory(), false, false, Some(wireguard))
+    }
+
     pub(crate) fn new_loading_with_wireguard(
         config: Config,
         store: Box<dyn Store>,
@@ -993,14 +1031,24 @@ impl Hub {
             caller_registry::CallerRegistry::load(caller_registry::state_file(&config));
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
+        let peer_paths = Arc::new(crate::peer_last_good::LastGood::open(home.as_deref()));
+        // Beside the session store in its home; a memory store keeps it in memory only.
+        let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
+        let audit = audit_log::AuditLog::open(store.audit_dir());
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
+        #[cfg(feature = "hub-carrier")]
+        let hub_carrier =
+            crate::hub_carrier::HubCarrierSlot::for_daemon(&config, wireguard.as_ref());
         let hub = Arc::new(Self {
             hub_ref: std::sync::OnceLock::new(),
             config: RwLock::new(config),
             usage_limits,
             wireguard,
+            #[cfg(feature = "hub-carrier")]
+            hub_carrier,
+            peer_paths,
             store: Box::new(crate::store::ForkView::new(store)),
             mailbox,
             forum: std::sync::OnceLock::new(),
@@ -1018,7 +1066,10 @@ impl Hub {
             events,
             list_guard: Default::default(),
             usage_stats: Default::default(),
+            ledger,
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
+            review_index: Default::default(),
+            audit,
             shutdown: Notify::new(),
             ws_shutdown: Default::default(),
             restart_requested: std::sync::atomic::AtomicBool::new(false),
@@ -1292,6 +1343,13 @@ impl Hub {
         // An older daemon's approve-all that could be vmHost's asks now (`policy_source.rs`).
         self.settle_legacy_grants(&mut metas);
         self.store_load.total.store(metas.len(), Ordering::SeqCst);
+        // A first start with no ledger file: each session's running totals (`hub/ledger`).
+        if self.ledger.wants_seed() {
+            // Forks' own turns are read first, so the ledger's lock waits on no log read.
+            let seeds: Vec<_> =
+                metas.iter().map(|m| ledger::Seed::of(m, self.fork_own_turns(m))).collect();
+            self.ledger.seed(seeds);
+        }
         for meta in metas {
             let hosted = hosted.contains(&meta.id);
             self.install_stored_session(meta, deferred, hosted);
@@ -1395,6 +1453,7 @@ impl Hub {
             }
         }
         let last_seq = session.meta.lock().unwrap().last_seq;
+        self.catch_up_harness_sandbox(session, last_seq);
         if let Ok((extra, last)) = self.store.tail_after(&session.id, last_seq)
             && extra > 0
         {
@@ -1525,7 +1584,7 @@ impl Hub {
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
             applied: StdMutex::new(session::Applied::default()),
-            purged: AtomicBool::new(false),
+            purged: Arc::new(AtomicBool::new(false)),
             replaced: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             stops: AtomicU64::new(0),
@@ -1561,6 +1620,8 @@ impl Hub {
             heard_at: std::sync::atomic::AtomicI64::new(0),
             stalled_recheck: AtomicU64::new(0),
             open_tools: StdMutex::new(Default::default()),
+            loop_detector: StdMutex::new(Default::default()),
+            harness_sandbox_calls: StdMutex::new(Default::default()),
             stalled_counted: StdMutex::new(None),
             stalled_gen: AtomicU64::new(0),
             sign_in_refused_turn: StdMutex::new(None),
@@ -1576,6 +1637,8 @@ impl Hub {
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
             harness_turn: AtomicBool::new(false),
+            logged_init: StdMutex::new(Default::default()),
+            update_repeats: StdMutex::new(Default::default()),
             background_turns: StdMutex::new(Default::default()),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
@@ -1586,6 +1649,8 @@ impl Hub {
         });
         // Found by its tags from now on (`permissions/display.rs`).
         self.child_tags.note(&session);
+        // Its pull requests wait for a review verdict (`review_queue.rs`).
+        self.note_session_prs(&session);
         session
     }
 
@@ -2156,10 +2221,14 @@ impl Hub {
         };
         if stored {
             session.note_transfer_event(&record);
-            let mut breakdown = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
-            if breakdown.initialized {
-                breakdown.record(&record);
+            {
+                let mut breakdown = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+                if breakdown.initialized {
+                    breakdown.record(&record);
+                }
             }
+            // The review queue's index and the audit trail: O(1), never blocking on a write.
+            self.observe_for_review(session, &record);
         }
         // A closed session's log is not held open: its last records (`status`,
         // then the agent's `stopped`) each close it again (`store.rs` Writers).
@@ -2180,7 +2249,12 @@ impl Hub {
             if record.dir == "mux" && record.kind == "turn_result" {
                 m.harness_failures.observe(&record.msg, record.seq, record.at);
             }
+            if record.dir == "mux" {
+                m.harness_sandbox.observe(&record.kind, &record.msg, record.at);
+            }
         }
+        // The cost ledger's index: O(1), no IO (its writer thread writes the file).
+        self.ledger.observe(session, &record);
         if matches!(
             kind,
             "status"
@@ -2195,6 +2269,10 @@ impl Hub {
                 | "turn_error"
                 | "stopping"
                 | "unstuck"
+                | "loop_detected"
+                | "loop_cleared"
+                | harness_sandbox::RECORD_KIND
+                | "harness_sandbox_recovered"
                 | work_below::RECORD_KIND
                 | asks_below::RECORD_KIND
                 | "queued"

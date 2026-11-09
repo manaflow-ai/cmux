@@ -121,8 +121,8 @@ public struct ChiefSettingsView: View {
         .task(id: computer.reload(preferring: session.macID)) { await computer.load(preferring: session.macID) }
         .onChange(of: session.engineReport) { _, newer in if !saving { report = newer } }
         // Hide Alerts changed elsewhere (Home's pin menu): the switch follows, animated.
-        .onChange(of: session.isMuted) { _, on in if muted != on { withAnimation { muted = on } } }
-        .onChange(of: session.sendsReadReceipts) { _, on in if receipts != on { withAnimation { receipts = on } } }
+        .onChange(of: session.isMuted) { _, on in if muted != on { withAnimation(.default.unlessReduceMotion) { muted = on } } }
+        .onChange(of: session.sendsReadReceipts) { _, on in if receipts != on { withAnimation(.default.unlessReduceMotion) { receipts = on } } }
         .accessibilityIdentifier("chief.settings")
     }
 
@@ -332,14 +332,14 @@ public struct ChiefSettingsView: View {
                 .accessibilityIdentifier("chief.settings.hideAlerts")
                 .onChange(of: muted) { _, on in
                     guard on != session.isMuted else { return }
-                    session.setMuted(on) { withAnimation { muted = !on } }
+                    session.setMuted(on) { withAnimation(.default.unlessReduceMotion) { muted = !on } }
                 }
             Toggle("Send Read Receipts", isOn: $receipts)
                 .tint(Color(uiColor: .systemGreen))
                 .accessibilityIdentifier("chief.settings.readReceipts")
                 .onChange(of: receipts) { _, on in
                     guard on != session.sendsReadReceipts else { return }
-                    session.setSendsReadReceipts(on) { withAnimation { receipts = !on } }
+                    session.setSendsReadReceipts(on) { withAnimation(.default.unlessReduceMotion) { receipts = !on } }
                 }
         } footer: {
             Text(String(localized: "mobile.chief.notificationsFooter", defaultValue: "These settings apply to this iPhone.", bundle: .module))

@@ -434,7 +434,8 @@ final class CEFRuntime {
             builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled,
             // Debug Settings (DEV and NIGHTLY), read when Chromium starts: on the first page, well after
             // the override file loaded; Release keeps the default.
-            asyncLiveResize: true
+            asyncLiveResize: true,
+            initialProfileDirectory: storage.initialProfileDirectory
         )
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")

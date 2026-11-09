@@ -40,6 +40,7 @@ import { inboxHover } from "./MessageGroupHover";
 import { withoutRelayEnvelope } from "./relayEnvelope";
 import { bareSender } from "./senderIdentity";
 import { SentFromLine } from "./SentFromLine";
+import { shownOfCut } from "./markdownCut";
 import "./InboxNoticeCard.css";
 
 /// Reads a thread's messages, oldest first (App.tsx `readInboxThread`, `chat.inbox.thread`).
@@ -211,8 +212,9 @@ function InboxThreadLine({
               ))
             ) : thread.preview ? (
               <>
+                {/* acpmux's preview is a cut first line (hub/inbox.rs): never draw a cut span. */}
                 <Markdown githubRepository={repository} commits="quiet" messageAt={messageAt}>
-                  {thread.preview}
+                  {thread.preview.endsWith("…") ? shownOfCut(thread.preview) : thread.preview}
                 </Markdown>
                 {thread.promptIds.length === 1 && thread.sentFrom?.[thread.promptIds[0]!] && (
                   <SentFromLine from={thread.sentFrom[thread.promptIds[0]!]!} />

@@ -475,6 +475,17 @@ impl Hub {
         let heard_at = session.last_model_at.load(Ordering::Relaxed);
         // After `turn`: a retry's turn that started since is seen there (`retry_row`).
         let (retry, retry_deciding) = self.retry_row(session, m.last_turn.as_ref());
+        let loop_episode = if m.status == SessionStatus::Closed
+            || turn.as_ref().is_none_or(|current| {
+                session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()).as_deref()
+                    != Some(current.turn_id.as_str())
+            }) {
+            None
+        } else {
+            session.loop_detector.lock().unwrap_or_else(|e| e.into_inner()).active().cloned()
+        };
+        // Harness failure state has scheduling meaning beyond the UI. A tool loop remains a
+        // running turn and is reported separately as `loopEpisode`.
         let stuck =
             (m.status != SessionStatus::Closed).then(|| m.harness_failures.stuck()).flatten();
         let stopping = turn.as_ref().is_some_and(|t| {
@@ -500,6 +511,17 @@ impl Hub {
             stuck_reason: stuck.map(|s| s.0),
             stuck_since: stuck.map(|s| s.1),
             stuck_error: stuck.map(|s| s.2.to_owned()),
+            loop_episode: loop_episode.map(|episode| {
+                crate::protocol::session::LoopEpisodeSummary {
+                    episode_id: episode.episode_id,
+                    since: episode.since,
+                    count: episode.count,
+                    diagnosis: episode.diagnosis,
+                    hint: episode.hint,
+                }
+            }),
+            harness_sandbox_failed: m.harness_sandbox.first_at,
+            harness_sandbox_failing: m.harness_sandbox.failing,
             agent_session_id: m.agent_session_id.clone(),
             retired_agent_session_ids: m.retired_agent_session_ids.clone(),
             created_at: m.created_at,
@@ -642,6 +664,9 @@ impl Hub {
             tags: live_tags(&m),
             state_seq: session.state_seq.load(Ordering::SeqCst),
             unread: m.unread,
+            unread_turns: m.unread_turns,
+            seen_seq: m.seen_seq,
+            last_return: m.last_return,
             last_turn: m.last_turn.clone(),
             // A retry of its failed last turn waits, or is being decided (`auto_resume.rs`).
             retry,
