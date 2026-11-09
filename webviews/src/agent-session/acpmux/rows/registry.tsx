@@ -36,6 +36,8 @@ import { FailoverRow } from "./FailoverRow";
 import { ReadOnlyRecapRow, ReadOnlySinceRow, RecapRow, SinceRow } from "./RecapRow";
 import { MemoryOfferRow } from "./MemoryOfferRow";
 import { MEMORY_OFFER } from "../conversation/memoryInbox";
+import { PresetApprovalRow } from "./PresetApprovalRow";
+import { PRESET_APPROVAL } from "../conversation/presetApproval";
 import { PolicyUnenforcedRow } from "./PolicyUnenforcedRow";
 import { AgentPairRow } from "./AgentPairRow";
 import { SessionStartRow } from "./SessionStartRow";
@@ -87,6 +89,7 @@ export const defaultRegistry: NativeRegistry = {
   recap: RecapRow,
   [SINCE_DIVIDER]: SinceRow,
   [MEMORY_OFFER]: MemoryOfferRow,
+  [PRESET_APPROVAL]: PresetApprovalRow,
   policyUnenforced: PolicyUnenforcedRow,
   agentPair: AgentPairRow,
   sessionStart: SessionStartRow,
@@ -127,6 +130,8 @@ export const readOnlyRegistry: NativeRegistry = {
   [SINCE_DIVIDER]: ReadOnlySinceRow,
   // An offer to write the owner's instructions file is the owner's own.
   [MEMORY_OFFER]: NoRow,
+  // So is approving one of the owner's presets.
+  [PRESET_APPROVAL]: NoRow,
   sessionOffer: NoRow,
   [OFFER_RESULT]: NoRow,
   [STARTED_SESSIONS]: NoRow,

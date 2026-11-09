@@ -79,6 +79,8 @@ export function SentVideoTile({ video, width, height }: { video: SentVideo; widt
       <button
         type="button"
         className="cv-user__video"
+        // A send from the latest row lands its chip's copy here (sendMorph.ts).
+        data-send-key={`path:${video.path}`}
         /* tooltip-allow: a video's poster shows no name */ title={video.name}
         aria-label={t("composer.playVideo", { name: video.name, length: video.length })}
         style={{ width }}

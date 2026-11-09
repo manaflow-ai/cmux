@@ -3,11 +3,13 @@ import CmuxMobileAuth
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxSpinner
+import OSLog
 import SwiftUI
 import UIKit
 import UserNotifications
 
 private let theme = CmuxMobileTheme.standard
+private let log = Logger(subsystem: "dev.cmux.mobile", category: "shell")
 
 /// First-run setup after sign-in (SPEC 5.5). Each step is a full page pushed in
 /// a `NavigationStack`; progress is implicit.
@@ -149,7 +151,10 @@ public struct SetupFlow: View {
     }
 
     private func advance(from step: Step) {
-        guard let next = Self.step(after: step, in: steps) else {
+        let next = Self.step(after: step, in: steps)
+        let said = "setup: after \(step), \(next.map { "\($0)" } ?? "done") (plan \(steps))"
+        log.info("\(said, privacy: .public)")
+        guard let next else {
             finish()
             return
         }
@@ -161,7 +166,7 @@ public struct SetupFlow: View {
     /// the final plan dropped (Connect your Mac, when a Mac turned out to be
     /// online) still leads to the steps planned after it, such as
     /// notifications, instead of ending setup.
-    static func step(after step: Step, in steps: [Step]) -> Step? {
+    nonisolated static func step(after step: Step, in steps: [Step]) -> Step? {
         let order: [Step] = [.team, .createTeam, .pairMac, .notifications]
         guard let rank = order.firstIndex(of: step) else { return nil }
         return steps.first { (order.firstIndex(of: $0) ?? -1) > rank }

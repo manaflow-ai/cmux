@@ -150,6 +150,9 @@ import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
 import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { EmojiMenu } from "./EmojiMenu";
+import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
+import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
+import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
 import { MachineLinkStatus } from "./MachineLinkStatus";
 import { peerLink, type PeerLink } from "./peerLink";
 import { composerHoldsDraft } from "./conversation/wakeFolds";
@@ -277,6 +280,9 @@ type Props = {
   /// Binds the person's current key press or click to one prompt (`transport.gesture`), for a send
   /// the composer holds until its files are ready (attachmentIntake.tsx `useSendWhenAttached`).
   onBindSendGesture?(): SendGesture | undefined;
+  /// Whether the chat's transcript is at its latest row now (VirtualTranscript's follow, App.tsx
+  /// `followingTranscript`): a prompt sent away from it tucks behind the composer (conversation/sendTuck.ts).
+  transcriptFollowing?(): boolean;
   onStop(): void;
   /// Withdraws a queued prompt (`_acpmux/queue_remove`); false when it already started.
   onQueueRemove?(promptId: string): Promise<boolean>;
@@ -464,6 +470,7 @@ function ComposerFrame({
   chips: Chips,
   onSend,
   onBindSendGesture,
+  transcriptFollowing,
   onStop,
   onQueueRemove,
   onQueueCancelEdit,
@@ -1599,10 +1606,23 @@ function ComposerFrame({
     // (composer/pasteMarks.ts); a slash command's text stays the command.
     const marked = isCommand ? placed : markPastes(placed, box.current?.pastes() ?? []);
     const sent = marked.attachments;
+    // What the composer draws of the prompt as it goes: sent from the latest row, it becomes the
+    // sent message from there (conversation/sendMorph.ts).
+    noteSendOrigins(sent, composerBox.current);
+    // Sent away from the transcript's latest row, it waterfalls over the composer and tucks behind it.
+    const following = transcriptFollowing?.() ?? true;
+    const tucks = sendTucks({
+      following,
+      ridesToLatest: shouldScrollToBottomAfterSend(scrollToBottomOnSend, following),
+    });
+    // Its copy is the prompt as sent: a send taken later clears a composer that may hold the next draft.
+    const tuck = tucks ? tuckContent(composerBox.current, marked.text) : undefined;
     const taken = onSend(marked.text, sent, steer, kept);
+    if (taken === false || taken instanceof Promise) keepSendOrigins();
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
     const clear = (rest = "") => {
+      if (tuck) tuckSent(composerBox.current, tuck);
       const went = new Set(sent.map((attachment) => attachment.id));
       box.current?.sent(went);
       setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
