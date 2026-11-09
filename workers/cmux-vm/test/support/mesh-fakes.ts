@@ -93,6 +93,8 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   let networkCreateStatus: number | null = null, networkLostReplies = 0, hideNetworks = false;
   let networkHold: Promise<void> | null = null, networkHeld = false;
   const networkWaiters: Array<() => void> = [];
+  let tunnelHold: Promise<void> | null = null, tunnelHeld = false;
+  const tunnelWaiters: Array<() => void> = [];
   const tunnels = new Map<string, FakeTunnel>();
   const rules = new Map<string, FakeRule>();
   /** VM provider id -> network id. */
@@ -216,6 +218,12 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
         ipv4: `10.128.0.${hostCounter++}`,
       };
       tunnels.set(tunnel.id, tunnel);
+      // A held create has made the tunnel but not answered yet: the enroll's commit comes late.
+      if (tunnelHold !== null) {
+        tunnelHeld = true;
+        for (const wake of tunnelWaiters.splice(0)) wake();
+        await tunnelHold;
+      }
       // The provider mints a key when none is supplied; the test switch makes it mint one anyway.
       const minted = tunnel.clientPublicKey === null || state.mintKey ? "bWludGVkLXByaXZhdGUta2V5LTMyLWJ5dGVzLWxvbmch" : "";
       return json(tunnelBody(tunnel, minted));
@@ -338,6 +346,17 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       networkHeld = false;
       networkHold = new Promise<void>((resolve) => { release = () => { networkHold = null; resolve(); }; });
       return () => release();
+    },
+    /** Tunnel creates make the tunnel, then stall their reply until the returned function is called. */
+    holdTunnelCreates(): () => void {
+      let release = () => {};
+      tunnelHeld = false;
+      tunnelHold = new Promise<void>((resolve) => { release = () => { tunnelHold = null; resolve(); }; });
+      return () => release();
+    },
+    /** Resolves once a tunnel create is stalled by holdTunnelCreates (the tunnel exists). */
+    tunnelCreateHeld(): Promise<void> {
+      return tunnelHeld ? Promise.resolve() : new Promise<void>((resolve) => tunnelWaiters.push(resolve));
     },
     networkCreateHeld(): Promise<void> {
       return networkHeld ? Promise.resolve() : new Promise<void>((resolve) => networkWaiters.push(resolve));
