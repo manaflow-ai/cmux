@@ -26,6 +26,9 @@ export type PlanBuildChild = {
   root?: string;
   base?: string;
   state: PlanBuildState;
+  /// The card's `records` count after this build's newest start or end record: a diff read that
+  /// began before it is older than `state`.
+  seenAt?: number;
 };
 
 /// The card's row: the builds one plan approval started, and which one was kept.
@@ -44,6 +47,8 @@ export type PlanBuild = {
   failed?: { harness: string; error?: string }[];
   /// Bumped on every build's turn end: the card refetches its diffs when it changes.
   turnsEnded: number;
+  /// Bumped on every build's start or end record (`seenAt`).
+  records?: number;
 };
 
 /// A build's changes and standing, from `_acpmux/plan/compare` or `plan/keep`.
@@ -151,20 +156,24 @@ export function planBuildChildEnded(build: PlanBuild, msg: Record<string, unknow
         : msg.state === "cancelled"
           ? "cancelled"
           : "done";
+  const records = (build.records ?? 0) + 1;
   const builds = build.builds.slice();
-  builds[index] = { ...builds[index]!, state };
-  return { ...build, builds, turnsEnded: build.turnsEnded + 1 };
+  builds[index] = { ...builds[index]!, state, seenAt: records };
+  return { ...build, builds, turnsEnded: build.turnsEnded + 1, records };
 }
 
-/// A sub-session record that starts a build's turn again (a message sent to it): running again.
+/// A sub-session record that starts a build's turn again (a message sent to it, or a closed build
+/// reopened): running again. A start is counted even while it says running already, so a diff read
+/// from before it no longer says the build is done.
 export function planBuildChildStarted(build: PlanBuild, msg: Record<string, unknown>): PlanBuild | undefined {
-  if (msg.event !== "started" && msg.event !== "reopened") return undefined;
+  if (msg.event !== "started" && msg.event !== "turn_started" && msg.event !== "reopened") return undefined;
   const child = text(msg.childSessionId);
   const index = build.builds.findIndex((b) => b.sessionId === child);
-  if (index < 0 || build.builds[index]!.state === "running") return undefined;
+  if (index < 0) return undefined;
+  const records = (build.records ?? 0) + 1;
   const builds = build.builds.slice();
-  builds[index] = { ...builds[index]!, state: "running" };
-  return { ...build, builds };
+  builds[index] = { ...builds[index]!, state: "running", seenAt: records };
+  return { ...build, builds, records };
 }
 
 /// The reply of `chat.plan.compare` or `chat.plan.keep`, checked.

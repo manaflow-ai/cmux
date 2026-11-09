@@ -54,6 +54,8 @@ export function PlanBuildCard({
 }: PlanBuildCardProps) {
   const t = useT();
   const [read, setRead] = useState<PlanBuildReply | undefined>(given);
+  // The build's `records` when the shown read began: a build with a newer record goes by its records.
+  const [readAt, setReadAt] = useState(given ? Infinity : 0);
   const [keeping, setKeeping] = useState<string>();
   const [error, setError] = useState<string>();
   // The reads in flight answer only the newest: an older reply never overwrites a newer one.
@@ -63,14 +65,18 @@ export function PlanBuildCard({
   useEffect(() => {
     if (given || !sessionId) return;
     const mine = ++reads.current;
+    const at = build.records ?? 0;
     void readCompare(sessionId, build.buildId).then(
       (reply) => {
         const checked = planBuildReply(reply);
-        if (checked && mine === reads.current) setRead(checked);
+        if (checked && mine === reads.current) {
+          setRead(checked);
+          setReadAt(at);
+        }
       },
       () => undefined,
     );
-  }, [given, sessionId, build.buildId, build.turnsEnded, build.keptSessionId]);
+  }, [given, sessionId, build.buildId, build.turnsEnded, build.records, build.keptSessionId]);
   const kept = build.keptSessionId ?? read?.keptSessionId;
   const prompted = build.target === "prompt";
   const compared = build.target === "compare" || prompted;
@@ -87,10 +93,14 @@ export function PlanBuildCard({
     setKeeping(child);
     setError(undefined);
     const mine = ++reads.current;
+    const at = build.records ?? 0;
     keep(sessionId, build.buildId, child, prompted).then(
       (reply) => {
         const checked = planBuildReply(reply);
-        if (checked && mine === reads.current) setRead(checked);
+        if (checked && mine === reads.current) {
+          setRead(checked);
+          setReadAt(at);
+        }
         setKeeping(undefined);
       },
       (failure: unknown) => {
@@ -132,6 +142,7 @@ export function PlanBuildCard({
             child={child}
             label={prompted ? runLabel(child) : undefined}
             diff={read?.builds.find((b) => b.sessionId === child.sessionId)}
+            fresh={readAt >= (child.seenAt ?? 0)}
             outcome={
               !kept
                 ? undefined
@@ -176,9 +187,11 @@ function runLabel(child: PlanBuildChild): string | undefined {
 }
 
 /// A build's state: its sub-session records, or, while they still say running, acpmux's own read of
-/// the chat (a turn that ended before this chat recorded the build, or a page that left it out).
-function liveState(child: PlanBuildChild, diff: PlanBuildDiff | undefined): PlanBuildChild["state"] {
-  if (child.state !== "running" || !diff?.status) return child.state;
+/// the chat (a turn that ended before this chat recorded the build, or a page that left it out). A
+/// read that began before the build's newest record (`fresh` false) is older than it: a turn that
+/// started since then is running, whatever that read said.
+function liveState(child: PlanBuildChild, diff: PlanBuildDiff | undefined, fresh: boolean): PlanBuildChild["state"] {
+  if (child.state !== "running" || !diff?.status || !fresh) return child.state;
   return diff.status === "done"
     ? "done"
     : diff.status === "failed"
@@ -188,9 +201,8 @@ function liveState(child: PlanBuildChild, diff: PlanBuildDiff | undefined): Plan
         : "running";
 }
 
-function statusText(t: Translate, child: PlanBuildChild, diff: PlanBuildDiff | undefined): string {
-  if (diff?.error) return t("planBuild.status.failed");
-  switch (liveState(child, diff)) {
+function statusText(t: Translate, state: PlanBuildChild["state"]): string {
+  switch (state) {
     case "running":
       return t("planBuild.status.running");
     case "failed":
@@ -207,6 +219,7 @@ function PlanBuildColumn({
   child,
   label,
   diff,
+  fresh,
   outcome,
   why,
   canKeep,
@@ -220,6 +233,8 @@ function PlanBuildColumn({
   /// The column's name, over the chat's own.
   label?: string;
   diff?: PlanBuildDiff;
+  /// Whether `diff` was read after the build's newest record.
+  fresh: boolean;
   outcome?: "kept" | "archived" | "removed" | "stayed";
   /// Why a closed run's worktree stayed (acpmux's reason).
   why?: string | undefined;
@@ -234,7 +249,7 @@ function PlanBuildColumn({
   const shown = files.slice(0, SHOWN_FILES);
   const total = files.length + (diff?.moreFiles ?? 0);
   const more = total - shown.length;
-  const state = diff?.error ? "failed" : liveState(child, diff);
+  const state = diff?.error ? "failed" : liveState(child, diff, fresh);
   return (
     <article className="acpmux-plan-builds-column" data-state={state} data-outcome={outcome}>
       <div className="acpmux-plan-builds-agent">
@@ -252,7 +267,7 @@ function PlanBuildColumn({
                 ? t("planBuild.removed")
                 : outcome === "stayed"
                   ? t("planBuild.stayed")
-                  : statusText(t, child, diff)}
+                  : statusText(t, state)}
         </span>
       </div>
       <div className="acpmux-plan-builds-branch" title={branch}>

@@ -376,6 +376,7 @@ impl Hub {
             self.start_trigger_background(session, &turn.turn_id);
         }
         let seq = self.append(session, "mux", "turn_started", msg).seq;
+        self.subsession_turn_started(session, &turn.turn_id);
         {
             let mut running = session.turn.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(t) = running.as_mut().filter(|t| t.turn_id == turn.turn_id) {

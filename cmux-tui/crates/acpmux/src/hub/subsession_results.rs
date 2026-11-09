@@ -8,6 +8,10 @@
 //! - `{event: "started", childSessionId, shortName, startedBy, depth, harness, model, effort,
 //!   title, prompt, state: "running"}` once the child's first prompt is accepted. `model` and
 //!   `effort` are the child's current ones, else what the start asked for, else null.
+//! - `{event: "turn_started", childSessionId, shortName, startedBy, depth, harness, model, effort,
+//!   title, turnId, state: "running"}` when a later turn of the child starts (a message sent to it,
+//!   or a carried turn): its first turn is the `started` record. A parent reading the child's
+//!   state from these records (a plan build's card) sees it working again.
 //! - `{event: "turn_ended", childSessionId, shortName, startedBy, depth, harness, model, effort,
 //!   title, state, result}` at the end of each of the child's turns, written where the turn's
 //!   end is recorded (`Hub::record_last_turn`, every path: a finished, failed, unstarted, quit or
@@ -75,6 +79,23 @@ impl Hub {
         record.set("state", json!("running"));
         record.set("prompt", json!(super::session::masked_preview(prompt, MAX_PROMPT_CHARS)));
         self.append(parent, "mux", RECORD_KIND, record);
+    }
+
+    /// Tells `child`'s parent that a later turn of it started: `turn_id`, its `turn_started`.
+    /// Nothing for its first turn (the `started` record says it), a session that is no
+    /// sub-session, or one whose parent is gone.
+    pub(super) fn subsession_turn_started(&self, child: &Session, turn_id: &str) {
+        let m = child.meta();
+        let Some(link) = m.subsession.as_ref() else { return };
+        if m.turn_count <= 1 {
+            return;
+        }
+        let Ok(parent) = self.resolve(&link.started_by) else { return };
+        let mut record = Self::subsession_fields(&m, (None, None));
+        record.set("event", json!("turn_started"));
+        record.set("turnId", json!(turn_id));
+        record.set("state", json!("running"));
+        self.append(&parent, "mux", RECORD_KIND, record);
     }
 
     /// Tells `child`'s parent how the turn that just ended (`turn_result`, its record) went,
