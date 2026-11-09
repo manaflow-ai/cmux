@@ -60,6 +60,8 @@ impl WritePathStats {
             wal_commits: 0,
             wal_synced_commits: 0,
             registry_wal_frame_bytes: 0,
+            registry_wal_file_bytes: 0,
+            registry_wal_file_high_water_bytes: 0,
         }
     }
 }
@@ -94,4 +96,9 @@ pub struct WritePathSnapshot {
     /// count when it writes more frames than the old WAL held (a commit over about 4 MiB, the checkpoint size).
     /// Frames another connection appends to the same database count toward the next commit of this one.
     pub registry_wal_frame_bytes: u64,
+    /// The registry's WAL file size now. The syncer brings it back under 64 MiB once no reader pins the WAL
+    /// (`workspace_registry::wal_durability`).
+    pub registry_wal_file_bytes: u64,
+    /// The largest registry WAL file size seen since the daemon started.
+    pub registry_wal_file_high_water_bytes: u64,
 }

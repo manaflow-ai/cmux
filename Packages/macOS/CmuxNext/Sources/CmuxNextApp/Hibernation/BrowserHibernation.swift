@@ -404,10 +404,10 @@ final class BrowserHibernation {
         HoverWakeBudget(pressure: pressure, lowPower: lowPower.isEnabled, enabled: setting.wakesOnHover && setting.neighborRadius > 0)
     }
 
-    /// How long the pointer stays on a tab or row before its pages wake.
+    /// How long the pointer stays on a tab or row before its pages wake (tests give the gates a `ManualClock`).
     static let hoverDwellDelay: Duration = HoverWakeIntent.dwell
-    private lazy var tabHover = HoverWakeGate(owner: "BrowserHoverTab") { [weak self] in self?.hoverIntent($0) }
-    private lazy var workspaceHover = HoverWakeGate(owner: "BrowserHoverWorkspace") { [weak self] in self?.hoverIntent($0) }
+    lazy var tabHover = HoverWakeGate(owner: "BrowserHoverTab") { [weak self] in self?.hoverIntent($0) }
+    lazy var workspaceHover = HoverWakeGate(owner: "BrowserHoverWorkspace") { [weak self] in self?.hoverIntent($0) }
 
     /// Recomputes the awake neighbors; a new neighbor wakes now (thaws, or
     /// restores in the background), and one that stops being a neighbor

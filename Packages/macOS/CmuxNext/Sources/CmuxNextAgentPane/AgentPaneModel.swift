@@ -215,9 +215,9 @@ public final class AgentPaneModel {
     @ObservationIgnored var dictationUploads = AgentPaneDictationUploads()
     /// Opens a changed file the page names; false when it could not.
     @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
-    /// Opens a file of a Cloud chat's machine (an absolute path there) in cmux's file pages, read
-    /// through that machine's daemon, never this Mac's file of the same path; false when it could
-    /// not, or when the path reaches through a symlink there.
+    /// Opens a file of a Cloud chat's machine (an absolute path there) in cmux's file pages, read through that machine's
+    /// daemon with no symlink followed, or a folder there in the Files tree; never this Mac's of the same path. False
+    /// when it could not, or when the path reaches through a symlink there.
     @ObservationIgnored public var onOpenMachineFile: (@MainActor (String) async -> Bool)?
     /// Opens a turn's local web page in a browser tab beside the agent;
     /// false when it could not.
@@ -264,6 +264,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onGitWrite: (@MainActor (AgentPaneGitWrite, String) async throws -> Data)?
     /// Whether the Changes view's git writes (cx-tcwj) may run here: only a chat on this Mac. Unset: never.
     @ObservationIgnored public var gitWritesHere: (@MainActor () -> Bool)?
+    /// Whether a Cloud or SSH chat's git writes reach that chat's own machine (its daemon's link,
+    /// never this Mac's): New Worktree makes the worktree there. Unset: never.
+    @ObservationIgnored public var gitWritesOnChatMachine: (@MainActor () -> Bool)?
     /// Moves a file the turn created to the Trash (`turn.undo`); tests replace it.
     @ObservationIgnored public var trashFile: @Sendable (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
 

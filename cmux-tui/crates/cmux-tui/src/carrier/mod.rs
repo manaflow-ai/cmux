@@ -566,6 +566,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
                             tokio::io::stdin(),
                             tokio::io::stdout(),
                             link.stun,
+                            link.turn,
                             move |note| {
                                 if let Some(path) = &link_log {
                                     route_log::append(
