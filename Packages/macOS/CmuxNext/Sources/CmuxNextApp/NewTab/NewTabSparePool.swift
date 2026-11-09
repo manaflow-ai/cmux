@@ -382,6 +382,8 @@ final class NewTabSparePool {
         // Only the launch warm comes early, after the first frame: a `take()` that found nothing
         // (it set `usedThisSession`) must not make a web view in the person's keystroke.
         let launch = !warmedOnce && !usedThisSession
+        // The launch spare's page loads after the restored chats on screen drew (AgentPaneShownChatsWait).
+        if launch, shownChats.holds({ shownChatsLoading(services) }, then: { [weak self] in self?.armWarmTimer() }) { return }
         warmedOnce = warmedOnce || launch
         warmTimer.schedule(after: launch ? Self.openSettle : Self.idleInput) { @MainActor [weak self] in self?.warmNow() }
     }
