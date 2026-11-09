@@ -2703,8 +2703,8 @@ jobs:
   # Reports a same-tree cmux-tui that nothing will publish, in red, at once.
   # It waits for nothing: path routing probed the tree (tree_state=failed), or
   # an artifacts run that ended without publishing it dispatched same-tree mode
-  # with same_tree_state=failed. It first re-runs a waiting feat-cmux-next
-  # commit's artifacts run (cmux_tui_tree_takeover.py): red only if none can.
+  # with same_tree_state=failed; that one first re-runs its commit's
+  # artifacts run (cmux_tui_tree_takeover.py), red only if it can't.
   # A publication of the key starts the tree jobs (the marker stays). A ready
   # tree is reported green, so the tip has a verdict after a red one.
   # Builds the cmux-next web bundles once per source key (web-bundle-key.py --source) on
@@ -2854,7 +2854,7 @@ jobs:
         env:
           REASON: ${{ inputs.same_tree_reason || needs.path_route.outputs.tree_reason }}
           KEY: ${{ needs.path_route.outputs.tree_key }}
-          COMMIT: ${{ inputs.same_tree_sha || github.sha }}
+          COMMIT: ${{ inputs.same_tree_sha }}
           STATUS_SHA: ${{ inputs.same_tree_status_sha }}
           TIERS: ${{ inputs.same_tree_tiers }}
           DEV_DAILY: ${{ inputs.dev_daily == true && 'true' || 'false' }}
@@ -2862,7 +2862,7 @@ jobs:
           TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          if python3 scripts/ci/cmux_tui_tree_takeover.py --repo "$GITHUB_REPOSITORY" --commit "$COMMIT" --key "$KEY" --reason "$REASON"; then
+          if [[ -n "$COMMIT" ]] && python3 scripts/ci/cmux_tui_tree_takeover.py --repo "$GITHUB_REPOSITORY" --commit "$COMMIT" --key "$KEY" --reason "$REASON"; then
             echo "::notice title=same-tree cmux-tui taken over::$REASON"; exit 0
           fi
           echo "::error title=same-tree cmux-tui unavailable::${KEY:+tree $KEY: }${REASON:-no reason given}"

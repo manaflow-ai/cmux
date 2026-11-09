@@ -254,7 +254,8 @@ def dispatched_runs(api: Api, repo: str, since: str) -> dict[str, list[str]]:
 
 def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
            log: Callable[[str], None] = print,
-           fetch_completion: Callable[[str], object | None] = fetch_completion, exclude_run: int = 0) -> int:
+           fetch_completion: Callable[[str], object | None] = fetch_completion, exclude_run: int = 0,
+           quota_only: Callable[[], bool] = lambda: False) -> int:
     """Dispatches same-tree runs for the markers of <key>; returns how many."""
     if state == "failed" and completion_attests(fetch_completion(key), key):
         log(f"tree {key}: its completion.json is published, so the tree is ready whatever the "
@@ -270,7 +271,10 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
     # marker is reported red (cmux_tui_tree_takeover.py). Each commit is tried once per notify.
     markers = {id(artifact): read_marker(api, artifact, key) for artifact in artifacts[:MAX_MARKERS]}
     taken_over = False
-    if state == "failed":
+    if state == "failed" and quota_only():
+        # Like the hand-off (cmux_tui_tree_handoff.py): a re-run would spend the same exhausted quota.
+        log(f"tree {key}: the reporting run failed only on GitHub's rate limit or attestation; not taken over")
+    elif state == "failed":
         # Imported here: the base-tier kick sparse-checks out this file alone for run_name and never fails a tree.
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import cmux_tui_tree_takeover as takeover
@@ -366,8 +370,29 @@ def main(argv: list[str]) -> int:
     try:
         # This script runs inside the artifacts run that reports: that run is no publisher to wait on.
         own_run = os.environ.get("GITHUB_RUN_ID", "")
+        run_id = int(own_run) if own_run.isdigit() else 0
+
+        def quota_only() -> bool:
+            if not run_id:
+                return False
+            import cmux_tui_tree_handoff as handoff  # same directory; needs the gh CLI the artifacts job has
+            jobs = handoff._list(f"repos/{args.repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100", "jobs")
+
+            def log_of(job: dict) -> str | None:
+                result = handoff._gh("api", f"repos/{args.repo}/actions/jobs/{job['id']}/logs")
+                return result.stdout if result.returncode == 0 else None
+
+            return handoff.quota_only_failure(jobs, log_of)
+
+        def safe_quota_only() -> bool:
+            try:
+                return quota_only()
+            except Exception as error:  # an unreadable run is no evidence of a quota failure
+                print(f"::warning::could not read run {run_id}'s jobs for the quota check: {error}")
+                return False
+
         notify(api, repo=args.repo, key=args.key, state=args.state, reason=args.reason,
-               exclude_run=int(own_run) if own_run.isdigit() else 0)
+               exclude_run=run_id, quota_only=safe_quota_only)
     except (RuntimeError, OSError, ValueError) as error:
         print(f"::warning::could not start the deferred cmux-next tree jobs for tree {args.key}: {error}")
     return 0

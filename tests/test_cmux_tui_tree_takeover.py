@@ -143,6 +143,26 @@ class OwnerEndedWithoutPublishing(unittest.TestCase):
         self.assertEqual(repo.reruns, [])
         self.assertEqual(repo.next_dispatches[0]["inputs"]["same_tree_state"], "failed")
 
+    def test_a_quota_only_failure_is_not_taken_over(self):
+        """Like the hand-off: a re-run would spend the same exhausted rate-limit or attestation quota."""
+        repo = Repo([tip_marker("daemon", 1)], [tip_run()])
+        dispatched = notify.notify(repo, repo=REPO, key=KEY, state="failed", reason="attestation quota",
+                                   log=lambda _line: None, fetch_completion=lambda _key: None,
+                                   exclude_run=1, quota_only=lambda: True)
+        self.assertEqual((dispatched, repo.reruns), (1, []))
+
+    def test_at_most_three_waiting_commits_are_looked_at(self):
+        reads: list[str] = []
+
+        class Api:
+            def get(self, path):
+                reads.append(path)
+                return {"workflow_runs": []}
+
+        commits = [f"{index:040x}" for index in range(10)]
+        self.assertFalse(takeover.take_over_any(Api(), repo=REPO, commits=commits, log=lambda _l: None))
+        self.assertEqual(len(reads), takeover.MAX_COMMITS)
+
     def test_a_tree_that_failed_every_takeover_is_red_again(self):
         """A key that cannot build is still seen: past the re-run cap the waiters go red."""
         repo = Repo([tip_marker("daemon", 1)], [tip_run(attempt=takeover.MAX_ATTEMPT)])
@@ -172,6 +192,10 @@ class OwnerEndedWithoutPublishing(unittest.TestCase):
         red = job.split("name: Report the unavailable same-tree cmux-tui", 1)[1]
         self.assertLess(red.index("scripts/ci/cmux_tui_tree_takeover.py"), red.index("::error title=same-tree"))
         self.assertIn('--reason "$REASON"', red)
+        # Only a dispatched run (its marker exists) takes over: routing also says failed when the marker upload
+        # failed, and then no publication could start the tree jobs (router-review F1 at fbeb4910).
+        self.assertIn("COMMIT: ${{ inputs.same_tree_sha }}", red)
+        self.assertIn('[[ -n "$COMMIT" ]] && python3 scripts/ci/cmux_tui_tree_takeover.py', red)
 
     def test_the_owner_named_in_the_reason_is_excluded(self):
         """A dispatched same-tree reason names the owner, which may still be finishing its notify job."""

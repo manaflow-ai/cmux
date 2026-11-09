@@ -34,9 +34,11 @@ as before, so a key that cannot build is still seen.
 Callers:
 - cmux_next_tree_notify.py --state failed, before it dispatches red same-tree
   runs: one takeover per key covers every marker.
-- cmux-next.yml's same-tree job, when it is about to report a tree unavailable
-  (a dispatch from an owner that ran an older notify, or a push whose probe found
-  its publisher ended): `--commit SHA` exits 0 when the publish was taken over.
+- cmux-next.yml's same-tree job, dispatched red by an owner that ran an older
+  notify, before it reports the tree unavailable: `--commit SHA` exits 0 when the
+  publish was taken over. A push whose own probe said failed is not taken over
+  there: routing also says failed when its wait marker did not upload, and then
+  no publication could start its tree jobs.
 
 usage: cmux_tui_tree_takeover.py --repo OWNER/NAME --commit SHA [--key KEY] [--exclude-run ID] [--reason TEXT]
 (--reason: the same-tree reason; the owner run it names, ".../actions/runs/N ended without publishing", is excluded.)
@@ -55,6 +57,9 @@ BRANCH = "feat-cmux-next"
 ARTIFACTS_WORKFLOW = "cmux-tui-artifacts.yml"
 # A commit's artifacts run is re-run at most twice for a takeover (attempt 3 is its last), like the hand-off.
 MAX_ATTEMPT = 3
+# Distinct waiting commits looked at per takeover: one runs list read each, so a key with many markers costs a
+# bounded number of API calls.
+MAX_COMMITS = 3
 
 
 class Api(Protocol):
@@ -102,6 +107,9 @@ def take_over_any(api: Api, *, repo: str, commits: Iterable[str], key: str = "",
     for commit in commits:
         if commit in seen:
             continue
+        if len(seen) >= MAX_COMMITS:
+            log(f"looked at {MAX_COMMITS} waiting commits; none could take the publish over")
+            break
         seen.add(commit)
         try:
             taken, why = take_over(api, repo=repo, commit=commit, key=key, exclude_run=exclude_run)
