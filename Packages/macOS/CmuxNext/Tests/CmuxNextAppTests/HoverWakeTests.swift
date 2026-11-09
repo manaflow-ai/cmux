@@ -220,7 +220,7 @@ import Testing
         }
         #expect(rig.hibernation.hoverBudget.pages == 0, "the default settings let a hover wake pages")
         rig.hibernation.noteWorkspaceHover("w", window: "win")
-        // The dwell held: the intent the gate delivers then wakes nothing either.
+        // With hover preload off the gate arms no dwell; even the intent a dwell would deliver wakes nothing.
         rig.hibernation.hoverIntent(.workspace("w", window: "win"))
         #expect(asked == 0, "a hover asked a workspace for its pages with hover preload off")
         for key in keys { #expect(rig.services.cache.phase(of: key) == .hibernated, "a hover woke a page with hover preload off") }
@@ -239,7 +239,7 @@ import Testing
         try await rig.until("every hidden page freezes") { keys.allSatisfy(rig.hibernation.frozen.contains) }
         #expect(rig.hibernation.hoverBudget.pages == 0)
         rig.hibernation.noteHover(keys[1])
-        // The dwell held: the intent the gate delivers wakes nothing.
+        // With no neighbor radius the gate arms no dwell; even the intent a dwell would deliver wakes nothing.
         rig.hibernation.hoverIntent(.tab(keys[1]))
         #expect(rig.hibernation.frozen.contains(keys[1]))
     }

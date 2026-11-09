@@ -57,7 +57,10 @@ final class BrowserImportOfferService {
 
     /// Wires a new browser page's chrome (`TabContentCache.onBrowserEntryCreated`).
     func attach(_ entry: BrowserEntry) {
-        entry.state.onPageFinished = { [weak self, weak entry] _ in if let entry { self?.pageFinished(in: entry) } }
+        entry.state.onPageFinished = { [weak self, weak entry] _ in
+            guard let self, let entry else { return }
+            pageFinished(in: entry)
+        }
     }
 
     private func pageFinished(in entry: BrowserEntry) {
