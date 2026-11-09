@@ -157,6 +157,43 @@ test("a page hidden on an app without the beat op still saves its place", async 
   dom.window.close();
 });
 
+/** A scroller whose content size the test sets, recording what restore writes. */
+function scroller(dom: JSDOM, id: string) {
+  const element = dom.window.document.getElementById(id)!;
+  const size = { height: 0, width: 0 };
+  const wrote: { top?: number; left?: number } = {};
+  Object.defineProperty(element, "scrollHeight", { get: () => size.height });
+  Object.defineProperty(element, "scrollWidth", { get: () => size.width });
+  Object.defineProperty(element, "scrollTop", { set: (top: number) => (wrote.top = top), get: () => 0 });
+  Object.defineProperty(element, "scrollLeft", { set: (left: number) => (wrote.left = left), get: () => 0 });
+  return { size, wrote };
+}
+const frame = () => new Promise((resolve) => setTimeout(resolve, 40));
+
+test("a kept horizontal place waits for content wide enough to hold it", async () => {
+  const { dom } = page(`<div id="list"></div>`);
+  const list = scroller(dom, "list");
+  restoreState(dom.window.document, { scroll: { path: `[id="list"]`, top: 0, left: 200 } });
+  expect(list.wrote.left).toBeUndefined();
+  list.size.width = 400;
+  await frame();
+  expect(list.wrote.left).toBe(200);
+  dom.window.close();
+});
+
+test("a navigation during the restore drops the old route's place", async () => {
+  const { dom } = page(`<div id="list"></div>`);
+  const list = scroller(dom, "list");
+  let done = false;
+  restoreState(dom.window.document, { scroll: { path: `[id="list"]`, top: 300, left: 0 } }, () => (done = true));
+  dom.window.location.hash = "#/other";
+  list.size.height = 1_000;
+  await frame();
+  expect(list.wrote.top).toBeUndefined();
+  expect(done).toBe(true);
+  dom.window.close();
+});
+
 test("the hang injection exists only when the host allowed it", () => {
   const plain = page();
   installPageHealth(plain.client, plain.dom.window.document);
