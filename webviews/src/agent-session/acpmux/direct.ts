@@ -9059,7 +9059,10 @@ export class AcpmuxDirectClient {
           (pick.generation === this.selectionGeneration && this.selectedSessionId === sessionId))
           ? pick
           : undefined;
-      if (held) {
+      // One the new chat already runs in is not sent: the prompt waits on it (harnessSwitch.ts `run`).
+      const has = this.summary?.sessionId === sessionId && this.summary.modes?.currentModeId === held?.modeId;
+      if (held && has) this.heldStartMode = undefined;
+      else if (held) {
         this.heldStartMode = undefined;
         const ticket = await held.ticket?.catch(() => undefined);
         // A held mode the agent refuses says so, as the switch's does; the prompt still goes.
@@ -10222,17 +10225,29 @@ export class AcpmuxDirectClient {
     const params = newSessionParams({ cwd }, offer.harness ?? picks.harness, false, picks.model ?? offer.model);
     // A trust question routes as any new chat's does; Trust starts the offer again.
     const again = () => void this.startOffer(sessionId, offer, cwd, picks).catch(() => undefined);
-    const child = (await this.newSession(params, again))?.sessionId;
+    const started = await this.newSession(params, again);
+    const child = started?.sessionId;
     if (!child) throw new Error(translate("offer.failed"));
+    // A pick the new chat already has is not sent: its prompt waits on each one (harnessSwitch.ts `run`).
+    const hasMode = picks.mode !== undefined && started?.modes?.currentModeId === picks.mode;
+    const hasEffort =
+      picks.effort !== undefined &&
+      Array.isArray(started?.configOptions) &&
+      started.configOptions.some(
+        (option: { id?: unknown; currentValue?: unknown }) =>
+          option.id === picks.effort?.configId && option.currentValue === picks.effort?.value,
+      );
     try {
       await Promise.all([
         picks.mode &&
+          !hasMode &&
           this.request("session/set_mode", {
             sessionId: String(child),
             modeId: picks.mode,
             ...gestureMeta(picks.modeTicket),
           }),
         picks.effort &&
+          !hasEffort &&
           this.request("session/set_config_option", {
             sessionId: String(child),
             configId: picks.effort.configId,
@@ -11048,8 +11063,9 @@ export class AcpmuxDirectClient {
     return this.selectionGeneration;
   }
   /// The shown session, for a harness switch: whether it has nothing in it yet (a pick back to
-  /// its harness reuses it), its harness, and its folder when it runs on this machine (the new
-  /// chat starts there; a cloud or peer session's folder is not one acpmux can start in here).
+  /// its harness reuses it), its harness, its mode and options (a pick it has is not sent), and its
+  /// folder when it runs on this machine (the new chat starts there; a cloud or peer session's folder
+  /// is not one acpmux can start in here).
   shownSession(): ReturnType<SwitchPort["shown"]> {
     const sessionId = this.selectedSessionId;
     if (!sessionId) return undefined;
@@ -11060,6 +11076,7 @@ export class AcpmuxDirectClient {
       sessionId,
       harness: typeof summary?.harness === "string" ? summary.harness : undefined,
       ...(typeof summary?.model === "string" && summary.model ? { model: summary.model } : {}),
+      ...(typeof summary?.modes?.currentModeId === "string" ? { modeId: summary.modes.currentModeId } : {}),
       empty: this.rows.size === 0 && this.queue.length === 0 && turns === 0 && !this.turnOpen,
       ...(local && typeof summary?.cwd === "string" && summary.cwd ? { cwd: summary.cwd } : {}),
       ...(Array.isArray(summary?.configOptions) ? { configOptions: summary.configOptions } : {}),
