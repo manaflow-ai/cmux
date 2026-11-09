@@ -176,9 +176,14 @@ pub(crate) fn record_root_removed() -> bool {
 }
 
 /// How long a host serves no client before it ends its terminal in every
-/// build, normal installs included ([`cmux_holder::ABANDONED_GRACE`], the
-/// holder's too). A running daemon keeps a stream to every host it adopted.
-pub(crate) const ABANDONED_HOST_GRACE: Duration = cmux_holder::ABANDONED_GRACE;
+/// build, normal installs included: no cmux has shown the terminal for a
+/// week, so no daemon will adopt it again (a renamed tag's or a deleted
+/// build's record directory). A running daemon keeps a stream to every host
+/// it adopted. The holder's `cmux_holder::ABANDONED_GRACE` is the same week;
+/// the holder builds only on Unix, so this host-side copy stands on its own.
+/// Leo, 2026-11-09, on 35 terminal processes, some weeks old: "well those
+/// need to get auto cleaned up...".
+pub(crate) const ABANDONED_HOST_GRACE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 /// Whether a stray `SIGTERM` may end an orphaned host: only in a build with
 /// an orphan grace of its own, or once its record directory is gone. A
@@ -801,6 +806,12 @@ mod orphan_grace_tests {
     fn a_normal_install_ends_an_abandoned_host_after_a_week() {
         assert_eq!(orphan_grace_in_force(None, false), ABANDONED_HOST_GRACE);
         assert_eq!(ABANDONED_HOST_GRACE, Duration::from_secs(7 * 24 * 60 * 60));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hosts_and_holders_end_abandoned_terminals_after_the_same_grace() {
+        assert_eq!(ABANDONED_HOST_GRACE, cmux_holder::ABANDONED_GRACE);
     }
 
     #[test]
