@@ -225,9 +225,11 @@ public final class BookmarksBarHostView: NSView {
 ///
 /// - `menu {profile, lend, title, anchor: {x, y, width, height}, rows}`: a folder's native menu under `anchor`
 ///   (CSS px). Rows are `{kind: "bookmark", id, title, url, favicon_key?}`, `{kind: "folder", id,
-///   title, icon?, children}`, `{kind: "openAll", folder, title}`, `{kind: "empty", title}` and
-///   `{kind: "separator"}`; a submenu is filled when it opens. A picked row opens from the tab
-///   the bar is in (a native menu choice is the person's own act).
+///   title, icon?, children, partial?}`, `{kind: "openAll", folder, title}`, `{kind: "empty", title}` and
+///   `{kind: "separator"}`; a submenu is filled when it opens. A `partial` folder (its read was cut
+///   short) shows what was read and asks the page for its rows as it opens (`folderRows`, host to
+///   page, `{profile, lend, folder}` → `{rows}`). A picked row opens from the tab the bar is in (a
+///   native menu choice is the person's own act).
 /// - `contextMenu {bookmark?, point: {x, y}}`: the registry's Bookmark menu, or the Bookmarks
 ///   Bar menu for the bar's empty area.
 /// - `layout {profile, visible: [{id, title, x, width}], overflow: [title]}`: what the bar shows
@@ -240,6 +242,8 @@ public final class BookmarksBarHostView: NSView {
 @MainActor
 public final class BookmarksBarProvider: PageProvider {
     public static let prefix = "cmux.bookmarksBar."
+    /// Host to page: a `partial` folder's rows, read when its submenu opens.
+    static let folderRowsOp = prefix + "folderRows"
 
     public struct Item: Equatable, Sendable {
         public var id: String
@@ -321,10 +325,19 @@ public final class BookmarksBarProvider: PageProvider {
             let number = { (key: String) in CGFloat(anchor[key]?.doubleValue ?? 0) }
             let lease = pageHost.lease()
             // The page may be lent to another tab while the menu is open: a pick then does nothing.
-            let menu = BookmarksBarMenu(host: host, profile: lease.profile, tabKey: lease.tabKey, rows: rows,
-                                        title: params["title"]?.stringValue ?? "") { [weak pageHost] in
-                pageHost?.isCurrent(lease) ?? false
+            let isCurrent: @MainActor () -> Bool = { [weak pageHost] in pageHost?.isCurrent(lease) ?? false }
+            let ask = params
+            // A cut folder's rows come from the page, for the profile and lend its menu was read on.
+            let load: BookmarksBarMenu.Load = { [weak page] folder in
+                guard let page, isCurrent() else { return nil }
+                let reply = try? await page.router.callPage(Self.folderRowsOp, params: .object([
+                    "profile": ask["profile"] ?? .null, "lend": ask["lend"] ?? .null, "folder": .string(folder),
+                ]))
+                guard isCurrent(), let rows = reply?["rows"]?.arrayValue else { return nil }
+                return BookmarksBarMenu.rows(rows)
             }
+            let menu = BookmarksBarMenu(host: host, profile: lease.profile, tabKey: lease.tabKey, rows: rows,
+                                        title: params["title"]?.stringValue ?? "", isCurrent: isCurrent, load: load)
             openMenu = menu
             defer { if openMenu === menu { openMenu = nil } }
             await page.presentMenu(menu.menu, atPagePoint: CGPoint(x: number("x"), y: number("y") + number("height") + 2))
@@ -379,7 +392,8 @@ public final class BookmarksBarProvider: PageProvider {
 final class BookmarksBarMenu: NSObject, NSMenuDelegate {
     indirect enum Row {
         case bookmark(BookmarkNode)
-        case folder(BookmarkNode, [Row])
+        /// A folder and its rows; `partial` when its read was cut short (the rest is read on open).
+        case folder(BookmarkNode, [Row], partial: Bool = false)
         case openAll(String, title: String)
         case empty(String)
         case separator
@@ -390,17 +404,27 @@ final class BookmarksBarMenu: NSObject, NSMenuDelegate {
     private let tabKey: String
     /// Whether the bar that opened the menu still shows `profile` in tab `tabKey`.
     private let isCurrent: @MainActor () -> Bool
-    private let rows: [Row]
+    /// Reads a folder's rows from the page (nil: the read failed or the bar moved on).
+    typealias Load = @MainActor (String) async -> [Row]?
+
+    private var rows: [Row]
     private var children: [BookmarksBarMenu] = []
+    /// The folder whose rows were cut short, read once when this menu first opens.
+    private var partial: String?
+    private let load: Load?
+    /// The read of `partial`'s rows under way (awaited by tests).
+    private(set) var loading: Task<Void, Never>?
     let menu: NSMenu
 
     init(host: any BookmarksBarHost, profile: String, tabKey: String, rows: [Row], title: String,
-         isCurrent: @escaping @MainActor () -> Bool = { true }) {
+         partial: String? = nil, isCurrent: @escaping @MainActor () -> Bool = { true }, load: Load? = nil) {
         self.host = host
         self.profile = profile
         self.tabKey = tabKey
         self.isCurrent = isCurrent
         self.rows = rows
+        self.partial = partial
+        self.load = load
         menu = NSMenu(title: title)
         super.init()
         menu.delegate = self
@@ -419,7 +443,7 @@ final class BookmarksBarMenu: NSObject, NSMenuDelegate {
             case "folder":
                 guard let id = value["id"]?.stringValue else { return nil }
                 return .folder(BookmarkNode(id: id, parent: "", kind: .folder, title: title, icon: value["icon"]?.stringValue),
-                               rows(value["children"]?.arrayValue ?? []))
+                               rows(value["children"]?.arrayValue ?? []), partial: value["partial"]?.boolValue ?? false)
             case "openAll":
                 guard let folder = value["folder"]?.stringValue else { return nil }
                 return .openAll(folder, title: title)
@@ -434,9 +458,30 @@ final class BookmarksBarMenu: NSObject, NSMenuDelegate {
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
+        fill(menu)
+        // A cut folder shows what was read at once and its whole level once the page answers.
+        guard let folder = partial, let load, loading == nil else { return }
+        loading = Task { [weak self] in
+            let rows = await load(folder)
+            guard let self else { return }
+            loading = nil
+            guard let rows, isCurrent() else { return }
+            partial = nil
+            self.rows = rows
+            fill(self.menu)
+        }
+    }
+
+    private func fill(_ menu: NSMenu) {
         menu.removeAllItems()
         children.removeAll()
         guard let host else { return }
+        if rows.isEmpty, partial != nil {
+            // Nothing of a cut folder was read yet: its rows land here when the page answers.
+            let item = NSMenuItem(title: "…", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+        }
         let side = Metrics.smallIconSize
         for row in rows {
             switch row {
@@ -450,11 +495,11 @@ final class BookmarksBarMenu: NSObject, NSMenuDelegate {
                 item.image = host.bookmarkFavicon(node, profile: profile).map { NSImage(cgImage: $0, size: NSSize(width: side, height: side)) }
                     ?? NSImage.icon(.browser, size: side)
                 menu.addItem(item)
-            case .folder(let node, let rows):
+            case .folder(let node, let rows, let partial):
                 let item = NSMenuItem(title: node.title, action: nil, keyEquivalent: "")
                 item.image = host.bookmarkFolderIcon(node, side: side) ?? NSImage.icon(.folder, size: side)
                 let child = BookmarksBarMenu(host: host, profile: profile, tabKey: tabKey, rows: rows, title: node.title,
-                                             isCurrent: isCurrent)
+                                             partial: partial ? node.id : nil, isCurrent: isCurrent, load: load)
                 children.append(child)
                 item.submenu = child.menu
                 menu.addItem(item)

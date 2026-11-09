@@ -161,10 +161,11 @@ export function disposition(modifiers: { metaKey: boolean; shiftKey: boolean }, 
 }
 
 /** One row of a folder's native menu (`cmux.bookmarksBar.menu`). The host draws it as an NSMenu
- * item and fills a submenu only when it opens. */
+ * item and fills a submenu only when it opens. A `partial` folder's `children` are only those the
+ * read reached (it was cut short): the host asks the page for its rows (`folderRows`) when it opens. */
 export type MenuRow =
   | { kind: "bookmark"; id: string; title: string; url: string; favicon_key?: string | null }
-  | { kind: "folder"; id: string; title: string; icon?: string | null; children: MenuRow[] }
+  | { kind: "folder"; id: string; title: string; icon?: string | null; children: MenuRow[]; partial?: true }
   | { kind: "openAll"; folder: string; title: string }
   | { kind: "empty"; title: string }
   | { kind: "separator" };
@@ -198,27 +199,53 @@ export function groupChildren(rows: readonly Bookmark[]): Map<string, Bookmark[]
 /**
  * The rows of a folder's menu, the native BookmarkFolderMenu's: `leading` first (the overflow's
  * hidden bar items), then the folder's children; "(empty)" when there is nothing, else "Open All"
- * after a separator when the folder holds more than one link. Subfolders nest the same way.
+ * after a separator when the folder holds more than one link. Subfolders nest the same way. With
+ * `complete`, a subfolder not in it is `partial`: its rows are those of `groups` alone, with no
+ * "(empty)" and no "Open All" (the host reads the rest when it opens).
  */
 export function menuRows(
   groups: ReadonlyMap<string, readonly Bookmark[]>,
   folder: string | null,
   words: MenuWords,
   leading: readonly Bookmark[] = [],
+  complete?: ReadonlySet<string>,
 ): MenuRow[] {
   const own = folder ? (groups.get(folder) ?? []) : [];
   const nodes = [...leading, ...own];
-  const rows = nodes.map((node) => row(groups, node, words));
+  const rows = nodes.map((node) => row(groups, node, words, complete));
   if (rows.length === 0) return [{ kind: "empty", title: words.empty }];
   const links = own.filter((node) => node.kind !== "folder").length;
   if (folder && links > 1) rows.push({ kind: "separator" }, { kind: "openAll", folder, title: words.openAll(links) });
   return rows;
 }
 
-function row(groups: ReadonlyMap<string, readonly Bookmark[]>, node: Bookmark, words: MenuWords): MenuRow {
+function row(
+  groups: ReadonlyMap<string, readonly Bookmark[]>,
+  node: Bookmark,
+  words: MenuWords,
+  complete?: ReadonlySet<string>,
+): MenuRow {
   const title = menuTitle(displayTitle(node));
   if (node.kind === "folder") {
-    return { kind: "folder", id: node.id, title, icon: node.icon ?? null, children: menuRows(groups, node.id, words) };
+    const folder = { kind: "folder", id: node.id, title, icon: node.icon ?? null } as const;
+    if (complete && !complete.has(node.id)) {
+      const known = (groups.get(node.id) ?? []).map((child) => row(groups, child, words, complete));
+      return { ...folder, children: known, partial: true };
+    }
+    return { ...folder, children: menuRows(groups, node.id, words, [], complete) };
   }
   return { kind: "bookmark", id: node.id, title, url: node.url ?? "", favicon_key: node.favicon_key ?? null };
+}
+
+/**
+ * The folders of a depth-first `bookmarks.children` read whose contents it holds whole: all of
+ * them, unless the read was cut short, when the last row's folder and its ancestors may not be.
+ */
+export function completeFolders(rows: readonly Bookmark[], truncated: boolean): Set<string> {
+  const complete = new Set(rows.filter((node) => node.kind === "folder").map((node) => node.id));
+  const last = rows[rows.length - 1];
+  if (!truncated || !last) return complete;
+  const parents = new Map(rows.map((node) => [node.id, node.parent]));
+  for (let id: string | undefined = last.id; id !== undefined; id = parents.get(id)) complete.delete(id);
+  return complete;
 }

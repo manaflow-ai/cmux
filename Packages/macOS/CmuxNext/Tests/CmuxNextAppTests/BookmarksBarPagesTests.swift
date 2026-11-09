@@ -286,6 +286,55 @@ struct BookmarksBarPagesTests {
         #expect(host.opened == [node.id], "the tab or profile changed: the pick is dropped")
     }
 
+    /// A folder whose read was cut short shows what was read, asks for its own rows as its submenu
+    /// opens (once), and shows them; an answer that lands after the bar moved on changes nothing.
+    @Test func aCutFolderReadsItsRowsWhenItOpens() async throws {
+        _ = NSApplication.shared
+        let host = FakeBarHost()
+        let url = try #require(URL(string: "https://example.com/"))
+        let archive = BookmarkNode(id: "archive", parent: "", kind: .folder, title: "Archive")
+        let read = BookmarkNode(id: "read", parent: "", kind: .url, title: "Read", url: url)
+        let late = BookmarkNode(id: "late", parent: "", kind: .url, title: "Late", url: url)
+        var asked: [String] = []
+        var current = true
+        let menu = BookmarksBarMenu(host: host, profile: "default", tabKey: "tab",
+                                    rows: [.folder(archive, [.bookmark(read)], partial: true), .folder(archive, [], partial: true)],
+                                    title: "Other", isCurrent: { current }) { folder in
+            asked.append(folder)
+            return [.bookmark(read), .bookmark(late)]
+        }
+        menu.menuNeedsUpdate(menu.menu)
+        let submenu = try #require(menu.menu.item(at: 0)?.submenu)
+        let child = try #require(submenu.delegate as? BookmarksBarMenu)
+        child.menuNeedsUpdate(submenu)
+        #expect(submenu.items.map(\.title) == ["Read"], "what was read shows at once")
+        await child.loading?.value
+        #expect(asked == ["archive"])
+        #expect(submenu.items.map(\.title) == ["Read", "Late"])
+        child.menuNeedsUpdate(submenu)
+        #expect(child.loading == nil, "read once")
+        #expect(submenu.items.map(\.title) == ["Read", "Late"])
+
+        // Nothing read yet: a placeholder until the answer, which a bar that moved on drops.
+        let emptySubmenu = try #require(menu.menu.item(at: 1)?.submenu)
+        let emptyChild = try #require(emptySubmenu.delegate as? BookmarksBarMenu)
+        emptyChild.menuNeedsUpdate(emptySubmenu)
+        #expect(emptySubmenu.items.map(\.title) == ["…"])
+        current = false
+        await emptyChild.loading?.value
+        #expect(emptySubmenu.items.map(\.title) == ["…"])
+    }
+
+    /// A folder's rows from the page's `rows` keep its `partial` mark.
+    @Test func aPartialFolderRowKeepsItsMark() {
+        let rows = BookmarksBarMenu.rows([
+            .object(["kind": .string("folder"), "id": .string("a"), "title": .string("A"), "children": .array([]), "partial": .bool(true)]),
+            .object(["kind": .string("folder"), "id": .string("b"), "title": .string("B"), "children": .array([])]),
+        ])
+        let marks = rows.map { row -> Bool? in if case .folder(_, _, let partial) = row { partial } else { nil } }
+        #expect(marks == [true, false])
+    }
+
     /// A page returned before its new profile's row landed reports that row while it waits as a
     /// spare: the next bar of the first profile must not show it (the cached report and the
     /// profile it drew are one record).

@@ -4,6 +4,7 @@
 // move is written by the app, never straight to the daemon, and a refused one says why through the
 // host; a change subscription that failed while the daemon was away is made again on reconnect.
 import { expect, test } from "bun:test";
+import type { MenuRow } from "../src/browser-chrome/bookmarks-bar/model";
 import { BarOps, BookmarksBarStore } from "../src/browser-chrome/bookmarks-bar/store";
 import { BookmarkOps, HostOps, type Bookmark } from "../src/pages/bookmarks/types";
 import { pageError, type PageClient } from "../src/pages/shared/pageClient";
@@ -28,6 +29,7 @@ function fakeClient(options: { refuse?: boolean; changesFailFirst?: boolean; tre
   const subscribed: string[] = [];
   const calls: Array<{ op: string; params: Record<string, unknown> }> = [];
   const streams = new Map<string, (data: unknown) => void>();
+  const handlers = new Map<string, (params: unknown) => unknown>();
   let profile = "default";
   let revision = 1;
   /** A parent read at another revision than the rest (the two reads of a row are separate). */
@@ -54,10 +56,10 @@ function fakeClient(options: { refuse?: boolean; changesFailFirst?: boolean; tre
       }
       if (op === BarOps.children) {
         const depth = (p.depth as number | undefined) ?? 1;
+        const byParent = new Map<string, Bookmark[]>();
+        for (const node of tree) byParent.set(node.parent, [...(byParent.get(node.parent) ?? []), node]);
         const under = (parent: string, level: number): Bookmark[] =>
-          tree
-            .filter((node) => node.parent === parent)
-            .flatMap((node) => [node, ...(level < depth ? under(node.id, level + 1) : [])]);
+          (byParent.get(parent) ?? []).flatMap((node) => [node, ...(level < depth ? under(node.id, level + 1) : [])]);
         const all = under(p.parent as string, 1);
         const limit = (p.limit as number | undefined) ?? 1000;
         return {
@@ -79,7 +81,10 @@ function fakeClient(options: { refuse?: boolean; changesFailFirst?: boolean; tre
       streams.set(stream, (data) => onEvent(data as E, 0));
       return () => streams.delete(stream);
     },
-    handle: () => () => undefined,
+    handle: (op, handler) => {
+      handlers.set(op, handler);
+      return () => handlers.delete(op);
+    },
   };
   return {
     client,
@@ -89,6 +94,8 @@ function fakeClient(options: { refuse?: boolean; changesFailFirst?: boolean; tre
     setProfile: (next: string) => (profile = next),
     bump: () => (revision += 1),
     readAt,
+    /** Calls an op the page serves, as the host does. */
+    callPage: (op: string, params: unknown) => handlers.get(op)?.(params),
   };
 }
 
@@ -353,4 +360,83 @@ test("the chevron still lists bar items after a folder whose subtree fills a who
   expect(menu?.params.rows).toEqual([
     { kind: "bookmark", id: "hiddenLink", title: "hiddenLink", url: "https://hiddenLink.example/", favicon_key: null },
   ]);
+});
+
+/** A folder `id` under `parent` at `index` holding `count` links, then `after` (a link) beside it. */
+function hugeFolderThen(parent: string, id: string, count: number, after: string): Bookmark[] {
+  const links = Array.from({ length: count }, (_, index) => row(`${id}${index}`, id, index));
+  return [row(id, parent, 0, "folder"), ...links, row(after, parent, 1)];
+}
+
+/** A menu's top rows as `kind:id`, partial folders marked. */
+const shape = (rows: unknown) =>
+  (rows as Array<{ kind: string; id?: string; partial?: boolean }>).map(
+    (entry) => `${entry.kind}:${entry.id ?? ""}${entry.partial ? " partial" : ""}`,
+  );
+
+test("Other Bookmarks lists a link after a folder whose subtree fills a whole read", async () => {
+  const fake = fakeClient({
+    tree: [row("work", "bar", 0, "folder"), ...hugeFolderThen("other", "archive", 20_000, "favorite")],
+  });
+  const store = new BookmarksBarStore(fake.client, words);
+  await store.start();
+  await store.openOther({ x: 2, y: 2, width: 60, height: 24 });
+  const menu = fake.calls.find((call) => call.op === BarOps.menu);
+  expect(shape(menu?.params.rows)).toEqual(["folder:archive partial", "bookmark:favorite"]);
+});
+
+test("a folder's menu lists a link after a subfolder whose subtree fills a whole read", async () => {
+  const fake = fakeClient({
+    tree: [row("work", "bar", 0, "folder"), ...hugeFolderThen("work", "archive", 20_000, "favorite")],
+  });
+  const store = new BookmarksBarStore(fake.client, words);
+  await store.start();
+  const work = store.getSnapshot().items[0]!;
+  await store.openFolder(work, { x: 2, y: 2, width: 60, height: 24 }, "work");
+  const rows = fake.calls.find((call) => call.op === BarOps.menu)?.params.rows as Array<{ children?: unknown[] }>;
+  expect(shape(rows)).toEqual(["folder:archive partial", "bookmark:favorite"]);
+  // The cut folder carries the rows the read reached, with no "(empty)" or "Open All" of its own.
+  expect(rows[0]?.children).toHaveLength(19_999);
+  expect(shape(rows[0]?.children).every((entry) => entry.startsWith("bookmark:"))).toBe(true);
+});
+
+test("a cut folder's rows are read, one level, when its submenu opens", async () => {
+  const fake = fakeClient({
+    tree: [
+      ...hugeFolderThen("other", "archive", 19_999, "favorite"),
+      row("old", "archive", 19_999, "folder"),
+      row("deep", "old", 0),
+    ],
+  });
+  const store = new BookmarksBarStore(fake.client, words);
+  await store.start();
+  const reply = (await fake.callPage(BarOps.folderRows, { profile: "default", lend: 1, folder: "archive" })) as {
+    rows: MenuRow[];
+  };
+  const read = fake.calls.filter((call) => call.op === BarOps.children && call.params.parent === "archive");
+  expect(read.map((call) => call.params)).toEqual([
+    { browser_profile_id: "default", parent: "archive", depth: 1, limit: 20_000 },
+  ]);
+  // All 19,999 links, the subfolder (read when it opens in turn), then "Open All".
+  expect(reply.rows.filter((entry) => entry.kind === "bookmark")).toHaveLength(19_999);
+  expect(reply.rows.find((entry) => "id" in entry && entry.id === "old")).toEqual({
+    kind: "folder",
+    id: "old",
+    title: "old",
+    icon: null,
+    children: [],
+    partial: true,
+  });
+  expect(reply.rows.slice(-2)).toEqual([
+    { kind: "separator" },
+    { kind: "openAll", folder: "archive", title: "Open All (19999)" },
+  ]);
+
+  // An ask for a profile or lend the page left reads nothing.
+  const before = fake.calls.length;
+  expect(await fake.callPage(BarOps.folderRows, { profile: "p2", lend: 1, folder: "archive" })).toEqual({ rows: null });
+  expect(await fake.callPage(BarOps.folderRows, { profile: "default", lend: 2, folder: "archive" })).toEqual({
+    rows: null,
+  });
+  expect(fake.calls.length).toBe(before);
 });
