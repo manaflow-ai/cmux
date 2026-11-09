@@ -238,8 +238,12 @@ import Testing
         let keys = try await rig.pages(["a", "b", "c"])
         try await rig.until("every hidden page freezes") { keys.allSatisfy(rig.hibernation.frozen.contains) }
         #expect(rig.hibernation.hoverBudget.pages == 0)
+        // Hover preload is on, so the hover arms the dwell (on a manual clock: no timer outlives the test);
+        // the intent the dwell delivers wakes nothing, since no neighbor radius leaves a budget of 0.
+        let dwell = DwellClock()
+        dwell.drive(rig.hibernation)
         rig.hibernation.noteHover(keys[1])
-        // With no neighbor radius the gate arms no dwell; even the intent a dwell would deliver wakes nothing.
+        try await dwell.armed()
         rig.hibernation.hoverIntent(.tab(keys[1]))
         #expect(rig.hibernation.frozen.contains(keys[1]))
     }
