@@ -80144,6 +80144,16 @@
           "isTargetDescription" : false,
           "isTargetName" : false,
           "kind" : "string",
+          "name" : "fromFolder",
+          "suggestions" : null,
+          "title" : "Folder on This Mac to Copy"
+        },
+        {
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
           "name" : "login",
           "suggestions" : null,
           "title" : "Harness Login"
@@ -80164,7 +80174,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Starts an agent session (--agent claude, codex, ...) in the Cloud machine's own acpmux and returns machine_id, session_id and host, plus the chat tab's workspace_id and surface_id. Name the machine with --target machine:<id>, or --name <name> to take or create it; --cwd is the folder there. --login pass|machine|none: your login, the machine's own, or none (default: the machine's login or your earlier choice). An agent's run asks no one (unless cloud.agentsStartWithoutAsking is off). A slow run answers pending: true; run it again for its session.",
+      "description" : "Starts an agent session (--agent claude, codex, ...) in the Cloud machine's own acpmux and returns machine_id, session_id and host, plus the chat tab's workspace_id and surface_id. Name the machine with --target machine:<id>, or --name <name> to take or create it; --cwd is the folder there, or --from-folder copies one from this Mac. --login pass|machine|none: your login, the machine's own, or none (default: the machine's login or your earlier choice). An agent's run asks no one (unless cloud.agentsStartWithoutAsking is off). A slow run answers pending: true; run it again for its session.",
       "focuses" : false,
       "group" : "CloudSessionActionCatalog",
       "hint" : null,
@@ -86362,9 +86372,11 @@
       "keywords" : [
         "appearance",
         "font",
+        "text",
+        "size",
+        "interface",
         "chrome",
-        "bigger",
-        "zoom"
+        "bigger"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -86392,7 +86404,7 @@
       "targets" : [
 
       ],
-      "title" : "Increase Interface Size",
+      "title" : "Increase Text Size",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -86428,9 +86440,11 @@
       "keywords" : [
         "appearance",
         "font",
+        "text",
+        "size",
+        "interface",
         "chrome",
-        "smaller",
-        "zoom"
+        "smaller"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -86458,7 +86472,7 @@
       "targets" : [
 
       ],
-      "title" : "Decrease Interface Size",
+      "title" : "Decrease Text Size",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -86494,6 +86508,9 @@
       "keywords" : [
         "appearance",
         "font",
+        "text",
+        "size",
+        "interface",
         "chrome",
         "default"
       ],
@@ -86523,7 +86540,7 @@
       "targets" : [
 
       ],
-      "title" : "Reset Interface Size",
+      "title" : "Reset Text Size",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -86566,7 +86583,8 @@
       "keywords" : [
         "appearance",
         "scale",
-        "chrome",
+        "interface",
+        "pages",
         "bigger",
         "zoom"
       ],
@@ -86598,7 +86616,7 @@
       "targets" : [
 
       ],
-      "title" : "Increase Interface Scale",
+      "title" : "Increase App Zoom",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -86641,7 +86659,8 @@
       "keywords" : [
         "appearance",
         "scale",
-        "chrome",
+        "interface",
+        "pages",
         "smaller",
         "zoom"
       ],
@@ -86673,7 +86692,7 @@
       "targets" : [
 
       ],
-      "title" : "Decrease Interface Scale",
+      "title" : "Decrease App Zoom",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -86716,7 +86735,8 @@
       "keywords" : [
         "appearance",
         "scale",
-        "chrome",
+        "interface",
+        "pages",
         "default",
         "zoom"
       ],
@@ -86748,7 +86768,7 @@
       "targets" : [
 
       ],
-      "title" : "Reset Interface Scale",
+      "title" : "Reset App Zoom",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -87268,8 +87288,7 @@
         "appearance",
         "font",
         "compact",
-        "dense",
-        "default"
+        "dense"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -87335,6 +87354,9 @@
         "rows",
         "appearance",
         "font",
+        "default",
+        "normal",
+        "standard",
         "cozy",
         "medium",
         "middle"
@@ -87363,7 +87385,7 @@
       "targets" : [
 
       ],
-      "title" : "Density: Cozy",
+      "title" : "Density: Default",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -87527,7 +87549,7 @@
                 "value" : "compact"
               },
               {
-                "title" : "Cozy",
+                "title" : "Default",
                 "value" : "cozy"
               },
               {
@@ -87640,7 +87662,7 @@
                 "value" : "compact"
               },
               {
-                "title" : "Cozy",
+                "title" : "Default",
                 "value" : "cozy"
               },
               {
@@ -103683,6 +103705,166 @@
 
       ],
       "title" : "Always Show Sidebar Controls",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "sidebar",
+      "cliName" : "action sidebar-float-on-hover-on",
+      "computed" : {
+        "canonical_action_id" : "sidebar.floatOnHover.on",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SidebarSectionActionCatalog",
+      "hint" : null,
+      "id" : "sidebar.floatOnHover.on",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "sidebar",
+        "float",
+        "floating",
+        "hover",
+        "peek",
+        "edge",
+        "overlay",
+        "reveal",
+        "hidden",
+        "auto hide"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "sidebarBackground",
+            "folder" : "options",
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 139,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "sidebar.squares.left",
+      "targets" : [
+
+      ],
+      "title" : "Float Hidden Sidebar on Hover",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "sidebar",
+      "cliName" : "action sidebar-float-on-hover-off",
+      "computed" : {
+        "canonical_action_id" : "sidebar.floatOnHover.off",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SidebarSectionActionCatalog",
+      "hint" : null,
+      "id" : "sidebar.floatOnHover.off",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "sidebar",
+        "float",
+        "floating",
+        "hover",
+        "peek",
+        "edge",
+        "overlay",
+        "off",
+        "never",
+        "disable"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "sidebarBackground",
+            "folder" : "options",
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 140,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "contextMenu"
+      ],
+      "symbol" : "sidebar.left",
+      "targets" : [
+
+      ],
+      "title" : "Never Float Hidden Sidebar",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false

@@ -39,8 +39,17 @@ extension AgentPaneView {
             }, true);
         }
         target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        // A control shown only while its block is hovered (a reply table's Open and Copy) takes no
+        // pointer until then, and a capture slot's window is never key, so WebKit gives the page no
+        // hover there: the native click would fall through to what lies under it. Focusing it first
+        // reveals it the way a keyboard user's Tab does (`:focus-within`), so the click lands on it.
+        let focused = false;
+        if (getComputedStyle(target).pointerEvents === 'none') {
+            const control = target.closest('button, a[href], input, select, textarea, [tabindex]');
+            if (control instanceof HTMLElement) { control.focus({ preventScroll: true }); focused = document.activeElement === control; }
+        }
         const r = target.getBoundingClientRect();
-        return JSON.stringify({ x: r.left + r.width / 2, y: r.top + r.height / 2, tag: target.tagName.toLowerCase() });
+        return JSON.stringify({ x: r.left + r.width / 2, y: r.top + r.height / 2, tag: target.tagName.toLowerCase(), focused });
         """
 
     /// The element of the chat's page matching `selector` (CSS), or by `text` (its visible text or

@@ -55148,6 +55148,268 @@
         }
       }
     },
+    "settings.appearance.textSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text Size"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم النص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veličina teksta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekststørrelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Textgröße"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño del texto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille du texte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dimensione testo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字サイズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំហំអក្សរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "텍스트 크기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekststørrelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozmiar tekstu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamanho do texto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Размер текста"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขนาดข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metin Boyutu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розмір тексту"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cỡ chữ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字大小"
+          }
+        }
+      }
+    },
+    "settings.appearance.textSize.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم نص علامات التبويب والشريط الجانبي والدردشة وعناصر التحكم الأخرى، بدلًا من حجم الكثافة. لنص الطرفية حجمه الخاص."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veličina teksta kartica, bočne trake, chata i drugih kontrola, umjesto one iz gustoće. Tekst terminala ima vlastitu veličinu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekststørrelse for faner, sidepanelet, chat og andre kontroller i stedet for tæthedens. Terminaltekst har sin egen størrelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Textgröße von Tabs, Seitenleiste, Chat und anderen Bedienelementen, statt der Größe der Dichte. Terminaltext hat eine eigene Größe."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño del texto de las pestañas, la barra lateral, el chat y otros controles, en lugar del de la densidad. El texto de la terminal tiene su propio tamaño."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille du texte des onglets, de la barre latérale, du chat et des autres commandes, à la place de celle de la densité. Le texte du terminal a sa propre taille."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dimensione del testo di schede, barra laterale, chat e altri controlli, al posto di quella della densità. Il testo del terminale ha una dimensione propria."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ、サイドバー、チャット、その他のコントロールの文字サイズで、密度の文字サイズより優先されます。ターミナルの文字サイズは別に設定します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំហំអក្សររបស់ផ្ទាំង របារចំហៀង ការជជែក និងការគ្រប់គ្រងផ្សេងទៀត ជំនួសទំហំរបស់ដង់ស៊ីតេ។ អក្សរទែមីណាល់មានទំហំផ្ទាល់ខ្លួន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭, 사이드바, 채팅 및 기타 컨트롤의 텍스트 크기로, 밀도의 크기 대신 사용됩니다. 터미널 텍스트 크기는 따로 설정합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekststørrelse for faner, sidepanelet, chat og andre kontroller i stedet for tetthetens. Terminaltekst har sin egen størrelse."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozmiar tekstu kart, paska bocznego, czatu i innych elementów sterujących zamiast rozmiaru z gęstości. Tekst terminala ma własny rozmiar."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamanho do texto das abas, da barra lateral, do chat e de outros controles, no lugar do da densidade. O texto do terminal tem tamanho próprio."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Размер текста вкладок, боковой панели, чата и других элементов управления вместо размера плотности. У текста терминала свой размер."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขนาดข้อความของแท็บ แถบด้านข้าง แชท และตัวควบคุมอื่น ๆ แทนขนาดของความหนาแน่น ข้อความในเทอร์มินัลมีขนาดของตัวเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekmelerin, kenar çubuğunun, sohbetin ve diğer denetimlerin metin boyutu; yoğunluğunkinin yerine geçer. Terminal metninin kendi boyutu vardır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розмір тексту вкладок, бічної панелі, чату та інших елементів керування замість розміру щільності. Текст термінала має власний розмір."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cỡ chữ của tab, thanh bên, trò chuyện và các điều khiển khác, thay cho cỡ chữ của mật độ. Chữ trong terminal có cỡ riêng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标签页、边栏、聊天和其他控件的文字大小，取代密度的文字大小。终端文字有自己的大小。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標籤頁、側邊欄、聊天和其他控制項的文字大小，取代密度的文字大小。終端機文字有自己的大小。"
+          }
+        }
+      }
+    },
     "settings.group.terminalFont": {
       "extractionState": "manual",
       "localizations": {
@@ -86779,127 +87041,258 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Interface Scale"
+            "value": "App Zoom"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Interface Scale"
+            "state": "translated",
+            "value": "تكبير التطبيق"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Interface Scale"
+            "state": "translated",
+            "value": "Zum aplikacije"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Interface Scale"
+            "state": "translated",
+            "value": "Appzoom"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Interface Scale"
+            "state": "translated",
+            "value": "App-Zoom"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Interface Scale"
+            "state": "translated",
+            "value": "Zoom de la app"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Interface Scale"
+            "state": "translated",
+            "value": "Zoom de l’app"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Interface Scale"
+            "state": "translated",
+            "value": "Zoom dell’app"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Interface Scale"
+            "state": "translated",
+            "value": "アプリのズーム"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Interface Scale"
+            "state": "translated",
+            "value": "ការពង្រីកកម្មវិធី"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Interface Scale"
+            "state": "translated",
+            "value": "앱 확대/축소"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Interface Scale"
+            "state": "translated",
+            "value": "Appzoom"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Interface Scale"
+            "state": "translated",
+            "value": "Powiększenie aplikacji"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Interface Scale"
+            "state": "translated",
+            "value": "Zoom do app"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Interface Scale"
+            "state": "translated",
+            "value": "Масштаб приложения"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Interface Scale"
+            "state": "translated",
+            "value": "การซูมแอป"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Interface Scale"
+            "state": "translated",
+            "value": "Uygulama Yakınlaştırması"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Interface Scale"
+            "state": "translated",
+            "value": "Масштаб застосунку"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Interface Scale"
+            "state": "translated",
+            "value": "Thu phóng ứng dụng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Interface Scale"
+            "state": "translated",
+            "value": "应用缩放"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Interface Scale"
+            "state": "translated",
+            "value": "App 縮放"
+          }
+        }
+      }
+    },
+    "settings.appearance.uiScale.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom for chat, Settings and other app pages. Density and Text Size set the rest of the app."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تكبير الدردشة والإعدادات وصفحات التطبيق الأخرى. تحدد الكثافة وحجم النص بقية التطبيق."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum za chat, Postavke i druge stranice aplikacije. Gustoća i Veličina teksta određuju ostatak aplikacije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom for chat, Indstillinger og andre appsider. Tæthed og Tekststørrelse styrer resten af appen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom für Chat, Einstellungen und andere App-Seiten. Dichte und Textgröße bestimmen den Rest der App."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom del chat, Ajustes y otras páginas de la app. Densidad y Tamaño del texto ajustan el resto de la app."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom du chat, des Réglages et des autres pages de l’app. Densité et Taille du texte règlent le reste de l’app."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom di chat, Impostazioni e altre pagine dell’app. Densità e Dimensione testo regolano il resto dell’app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャット、設定、その他のアプリページのズームです。アプリのその他の部分は密度と文字サイズで設定します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការពង្រីកសម្រាប់ការជជែក ការកំណត់ និងទំព័រកម្មវិធីផ្សេងទៀត។ ដង់ស៊ីតេ និងទំហំអក្សរកំណត់ផ្នែកផ្សេងទៀតនៃកម្មវិធី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅, 설정 및 기타 앱 페이지의 확대/축소입니다. 앱의 나머지 부분은 밀도와 텍스트 크기로 설정합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom for chat, Innstillinger og andre appsider. Tetthet og Tekststørrelse styrer resten av appen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiększenie czatu, Ustawień i innych stron aplikacji. Gęstość i Rozmiar tekstu ustawiają resztę aplikacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom do chat, dos Ajustes e de outras páginas do app. Densidade e Tamanho do texto definem o resto do app."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Масштаб чата, настроек и других страниц приложения. Остальное задают плотность и размер текста."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การซูมสำหรับแชท การตั้งค่า และหน้าอื่น ๆ ของแอป ความหนาแน่นและขนาดข้อความกำหนดส่วนที่เหลือของแอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet, Ayarlar ve diğer uygulama sayfaları için yakınlaştırma. Uygulamanın geri kalanını Yoğunluk ve Metin Boyutu belirler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Масштаб чату, налаштувань та інших сторінок застосунку. Решту задають щільність і розмір тексту."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thu phóng cho trò chuyện, Cài đặt và các trang khác của ứng dụng. Mật độ và Cỡ chữ đặt phần còn lại của ứng dụng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天、设置和其他应用页面的缩放。应用的其余部分由密度和文字大小决定。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天、設定和其他 App 頁面的縮放。App 的其餘部分由密度和文字大小決定。"
           }
         }
       }
@@ -172375,127 +172768,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Row height, padding, corners, icons and text size together. Compact is the default."
+            "value": "Row height, padding, corners, icons and text size together."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ارتفاع الصفوف والهوامش والزوايا والأيقونات وحجم النص معًا. المضغوط هو الافتراضي."
+            "state": "translated",
+            "value": "ارتفاع الصفوف والهوامش والزوايا والأيقونات وحجم النص معًا."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Visina redova, razmaci, uglovi, ikone i veličina teksta zajedno. Kompaktno je zadano."
+            "state": "translated",
+            "value": "Visina redova, razmaci, uglovi, ikone i veličina teksta zajedno."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Rækkehøjde, afstand, hjørner, ikoner og tekststørrelse samlet. Kompakt er standard."
+            "state": "translated",
+            "value": "Rækkehøjde, afstand, hjørner, ikoner og tekststørrelse samlet."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Zeilenhöhe, Abstände, Ecken, Symbole und Textgröße gemeinsam. Kompakt ist der Standard."
+            "state": "translated",
+            "value": "Zeilenhöhe, Abstände, Ecken, Symbole und Textgröße gemeinsam."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Altura de filas, márgenes, esquinas, iconos y tamaño del texto a la vez. Compacta es la predeterminada."
+            "state": "translated",
+            "value": "Altura de filas, márgenes, esquinas, iconos y tamaño del texto a la vez."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hauteur des lignes, marges, coins, icônes et taille du texte ensemble. Compact est la valeur par défaut."
+            "state": "translated",
+            "value": "Hauteur des lignes, marges, coins, icônes et taille du texte ensemble."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Altezza delle righe, spaziature, angoli, icone e dimensione del testo insieme. Compatta è il valore predefinito."
+            "state": "translated",
+            "value": "Altezza delle righe, spaziature, angoli, icone e dimensione del testo insieme."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "行の高さ、余白、角、アイコン、文字サイズをまとめて変えます。標準はコンパクトです。"
+            "state": "translated",
+            "value": "行の高さ、余白、角、アイコン、文字サイズをまとめて変えます。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "កម្ពស់ជួរ គម្លាត ជ្រុង រូបតំណាង និងទំហំអក្សរ រួមគ្នា។ បង្រួម គឺជាលំនាំដើម។"
+            "state": "translated",
+            "value": "កម្ពស់ជួរ គម្លាត ជ្រុង រូបតំណាង និងទំហំអក្សរ រួមគ្នា។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "행 높이, 여백, 모서리, 아이콘, 텍스트 크기를 함께 바꿉니다. 기본값은 컴팩트입니다."
+            "state": "translated",
+            "value": "행 높이, 여백, 모서리, 아이콘, 텍스트 크기를 함께 바꿉니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Radhøyde, avstand, hjørner, ikoner og tekststørrelse samlet. Kompakt er standard."
+            "state": "translated",
+            "value": "Radhøyde, avstand, hjørner, ikoner og tekststørrelse samlet."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Wysokość wierszy, odstępy, narożniki, ikony i rozmiar tekstu razem. Domyślna jest kompaktowa."
+            "state": "translated",
+            "value": "Wysokość wierszy, odstępy, narożniki, ikony i rozmiar tekstu razem."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Altura das linhas, espaçamento, cantos, ícones e tamanho do texto juntos. Compacta é o padrão."
+            "state": "translated",
+            "value": "Altura das linhas, espaçamento, cantos, ícones e tamanho do texto juntos."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Высота строк, отступы, углы, значки и размер текста вместе. По умолчанию — компактная."
+            "state": "translated",
+            "value": "Высота строк, отступы, углы, значки и размер текста вместе."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ความสูงแถว ระยะห่าง มุม ไอคอน และขนาดข้อความไปพร้อมกัน ค่าเริ่มต้นคือกะทัดรัด"
+            "state": "translated",
+            "value": "ความสูงแถว ระยะห่าง มุม ไอคอน และขนาดข้อความไปพร้อมกัน"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Satır yüksekliği, boşluk, köşeler, simgeler ve metin boyutu birlikte. Varsayılan Kompakt."
+            "state": "translated",
+            "value": "Satır yüksekliği, boşluk, köşeler, simgeler ve metin boyutu birlikte."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Висота рядків, відступи, кути, значки й розмір тексту разом. Типово — компактна."
+            "state": "translated",
+            "value": "Висота рядків, відступи, кути, значки й розмір тексту разом."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chiều cao hàng, khoảng đệm, góc, biểu tượng và cỡ chữ cùng lúc. Mặc định là Gọn."
+            "state": "translated",
+            "value": "Chiều cao hàng, khoảng đệm, góc, biểu tượng và cỡ chữ cùng lúc."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "行高、间距、圆角、图标和文字大小一起变化。默认为紧凑。"
+            "state": "translated",
+            "value": "行高、间距、圆角、图标和文字大小一起变化。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "列高、間距、圓角、圖示和文字大小一起變化。預設為緊湊。"
+            "state": "translated",
+            "value": "列高、間距、圓角、圖示和文字大小一起變化。"
           }
         }
       }
@@ -206347,6 +206740,58 @@
             "value": "永不捨棄"
           }
         }
+      }
+    },
+    "settings.sidebar.floatOnHover": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "إظهار الشريط الجانبي المخفي عائمًا عند التمرير"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Plutajuća skrivena bočna traka pri prelasku"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Vis skjult sidepanel svævende ved markør"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ausgeblendete Seitenleiste beim Überfahren schwebend zeigen"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Float Hidden Sidebar on Hover"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Mostrar la barra lateral oculta flotando al pasar el puntero"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Afficher la barre latérale masquée en survol"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mostra la barra laterale nascosta fluttuante al passaggio"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "非表示のサイドバーをポインタでフロート表示"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បង្ហាញរបារចំហៀងដែលលាក់ជាអណ្ដែតពេលដាក់ទស្សន៍ទ្រនិច"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "호버 시 숨긴 사이드바를 떠 있게 표시"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vis skjult sidepanel flytende ved peker"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pokazuj ukryty pasek boczny jako pływający po najechaniu"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mostrar a barra lateral oculta flutuando ao passar o ponteiro"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Показывать скрытую боковую панель поверх при наведении"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แสดงแถบด้านข้างที่ซ่อนแบบลอยเมื่อวางเมาส์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Gizli kenar çubuğunu üzerine gelince yüzer göster"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Показувати приховану бічну панель поверх при наведенні"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hiện thanh bên đã ẩn dạng nổi khi di chuột"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "悬停时浮动显示隐藏的侧边栏"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "懸停時浮動顯示隱藏的側邊欄"}}
+      }
+    },
+    "settings.sidebar.floatOnHover.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "عندما يكون الشريط الجانبي مخفيًا، اترك المؤشر على حافة الشريط الجانبي في النافذة لإظهاره فوق المحتوى. يختفي مجددًا عندما يغادره المؤشر. عند الإيقاف، يظهر الشريط الجانبي فقط عندما تُظهره."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Dok je bočna traka skrivena, zadržite pokazivač na rubu prozora s bočnom trakom da se prikaže iznad sadržaja. Ponovo se sakrije kad pokazivač ode s nje. Isključeno: bočna traka se prikazuje samo kad je vi prikažete."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Når sidepanelet er skjult, så hvil markøren ved vinduets sidepanelkant for at vise sidepanelet over indholdet. Det skjules igen, når markøren forlader det. Slået fra vises sidepanelet kun, når du viser det."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ist die Seitenleiste ausgeblendet, ruhe den Zeiger am Seitenleistenrand des Fensters aus, um sie über dem Inhalt zu zeigen. Sie verschwindet wieder, wenn der Zeiger sie verlässt. Aus: Die Seitenleiste erscheint nur, wenn du sie einblendest."}},
+        "en": {"stringUnit": {"state": "translated", "value": "With the sidebar hidden, rest the pointer on the window's sidebar edge to show the sidebar over your content. It hides again when the pointer leaves it. Off, the sidebar shows only when you show it."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Con la barra lateral oculta, deja el puntero en el borde de la barra lateral de la ventana para mostrarla sobre el contenido. Se oculta de nuevo cuando el puntero sale de ella. Desactivado, la barra lateral solo se muestra cuando tú la muestras."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Quand la barre latérale est masquée, laissez le pointeur sur le bord de la fenêtre côté barre latérale pour l’afficher par-dessus le contenu. Elle se masque de nouveau quand le pointeur la quitte. Désactivé, la barre latérale ne s’affiche que lorsque vous l’affichez."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Con la barra laterale nascosta, lascia il puntatore sul bordo della finestra dal lato della barra laterale per mostrarla sopra il contenuto. Si nasconde di nuovo quando il puntatore la lascia. Disattivato, la barra laterale si mostra solo quando la mostri tu."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーが非表示のとき、ウインドウのサイドバー側の端にポインタを置くと、サイドバーがコンテンツの上に表示されます。ポインタが離れると再び隠れます。オフのときは、サイドバーを表示したときだけ表示されます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ពេលរបារចំហៀងត្រូវបានលាក់ ដាក់ទស្សន៍ទ្រនិចលើគែមរបារចំហៀងនៃបង្អួច ដើម្បីបង្ហាញរបារចំហៀងលើខ្លឹមសារ។ វាលាក់វិញពេលទស្សន៍ទ្រនិចចាកចេញ។ បិទ៖ របារចំហៀងបង្ហាញតែពេលអ្នកបង្ហាញវាប៉ុណ្ណោះ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바가 숨겨져 있을 때 창의 사이드바 쪽 가장자리에 포인터를 두면 사이드바가 콘텐츠 위에 표시됩니다. 포인터가 벗어나면 다시 숨겨집니다. 끄면 사이드바는 직접 표시할 때만 나타납니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Når sidepanelet er skjult, hvil pekeren på vinduets sidepanelkant for å vise sidepanelet over innholdet. Det skjules igjen når pekeren forlater det. Av: sidepanelet vises bare når du viser det."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Gdy pasek boczny jest ukryty, przytrzymaj wskaźnik przy krawędzi okna po stronie paska, aby pokazać go nad zawartością. Znika ponownie, gdy wskaźnik go opuści. Wyłączone: pasek boczny pokazuje się tylko wtedy, gdy go pokażesz."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Com a barra lateral oculta, deixe o ponteiro na borda da janela do lado da barra lateral para mostrá-la sobre o conteúdo. Ela some de novo quando o ponteiro sai dela. Desativado, a barra lateral só aparece quando você a mostra."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Когда боковая панель скрыта, задержите указатель у края окна со стороны панели, чтобы показать её поверх содержимого. Она снова скрывается, когда указатель уходит. Выключено: панель появляется, только когда вы её показываете."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เมื่อซ่อนแถบด้านข้าง ให้วางตัวชี้ไว้ที่ขอบหน้าต่างด้านแถบด้านข้างเพื่อแสดงแถบด้านข้างเหนือเนื้อหา แถบจะซ่อนอีกครั้งเมื่อตัวชี้ออกไป เมื่อปิด แถบด้านข้างจะแสดงเฉพาะเมื่อคุณสั่งแสดง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğu gizliyken, işaretçiyi pencerenin kenar çubuğu kenarında bekletin; kenar çubuğu içeriğin üzerinde görünür. İşaretçi ayrılınca yeniden gizlenir. Kapalıyken kenar çubuğu yalnızca siz gösterdiğinizde görünür."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Коли бічну панель приховано, затримайте вказівник біля краю вікна з боку панелі, щоб показати її поверх вмісту. Вона знову ховається, коли вказівник іде. Вимкнено: панель з’являється, лише коли ви її показуєте."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Khi thanh bên bị ẩn, đặt con trỏ ở cạnh cửa sổ phía thanh bên để hiện thanh bên trên nội dung. Thanh bên ẩn lại khi con trỏ rời đi. Khi tắt, thanh bên chỉ hiện khi bạn cho hiện."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "侧边栏隐藏时，将指针停在窗口的侧边栏边缘，侧边栏会浮在内容上方显示。指针离开后它会再次隐藏。关闭时，侧边栏只在你显示它时出现。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄隱藏時，將指標停在視窗的側邊欄邊緣，側邊欄會浮在內容上方顯示。指標離開後它會再次隱藏。關閉時，側邊欄只在你顯示它時出現。"}}
       }
     },
     "settings.sidebar.controlsOnHover": {

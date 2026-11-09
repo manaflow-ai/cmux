@@ -85,6 +85,7 @@ mod resource_effect_commit;
 pub(crate) mod resource_store;
 pub(crate) mod screen_store;
 pub(crate) mod session_journal;
+pub mod synth;
 pub(crate) mod terminal_archive_store;
 mod terminal_exit_store;
 mod terminal_keep_store;
@@ -107,6 +108,8 @@ use effect_store::{
     create_resource_effect_schema, delete_legacy_sensitive_effect_receipts,
     initialize_resource_input_receipt_retention, recover_resource_effects,
 };
+#[cfg(test)]
+pub(crate) use journal_extensions::JOURNAL_CHECKPOINTS_KEPT;
 use journal_extensions::create_journal_extensions_schema;
 pub use journal_extensions::{
     JournalAppendCommit, JournalCheckpoint, JournalContentRef, JournalEventSchema,
@@ -827,6 +830,9 @@ pub struct WorkspaceRegistry {
     resource_projection_stats: std::sync::Arc<crate::diagnostics::ResourceProjectionStats>,
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
+    /// How many next topology snapshot reads fail (tests).
+    #[cfg(test)]
+    topology_snapshot_failures_remaining: Cell<u64>,
     pub(crate) lease: Option<SessionLease>,
     pub(crate) session_guard: Option<SessionLease>,
     /// This open swapped in a registry without stored output.
@@ -3064,6 +3070,8 @@ impl WorkspaceRegistry {
             resource_projection_stats: std::sync::Arc::default(),
             #[cfg(test)]
             resource_patch_failures_remaining: Cell::new(0),
+            #[cfg(test)]
+            topology_snapshot_failures_remaining: Cell::new(0),
             session_guard: session_guard.take(),
             lease: lease.take(),
             output_cleanup_swapped: false,
