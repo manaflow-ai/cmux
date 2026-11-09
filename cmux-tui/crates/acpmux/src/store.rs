@@ -912,6 +912,19 @@ pub trait Store: Send + Sync {
         }
         Ok(())
     }
+    /// `scan` for a reader that wants only some records: a line `may_match` is false for holds
+    /// none of them, and a file store passes it without parsing it (a store that holds parsed
+    /// records may ignore it; `visit` still decides on the rest). A subagent pane's read of an
+    /// old subagent passed a long chat's every later line through a parse, on each of its pages.
+    fn scan_matching(
+        &self,
+        id: &str,
+        after: u64,
+        _may_match: &dyn Fn(&[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan(id, after, visit)
+    }
     /// `scan`, but a record that cannot be read (a torn or malformed line) is an error instead of
     /// being skipped: a reader that must see every record (the full-access bound's readback of a
     /// left host, #23322) learns that it did not. A memory store holds only whole records.
@@ -1603,7 +1616,17 @@ impl Store for LocalStore {
     /// not the log's prefix (perf100: a 70 MB log read in 10,000-record pages parsed
     /// every earlier record again on each page).
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
-        self.scan_lines(id, after, false, visit)
+        self.scan_lines(id, after, false, None, visit)
+    }
+
+    fn scan_matching(
+        &self,
+        id: &str,
+        after: u64,
+        may_match: &dyn Fn(&[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan_lines(id, after, false, Some(may_match), visit)
     }
 
     fn scan_strict(
@@ -1612,7 +1635,7 @@ impl Store for LocalStore {
         after: u64,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.scan_lines(id, after, true, visit)
+        self.scan_lines(id, after, true, None, visit)
     }
 
     /// Reads each line's head (`RecordHead::read`) and parses only the lines the reader asks
@@ -1922,6 +1945,7 @@ impl LocalStore {
         id: &str,
         after: u64,
         strict: bool,
+        may_match: Option<&dyn Fn(&[u8]) -> bool>,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         // A strict read learns that the log's segments could not be listed (`segments` lists
@@ -1949,6 +1973,9 @@ impl LocalStore {
                     continue;
                 }
                 if record_seq(&line).is_some_and(|seq| seq <= after) {
+                    continue;
+                }
+                if may_match.is_some_and(|may_match| !may_match(&line)) {
                     continue;
                 }
                 let rec = match parse_record(&line) {

@@ -710,6 +710,15 @@ impl Store for JournalStore {
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
         self.inner.fenced(|| Store::scan(&self.inner.local, id, after, visit))
     }
+    fn scan_matching(
+        &self,
+        id: &str,
+        after: u64,
+        may_match: &dyn Fn(&[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.inner.fenced(|| Store::scan_matching(&self.inner.local, id, after, may_match, visit))
+    }
     fn scan_strict(
         &self,
         id: &str,

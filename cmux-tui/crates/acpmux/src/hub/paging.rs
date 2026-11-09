@@ -155,6 +155,13 @@ impl EventFilter {
         self
     }
 
+    /// Bytes every line of a matching record holds: a subagent's id as the log writes the JSON
+    /// string (``subagent_owns`` reads it from `_meta.acpmux`), so a store passes the chat's other
+    /// lines unparsed (`Store::scan_matching`). None when any line may match.
+    fn line_needle(&self) -> Option<Vec<u8>> {
+        serde_json::to_vec(self.subagent.as_deref()?).ok()
+    }
+
     pub fn is_all(&self) -> bool {
         match &self.kinds {
             None => true,
@@ -506,7 +513,11 @@ impl Hub {
         };
         if limit == 0 || !newest {
             let mut found = 0usize;
-            self.store.scan(id, after, &mut |rec| {
+            let needle = filter.line_needle();
+            let may_match = |line: &[u8]| {
+                needle.as_deref().is_none_or(|needle| memchr::memmem::find(line, needle).is_some())
+            };
+            self.store.scan_matching(id, after, &may_match, &mut |rec| {
                 if rec.seq >= before {
                     return false;
                 }
