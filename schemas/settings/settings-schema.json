@@ -602,7 +602,6 @@
               "sidebar.pinnedBandsScroll",
               "sidebar.noFade",
               "sidebar.controlsOnHover",
-              "sidebar.floatOnHover",
               "sidebar.minimal",
               "sidebar.style",
               "sidebar.density",
@@ -647,7 +646,8 @@
               "sidebar.chromeGroups",
               "sidebar.sideBySide",
               "sidebar.groupPalette",
-              "sidebar.groupGradient"
+              "sidebar.groupGradient",
+              "sidebar.floatOnHover"
             ],
             "title" : {
               "key" : "settings.pageGroup.sidebarLayout",
@@ -1409,7 +1409,8 @@
           "computerUse",
           "harnesses",
           "agentHarnesses",
-          "agentIntegrations"
+          "agentIntegrations",
+          "worktreeSetup"
         ]
       },
       {
@@ -11399,6 +11400,11 @@
       "keywords" : [
         "sleep",
         "awake",
+        "keep awake",
+        "stay awake",
+        "prevent sleep",
+        "no sleep",
+        "idle",
         "caffeinate",
         "battery",
         "power",
@@ -11532,6 +11538,10 @@
       "keywords" : [
         "sleep",
         "awake",
+        "keep awake",
+        "stay awake",
+        "prevent sleep",
+        "no sleep",
         "caffeinate",
         "terminal",
         "command",
