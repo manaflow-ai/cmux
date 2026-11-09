@@ -466,7 +466,7 @@ mod tests {
         // Signed in to another team (or personal): that list is not the Run's.
         let other = list(true, true, Some("t2"), empty.clone(), empty.clone());
         assert!(matches!(judge(&other, NAME, Some("m-9"), Some("team:t1")), Judgement::Wait(_)));
-        let personal = list(true, true, None, empty.clone(), empty.clone());
+        let personal = list(true, true, None, empty.clone(), empty);
         assert!(matches!(judge(&personal, NAME, None, Some("team:t1")), Judgement::Wait(_)));
         assert_eq!(judge(&personal, NAME, None, Some("personal")), Judgement::Gone);
         // A Run whose start read no scope takes any authoritative list.
