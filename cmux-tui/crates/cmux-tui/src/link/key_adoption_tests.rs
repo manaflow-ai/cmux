@@ -50,7 +50,7 @@ async fn adopt_child() {
     };
     let state = LinkState::open(Some(PathBuf::from(link))).unwrap();
     let holder = KeyHolder::acquire(Path::new(&lock)).unwrap();
-    let _ = serve_key(&state, &holder, 0, &Pairings::default()).await;
+    let _ = serve_key(&state, &holder, &Pairings::default()).await;
 }
 
 /// Killed after each step, the next start finishes the adoption: the link
@@ -81,7 +81,7 @@ async fn a_link_killed_at_each_step_of_the_adoption_finishes_it_on_its_next_star
         );
         // The next start, once the killed child's lock is free.
         let holder = KeyHolder::acquire(&machine.home).unwrap();
-        let served = serve_key(&state, &holder, 0, &Pairings::default()).await.unwrap();
+        let served = serve_key(&state, &holder, &Pairings::default()).await.unwrap();
         let node = node_public(&machine.home);
         assert_eq!(state::public_key(&served), node, "{}", step.name());
         assert_ne!(node, old, "{}", step.name());
@@ -90,7 +90,7 @@ async fn a_link_killed_at_each_step_of_the_adoption_finishes_it_on_its_next_star
         assert_eq!(record.retired_public_key, Some(STANDARD.encode(old)), "{}", step.name());
         assert_eq!(state.own_public_key().unwrap(), node, "show names the node key");
         // And again: nothing left to do, still the node key.
-        let again = serve_key(&state, &holder, 0, &Pairings::default()).await.unwrap();
+        let again = serve_key(&state, &holder, &Pairings::default()).await.unwrap();
         assert_eq!(state::public_key(&again), node);
     }
 }
@@ -103,10 +103,24 @@ async fn a_link_locked_in_its_own_state_dir_keeps_its_own_key() {
     let state = LinkState::open(Some(machine.link.clone())).unwrap();
     let old = state.own_public_key().unwrap();
     let holder = KeyHolder::acquire(&machine.link).unwrap();
-    let served = serve_key(&state, &holder, 0, &Pairings::default()).await.unwrap();
+    let served = serve_key(&state, &holder, &Pairings::default()).await.unwrap();
     assert_eq!(state::public_key(&served), old);
     assert!(state.has_link_key());
     assert!(adopted(&state).unwrap().is_none());
+}
+
+/// Once adopted, a link started with another lock (a hand-run `serve` without
+/// the flag) refuses, never falling back to a key it retired.
+#[tokio::test]
+async fn an_adopted_link_never_serves_under_another_lock() {
+    let machine = machine();
+    let state = LinkState::open(Some(machine.link.clone())).unwrap();
+    let holder = KeyHolder::acquire(&machine.home).unwrap();
+    serve_key(&state, &holder, &Pairings::default()).await.unwrap();
+    drop(holder);
+    let own = KeyHolder::acquire(&machine.link).unwrap();
+    let refused = serve_key(&state, &own, &Pairings::default()).await.unwrap_err();
+    assert!(refused.to_string().starts_with("key_lock_dir:"), "{refused}");
 }
 
 fn record(install: &str, key: [u8; 32]) -> PairingRecord {

@@ -41,15 +41,21 @@ pub(super) struct RekeyTarget {
 }
 
 impl RekeyTarget {
-    /// Move `install`'s pairing to `key`; true when the file changed.
+    /// Move `install`'s pairing to `key` in the file; true when it changed.
+    /// The caller answers the peer first, then calls [`Self::reload`]: the
+    /// reload closes the old key's streams, the answering one included.
     pub(super) fn apply(&self, install: &str, key: &[u8; 32]) -> io::Result<bool> {
         let mut pairings = Pairings::load(&self.path)?;
         let changed = pairings.rekey(install, key)?;
         if changed {
             pairings.save(&self.path)?;
-            self.changed.notify_one();
         }
         Ok(changed)
+    }
+
+    /// Ask the running link to reload its peers.
+    pub(super) fn reload(&self) {
+        self.changed.notify_one();
     }
 }
 

@@ -65,15 +65,19 @@ where
     let text = read_line(stream, MAX_LINE_BYTES).await.map_err(|_| InboundRefused::BadHello)?;
     let request = parse_line::<RekeyRequest>(&text).ok_or(InboundRefused::BadHello)?;
     let refused = |why: String| RekeyReply { ok: false, error: Some(why) };
-    let reply = match rekey_key(&request.public_key) {
+    let (reply, changed) = match rekey_key(&request.public_key) {
         Some(key) => match target.apply(install, &key) {
-            Ok(_) => RekeyReply { ok: true, error: None },
-            Err(error) => refused(error.to_string()),
+            Ok(changed) => (RekeyReply { ok: true, error: None }, changed),
+            Err(error) => (refused(error.to_string()), false),
         },
-        None => refused("invalid_key".to_owned()),
+        None => (refused("invalid_key".to_owned()), false),
     };
     let _ = stream.write_all(line(&reply).as_bytes()).await;
     let _ = stream.shutdown().await;
+    // After the answer: the reload closes this stream with the rest of the old key's.
+    if changed {
+        target.reload();
+    }
     Ok(())
 }
 

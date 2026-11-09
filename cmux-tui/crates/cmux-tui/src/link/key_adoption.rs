@@ -125,21 +125,30 @@ pub(super) fn adopted(state: &LinkState) -> io::Result<Option<Adopted>> {
 pub(super) async fn serve_key(
     state: &LinkState,
     holder: &KeyHolder,
-    port: u16,
     pairings: &Pairings,
 ) -> anyhow::Result<Zeroizing<[u8; 32]>> {
     if !adopts(state, holder.dir())? {
+        // An adopted link serves only the node key, under the lock next to it: never its old
+        // key again, and never the node key under another lock.
+        if let Some(adopted) = adopted(state)? {
+            anyhow::bail!(
+                "key_lock_dir: this link serves this machine's node key in {}; run it with {} {}",
+                adopted.key_dir.display(),
+                super::key_lock::FLAG,
+                adopted.key_dir.display()
+            );
+        }
         return Ok(state.private_key(holder)?);
     }
-    adopt(state, holder, port, pairings).await
+    adopt(state, holder, pairings).await
 }
 
 async fn adopt(
     state: &LinkState,
     holder: &KeyHolder,
-    port: u16,
     pairings: &Pairings,
 ) -> anyhow::Result<Zeroizing<[u8; 32]>> {
+    let config = state.config()?;
     let (_, node) = acpmux::cli::mesh_node_key::load_or_create_held(holder.dir(), holder)
         .context("the node key this link adopts")?;
     finished(Step::NodeKey);
@@ -161,7 +170,7 @@ async fn adopt(
     finished(Step::Committed);
     if let Some(old) = old {
         if retired != Some(node_public) {
-            let told = republish(old, &node_public, port, pairings).await;
+            let told = republish(old, &node_public, &config, pairings).await;
             let missed: Vec<&str> = pairings
                 .peers
                 .iter()
@@ -183,12 +192,12 @@ async fn adopt(
     Ok(node)
 }
 
-/// Tell each paired peer `new_public` over a session of the `old` key on
-/// `port`; the installs that took it.
+/// Tell each paired peer `new_public` over a session of the `old` key, from
+/// this install's overlay address on its port; the installs that took it.
 async fn republish(
     old: Zeroizing<[u8; 32]>,
     new_public: &[u8; 32],
-    port: u16,
+    config: &state::LinkConfig,
     pairings: &Pairings,
 ) -> Vec<String> {
     if pairings.peers.is_empty() {
@@ -196,15 +205,14 @@ async fn republish(
     }
     let telling = async {
         let socket =
-            tokio::net::UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, port))).await?;
-        // Its own overlay address: the install is not needed to dial, any one is fine.
+            tokio::net::UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, config.port)))
+                .await?;
+        // The peer checks a stream's source against this install's overlay address.
+        let own = cmux_link::overlay_addr::overlay_address(&config.install);
         let mesh = WgMesh::start(
             WgMeshConfig {
                 private_key: old,
-                addresses: vec![InterfaceAddress {
-                    address: IpAddr::V6(Ipv6Addr::LOCALHOST),
-                    prefix: 128,
-                }],
+                addresses: vec![InterfaceAddress { address: IpAddr::V6(own), prefix: 128 }],
                 mtu: LINK_MTU,
             },
             socket,

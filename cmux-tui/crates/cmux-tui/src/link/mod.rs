@@ -495,7 +495,7 @@ async fn serve(
     let config = state.config().context("run `cmux link init --install ID` first")?;
     let pairings = Pairings::load(&state.peers_path())?;
     // One key per machine: the node key, adopted under the held lock (`key_adoption.rs`).
-    let private_key = key_adoption::serve_key(&state, key, config.port, &pairings).await?;
+    let private_key = key_adoption::serve_key(&state, key, &pairings).await?;
     let public_key = state::public_key(&private_key);
     let socket =
         tokio::net::UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, config.port)))
