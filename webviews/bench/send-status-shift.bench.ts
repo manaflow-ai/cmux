@@ -52,7 +52,8 @@ const FIELD = ".acpmux-composer-prompt";
 const START_MS = Number(flag("--start-ms") ?? 1500);
 const JSON_OUT = flag("--json");
 const ROUNDS = Number(
-  argv.find((arg, index) => /^\d+$/.test(arg) && !/^--(engines|think-ms|start-ms|json)$/.test(argv[index - 1] ?? "")) ?? 3,
+  argv.find((arg, index) => /^\d+$/.test(arg) && !/^--(engines|think-ms|start-ms|json)$/.test(argv[index - 1] ?? "")) ??
+    3,
 );
 if (!Number.isInteger(ROUNDS) || ROUNDS < 1 || ENGINES.some((name) => name !== "chromium" && name !== "webkit")) {
   console.error("usage: bun bench/send-status-shift.bench.ts [rounds=3] [--engines chromium,webkit] [--think-ms N]");
@@ -222,64 +223,64 @@ export type Frame = { at: number; rows: Sample[]; thought: boolean; anims: numbe
 const startSampling = (page: Page, thoughtText: string, promptText: string) =>
   page.evaluate(
     ({ thoughtText, promptText }) => {
-    const w = window as unknown as { __frames: Frame[]; __stop: () => void };
-    w.__frames = [];
-    // A new chat's transcript mounts only after the send: read it each frame.
-    const read = () => {
-      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
-      const view = scroller?.getBoundingClientRect() ?? document.body.getBoundingClientRect();
-      const rows: Sample[] = [];
-      // The prompt's words drawn outside the transcript and the composer's own field.
-      let elsewhere = false;
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-      for (let node = walker.nextNode(); node && !elsewhere; node = walker.nextNode()) {
-        if (!node.textContent?.includes(promptText)) continue;
-        const parent = node.parentElement;
-        if (!parent || scroller?.contains(parent) || parent.closest(".acpmux-composer-prompt")) continue;
-        const box = parent.getBoundingClientRect();
-        elsewhere = box.width > 0 && box.height > 0 && getComputedStyle(parent).visibility !== "hidden";
-      }
-      for (const row of scroller?.querySelectorAll<HTMLElement>("[data-row-id]") ?? []) {
-        const box = row.getBoundingClientRect();
-        if (box.height <= 0 || box.bottom <= view.top || box.top >= view.bottom) continue;
-        rows.push({
-          id: row.dataset.rowId!,
-          kind: (row.firstElementChild?.className || row.className || "").toString().split(" ")[0] ?? "",
-          x: box.x - view.x,
-          y: box.y - view.y,
-          width: box.width,
-          height: box.height,
+      const w = window as unknown as { __frames: Frame[]; __stop: () => void };
+      w.__frames = [];
+      // A new chat's transcript mounts only after the send: read it each frame.
+      const read = () => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+        const view = scroller?.getBoundingClientRect() ?? document.body.getBoundingClientRect();
+        const rows: Sample[] = [];
+        // The prompt's words drawn outside the transcript and the composer's own field.
+        let elsewhere = false;
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node && !elsewhere; node = walker.nextNode()) {
+          if (!node.textContent?.includes(promptText)) continue;
+          const parent = node.parentElement;
+          if (!parent || scroller?.contains(parent) || parent.closest(".acpmux-composer-prompt")) continue;
+          const box = parent.getBoundingClientRect();
+          elsewhere = box.width > 0 && box.height > 0 && getComputedStyle(parent).visibility !== "hidden";
+        }
+        for (const row of scroller?.querySelectorAll<HTMLElement>("[data-row-id]") ?? []) {
+          const box = row.getBoundingClientRect();
+          if (box.height <= 0 || box.bottom <= view.top || box.top >= view.bottom) continue;
+          rows.push({
+            id: row.dataset.rowId!,
+            kind: (row.firstElementChild?.className || row.className || "").toString().split(" ")[0] ?? "",
+            x: box.x - view.x,
+            y: box.y - view.y,
+            width: box.width,
+            height: box.height,
+          });
+        }
+        const composer = document.querySelector(".acpmux-composer")?.getBoundingClientRect();
+        if (composer)
+          rows.push({
+            id: "composer",
+            kind: "composer",
+            x: composer.x - view.x,
+            y: composer.y - view.y,
+            width: composer.width,
+            height: composer.height,
+          });
+        // Running finite animations (the follow glide, a fold): their frames are motion, not layout jumps.
+        const anims = document
+          .getAnimations()
+          .filter(
+            (animation) =>
+              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
+          ).length;
+        w.__frames.push({
+          at: Date.now(),
+          rows,
+          thought: scroller?.innerText.includes(thoughtText) ?? false,
+          anims,
+          elsewhere,
         });
-      }
-      const composer = document.querySelector(".acpmux-composer")?.getBoundingClientRect();
-      if (composer)
-        rows.push({
-          id: "composer",
-          kind: "composer",
-          x: composer.x - view.x,
-          y: composer.y - view.y,
-          width: composer.width,
-          height: composer.height,
-        });
-      // Running finite animations (the follow glide, a fold): their frames are motion, not layout jumps.
-      const anims = document
-        .getAnimations()
-        .filter(
-          (animation) =>
-            animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
-        ).length;
-      w.__frames.push({
-        at: Date.now(),
-        rows,
-        thought: scroller?.innerText.includes(thoughtText) ?? false,
-        anims,
-        elsewhere,
-      });
-    };
-    read();
-    w.__stop = window.cmuxAfterPaint(() => {
+      };
       read();
-    });
+      w.__stop = window.cmuxAfterPaint(() => {
+        read();
+      });
     },
     { thoughtText, promptText },
   );
@@ -644,7 +645,10 @@ if (import.meta.main) {
       });
     }
     if (JSON_OUT)
-      fs.writeFileSync(JSON_OUT, JSON.stringify({ thinkMs: THINK_MS, newChat: NEW_CHAT, startMs: START_MS, report }, null, 2));
+      fs.writeFileSync(
+        JSON_OUT,
+        JSON.stringify({ thinkMs: THINK_MS, newChat: NEW_CHAT, startMs: START_MS, report }, null, 2),
+      );
     if (failed) process.exitCode = 1;
   } finally {
     await release();

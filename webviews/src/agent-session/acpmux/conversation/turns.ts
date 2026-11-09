@@ -2494,8 +2494,7 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
     const tail = all.at(-1);
     const thinking = tail !== undefined && isThought(tail) && !isQuietThought(tail);
     const items = all.filter(
-      (item, at) =>
-        !(item.tool ? isRunning(item.tool) : at === all.length - 1 && item.kind !== "tool" && !thinking),
+      (item, at) => !(item.tool ? isRunning(item.tool) : at === all.length - 1 && item.kind !== "tool" && !thinking),
     );
     if (!items.length) return [];
     return [

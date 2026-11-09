@@ -7746,7 +7746,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // nothing, so a refusal still fails or restores the prompt as any send's does.
           // `drawnAs` (in-page only): the prompt id a new chat's first prompt was drawn under from its
           // send (startingSends.ts `withStartingPrompt`), so the chat's row for it is that same row.
-          "chat.send": ({ text, attachments, accepted, steer, expectedSessionId, fromTrust, gesture, taken, drawnAs }) =>
+          "chat.send": ({
+            text,
+            attachments,
+            accepted,
+            steer,
+            expectedSessionId,
+            fromTrust,
+            gesture,
+            taken,
+            drawnAs,
+          }) =>
             send(
               String(text ?? ""),
               Array.isArray(attachments) ? attachments : [],

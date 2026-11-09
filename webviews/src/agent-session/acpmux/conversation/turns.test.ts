@@ -101,7 +101,11 @@ test("a running turn draws its thought from its first line, then keeps it in the
   expect(run?.liveRun).toBe(true);
   expect(streaming.at(-1)?.kind).toBe(THINKING);
   // A call after it ends it: it stays in the run, no longer live; the call in flight is the line's.
-  const call = { kind: "tool", text: "", tool: { id: "t1", title: "rg retry", kind: "execute", status: "in_progress" } };
+  const call = {
+    kind: "tool",
+    text: "",
+    tool: { id: "t1", title: "rg retry", kind: "execute", status: "in_progress" },
+  };
   const working = turnView(
     [user(1_000), { id: "act", version: 2, at: 2_000, kind: "activity", items: [thought, call] }],
     new Set(),
@@ -114,7 +118,10 @@ test("a running turn draws its thought from its first line, then keeps it in the
   // A thought still shorter than a quiet one draws nothing yet: if it ended that short it would draw
   // no row (thoughts.ts `isQuietThought`), so it would show and then leave.
   const short = turnView(
-    [user(1_000), { id: "act", version: 1, at: 2_000, kind: "activity", items: [{ ...thought, text: "Three loops." }] }],
+    [
+      user(1_000),
+      { id: "act", version: 1, at: 2_000, kind: "activity", items: [{ ...thought, text: "Three loops." }] },
+    ],
     new Set(),
     { now: 3_000, working: true },
   );

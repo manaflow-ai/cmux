@@ -164,7 +164,9 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
             bubble: bubble ? drawn(bubble, row) : undefined,
             preview: preview ? drawn(preview, row) : undefined,
             // What drew the row, for a failure's message: its id and classes.
-            row: row ? `${row.closest<HTMLElement>("[data-row-id]")?.dataset.rowId ?? "?"} ${row.className}` : undefined,
+            row: row
+              ? `${row.closest<HTMLElement>("[data-row-id]")?.dataset.rowId ?? "?"} ${row.className}`
+              : undefined,
           });
           // raf-read: every frame of the send (above).
           if (performance.now() - start < ms) requestAnimationFrame(tick);

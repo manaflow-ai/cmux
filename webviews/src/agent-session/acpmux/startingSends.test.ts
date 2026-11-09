@@ -162,7 +162,10 @@ test("a new chat's first prompt draws as its first row with the Thinking line, a
   // The composer's queue draws only the prompts after it.
   expect(queuedStartingSends(sends, drawn.rows).map((send) => send.id)).toEqual(["p2"]);
   // Once the chat's client draws the prompt (the same id), its row is the client's and nothing is added.
-  const started = { ...emptySnapshot(), rows: [{ id: "local-p1", version: 1, at: 3, kind: "user", text: "first", pending: true }] };
+  const started = {
+    ...emptySnapshot(),
+    rows: [{ id: "local-p1", version: 1, at: 3, kind: "user", text: "first", pending: true }],
+  };
   expect(withStartingPrompt(started, sends)).toBe(started);
   expect(queuedStartingSends(sends, started.rows).map((send) => send.id)).toEqual(["p2"]);
   // A chat with prompts of its own draws none.
