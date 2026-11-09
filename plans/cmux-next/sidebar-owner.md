@@ -5,6 +5,8 @@
   list's cache shared the model's storage and the model's next in-place write copied the section's whole node list.
   The list now writes the patched row into its own cached section and group in place (`SidebarSection.setRow`).
   Regression: `SidebarListPatchCopyTests` (a real `SidebarListView` attached, elements copied per patch).
+  dcb21bf3e42 (review F1 of #39638: write into the cached section only when the same node sits at that place) has no
+  visual change; it reached the branch without its `Sidebar-Look:` trailer.
 - 2026-11-08: a renamed workspace's name rolls as the agent chat's live line rolls a new tool call. Leo, verbatim: "i
   feel like when workspaces get renamed (esp by agents) it should have that same fade in animation that the tool call
   situation has...". `sidebar.workspaceTitleMotion` gains `roll`, its default: the old name rises 0.6 em, blurs and
