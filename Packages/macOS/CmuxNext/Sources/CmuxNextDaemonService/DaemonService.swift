@@ -323,10 +323,12 @@ public final class DaemonService {
     /// cmuxterm-hq#7766), so this side makes no timed attempts: one attempt
     /// per drop (``RetryPolicy/linkReconnect``), then it waits for the link's
     /// state (its owner fires ``retryWake`` when the link reports connected or
-    /// its process exits), app activation or a person's Reconnect. The link
-    /// watches the network itself once it runs, so the path monitor wakes only
-    /// the first connect (a machine unreachable at launch has no link process
-    /// yet) and stops at the first connection. Otherwise the
+    /// its process exits), app activation or a person's Reconnect. While the
+    /// link has no process (`linkRunning` false: it probes, installs or spawns,
+    /// on the first connect or the restart after an exit) nothing in the link
+    /// redials, so this side keeps the bounded bootstrap retry
+    /// (``RetryPolicy/bootstrap``) and the path monitor wakes it; once the
+    /// process runs it watches the network itself. Otherwise the
     /// first connect and each reconnect are retried with capped backoff
     /// (`DaemonStartup`), and past their budget wait for a network path
     /// change, app activation or the link socket changing.
@@ -341,7 +343,8 @@ public final class DaemonService {
     public func start(remote endpoint: @escaping @Sendable () async throws -> String, bridge: DaemonBridge? = nil,
                requiredCapabilities: [String] = DaemonCapability.required,
                admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil, onEnd: (@MainActor () -> Void)? = nil,
-               stream: (@Sendable () async throws -> String)? = nil, handshake: Duration? = nil, followsLink: Bool = false) {
+               stream: (@Sendable () async throws -> String)? = nil, handshake: Duration? = nil, followsLink: Bool = false,
+               linkRunning: (@Sendable () -> Bool)? = nil) {
         guard runTask == nil, !policyBlock.isBlocked else { return }
         if let handshake { startupDeadline = max(startupDeadline, handshake) }
         let streamEndpoint = stream ?? endpoint
@@ -352,9 +355,9 @@ public final class DaemonService {
         armStartupDeadline()
         observeRetryEvents()
         let wake = retryWake
-        // A link that redials by itself watches the network once it runs; before its first
-        // connection there is no link process yet (the machine was unreachable at launch), so the
-        // network coming back wakes the first attempt here until the first connection.
+        // A link that redials by itself watches the network while its process runs; without one
+        // (unreachable at launch, or a restart after an exit that failed) the network coming
+        // back wakes the attempt here.
         let monitor = NWPathMonitor()
         // The first update reports the path as it is at start: no change, so no wake.
         let reported = Mutex(false)
@@ -363,7 +366,7 @@ public final class DaemonService {
                 defer { seen = true }
                 return !seen
             }
-            if !first, path.status == .satisfied { wake.fire() }
+            if !first, path.status == .satisfied, linkRunning?() != true { wake.fire() }
         }
         monitor.start(queue: DispatchQueue(label: "com.cmuxterm.next.daemon.path.\(machineID)"))
         pathMonitor = monitor
@@ -372,6 +375,7 @@ public final class DaemonService {
         var configuration = DaemonConnection.Configuration(requiredCapabilities: requiredCapabilities,
                                                            retry: followsLink ? .linkReconnect : .reconnect,
                                                            retryWake: wake, terminalEnvironment: nil, sessionEvents: true)
+        configuration.linkRunning = followsLink ? linkRunning : nil
         configuration.echoesPlacementShift = echoesPlacementShift
         configuration.handshakeTimeout = handshake
         let requests = reconnectRequests
@@ -382,7 +386,8 @@ public final class DaemonService {
                 // A link-following service retries an incompatible daemon on an explicit reconnect only.
                 let seen = followsLink ? requests.value : nil
                 let startupFailure = Mutex<DaemonError?>(nil)
-                let connected = await DaemonStartup.shared.connect(policy: firstConnect, wake: wake, clock: clock) {
+                let connected = await DaemonStartup.shared.connect(policy: firstConnect, wake: wake, clock: clock,
+                                                                linkRunning: configuration.linkRunning) {
                     DaemonConnection(configuration: configuration) {
                         DaemonEndpoint(socketPath: try await endpoint(), bridge: bridge)
                     }
@@ -424,7 +429,6 @@ public final class DaemonService {
                 }
                 await connection.observePaneNotReady(self.paneNotReadyReporter)
                 self.didConnect(connection, identity: identity)
-                if followsLink { self.stopWatchingNetwork() }
                 logger.info("\(machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
                 await store.run(connection: connection, scheduler: drainScheduler)
                 await connection.closeAndWait()

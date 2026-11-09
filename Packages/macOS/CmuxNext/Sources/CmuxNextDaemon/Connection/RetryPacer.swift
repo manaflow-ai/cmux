@@ -37,15 +37,20 @@ public struct RetryPolicy: Sendable {
     /// spacing when a connection opens or stays healthy: a peer that accepts and then closes at once
     /// gets at most `capacity` attempts before the next refill (cmuxterm-hq#7766). Nil: no budget.
     public var dropBudget: DropBudget?
+    /// Retries of an attempt that failed while the link had no process to redial
+    /// (``DaemonConnectionConfiguration/linkRunning``): the base's bounded timed retry, so a probe that
+    /// failed while the machine booted still recovers. Nil: no such phase.
+    public var bootstrap: BootstrapRetry?
 
     public init(initial: Duration, maximum: Duration, timedRetries: Int, socketRetries: Int = 3, keepsTrying: Bool = false,
-                keepsEventsDuringAttempt: Bool = false, dropBudget: DropBudget? = nil) {
+                keepsEventsDuringAttempt: Bool = false, dropBudget: DropBudget? = nil, bootstrap: BootstrapRetry? = nil) {
         backoff = Backoff(initial: initial, maximum: maximum)
         self.timedRetries = timedRetries
         self.socketRetries = socketRetries
         self.keepsTrying = keepsTrying
         self.keepsEventsDuringAttempt = keepsEventsDuringAttempt
         self.dropBudget = dropBudget
+        self.bootstrap = bootstrap
     }
 
     /// Daemon reconnect: 50 ms growing to 30 s, 10 timed attempts (~80 s).
@@ -61,17 +66,33 @@ public struct RetryPolicy: Sendable {
     /// connect`, cmuxterm-hq#7766): one attempt, then events only (the link reporting connected again,
     /// its process exiting, its socket replaced, app activation, a person's Reconnect). No timer: the
     /// link spends its own budget and deadlines, so a timed retry here would only stack dials on it.
+    /// While the link has no process (it probes, installs or spawns) a failed attempt takes the
+    /// ``BootstrapRetry/link`` timed retry instead.
     public static let linkFirstConnect = RetryPolicy(initial: .milliseconds(1), maximum: .milliseconds(1), timedRetries: 0,
-                                                     keepsEventsDuringAttempt: true)
+                                                     keepsEventsDuringAttempt: true, bootstrap: .link)
     /// ``linkFirstConnect`` for a connection that dropped: each drop spends one token of a budget that
     /// lives across connections (3 tokens, 1 back every 10 s) for one attempt after a jittered backoff
     /// (50 ms growing to 2 s while drops come faster than the refill); an empty budget waits for the
     /// next token or an event. A failed attempt waits for an event only.
     public static let linkReconnect = RetryPolicy(initial: .milliseconds(50), maximum: .seconds(2), timedRetries: 1,
                                                   keepsEventsDuringAttempt: true,
-                                                  dropBudget: DropBudget(capacity: 3, refill: .seconds(10)))
+                                                  dropBudget: DropBudget(capacity: 3, refill: .seconds(10)), bootstrap: .link)
     /// A failing store snapshot while connected: 100 ms growing to 10 s, 8 attempts.
     public static let resync = RetryPolicy(initial: .milliseconds(100), maximum: .seconds(10), timedRetries: 8)
+}
+
+/// The timed retry of an attempt that failed while a link had no process (``RetryPolicy/bootstrap``).
+public struct BootstrapRetry: Sendable {
+    public var backoff: Backoff
+    public var timedRetries: Int
+
+    public init(initial: Duration, maximum: Duration, timedRetries: Int) {
+        backoff = Backoff(initial: initial, maximum: maximum)
+        self.timedRetries = timedRetries
+    }
+
+    /// As ``RetryPolicy/firstConnect``: 250 ms growing to 30 s, 10 timed attempts, then events only.
+    public static let link = BootstrapRetry(initial: .milliseconds(250), maximum: .seconds(30), timedRetries: 10)
 }
 
 /// A token bucket for reconnects after drops (``RetryPolicy/dropBudget``): `capacity` tokens, one
@@ -153,10 +174,35 @@ public struct RetryPacer: Sendable {
     /// The current wait is for the next token of an empty ``dropBudget``.
     public private(set) var waitsForToken = false
 
+    /// Consecutive failures while the link had no process (``failedBeforeLink()``).
+    public private(set) var bootstrapFailures = 0
+    private var bootstrapBackoff: Backoff?
+
     public init(_ policy: RetryPolicy) {
         self.policy = policy
         backoff = policy.backoff
         dropBudget = policy.dropBudget
+        bootstrapBackoff = policy.bootstrap?.backoff
+    }
+
+    /// Notes a failure while the link had no process and returns the spacing before the next attempt
+    /// (``RetryPolicy/bootstrap``), or nil once its timed retries are spent. Without a bootstrap retry,
+    /// as ``failed()``.
+    public mutating func failedBeforeLink() -> Duration? {
+        guard let bootstrap = policy.bootstrap, var spacing = bootstrapBackoff else { return failed() }
+        busyRefusal = false
+        wokeBySocket = false
+        bootstrapFailures += 1
+        defer { bootstrapBackoff = spacing }
+        return bootstrapFailures > bootstrap.timedRetries ? nil : spacing.next()
+    }
+
+    /// Spacing before the next attempt after a failed one: ``failedBeforeLink()`` when `linkRunning`
+    /// says the link had no process, else ``failed()``.
+    public mutating func failed(linkRunning: (@Sendable () -> Bool)?) -> Duration? {
+        // A drop's attempt spends its token first (``noteDrop()``).
+        if !dropPending, policy.bootstrap != nil, let linkRunning, !linkRunning() { return failedBeforeLink() }
+        return failed()
     }
 
     /// The connection dropped: under a ``RetryPolicy/dropBudget`` the next ``failed()`` spends a token
@@ -188,11 +234,16 @@ public struct RetryPacer: Sendable {
         busyRefusal = false
         backoff.reset()
         busyBackoff.reset()
+        bootstrapFailures = 0
+        bootstrapBackoff?.reset()
     }
 
     /// Notes one failure and returns the spacing before the next attempt,
     /// or nil when the budget is spent (wait for an event only).
     public mutating func failed() -> Duration? {
+        // The link's process exists again: a later bootstrap starts its spacing over.
+        bootstrapFailures = 0
+        bootstrapBackoff?.reset()
         if busyRefusal {
             busyRefusal = false
             wokeBySocket = false
@@ -297,9 +348,10 @@ extension RetryPacer {
     /// Returns false when cancelled.
     /// `mark`: ``RetryWake/eventMark`` taken before the failed attempt; an event since then is kept
     /// when the policy ``RetryPolicy/keepsEventsDuringAttempt``.
-    public mutating func waitAfterFailure(wake: RetryWake, clock: any Clock<Duration>, since mark: UInt64? = nil) async -> Bool {
+    public mutating func waitAfterFailure(wake: RetryWake, clock: any Clock<Duration>, since mark: UInt64? = nil,
+                                          linkRunning: (@Sendable () -> Bool)? = nil) async -> Bool {
         wake.rebaseline(keepingEventsAfter: policy.keepsEventsDuringAttempt ? mark : nil)
-        let delay = failed()
+        let delay = failed(linkRunning: linkRunning)
         let cause = await wake.awaitWake(delay: delay, clock: clock, socket: wakesOnSocket)
         woke(cause)
         return cause != .cancelled

@@ -181,7 +181,7 @@ final class SSHMachineSession {
                     // The next attempt waits for an event (DaemonStartup.shared.isPermanent).
                     throw DaemonError.endpointBlocked(error.description)
                 }
-            }, followsLink: true)
+            }, followsLink: true, linkRunning: { link.hasProcess })
             // Already running (a reconnect): wake its wait.
             self.daemon.reconnectNow()
         }

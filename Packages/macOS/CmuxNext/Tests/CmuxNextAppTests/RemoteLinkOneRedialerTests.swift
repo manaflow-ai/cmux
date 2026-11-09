@@ -241,3 +241,86 @@ private nonisolated final class RemoteLinkCalls: Sendable {
         #expect(calls.value == 2, "activation retried a blocked endpoint with no Reconnect (\(calls.value) endpoint calls)")
     }
 }
+
+/// Review of dbe16be, F1: while the link has no process (its SSH probe or install fails while the host
+/// boots, or its restart after an exit fails) nothing in the link redials, and the daemon connection
+/// waited for an event that a host coming back up never sends locally. Until a link process runs, the
+/// daemon connection keeps the base's bounded retry (``RetryPolicy/bootstrap``) and the network wake.
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct RemoteLinkBootstrapRetryTests {
+    /// Whether the stand-in link has a process, and its endpoint calls.
+    private nonisolated final class StandInLink: Sendable {
+        private let state = Mutex((running: false, calls: 0))
+        var running: Bool { state.withLock { $0.running } }
+        var calls: Int { state.withLock { $0.calls } }
+        /// Notes one endpoint call; returns its number (1-based).
+        func call(running: Bool) -> Int { state.withLock { $0.running = running; $0.calls += 1; return $0.calls } }
+    }
+
+    /// The n-th connection (0-based, counted in the identify log): 0 drops 0.3 s after its handshake when
+    /// `argv[2]` is "drop", every other one serves and stays.
+    private static let script = #"""
+    import json, os, sys, time
+    print('{"ok":true}', file=sys.stderr, flush=True)
+    log, mode = sys.argv[1], sys.argv[2]
+    nth = None
+    for line in sys.stdin:
+        frame = json.loads(line)
+        data = {}
+        if frame.get('cmd') == 'identify':
+            nth = len(open(log).read().splitlines()) if os.path.exists(log) else 0
+            with open(log, 'a') as out:
+                out.write('identify\n')
+            data = {'app': 'cmux-tui', 'protocol': 12, 'generation': 'bootstrap-%d' % nth, 'pid': 4242, 'capabilities': []}
+        print(json.dumps({'id': frame.get('id'), 'ok': True, 'data': data}), flush=True)
+        if frame.get('cmd') == 'subscribe' and nth == 0 and mode == 'drop':
+            time.sleep(0.3)
+            sys.exit(0)
+    """#
+
+    private static func waitUntil(_ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(15)
+        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
+        try #require(condition())
+    }
+
+    private static func connected(_ daemon: DaemonService) -> Bool {
+        if case .connected = daemon.store.connectionState { true } else { false }
+    }
+
+    @Test func aFirstProbeThatFailsIsRetriedOnATimerWithNoNetworkEvent() async throws {
+        let log = "/private/tmp/cn-bootstrap-first-\(UUID().uuidString.prefix(8)).log"
+        defer { try? FileManager.default.removeItem(atPath: log) }
+        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", Self.script, log, "stay"])
+        let socket = "/tmp/cn-bootstrap-first-\(UUID().uuidString.prefix(8)).sock"
+        let link = StandInLink()
+        let daemon = DaemonService(machineID: "ssh:bootstrap-first-\(UUID().uuidString)")
+        defer { daemon.shutdownConnection() }
+        daemon.start(remote: {
+            // The first SSH probe fails (the host is still booting): no link process exists.
+            guard link.call(running: link.calls > 0) > 1 else { throw DaemonError.launchFailed("ssh: connect to host: Connection refused") }
+            return socket
+        }, bridge: bridge, requiredCapabilities: [], followsLink: true, linkRunning: { link.running })
+        try await Self.waitUntil { Self.connected(daemon) }
+        #expect(link.calls == 2, "one timed retry after the failed probe (\(link.calls) endpoint calls)")
+    }
+
+    @Test func aLinkThatExitedAndWhoseRestartProbeFailedIsRestartedOnATimer() async throws {
+        let log = "/private/tmp/cn-bootstrap-restart-\(UUID().uuidString.prefix(8)).log"
+        defer { try? FileManager.default.removeItem(atPath: log) }
+        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", Self.script, log, "drop"])
+        let socket = "/tmp/cn-bootstrap-restart-\(UUID().uuidString.prefix(8)).sock"
+        let link = StandInLink()
+        let daemon = DaemonService(machineID: "ssh:bootstrap-restart-\(UUID().uuidString)")
+        defer { daemon.shutdownConnection() }
+        daemon.start(remote: {
+            // 1: the link runs. 2: it exited and its restart probe fails. 3: the restart succeeds.
+            let nth = link.call(running: link.calls != 1)
+            if nth == 2 { throw DaemonError.launchFailed("ssh: connect to host: Connection timed out") }
+            return socket
+        }, bridge: bridge, requiredCapabilities: [], followsLink: true, linkRunning: { link.running })
+        try await Self.waitUntil { link.calls >= 3 }
+        try await Self.waitUntil { Self.connected(daemon) }
+        #expect(link.calls == 3, "one timed restart after the failed restart probe (\(link.calls) endpoint calls)")
+        #expect(daemon.watchesNetwork, "the network wake stays while the link may have no process")
+    }
+}

@@ -411,7 +411,8 @@ public actor DaemonConnection {
             // A drop or a failed attempt: space the next one (events only past the budget;
             // in a crash loop a new socket no longer counts, `RetryPolicy.socketRetries`).
             wake.rebaseline(keepingEventsAfter: pacer.policy.keepsEventsDuringAttempt ? mark : nil)
-            let delay = pacer.failed()
+            // While the link has no process (it probes, installs or spawns) the bounded bootstrap retry.
+            let delay = pacer.failed(linkRunning: configuration.linkRunning)
             if pacer.socketFailures == pacer.policy.socketRetries {
                 logger.error("cmux-tui reconnect: \(self.pacer.socketFailures) new daemon sockets failed; waiting for app activation or a reconnect")
             }
