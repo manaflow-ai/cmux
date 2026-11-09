@@ -8,7 +8,7 @@ import { writeChiefVmSource } from "../scripts/gen-chief-vm-source.ts"
  * of the same bytes would start another build, and so on for as long as `wrangler dev` runs.
  */
 describe("gen-chief-vm-source", () => {
-  const out = fileURLToPath(new URL("../src/chief-brain-cc/chief-vm-source.ts", import.meta.url))
+  const out = fileURLToPath(new URL("../src/chief-brain-cc/chief-vm-source.ts", import.meta.url).href)
 
   it("leaves a current file untouched and rewrites a stale one", () => {
     writeChiefVmSource()

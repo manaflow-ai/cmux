@@ -8,7 +8,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
-const at = (path: string) => fileURLToPath(new URL(path, import.meta.url))
+const at = (path: string) => fileURLToPath(new URL(path, import.meta.url).href)
 
 export const writeChiefVmSource = (): void => {
   const src = readFileSync(at("../../../chief-cc/image/chief-vm.mjs"), "utf8")
