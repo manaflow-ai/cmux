@@ -687,15 +687,14 @@ fn resolve_with_cua_helper(
     }
     // `agents.guidance.claude` off leaves `cmux-chat` out of the plugin, not only the pointer.
     let chat_skill = crate::agent_guidance::Switches::current().claude;
-    let plugin_dir = match materialize(&inputs.state_dir, |skill| {
-        chat_skill || skill != "cmux-chat"
-    }) {
-        Ok(dir) => Some(dir),
-        Err(e) => {
-            tracing::warn!("agent tools: the skills plugin was not written: {e:#}");
-            None
-        }
-    };
+    let plugin_dir =
+        match materialize(&inputs.state_dir, |skill| chat_skill || skill != "cmux-chat") {
+            Ok(dir) => Some(dir),
+            Err(e) => {
+                tracing::warn!("agent tools: the skills plugin was not written: {e:#}");
+                None
+            }
+        };
     let user_plugin_dir = user_plugin(&inputs.state_dir);
     AgentTools { servers, plugin_dir, user_plugin_dir, displays: inputs.displays.clone() }
 }
@@ -891,7 +890,9 @@ impl AgentTools {
         });
         match fit {
             Ok(fit) => self.plugin_dir = Some(fit),
-            Err(e) => tracing::warn!("agent tools: the fitted skills plugin was not written: {e:#}"),
+            Err(e) => {
+                tracing::warn!("agent tools: the fitted skills plugin was not written: {e:#}")
+            }
         }
         self
     }
