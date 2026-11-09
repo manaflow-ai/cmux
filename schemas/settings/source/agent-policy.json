@@ -1370,7 +1370,8 @@
       "agent": "userOnly",
       "why": "Battery and sleep are the person's call: an agent must not keep the Mac up for itself.",
       "keys": [
-        "sessions.keepAwake"
+        "sessions.keepAwake",
+        "sessions.keepAwakeForCommands"
       ]
     },
     {
@@ -1510,6 +1511,13 @@
       "why": "cmux Remote: the person's call.",
       "keys": [
         "remote.endSharingOnQuit"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Spends about 2 to 3 times the data on every remote connection; only the person turns it on.",
+      "keys": [
+        "remote.ultraMode"
       ]
     },
     {

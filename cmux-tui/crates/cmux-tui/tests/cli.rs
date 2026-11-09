@@ -3749,6 +3749,9 @@ mod browser_profiles;
 #[path = "cli/caller_selector.rs"]
 mod caller_selector;
 #[cfg(unix)]
+#[path = "cli/carrier_tunnel.rs"]
+mod carrier_tunnel;
+#[cfg(unix)]
 #[path = "cli/chief.rs"]
 mod chief;
 #[cfg(unix)]
@@ -3811,6 +3814,8 @@ mod launch_credential;
 mod layout_delta;
 #[path = "cli/left_dock_undock.rs"]
 mod left_dock_undock;
+#[path = "cli/list_filters.rs"]
+mod list_filters;
 #[path = "cli/lone_width.rs"]
 mod lone_width;
 #[path = "cli/new_terminal_cwd.rs"]
@@ -3829,6 +3834,9 @@ mod state_helpers;
 mod status;
 #[path = "cli/tab_group_hex.rs"]
 mod tab_group_hex;
+#[cfg(unix)]
+#[path = "cli/tabless_terminals.rs"]
+mod tabless_terminals;
 #[cfg(unix)]
 #[path = "cli/terminal_paste.rs"]
 mod terminal_paste;

@@ -3,7 +3,7 @@
 
 pub(super) const WORKSPACE_HELP: &str = "\
 USAGE
-  cmux workspace list [--order session|personal]
+  cmux workspace list [--order session|personal] [--name <name>] [--cwd <path>]
   cmux --machine <cloud machine> workspace list
   cmux workspace create [--name <value>] [--empty] [--ephemeral] [--focus] [--top] [--correlation-key <value>]
     [--expected-revision <revision>] [--cwd <path>] [--shell <script> | -- <argv...>]
@@ -77,7 +77,12 @@ personal: they live in this Mac's home session. --remote makes a remote
 group: it connects <host> (an ~/.ssh/config alias, a Tailscale name or
 user@host) and its new workspaces run there. --parent makes a group inside
 <group>. A group or room is named by
-its id or exact name. list --order session gives the session's workspace
+its id or exact name. list --name <name> keeps the workspaces named exactly
+<name>; list --cwd <path> keeps those with a terminal in <path> or a folder
+inside it (relative to the current folder; links resolved too). Both together
+keep rows that match both; no match is an empty list and exit 0, so
+`list --name api --json` finds every workspace a `name:api` selector calls
+ambiguous. list --order session gives the session's workspace
 order: creation order unless a workspace was moved. list --order personal
 gives the cmux app's sidebar order: loose workspaces, and each group's
 workspaces where the group shows. Without --order, list gives the sidebar
@@ -108,7 +113,7 @@ SELECTORS
 
 pub(super) const PANE_HELP: &str = "\
 USAGE
-  cmux pane list [--workspace <selector>] [--screen <selector>]
+  cmux pane list [--workspace <selector>] [--screen <selector>] [--name <name>] [--cwd <path>]
   cmux pane create [--cwd <path>] [--correlation-key <value>]
     [--shell <script> | -- <argv...>]
   cmux pane <selector> show|focus|close
@@ -131,6 +136,8 @@ USAGE
   cmux pane <selector> move --new-screen|--new-tab [--name <value>] [--focus]
   cmux pane <selector> tab ...
 
+list --name <name> keeps the panes named exactly <name>; list --cwd <path>
+keeps those with a terminal in <path> or a folder inside it.
 split keeps the focus where it is unless --focus is given. With --shell or
 -- argv the new pane (of split or create) runs that command instead of a
 shell. To add a terminal
@@ -216,7 +223,7 @@ SELECTORS
 pub(super) const TERMINAL_HELP: &str = "\
 USAGE
   cmux terminal list [--workspace <selector>] [--screen <selector>] [--pane <selector>]
-    [--tab <selector>]
+    [--tab <selector>] [--cwd <path>]
   cmux terminal list --agents
   cmux terminal <selector> show
   cmux terminal <selector> status
@@ -245,6 +252,7 @@ USAGE
     [--split right|down|left|up] [--cwd <dir>] [--no-focus] [--no-wait]
   cmux terminal <term_id> keep on|off
 
+list --cwd <path> keeps the terminals in <path> or a folder inside it.
 screen read prints the screen's text; --details (or --json) gives the whole
 record. screen read --unwrap joins rows the terminal soft-wrapped into the
 lines the program printed; --lines <n> reads the last n lines of scrollback and
@@ -255,6 +263,9 @@ cursor's line after the call, never a typed command's echo or older output. keep
 when it has no tab; keep off lets it end after the reap grace period.
 status prints the program status records (OSC 7501) the terminal's
 programs reported: state, progress, kind, app, title and msg per record id.
+STATE is the word list --agents shows (a finished turn somebody viewed is
+idle, one nobody viewed done); --json keeps the program's own word as state
+and adds that word as status.
 wait --until prompt returns when the shell shows its prompt; --until idle
 when no command runs and no program reports work. Both need OSC 133 shell
 integration to see commands, and print the terminal record; a passed
@@ -265,8 +276,8 @@ list --agents lists the terminals that run a coding agent (Claude Code,
 Codex, or a program reporting OSC 7501 status): name, harness, state
 (blocked, done, working, idle, unknown, ended), age, workspace and title.
 done is a finished turn nobody has viewed yet; viewing the tab makes it idle.
-The JSON rows carry that word as status and the older word (busy, idle,
-waiting-for-input, ended) as state, and add the tab, the pane and the
+The JSON rows carry that word as status (state is a deprecated alias with
+the same word), and add the agent's name, the tab, the pane and the
 agent's last reply.
 resume starts an agent that exited again with its recorded harness session
 (claude --resume <id>, codex resume <id>), in the same pane by default, and
