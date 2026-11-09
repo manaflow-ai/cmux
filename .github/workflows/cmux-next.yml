@@ -261,6 +261,8 @@ on:
       - .github/workflows/cmux-next-pr-autofix.yml
       - .github/workflows/cmux-next-base-autofix.yml
       - tests/test_cmux_next_tree_notify.py
+      - tests/test_cmux_tui_tree_takeover.py
+      - scripts/ci/cmux_tui_tree_takeover.py
       - tests/test_cmux_next_update_dev_daily.py
       - scripts/cmux-next/update-dev-daily.sh
       - tests/test_cmux_next_classic_to_next.py
@@ -540,6 +542,8 @@ on:
       - tests/test_next_batch_groups.py
       - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_tree_notify.py
+      - tests/test_cmux_tui_tree_takeover.py
+      - scripts/ci/cmux_tui_tree_takeover.py
       - tests/test_cmux_next_update_dev_daily.py
       - scripts/cmux-next/update-dev-daily.sh
       - tests/test_cmux_next_classic_to_next.py
@@ -1817,6 +1821,7 @@ jobs:
             bash scripts/cmux-next/tests/pin-cmux-tui-host-target.test.sh
             bash scripts/cmux-next/tests/pin-cmux-tui-windows-fetch.test.sh
             python3 tests/test_cmux_next_tree_notify.py
+            python3 tests/test_cmux_tui_tree_takeover.py
             python3 tests/test_idea_ledger.py
             # The INTERNAL iOS builder's trigger decisions and What to Test notes.
             python3 tests/test_ios_internal_builder.py
@@ -2416,15 +2421,61 @@ jobs:
       # path dependencies) and the release must be built from them. Here on
       # Linux it runs on every push and pull request: in swift test a newer
       # push replaced the waiting job, so tip runs rarely reached it.
+      #
+      # On a pull request the base's copy of the check and of its pin reader
+      # (the merge commit's first parent), extracted outside the checkout,
+      # judges a fresh worktree of the merge commit (--tree), with only
+      # PATH=/usr/bin:/bin, an empty HOME and the git switches below in its
+      # environment. The steps above ran the pull request's code, which could
+      # rewrite the checkout's files on disk (the check, its reader, the
+      # manifest, a Cargo.toml), change PATH and the environment, or write
+      # dotfiles in HOME (a ~/.gitconfig hooks path, a ~/.curlrc) and git
+      # hooks in .git/hooks; base_red_excuse.py trusts this verdict for a
+      # pull request whose diff leaves the check alone. So no global or
+      # system git config is read, git runs no hook and no fsmonitor, and
+      # the base is the merge commit's first parent as its object records
+      # it (no graft). BASH_ENV is empty here, so the checkout's
+      # scripts/ci/api_call_log/env.sh is not sourced either.
       - name: Check the app FFI pin
         id: app-ffi-pin
         continue-on-error: true
         env:
           EVENT_NAME: ${{ github.event_name }}
+          BASH_ENV: ""
         run: |
-          base=()
-          [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
-          scripts/cmux-next/check-app-ffi-pin.sh --verify-release "${base[@]}"
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != pull_request ]]; then
+            exec scripts/cmux-next/check-app-ffi-pin.sh --verify-release
+          fi
+          work="$(/usr/bin/mktemp -d "${RUNNER_TEMP:-/tmp}/app-ffi-pin.XXXXXX")"
+          /bin/mkdir "$work/home" "$work/code"
+          exec /usr/bin/env -i PATH=/usr/bin:/bin HOME="$work/home" \
+            GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_NO_REPLACE_OBJECTS=1 GIT_LFS_SKIP_SMUDGE=1 \
+            GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null \
+            GIT_CONFIG_KEY_1=core.fsmonitor GIT_CONFIG_VALUE_1=false \
+            MERGE="$GITHUB_SHA" CODE="$work/code" CHECKOUT="$PWD" /bin/bash -euo pipefail -c '
+            cd "$CHECKOUT"
+            [[ "$(git rev-parse HEAD)" == "$MERGE" ]] \
+              || { echo "error: the checkout HEAD is not the merge commit $MERGE" >&2; exit 1; }
+            base="$(git cat-file commit "$MERGE" | awk "\$1 == \"parent\" && !found { print \$2; found = 1 }")"
+            base="$(git rev-parse --verify "$base^{commit}")"
+            code="$CODE"
+            # The blobs as the base commit stores them: no attribute (export-ignore, a filter) applies.
+            mkdir -p "$code/scripts/cmux-next" "$code/scripts/ci"
+            git cat-file blob "$base:scripts/cmux-next/check-app-ffi-pin.sh" >"$code/scripts/cmux-next/check-app-ffi-pin.sh"
+            git cat-file blob "$base:scripts/ci/app_ffi_pin.py" >"$code/scripts/ci/app_ffi_pin.py"
+            if ! grep -q -e "--tree)" "$code/scripts/cmux-next/check-app-ffi-pin.sh"; then
+              # Only while the base predates --tree (the pull request that adds it).
+              echo "note: the base check has no --tree; the checkout copy runs"
+              exec scripts/cmux-next/check-app-ffi-pin.sh --verify-release --base "$base"
+            fi
+            tree="$code/tree"
+            git worktree add --quiet --detach "$tree" "$MERGE"
+            status=0
+            bash "$code/scripts/cmux-next/check-app-ffi-pin.sh" --verify-release --base "$base" --tree "$tree" || status=$?
+            git worktree remove --force "$tree" || true
+            exit "$status"
+          '
 
       # plans/cmux-next/daemon-capabilities.json against the lists in
       # DaemonEndpoint.swift, without a build: check-daemon-capabilities.sh
@@ -2498,6 +2549,9 @@ jobs:
       - name: Fail on any red check
         if: always()
         env:
+          # The check steps above continue on error, so this step decides the job: it must not source the
+          # checkout's scripts/ci/api_call_log/env.sh (the workflow's BASH_ENV), which their code can rewrite.
+          BASH_ENV: ""
           STYLE_CHECKS: |
             God files and types (Swift)
             God files (cmux-tui Rust)
@@ -2649,19 +2703,14 @@ jobs:
   # Reports a same-tree cmux-tui that nothing will publish, in red, at once.
   # It waits for nothing: path routing probed the tree (tree_state=failed), or
   # an artifacts run that ended without publishing it dispatched same-tree mode
-  # with same_tree_state=failed. A later publication of the key still starts
-  # the tree jobs (the marker stays) and posts their statuses.
-  # A ready tree is reported green the same way, so the tip has a verdict
-  # after a red one: a job that only ever ran red stayed a base red while it
-  # was skipped (NOW: "unverified: job skipped since ...").
-  # Builds the cmux-next web bundles once per source key (web-bundle-key.py --source: every
-  # input file and the pinned bun) on Linux and caches them under that key. The Mac jobs
-  # restore them by the same key instead of running bun and Vite+ themselves; a push to
-  # feat-cmux-next fills the cache every pull request can read. A pull request builds them
-  # only for a routed tier that restores them (swift test, daemon tests, generated files).
-  # A DEV daily run (direct or same-tree) builds them for the commit it compiles, next to the
-  # DEV Release compile, which restores them instead of building them on its Mac when this
-  # job (or the push of the same sources) has stored them by the time it gets there.
+  # with same_tree_state=failed; that one first re-runs its commit's
+  # artifacts run (cmux_tui_tree_takeover.py), red only if it can't.
+  # A publication of the key starts the tree jobs (the marker stays). A ready
+  # tree is reported green, so the tip has a verdict after a red one.
+  # Builds the cmux-next web bundles once per source key (web-bundle-key.py --source) on
+  # Linux and caches them; the Mac jobs restore them by that key instead of running bun.
+  # A pull request builds them only for a routed tier that restores them; a DEV daily run
+  # builds them for the commit its DEV Release compile restores them for.
   web-bundles:
     needs: path_route
     if: ${{ !cancelled() && needs.path_route.result == 'success' && (inputs.dev_daily == true || inputs.same_tree_sha == '') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.path_route.outputs.swift == 'true' || needs.path_route.outputs.daemon == 'true' || needs.path_route.outputs.generated == 'true')) }}
@@ -2779,14 +2828,15 @@ jobs:
 
   same-tree-cmux-tui:
     needs: [path_route, push-head-preflight]
-    # A superseded push reports nothing: its newer head is tested. Pull
-    # requests with a cold own tree are named in path_route's summary and
-    # skipped here; no synthetic cmux-tui-pin ref is created for them.
+    # A superseded push reports nothing (its newer head is tested); a pull
+    # request's cold tree is named in path_route's summary, skipped here.
     if: ${{ !cancelled() && github.event_name != 'pull_request' && inputs.same_tree_origin != 'pull_request' && (((needs.path_route.outputs.tree_state == 'failed' || needs.path_route.outputs.tree_state == 'ready') && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && (inputs.same_tree_state == 'failed' || inputs.same_tree_state == 'ready'))) }}
     name: same-tree cmux-tui
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
     permissions:
       statuses: write
+      actions: write
+      contents: read
     timeout-minutes: 3
     steps:
       - name: Report the ready same-tree cmux-tui
@@ -2794,11 +2844,17 @@ jobs:
         env:
           KEY: ${{ needs.path_route.outputs.tree_key }}
         run: echo "same-tree cmux-tui ${KEY:+tree $KEY }is ready"
+      - name: Check out the takeover script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
       - name: Report the unavailable same-tree cmux-tui
         if: ${{ (inputs.same_tree_sha != '' && inputs.same_tree_state || needs.path_route.outputs.tree_state) == 'failed' }}
         env:
           REASON: ${{ inputs.same_tree_reason || needs.path_route.outputs.tree_reason }}
           KEY: ${{ needs.path_route.outputs.tree_key }}
+          COMMIT: ${{ inputs.same_tree_sha }}
           STATUS_SHA: ${{ inputs.same_tree_status_sha }}
           TIERS: ${{ inputs.same_tree_tiers }}
           DEV_DAILY: ${{ inputs.dev_daily == true && 'true' || 'false' }}
@@ -2806,6 +2862,9 @@ jobs:
           TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
+          if [[ -n "$COMMIT" ]] && python3 scripts/ci/cmux_tui_tree_takeover.py --repo "$GITHUB_REPOSITORY" --commit "$COMMIT" --key "$KEY" --reason "$REASON"; then
+            echo "::notice title=same-tree cmux-tui taken over::$REASON"; exit 0
+          fi
           echo "::error title=same-tree cmux-tui unavailable::${KEY:+tree $KEY: }${REASON:-no reason given}"
           if [[ "$STATUS_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             for tier in ${TIERS//,/ }; do
@@ -6233,7 +6292,9 @@ jobs:
     needs: [path_route, push-head-preflight, dev-daily-tree-wait]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && format('{0}', vars.CMUX_NEXT_DEV_COMPILE_AFFINITY) != '0' && (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state == 'ready'))) && ((inputs.same_tree_sha == '' && needs.path_route.outputs.scheme == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.path_route.outputs.tree_state == 'ready' || needs.dev-daily-tree-wait.outputs.tree_state == 'ready')) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme'))) }}
     name: cmux NEXT DEV compile placement
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
     timeout-minutes: 4
     permissions:
@@ -7016,7 +7077,9 @@ jobs:
   dev-landing-place:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' && format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) != '0' }}
     name: cmux NEXT DEV landing placement
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
     timeout-minutes: 8
     permissions:
@@ -7340,7 +7403,9 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # The App key is a repository secret; this is the credential-free environment
     # macos-placement mints the same App's token under (test_supplychain_security.py).
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     # The GITHUB_TOKEN fallback may wait up to an hour for the budget's reset.
     timeout-minutes: 70
     permissions:
@@ -7541,7 +7606,9 @@ jobs:
     name: cmux-next Release compile revert
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }} # ephemeral-required: holds a contents and pull-requests write App token; ephemeral Blacksmith VM
     # The environment macos-placement already takes on a push for the same App key; push-only here.
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     timeout-minutes: 10
     permissions:
       actions: read

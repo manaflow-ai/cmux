@@ -30,6 +30,13 @@ notify) is the record, and a marker whose run name already has a dispatch
 created after the marker was uploaded is not dispatched again. A ready
 state always dispatches.
 
+A failed state is first taken over (cmux_tui_tree_takeover.py): a waiting
+feat-cmux-next commit re-runs its own artifacts run, which claims, builds
+and publishes the key (never the reporting run itself); its publish
+then starts every marker's tree jobs. Only when no waiter can take it over
+are the markers reported in red. One run that died (or whose jobs GitHub
+never created) no longer turns every commit waiting on its tree red.
+
 A pull request's same-tree run has a concurrency group of its own and no
 cancel, and is_current() is read only at the dispatch, so when the head moves
 on its older same-tree runs stay in the Mac queue (2026-11-09: 14 runs waiting
@@ -390,7 +397,8 @@ def cancel_superseded_same_tree(api: Api, repo: str, branch: str, head: str,
 
 def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
            log: Callable[[str], None] = print,
-           fetch_completion: Callable[[str], object | None] = fetch_completion) -> int:
+           fetch_completion: Callable[[str], object | None] = fetch_completion, exclude_run: int = 0,
+           quota_only: Callable[[], bool] = lambda: False) -> int:
     """Dispatches same-tree runs for the markers of <key>; returns how many."""
     if state == "failed" and completion_attests(fetch_completion(key), key):
         log(f"tree {key}: its completion.json is published, so the tree is ready whatever the "
@@ -413,6 +421,25 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
     swept: set[str] = set()
     # The failed report goes out once per marker (module docstring): read the run history once.
     history: dict[str, list[str]] | None = None
+    # A failed state: the first waiting feat-cmux-next commit that can take the publish over does, and no
+    # marker is reported red (cmux_tui_tree_takeover.py). Each commit is tried once per notify.
+    # A fork's marker (from_same_repository) is not read: it neither starts a takeover nor a same-tree run.
+    markers = {id(artifact): read_marker(api, artifact, key) if from_same_repository(artifact) else None
+               for artifact in artifacts[:MAX_MARKERS]}
+    taken_over = False
+    if state == "failed" and quota_only():
+        # Like the hand-off (cmux_tui_tree_handoff.py): a re-run would spend the same exhausted quota.
+        log(f"tree {key}: the reporting run failed only on GitHub's rate limit or attestation; not taken over")
+    elif state == "failed":
+        # Imported here: the base-tier kick sparse-checks out this file alone for run_name and never fails a tree.
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import cmux_tui_tree_takeover as takeover
+
+        taken_over = takeover.take_over_any(
+            api, repo=repo, key=key, log=log, exclude_run=exclude_run,
+            commits=[marker["sha"] for marker in markers.values()
+                     if marker is not None and marker.get("origin") in ("push", "dispatch")
+                     and marker.get("branch") == takeover.BRANCH and marker.get("ref_kind", "heads") == "heads"])
     stamps = [str(artifact.get("created_at", "")) for artifact in artifacts[:MAX_MARKERS]]
     stamps = [stamp for stamp in stamps if ISO_TIME.match(stamp)]
     if state == "failed" and stamps:
@@ -426,7 +453,7 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
     for artifact in artifacts[:MAX_MARKERS]:
         # from_same_repository (above) kept only artifacts whose workflow_run is an object.
         run_id = artifact["workflow_run"].get("id")
-        marker = read_marker(api, artifact, key)
+        marker = markers[id(artifact)]
         if marker is None:
             log(f"marker {artifact.get('id')} (run {run_id}) is not a valid tree marker; ignored")
             continue
@@ -464,6 +491,10 @@ def notify(api: Api, *, repo: str, key: str, state: str, reason: str,
         if marker["origin"] == "pull_request" and state == "failed":
             log(f"::notice title=same-tree cmux-tui skipped::run {run_id} ({marker['status_sha'][:12]}): "
                 f"tree {key} is unavailable; no pin ref is created. Re-run after a trusted publication.")
+            continue
+        if state == "failed" and taken_over:
+            log(f"run {run_id}: tree {key} was taken over by a waiting feat-cmux-next commit; not reported red "
+                f"(its marker stays, so the publication starts its tree jobs)")
             continue
         uploaded = str(artifact.get("created_at", ""))
         if state == "failed" and history is not None and ISO_TIME.match(uploaded) and any(
@@ -524,7 +555,31 @@ def main(argv: list[str]) -> int:
         return 0
     api = GitHub(token, os.environ.get("GITHUB_API_URL", "https://api.github.com"))
     try:
-        notify(api, repo=args.repo, key=args.key, state=args.state, reason=args.reason)
+        # This script runs inside the artifacts run that reports: that run is no publisher to wait on.
+        own_run = os.environ.get("GITHUB_RUN_ID", "")
+        run_id = int(own_run) if own_run.isdigit() else 0
+
+        def quota_only() -> bool:
+            if not run_id:
+                return False
+            import cmux_tui_tree_handoff as handoff  # same directory; needs the gh CLI the artifacts job has
+            jobs = handoff._list(f"repos/{args.repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100", "jobs")
+
+            def log_of(job: dict) -> str | None:
+                result = handoff._gh("api", f"repos/{args.repo}/actions/jobs/{job['id']}/logs")
+                return result.stdout if result.returncode == 0 else None
+
+            return handoff.quota_only_failure(jobs, log_of)
+
+        def safe_quota_only() -> bool:
+            try:
+                return quota_only()
+            except Exception as error:  # an unreadable run is no evidence of a quota failure
+                print(f"::warning::could not read run {run_id}'s jobs for the quota check: {error}")
+                return False
+
+        notify(api, repo=args.repo, key=args.key, state=args.state, reason=args.reason,
+               exclude_run=run_id, quota_only=safe_quota_only)
     except (RuntimeError, OSError, ValueError) as error:
         print(f"::warning::could not start the deferred cmux-next tree jobs for tree {args.key}: {error}")
     return 0

@@ -120,6 +120,7 @@
     "git.worktree.apply": "git.worktree.apply",
     "git.worktree.create": "git.worktree.create",
     "git.worktree.remove": "git.worktree.remove",
+    "git.worktree.setup": "git.worktree.setup",
     "handshake": "ready",
     "harness.restart": "harness.restart",
     "harness.symbol": "harness.symbol",

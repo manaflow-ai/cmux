@@ -117,6 +117,10 @@ class FakeApi:
         if path.startswith("repos/o/r/actions/runs/") and "/jobs?" in path:
             run_id = int(path.split("/")[5])
             return {"jobs": self.jobs.get(run_id, same_tree_jobs())}
+        if path.startswith("repos/o/r/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha="):
+            # No artifacts run of the waiter's commit: the takeover (cmux_tui_tree_takeover.py) is refused, and
+            # a failed state is reported red (tests/test_cmux_tui_tree_takeover.py covers the takeover).
+            return {"workflow_runs": []}
         raise AssertionError(f"unexpected GET {path}")
 
     def download(self, url: str) -> bytes:
