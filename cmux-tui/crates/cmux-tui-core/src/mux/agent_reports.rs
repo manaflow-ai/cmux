@@ -399,20 +399,11 @@ impl Mux {
         state.resource_revision = commit.revision;
         drop(state);
         drop(registry);
-        // A direct report while the roster settles, noted before the hook
-        // projector's lock goes: the replay's reconcile keeps this row and
-        // waits for its echo (`ReplayReports`).
-        let noted_for_replay =
-            origin == AgentReportOrigin::Direct && !commit.replayed && self.agent_roster_settling();
-        if noted_for_replay {
-            let mut reports = self
-                .agent_roster_worker
-                .replay_reports
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner);
-            reports.written.insert(terminal_id.clone());
-            reports.echoes_pending += 1;
-        }
+        // A direct report's echo, noted before the hook projector's lock
+        // goes: until it is in the journal the roster holds the agent's older
+        // state (`ReportEchoes`).
+        let echo_number = (origin == AgentReportOrigin::Direct && !commit.replayed)
+            .then(|| self.note_report_echo(&terminal_id));
         drop(sequence_guard);
         let agent = AgentRecord {
             surface,
@@ -464,24 +455,15 @@ impl Mux {
                 // The roster only folds journal events, so a direct report
                 // records its intent in the log; the fold recognizes the
                 // echo adapter and applies it roster-only.
-                self.append_agent_report_echo(
-                    &agent.terminal_id,
-                    agent.state,
-                    agent.source,
-                    agent.session.as_deref(),
-                    agent.updated_at_ms,
-                );
-                // Written or failed, the echo no longer holds the replay's
-                // reconcile, which waits for this pass.
-                if noted_for_replay {
-                    let mut reports = self
-                        .agent_roster_worker
-                        .replay_reports
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner);
-                    reports.echoes_pending = reports.echoes_pending.saturating_sub(1);
-                    drop(reports);
-                    self.continue_agent_roster_replay_later();
+                let echo = super::agent_roster_worker::ReportEcho {
+                    terminal_id: agent.terminal_id.clone(),
+                    state: agent.state,
+                    source: agent.source,
+                    session: agent.session.clone(),
+                    updated_at_ms: agent.updated_at_ms,
+                };
+                if let Some(number) = echo_number {
+                    self.write_report_echo(number, echo);
                 }
             }
         }

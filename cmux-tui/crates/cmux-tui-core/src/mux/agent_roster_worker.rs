@@ -177,20 +177,70 @@ impl RosterControl {
 }
 
 /// The roster's owner: its fold state, what requests ask of it, and its thread.
-/// The direct agent reports a settling roster's reconcile must respect. A
-/// direct report commits its projection under the hook projector's lock and
-/// appends its journal echo, the record the roster folds, only after it
-/// released it. The reconcile after a background replay, under that lock:
-/// - leaves the row of every terminal in `written` (a direct report wrote it
-///   during the replay, so it is newer than anything the replay folded), with
-///   no wall-clock comparison;
-/// - waits while `echoes_pending` is not zero: until an echo is in the
-///   journal, the roster holds the agent's older state next to the report's
-///   session, and a guarded send would read it.
+/// The journal echoes of direct agent reports that are not in the journal
+/// yet. A direct report commits its projection under the hook projector's
+/// lock (`agent_hook_fences`) and appends its echo, the record the roster
+/// folds, after releasing it. Until the echo is in the journal the roster
+/// holds the agent's older state, so:
+/// - the reconcile a replay or rebuild owes waits for every echo, then for
+///   the roster to fold it, and only then writes the roster's entries: the
+///   reducer's own verdict on each report, never a fence's guess at it;
+/// - a guarded send (`expect_agent`) to a terminal with an echo not in the
+///   journal is refused;
+/// - an echo whose append failed is appended again by the roster's owner,
+///   unless a later report of its terminal supersedes it.
 #[derive(Default)]
-pub(in crate::mux) struct ReplayReports {
-    pub(in crate::mux) written: HashSet<TerminalPublicId>,
-    pub(in crate::mux) echoes_pending: usize,
+pub(in crate::mux) struct ReportEchoes {
+    terminals: HashMap<TerminalPublicId, TerminalEchoes>,
+    /// Numbers the reports of every terminal, in commit order.
+    numbered: u64,
+    /// Echoes whose append failed, oldest first.
+    failed: Vec<FailedEcho>,
+    /// Retries of the failed echoes that failed in a row: their backoff.
+    failed_retries: u32,
+}
+
+#[derive(Default)]
+struct TerminalEchoes {
+    /// The terminal's last committed direct report.
+    latest: u64,
+    /// Its echoes being appended now.
+    appending: usize,
+}
+
+/// A direct report's journal echo ([`Mux::append_agent_report_echo`]).
+pub(in crate::mux) struct ReportEcho {
+    pub(in crate::mux) terminal_id: TerminalPublicId,
+    pub(in crate::mux) state: AgentState,
+    pub(in crate::mux) source: AgentSource,
+    pub(in crate::mux) session: Option<String>,
+    pub(in crate::mux) updated_at_ms: u64,
+}
+
+struct FailedEcho {
+    number: u64,
+    echo: ReportEcho,
+}
+
+/// Whether every direct report's echo is in the journal.
+pub(in crate::mux) enum EchoesWritten {
+    All,
+    /// An echo is being appended; its writer wakes the owner.
+    Appending,
+    /// An echo's append failed; the owner retries it after a backoff.
+    Failed,
+}
+
+impl ReportEchoes {
+    fn forget_if_written(&mut self, terminal_id: &TerminalPublicId) {
+        let written = self.terminals.get(terminal_id).is_some_and(|terminal| {
+            terminal.appending == 0
+                && !self.failed.iter().any(|failed| &failed.echo.terminal_id == terminal_id)
+        });
+        if written {
+            self.terminals.remove(terminal_id);
+        }
+    }
 }
 
 #[derive(Default)]
@@ -213,9 +263,12 @@ pub(in crate::mux) struct AgentRosterWorker {
     /// The replay is done, and the projection reconcile it owes waits for a
     /// pass whose fold reached the journal head (`run_roster_pass`).
     pub(in crate::mux) reconcile_pending: AtomicBool,
-    /// Direct agent reports while the roster settles (`ReplayReports`),
-    /// taken under the hook projector's lock (`agent_hook_fences`).
-    pub(in crate::mux) replay_reports: Mutex<ReplayReports>,
+    /// Direct reports' echoes not in the journal yet (`ReportEchoes`).
+    pub(in crate::mux) report_echoes: Mutex<ReportEchoes>,
+    /// Held across each echo append, so echoes reach the journal in the
+    /// order their reports committed (`write_report_echo`). Never taken
+    /// under the hook projector's lock: the append runs the projector.
+    pub(in crate::mux) echo_appends: Mutex<()>,
     /// Test seam (`agent_roster_restore::REPLAY_GATE_FOR_TEST`).
     #[cfg(test)]
     pub(in crate::mux) replay_gate: Mutex<Option<(SyncSender<()>, Receiver<()>)>>,
@@ -380,7 +433,6 @@ impl Mux {
     ) {
         let worker = &self.agent_roster_worker;
         *worker.replay.lock().unwrap_or_else(PoisonError::into_inner) = Some(replay);
-        worker.replay_reports.lock().unwrap_or_else(PoisonError::into_inner).written.clear();
         worker.replaying.store(true, Ordering::Release);
         worker.control.continue_later();
     }
@@ -394,6 +446,113 @@ impl Mux {
     /// Asks the owner for another pass of the background replay.
     pub(in crate::mux) fn continue_agent_roster_replay_later(&self) {
         self.agent_roster_worker.control.continue_later();
+    }
+
+    fn report_echoes(&self) -> MutexGuard<'_, ReportEchoes> {
+        self.agent_roster_worker.report_echoes.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// A direct report of `terminal_id` committed (under the hook projector's
+    /// lock): its echo is not in the journal until [`Self::report_echo_appended`].
+    pub(in crate::mux) fn note_report_echo(&self, terminal_id: &TerminalPublicId) -> u64 {
+        let mut echoes = self.report_echoes();
+        echoes.numbered += 1;
+        let number = echoes.numbered;
+        let terminal = echoes.terminals.entry(terminal_id.clone()).or_default();
+        terminal.latest = number;
+        terminal.appending += 1;
+        number
+    }
+
+    /// Appends report `number`'s echo, unless a later report of its
+    /// terminal was committed since: that one's echo carries the newer state,
+    /// and an older echo must not fold after it. Echo appends take turns
+    /// (`echo_appends`), so the check holds until the append. A failed one is
+    /// kept for the owner to append again; a written one supersedes its
+    /// terminal's older failed echoes.
+    pub(in crate::mux) fn write_report_echo(&self, number: u64, echo: ReportEcho) {
+        let turn =
+            self.agent_roster_worker.echo_appends.lock().unwrap_or_else(PoisonError::into_inner);
+        let latest = self.report_echoes().terminals.get(&echo.terminal_id).map(|t| t.latest);
+        let written = latest != Some(number) || self.append_agent_report_echo(&echo);
+        let mut echoes = self.report_echoes();
+        let terminal_id = echo.terminal_id.clone();
+        if let Some(terminal) = echoes.terminals.get_mut(&terminal_id) {
+            terminal.appending = terminal.appending.saturating_sub(1);
+        }
+        if written {
+            echoes
+                .failed
+                .retain(|failed| failed.echo.terminal_id != terminal_id || failed.number > number);
+        } else {
+            echoes.failed.push(FailedEcho { number, echo });
+        }
+        echoes.forget_if_written(&terminal_id);
+        let failed = !echoes.failed.is_empty();
+        drop(echoes);
+        drop(turn);
+        if failed {
+            self.retry_agent_roster_replay_after(Duration::ZERO);
+        } else {
+            self.continue_agent_roster_replay_later();
+        }
+    }
+
+    /// Whether a direct report of `terminal_id` has an echo not in the
+    /// journal: the roster still holds the agent's state from before it.
+    pub(crate) fn agent_report_echo_unwritten(&self, terminal_id: &TerminalPublicId) -> bool {
+        self.report_echoes().terminals.contains_key(terminal_id)
+    }
+
+    /// Whether every direct report's echo is in the journal.
+    pub(in crate::mux) fn report_echoes_written(&self) -> EchoesWritten {
+        let echoes = self.report_echoes();
+        if echoes.terminals.values().any(|terminal| terminal.appending > 0) {
+            EchoesWritten::Appending
+        } else if !echoes.failed.is_empty() {
+            EchoesWritten::Failed
+        } else {
+            EchoesWritten::All
+        }
+    }
+
+    /// The owner appends the failed echoes again, oldest first, each only
+    /// while it is still its terminal's last report, in turn with every other
+    /// echo append (`write_report_echo`). One left failed asks for another
+    /// pass after the roster's read backoff.
+    pub(in crate::mux) fn retry_failed_report_echoes(&self) {
+        let turn =
+            self.agent_roster_worker.echo_appends.lock().unwrap_or_else(PoisonError::into_inner);
+        let failed = std::mem::take(&mut self.report_echoes().failed);
+        if failed.is_empty() {
+            return;
+        }
+        let touched =
+            failed.iter().map(|failed| failed.echo.terminal_id.clone()).collect::<Vec<_>>();
+        let mut left = Vec::new();
+        for failed in failed {
+            let latest =
+                self.report_echoes().terminals.get(&failed.echo.terminal_id).map(|t| t.latest);
+            if latest == Some(failed.number) && !self.append_agent_report_echo(&failed.echo) {
+                left.push(failed);
+            }
+        }
+        let mut echoes = self.report_echoes();
+        echoes.failed = left;
+        for terminal_id in touched {
+            echoes.forget_if_written(&terminal_id);
+        }
+        drop(turn);
+        if echoes.failed.is_empty() {
+            echoes.failed_retries = 0;
+            drop(echoes);
+            self.continue_agent_roster_replay_later();
+            return;
+        }
+        echoes.failed_retries = echoes.failed_retries.saturating_add(1);
+        let delay = agent_roster_rebuild::roster_read_retry_delay(echoes.failed_retries);
+        drop(echoes);
+        self.retry_agent_roster_replay_after(delay);
     }
 
     /// The roster state of `terminal_id` now, with no wait for the owner.

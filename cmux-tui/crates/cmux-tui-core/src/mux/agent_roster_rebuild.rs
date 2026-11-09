@@ -275,10 +275,17 @@ impl Mux {
             eprintln!("cmux-tui: persisting the rebuilt agent roster failed: {error}");
         }
         drop(slot);
+        // The reconcile the stale roster skipped, as a replay's: under the
+        // hook projector's lock, once every direct report's echo is folded,
+        // so it writes the reducer's verdict on them (`ReportEchoes`); until
+        // it is done guarded sends wait.
+        worker.reconcile_pending.store(true, Ordering::Release);
+        #[cfg(test)]
+        fold.note_io_for_test();
+        let reconciled = self.reconcile_after_replay(fold.reader(&self.journal_kernel));
         drop(fold);
         eprintln!("cmux-tui: the agent roster rebuild finished at sequence {cursor}");
-        // The reconcile the stale roster skipped.
-        self.reconcile_agent_roster_projections();
+        self.finish_replay_reconcile(reconciled);
         self.activity.note_roster_changed();
         if let Some(problem) = problem {
             self.report_internal_diagnostic(problem);

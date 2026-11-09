@@ -225,6 +225,18 @@ pub(super) fn send(
                  the send shortly"
             )));
         }
+        // A direct report of this terminal whose journal echo is not in the journal yet (being
+        // appended, or retried after a failed append): the roster still holds the agent's state
+        // from before the report. Refused until the echo is written.
+        if surface
+            .terminal_public_id()
+            .is_some_and(|terminal| mux.agent_report_echo_unwritten(terminal))
+        {
+            return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
+                "agent state not recorded yet: the terminal's last agent report is still being \
+                 journaled; retry the send shortly"
+            )));
+        }
         // Only this surface's own terminal's record: a surface with no terminal id fails closed
         // (an unfiltered roster would name another terminal's agent).
         let agent = surface.terminal_public_id().cloned().and_then(|terminal| {
