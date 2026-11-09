@@ -10,7 +10,7 @@ with nobody noticing. This skill finds the commit behind each failure on CI,
 never on the Mac (no full cmux builds on laptops).
 
 Use this skill for the SwiftPM package suites under `Packages/iOS` and `Packages/Shared` that `test-ios.yml` can run
-(`CMUXMobileCore`, `CmuxSyncStore`, `CmuxMobilePairedMac`, `CmuxMobileShellModel`,
+(`CMUXMobileCore`, `CmuxMobilePairedMac`, `CmuxMobileShellModel`,
 `CmuxHomeCore`).
 
 ## Before you start

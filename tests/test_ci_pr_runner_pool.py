@@ -3569,7 +3569,7 @@ class IOSRouting(unittest.TestCase):
         self.assertIn("::error::", err.getvalue())
         out = io.StringIO()
         with unittest.mock.patch("sys.stdout", out):
-            ios_pool.main(["--lane", "test-ios", "--swift-package", "CmuxSyncStore"], env={})
+            ios_pool.main(["--lane", "test-ios", "--swift-package", "CmuxHomeCore"], env={})
         outputs = dict(line.split("=", 1) for line in out.getvalue().splitlines())
         self.assertEqual((outputs["jobs"], outputs["sim_jobs"]), ("1", "0"))
 
@@ -3586,8 +3586,8 @@ class IOSRouting(unittest.TestCase):
         self.assertFalse(self.live(1, 2).persistent)
         self.assertTrue(self.live(2, 1, device_family="iphone").persistent)
         # A package run holds one machine and no simulator.
-        self.assertTrue(self.live(1, 0, swift_package="CmuxSyncStore").persistent)
-        self.assertFalse(self.live(0, 0, swift_package="CmuxSyncStore").persistent)
+        self.assertTrue(self.live(1, 0, swift_package="CmuxHomeCore").persistent)
+        self.assertFalse(self.live(0, 0, swift_package="CmuxHomeCore").persistent)
         # Not even a live read moves a non-default or blocked run.
         self.assertFalse(self.live(9, 9, variable="blacksmith-12vcpu-macos-26").persistent)
         self.assertFalse(self.live(9, 9, ios_version="26.4").persistent)
@@ -3616,7 +3616,7 @@ class IOSRouting(unittest.TestCase):
         title = "iOS tests · main · {} · all · {} · default · on {}"
         fresh = pool.iso(NOW - dt.timedelta(minutes=1))
         recent = [{"display_title": title.format("simulator", "iphone", "auto"), "created_at": fresh},  # 2, 1 sim
-                  {"display_title": title.format("CmuxSyncStore", "all", "auto"), "created_at": fresh},  # 1, 0
+                  {"display_title": title.format("CmuxHomeCore", "all", "auto"), "created_at": fresh},  # 1, 0
                   {"display_title": title.format("simulator", "all", "blacksmith-6vcpu-macos-26")},  # none
                   {"display_title": "iOS screenshots"}]  # unparsed: in full
         # Unread runs are charged their whole need, and neither count goes below zero.

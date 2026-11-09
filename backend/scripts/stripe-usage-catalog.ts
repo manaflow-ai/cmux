@@ -3,7 +3,7 @@
  * Test-mode Stripe catalog for usage billing (cx-y79zh S3, plans/cmux-next/usage-billing.md).
  * Idempotent: finds each object first and creates only what is missing.
  *
- *   STRIPE_USAGE_KEY=<sk_test_...> bun backend/scripts/stripe-usage-catalog.ts [--check]
+ *   STRIPE_USAGE_KEY=<sk_test_...> bun backend/scripts/stripe-usage-catalog.ts [--set=v1|v2|e2e] [--check]
  *
  * - Meters, aggregation `last` (the reconcile worker sends levels, never deltas):
  *   `cmux_ai_usage` (the period's whole AI usage level, per-team prices) and
@@ -17,9 +17,15 @@
  *
  * Refuses any live key: live objects are Lawrence's step. Prints object ids and settings only.
  */
-import { INCLUDED_MODES, USAGE_PRICE_SETS, USAGE_PRODUCT_ID as PRODUCT_ID, usageMeterEvent, usageModesOf, usagePriceLookupKey, type IncludedMode, type UsagePriceSet } from "../apps/api/src/billing-catalog.ts"
-// --set e2e: the end-to-end price set (1 USD included), test mode only like everything here.
-const SET: UsagePriceSet = process.argv.includes("--set=e2e") ? "e2e" : "v1"
+import { INCLUDED_MODES, USAGE_PRICE_SET_NAMES, USAGE_PRICE_SETS, USAGE_PRODUCT_ID as PRODUCT_ID, usageMeterEvent, usageModesOf, usagePriceLookupKey, type IncludedMode, type UsagePriceSet } from "../apps/api/src/billing-catalog.ts"
+// --set=<name>: the price set to make (billing-catalog.ts USAGE_PRICE_SETS: v1 by default, v2 Team 25 USD per
+// seat, e2e 1 USD included), test mode only like everything here.
+const setArg = process.argv.find((a) => a.startsWith("--set="))?.slice("--set=".length) ?? "v1"
+if (!(USAGE_PRICE_SET_NAMES as ReadonlyArray<string>).includes(setArg)) {
+  console.error(`stripe-usage-catalog: --set must be one of ${USAGE_PRICE_SET_NAMES.join(", ")}`)
+  process.exit(2)
+}
+const SET = setArg as UsagePriceSet
 const INCLUDED_USD = USAGE_PRICE_SETS[SET]
 const key = process.env.STRIPE_USAGE_KEY ?? ""
 const check = process.argv.includes("--check")

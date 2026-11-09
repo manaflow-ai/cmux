@@ -27,7 +27,13 @@ has its own tab ID and placement-local name; all views share one process,
 ordered input stream, output history, and canonical grid. Closing a tab, pane,
 screen, workspace, frontend projection, or client connection detaches views
 without closing the terminal. `terminal.project` adds another view, and only
-`terminal.close` terminates and tombstones the terminal. A browser remains
+`terminal.close` terminates and tombstones the terminal. With `if_unplaced:
+true` it does so only for a terminal with no view, no `keep` mark and no
+attach stream; any other fails with `operation.failed`
+(`extra.terminal_retained: true`) and changes nothing. `identify` advertises
+`terminal-close-if-unplaced-v1` when the daemon takes the field; an older
+daemon refuses it as an unknown parameter (`validation.invalid`, before the
+request is keyed), so a client can send it and fall back on that refusal. A browser remains
 single-view tab content. Sidebar extensions are session-scoped auxiliary
 resources and cannot become tabs.
 
@@ -129,7 +135,10 @@ workspace, absent for a normal one), `agent_folder` (absent until set), `descrip
 that hosts a frontend-rendered browser, its record's only writer), `relaunch`
 (`{cwd}` for a tab kept by `shutdown-daemon {end_terminals, keep_layout}`,
 absent otherwise); screen `pinned`, `color`, `icon`,
-`screen_group_id`; terminal `progress` (the parsed OSC 9;4 state and percent
+`screen_group_id`; terminal `agent_start` (`true` when the terminal's stored
+spawn argv is the `cmux agent start` launch, `<shell> -lc <script> cmux-agent
+...`; read from the daemon's spawn record, never from the OS; absent
+otherwise), `progress` (the parsed OSC 9;4 state and percent
 of every terminal) and `program_status` (the OSC 7501 program status records
 of the terminal, sorted by `id`: `{id, state, progress, kind, app, title, msg,
 updated_seq, updated_at_ms, since_ms}`; `since_ms` is when the record entered

@@ -41,7 +41,21 @@ fn main() {
     // Build libghostty-vt.a with zig. ReleaseFast regardless of the cargo
     // profile: the VT parser is on the PTY hot path and a debug zig build
     // is an order of magnitude slower.
-    let zig = build_support::zig_program(env::var("ZIG").ok(), env::var("CMUX_ZIG").ok());
+    let required_zig = build_support::zon_minimum_zig(&ghostty_dir.join("build.zig.zon"));
+    let mut zig_candidates = vec![
+        build_support::zig_program(env::var("ZIG").ok(), env::var("CMUX_ZIG").ok()),
+        "zig".to_string(),
+    ];
+    if let Some(required) = &required_zig {
+        zig_candidates.extend(build_support::installed_zig_paths(required));
+    }
+    let (zig, why) = build_support::select_zig(&zig_candidates, required_zig.as_deref(), |zig| {
+        let output = Command::new(zig).arg("version").output().ok()?;
+        output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+    });
+    if let Some(why) = why {
+        println!("cargo:warning={why}");
+    }
     let prefix = out_dir.join("ghostty-vt");
     let target = env::var("TARGET").unwrap();
     let host = env::var("HOST").unwrap();

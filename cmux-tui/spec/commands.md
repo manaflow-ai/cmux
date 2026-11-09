@@ -695,8 +695,11 @@ frames a previous run left in the WAL, so a reader compares two reads (the
 bytes one change writes). `registry_wal_file_bytes` is the registry's WAL file
 size now and `registry_wal_file_high_water_bytes` the largest size seen since
 the daemon started: a reader that pins an old snapshot keeps every later
-commit in the WAL, and the syncer brings the file back under 64 MiB once the
-WAL is free again. Daemons older than each field omit it.
+commit in the WAL, and the file shrinks to 64 MiB at the first commit after a
+checkpoint copied the whole WAL and the last reader of the old WAL ended (a
+read transaction still open after the checkpoint delays it); an idle registry
+keeps its size. Daemons
+older than each field omit it.
 
 `locks` reports the workspace registry lock (`registry`) and the mux state
 lock (`state`) by acquiring site, so a convoy names the code that holds it.

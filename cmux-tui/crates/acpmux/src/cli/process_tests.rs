@@ -119,6 +119,45 @@ fn the_header_names_the_command_folder_start_and_output_file() {
     assert!(lines.last().unwrap().starts_with('─'), "{h}");
 }
 
+/// A Claude Monitor an agent named "hold" (`sleep 840; echo t`): the view
+/// says it only waits and then wakes the agent, under its
+/// command and the agent's name for it; the tab reads "Waiting 14m · hold".
+#[test]
+fn a_timer_says_what_it_waits_for() {
+    let mut p = proc("running");
+    p["command"] = json!("sleep 840; echo t");
+    p["description"] = json!("hold");
+    let h = header(&p, PLAIN);
+    assert_eq!(h.lines().next(), Some("$ sleep 840; echo t"));
+    assert!(h.contains("named    hold"), "{h}");
+    assert!(h.contains("waits    14m, then wakes the agent; it runs nothing else\n"), "{h}");
+    assert_eq!(title(&p), "Waiting 14m · hold");
+    // The name alone (an older registry knew only it) is not said twice.
+    p["command"] = json!("hold");
+    let h = header(&p, PLAIN);
+    assert!(!h.contains("named"), "{h}");
+    assert_eq!(title(&p), "hold");
+    // A command with no name keeps its command as the title and no named row.
+    assert_eq!(title(&proc("running")), "npm run dev");
+    assert!(!header(&proc("running"), PLAIN).contains("named"));
+}
+
+#[test]
+fn only_a_bare_sleep_reads_as_a_timer() {
+    assert_eq!(timer_secs("sleep 840; echo t"), Some(840));
+    assert_eq!(timer_secs("sleep 2m && echo done"), Some(120));
+    assert_eq!(timer_secs("sleep 1h"), Some(3600));
+    assert_eq!(timer_secs("sleep 30; gh pr checks 1"), None);
+    assert_eq!(timer_secs("sleep 30; echo $(date)"), None);
+    assert_eq!(timer_secs("sleep 30; echo t > f"), None);
+    assert_eq!(timer_secs("sleep 30; echo t & make build"), None);
+    assert_eq!(timer_secs("sleep x"), None);
+    assert_eq!(timer_secs("npm run dev"), None);
+    assert_eq!(span(840), "14m");
+    assert_eq!(span(45), "45s");
+    assert_eq!(span(7200), "2h");
+}
+
 #[test]
 fn the_footer_says_how_it_ended_and_after_how_long() {
     let at = |state: &str, extra: Value| {

@@ -66,8 +66,7 @@ impl HostAttachment {
                         !remaining.is_zero(),
                         "terminal host did not acknowledge termination"
                     );
-                    reader
-                        .set_read_timeout(Some(remaining.max(Duration::from_millis(1))))
+                    set_link_read_timeout(reader, Some(remaining.max(Duration::from_millis(1))))
                         .context("set terminal-host termination timeout")?;
                     let frame = read_frame(reader, MAX_FRAME_PAYLOAD)
                         .map_err(protocol_io_error)?
@@ -94,8 +93,7 @@ impl HostAttachment {
                     return Ok(());
                 }
             })();
-            let restored = reader
-                .set_read_timeout(previous_timeout)
+            let restored = set_link_read_timeout(reader, previous_timeout)
                 .context("restore terminal-host timeout after termination");
             response.and(restored)
         })();
@@ -109,7 +107,13 @@ impl HostAttachment {
         let deadline = Instant::now()
             .checked_add(HOST_LAUNCH_ROLLBACK_WAIT)
             .ok_or_else(|| anyhow::anyhow!("terminal-host termination timeout overflow"))?;
-        self.terminate().context("send terminal-host termination")?;
+        if let Err(error) = self.terminate() {
+            // A host that already ended cannot take the request. Its queued
+            // Exit frame or its durable exit record still answers below.
+            if !host_link_closed(&error) {
+                return Err(error.context("send terminal-host termination"));
+            }
+        }
         let identity = self.identity();
         let record_path = self.record_path.clone();
         let protocol_version = self.protocol_version;
@@ -126,8 +130,7 @@ impl HostAttachment {
                     !remaining.is_zero(),
                     "terminal host did not exit before the termination deadline"
                 );
-                reader
-                    .set_read_timeout(Some(remaining.max(Duration::from_millis(1))))
+                set_link_read_timeout(reader, Some(remaining.max(Duration::from_millis(1))))
                     .context("set terminal-host termination timeout")?;
                 let frame = match read_frame(reader, MAX_FRAME_PAYLOAD) {
                     Ok(Some(frame)) => frame,
@@ -156,8 +159,7 @@ impl HostAttachment {
                 return Ok(TerminalHostExitRecord::new(&identity, exit));
             }
         })();
-        let restored = reader
-            .set_read_timeout(previous_timeout)
+        let restored = set_link_read_timeout(reader, previous_timeout)
             .context("restore terminal-host timeout after termination");
         match result {
             Ok(record) => {
@@ -170,4 +172,17 @@ impl HostAttachment {
             }
         }
     }
+}
+
+/// True when an error says the host's end of the link is gone: a write or
+/// shutdown on a socket whose peer closed (EPIPE, ECONNRESET, ENOTCONN).
+fn host_link_closed(error: &anyhow::Error) -> bool {
+    error.chain().filter_map(|cause| cause.downcast_ref::<std::io::Error>()).any(|cause| {
+        matches!(
+            cause.kind(),
+            std::io::ErrorKind::BrokenPipe
+                | std::io::ErrorKind::ConnectionReset
+                | std::io::ErrorKind::NotConnected
+        )
+    })
 }
