@@ -55,6 +55,44 @@ class FakeApi:
         self.dispatched.append((number, branch))
 
 
+class MovingTipApi(FakeApi):
+    """feat-cmux-next lands a check path change during each dispatched run, `moves` times.
+
+    A dispatched run posts its result after `run_polls` status reads, at the tip it was dispatched on; the tip then
+    reads one commit newer, which changes scripts/check-pbxproj.sh. `results` are the runs' states in order (the
+    last one repeats).
+    """
+
+    def __init__(self, moves, run_polls=3, results=("success",)):
+        tips = [format(index + 1, "040x") for index in range(moves + 1)]
+        compares = {(OLD, tips[0]): {"status": "ahead", "ahead_by": 1, "files": FILES_23365}}
+        for older, newer in zip(tips, tips[1:]):
+            compares[(older, newer)] = {"status": "ahead", "ahead_by": 1, "files": ["scripts/check-pbxproj.sh"]}
+        super().__init__([status(OLD)], compares=compares)
+        self.tips = tips  # after FakeApi's own, which this fake's tip() replaces
+        self.moves, self.run_polls, self.results = moves, run_polls, list(results)
+        self.index, self.pending, self.current = 0, None, status(OLD)
+
+    def status(self, sha):
+        self.reads += 1
+        if self.pending is not None:
+            self.pending -= 1
+            if self.pending == 0:
+                run = len(self.dispatched)
+                state = self.results[min(run, len(self.results)) - 1]
+                self.current = status(self.tips[self.index], state=state, at=f"run {run}")
+                self.pending = None
+                self.index = min(self.index + 1, self.moves)
+        return self.current
+
+    def tip(self, branch):
+        return self.tips[self.index]
+
+    def dispatch(self, number, branch):
+        super().dispatch(number, branch)
+        self.pending = self.run_polls
+
+
 class Clock:
     def __init__(self):
         self.now = 0.0
@@ -131,12 +169,61 @@ class CheckPathGate(unittest.TestCase):
         (_, waited), _ = run(api)
         self.assertEqual(waited, 60)
 
-    def test_a_check_path_that_changed_again_during_the_wait_refuses(self):
+    # 2026-11-09: feat-cmux-next changed a check path while the dispatched run ran, and the gate refused with
+    # "retry" (#39632, #39631 twice, #39705: crash-safety-baseline.json, check-menu-actions-baseline.txt). The
+    # gate now dispatches again on the new tip and waits, inside the wait budget.
+    def test_a_check_path_that_changed_once_during_the_run_merges_after_one_rerun(self):
+        api = MovingTipApi(moves=1)
+        (checked, waited), err = run(api)
+        self.assertEqual(api.dispatched, [("42", "feat-cmux-next")] * 2)
+        self.assertEqual(checked, "check paths (fast gates rerun on the current tip)")
+        self.assertEqual(waited, 120)  # two runs of three 20s polls
+        self.assertIn("scripts/check-pbxproj.sh", err)
+        self.assertIn(f"again against the new tip {api.tips[1][:12]}", err)
+
+    def test_the_static_fake_a_check_path_that_changed_again_dispatches_again(self):
         landed = {(OLD, TIP): {"status": "ahead", "ahead_by": 1, "files": FILES_23365},
                   (TIP, NEWER): {"status": "ahead", "ahead_by": 1, "files": ["scripts/check-pbxproj.sh"]}}
-        api = FakeApi([status(OLD), status(TIP, at="2026-10-21T14:12:00Z")], tips=(TIP, NEWER), compares=landed)
-        with self.assertRaisesRegex(gate.Refused, "after the dispatched run.*scripts/check-pbxproj.sh"):
+        api = FakeApi([status(OLD), status(TIP, at="2026-10-21T14:12:00Z"), status(NEWER, at="2026-10-21T14:30:00Z")],
+                      tips=(TIP, NEWER), compares=landed)
+        (checked, _), err = run(api)
+        self.assertEqual(len(api.dispatched), 2)
+        self.assertIn("has changed the check path scripts/check-pbxproj.sh since", err)
+
+    def test_a_tip_that_moves_a_check_path_on_every_run_refuses_at_the_wait_budget(self):
+        # Each run takes 60s; a 300s budget allows at most five dispatches, and the refusal names the budget and
+        # the last check path that changed.
+        api = MovingTipApi(moves=1000)
+        clock = Clock()
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(gate.Refused, r"wait budget of 300s.*scripts/check-pbxproj.sh"):
+                gate.gate(api, "42", HEAD, gate.BRANCH, 300, 20, clock, clock.sleep)
+        self.assertGreaterEqual(len(api.dispatched), 2)
+        self.assertLessEqual(len(api.dispatched), 5)
+        self.assertLessEqual(clock.now, 300 + 20)
+
+    def test_a_budget_below_one_run_still_waits_for_the_first_run_but_never_dispatches_again(self):
+        # gh-merge-green passes what its --wait left; the first run keeps its own --timeout, as before the rerun.
+        api = MovingTipApi(moves=1000, run_polls=15)  # one run: 300s
+        clock = Clock()
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(gate.Refused, r"wait budget of 100s.*scripts/check-pbxproj.sh"):
+                gate.gate(api, "42", HEAD, gate.BRANCH, 900, 20, clock, clock.sleep, budget=100)
+        self.assertEqual(len(api.dispatched), 1)
+
+    def test_a_red_dispatched_run_refuses_at_once_with_no_rerun(self):
+        api = MovingTipApi(moves=1000, results=("failure",))
+        with self.assertRaisesRegex(gate.Refused, "cmux-next/fast-gates is failure on the pull request merged with "
+                                                  "the current tip"):
             run(api)
+        self.assertEqual(len(api.dispatched), 1)
+
+    def test_a_red_rerun_refuses_at_once(self):
+        api = MovingTipApi(moves=1000, results=("success", "failure"))
+        with self.assertRaisesRegex(gate.Refused, "cmux-next/fast-gates is failure on the pull request merged with "
+                                                  "the current tip"):
+            run(api)
+        self.assertEqual(len(api.dispatched), 2)
 
     def test_check_only_dispatches_nothing(self):
         landed = {(OLD, TIP): {"status": "ahead", "ahead_by": 1, "files": FILES_23365}}
