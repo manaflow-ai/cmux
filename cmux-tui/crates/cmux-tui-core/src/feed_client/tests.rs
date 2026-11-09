@@ -485,6 +485,92 @@ fn an_account_change_during_a_poll_polls_again_at_once() {
     wait_until("the poller to stop", || !h.feed.inner.lock().github_running);
 }
 
+/// Signing in where no account was (polling on before any welcome) starts
+/// the GitHub poller over too: no row, ETag or detail read while signed out
+/// is left for the new account.
+#[test]
+fn signing_in_from_no_account_starts_the_github_poller_over() {
+    let h = harness(None);
+    assert_eq!(h.feed.inner.lock().account, None);
+    {
+        let mut answers = h.gh.answers.lock().unwrap();
+        answers.push_back(Ok(b"HTTP/2.0 304 Not Modified\r\nETag: \"n1\"\r\n\r\n".to_vec()));
+        answers.push_back(Ok(search(json!([review_pull()]))));
+    }
+    h.feed.configure_github(GitHubConfig { enabled: true, interval_s: 3600 });
+    let passes = Query::POLLED.len();
+    wait_until("the first pass", || h.gh.calls.lock().unwrap().len() >= passes);
+    wait_until("the review request", || h.feed.list(Some("open"), Some("local"), true).len() == 1);
+    assert!(h.feed.inner.lock().github.etag(Query::POLLED[0]).is_some());
+    let (epoch, generation) = {
+        let state = h.feed.inner.lock();
+        (state.github_epoch, state.github_generation)
+    };
+    {
+        let mut state = h.feed.inner.lock();
+        super::driver::change_account(&mut state, Some("u1".to_owned()), NOW);
+        assert!(state.owner.is_empty(), "a GitHub row read with no account stays");
+        assert_eq!(state.github_epoch, epoch.wrapping_add(1), "a poll in flight is kept");
+        assert_eq!(state.github_generation, generation.wrapping_add(1));
+        assert!(
+            state.github.etag(Query::POLLED[0]).is_none(),
+            "an ETag read with no account is kept"
+        );
+    }
+    assert!(h.feed.list(Some("open"), Some("local"), true).is_empty());
+    h.feed.inner.wake.notify_all();
+    wait_until("the pass for the new account", || h.gh.calls.lock().unwrap().len() >= 2 * passes);
+    let calls = h.gh.calls.lock().unwrap().clone();
+    for call in calls.get(passes..2 * passes).unwrap_or_default() {
+        assert!(!call.iter().any(|arg| arg.starts_with("If-None-Match")), "{call:?}");
+    }
+    h.feed.configure_github(GitHubConfig { enabled: false, interval_s: 3600 });
+    wait_until("the poller to stop", || !h.feed.inner.lock().github_running);
+}
+
+/// A poll started with no account whose answer comes after a sign-in is
+/// dropped: its row never shows for the new account, and the ETag the pass
+/// learned before the sign-in is gone.
+#[test]
+fn a_poll_started_with_no_account_is_dropped_after_a_sign_in() {
+    let h = harness(None);
+    {
+        let mut answers = h.gh.answers.lock().unwrap();
+        answers.push_back(Ok(b"HTTP/2.0 304 Not Modified\r\nETag: \"n1\"\r\n\r\n".to_vec()));
+        answers.push_back(Ok(search(json!([review_pull()]))));
+    }
+    // The first call answers with no account; the sign-in comes while the
+    // second (the one with the review request) runs.
+    let gh = Arc::clone(&h.gh);
+    let inner = Arc::clone(&h.feed.inner);
+    *h.gh.during_next.lock().unwrap() = Some(Box::new(move || {
+        *gh.during_next.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(Box::new(move || {
+                super::driver::change_account(&mut inner.lock(), Some("u1".to_owned()), NOW);
+                inner.wake.notify_all();
+            }));
+    }));
+    h.feed.configure_github(GitHubConfig { enabled: true, interval_s: 3600 });
+    let passes = Query::POLLED.len();
+    wait_until("the new account's pass", || h.gh.calls.lock().unwrap().len() >= 2 + passes);
+    {
+        let state = h.feed.inner.lock();
+        assert_eq!(state.account.as_deref(), Some("u1"));
+        assert!(state.owner.is_empty(), "the old poll's row landed after the sign-in");
+        assert!(
+            state.github.etag(Query::POLLED[0]).is_none(),
+            "an ETag read with no account is kept"
+        );
+    }
+    assert!(h.feed.list(Some("open"), Some("local"), true).is_empty());
+    let calls = h.gh.calls.lock().unwrap().clone();
+    for call in calls.get(2..2 + passes).unwrap_or_default() {
+        assert!(!call.iter().any(|arg| arg.starts_with("If-None-Match")), "{call:?}");
+    }
+    h.feed.configure_github(GitHubConfig { enabled: false, interval_s: 3600 });
+    wait_until("the poller to stop", || !h.feed.inner.lock().github_running);
+}
+
 /// Presence belongs to the frontend connection that set it: a connection
 /// that closes without saying inactive (the app crashed) takes its active
 /// state with it, and the owner hears inactive once no other frontend still

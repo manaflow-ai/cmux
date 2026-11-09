@@ -163,8 +163,9 @@ pub(super) fn forget_other_lease(inner: &Inner, cloud: &CloudConversations) {
     inner.emit(events);
 }
 
-/// Another account (or none): the old account's cloud items, intents,
-/// reports and GitHub rows leave (the poller reads GitHub again at once); the
+/// Another account (or none): the old account's cloud items, intents and
+/// reports leave; on every change, signed out to signed in too, the GitHub
+/// rows, ETags and details leave (the poller reads GitHub again at once); the
 /// integration owner's other items stay.
 pub(super) fn change_account(state: &mut State, user: Option<String>, now: i64) -> Vec<FeedEvent> {
     if state.account == user {
@@ -179,15 +180,16 @@ pub(super) fn change_account(state: &mut State, user: Option<String>, now: i64) 
         if state.reports.clear() {
             events.push(FeedEvent::Reports { revision: state.reports.revision() });
         }
-        // The GitHub poller starts over: no row, ETag or detail read while
-        // the old account was signed in, a poll in flight is dropped, and the
-        // waiting poller wakes for a pass.
-        let github_rows = state.owner.remove_where(is_github);
-        events.extend(Inner::local_events(state, github_rows.into_iter().collect(), now));
-        state.github.reset();
-        state.github_epoch = state.github_epoch.wrapping_add(1);
-        state.github_generation = state.github_generation.wrapping_add(1);
     }
+    // The GitHub poller starts over on every change of account, signed out
+    // included (None -> Some as well): no row, ETag or detail read under the
+    // old account (or none) stays, a poll in flight is dropped, and the
+    // waiting poller wakes for a pass.
+    let github_rows = state.owner.remove_where(is_github);
+    events.extend(Inner::local_events(state, github_rows.into_iter().collect(), now));
+    state.github.reset();
+    state.github_epoch = state.github_epoch.wrapping_add(1);
+    state.github_generation = state.github_generation.wrapping_add(1);
     state.owner.set_user(user.as_deref().unwrap_or_default());
     state.account = user;
     state.reports_epoch = state.reports_epoch.wrapping_add(1);
