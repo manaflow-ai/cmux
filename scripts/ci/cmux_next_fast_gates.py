@@ -317,16 +317,17 @@ def run_gate(argv: list[str], repo: Path, seconds: float | None) -> int | None:
     try:
         return process.wait(timeout=seconds)
     except subprocess.TimeoutExpired:
-        for sig, grace in ((signal.SIGTERM, 10), (signal.SIGKILL, 10)):
+        # SIGTERM first, then SIGKILL to the whole group whether or not the leader left: a child that ignores
+        # SIGTERM must not outlive its gate into the next one.
+        for sig in (signal.SIGTERM, signal.SIGKILL):
             try:
                 os.killpg(process.pid, sig)
             except (ProcessLookupError, PermissionError):  # gone, or a macOS zombie group
                 break
             try:
-                process.wait(timeout=grace)
-                break
+                process.wait(timeout=10)
             except subprocess.TimeoutExpired:
-                continue
+                pass
         return None
 
 

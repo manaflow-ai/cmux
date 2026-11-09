@@ -22,6 +22,7 @@ import importlib.util
 import json
 import os
 import re
+import select
 import subprocess
 import sys
 import tempfile
@@ -452,8 +453,10 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(run["env"]["BUN_CONFIG_HTTP_RETRY_COUNT"], "5")
         budget = re.search(r"--budget-seconds (\d+)", run["run"])
         self.assertIsNotNone(budget)
-        # Room after the budget for checkout, setup and the cache save, all inside the limit.
-        self.assertLessEqual(int(budget.group(1)) + 120, gates["timeout-minutes"] * 60)
+        # Room after the budget for checkout, setup and the cache save, all inside the limit; and the gates get more
+        # time than the whole job had before the budget (15 min), so a slow runner never turns a passing run red.
+        self.assertLessEqual(int(budget.group(1)) + 240, gates["timeout-minutes"] * 60)
+        self.assertGreater(int(budget.group(1)), 15 * 60)
 
     def test_a_dispatch_never_saves_a_cache(self):
         # A dispatch runs on feat-cmux-next's ref after pull request code ran: a cache it saved would be the base's.
@@ -1056,12 +1059,40 @@ class GateBudget(unittest.TestCase):
                     f"pathlib.Path({str(pid_file)!r}).write_text(str(child.pid)); signal.pause()")
             self.assertIsNone(module.run_gate([sys.executable, "-c", gate], Path(tmp), 5))
             child = int(pid_file.read_text(encoding="utf-8"))
-            stat = Path(f"/proc/{child}/stat")
-            if stat.exists():  # Linux: a stopped child may linger only as a zombie until it is reaped
-                self.assertEqual(stat.read_text(encoding="utf-8").rsplit(")", 1)[1].split()[0], "Z")
-            else:
-                with self.assertRaises(ProcessLookupError):
-                    os.kill(child, 0)
+
+            def alive() -> bool:  # a killed child may linger only as a zombie until it is reaped
+                try:
+                    return Path(f"/proc/{child}/stat").read_text(encoding="utf-8").rsplit(")", 1)[1].split()[0] != "Z"
+                except FileNotFoundError:
+                    return False
+            # SIGKILL was sent to the group; give the scheduler a bounded moment to deliver it.
+            for _ in range(200):
+                if not alive():
+                    break
+                select.select([], [], [], 0.05)
+            self.assertFalse(alive(), "the gate's child kept running after the gate was stopped")
+
+    def test_a_child_that_ignores_sigterm_is_killed_too(self):
+        module = load(SCRIPT)
+        with tempfile.TemporaryDirectory() as tmp:
+            pid_file = Path(tmp) / "child.pid"
+            child_code = "import signal; signal.signal(signal.SIGTERM, signal.SIG_IGN); signal.pause()"
+            gate = ("import pathlib, signal, subprocess, sys; "
+                    f"child = subprocess.Popen([sys.executable, '-c', {child_code!r}]); "
+                    f"pathlib.Path({str(pid_file)!r}).write_text(str(child.pid)); signal.pause()")
+            self.assertIsNone(module.run_gate([sys.executable, "-c", gate], Path(tmp), 5))
+            child = int(pid_file.read_text(encoding="utf-8"))
+
+            def alive() -> bool:
+                try:
+                    return Path(f"/proc/{child}/stat").read_text(encoding="utf-8").rsplit(")", 1)[1].split()[0] != "Z"
+                except FileNotFoundError:
+                    return False
+            for _ in range(200):
+                if not alive():
+                    break
+                select.select([], [], [], 0.05)
+            self.assertFalse(alive(), "a child that ignores SIGTERM outlived its stopped gate")
 
     def test_a_gate_inside_the_budget_keeps_its_exit_code(self):
         module = load(SCRIPT)
@@ -1115,6 +1146,12 @@ class BunInstallScript(unittest.TestCase):
         result = self.install("exit 0\n", BUN_INSTALL_ATTEMPT_SECONDS="0")
         self.assertEqual(result.returncode, 2)
         self.assertIn("not a positive whole number", result.stderr)
+
+    def test_a_registry_password_never_reaches_the_log(self):
+        result = self.install("exit 0\n", BUN_CONFIG_REGISTRY="http://ci:s3cret@127.0.0.1:9/")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("s3cret", result.stdout + result.stderr)
+        self.assertIn("registry http://127.0.0.1:9/", result.stdout)
 
     def test_web_complexity_installs_through_it_with_the_package_cache(self):
         doc = yaml.safe_load((ROOT / ".github/workflows/web-complexity.yml").read_text(encoding="utf-8"))

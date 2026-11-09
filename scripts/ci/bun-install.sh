@@ -23,6 +23,8 @@ export BUN_CONFIG_HTTP_RETRY_COUNT="${BUN_CONFIG_HTTP_RETRY_COUNT:-5}"
 attempt_seconds="${BUN_INSTALL_ATTEMPT_SECONDS:-300}"
 attempts="${BUN_INSTALL_ATTEMPTS:-2}"
 registry="${BUN_CONFIG_REGISTRY:-${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org/}}"
+# The registry as the log shows it: any user:password@ in the URL removed.
+shown_registry="$(printf '%s' "$registry" | sed -E 's#^([a-z]+://)[^/@]*@#\1#')"
 runner="${RUNNER_NAME:-$(hostname)}"
 
 for value in "$BUN_CONFIG_HTTP_IDLE_TIMEOUT" "$BUN_CONFIG_HTTP_RETRY_COUNT" "$attempt_seconds" "$attempts"; do
@@ -41,7 +43,7 @@ probe() {
   curl --silent --output /dev/null --connect-timeout 5 --max-time 10 \
     --write-out 'HTTP %{http_code} in %{time_total}s from %{remote_ip}' "${registry%/}/react" 2>/dev/null || true
 }
-echo "bun-install: registry ${registry} answers $(probe) (runner ${runner})"
+echo "bun-install: registry ${shown_registry} answers $(probe) (runner ${runner})"
 
 attempt=1
 while :; do
@@ -53,13 +55,17 @@ while :; do
     echo "bun-install: installed in ${took}s (attempt ${attempt}/${attempts})"
     exit 0
   fi
-  if [ "$code" -eq 124 ] || [ "$code" -eq 137 ]; then
+  # 124: timeout's own deadline; 137 only after its --kill-after, so an attempt that ended early with 137 was killed
+  # by something else (the kernel's OOM killer), not timed out.
+  if [ "$code" -eq 124 ] || { [ "$code" -eq 137 ] && [ "$took" -ge "$attempt_seconds" ]; }; then
     reason="no result in ${attempt_seconds}s"
+    title="bun install stalled"
   else
     reason="exit ${code} after ${took}s"
+    title="bun install failed"
   fi
   if [ "$attempt" -ge "$attempts" ]; then
-    echo "::error title=bun install stalled::bun install: ${reason} on attempt ${attempt}/${attempts} in $(pwd). The registry ${registry} now answers $(probe) from ${runner}. A stalled or throttled registry is not a code failure: rerun the job. A lockfile or resolution error above is."
+    echo "::error title=${title}::bun install: ${reason} on attempt ${attempt}/${attempts} in $(pwd). The registry ${shown_registry} now answers $(probe) from ${runner}. A stall or a registry timeout is not a code failure: rerun the job. A lockfile or resolution error in the log above is."
     exit 1
   fi
   echo "::warning title=bun install retry::bun install: ${reason} on attempt ${attempt}/${attempts}; the registry now answers $(probe). Retrying; what it downloaded stays in bun's cache."

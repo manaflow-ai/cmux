@@ -229,8 +229,10 @@ jobs:
       ratchet: ${{ steps.prepare.outputs.ratchet }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || fromJSON(vars.RUNNER_POOLS).linux }}
     # Dispatches took 2.5 to 7.1 min on 11-08 and 11-09; cmux#38640's web lint alone took 302 s and its webviews
-    # checks ran past 10 min twice, each a stopped run with no verdict.
-    timeout-minutes: 15
+    # checks ran past 10 min twice, each a stopped run with no verdict. The gates get --budget-seconds 1260 (21 min)
+    # below, more than the 15 minutes the whole job had before, so a slow runner never turns a passing run red; the
+    # 4 minutes left cover checkout, setup and the cache save.
+    timeout-minutes: 25
     # The pull request's code runs here: no write permission of any kind.
     permissions:
       contents: read
@@ -321,9 +323,9 @@ jobs:
           # this long is dropped and the request retried, as scripts/ci/bun-install.sh does for the other web jobs.
           BUN_CONFIG_HTTP_IDLE_TIMEOUT: "30"
           BUN_CONFIG_HTTP_RETRY_COUNT: "5"
-        # --budget-seconds: a gate still running 12 min in is stopped and named as stalled, so the job ends with that
-        # reason inside its 15-minute limit instead of being cancelled with none.
-        run: python3 scripts/ci/cmux_next_fast_gates.py run --base "$BASE" --web "$WEB" --checks "$CHECKS" --budget-seconds 720 --summary "$GITHUB_STEP_SUMMARY"
+        # --budget-seconds: a gate still running 21 min in is stopped and named as stalled, so the job ends with that
+        # reason inside its 25-minute limit instead of being cancelled with none.
+        run: python3 scripts/ci/cmux_next_fast_gates.py run --base "$BASE" --web "$WEB" --checks "$CHECKS" --budget-seconds 1260 --summary "$GITHUB_STEP_SUMMARY"
 
   # Only on a dispatch whose prepare found a lowered panic-ratchet row the PR
   # changes (cmux_next_fast_gates.py ratchet_needed). The clippy setup is
