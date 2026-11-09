@@ -209,6 +209,16 @@ pub(super) async fn handle(
             }
             // The person's approval binds these contents (`hub/person.rs` (b)).
             p.apply_mode_approval(approve).map_err(RpcError::invalid_params)?;
+            // A no-prompt preset's approval or withdrawal goes in the unattended runs log.
+            if let Some(approve) = approve
+                && p.policy_skips_asking()
+            {
+                crate::hub::unattended_presets::log(
+                    if approve { "approved" } else { "withdrawn" },
+                    json!({"preset": name, "digest": p.approval_digest(), "person": conn.is_person(),
+                           "caller": conn.caller(), "sessionId": str_param(params, "sessionId")}),
+                );
+            }
             cfg.presets.insert(name.clone(), p);
         }
         if let Err(e) = cfg.save() {
