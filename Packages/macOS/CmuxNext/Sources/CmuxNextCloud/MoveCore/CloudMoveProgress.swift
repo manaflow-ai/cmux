@@ -13,14 +13,17 @@ public final class CloudMoveProgress {
     public enum Direction: String, Encodable, Sendable { case move, bringBack }
     public enum Stage: String, Encodable, Sendable { case machine, copy, agent, tab }
 
-    private struct Facts: Encodable {
+    /// What the app tells Rust (op `cloud_move_progress`).
+    struct Facts: Encodable, Equatable {
         var direction: Direction, stage: Stage, machine: String?, name: String?, stageMs: UInt64, copy: SeedProgress?
     }
-    private struct Line: Decodable { var text: String, nextMs: UInt64? }
+    /// Rust's answer: the line, and how long until it changes on its own.
+    struct Line: Decodable, Equatable { var text: String, nextMs: UInt64? }
 
     private let direction: Direction
     private let show: @MainActor (String) -> Void
     private let elapsed: @Sendable () -> Duration
+    private let ask: @MainActor (Facts) -> Line?
     private var facts: (stage: Stage, machine: String?, name: String?)?
     private var started = Duration.zero
     private var copy: SeedProgress?
@@ -33,9 +36,17 @@ public final class CloudMoveProgress {
     }
 
     /// ``init(_:show:)`` on `clock` (a test's manual clock).
-    public init<C: Clock & Sendable>(_ direction: Direction, clock: C, show: @escaping @MainActor (String) -> Void) where C.Duration == Duration {
+    public convenience init<C: Clock & Sendable>(_ direction: Direction, clock: C, show: @escaping @MainActor (String) -> Void)
+        where C.Duration == Duration {
+        self.init(direction, clock: clock, ask: { CloudMoveCore().call("progress", $0, as: Line.self) }, show: show)
+    }
+
+    /// ``init(_:clock:show:)`` asking `ask` in place of Rust (a test's answers).
+    init<C: Clock & Sendable>(_ direction: Direction, clock: C, ask: @escaping @MainActor (Facts) -> Line?,
+                              show: @escaping @MainActor (String) -> Void) where C.Duration == Duration {
         self.direction = direction
         self.show = show
+        self.ask = ask
         let origin = clock.now
         elapsed = { origin.duration(to: clock.now) }
         wake = DemandTimer(owner: "CloudMoveProgress", clock: clock)
@@ -83,7 +94,7 @@ public final class CloudMoveProgress {
         guard let facts else { return }
         let ms = UInt64(max(0, (elapsed() - started).wholeMilliseconds))
         let request = Facts(direction: direction, stage: facts.stage, machine: facts.machine, name: facts.name, stageMs: ms, copy: copy)
-        guard let line = CloudMoveCore().call("progress", request, as: Line.self) else { return }
+        guard let line = ask(request) else { return }
         if line.text != shown {
             shown = line.text
             show(line.text)
