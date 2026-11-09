@@ -26,6 +26,32 @@ export const connectUrl = async (url: string): Promise<Sql> => {
   }
 }
 
+/**
+ * SQLSTATE 53300 (too_many_connections: "remaining connection slots are reserved ...") and 57P03
+ * (cannot_connect_now): the server is full or starting, which says nothing about the release. The deploy
+ * gate saw staging full for minutes at a time and skipped the deploy (cmuxterm-hq goals/cloud-deploy-checked.md).
+ */
+export const connectBusy = (e: unknown): boolean => ["53300", "57P03"].includes(String((e as { code?: unknown } | null)?.code ?? ""))
+
+/** CONNECT, tried again after each of WAITS_MS while the server answers busy (about 2 min in all); any other error at once. */
+export const connectRetrying = async (
+  connect: (url: string) => Promise<Sql>,
+  url: string,
+  waitsMs: ReadonlyArray<number> = [5_000, 10_000, 20_000, 30_000, 45_000],
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+  log: (line: string) => void = (l) => console.error(l),
+): Promise<Sql> => {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await connect(url)
+    } catch (e) {
+      if (!connectBusy(e) || attempt >= waitsMs.length) throw e
+      log(`database busy (${(e as { code?: string }).code}: ${String((e as Error).message).slice(0, 120)}); trying again in ${waitsMs[attempt] / 1000} s`)
+      await sleep(waitsMs[attempt])
+    }
+  }
+}
+
 const quoteIdent = (name: string) => `"${name.replace(/"/g, '""')}"`
 const qualified = (name: string) => name.split(".").map(quoteIdent).join(".")
 
