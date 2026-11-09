@@ -1771,9 +1771,33 @@ jobs:
           fi
           # Each host lets a filter that selects no test there pass (host-only test
           # files), so the verdict on a filter that selects nothing anywhere is here.
-          # An empty count (a skipped step, the chatmux_relay selector) is not 0.
-          if [[ "$MODE" == "focused" && "${LINUX_FOCUSED_SELECTED:-}" == "0" && "${MACOS_FOCUSED_SELECTED:-}" == "0" ]]; then
-            echo "::error::test_filter '$TEST_FILTER' selected no Rust tests on Linux or macOS" >&2
-            failed=1
+          # An empty count is never read as 0. The reserved selectors (chatmux_relay
+          # runs a package, optchat_chief its own job) report no count; any other
+          # filter needs a count from each green host job, so a broken output
+          # wiring cannot let a typo filter pass. A red host job already fails.
+          if [[ "$MODE" == "focused" ]]; then
+            linux_count="${LINUX_FOCUSED_SELECTED:-}"
+            macos_count="${MACOS_FOCUSED_SELECTED:-}"
+            echo "focused tests selected: linux=${linux_count} macos=${macos_count}"
+            case "$TEST_FILTER" in
+              chatmux_relay|chatmux-relay|optchat_chief) ;;
+              *)
+                if [[ "$TEST_RESULT" == "success" && -z "$linux_count" ]] || \
+                    [[ "$MACOS_RESULT" == "success" && -z "$macos_count" ]]; then
+                  echo "::error::a green host job reported no focused test count (linux='${linux_count}' macos='${macos_count}'); check the jobs' outputs" >&2
+                  failed=1
+                elif [[ "$linux_count" == "0" && "$macos_count" == "0" ]]; then
+                  echo "::error::test_filter '$TEST_FILTER' selected no Rust tests on Linux or macOS" >&2
+                  failed=1
+                else
+                  if [[ "$linux_count" == "0" ]]; then
+                    echo "::warning::test_filter '$TEST_FILTER' selected no Rust test on Linux; macOS ran $macos_count"
+                  fi
+                  if [[ "$macos_count" == "0" ]]; then
+                    echo "::warning::test_filter '$TEST_FILTER' selected no Rust test on macOS; Linux ran $linux_count"
+                  fi
+                fi
+                ;;
+            esac
           fi
           exit "$failed"
