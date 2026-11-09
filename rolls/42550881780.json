@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42550881780",
+  "recorded_at": "2026-11-09T02:27:55Z",
+  "reason": "cmux-tui 72f0942028ba changes the image's cmux-tui (pinned 11cd6d4f6084)",
+  "dry_run": false,
+  "cmux_tui": "72f0942028ba520a5eacefb8d64b99e5be994692",
+  "fixes": [
+    {
+      "sha": "1ea17b144ccb8b03c819690b41d2c069e3089f2c",
+      "mergedAt": "2026-11-08T18:09:04-08:00",
+      "subject": "cmux-tui-core: the phone start fake's catalog lists opencode, so its refusal is the floor's (#39083)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-09T02:27:55Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
