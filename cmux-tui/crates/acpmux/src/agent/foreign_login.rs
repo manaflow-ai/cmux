@@ -20,7 +20,10 @@
 //! to them on purpose (`cli/chief/launch.rs` `brain_env_allowed`), so it keeps
 //! them. A command line that names no known agent, or more than one, loses
 //! every harness's own sign-in and keeps only the provider API keys: the safe
-//! side; its profile's env can still give it a login on purpose.
+//! side; its profile's env can still give it a login on purpose. The provider
+//! keys only multi-provider harnesses read (`login_env::PROVIDER_KEYS`:
+//! OPENROUTER_API_KEY, GROQ_API_KEY, ...) reach those harnesses and the one
+//! family that signs in with each, never Claude Code, Codex or another agent.
 //!
 //! Every path that starts a harness's own program goes through here: an
 //! agent (`agent/command.rs`), a fork of a terminal's chat (`chat_fork.rs`),
@@ -76,7 +79,8 @@ pub(crate) struct LoginEnv {
     pub(crate) shared_with_others: bool,
 }
 
-/// The login keys a harness of `family` must not inherit.
+/// The login keys a harness of `family` must not inherit: another family's own login, and the
+/// provider keys only multi-provider harnesses read ([`provider_key_foreign`]).
 pub(crate) fn foreign_login_keys(family: &str) -> impl Iterator<Item = &'static str> + '_ {
     LOGIN_ENV_OWNERS
         .iter()
@@ -85,6 +89,32 @@ pub(crate) fn foreign_login_keys(family: &str) -> impl Iterator<Item = &'static 
                 && (!login.shared_with_others || SINGLE_LOGIN_FAMILIES.contains(&family))
         })
         .map(|login| login.key)
+        .chain(
+            crate::login_env::PROVIDER_KEYS
+                .iter()
+                .copied()
+                .filter(move |key| provider_key_foreign(key, family)),
+        )
+}
+
+/// Whether a provider key of `login_env::PROVIDER_KEYS` (the ones [`LOGIN_ENV_OWNERS`] does not
+/// already name) must not reach `family`: one list for the login shell's allow-list and this scrub,
+/// so a key in the daemon's own env reaches no more agents than one from the login shell. Kept by
+/// the multi-provider harnesses (`login_env::PROVIDER_FAMILIES`), the one family that signs in with
+/// the key, and an unknown command (`""`), as it keeps the shared keys above.
+fn provider_key_foreign(key: &str, family: &str) -> bool {
+    let own = match key {
+        "ANTHROPIC_BASE_URL" => "claude",
+        "OPENAI_BASE_URL" | "AZURE_OPENAI_API_KEY" => "codex",
+        "GOOGLE_API_KEY" | "GOOGLE_GENERATIVE_AI_API_KEY" => "gemini",
+        "XAI_API_KEY" => "grok",
+        "DEEPSEEK_API_KEY" => "deepseek",
+        _ => "",
+    };
+    !LOGIN_ENV_OWNERS.iter().any(|login| login.key == key)
+        && !family.is_empty()
+        && family != own
+        && !crate::login_env::PROVIDER_FAMILIES.contains(&family)
 }
 
 /// What a harness's command line runs, for the scrub.

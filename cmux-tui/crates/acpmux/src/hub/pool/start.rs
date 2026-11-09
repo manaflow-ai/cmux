@@ -94,6 +94,10 @@ impl Hub {
             draft.remote_origin || crate::login_env::machine_env_fresh_before_spawn().await,
             "machine environment changed; login env refresh failed"
         );
+        if !draft.remote_origin {
+            let family = crate::config::derive_family(&draft.harness, profile);
+            crate::login_env::provider_keys_before_spawn(Some(&family)).await;
+        }
         let cmd = crate::agent::harness_command(
             &draft.harness,
             profile,

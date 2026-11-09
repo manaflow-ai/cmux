@@ -206,6 +206,8 @@ fn now_secs() -> u64 {
 /// One login shell read at a time: the startup read and a refresh never
 /// overlap, so the last cache written is the newest read.
 static IMPORT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// Told when a login shell read ends, done or failed (`provider_keys_before_spawn`).
+static READ_ENDED: tokio::sync::Notify = tokio::sync::Notify::const_new();
 /// Reads in a row when the startup files change during a read: one more
 /// read catches an edit made during the first.
 const MAX_ROUNDS: usize = 2;
@@ -238,7 +240,40 @@ pub async fn import() -> bool {
             tracing::info!("shell startup files changed during the read; reading them again");
         }
     }
+    READ_ENDED.notify_waiters();
     changed
+}
+
+/// Before a multi-provider harness (`PROVIDER_FAMILIES`) starts: when the
+/// daemon started from the cache, whose provider keys are names only
+/// (`save_cache`), and the login shell has not answered since, wait for that
+/// read (at most `TIMEOUT`), so OpenCode or pi never start without the key
+/// the person exported. Every other family starts at once; Claude's own wait
+/// is `Plan::wait`.
+pub async fn provider_keys_before_spawn(family: Option<&str>) {
+    if family.is_some_and(|f| PROVIDER_FAMILIES.contains(&f)) {
+        wait_while(provider_keys_pending, TIMEOUT).await;
+    }
+}
+
+/// The cache stands in for the shell, and a provider key's value is missing.
+fn provider_keys_pending() -> bool {
+    outcome() == Outcome::Cached
+        && missing_secret_names().iter().any(|n| PROVIDER_KEYS.contains(&n.as_str()))
+}
+
+/// Wait while `pending`, each time until a login shell read ends, at most `limit` in all.
+async fn wait_while(pending: impl Fn() -> bool, limit: Duration) {
+    let deadline = tokio::time::Instant::now() + limit;
+    loop {
+        let ended = READ_ENDED.notified();
+        tokio::pin!(ended);
+        // Registered before the check, so a read that ends between them still wakes it.
+        ended.as_mut().enable();
+        if !pending() || tokio::time::timeout_at(deadline, ended).await.is_err() {
+            return;
+        }
+    }
 }
 
 /// One login shell run; its cache is labelled `read`, the fingerprint
@@ -700,7 +735,7 @@ pub fn allowed_with(
 /// and its forks omp and Prime Agent, cmux Harness (pi's model loop) and
 /// Hermes. Not DeepSeek Harness (`dsh`): its key lives in
 /// `~/.dsh/.credentials.yaml`.
-const PROVIDER_FAMILIES: [&str; 7] =
+pub(crate) const PROVIDER_FAMILIES: [&str; 7] =
     ["opencode", "opencode-v2", "pi", "omp", "prime", "cmux-harness", "hermes"];
 
 /// The provider keys (and base URLs) those harnesses read from their
@@ -709,8 +744,10 @@ const PROVIDER_FAMILIES: [&str; 7] =
 /// names reach the cache (`save_cache`): every key is a secret by name
 /// (`is_secret`), and a base URL can carry a token in its path.
 /// Not here: cloud credentials (AWS_*, Vertex ADC), which only Claude's
-/// Bedrock and Vertex switches unlock, and GitHub tokens.
-const PROVIDER_KEYS: [&str; 26] = [
+/// Bedrock and Vertex switches unlock, and GitHub tokens. The same list keeps
+/// these keys in the daemon's own env from other agents
+/// (`agent/foreign_login.rs`).
+pub(crate) const PROVIDER_KEYS: [&str; 26] = [
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_BASE_URL",
     "OPENAI_API_KEY",
@@ -1487,6 +1524,35 @@ mod machine_file_tests {
         assert!(allowed("META_API_KEY", "secret", Some("muse")));
         assert!(!allowed("MUSE_API_KEY", "secret", Some("gemini")));
         assert!(!allowed("META_API_KEY", "secret", Some("claude")));
+    }
+
+    /// A multi-provider harness waits for the shell read that fetches its
+    /// keys, at most `TIMEOUT`, and goes on as soon as a read ends; another
+    /// family never waits.
+    #[tokio::test(start_paused = true)]
+    async fn a_provider_harness_waits_for_the_read_that_fetches_its_keys() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let start = tokio::time::Instant::now();
+        super::wait_while(|| true, super::TIMEOUT).await;
+        assert_eq!(start.elapsed(), super::TIMEOUT, "the wait is bounded");
+        let pending = Arc::new(AtomicBool::new(true));
+        let read = pending.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            read.store(false, Ordering::SeqCst);
+            super::READ_ENDED.notify_waiters();
+        });
+        let start = tokio::time::Instant::now();
+        let waiting = pending.clone();
+        super::wait_while(move || waiting.load(Ordering::SeqCst), super::TIMEOUT).await;
+        let waited = start.elapsed();
+        assert_eq!(waited, std::time::Duration::from_millis(200), "it goes on when the read ends");
+        let start = tokio::time::Instant::now();
+        for family in [Some("claude"), Some("codex"), Some("gemini"), None] {
+            super::provider_keys_before_spawn(family).await;
+        }
+        assert_eq!(start.elapsed(), std::time::Duration::ZERO, "other families never wait");
     }
 
     /// A provider key exported in the login shell reaches the harnesses that
