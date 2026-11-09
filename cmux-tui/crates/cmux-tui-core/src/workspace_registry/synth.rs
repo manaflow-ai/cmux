@@ -207,17 +207,17 @@ pub fn generate(state_root: &Path, options: &SynthOptions) -> anyhow::Result<Syn
 
     let mut writer = Writer::open(&registry_path, options)?;
     let total = writer.plan.total();
-    let seal = options.seal || options.seal_segments.is_some();
+    let sealing = options.seal || options.seal_segments.is_some();
     let first_half = match options.seal_segments {
         Some(segments) => segments
             .saturating_mul(super::journal_extensions::JOURNAL_SEGMENT_RECORD_LIMIT as u64)
             .min(total),
-        None if seal => total / 2,
+        None if sealing => total / 2,
         None => total,
     };
     writer.append(first_half)?;
     writer.save_roster(AGENT_ROSTER_REDUCER_VERSION)?;
-    let (sealed_through, segments) = if seal {
+    let (sealed_through, segments) = if sealing {
         drop(writer.connection.take());
         let sealed = seal(state_root, options)?;
         writer.reopen(&registry_path)?;
