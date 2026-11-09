@@ -288,6 +288,35 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("python3 -I -m unittest discover -s scripts/cmux-next/tests -p 'test_perf_cron*.py'",
                       result.stderr, "must say how to run them")
 
+    def test_the_ui_font_check_runs_only_on_a_push_that_changes_what_it_reads(self):
+        # 2026-11-09 (push-reliability): check-ui-font.py reads every webviews/src and Native/OptChat source at the
+        # base and again at the head (4268 files on feat-cmux-next). On a push that changed one Python file it took
+        # 9.6 s of the gate's 18.8 s, and in this blob:none clone each source blob the clone lacks costs one
+        # on-demand fetch (5-8 s measured, 16 missing at the feat tip). A push that changes none of the files it
+        # reads cannot change what it finds.
+        snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
+        installed = snapshot.resolve() / "check-ui-font.py"
+        runs = self.root / "ui-font-runs"
+        entry = 'if __name__ == "__main__":'
+        text = installed.read_text()
+        self.assertIn(entry, text)
+        installed.write_text(text.replace(entry, f"open({str(runs)!r}, 'a').write('ran\\n')\n\n\n{entry}", 1))
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("a Swift change only")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(runs.exists(), "the hook ran the UI font check on a push that changes none of its inputs")
+
+        self.write("webviews/src/pages/shared/desktop.css", "/* a webviews change */\n")
+        self.commit("a webviews change")
+
+        result = self.push()
+
+        self.assertTrue(runs.exists(), "a push that changes a file the UI font check reads must run it\n"
+                        + result.stdout + result.stderr)
+
     def kit(self, name, text):
         self.write(f"{PKG}/Sources/CmuxNextKit/{name}.swift", text)
 
@@ -2115,16 +2144,28 @@ let package = Package(
         # rendered at the commit before had nothing to draw and the improvement shipped with no before.
         improved = self.HIGHLIGHT_NO_PICTURE.replace("category: new", "category: improved")
         new_file = "webviews/src/side/SideChat.gallery.ts"
+        marked = 'id: "side.chat",\nvariants: {\n  open: {},\n  closed: {\n    note: "Before: one row.",\n  },\n}\n'
+        unmarked = 'id: "side.chat",\nvariants: {\n  open: {\n    note: "Selected: open.",\n  },\n}\n'
+        named = improved.replace("category: improved\n", "category: improved\ngallery: side.chat/open\n")
         cases = {
-            "unmarked": ('variants: { open: { note: "Selected: open." } }\n', True),
-            "a Before note": ('variants: { open: {}, closed: { note: "Before: one row." } }\n', False),
-            "an old-look name": ('variants: { open: {}, "open-before": {} }\n', False),
+            "unmarked": (improved, {new_file: unmarked}, True),
+            "a Before note": (improved, {new_file: marked}, False),
+            "an old-look name": (improved, {new_file: 'variants: {\n  open: {},\n  "open-before": {},\n}\n'}, False),
+            # Review of #39651: a prop or comment is not a variant, one marked file never covers another, and a
+            # `gallery:` line with no `before:` renders its before at the commit before too.
+            "a prop named before": (improved, {new_file: 'variants: {\n  open: { props: { before: true } },\n}\n'}, True),
+            "a second new file unmarked": (improved, {new_file: marked, "webviews/src/side/Other.gallery.ts": unmarked}, True),
+            "a gallery line on a new file": (named, {new_file: unmarked}, True),
+            "a gallery line and a before line": (named.replace("gallery: side.chat/open\n",
+                                                               "gallery: side.chat/open\nbefore: side.chat/closed\n"),
+                                                 {new_file: unmarked}, False),
         }
-        for name, (gallery, refused) in cases.items():
+        for name, (highlight, galleries, refused) in cases.items():
             with self.subTest(gallery=name):
                 self.git("reset", "--quiet", "--hard", "origin/feat-cmux-next")
-                self.write(f"{self.HIGHLIGHTS}/side-chat.md", improved)
-                self.write(new_file, gallery)
+                self.write(f"{self.HIGHLIGHTS}/side-chat.md", highlight)
+                for path, gallery in galleries.items():
+                    self.write(path, gallery)
                 self.commit(f"adds an improvement on a new gallery file, {name}")
 
                 direct = subprocess.run(["python3", "-I", GATE, "--only", "pictures"], cwd=self.repo, env=self.env,

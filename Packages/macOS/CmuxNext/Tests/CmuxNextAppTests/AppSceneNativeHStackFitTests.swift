@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApps
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// A crowded `HStack` in a native section (the threads template's meta line: a step, a spacer and the
@@ -8,7 +9,7 @@ import Testing
 /// ("claude") wrapped one letter per line while the long step kept its width. It now honors the kit's
 /// `fixedSize("horizontal")` (that text never gives width) and `layoutPriority` (lower gives first), as
 /// the SwiftUI renderer does.
-@MainActor @Suite(.serialized) struct AppSceneNativeHStackFitTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AppSceneNativeHStackFitTests {
     private static let step = "Asking to run the database migration on staging"
 
     private static func meta(trailing: [String: AppJSON]) -> AppSceneModel {
@@ -35,7 +36,11 @@ import Testing
         func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
         let labels = all(hosting).compactMap { $0 as? ChromeLabel }
         guard let step = labels.first(where: { $0.stringValue == Self.step }),
-              let name = labels.first(where: { $0.stringValue == "claude" }) else { return nil }
+              let name = labels.first(where: { $0.stringValue == "claude" }) else {
+            window.contentView = nil
+            window.close()
+            return nil
+        }
         return (step, name, window)
     }
 

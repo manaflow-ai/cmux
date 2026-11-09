@@ -14,6 +14,8 @@ public enum CloudStrings {
     nonisolated public static func defaultMachineName(numbered number: Int) -> String {
         String(format: String(localized: "cloud.machine.defaultNameNumbered", defaultValue: "Cloud Machine %lld", table: "Cloud", bundle: .module), number)
     }
+    /// A Cloud start's refusal as its card says it: the stable code for bridge callers, but actionable copy for a signed-out first send.
+    nonisolated public static func startRefusal(_ code: String) -> String { code == "not_signed_in" ? signInFirst : code }
     nonisolated public static var signInFirst: String { String(localized: "cloud.failed.signInFirst", defaultValue: "Sign in to use Cloud machines: run Sign In from the command palette, or `cmux cloud sign-in`.", table: "Cloud", bundle: .module) }
     /// The Cloud toggle (#26062) is on, but this New Workspace opened on this Mac; `reason` says why.
     public static func newWorkspaceOpenedHere(_ reason: String) -> String {
