@@ -7133,13 +7133,16 @@ export class AcpmuxDirectClient {
   /// reply column with its own footer, however short or quiet (Leo, 2026-11-08: "the text in this
   /// situation isn't from the subagent?"; 2026-11-09: "your response was weirdly folded into the
   /// rende?", on a one-line reply drawn muted inside "Subagent finished"). The call keeps only its
-  /// mark (`attachReaction`).
+  /// mark (`attachReaction`). A failure's turn takes no call, but its line is a notification row
+  /// too: a quiet one that said something keeps its named line over its words, which draw as the
+  /// agent's own (backgroundTurns.ts `headsBackground`), never folded inside the line.
   private settleReaction(turn: string): void {
-    if (!this.reactionOrigins.has(turn)) return;
     const id = backgroundTurnRowId(turn);
     const row = this.rows.get(id);
     const line = row?.background;
-    if (!row || !line || line.ownTurn || (line.quiet !== true && line.cause?.weight !== "silent")) return;
+    if (!row || !line || line.ownTurn) return;
+    if (!this.reactionOrigins.has(turn) && line.cause?.weight !== "failure") return;
+    if (line.quiet !== true && line.cause?.weight !== "silent") return;
     if (!this.rows.backgroundReply(turn)) return;
     this.rows.set(id, { ...row, version: row.version + 1, background: { ...line, ownTurn: true } });
   }
