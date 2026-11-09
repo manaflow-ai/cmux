@@ -387,6 +387,10 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+        Some(Command::Desktop(cmd)) => match crate::cli::desktop::run(cmd, cli.json) {
+            Ok(()) => Ok(()),
+            Err(e) => errors::exit_with(&e, cli.json),
+        },
         Some(Command::Watch(cmd)) => {
             let json_out = cli.json;
             match crate::cli::watch::run(cmd, json_out).await {

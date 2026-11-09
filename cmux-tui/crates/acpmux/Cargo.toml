@@ -90,6 +90,7 @@ sha2.workspace = true
 # already in the graph through rustls.
 ring.workspace = true
 toml.workspace = true
+toml_edit.workspace = true
 thiserror = "2"
 tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std", "net", "sync", "time", "fs", "signal"] }
 tokio-tungstenite.workspace = true

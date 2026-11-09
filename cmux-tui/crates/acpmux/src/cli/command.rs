@@ -414,6 +414,9 @@ pub enum Command {
     /// Wake a session with one message when others are done or blocked: add, ls, rm.
     #[command(subcommand)]
     Watch(crate::cli::watch::WatchCmd),
+    /// Give the Claude desktop app, Claude Code and Codex the cmux tools: link, unlink, status.
+    #[command(subcommand)]
+    Desktop(crate::cli::desktop::DesktopCmd),
     /// Every chat on this device, from every harness: list, open, roots. Also `cmux chats …`.
     #[command(subcommand)]
     Chats(crate::cli::chats::ChatsCmd),
