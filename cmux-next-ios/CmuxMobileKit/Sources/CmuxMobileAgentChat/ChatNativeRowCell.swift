@@ -406,9 +406,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
         guard let layout else { return nil }
         // A long-press on a link leads with Open Link and Copy Link (Leo, 2026-11-09: "feel like this
         // should have a copy link button"), above the block's or message's own rows.
-        let linkRows = link(at: location).map { url in
-            [UIMenu(options: .displayInline, children: Self.linkMenu(url) { [weak self] in self?.actions.openLink($0) })]
-        } ?? []
+        let linkRows = link(at: location).map { url in Self.linkMenu(url) { [weak self] in self?.actions.openLink($0) } } ?? []
         var items: [UIMenuElement] = []
         switch layout.content {
         case .code(let code):
@@ -424,15 +422,23 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
             items = [UIAction(title: "Copy Table", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = table.plainText }]
         case .drawn:
             if let menu = actions.menu {
-                guard let built = menu(pressedFile(at: location)) else {
-                    return linkRows.isEmpty ? nil : UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in UIMenu(children: linkRows) }
-                }
-                return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in UIMenu(children: linkRows + [built]) }
+                let built = menu(pressedFile(at: location))
+                if built == nil && linkRows.isEmpty { return nil }
+                return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in Self.leading(linkRows, in: built) }
             }
             guard let message = actions.message else { return nil }
             items = Self.messageMenu(message)
         }
-        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in UIMenu(children: linkRows + items) }
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in Self.leading(linkRows, in: UIMenu(children: items)) }
+    }
+
+    /// `menu` with `linkRows` as its first group: the menu's own rows stay at its top level, never
+    /// folded into a submenu. `menu` itself when there are no link rows.
+    static func leading(_ linkRows: [UIMenuElement], in menu: UIMenu?) -> UIMenu {
+        guard !linkRows.isEmpty else { return menu ?? UIMenu(children: []) }
+        let links = UIMenu(options: .displayInline, children: linkRows)
+        guard let menu else { return UIMenu(children: [links]) }
+        return menu.replacingChildren([links] + menu.children)
     }
 
     /// A link's long-press rows: Open Link, then Copy Link, which copies its address.

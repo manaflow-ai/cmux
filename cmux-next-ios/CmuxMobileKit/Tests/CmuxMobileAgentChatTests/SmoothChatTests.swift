@@ -425,5 +425,18 @@ import UIKit
         #expect(pasteboard.string == href)
         #expect(pasteboard.url == url)
     }
+
+    /// The link rows lead a prompt's or tool's own menu as one inline group; that menu's rows stay at
+    /// its top level, not folded into a submenu. With no link the menu is unchanged.
+    @Test func linkRowsLeadAMenuWithoutHidingItsRows() throws {
+        let url = try #require(URL(string: "https://cmux.com"))
+        let own = UIMenu(title: "", children: [UIAction(title: "Copy") { _ in }, UIAction(title: "Open Diff") { _ in }])
+        let merged = ChatNativeRowCell.leading(ChatNativeRowCell.linkMenu(url) { _ in }, in: own)
+        let group = try #require(merged.children.first as? UIMenu)
+        #expect(group.options.contains(.displayInline))
+        #expect(group.children.compactMap { ($0 as? UIAction)?.title } == ["Open Link", "Copy Link"])
+        #expect(merged.children.dropFirst().compactMap { ($0 as? UIAction)?.title } == ["Copy", "Open Diff"])
+        #expect(ChatNativeRowCell.leading([], in: own) === own)
+    }
 }
 #endif
