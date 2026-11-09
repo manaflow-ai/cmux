@@ -607,7 +607,6 @@
               "sidebar.density",
               "sidebar.textSize",
               "workspaceColors.indicatorStyle",
-              "sidebar.groupPinMark",
               "sidebar.minimalMode",
               "sidebar.side"
             ],
@@ -629,6 +628,7 @@
               "sidebar.showTimestamps",
               "sidebar.showColors",
               "sidebar.showLocalMachine",
+              "sidebar.groupPinMark",
               "sidebar.groupHeader.memberCount",
               "sidebar.groupHeader.unreadCount",
               "sidebar.groupHeader.background",
@@ -61094,6 +61094,7 @@
         "sidebar",
         "groupPinMark"
       ],
+      "placeholder" : null,
       "refuses" : [
         "__not_a_choice__",
         1,

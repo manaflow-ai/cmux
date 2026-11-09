@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 619,
+  "count": 620,
   "sections": [
     {
       "id": "general",
@@ -1621,8 +1621,8 @@
         },
         {
           "key": "updates.liveWebReload",
-          "title": "Live Web Reload",
-          "help": "Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with.",
+          "title": "cmux Live",
+          "help": "The switch that lets cmux live start and Edit cmux Live… show your own checkout's web UI in this app: each saved edit shows at once, with no build and no relaunch. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with. cmux live start --swift is the Swift path (Labs > Live Code).",
           "kind": "toggle",
           "default": true,
           "group": "Updates"
@@ -3766,6 +3766,20 @@
             "vibrant",
             "gradient",
             "pictorial"
+          ]
+        },
+        {
+          "key": "sidebar.groupPinMark",
+          "title": "Pinned in Group Mark",
+          "help": "How a workspace pinned inside its group shows it. A pin after the name, a pin before the name, or a light wash of the group's color behind the pinned workspaces. Off, the pin shows only when you point at an expanded row.",
+          "kind": "choice",
+          "default": "leading",
+          "group": "Sidebar",
+          "values": [
+            "off",
+            "trailing",
+            "leading",
+            "shelf"
           ]
         },
         {
