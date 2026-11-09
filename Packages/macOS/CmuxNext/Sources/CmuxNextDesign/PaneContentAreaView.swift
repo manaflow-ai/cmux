@@ -140,6 +140,12 @@ public final class PaneContentAreaView: NSView {
         subviews.contains { ($0 as? any PaneMotionHoldFollowing)?.aheadOfFollowAwaitsContent(refreshesWaited: refreshesWaited) == true }
     }
 
+    /// A key press's held snap shows in this turn: no follower waits longer
+    /// (``PaneMotionHoldFollowing/aheadOfFollowWillShow()``, RESIZE P0 21).
+    public func aheadOfHoldWillShow() {
+        for case let follower as any PaneMotionHoldFollowing in subviews { follower.aheadOfFollowWillShow() }
+    }
+
     /// A container in it was shown again during a following hold (a parked tab): it joins in this frame's layout pass.
     public func followerDidShow() {
         if hold != nil { needsLayout = true }

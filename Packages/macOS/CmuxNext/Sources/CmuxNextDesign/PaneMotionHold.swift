@@ -72,6 +72,10 @@ public protocol PaneMotionHoldFollowing: NSView {
     /// snap waited so far, counting the one asking (1 at the first). The follower bounds its own wait: false once it
     /// waited as long as it may.
     func aheadOfFollowAwaitsContent(refreshesWaited: Int) -> Bool
+    /// A key press's held snap shows in this turn (RESIZE P0 21): its wait for the follower's content is over, so the
+    /// placement it makes now shows the follower at its new size in the same commit, never its old size in the new pane.
+    /// ``aheadOfFollowShown()`` follows in the same turn.
+    func aheadOfFollowWillShow()
 }
 
 public extension PaneMotionHoldFollowing {
@@ -80,4 +84,5 @@ public extension PaneMotionHoldFollowing {
     func drawAheadOfFollow(nextHostSize: CGSize, keyPress: Bool) {}
     func aheadOfFollowShown() {}
     func aheadOfFollowAwaitsContent(refreshesWaited: Int) -> Bool { false }
+    func aheadOfFollowWillShow() {}
 }

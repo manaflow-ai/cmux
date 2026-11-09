@@ -118,8 +118,13 @@ extension TerminalSurfaceView {
     /// program's scrolling output) is Ghostty's own reflow at the new grid, which is the right picture in the first
     /// frame (T-KEYS 3): nothing redraws it, so a hold there is only lag. Each request has its own bound: a program that
     /// missed one is held again at the next size (no latch, design item 2).
+    ///
+    /// A key press's held snap (Reduce Motion) already waited for the redraw, within the same bound
+    /// (``aheadAwaitsProgram(refreshesWaited:)``): its placement holds nothing more, so the snap's commit shows the
+    /// surface at the pane's new size (RESIZE P0 21: a second hold kept the old width in the new pane for 3 refreshes).
     var programHoldTicks: UInt64 {
-        guard followsKeyResize || isFollowingResizeGesture, lane?.showsAlternateScreen == true else { return 0 }
+        guard followsKeyResize || isFollowingResizeGesture, lane?.showsAlternateScreen == true,
+              (superview as? TerminalHostView)?.showsKeySnap != true else { return 0 }
         return TerminalFramePresenter.resizeHoldTicks
     }
 
@@ -127,10 +132,15 @@ extension TerminalSurfaceView {
     /// full-screen program (``programHoldTicks``) has no frame of the program's redraw at it yet (`READY` is the size only;
     /// `PENDING` and `HELD` no frame), and the snap waited fewer than the hold's refreshes (`refreshesWaited`, the tick
     /// asking included): the presenter would keep this view at its old size and picture in the snap's new pane until then.
+    ///
+    /// It also waits while the size drawn ahead has not gone to Ghostty yet (`pendingAhead`, RESIZE P0 21), whatever the
+    /// screen: it goes in the presenter's pass, and a real key and the display tick can run in one wake of the main run
+    /// loop, with no pass between them. Shown then, the snap's placement asked for the size only at the tick, and the
+    /// pane showed its new size with the terminal at its old one (films px-keys-held-2-s1r-claude RM, HID shrink presses).
     func aheadAwaitsProgram(refreshesWaited: Int) -> Bool {
-        guard frameOwnership.ahead != nil else { return false }
-        let ticks = programHoldTicks
-        guard ticks > 0, refreshesWaited >= 0, UInt64(refreshesWaited) < ticks else { return false }
+        guard refreshesWaited >= 0, UInt64(refreshesWaited) < TerminalFramePresenter.resizeHoldTicks else { return false }
+        if frameOwnership.pendingAhead != nil { return true }
+        guard frameOwnership.ahead != nil, programHoldTicks > 0 else { return false }
         switch hostFrame(present: false) {
         case GHOSTTY_HOST_FRAME_READY, GHOSTTY_HOST_FRAME_PENDING, GHOSTTY_HOST_FRAME_HELD: return true
         default: return false

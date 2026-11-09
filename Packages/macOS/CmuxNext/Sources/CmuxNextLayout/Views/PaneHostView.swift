@@ -355,6 +355,12 @@ final class PaneHostView: NSView, RestingPlacement {
         (content as? PaneMotionHolding)?.paneMotionHoldArea?.aheadOfHoldShown()
     }
 
+    /// The held snap shows in this turn (``ScreenContentView`` `presentHeldSnap`, RESIZE P0 21): the pane's content shows
+    /// at its new size in the snap's commit (``PaneContentAreaView/aheadOfHoldWillShow()``).
+    func snapWillShow() {
+        (content as? PaneMotionHolding)?.paneMotionHoldArea?.aheadOfHoldWillShow()
+    }
+
     /// Whether a key press's held snap must keep waiting for this pane's content drawn ahead for it (RESIZE P0 20,
     /// ``PaneContentAreaView/aheadOfHoldAwaitsContent(refreshesWaited:)``).
     func snapAwaitsContent(refreshesWaited: Int) -> Bool {

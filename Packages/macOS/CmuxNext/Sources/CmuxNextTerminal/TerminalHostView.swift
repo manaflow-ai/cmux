@@ -417,6 +417,10 @@ public final class TerminalHostView: NSView {
     /// new size takes it or drops it; a snap that showed at this size drops it (``aheadOfFollowShown()``). Nil: the
     /// next layout is the placement at rest (a followed hold ended).
     var aheadRestBasis: CGSize?
+    /// A key press's held snap shows in this turn (``aheadOfFollowWillShow()``, RESIZE P0 21): the surface's placement
+    /// does not hold for its program's redraw again (``TerminalSurfaceView/programHoldTicks``). Cleared at the placement
+    /// and when the snap showed.
+    var showsKeySnap = false
     /// A person drags a divider or edge of this host's pane (``PaneResizeGestureFollowing``): the surface it shows follows.
     var followsResizeGesture = false
 
@@ -440,6 +444,7 @@ public final class TerminalHostView: NSView {
         guard let current else { return }
         let placement = surfacePlacement
         current.place(placement.frame, anchor: placement.anchor)
+        showsKeySnap = false
         // B1 (diag bf2b674a): a size drawn ahead goes only when its hold ended, never on a timer (a spring's next refresh
         // can come 2 display ticks later, and dropping it then made that refresh wait for its frame again). The final
         // placement took it if it is the final size; else Ghostty goes back to the view's size.
