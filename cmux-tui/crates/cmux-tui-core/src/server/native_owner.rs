@@ -36,6 +36,7 @@ const COMMANDS: &[&str] = &[
     "agent-session-detach",
     "agent-session-children",
     "agent-session-fork",
+    "agent-session-side",
     "agent-session-media",
     "agent-session-typing",
     "agent-session-view",
@@ -132,6 +133,7 @@ const CAPABILITIES: &[&str] = &[
     agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY,
     agent_session_attach::agent_session_children::AGENT_SESSION_CHILDREN_CAPABILITY,
     AGENT_SESSION_FORK_CAPABILITY,
+    agent_session_attach::AGENT_SESSION_SIDE_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY,
     agent_inventory::CAPABILITY,
@@ -325,5 +327,13 @@ mod fork_admission_tests {
     fn a_native_owner_may_fork_its_attached_chat() {
         assert!(admits(r#"{"cmd":"agent-session-fork","surface":1,"through_seq":3}"#));
         assert!(CAPABILITIES.contains(&AGENT_SESSION_FORK_CAPABILITY));
+    }
+
+    /// A Cloud chat's New side chat and `/side` (agent_session_side.rs): the owner's carrier
+    /// reaches it, and the carrier's identify names it.
+    #[test]
+    fn a_native_owner_may_open_a_side_chat_of_its_attached_chat() {
+        assert!(admits(r#"{"cmd":"agent-session-side","surface":1,"live":true}"#));
+        assert!(CAPABILITIES.contains(&agent_session_attach::AGENT_SESSION_SIDE_CAPABILITY));
     }
 }

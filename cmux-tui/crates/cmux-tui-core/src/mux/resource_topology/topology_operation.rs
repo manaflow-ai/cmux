@@ -103,6 +103,11 @@ impl Mux {
                 });
             }
             ResourceCreationPreparation::Blocked { idempotency_key, operation } => {
+                self.report_resource_effect_indeterminate(
+                    &idempotency_key,
+                    &operation,
+                    BLOCKED_CREATION_CAUSE,
+                );
                 return Err(anyhow::Error::new(resource_effect_indeterminate(
                     &idempotency_key,
                     &operation,

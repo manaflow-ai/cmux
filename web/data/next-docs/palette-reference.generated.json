@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1382,
+    "entries": 1383,
     "shortcuts": 188
   },
   "sections": [
@@ -7904,6 +7904,12 @@
           "title": "Pane Padding",
           "shortcut": null,
           "command": "cmux settings toggle-pane-padding"
+        },
+        {
+          "id": "appearance.personalize",
+          "title": "Personalization…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "agentPane.display.railOnRight",

@@ -86277,6 +86277,7 @@
       "description" : null,
       "focuses" : false,
       "group" : "SettingsActionCatalog",
+      "hint" : null,
       "id" : "appearance.personalize",
       "isDebugOnly" : false,
       "isDestructive" : false,

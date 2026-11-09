@@ -385,7 +385,24 @@ fn resource_creation_failure(
     })
 }
 
+/// Cause logged when a creation waits on an earlier attempt that is still
+/// running or has an indeterminate outcome.
+const BLOCKED_CREATION_CAUSE: &str =
+    "an earlier attempt of this creation is still running or has an indeterminate outcome";
+
+/// Joins an indeterminate creation's reason with the failure that started its
+/// settlement, when there is one.
+fn creation_cause(reason: &str, failure: Option<&ResourceError>) -> String {
+    match failure {
+        Some(failure) => {
+            format!("{reason}; the attempt failed ({}: {})", failure.code, failure.message)
+        }
+        None => reason.to_string(),
+    }
+}
+
 fn creation_settlement_result(
+    mux: &Mux,
     settlement: ResourceCreationSettlement,
     idempotency_key: &str,
     operation: &str,
@@ -397,6 +414,11 @@ fn creation_settlement_result(
             Err(anyhow::Error::new(resource_effect_indeterminate(idempotency_key, operation)))
         }
         ResourceCreationSettlement::Pending => {
+            mux.report_resource_effect_indeterminate(
+                idempotency_key,
+                operation,
+                "an interrupted attempt of this creation has not settled yet",
+            );
             Err(anyhow::Error::new(resource_effect_indeterminate(idempotency_key, operation)))
         }
     }
