@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42608847167",
+  "recorded_at": "2026-11-09T11:32:18Z",
+  "reason": "cmux-tui e61c17509adc changes the image's cmux-tui (pinned 89a4981be5cc)",
+  "dry_run": false,
+  "cmux_tui": "e61c17509adc08abe506af0f07d2c503ef036023",
+  "fixes": [
+    {
+      "sha": "e61c17509adc08abe506af0f07d2c503ef036023",
+      "mergedAt": "2026-11-09T03:03:14-08:00",
+      "subject": "acpmux: a new watch is checked at once; the agent idle test counts wakeups only where exit events exist (#39504)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T11:32:18Z",
+    "snapshot_id": "sh-9940ba99a84548d5ac269ee15638c618",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42608847167): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "5eda9ad3b1f1bdf1b9cb6dafcb8e004159d0bf1e",
+    "image": "cloud-native-auto-e61c1750-42608847167-1",
+    "revision": "ci-42608847167-1",
+    "at": "2026-11-09T11:32:18Z"
+  },
+  "rolled_back": false
+}
