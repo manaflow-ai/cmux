@@ -180,10 +180,14 @@ pub(super) async fn reserve_remote(
 }
 
 /// Reordered replies from concurrent forwards cannot erase a final receipt.
+/// `identity`: the inputs the caller asked for, which the reservation pins; `sent`: the ones
+/// this daemon forwarded (`hub/unattended.rs` may narrow the policy or drop a preset's name),
+/// which the peer's receipt pins.
 pub(super) async fn cache_remote(
     hub: &Arc<Hub>,
     id: &str,
     identity: &Identity,
+    sent: &Identity,
     row: Value,
 ) -> Result<Value, RpcError> {
     let flight = flight(hub, id);
@@ -206,7 +210,7 @@ pub(super) async fn cache_remote(
         .with_data(json!({"reason":"dispatch.identity_changed"})));
     }
     check(&previous, identity)?;
-    check(&row, identity)?;
+    check(&row, sent)?;
     // The source daemon owns the durable identity and routing fields. Start
     // with its reservation, then import only peer-owned result fields. This
     // prevents a peer from moving the receipt to another host or caller while
@@ -474,12 +478,12 @@ mod tests {
         finished.set("outcome", json!({"Ok":{"finalReply":"exact reply"}}));
         let mut remote = finished.clone();
         remote.set("dispatchLocal", json!(true));
-        let cached = cache_remote(&hub, "placement", &identity, remote).await.unwrap();
+        let cached = cache_remote(&hub, "placement", &identity, &identity, remote).await.unwrap();
         assert!(
             cached.get("dispatchLocal").is_none(),
             "a peer's reservation was marked local here"
         );
-        let late = cache_remote(&hub, "placement", &identity, pending).await.unwrap();
+        let late = cache_remote(&hub, "placement", &identity, &identity, pending).await.unwrap();
         assert_eq!(late, finished, "a late pending response erased the final reply");
         assert_eq!(hub.briefs.get("placement"), Some(finished));
         hub.shutdown_all().await;
@@ -516,13 +520,13 @@ mod tests {
 
         let mut wrong_id = reserved.clone();
         wrong_id.set("briefId", json!("other-id"));
-        assert!(cache_remote(&hub, "local-id", &identity, wrong_id).await.is_err());
+        assert!(cache_remote(&hub, "local-id", &identity, &identity, wrong_id).await.is_err());
         assert_eq!(hub.briefs.get("other-id"), Some(victim), "peer key overwrote another receipt");
         assert_eq!(hub.briefs.get("local-id"), Some(reserved.clone()));
 
         let mut advisory = reserved.clone();
         advisory.set("durable", json!(false));
-        assert!(cache_remote(&hub, "local-id", &identity, advisory).await.is_err());
+        assert!(cache_remote(&hub, "local-id", &identity, &identity, advisory).await.is_err());
         assert_eq!(hub.briefs.get("local-id"), Some(reserved.clone()));
 
         let mut finished = reserved.clone();
@@ -531,7 +535,7 @@ mod tests {
         finished.set("dispatchLocal", json!(true));
         finished.set("status", json!("reported"));
         finished.set("outcome", json!({"Ok":{"finalReply":"done"}}));
-        let cached = cache_remote(&hub, "local-id", &identity, finished).await.unwrap();
+        let cached = cache_remote(&hub, "local-id", &identity, &identity, finished).await.unwrap();
         assert_eq!(cached["host"], reserved["host"]);
         assert_eq!(cached["fromSession"], reserved["fromSession"]);
         assert!(cached.get("dispatchLocal").is_none());

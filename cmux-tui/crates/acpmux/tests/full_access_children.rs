@@ -263,3 +263,70 @@ fn big_stack(f: impl std::future::Future<Output = ()>) {
         .unwrap()
         .block_on(f);
 }
+
+/// Peer `b` of `a` as a fleet agent machine (`hub/unattended.rs`): the registry in this
+/// process's own home lists it as an agent VM session host, and its host health says Linux.
+/// Preset `agent-lane` on both: A's approve-all one (approved for unattended runs when
+/// `approved`), and B's own same-named approve-all one with another model.
+async fn fleet_lane(a: &Arc<Hub>, b: &Arc<Hub>, approved: bool) {
+    let home = std::path::PathBuf::from(std::env::var_os("HOME").expect("a hermetic HOME"));
+    let dir = home.join(".ssh/config.d");
+    std::fs::create_dir_all(&dir).unwrap();
+    let registry = json!({"machines": {"b": {"agent_vm": true, "roles": ["session-host"]}}});
+    std::fs::write(dir.join("fleet-registry.json"), registry.to_string()).unwrap();
+    a.peer_by_name("b").expect("peer b").note_health_for_tests(json!({"os": "linux"}));
+    let preset = |v: Value| -> acpmux::config::Preset { serde_json::from_value(v).unwrap() };
+    let mut mine = preset(json!({"harness": "fake", "policy": "approve-all"}));
+    if approved {
+        mine.unattended = acpmux::hub::unattended::approval_now(&mine);
+        assert!(mine.unattended_approved());
+    }
+    a.config.write().await.presets.insert("agent-lane".into(), mine);
+    let theirs = preset(json!({"harness": "fake", "model": "theirs", "policy": "approve-all"}));
+    b.config.write().await.presets.insert("agent-lane".into(), theirs);
+}
+
+/// A chat at `ask` that hands off an approved approve-all preset starts an asking lane: the
+/// narrower chat policy wins, after the approved policy went in.
+#[test]
+fn an_asking_chat_starts_an_asking_lane_with_an_approved_approve_all_preset() {
+    big_stack(async {
+        let (a, b) = with_peer("unattended-cap", true).await;
+        fleet_lane(&a, &b, true).await;
+        let mut app = Client::new(&a);
+        let mut on_b_app = Client::new(&b);
+        let asking = starter(&mut app, "ask", "strict").await;
+        let mut agent = Client::as_session(&a, &asking).await;
+        let r = agent.ok("session/new", on_b(json!({"preset": "agent-lane"}))).await;
+        let child = id(&r);
+        assert_eq!(on_b_app.level(&child).await.1, json!("ask"), "the narrower chat wins: {r}");
+        let warning = r["_meta"]["acpmux"]["unattended"]["warning"].as_str().unwrap_or_default();
+        assert!(warning.contains("narrower policy"), "{r}");
+        // The CLI outside any chat has no chat policy to cap it: the approved preset runs
+        // unattended there.
+        let mut cli = Client::new(&a);
+        let r = cli.ok("session/new", on_b(json!({"preset": "agent-lane"}))).await;
+        assert_eq!(on_b_app.level(&id(&r)).await.1, json!("approve-all"), "{r}");
+        assert_eq!(b.resolve(&id(&r)).unwrap().meta().preset, None, "never the name: {r}");
+    });
+}
+
+/// A preset that was not approved never reaches the peer by name, so the peer's same-named
+/// approve-all preset never runs in its place: the lane asks.
+#[test]
+fn an_unapproved_preset_never_runs_as_a_peers_same_named_one() {
+    big_stack(async {
+        let (a, b) = with_peer("unattended-asked", true).await;
+        fleet_lane(&a, &b, false).await;
+        let mut on_b_app = Client::new(&b);
+        let mut cli = Client::new(&a);
+        let r = cli.ok("session/new", on_b(json!({"preset": "agent-lane"}))).await;
+        let child = id(&r);
+        assert_eq!(on_b_app.level(&child).await.1, json!("ask"), "{r}");
+        let meta = b.resolve(&child).unwrap().meta();
+        assert_eq!(meta.preset, None, "B's same-named preset was resolved: {r}");
+        assert_ne!(meta.model_request.as_deref(), Some("theirs"), "B's preset's model: {r}");
+        let warning = r["_meta"]["acpmux"]["unattended"]["warning"].as_str().unwrap_or_default();
+        assert!(warning.contains("not approved"), "{r}");
+    });
+}

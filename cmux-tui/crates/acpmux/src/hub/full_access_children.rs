@@ -43,7 +43,7 @@ impl Hub {
     /// effective one (its own, else the daemon default), while the caller is not in full
     /// access, needs the person (module docs). A start with no proven caller, or that names no
     /// policy, passes.
-    pub(super) async fn named_policy_check(
+    pub(crate) async fn named_policy_check(
         &self,
         caller: Option<&str>,
         params: &Value,

@@ -503,6 +503,9 @@ async fn dispatch_brief(
             &params,
         );
         let starter = conn.caller().map(|id| hub.session_name(id)).unwrap_or_else(|| conn.label());
+        // A starter below full access names no wider policy than its own, as on this machine
+        // (`full_access_children.rs`); what the forward puts in is capped to it below.
+        hub.named_policy_check(conn.caller(), &params).await?;
         let unattended = hub
             .unattended_forward(
                 &peer,
@@ -512,6 +515,18 @@ async fn dispatch_brief(
                 &mut params,
             )
             .await;
+        let unattended = hub
+            .unattended_cap(
+                unattended,
+                &peer_name,
+                conn.caller(),
+                &starter,
+                crate::hub::unattended::Shape::Dispatch,
+                &mut params,
+            )
+            .await;
+        // The peer pins the inputs it was sent; this daemon's reservation keeps the asked ones.
+        let sent = identity.as_ref().map(|_| workflow_dispatch::identity(&params, &id));
         let original = params.clone();
         params.set("forwarded", json!(true));
         params.set("host", json!(peer_name));
@@ -544,7 +559,8 @@ async fn dispatch_brief(
         );
         if let Some(row) = result.get("brief").cloned() {
             if let Some(identity) = &identity {
-                let row = workflow_dispatch::cache_remote(hub, &id, identity, row).await?;
+                let sent = sent.as_ref().unwrap_or(identity);
+                let row = workflow_dispatch::cache_remote(hub, &id, identity, sent, row).await?;
                 result.set("brief", row);
             } else {
                 hub.briefs.put(row);
@@ -1552,6 +1568,17 @@ async fn dispatch_request_with_identity(
                     .await;
                 // A full-access starter's chat runs in full access there too.
                 hub.forward_starter_policy(conn.caller(), &mut p);
+                // And a narrower starter's chat wins over an approved preset's policy.
+                let unattended = hub
+                    .unattended_cap(
+                        unattended,
+                        &peer.name,
+                        conn.caller(),
+                        &starter,
+                        crate::hub::unattended::Shape::SessionNew,
+                        &mut p,
+                    )
+                    .await;
                 crate::hub::merge_mux_meta(&mut p, created_by_stamp(hub, conn, &params));
                 // This caller's own opt-out for its remote chains there (`hub/vm_boundary.rs`),
                 // for the person's own clients here only (`vm_boundary::owner`).

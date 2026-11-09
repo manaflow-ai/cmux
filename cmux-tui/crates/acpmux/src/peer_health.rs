@@ -50,6 +50,13 @@ impl Peer {
         });
     }
 
+    /// Integration-test stand-in for a host health reading (the first comes a minute after the
+    /// link is up): as though the peer had answered `v` now.
+    #[doc(hidden)]
+    pub fn note_health_for_tests(&self, v: Value) {
+        *self.health.lock_or_recover() = Some((crate::store::now_ms(), v));
+    }
+
     /// The last reading and when it was taken (ms), for `summary`.
     /// The OS the peer's last host health named (`macos`, `linux`), None before one came.
     pub fn reported_os(&self) -> Option<String> {

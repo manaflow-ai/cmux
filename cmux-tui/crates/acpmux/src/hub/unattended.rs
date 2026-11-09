@@ -42,6 +42,11 @@
 //!   (`asked`, with why), and every approve, revoke and clear, one JSON line each in
 //!   `unattended-presets.jsonl` under the acpmux home (owner-only) on this machine, and a
 //!   `received` line on the peer. The card reads the runs and asks from it.
+//! - Narrower wins: the policy a forward sends is never wider than its starter chat's own
+//!   effective one, unless that chat runs in full access ([`Hub::unattended_cap`], computed
+//!   after the approved policy went in), so a chat at `ask` that hands off an approved
+//!   approve-all preset starts an asking lane. A start that was not approved never sends the
+//!   preset's name either ([`put_asking`]): a peer's same-named preset never runs in its place.
 //! - What still holds: the policy answers acpmux's permission prompts only. The harness's own
 //!   guards (Claude Code's deny rules and its `rm` guard) run before any prompt, and a deny-all
 //!   rule or a narrower chat policy set later still wins.
@@ -52,6 +57,7 @@
 
 use super::*;
 use crate::config::{Preset, UnattendedApproval};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::io::{Read as _, Seek as _, Write as _};
 
@@ -158,8 +164,10 @@ pub enum Forward {
     Unchanged,
     /// The approved contents and the stamp went in: log the start once it has an id.
     Approved { preset: String, digest: String },
-    /// It names this daemon's preset for a fleet agent machine but was not approved for it:
-    /// unchanged, and it asks there. The warning says why and where to approve.
+    /// It names this daemon's preset for a fleet agent machine but was not approved for it, or
+    /// the approved policy was wider than its starter's ([`Hub::unattended_cap`]): it asks
+    /// there. The preset's name never goes ([`put_asking`]), so a same-named preset of the
+    /// peer's cannot run it wider. The warning says why and where to approve.
     Asked { warning: String },
 }
 
@@ -195,6 +203,7 @@ fn reason_text(code: &str) -> &'static str {
         "preset.system_prompt" => "it sets a system prompt, which stays on this machine",
         "preset.mode" => "it sets a mode, which a peer never starts in",
         "request.overrides" => "the start names its own harness, model, effort or policy",
+        "caller.narrower" => "the chat that started it runs at a narrower policy, which wins",
         _ => "it cannot be approved",
     }
 }
@@ -246,7 +255,21 @@ impl Hub {
                 json!({"preset": name, "digest": digest, "host": peer.name, "from": from,
                     "start": shape.kind(), "why": why}),
             );
-            return Forward::Asked { warning: asked_warning(&name, &peer.name, reason_text(why)) };
+            // A `session/new` to a peer held at the VM boundary that names no policy keeps
+            // none: that peer's own rule for such a start applies, as it did before this
+            // preset was named (`vm_boundary.rs`), never its same-named preset's.
+            let boundary = shape == Shape::SessionNew
+                && peer.vm_boundary()
+                && shape.get(params, "policy").is_none();
+            put_asking(shape, params, &preset, !boundary);
+            let mut warning = asked_warning(&name, &peer.name, reason_text(why));
+            if boundary {
+                warning = warning.replace(
+                    "asks before each command",
+                    "runs at that machine's own policy for a start that names none (its VM boundary)",
+                );
+            }
+            return Forward::Asked { warning };
         }
         let approval = preset.unattended.clone().unwrap_or_else(|| UnattendedApproval {
             digest: digest.clone(),
@@ -261,6 +284,66 @@ impl Hub {
                 "approvedOn": approval.host, "from": from}}),
         );
         Forward::Approved { preset: name, digest }
+    }
+
+    /// The last step of a start this daemon forwards to `peer` for proven caller `caller`, after
+    /// [`Hub::unattended_forward`] and [`Hub::forward_starter_policy`] put their policy in: the
+    /// policy that goes is never wider than the caller's own effective one, unless the caller
+    /// runs in full access (`full_access_children.rs`), so a narrower chat policy wins over an
+    /// approved preset's. A start the cap narrows carries no stamp and logs `asked` with
+    /// `caller.narrower`; what it did is the [`Forward`] the caller reports.
+    pub(crate) async fn unattended_cap(
+        &self,
+        forward: Forward,
+        peer: &str,
+        caller: Option<&str>,
+        from: &str,
+        shape: Shape,
+        params: &mut Value,
+    ) -> Forward {
+        let Some((asked, own)) = self.cap_forward_policy(caller, shape, params).await else {
+            return forward;
+        };
+        strip_stamp(params);
+        let why = "caller.narrower";
+        let warning = match &forward {
+            Forward::Approved { preset, digest } => {
+                record(
+                    "asked",
+                    json!({"preset": preset, "digest": digest, "host": peer, "from": from,
+                        "start": shape.kind(), "why": why}),
+                );
+                asked_warning(preset, peer, reason_text(why))
+            }
+            Forward::Asked { warning } => warning.clone(),
+            Forward::Unchanged => format!(
+                "policy {asked} is wider than the starting chat's own ({own}): the lane on {peer} runs at {own}"
+            ),
+        };
+        Forward::Asked { warning }
+    }
+
+    /// Narrow the policy `params` (in `shape`) names to proven caller `caller`'s effective one
+    /// when it is wider and the caller is not in full access: the named and the caller's policy,
+    /// when it did. A start with no proven caller, or that names no policy, is left as it is
+    /// (`full_access_children.rs`: such a start's policy is open to the unix socket).
+    async fn cap_forward_policy(
+        &self,
+        caller: Option<&str>,
+        shape: Shape,
+        params: &mut Value,
+    ) -> Option<(PermissionPolicy, PermissionPolicy)> {
+        let named: PermissionPolicy = shape.get(params, "policy")?.as_str()?.parse().ok()?;
+        let s = caller.and_then(|id| self.resolve(id).ok().filter(|s| s.id == id))?;
+        if self.starter_runs_full_access(caller) {
+            return None;
+        }
+        let own = self.effective_policy(&s.meta()).await;
+        if crate::hub::person::breadth(named) <= crate::hub::person::breadth(own) {
+            return None;
+        }
+        set_policy(shape, params, own);
+        Some((named, own))
     }
 
     /// The presets the card shows (`_acpmux/preset_approvals`): every one whose policy does not
@@ -320,12 +403,64 @@ fn overrides(shape: Shape, params: &Value, preset: &Preset) -> bool {
 /// Put the preset's harness, model, effort and policy where `shape` reads them, and drop its
 /// name, so the peer starts exactly those.
 fn put_contents(shape: Shape, params: &mut Value, preset: &Preset) {
+    put_fields(
+        shape,
+        params,
+        [
+            ("harness", Some(preset.harness.clone())),
+            ("model", preset.model.clone()),
+            ("effort", preset.effort.clone()),
+            ("policy", preset.policy.map(|p| p.to_string())),
+        ],
+    );
+}
+
+/// A start of this daemon's preset that was not approved for unattended runs: drop the preset's
+/// name, so the peer never resolves a same-named preset of its own (whose policy, mode, args or
+/// env may run wider), and send the harness, model and effort the start names, else the
+/// preset's, with a policy that asks: the start's own when it asks, else `ask`. With
+/// `pin` false a start that names no policy goes with none (the peer's own rule for that).
+fn put_asking(shape: Shape, params: &mut Value, preset: &Preset, pin: bool) {
+    let text = |k: &str| shape.get(params, k).and_then(Value::as_str).map(str::to_owned);
+    let (harness, model) = match (text("harness"), text("model")) {
+        // A dispatch's `HARNESS/MODEL` names both.
+        (None, Some(m)) if shape == Shape::Dispatch && m.contains('/') => (None, Some(m)),
+        (harness, model) => (
+            Some(harness.unwrap_or_else(|| preset.harness.clone())),
+            model.or_else(|| preset.model.clone()),
+        ),
+    };
+    let asking = (pin || text("policy").is_some()).then(|| {
+        text("policy")
+            .and_then(|p| p.parse::<PermissionPolicy>().ok())
+            .filter(|p| crate::hub::person::asks(*p))
+            .unwrap_or(PermissionPolicy::Ask)
+            .to_string()
+    });
     let fields = [
-        ("harness", Some(preset.harness.clone())),
-        ("model", preset.model.clone()),
-        ("effort", preset.effort.clone()),
-        ("policy", preset.policy.map(|p| p.to_string())),
+        ("harness", harness),
+        ("model", model),
+        ("effort", text("effort").or_else(|| preset.effort.clone())),
+        ("policy", asking),
     ];
+    put_fields(shape, params, fields);
+}
+
+/// Put `policy` where `shape` reads it first, and over any other place it is named.
+fn set_policy(shape: Shape, params: &mut Value, policy: PermissionPolicy) {
+    let policy = json!(policy.to_string());
+    let top = params.get("policy").is_some_and(|v| !v.is_null());
+    let meta = params.pointer("/_meta/acpmux/policy").is_some_and(|v| !v.is_null());
+    if shape == Shape::Dispatch || top {
+        params.set("policy", policy.clone());
+    }
+    if shape == Shape::SessionNew || meta {
+        params.set_path(&["_meta", "acpmux", "policy"], policy);
+    }
+}
+
+/// Set `fields` where `shape` reads them (a None one removed), and drop the preset's name.
+fn put_fields(shape: Shape, params: &mut Value, fields: [(&str, Option<String>); 4]) {
     match shape {
         Shape::Dispatch => {
             if let Some(obj) = params.as_object_mut() {

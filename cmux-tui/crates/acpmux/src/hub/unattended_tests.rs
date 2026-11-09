@@ -201,3 +201,54 @@ fn a_row_counts_runs_under_the_approval_and_tries_since_the_last_change() {
     changed.model = Some("claude-sonnet-5".into());
     assert_eq!(row("agent-lane", &changed, &[])["approval"], Value::Null);
 }
+
+#[test]
+fn an_unapproved_start_carries_an_asking_policy_and_never_the_preset_name() {
+    let p = lane();
+    // A dispatch that names nothing of its own: the preset's contents, asking.
+    let mut params = json!({"brief": "x", "preset": "agent-lane",
+        "_meta": {"acpmux": {"preset": "agent-lane"}}});
+    put_asking(Shape::Dispatch, &mut params, &p, true);
+    assert_eq!(params.get("preset"), None, "{params}");
+    assert_eq!(params["_meta"]["acpmux"].get("preset"), None, "{params}");
+    assert_eq!(params["harness"], "claude");
+    assert_eq!(params["model"], "claude-opus-5-5");
+    assert_eq!(params["effort"], "medium");
+    assert_eq!(params["policy"], "ask");
+    // Its own picks stay; a policy that asks stays, a wider one asks.
+    let mut params = json!({"preset": "agent-lane", "model": "codex/gpt-6", "policy": "deny-all"});
+    put_asking(Shape::Dispatch, &mut params, &p, true);
+    assert_eq!(params["model"], "codex/gpt-6", "{params}");
+    assert_eq!(params.get("harness"), None, "{params}");
+    assert_eq!(params["policy"], "deny-all");
+    let mut params = json!({"preset": "agent-lane", "policy": "approve-edits"});
+    put_asking(Shape::Dispatch, &mut params, &p, true);
+    assert_eq!(params["policy"], "ask", "{params}");
+    // A new session: in its meta, and none at all when not pinned (the VM boundary's rule).
+    let mut params = json!({"_meta": {"acpmux": {"preset": "agent-lane", "name": "lane"}}});
+    put_asking(Shape::SessionNew, &mut params, &p, true);
+    let meta = &params["_meta"]["acpmux"];
+    assert_eq!(meta.get("preset"), None, "{params}");
+    assert_eq!(meta["policy"], "ask", "{params}");
+    assert_eq!(meta["harness"], "claude");
+    let mut params = json!({"_meta": {"acpmux": {"preset": "agent-lane"}}});
+    put_asking(Shape::SessionNew, &mut params, &p, false);
+    assert_eq!(params["_meta"]["acpmux"].get("policy"), None, "{params}");
+    assert_eq!(params["_meta"]["acpmux"].get("preset"), None, "{params}");
+}
+
+#[test]
+fn a_capped_policy_goes_where_the_peer_reads_it() {
+    let mut d = json!({"policy": "approve-all"});
+    set_policy(Shape::Dispatch, &mut d, PermissionPolicy::Ask);
+    assert_eq!(d["policy"], "ask");
+    assert_eq!(d.pointer("/_meta/acpmux/policy"), None, "{d}");
+    let mut n = json!({"policy": "approve-all", "_meta": {"acpmux": {"policy": "approve-all"}}});
+    set_policy(Shape::SessionNew, &mut n, PermissionPolicy::ApproveReads);
+    assert_eq!(n["policy"], "approve-reads", "{n}");
+    assert_eq!(n["_meta"]["acpmux"]["policy"], "approve-reads", "{n}");
+    let mut n = json!({"_meta": {"acpmux": {"policy": "approve-all"}}});
+    set_policy(Shape::SessionNew, &mut n, PermissionPolicy::Ask);
+    assert_eq!(n["_meta"]["acpmux"]["policy"], "ask");
+    assert_eq!(n.get("policy"), None, "{n}");
+}
