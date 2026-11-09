@@ -66,8 +66,7 @@ impl HostAttachment {
                         !remaining.is_zero(),
                         "terminal host did not acknowledge termination"
                     );
-                    reader
-                        .set_read_timeout(Some(remaining.max(Duration::from_millis(1))))
+                    set_link_read_timeout(reader, Some(remaining.max(Duration::from_millis(1))))
                         .context("set terminal-host termination timeout")?;
                     let frame = read_frame(reader, MAX_FRAME_PAYLOAD)
                         .map_err(protocol_io_error)?
@@ -94,8 +93,7 @@ impl HostAttachment {
                     return Ok(());
                 }
             })();
-            let restored = reader
-                .set_read_timeout(previous_timeout)
+            let restored = set_link_read_timeout(reader, previous_timeout)
                 .context("restore terminal-host timeout after termination");
             response.and(restored)
         })();
@@ -126,8 +124,7 @@ impl HostAttachment {
                     !remaining.is_zero(),
                     "terminal host did not exit before the termination deadline"
                 );
-                reader
-                    .set_read_timeout(Some(remaining.max(Duration::from_millis(1))))
+                set_link_read_timeout(reader, Some(remaining.max(Duration::from_millis(1))))
                     .context("set terminal-host termination timeout")?;
                 let frame = match read_frame(reader, MAX_FRAME_PAYLOAD) {
                     Ok(Some(frame)) => frame,
@@ -156,8 +153,7 @@ impl HostAttachment {
                 return Ok(TerminalHostExitRecord::new(&identity, exit));
             }
         })();
-        let restored = reader
-            .set_read_timeout(previous_timeout)
+        let restored = set_link_read_timeout(reader, previous_timeout)
             .context("restore terminal-host timeout after termination");
         match result {
             Ok(record) => {

@@ -225,6 +225,8 @@ import Testing
         let seen = Seen()
         let (backend, _) = try await connected(seen)
         #expect(try await backend.markAllNotificationsRead(on: "m") == 1)
+        // The reads go in the background (StickyRead), so a silent Mac never holds another's.
+        for _ in 0..<500 where !seen.mutations.contains(where: { $0["cmd"] as? String == "ack-tab-notifications" }) { await Task.yield() }
         let acks = seen.mutations.filter { $0["cmd"] as? String == "ack-tab-notifications" }
         #expect(acks.map { $0["surface"] as? Int } == [12])
     }

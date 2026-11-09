@@ -47,7 +47,7 @@ extension SidebarBridge {
             case .snapBack, nil: return resync()
             }
         }
-        if usesPersonalOrganization, PersonalGroupPin(bridge: self).handle(intent) || handlePersonal(intent) { return }
+        if usesPersonalOrganization, groupFlow.sendsUnderDaemonID(intent) || PersonalGroupPin(bridge: self).handle(intent) || handlePersonal(intent) { return }
         switch intent {
         case .select(let id):
             // A placeholder row is no workspace: never claimed or shown.
@@ -56,6 +56,12 @@ extension SidebarBridge {
             // A pick in this window's sidebar shows here, also a workspace another window lists.
             services.windows.show(workspaceID: id.rawValue, in: state, from: .thisWindow)
         case let .selectTab(_, tab): revealPinnedTab(tab.rawValue) // shown in this window (cmux#37371)
+        // The drive indicator's Stop: its chat's turn, or Stop Computer Use on the session its agent started.
+        case let .stopAgentDrive(_, tab, .browser): services.agentTabs.existingView(tab.rawValue)?.stopTurn()
+        case let .stopAgentDrive(_, tab, .screen):
+            let found = services.machines.daemons.lazy.compactMap { $0.store.tab(id: tab.rawValue) }.first
+            let terminals = [found?.terminalID?.rawValue, found?.terminalResourceID?.rawValue].compactMap(\.self).joined(separator: ",")
+            services.registry.perform("computerUseStop", invocation: ActionInvocation(arguments: ["terminals": .string(terminals)]))
         // The tab strip's close for that tab, on whichever machine holds it (the palette's Close Tab).
         case let .closeTab(_, tab): PaletteSourcesBridge.TabSource(services: services).closeTab(id: tab.rawValue)
         case .reorder(let ids, let position):

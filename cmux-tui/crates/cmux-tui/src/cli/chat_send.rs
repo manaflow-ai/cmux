@@ -11,6 +11,11 @@
 //!
 //! `--on here|vm:ID|NAME` names the place instead, without the lookup. `cmux chat send --to …`
 //! stays the message to a Chief, a person or a group (chief/chat_scope.rs).
+//!
+//! `--wait` waits for the turn and prints its reply here as on a Cloud VM (agents/turn.rs here).
+//! `cmux chat read SESSION` and `cmux chat wait SESSION`, with a chat's session id (a UUID, or
+//! `acp:…`) as the first word, read that chat's transcript and wait for its turn; `cmux chat
+//! read|wait --to …` stays the Chief's.
 
 #[cfg(test)]
 mod tests;
@@ -19,6 +24,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+use super::agents::turn::{self, Begin};
 use super::chat_start;
 use super::cloud_start_chat::{self, Machine};
 use super::{GlobalArgs, OutputMode, UsageError};
@@ -31,11 +37,30 @@ Sends the next prompt to the chat SESSION (the session_id `cmux chat` answered),
 runs: here, or on the Cloud VM whose workspace in the cmux app shows it. TEXT `-` reads stdin.
 
   --on TARGET        Where the chat runs, when the app does not show it: here or vm:ID|NAME
-  --wait             Wait for the turn to end and print the reply (a chat on a Cloud VM)
-  --timeout SECONDS  How long --wait waits (default 900)
+  --wait             Wait for the turn to end and print the reply
+  --timeout SECONDS  How long --wait waits (default 900, at most 14400)
+
+With --wait the answer has session_id and reply (and the turn's status); a chat here also
+answers workspace_id and tab_id from `cmux chat`. Exit codes: 0 ok, 1 refused or the turn
+failed, 2 bad arguments or the agent waits on a permission, 3 --timeout passed
+(chat.wait_timeout, details.answer.timed_out true).
+
+A chat here, by its session id (a UUID or acp:…):
+  cmux chat read SESSION [--after ID] [--limit N]   Its transcript (`cmux agents chat read`)
+  cmux chat wait SESSION [--timeout SECONDS]        Wait for its turn to end, print the reply
 
   cmux chat send --to chief|PERSON|GROUP --text TEXT messages a Chief or a person instead
   (`cmux chat send --help` without a SESSION).
+";
+
+/// `cmux chat wait SESSION`'s usage.
+const WAIT_USAGE: &str = "\
+usage: cmux chat wait SESSION [--timeout SECONDS] [--json]
+
+Waits until the chat SESSION here (a UUID or acp:…) stops working and prints the reply of its
+last turn, as `cmux chat send SESSION TEXT --wait` does. --timeout defaults to 900 seconds.
+Exit codes: 0 ok, 1 refused or the turn failed, 2 bad arguments or the agent waits on a
+permission, 3 --timeout passed (chat.wait_timeout).
 ";
 
 /// The flags that take the next word as their value.
@@ -68,6 +93,9 @@ pub(super) enum Place {
 /// `chat … --resume SESSION …`.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (mut global, command) = super::parse_globals(args).ok()?;
+    if let Some((verb, words)) = session_verb(&command) {
+        return Some(read_or_wait(&mut global, verb, words));
+    }
     let words = words_of(&command)?;
     let words = cloud_start_chat::lift_output_of(words, &mut global.output, TAKES_VALUE);
     let send = match parse(&words, command.get(1).map(String::as_str) == Some("send")) {
@@ -96,6 +124,86 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         ),
         Err(error) => super::wire::print_local_error(&error, global.output, 1),
     })
+}
+
+/// Whether `word` names an agent chat by its session id: a UUID, or `acp:…`. A Chief chat is
+/// named with `--to`, and `chat read|wait` words are message refs (`#SEQ`, `msg_…`), never these.
+pub(super) fn is_session_id(word: &str) -> bool {
+    word.starts_with("acp:") || uuid::Uuid::parse_str(word).is_ok()
+}
+
+/// `chat read SESSION …` or `chat wait SESSION …`: the verb and the words after it, from the
+/// session on.
+pub(super) fn session_verb(command: &[String]) -> Option<(&str, &[String])> {
+    let [scope, verb, rest @ ..] = command else { return None };
+    let first = rest.first()?;
+    let ours = scope == "chat" && matches!(verb.as_str(), "read" | "wait") && is_session_id(first);
+    ours.then_some((verb.as_str(), rest))
+}
+
+/// `chat wait SESSION [--timeout S]`: the session and the timeout.
+pub(super) fn parse_wait(words: &[String]) -> Result<Option<(String, Duration)>, UsageError> {
+    let mut session = None;
+    let mut timeout = turn::DEFAULT_TIMEOUT;
+    let mut words = words.iter();
+    while let Some(word) = words.next() {
+        let (flag, inline) = match word.split_once('=') {
+            Some((flag, inline)) if flag.starts_with("--") => (flag, Some(inline.to_owned())),
+            _ => (word.as_str(), None),
+        };
+        match flag {
+            "-h" | "--help" => return Ok(None),
+            "--timeout" => {
+                let text = match inline {
+                    Some(text) => text,
+                    None => words
+                        .next()
+                        .cloned()
+                        .ok_or_else(|| UsageError::new("--timeout needs a value"))?,
+                };
+                let seconds = text.parse::<u64>().ok().filter(|seconds| *seconds > 0);
+                let seconds = seconds.ok_or_else(|| {
+                    UsageError::new(format!("--timeout takes seconds, not {text}"))
+                })?;
+                timeout = Duration::from_secs(seconds).min(turn::MAX_TIMEOUT);
+            }
+            _ if word.starts_with('-') => {
+                return Err(UsageError::new(format!("unknown flag {word}")));
+            }
+            _ if session.is_none() => session = Some(word.clone()),
+            _ => return Err(UsageError::new(format!("unexpected argument {word:?}"))),
+        }
+    }
+    let session = session.ok_or_else(|| UsageError::new("name the chat: its SESSION id"))?;
+    Ok(Some((session, timeout)))
+}
+
+/// `chat read SESSION …` (`agents chat read`) or `chat wait SESSION …` (agents/turn.rs).
+fn read_or_wait(global: &mut GlobalArgs, verb: &str, words: &[String]) -> i32 {
+    let words = cloud_start_chat::lift_output_of(
+        words,
+        &mut global.output,
+        &["--timeout", "--after", "--limit"],
+    );
+    if verb == "read" {
+        let mut agents = chat_start::global_words(global);
+        agents.extend(["agents", "chat", "read"].map(str::to_owned));
+        agents.extend(words);
+        return super::agents::run_if_requested(&agents).unwrap_or(2);
+    }
+    match parse_wait(&words) {
+        Ok(Some((session, timeout))) => turn::run(global, &Begin::Wait { session }, timeout),
+        Ok(None) => {
+            print!("{WAIT_USAGE}");
+            0
+        }
+        Err(error) => super::app::failure(
+            "usage.invalid",
+            &format!("cmux: {}\n{WAIT_USAGE}", error.0),
+            global.output,
+            2,
+        ),
+    }
 }
 
 /// The words after `chat send` or `chat` for a send to a session, else `None`: `chat send` with
@@ -304,19 +412,23 @@ fn sessions(topology: &Value) -> &[Value] {
 }
 
 /// The app's topology (`snapshot.get`), or why it could not be read.
-fn topology(global: &GlobalArgs) -> Result<Value, Value> {
+pub(super) fn topology(global: &GlobalArgs) -> Result<Value, Value> {
     let read =
         super::mcp::agent_app(global, "snapshot.get", json!({}), super::app::READ_TIMEOUT, None)?;
     read.get("topology").cloned().ok_or(read)
 }
 
-/// `cmux agents chat send SESSION -- TEXT` with the same globals.
+/// `cmux agents chat send SESSION -- TEXT` with the same globals; with `--wait`, the send, the
+/// wait for its turn and the reply (agents/turn.rs).
 fn here(global: &GlobalArgs, send: &Send) -> i32 {
-    if send.wait || send.timeout.is_some() {
+    if send.wait {
+        let timeout = send.timeout.unwrap_or(turn::DEFAULT_TIMEOUT).min(turn::MAX_TIMEOUT);
+        let begin = Begin::Send { session: send.session.clone(), text: send.text.clone() };
+        return turn::run(global, &begin, timeout);
+    }
+    if send.timeout.is_some() {
         return usage_failure(
-            &UsageError::new(
-                "--wait and --timeout wait for a chat on a Cloud VM; for a chat here, `cmux agents wait`",
-            ),
+            &UsageError::new("--timeout says how long --wait waits; add --wait"),
             global.output,
         );
     }
