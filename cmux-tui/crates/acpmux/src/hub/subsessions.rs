@@ -696,6 +696,7 @@ impl Hub {
                 // The commit it was made from, not the branch's name: a renamed, deleted or moved
                 // branch never changes what the run is compared against.
                 base: kept.made.base_commit.clone().or_else(|| Some(kept.made.base.clone())),
+                stamp: kept.made.stamp.clone(),
             }),
             plan_build_change: None,
         };
