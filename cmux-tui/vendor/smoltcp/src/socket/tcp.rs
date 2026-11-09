@@ -1217,6 +1217,15 @@ impl<'a> Socket<'a> {
         }
         let scan = self.sack_scan();
         let (start, len) = scan.next_retransmit?;
+        // Only buffered bytes can be resent (a FIN is the RTO's to resend).
+        let len = len.min(
+            self.tx_buffer
+                .len()
+                .checked_sub(start - self.local_seq_no)?,
+        );
+        if len == 0 {
+            return None;
+        }
         let window = self.congestion_controller.inner().window();
         let room = self.sack_pipe(&scan) + self.remote_mss.min(len) <= window;
         (room || start == self.local_seq_no).then_some((start, len))
@@ -1229,11 +1238,17 @@ impl<'a> Socket<'a> {
             return;
         }
         self.sack_scoreboard.prune(self.local_seq_no);
+        // RFC 2018: only blocks of data sent and not yet ACKed count. Both
+        // edges are checked as offsets into the flight: wrapping comparisons
+        // alone accept a block that spans more than half the sequence space.
+        let una = self.local_seq_no.0 as u32;
+        let flight = self.remote_last_seq - self.local_seq_no;
         for &(left, right) in repr.sack_ranges.iter().flatten() {
-            let (left, right) = (TcpSeqNumber(left as i32), TcpSeqNumber(right as i32));
-            // RFC 2018: only blocks of data sent and not yet ACKed count.
-            if self.local_seq_no < left && left < right && right <= self.remote_last_seq {
-                self.sack_scoreboard.insert(left, right);
+            let start = left.wrapping_sub(una) as usize;
+            let end = right.wrapping_sub(una) as usize;
+            if 0 < start && start < end && end <= flight {
+                self.sack_scoreboard
+                    .insert(self.local_seq_no + start, self.local_seq_no + end);
             }
         }
         if let Some(point) = self.sack_recovery_point
@@ -10684,6 +10699,17 @@ mod test {
         let mut s = socket_sacking();
         // Below the cumulative ACK, and past what was sent.
         send!(s, time 50, sack_ack(12, [sack_block(0, 6), sack_block(30, 40), None]));
+        assert!(s.sack_scoreboard.is_empty());
+        recv_nothing!(s, time 50);
+    }
+
+    #[test]
+    fn test_sack_ignores_a_block_wider_than_half_the_space() {
+        let mut s = socket_sacking();
+        // Each edge compares as inside the flight, but the block spans more
+        // than 2^31 bytes, so it is not a range of data sent.
+        let at = |n: u32| (sack_seq(0).0 as u32).wrapping_add(n);
+        send!(s, time 50, sack_ack(0, [Some((at(1_500_000_000), at(3_000_000_000))), None, None]));
         assert!(s.sack_scoreboard.is_empty());
         recv_nothing!(s, time 50);
     }
