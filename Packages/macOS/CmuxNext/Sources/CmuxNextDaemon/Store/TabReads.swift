@@ -104,7 +104,7 @@ extension DaemonStore {
         let made = generation
         return { [weak self] in
             guard let self else { return false }
-            return generation == made && index.tabsByID[tab.id] === tab
+            return generation == made && self.tab(id: tab.id) === tab
         }
     }
 
