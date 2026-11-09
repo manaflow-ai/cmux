@@ -52,6 +52,17 @@ Every instance selector is a public id (`ws_…`, `pane_…`, `tab_…`, `term_�
 
 Every action in the app's registry is also a verb: `cmux action list --noun workspace` lists them and `cmux action describe "<noun> <verb>"` shows arguments. Run one with `cmux <noun> <verb> [--target ID] [--<arg> VALUE]`, for example `cmux workspace set-color --target ws_… --color blue`. The daemon grammar is tried first; words it rejects run as an app action.
 
+## Agents in terminals
+
+```bash
+cmux --json terminal list --agents                                   # every agent: name, harness, status
+cmux --json terminal wait --any alpha,beta --until idle,blocked --timeout 30m   # first agent done or waiting
+cmux --json terminal wait --all alpha,beta --until idle --timeout 1h            # every agent done
+cmux agent explain alpha                                             # why cmux says blocked/working/idle
+```
+
+`terminal wait --any|--all` returns at once when the condition already holds; it names the agent that matched (`terminal`, `status`) and lists every agent's state. Exit 124 is `wait.timeout`; exit 1 `wait.agent_ended` means agents ended so it can never hold. `agent explain` names the hook event or the screen rule (with its manifest version and the screen text it matched) that set the state, and the state before.
+
 ## Showing your work to the person
 
 None of these moves the person's focus; `cmux docs search "show the user"` prints the same guide.

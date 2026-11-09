@@ -104,6 +104,8 @@ impl AgentRoster {
             agent: existing.agent.clone(),
             updated_at_ms: observed_at_ms,
             since_ms: Some(observed_at_ms),
+            cause: None,
+            previous: None,
         };
         self.entries.insert(terminal_id.to_string(), entry.clone());
         vec![RosterDelta::Upsert { terminal_id: terminal_id.to_string(), entry }]

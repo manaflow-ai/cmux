@@ -1317,6 +1317,63 @@ instead: `counts` has `blocked`, `done`, `working`, `idle`, `unknown`, `ended` a
 `total`, counted before `--limit`. `--jsonl` prints one agent per line with
 or without `--counts`.
 
+## Agent explain
+
+```text
+cmux agent explain <terminal|name>
+cmux agent <terminal|name> explain
+```
+
+`agent explain` prints why the daemon holds a terminal agent's state. The
+roster fold records the reason as it decides (it is persisted with the
+roster, so it survives a restart): the journal record that moved the
+terminal into its state (`cause`: `sequence`, `at_ms`, `observed_at_ms`,
+`kind`, `event`, `producer`, `rule`, `basis`, `manifest {version, source}`),
+how the fold took it (`decision`), the state before (`previous {state,
+source, since_ms, until_ms}`) and the screen's last observation (`screen
+{state, producer, observed_at_ms, sequence, rule}`). The daemon publishes it
+only on the private `list-agents` rows (`state_reason`, beside the new
+`terminal_id`); `agent.list` and `session.snapshot` values are unchanged.
+
+The CLI joins it with the session snapshot (the agent's name, harness and
+shown `status`, done-until-seen) and reads the two named journal records
+with one bounded `session.journal.subscribe` (`follow: false`, the
+terminal's `agent.*` and `plugin.*` records, `max_sensitivity: sensitive`):
+the screen text a plugin report carried (`native.evidence`, the matched
+rule's region cut to its last 8 non-empty lines and 400 characters) becomes
+`screen_text`, a hook's tool becomes `tool`, and each named record gets
+`retained` (false once retention dropped it). `--json` prints that value;
+human output prints `state`, `why`, `before` and `screen` lines in the
+locale's words. A terminal with no agent is `agent.not_found` (exit 1).
+
+## Waiting for several agents
+
+```text
+cmux terminal wait --any <t1,t2,...> [--until idle,blocked,done] [--timeout D]
+cmux terminal wait --all <t1,t2,...> [--until idle,blocked,done] [--timeout D]
+```
+
+Targets are terminal ids or prefixes, tab ids, titles, agent names or tab
+names (as `terminal <t> send` takes them), resolved once at the start, at
+most 64. `--until` takes `idle`, `blocked`, `done`, `working` and `ended`,
+as a comma list or repeated; the default is `idle,blocked,done`. The states
+are the shared status of `terminal list --agents`; `idle` also matches `done`
+(a finished turn nobody has viewed), and a terminal that exited or left the
+session counts as `ended`. `--any` holds when the first listed agent shows a
+listed state, `--all` when every one does; a condition that holds at the
+start returns at once.
+
+The wait opens the session's `session.events` stream before its first
+snapshot read and reads the snapshot again after each event; it never polls.
+The result is `{mode, until, terminal, name, status, matched, agents,
+waited_ms}`: `terminal` is the first listed match (`--any`) or the matched
+agent that changed last (`--all`), and `agents` is every listed agent's
+`{terminal, name, status, source, updated_at_ms}`. Failures: a passed
+`--timeout` is `wait.timeout` (exit 124), Ctrl-C is `wait.interrupted` (exit
+130), and agents that ended so the wait can never hold (`--any`: every one;
+`--all`: any one, unless `--until` has `ended`) are `wait.agent_ended`
+(exit 1).
+
 ## Agent start and resume
 
 ```text

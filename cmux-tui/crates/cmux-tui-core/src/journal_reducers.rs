@@ -545,6 +545,14 @@ pub(crate) struct RosterEntry {
     /// keeps it. Absent from entries written before it: `updated_at_ms`.
     #[serde(default)]
     pub(crate) since_ms: Option<u64>,
+    /// The journal record that moved the terminal into `state`, and how the
+    /// fold took it ([`StateCause`]); kept while the state lasts. Absent from
+    /// entries written before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) cause: Option<StateCause>,
+    /// The state the terminal held before `state` ([`PreviousState`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) previous: Option<PreviousState>,
 }
 
 /// Restart fences retained after a plugin child exits. A tagged observation
@@ -1044,6 +1052,8 @@ impl AgentRoster {
                 .or_else(|| self.entries.get(terminal_id).and_then(|entry| entry.agent.clone())),
             updated_at_ms,
             since_ms: Some(since_ms),
+            cause: None,
+            previous: None,
         };
         if self.entries.get(terminal_id) == Some(&entry) {
             return Vec::new();
@@ -1174,8 +1184,11 @@ mod screen_evidence;
 use screen_evidence::{HookTurnStart, ScreenEvidence, ScreenNote};
 #[path = "journal_reducers_program_status.rs"]
 mod program_status;
+#[path = "journal_reducers_state_reason.rs"]
+mod state_reason;
 use program_status::ProgramStatusEvidence;
 pub(crate) use program_status::{PROGRAM_STATUS_NATIVE_EVENT, is_program_status_evidence};
+use state_reason::{FoldDecision, PreviousState, StateCause};
 
 #[cfg(test)]
 #[path = "journal_reducers_blocker_tests.rs"]

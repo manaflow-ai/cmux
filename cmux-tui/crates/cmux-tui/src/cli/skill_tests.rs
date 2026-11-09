@@ -120,6 +120,15 @@ fn every_recipe_command_parses_with_this_cli() {
                         other => panic!("{command}: {other:?}"),
                     }
                 }
+                ["terminal", "wait", ..] => {
+                    assert!(crate::cli::status::agents_wait_flags_parse(&words[2..]), "{command}");
+                }
+                ["agent", ..] if crate::cli::agent_explain::parse(&words).is_some() => {
+                    match crate::cli::agent_explain::parse(&words) {
+                        Some(Ok(_)) => {}
+                        other => panic!("{command}: {other:?}"),
+                    }
+                }
                 ["terminal", _, "wait", ..] => {
                     assert!(
                         crate::cli::status::terminal_wait_flags_parse(&words[3..]),

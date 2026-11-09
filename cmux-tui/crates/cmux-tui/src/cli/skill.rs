@@ -165,6 +165,31 @@ pub(super) const RECIPES: &[Recipe] = &[
                --after so events already past count; always pass --timeout.",
     },
     Recipe {
+        ask: "Tell me when the first of alpha, beta and gamma is done or needs me. / Wait for \
+              all of them.",
+        commands: &[
+            "cmux --json terminal wait --any alpha,beta,gamma --until idle,blocked --timeout 30m",
+            "cmux --json terminal wait --all alpha,beta,gamma --until idle --timeout 1h",
+        ],
+        read: "--any returns when the first listed agent shows an --until state, --all when \
+               every one does (default idle,blocked,done; idle also matches done, a finished \
+               turn nobody viewed). `terminal`, `name` and `status` say which agent matched; \
+               `agents` lists every listed agent's state. It waits on the session's event \
+               stream and returns at once when the condition already holds. Exit 124 \
+               `wait.timeout`; exit 1 `wait.agent_ended` when agents ended so it can never hold.",
+    },
+    Recipe {
+        ask: "Why does cmux say alpha is blocked (or working, idle)?",
+        commands: &["cmux --json agent explain alpha", "cmux agent alpha explain"],
+        read: "`state`, `source` and `since_ms`; `cause` is the record that set the state: a \
+               hook (`event` such as Stop or PermissionRequest, `at_ms`) or a screen rule \
+               (`rule`, `manifest.version`, and `screen_text`, the screen the rule matched), \
+               with `decision` saying how cmux took it (`hook`, `screen`, \
+               `screen_cleared_hook_blocker`, ...). `previous` is the state before and when it \
+               changed; `screen` is the screen's last observation (`agrees` false when a fresh \
+               hook kept its own state). Exit 1 `agent.not_found` when no agent runs there.",
+    },
+    Recipe {
         ask: "Stop it. / Press Ctrl-C. / Answer the dialog with Escape.",
         commands: &["cmux terminal <term> keys ctrl+c", "cmux terminal <term> keys escape"],
         read: "keys sends named keys (`enter`, `escape`, `tab`, `up`, `ctrl+c`, ...). To type \
@@ -394,6 +419,7 @@ const WAITS_AND_ERRORS: &str = "
 | `terminal <term> screen wait --pattern RE` | RE matches the screen | `--timeout-ms N`, exit 1 |
 | `terminal <term> screen wait --pattern RE --new` | RE matches output printed after the wait starts | `--timeout-ms N`, exit 1 |
 | `terminal <term> wait --until prompt\\|idle` | the terminal is at a prompt / idle | `--timeout 30s`, exit 124 |
+| `terminal wait --any T1,T2 --until idle,blocked` | the first listed agent shows a listed state (`--all`: every one) | `--timeout 30m`, exit 124 |
 | `terminal <term> process wait` | the terminal's process exits (`outcome.code`) | `--timeout-ms N` |
 
 `--wait prompt` and `wait --until` need shell integration (OSC 133), which cmux shells have.
