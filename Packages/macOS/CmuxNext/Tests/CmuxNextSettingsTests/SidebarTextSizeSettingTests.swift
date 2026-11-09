@@ -149,7 +149,7 @@ struct SidebarTextSizeSettingTests {
         #expect(settings.snapshot.root.value(at: SidebarSectionsSetting.textSizePath) == .string(value))
     }
 
-    private static let droppedCompact = #"{ "dropped": { "sidebar.density": "compact" }, "kept": {}, "before": "" }"#
+    private nonisolated static let droppedCompact = #"{ "dropped": { "sidebar.density": "compact" }, "kept": {}, "before": "" }"#
 
     @Test func aCompactPickTheDefaultsPassDroppedComesBack() async throws {
         let (settings, home) = try Self.controller("{}", forgotten: Self.droppedCompact)
