@@ -122,11 +122,9 @@ fn a_guest_new_is_the_apps_message_and_never_the_owners_terminal_send() {
     let env = child_env("claude-desktop");
     let get = |key: &str| env.iter().find(|(k, _)| *k == key).map(|(_, v)| v.clone());
     assert_eq!(get(crate::desktop_link::GUEST_ENV), Some(Some("claude-desktop".to_owned())));
-    for session in [
-        SESSION_ENV,
-        crate::hub::person::CALLER_TOKEN_ENV,
-        crate::hub::person::CALLER_SOCKET_ENV,
-    ] {
+    for session in
+        [SESSION_ENV, crate::hub::person::CALLER_TOKEN_ENV, crate::hub::person::CALLER_SOCKET_ENV]
+    {
         assert_eq!(get(session), Some(None), "{session} is removed: a guest is no session");
     }
     // The child's own declaration: no terminal, so never the owner's.
