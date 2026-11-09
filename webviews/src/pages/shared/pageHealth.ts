@@ -45,7 +45,9 @@ interface HealthClient {
 
 export interface KeptState {
   scroll?: { path: string; top: number; left: number };
-  draft?: { path: string; text: string; start?: number; end?: number };
+  /** `base`: a textarea's text as the page loaded it (its default value), so a prefilled field the
+   * person edited still gets its edit back. */
+  draft?: { path: string; text: string; start?: number; end?: number; base?: string };
 }
 
 const installed = new WeakSet<Document>();
@@ -55,6 +57,16 @@ export function installPageHealth(client: HealthClient, doc: Document = document
   if (!view || installed.has(doc)) return;
   installed.add(doc);
   installScrollingMarks(doc);
+  // A field's text right before the person's first edit (a page's own prefill fires no beforeinput,
+  // so it stays the base however late it comes).
+  doc.addEventListener(
+    "beforeinput",
+    (event) => {
+      const field = draftField(event.target as Element | null);
+      if (field && isTextArea(field) && !loadedText.has(field)) loadedText.set(field, field.value);
+    },
+    { capture: true },
+  );
 
   let handled = 0;
   const count = () => void handled++;
@@ -67,12 +79,14 @@ export function installPageHealth(client: HealthClient, doc: Document = document
   let restoring = true;
   const save = () => {
     if (restoring) return;
+    // Keyed by URL too: a route change at the same place still saves the new route.
+    const at = key();
     const state = JSON.stringify(captureState(doc));
-    if (state === lastSaved) return;
-    lastSaved = state;
+    if (at + "\n" + state === lastSaved) return;
+    lastSaved = at + "\n" + state;
     try {
-      if (state === "{}") view.sessionStorage.removeItem(key());
-      else view.sessionStorage.setItem(key(), state);
+      if (state === "{}") view.sessionStorage.removeItem(at);
+      else view.sessionStorage.setItem(at, state);
     } catch {
       // Storage may be full or off; the page keeps working, only the reload loses its place.
     }
@@ -95,13 +109,13 @@ export function installPageHealth(client: HealthClient, doc: Document = document
     });
   };
   const follow = () => {
-    if (refused) return;
+    // A hidden page saves its place even on an app that refused the beat.
     if (doc.visibilityState !== "visible") {
       stop();
       save();
       return;
     }
-    if (timer !== undefined) return;
+    if (refused || timer !== undefined) return;
     beat();
     timer = view.setInterval(beat, HEARTBEAT_MS);
   };
@@ -158,16 +172,23 @@ export function captureState(doc: Document): KeptState {
   if (field) {
     const path = elementPath(field);
     const text = isTextArea(field) ? field.value : (field.textContent ?? "");
-    if (path && text.trim()) {
+    const base = isTextArea(field) ? (loadedText.get(field) ?? field.defaultValue) : "";
+    // A cleared prefilled field is an edit too: kept when it differs from what the page loaded.
+    if (path && (text.trim() || (base && text !== base))) {
       state.draft = { path, text };
       if (isTextArea(field)) {
         state.draft.start = field.selectionStart;
         state.draft.end = field.selectionEnd;
+        if (base) state.draft.base = base;
       }
     }
   }
   return state;
 }
+
+/** Each draft field's text as the page loaded it, kept apart from `defaultValue`, which a React
+ * controlled textarea keeps equal to its current value. */
+const loadedText = new WeakMap<HTMLTextAreaElement, string>();
 
 // Element checks by name, not `instanceof`: the page's constructors belong to its own window.
 const isTextArea = (element: Element): element is HTMLTextAreaElement => element.localName === "textarea";
@@ -187,21 +208,35 @@ function draftField(element: Element | null): HTMLElement | null {
   return element.isContentEditable || element.getAttribute("contenteditable") === "true" ? element : null;
 }
 
-/** Puts the kept scroll and draft back once their elements exist, giving up after `RESTORE_FRAMES`;
- * then calls `done`. */
+/** Puts the kept scroll and draft back once their elements exist, giving up after `RESTORE_FRAMES`
+ * or when the page navigates (the state is the old route's); then calls `done`. A person who
+ * scrolls first keeps their own place. */
 export function restoreState(doc: Document, state: KeptState | null, done: () => void = () => {}): void {
   const view = doc.defaultView;
   if (!view || !state || (!state.scroll && !state.draft)) return done();
   let scroll = state.scroll;
   let draft = state.draft;
   let frames = 0;
+  const href = view.location.href;
+  const userScrolled = () => (scroll = undefined);
+  const userScrolls = ["wheel", "touchmove", "keydown", "pointerdown"] as const;
+  for (const type of userScrolls) doc.addEventListener(type, userScrolled, { capture: true, passive: true });
+  const finish = () => {
+    for (const type of userScrolls) doc.removeEventListener(type, userScrolled, { capture: true });
+    done();
+  };
   const step = () => {
+    if (view.location.href !== href) return finish();
     frames += 1;
     const last = frames >= RESTORE_FRAMES;
     if (scroll) {
       const element = find(doc, scroll.path);
-      // Wait for the content to be tall enough, unless this is the last try.
-      if (element && (last || element.scrollHeight - element.clientHeight >= scroll.top)) {
+      // Wait for the content to be tall and wide enough, unless this is the last try.
+      const fits =
+        element &&
+        element.scrollHeight - element.clientHeight >= scroll.top &&
+        element.scrollWidth - element.clientWidth >= scroll.left;
+      if (element && (last || fits)) {
         element.scrollTop = scroll.top;
         element.scrollLeft = scroll.left;
         scroll = undefined;
@@ -215,17 +250,20 @@ export function restoreState(doc: Document, state: KeptState | null, done: () =>
       }
     }
     if ((scroll || draft) && !last) view.requestAnimationFrame(step);
-    else done();
+    else finish();
   };
   step();
 }
 
 /** Writes a draft through the field's own input path, so a React-controlled field takes it too;
- * text the person already typed since the load is never replaced. */
+ * text the person already typed since the load is never replaced. A field that still shows what the
+ * page loaded into it (its kept `base`) takes the edit back. */
 function putDraft(field: HTMLElement, draft: NonNullable<KeptState["draft"]>): void {
   const view = field.ownerDocument.defaultView;
   if (isTextArea(field)) {
-    if (field.value || !view) return;
+    if (!view || (field.value && field.value !== draft.base) || field.value === draft.text) return;
+    // The page's own text stays the field's base after the edit comes back.
+    if (!loadedText.has(field)) loadedText.set(field, field.value);
     // The prototype's setter, not the property: React tracks the property and would drop the event.
     Object.getOwnPropertyDescriptor(view.HTMLTextAreaElement.prototype, "value")?.set?.call(field, draft.text);
     field.dispatchEvent(new view.Event("input", { bubbles: true }));
