@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 import CmuxNextDesignTokens
+import CoreText
 @testable import CmuxNextSidebar
 import Testing
 
@@ -56,10 +57,10 @@ import Testing
         try DensityTokens.$scoped.withValue(tokens, operation: body)
     }
 
-    /// The weight trait `font` reports (`NSFontDescriptor`'s `.weight`).
-    private static func weightTrait(_ font: NSFont) -> CGFloat? {
-        let traits = font.fontDescriptor.object(forKey: .traits) as? [NSFontDescriptor.TraitKey: Any]
-        return (traits?[.weight] as? NSNumber).map { CGFloat($0.doubleValue) }
+    /// The CSS weight the font's `wght` axis draws `font` at, nil for a font set at a named weight.
+    private static func drawnWeight(_ font: NSFont) -> Double? {
+        let variation = CTFontCopyVariation(font) as? [NSNumber: NSNumber]
+        return variation?[NSNumber(value: UInt32(0x7767_6874))]?.doubleValue
     }
 
     // MARK: Defaults
@@ -73,9 +74,10 @@ import Testing
             let expected = NSFont.Weight.regular.rawValue + (NSFont.Weight.medium.rawValue - NSFont.Weight.regular.rawValue) * 0.3
             #expect(abs(TypeScale.sidebar.rawValue - expected) < 0.0001, "TypeScale.sidebar is \(TypeScale.sidebar.rawValue)")
             #expect(SidebarStyle.titleFont.familyName == NSFont.systemFont(ofSize: 13).familyName, "the system UI font")
-            let drawn = try #require(Self.weightTrait(SidebarStyle.titleFont))
-            #expect(drawn > NSFont.Weight.regular.rawValue && drawn < NSFont.Weight.medium.rawValue,
-                    "row titles draw between regular and medium, got \(drawn)")
+            // The system font draws only its named faces from a weight (430 drew as medium), so the title
+            // sets the font's `wght` axis to 430 (CheckedFont.between).
+            let drawn = try #require(Self.drawnWeight(SidebarStyle.titleFont), "the title sets the wght axis")
+            #expect(abs(drawn - 430) < 1, "row titles draw at wght \(drawn)")
             // A realized workspace row draws its title in that font.
             let row = try #require(Self.sidebar().list.rowViews[.workspace(Self.first)] as? WorkspaceRowView)
             #expect(row.title.font.pointSize == 13)
@@ -132,9 +134,13 @@ import Testing
     }
 
     @Test func theComfortableAppDensityStaysLarger() {
+        // The comfortable app density scales the Codex sizes like every other style (its tokens changed
+        // upstream, so read them rather than pin numbers): larger than at compact, from the same styles.
         Self.at(DensityPreset.comfortable.tokens) {
-            #expect(SidebarStyle.titleFont.pointSize == 14 && SidebarStyle.subtitleFont.pointSize == 13)
-            #expect(SidebarLayoutMetrics.standard.rowHeight == 32)
+            #expect(SidebarStyle.titleFont.pointSize == Typography.sidebarRow.pointSize && SidebarStyle.titleFont.pointSize > 13)
+            #expect(SidebarStyle.subtitleFont.pointSize == Typography.sidebarDetail.pointSize && SidebarStyle.subtitleFont.pointSize > 12)
+            #expect(SidebarLayoutMetrics.standard.rowHeight == Metrics.sidebarListRowHeight)
+            #expect(SidebarLayoutMetrics.standard.rowHeight > 28)
         }
     }
 
@@ -157,7 +163,7 @@ import Testing
             #expect(SidebarStyle.titleFont.pointSize == 14 && SidebarLayoutMetrics.standard.rowHeight == 29)
         }
         try Self.at(DensityPreset.comfortable.tokens, sidebar: .compact) {
-            #expect(SidebarLayoutMetrics.standard.rowHeight == 32 && SidebarStyle.titleFont == Typography.body,
+            #expect(SidebarLayoutMetrics.standard.rowHeight == Metrics.sidebarRowHeight && SidebarStyle.titleFont == Typography.body,
                     "compact at the comfortable app density is that density's row and body, as before")
         }
     }
