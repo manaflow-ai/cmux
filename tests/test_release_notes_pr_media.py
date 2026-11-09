@@ -491,7 +491,12 @@ class GalleryRenderPlanTests(unittest.TestCase):
             uploaded = []
             fake = type("M", (), {"privacy_module": lambda self: type("P", (), {"ocr_binary": lambda self: "ocr"})(),
                                   "check_privacy": lambda self, files, repo: None,
-                                  "put_file": lambda self, repo, branch, path, local, message, checked: uploaded.append(path)})()
+                                  "MediaError": RuntimeError,
+                                  "put_files": lambda self, repo, branch, files, message, checked, expect: (
+                                      self.raced(files) if raced else uploaded.extend(
+                                          p for p in files if expect == {p: None}))})()
+            fake.raced = lambda files: (_ for _ in ()).throw(RuntimeError("got there first"))
+            raced = False
             original = self.tool._load
             self.tool._load = lambda name, path: fake
             try:
@@ -501,6 +506,11 @@ class GalleryRenderPlanTests(unittest.TestCase):
                 uploaded.clear()
                 self.tool.publish(rows, results, exists=lambda url: True)
                 self.assertEqual(uploaded, [])
+                # Another run put the before there after `exists` read it: kept, named, nothing replaced.
+                raced = True
+                problems = self.tool.publish(rows, results, exists=lambda url: url == "u/after")
+                self.assertEqual(uploaded, [])
+                self.assertIn("h before: kept the copy already there (got there first)", problems)
             finally:
                 self.tool._load = original
 
