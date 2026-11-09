@@ -1309,10 +1309,14 @@ impl LocalStore {
     }
 
     /// The log's segments, oldest first. A cold-archived chat's log is rehydrated first
-    /// (`store/cold.rs`): only a chat with no segment pays for the look, one `lstat`.
+    /// (`store/cold.rs`): only a chat with no segment pays for the look, one `lstat` and a second
+    /// listing. The listing is taken again whatever `rehydrate` answers: another thread's
+    /// rehydrate may have put the log back since the first, and this one then answers false
+    /// (review of #39141: an append went on in `000001` of a log that ran on past it).
     fn segments(&self, id: &str) -> Result<Vec<(u32, PathBuf)>> {
         let segments = self.segment_files(id)?;
-        if segments.is_empty() && self.rehydrate(id)? {
+        if segments.is_empty() {
+            self.rehydrate(id)?;
             return self.segment_files(id);
         }
         Ok(segments)

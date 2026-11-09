@@ -284,3 +284,106 @@ fn a_sealed_store_does_not_rehydrate() {
     assert!(Store::events(&store, "c", 0, 10).is_err());
     assert!(store.is_cold("c"));
 }
+
+type Stop = (std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>);
+
+/// Sets the stop in `slot` on this thread: the receiver says the thread is there, and a send on
+/// the sender lets it go on.
+fn stop_at(slot: &'static std::thread::LocalKey<super::super::log_sync::HoldSlot>) -> Stop {
+    let (arrived_tx, arrived) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    slot.with(|hold| *hold.borrow_mut() = Some((arrived_tx, release_rx)));
+    (arrived, release)
+}
+
+/// Review of #39141 (F1): a second archive of the chat, settling while the first is between its
+/// archive's rename into place and the rename of `events/` aside, took the archive for a crash's
+/// leftover the log covers and removed it; the first then removed the log, and nothing was left.
+#[test]
+fn a_second_archive_waits_for_a_commit_between_its_renames() {
+    let (_home, store) = Home::new();
+    closed(&store, "c");
+    let records = chat(&store, "c", 4);
+    let store = std::sync::Arc::new(store);
+    let staged = store.stage_cold("c").unwrap().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel::<Stop>();
+    let first = {
+        let store = store.clone();
+        std::thread::spawn(move || {
+            tx.send(stop_at(&HOLD_AFTER_COLD_PUBLISH)).unwrap();
+            store.commit_cold("c", staged).unwrap()
+        })
+    };
+    let (arrived, release) = rx.recv().unwrap();
+    arrived.recv().unwrap();
+    assert!(store.cold_path("c").exists() && store.dir("c").join("events").exists());
+    // The second archive: it says when it reaches the cold lock, or that it is done.
+    let (said, heard) = std::sync::mpsc::channel::<&'static str>();
+    let second = {
+        let store = store.clone();
+        std::thread::spawn(move || {
+            NOTE_BEFORE_COLD_LOCK.with(|note| *note.borrow_mut() = Some(said.clone()));
+            let staged = store.stage_cold("c");
+            let _ = said.send("done");
+            staged.unwrap().is_some()
+        })
+    };
+    assert_eq!(heard.recv().unwrap(), "settle", "the settle waits for the commit");
+    release.send(()).unwrap();
+    assert!(first.join().unwrap());
+    assert!(!second.join().unwrap(), "the log is archived: nothing left to stage");
+    assert!(store.cold_path("c").exists());
+    assert!(store.is_cold("c"));
+    assert_eq!(Store::events(&*store, "c", 0, usize::MAX).unwrap(), records);
+}
+
+/// Review of #39141 (F2): an append that found no segment while another thread rehydrated the
+/// log got false from its own rehydrate (the archive was gone by then) and kept its empty
+/// listing, so it went on in `000001` of a log whose last segment is later.
+#[test]
+fn an_append_during_another_rehydrate_goes_on_in_the_last_segment() {
+    let (_home, store) = Home::new();
+    closed(&store, "c");
+    let mut records = chat(&store, "c", 20);
+    let segments = store.segment_files("c").unwrap();
+    assert!(segments.len() > 2, "the fixture spans several segments: {segments:?}");
+    let before = hashes(&store, "c");
+    archive(&store, "c");
+    let store = std::sync::Arc::new(store);
+    let (tx, rx) = std::sync::mpsc::channel::<Stop>();
+    let reader = {
+        let store = store.clone();
+        std::thread::spawn(move || {
+            tx.send(stop_at(&HOLD_BEFORE_THAW)).unwrap();
+            store.rehydrate("c").unwrap()
+        })
+    };
+    let (arrived, release) = rx.recv().unwrap();
+    arrived.recv().unwrap();
+    // The append: it lists no segment, finds the archive, and reaches the cold lock the reader
+    // holds.
+    let next = record(records.len() as u64 + 1, "mux", "status", json!({"status": "idle"}));
+    let (said, heard) = std::sync::mpsc::channel::<&'static str>();
+    let appender = {
+        let store = store.clone();
+        let next = next.clone();
+        std::thread::spawn(move || {
+            NOTE_BEFORE_COLD_LOCK.with(|note| *note.borrow_mut() = Some(said));
+            store.append("c", &next).unwrap();
+            store.close_log("c");
+        })
+    };
+    assert_eq!(heard.recv().unwrap(), "rehydrate");
+    release.send(()).unwrap();
+    assert!(reader.join().unwrap());
+    appender.join().unwrap();
+    records.push(next);
+    let after = hashes(&store, "c");
+    let last = before.keys().filter(|name| name.ends_with(".ndjson")).max().unwrap().clone();
+    for (name, hash) in &before {
+        if *name != last {
+            assert_eq!(after.get(name), Some(hash), "{name} was written to");
+        }
+    }
+    assert_eq!(Store::events(&*store, "c", 0, usize::MAX).unwrap(), records);
+}

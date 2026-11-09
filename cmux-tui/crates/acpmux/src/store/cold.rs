@@ -54,6 +54,21 @@ const LINE_MAX: u64 = 4 * 1024 * 1024;
 /// [`Store::on_rehydrate`]'s hook.
 pub type RehydrateHook = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
 
+#[cfg(test)]
+thread_local! {
+    /// Tests: a commit on this thread stops right after the archive is in place and synced, before
+    /// `events/` is renamed aside: both are there, as after a crash at that point.
+    pub(crate) static HOLD_AFTER_COLD_PUBLISH: super::log_sync::HoldSlot =
+        const { std::cell::RefCell::new(None) };
+    /// Tests: a rehydrate on this thread stops under the cold lock, once it found no segment and
+    /// before it decodes.
+    pub(crate) static HOLD_BEFORE_THAW: super::log_sync::HoldSlot =
+        const { std::cell::RefCell::new(None) };
+    /// Tests: this thread says so, once, right before it takes the cold lock to rehydrate or settle.
+    pub(crate) static NOTE_BEFORE_COLD_LOCK: super::log_sync::Note =
+        const { std::cell::RefCell::new(None) };
+}
+
 /// What archiving a log saved.
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -222,6 +237,17 @@ impl LocalStore {
     /// crash (a temporary archive of another process, a rehydrate's folder, a folder renamed
     /// aside) go too. Nothing to do for an archived chat or one with no archive.
     pub(super) fn settle_cold(&self, id: &str) -> Result<()> {
+        #[cfg(test)]
+        super::log_sync::note(&NOTE_BEFORE_COLD_LOCK, "settle");
+        let cold = self.cold.lock_or_recover();
+        self.settle_cold_locked(id, &cold)
+    }
+
+    /// [`Self::settle_cold`] under the cold lock, which a commit holds from the archive's rename
+    /// into place to the rename of `events/` aside: an archive and a log beside it are a crash's
+    /// leftover only when no commit is between the two (review of #39141: a second archive of the
+    /// chat removed the first one's archive as covered, and the first then removed the log).
+    fn settle_cold_locked(&self, id: &str, _cold: &std::sync::MutexGuard<'_, ()>) -> Result<()> {
         let dir = self.dir(id);
         if let Ok(rd) = std::fs::read_dir(&dir) {
             let mine = format!("{COLD_FILE}.tmp-{}-", std::process::id());
@@ -334,6 +360,8 @@ impl LocalStore {
             }
             std::fs::rename(&staged.tmp, self.cold_path(id))?;
             sync_directory(&dir)?;
+            #[cfg(test)]
+            super::log_sync::hold(&HOLD_AFTER_COLD_PUBLISH);
             let aside = dir.join(DROP_DIR);
             remove_dir_if_there(&aside)?;
             std::fs::rename(dir.join("events"), &aside)?;
@@ -346,7 +374,9 @@ impl LocalStore {
     }
 
     /// Puts an archived chat's log back as `events/`, byte for byte, and removes the archive.
-    /// False when the chat is not archived (no archive, or a log beside it: `settle_cold`).
+    /// False when the chat is not archived (no archive, or a log beside it: `settle_cold`), and
+    /// when another thread's rehydrate brought it back first: a caller lists the segments again
+    /// either way (`LocalStore::segments`).
     /// Refused once the store is sealed: the next daemon may already own the home.
     pub(super) fn rehydrate(&self, id: &str) -> Result<bool> {
         let archive = self.cold_path(id);
@@ -354,7 +384,9 @@ impl LocalStore {
         if std::fs::symlink_metadata(&archive).is_err() {
             return Ok(false);
         }
-        let _cold = self.cold.lock_or_recover();
+        #[cfg(test)]
+        super::log_sync::note(&NOTE_BEFORE_COLD_LOCK, "rehydrate");
+        let cold = self.cold.lock_or_recover();
         if std::fs::symlink_metadata(&archive).is_err() {
             return Ok(false);
         }
@@ -369,9 +401,11 @@ impl LocalStore {
         };
         anyhow::ensure!(!*sealed, "the store is sealed: the daemon has shut down");
         if !self.segment_files(id)?.is_empty() {
-            self.settle_cold(id)?;
+            self.settle_cold_locked(id, &cold)?;
             return Ok(false);
         }
+        #[cfg(test)]
+        super::log_sync::hold(&HOLD_BEFORE_THAW);
         let started = std::time::Instant::now();
         let dir = self.dir(id);
         let thaw = dir.join(THAW_DIR);
