@@ -71,9 +71,6 @@
          location = "group:CmuxSentryTelemetry">
       </FileRef>
       <FileRef
-         location = "group:CmuxSyncStore">
-      </FileRef>
-      <FileRef
          location = "group:CmuxTerminalSizing">
       </FileRef>
       <FileRef

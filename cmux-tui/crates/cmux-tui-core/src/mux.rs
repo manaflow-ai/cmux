@@ -22,8 +22,9 @@ use terminal_records::{
 mod terminal_host_records;
 #[cfg(any(unix, windows))]
 use terminal_host_records::{
-    acknowledge_exact_terminal_host_exit, cleanup_terminal_host_record,
-    terminal_host_record_liveness, terminate_discovered_terminal_host_in,
+    HostEnd, acknowledge_exact_terminal_host_exit, cleanup_terminal_host_record,
+    request_terminal_host_end, terminal_host_record_liveness,
+    terminate_discovered_terminal_host_in,
 };
 mod detached_terminals;
 pub(crate) use detached_terminals::DetachedTerminalSpawn;
@@ -225,7 +226,7 @@ use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
 mod agent_prompts;
 pub use agent_presence::{AgentActivity, AgentPresence};
-pub(crate) use agent_prompts::{with_agent_session, with_last_reply};
+pub(crate) use agent_prompts::{with_agent_list_replies, with_agent_session, with_last_reply};
 mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
 use agent_types::{
@@ -316,6 +317,8 @@ mod terminal_create;
 mod terminal_defaults;
 mod terminal_directory;
 mod terminal_lifecycle_commit;
+#[cfg(any(unix, windows))]
+mod unowned_hosts;
 use terminal_lifecycle_commit::{commit_terminal_lifecycle, commit_terminals_adopting};
 mod incognito_terminals;
 mod terminal_exit;
@@ -326,6 +329,8 @@ mod terminal_move_topology;
 mod terminal_progress;
 mod terminal_publisher;
 mod terminal_reap;
+mod terminal_tail_pins;
+pub(crate) use terminal_tail_pins::RESERVED_TAIL_KEY_PREFIX;
 #[cfg(unix)]
 mod terminal_rehost;
 mod terminal_relaunch;
@@ -682,6 +687,8 @@ pub struct Mux {
     command_history_worker: Mutex<Option<SyncSender<command_history::CommandHistoryMessage>>>,
     /// Makes the durable commits terminal output asks for, off the output readers.
     terminal_publisher: terminal_publisher::TerminalPublisher,
+    /// Pinned terminals' last lines and their publisher (`terminal-tail-pin-v1`).
+    terminal_tail_pins: terminal_tail_pins::TerminalTailPins,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     /// Per-client read marks. The shared unread marker above answers "does this terminal need
     /// attention on the shared console"; this map answers "has this client install seen this
@@ -738,6 +745,10 @@ pub struct Mux {
     /// retained per mux until the first reporter arrives.
     diagnostic_reporter: OnceLock<DiagnosticReporter>,
     pending_diagnostics: Mutex<Vec<String>>,
+    /// Held across one call of `seal_journal_segments`: the owner's sealers
+    /// (the maintenance worker, a client's seal, the registry generator)
+    /// take turns, so none commits a segment another is preparing.
+    journal_seal: Mutex<()>,
     #[cfg(test)]
     journal_segment_prepare_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     /// Runs right after a new screen's creation handoff is released, where a
@@ -899,6 +910,7 @@ impl Mux {
                 machine_name: None,
                 session_id: &self.session_public_id,
                 session_name: &self.session,
+                in_process_host: Some(&|host: &str| self.in_process_terminal_by_host(host)),
             },
             target,
             selectors,
@@ -920,6 +932,7 @@ impl Mux {
                 machine_name: None,
                 session_id: registry.session_id(),
                 session_name: &self.session,
+                in_process_host: Some(&|host: &str| self.in_process_terminal_by_host(host)),
             },
             target,
             selectors,
