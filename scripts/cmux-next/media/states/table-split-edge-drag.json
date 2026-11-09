@@ -1,0 +1,135 @@
+{
+ "title": "A table opened from an agent chat shows in the side panel on the right, and the panel's left edge drags like a split divider (cmux#39090). The chat runs on the fake harness, which echoes the prompt, so the reply is a synthetic Markdown table. Steps: the reply, Open table (the panel at its default width), a held drag of the edge to the left (the edge's hover line), then the drop (the panel wider, the chat narrower).",
+ "launch_args": [
+  "--showcase"
+ ],
+ "fakeHarness": {
+  "id": "fake",
+  "name": "Fake"
+ },
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "The main window's frame",
+   "rpc": {
+    "method": "debug.window_frame",
+    "params": {}
+   },
+   "record": true,
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "A new agent chat",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "palette.newAgentChat",
+     "focus": true
+    }
+   },
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "On the fake harness",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "new_chat",
+     "harness": "fake"
+    }
+   },
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "A reply with a table (the fake agent echoes the prompt)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "send_prompt",
+     "text": "Retried rows by failure, last 24 hours:\n\n| Failure | Retried rows |\n| --- | ---: |\n| 5xx | 412 |\n| Timeout | 187 |\n| 4xx | 23 |"
+    }
+   },
+   "wait": 4
+  },
+  {
+   "title": "Open table",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".cv-table-block button[aria-label=\"Open table\"]"
+    }
+   },
+   "record": true,
+   "wait": 2
+  },
+  {
+   "title": "Where the panel's edge is (a press that never moves changes nothing)",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".acpmux-artifact > .ui-split-edge"
+    }
+   },
+   "record": true,
+   "wait": 0.5,
+   "shot": false
+  },
+  {
+   "title": "What lies under the drag's start point",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "hover",
+     "x": 802,
+     "y": 450
+    }
+   },
+   "record": true,
+   "wait": 0.2,
+   "shot": false
+  },
+  {
+   "title": "Drag the panel's edge left, held",
+   "drag": {
+    "from": [802, 450],
+    "to": [702, 450],
+    "steps": 10,
+    "duration": 0.5,
+    "release": false
+   },
+   "wait": 0.5
+  },
+  {
+   "title": "On to the left, then drop",
+   "drag": {
+    "from": [702, 450],
+    "to": [602, 450],
+    "steps": 10,
+    "duration": 0.5,
+    "press": false
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "The page after the drop",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "readiness"
+    }
+   },
+   "record": true,
+   "wait": 0.2,
+   "shot": false
+  }
+ ]
+}
