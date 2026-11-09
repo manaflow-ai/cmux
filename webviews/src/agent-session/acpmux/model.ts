@@ -691,6 +691,9 @@ export type AcpmuxRow = {
   /// it is open the row names the call, so the line does not (conversation/turns.ts `ownRow`).
   doingGroup?: string;
   doingGroupOpen?: boolean;
+  /// The run line that takes `doingGroup`'s place when the run folds (TurnRows.tsx `runLinks`), none for
+  /// an edits group: the group reads open or closed with it, as its own line does (WorkingFor.tsx).
+  doingRun?: string;
   /// A "Worked for" disclosure whose fold mixes the agent's messages with its work reads "N previous
   /// messages", as Codex's does (conversation/turns.ts `foldMixesMessages`).
   previous?: number;

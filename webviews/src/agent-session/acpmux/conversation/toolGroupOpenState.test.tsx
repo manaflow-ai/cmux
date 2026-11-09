@@ -12,6 +12,8 @@ import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { translatorFor } from "../i18n";
 import { FindReveal } from "./chatFind";
 import { ToolRows } from "./TurnRows";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { WorkingFor } from "./WorkingFor";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { turnFoldStyle } from "./turnFoldStyle";
 import { workedLabel } from "./turns";
@@ -345,4 +347,84 @@ test("an edits group keeps its own state when an opened run line splits into gro
   // A call still running unfolds the run: the commands open with the run's line, the edit stays closed.
   await update(<ToolRows row={{ ...run("r1", items), foldRun: false }} sessionId="edits-split" />);
   expect(groupLines(container)).toEqual({ "group:edits:e1": false, "group:commands:c1": true });
+});
+
+const mcp = (id: string): AcpmuxActivity => ({
+  kind: "tool",
+  text: "mcp__linear__create_issue",
+  tool: { id, title: "mcp__linear__create_issue", kind: "other", status: "completed", output: "{}" },
+});
+/// The MCP group's line (McpCallRows.tsx), the one line of the row that is no run's or group's.
+const mcpLine = (container: HTMLElement) =>
+  [...container.querySelectorAll<HTMLButtonElement>("button.cv-tool.is-toggle")].find((button) =>
+    /linear/i.test(button.textContent ?? ""),
+  );
+
+test("a run whose groups the reader closed stays open at the turn's end over an MCP group they opened", async () => {
+  const calls = [command("c1", "git pull"), command("c2", "git status"), read("c3", "a.md"), read("c4", "b.md")];
+  const items = [...calls, mcp("m1"), mcp("m2")];
+  const container = await mount(<ToolRows row={{ ...run("r1", items), foldRun: false }} sessionId="mcp-open" />);
+  await click(container, 'button[data-tool-group="group:commands:c1"]');
+  await click(container, 'button[data-tool-group="group:reads:c3"]');
+  const line = mcpLine(container);
+  expect(line?.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => line!.click());
+  expect(mcpLine(container)?.getAttribute("aria-expanded")).toBe("true");
+  // The turn ends: the run folds under its line, open, so the group the reader opened stays in sight.
+  await update(<ToolRows row={{ ...run("r1", items), version: 99 }} sessionId="mcp-open" />);
+  expect(lines(container)).toEqual([{ text: expect.any(String), open: true }]);
+  expect(mcpLine(container)?.getAttribute("aria-expanded")).toBe("true");
+});
+
+test("an MCP group opened after the reader set the run line opens it again at the turn's end", async () => {
+  const calls = [command("c1", "git pull"), command("c2", "git status"), read("c3", "a.md"), read("c4", "b.md")];
+  const items = [...calls, mcp("m1"), mcp("m2")];
+  const container = await mount(<ToolRows row={run("r1", items)} sessionId="mcp-later" />);
+  await open(container, /^Ran 2 commands/);
+  await update(<ToolRows row={{ ...run("r1", items), foldRun: false }} sessionId="mcp-later" />);
+  await click(container, 'button[data-tool-group="group:commands:c1"]');
+  await click(container, 'button[data-tool-group="group:reads:c3"]');
+  await act(async () => mcpLine(container)!.click());
+  await update(<ToolRows row={{ ...run("r1", items), version: 99 }} sessionId="mcp-later" />);
+  expect(lines(container)).toEqual([{ text: expect.any(String), open: true }]);
+  // A choice on the run line after it is the newer one and stands: closed, it stays closed.
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-tool.is-run")!.click());
+  await update(<ToolRows row={{ ...run("r1", items), version: 100 }} sessionId="mcp-later" />);
+  expect(lines(container)).toEqual([{ text: expect.any(String), open: false }]);
+});
+
+test("the running line names the call when the reader closed the run line its group split from", async () => {
+  const calls = [command("c1", "git pull"), command("c2", "git status"), read("c3", "a.md"), read("c4", "b.md")];
+  const live: AcpmuxRow = {
+    id: "live",
+    kind: "working",
+    version: 1,
+    at: 0,
+    below: true,
+    doing: "git status",
+    doingCommand: true,
+    doingGroup: "group:commands:c1",
+    doingGroupOpen: true,
+    doingRun: "run:c1",
+  };
+  const view = (row: AcpmuxRow) => (
+    <>
+      <ToolRows row={row} sessionId="named" />
+      <TranscriptDisclosureProvider sessionId="named">
+        <WorkingFor row={live} now={() => 1_000} />
+      </TranscriptDisclosureProvider>
+    </>
+  );
+  const named = (container: HTMLElement) => container.querySelector(".cv-worked__doing")?.textContent ?? "";
+  const container = await mount(view(run("r1", calls)));
+  await open(container, /^Ran 2 commands and read 2 files$/);
+  await act(async () => lineNamed(container, /^Ran 2 commands and read 2 files$/)!.click());
+  // A call still running splits the run into its groups: the commands group draws closed under the
+  // closed run line, so its row does not name the call, and the running line must.
+  await update(view({ ...run("r1", calls), foldRun: false }));
+  expect(groupLines(container)["group:commands:c1"]).toBe(false);
+  expect(named(container)).toBe("git status");
+  // The reader opens the group: its own row names the call, and the line no longer does.
+  await click(container, 'button[data-tool-group="group:commands:c1"]');
+  expect(named(container)).toBe("");
 });
