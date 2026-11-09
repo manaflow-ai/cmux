@@ -168,29 +168,48 @@ function scroller(dom: JSDOM, id: string) {
   Object.defineProperty(element, "scrollLeft", { set: (left: number) => (wrote.left = left), get: () => 0 });
   return { size, wrote };
 }
-const frame = () => new Promise((resolve) => setTimeout(resolve, 40));
+/** Animation frames the test runs by hand. */
+function frames(dom: JSDOM) {
+  const queued: FrameRequestCallback[] = [];
+  dom.window.requestAnimationFrame = (callback: FrameRequestCallback) => queued.push(callback);
+  return () => queued.splice(0).forEach((callback) => callback(0));
+}
 
-test("a kept horizontal place waits for content wide enough to hold it", async () => {
+test("a kept horizontal place waits for content wide enough to hold it", () => {
   const { dom } = page(`<div id="list"></div>`);
   const list = scroller(dom, "list");
+  const frame = frames(dom);
   restoreState(dom.window.document, { scroll: { path: `[id="list"]`, top: 0, left: 200 } });
   expect(list.wrote.left).toBeUndefined();
   list.size.width = 400;
-  await frame();
+  frame();
   expect(list.wrote.left).toBe(200);
   dom.window.close();
 });
 
-test("a navigation during the restore drops the old route's place", async () => {
+test("a navigation during the restore drops the old route's place", () => {
   const { dom } = page(`<div id="list"></div>`);
   const list = scroller(dom, "list");
+  const frame = frames(dom);
   let done = false;
   restoreState(dom.window.document, { scroll: { path: `[id="list"]`, top: 300, left: 0 } }, () => (done = true));
   dom.window.location.hash = "#/other";
   list.size.height = 1_000;
-  await frame();
+  frame();
   expect(list.wrote.top).toBeUndefined();
   expect(done).toBe(true);
+  dom.window.close();
+});
+
+test("a person who scrolls during the restore keeps their own place", () => {
+  const { dom } = page(`<div id="list"></div>`);
+  const list = scroller(dom, "list");
+  const frame = frames(dom);
+  restoreState(dom.window.document, { scroll: { path: `[id="list"]`, top: 300, left: 0 } });
+  dom.window.document.dispatchEvent(new dom.window.Event("wheel"));
+  list.size.height = 1_000;
+  frame();
+  expect(list.wrote.top).toBeUndefined();
   dom.window.close();
 });
 
