@@ -341,6 +341,8 @@ struct SidebarPinFlightTests {
     static func checkGlyphRidesTitle(_ name: String, _ view: NSView, in list: NSView, now: CFTimeInterval, failures: inout [String]) {
         let glyph = (view as? SidebarItemRowView)?.pinGlyph ?? view.subviews.first { $0 is NSImageView && !$0.isHidden && ($0.layer?.opacity ?? 1) < 0.001 }
         guard let glyph, let title = SidebarListView.flightTitle(of: view) else { return failures.append("\(name): no pin glyph or title") }
+        // The display pass's layout places a new item's glyph and title (the flight's springs are additive: they stay).
+        view.layoutSubtreeIfNeeded()
         let glyphProbe = Probe(glyph, in: list, now: now), titleProbe = Probe(title, in: list, now: now)
         var gaps: [CGFloat] = []
         for tick in 0..<ticks {
@@ -703,8 +705,9 @@ struct SidebarPinFlightTests {
     /// (d16ad95) this test read the anchor's clip move (660 -> 682) as the pin scrolling the list and the flight's start
     /// in the list's own coordinates (938 vs 916) as a 22 pt jump; on screen both are 0 pt.
     @Test func aPinToABlockOutOfViewSlidesOutOfView() throws {
-        // A scroll a person can reach, with room for the anchor below the list's end (the new end is 2 pt shorter).
-        let result = try pinScrolled("block out of view") { row, maxOffset in min(row.minY - 100, maxOffset - row.height) }
+        // A scroll a person can reach with d and e in view, and room for the anchor's whole move (the block grows by a row
+        // less 2 pt) before the new end: nearer the end the clamp moves the rows above d (the list-at-its-end case).
+        let result = try pinScrolled("block out of view") { row, maxOffset in min(row.minY - 100, maxOffset - row.height - 6) }
         var failures = result.failures
         let slot = try #require(Self.long.firstIndex(of: Self.moved))
         for (id, dy) in result.moved {
