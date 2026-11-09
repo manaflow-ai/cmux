@@ -173,7 +173,7 @@ pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
     let mut set =
         LocalSet { files: BTreeMap::new(), links: BTreeMap::new(), skipped: 0, skips, git: false };
     let Some(git) = GitDirs::of(folder)? else {
-        walk_plain(&mut set, rules, folder, folder)?;
+        walk_plain(&mut set, rules, &|_| true, folder, folder)?;
         return Ok(set);
     };
     set.git = true;
@@ -227,12 +227,19 @@ pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
 /// no git state goes, not even a bare repository's (a folder holding `HEAD`
 /// with `objects/`, `refs/` or `commondir`, whatever its name). Another
 /// repository inside it stays whole.
-pub(super) fn collect_files(folder: &Path) -> anyhow::Result<LocalSet> {
+///
+/// A folder `enter` refuses (by its path from `folder`) is left out whole
+/// and counted once, never listed, so one this Mac's user cannot read (a
+/// `.config` of mode 000) fails nothing.
+pub(super) fn collect_files(
+    folder: &Path,
+    enter: &dyn Fn(&str) -> bool,
+) -> anyhow::Result<LocalSet> {
     // The folder or one above it being git's own state (`bare/objects`, say).
     if folder.ancestors().any(git_state) {
         bail!("{} is in a git repository's own folder", folder.display());
     }
-    let mut set = listed_files(folder)?;
+    let mut set = listed_files(folder, enter)?;
     let mut fenced: BTreeMap<PathBuf, bool> = BTreeMap::new();
     let before = set.files.len();
     set.files.retain(|relative, _| {
@@ -297,12 +304,12 @@ fn work_tree_top(folder: &Path) -> anyhow::Result<Option<PathBuf>> {
     Ok(Some(std::fs::canonicalize(top).unwrap_or_else(|_| PathBuf::from(top))))
 }
 
-fn listed_files(folder: &Path) -> anyhow::Result<LocalSet> {
+fn listed_files(folder: &Path, enter: &dyn Fn(&str) -> bool) -> anyhow::Result<LocalSet> {
     let skips = Skips::new(folder);
     let mut set =
         LocalSet { files: BTreeMap::new(), links: BTreeMap::new(), skipped: 0, skips, git: false };
     let Some(top) = work_tree_top(folder)? else {
-        walk_plain(&mut set, Rules::Share, folder, folder)?;
+        walk_plain(&mut set, Rules::Share, enter, folder, folder)?;
         return Ok(set);
     };
     // A repository whose working copy is somewhere else (its `core.worktree`)
@@ -312,6 +319,7 @@ fn listed_files(folder: &Path) -> anyhow::Result<LocalSet> {
     }
     set.git = true;
     // Run in the folder, git lists only what is under it, by paths from it.
+    let mut refused: BTreeSet<String> = BTreeSet::new();
     for (path, untracked) in working_files(folder, &mut set.skipped)? {
         // A crafted index can name a file anywhere: only a plain path below
         // the folder is the folder's.
@@ -321,9 +329,26 @@ fn listed_files(folder: &Path) -> anyhow::Result<LocalSet> {
             set.skipped = set.skipped.saturating_add(1);
             continue;
         }
+        // A file in a folder `enter` refuses is never looked at; the folder
+        // counts once.
+        if let Some(dir) = refused_dir(&path, enter) {
+            if refused.insert(dir) {
+                set.skipped = set.skipped.saturating_add(1);
+            }
+            continue;
+        }
         add(&mut set, path.clone(), &folder.join(&path))?;
     }
     Ok(set)
+}
+
+/// The first folder on the way to `path` (`a`, then `a/b`, ...) that
+/// `enter` refuses.
+fn refused_dir(path: &str, enter: &dyn Fn(&str) -> bool) -> Option<String> {
+    path.match_indices('/')
+        .filter_map(|(slash, _)| path.get(..slash))
+        .find(|dir| !enter(dir))
+        .map(str::to_string)
 }
 
 /// A relative path that stays below its folder: no root, no empty, `.` or
@@ -624,7 +649,13 @@ pub(super) fn permissions_of(mode: u32) -> u32 {
 
 /// Adds every file below `dir` of a folder outside git (`top`), by the
 /// module doc's rules. Folders are entered without following symlinks.
-fn walk_plain(set: &mut LocalSet, rules: Rules, top: &Path, dir: &Path) -> anyhow::Result<()> {
+fn walk_plain(
+    set: &mut LocalSet,
+    rules: Rules,
+    enter: &dyn Fn(&str) -> bool,
+    top: &Path,
+    dir: &Path,
+) -> anyhow::Result<()> {
     let entries =
         std::fs::read_dir(dir).with_context(|| format!("cannot list {}", dir.display()))?;
     for entry in entries {
@@ -642,8 +673,10 @@ fn walk_plain(set: &mut LocalSet, rules: Rules, top: &Path, dir: &Path) -> anyho
         if entry.file_type()?.is_dir() {
             if rules == Rules::Copy && skips::heavy(dir, name) {
                 set.skips.note(&format!("{relative}/"), Why::Heavy);
+            } else if !enter(relative) {
+                set.skipped = set.skipped.saturating_add(1);
             } else {
-                walk_plain(set, rules, top, &path)?;
+                walk_plain(set, rules, enter, top, &path)?;
             }
         } else if let Some(why) = skips::secret(name).filter(|_| rules == Rules::Copy) {
             set.skips.note(relative, why);

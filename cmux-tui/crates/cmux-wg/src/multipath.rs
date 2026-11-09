@@ -517,12 +517,27 @@ impl Underlay for Multipath {
                 (a, b) => a.or(b),
             };
         }
+        let chosen_quiet = chosen.is_some_and(|id| silent.contains(&id));
         for id in lost {
             shared.probe(id, ProbeOutcome::Lost);
         }
         for id in silent {
             let _ = shared.selector.on_silence(id);
             shared.publish();
+        }
+        // The path we sent on lost its standing (silence, or a lost probe on
+        // a path slower than about 250 ms, whose probe times out first). The
+        // others were last heard up to a 30 s probe ago, and the cut may have
+        // taken them too: probe them all now, so the fallback is a path that
+        // answers today.
+        let left_current = current.is_some() && shared.selector.current() != current;
+        if chosen_quiet || left_current {
+            for slot in shared.slots.iter_mut().filter(|slot| !slot.failed) {
+                if Some(slot.id) != chosen {
+                    slot.watch.probe_now(now);
+                }
+            }
+            due.next = Some(now);
         }
         due
     }
