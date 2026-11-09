@@ -11,6 +11,7 @@ import { ProjectBadge } from "./ProjectBadge";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { chooserRows, type ProjectRepo } from "./projectRepos";
 import { machineColor } from "./machineColor";
+import { emptyFolderLabel } from "./composerContextModel";
 
 /// A folder to start a chat in. `peer` (with its display name `host`) is another machine's folder:
 /// its row carries the machine's computer, in the machine's own color, and its name, and a pick
@@ -166,7 +167,8 @@ export function ProjectChooser({
         if (before === picks.current) setBrowseError(browseFailureMessage(error));
       });
   };
-  const label = currentLabel ?? t("composer.chooseFolder");
+  // No folder, never a "Choose folder" prompt (composerContextModel emptyFolderLabel).
+  const label = currentLabel ?? t(emptyFolderLabel);
   return (
     <span className={`acpmux-picker acpmux-project${inline ? " acpmux-project-inline" : ""}`}>
       <button
