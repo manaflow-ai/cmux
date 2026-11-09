@@ -61,8 +61,7 @@ pub(crate) struct MoveArgs {
     /// move's own connection (the route `HOST/ID` through this daemon may not know it yet).
     pub resume_there: bool,
     /// `session sleep-handoff`'s move (`sleep_handoff.rs`): once moved, these tags are set on the
-    /// chat there and its stopped turn goes on with a prompt, asked over the move's own
-    /// connection.
+    /// chat there, asked over the move's own connection.
     pub continue_there: Option<ContinueThere>,
     /// `--from MACHINE`: the chats live on that machine (one of this machine's ssh peers), and
     /// this machine drives their move over ssh to it and to the target. Neither of the two needs
@@ -71,12 +70,14 @@ pub(crate) struct MoveArgs {
     pub from: Option<String>,
 }
 
-/// What a move does on the target once the chat is there (`MoveArgs::continue_there`).
+/// `sleep_handoff.rs`'s move (`MoveArgs::continue_there`): why it moved, recorded in its
+/// `movedTo` here, and the tags set on the chat there. The stopped turn goes on there by the
+/// move's own continuation (`hub/auto_resume/restart_resume.rs`, `Cut::Move`). Its uncommitted
+/// work must go whole: a carry that would leave a file here fails the move.
 pub(crate) struct ContinueThere {
-    /// Why it moved, recorded in its `movedTo` here (`"sleep"`).
+    /// `"sleep"`.
     pub why: &'static str,
     pub tags: Value,
-    pub text: String,
 }
 
 /// Where the chats being moved live: this machine, or (`--from`) a peer this machine reaches
@@ -112,7 +113,7 @@ struct Outcome {
     /// The chat's id on the target, once moved.
     there: Option<String>,
     /// With `resume_there`: whether a held queue ran there, or why it did not (the chat moved).
-    /// With `continue_there`: whether its prompt was queued there.
+    /// With `continue_there`: whether its tags were set there.
     resumed: Result<bool, String>,
     /// With `--carry-changes`: what was carried (`Carry::record`).
     carried: Option<Value>,
@@ -259,7 +260,7 @@ pub(crate) async fn move_off_interactive(src: &Client, id: &str) -> Result<Moved
 }
 
 /// `sleep_handoff.rs`'s move of the running chat `id` to `host` (a machine or `auto`): the
-/// turn is stopped, uncommitted work carried, and once there `then` runs. `Err`: it did not
+/// turn is stopped, uncommitted work carried whole, and once there `then`'s tags are set. `Err`: it did not
 /// move, and why; the chat is here, its turn stopped only when the move got past its freeze.
 pub(crate) async fn move_running(
     src: &Client,
@@ -291,25 +292,6 @@ pub(crate) async fn move_running(
         bail!("the move gave no host and id for the chat there");
     };
     Ok(MovedOff { routed: format!("{host}/{there}"), host, resumed: o.resumed })
-}
-
-/// Tags the moved chat `there` on the target, then queues the prompt that continues it.
-async fn continue_there(
-    dst: &std::sync::Arc<Client>,
-    there: &str,
-    then: &ContinueThere,
-) -> Result<()> {
-    dst.request(method::MUX_TAG, json!({"sessionId": there, "set": then.tags})).await?;
-    crate::cli::output::queue_prompt(
-        dst.clone(),
-        there,
-        &then.text,
-        false,
-        None,
-        &crate::cli::output::PromptId::new(None),
-    )
-    .await?;
-    Ok(())
 }
 
 /// Every chat here that is open and between turns: not closed, not running, not being moved.
@@ -484,9 +466,10 @@ async fn move_steps(
         o.resumed = resumed.map_err(|e| format!("{e:#}"));
     }
     if let (Some(then), Some(there)) = (&args.continue_there, o.there.clone()) {
-        // Moved whatever this says: a chat whose prompt was not queued waits there for one.
-        o.resumed =
-            continue_there(&dst, &there, then).await.map(|()| true).map_err(|e| format!("{e:#}"));
+        // Moved whatever this says: the tags only label it.
+        let tagged =
+            dst.request(method::MUX_TAG, json!({"sessionId": there, "set": then.tags})).await;
+        o.resumed = tagged.map(|_| true).map_err(|e| format!("{e:#}"));
     }
     drop(forward);
     if let Some(name) = moved.get("name").and_then(Value::as_str) {
@@ -556,6 +539,13 @@ async fn prepare(
             })
             .await??;
             carry::check_base(&read, &commit)?;
+            // A sleep move takes all of it or none: read after the freeze, so what the agent
+            // wrote since the check before the move counts too.
+            if args.continue_there.is_some()
+                && let Some(why) = crate::cli::run::sleep_handoff::carry_refusal(&read)
+            {
+                bail!("{why}");
+            }
             record.set("uncommittedCarried", read.record());
             o.carried = Some(read.record());
             carry = Some(read);

@@ -11,12 +11,15 @@
 //!   with its parent) and shows no other app's conversation (`running_chats`).
 //! - The move is `session move --interrupt --carry-changes` (`session_move::move_running`):
 //!   the turn stops, the chat and its uncommitted work go, and there it is tagged
-//!   `sleepHandoff=moved` with `sleepHandoffFrom` (this machine) and given a prompt that continues
-//!   the turn. Its copy here records where it went (`movedTo`, with `why: "sleep"`).
+//!   `sleepHandoff=moved` with `sleepHandoffFrom` (this machine); the turn goes on there by the
+//!   move's own continuation (`Cut::Move`). Its copy here records where it went (`movedTo`, with
+//!   `why: "sleep"`).
 //! - A chat whose uncommitted work the carry would not take whole (a likely secret such as
 //!   `.env`, a nested repository: `session_move_carry.rs`) stays, before its turn is touched, and
-//!   is tagged `sleepHandoff=stayed` with `sleepHandoffWhy` for a day (`carry_refusal`). So does
-//!   a chat whose move fails; one stopped by a move that then failed gets its prompt here.
+//!   is tagged `sleepHandoff=stayed` with `sleepHandoffWhy` for a day (`carry_refusal`). The move
+//!   checks the carry again after its freeze and fails rather than leave a file behind. A chat
+//!   whose move fails stays the same way; a turn the failed move stopped goes on here by the same
+//!   continuation, which the move gives back.
 
 use super::*;
 use crate::cli::run::session_move::{self, ContinueThere};
@@ -73,13 +76,6 @@ pub(crate) fn carry_refusal(c: &carry::Carry) -> Option<String> {
         n => format!(" and {n} more"),
     };
     Some(format!("its uncommitted {path} ({why}){more} can't go with it"))
-}
-
-/// The prompt that continues a moved chat's turn on `host`.
-pub(crate) fn continue_text(host: &str) -> String {
-    format!(
-        "This Mac went to sleep, so this chat moved to {host} to keep going. Continue where you left off."
-    )
 }
 
 /// One chat's outcome, as printed and in `--json`.
@@ -165,16 +161,12 @@ async fn handoff(
         o.moved_to = Some(machine.to_owned());
         return o;
     }
-    let then = ContinueThere {
-        why: "sleep",
-        tags: json!({TAG: "moved", TAG_FROM: here}),
-        text: continue_text(machine),
-    };
+    let then = ContinueThere { why: "sleep", tags: json!({TAG: "moved", TAG_FROM: here}) };
     match session_move::move_running(src, id, machine, then).await {
         Ok(moved) => {
             if let Err(why) = &moved.resumed {
                 eprintln!(
-                    "acpmux: {id} moved to {}, and its turn did not go on: {why}",
+                    "acpmux: {id} moved to {}, and its note there did not save: {why}",
                     moved.routed
                 );
             }
@@ -182,7 +174,6 @@ async fn handoff(
         }
         Err(e) => {
             o.stayed = Some(format!("the move failed: {e:#}"));
-            continue_here(src, id).await;
         }
     }
     o
@@ -208,24 +199,6 @@ pub(crate) fn refusal_at(cwd: &Path) -> Result<Option<String>> {
         true,
     )?;
     Ok(carry_refusal(&read))
-}
-
-/// A chat whose move failed after its turn was stopped goes on here.
-async fn continue_here(src: &std::sync::Arc<Client>, id: &str) {
-    let Ok(info) = src.request(method::MUX_INFO, json!({"sessionId": id})).await else { return };
-    let stopped = info.get("turn").is_none_or(Value::is_null)
-        && info.get("status").and_then(Value::as_str) != Some("running")
-        && info.get("moving").and_then(Value::as_bool) != Some(true);
-    if !stopped {
-        return;
-    }
-    let text = "This Mac was going to sleep and moving this chat failed, so it stayed here. Continue where you left off.";
-    let prompt = crate::cli::output::PromptId::new(None);
-    if let Err(e) =
-        crate::cli::output::queue_prompt(src.clone(), id, text, false, None, &prompt).await
-    {
-        eprintln!("acpmux: {id} stayed, and its turn did not go on: {e:#}");
-    }
 }
 
 #[cfg(test)]

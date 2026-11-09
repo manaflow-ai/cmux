@@ -91,7 +91,7 @@ nonisolated enum SessionSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.sessions.sleepHandoff.machine", "Move Chats To"),
-                help: SettingsText.keyed("settings.sessions.sleepHandoff.machine.help", "A machine name from Machines, such as a Cloud machine, or auto to pick one that's on and not in use."),
+                help: SettingsText.keyed("settings.sessions.sleepHandoff.machine.help", "The name of a machine you connected under Machines, or auto to pick one that's on and not in use."),
                 kind: .text,
                 default: .string(SessionSettings.sleepHandoffMachineDefault),
                 keywords: ["sleep", "lid", "handoff", "machine", "cloud", "target"]

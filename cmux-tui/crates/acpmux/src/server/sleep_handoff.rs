@@ -21,15 +21,16 @@ pub(super) fn start() -> Value {
     if RUNNING.swap(true, Ordering::SeqCst) {
         return json!({"started": false, "already": true});
     }
-    let exe = match std::env::current_exe() {
-        Ok(exe) => exe,
+    // `SelfCommand`: inside the cmux binary the words need its `acp` prefix.
+    let me = match crate::self_command::SelfCommand::current() {
+        Ok(me) => me,
         Err(e) => {
             RUNNING.store(false, Ordering::SeqCst);
             return json!({"started": false, "error": format!("this daemon's program: {e}")});
         }
     };
-    let child = tokio::process::Command::new(exe)
-        .args(["session", "sleep-handoff"])
+    let child = me
+        .tokio_command(&["session", "sleep-handoff"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())

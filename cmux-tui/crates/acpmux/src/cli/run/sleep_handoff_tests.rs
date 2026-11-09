@@ -80,11 +80,3 @@ fn a_chat_whose_uncommitted_work_would_not_all_go_stays_and_says_why() {
     let why = refusal_at(repo.path()).unwrap().expect("a refusal");
     assert!(why.contains(" and 1 more can't go with it"), "{why}");
 }
-
-#[test]
-fn the_continue_prompt_names_where_the_chat_went() {
-    assert_eq!(
-        continue_text("gcp-1"),
-        "This Mac went to sleep, so this chat moved to gcp-1 to keep going. Continue where you left off."
-    );
-}
