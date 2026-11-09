@@ -129,6 +129,15 @@ impl Hub {
             None => (None, None, None),
         };
         let parent_meta = session.meta();
+        // Tests only: the parent's turn records its rules while the fork is being made.
+        #[cfg(test)]
+        {
+            let seam = self.fork_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some((arrived, release)) = seam {
+                let _ = arrived.send(());
+                let _ = release.await;
+            }
+        }
         // Its agent started it (`created_by.rs`); a fork the person made records none.
         let created_by =
             lineage.as_ref().map(|l| super::created_by::agent(&l.parent, &parent_meta));
@@ -393,9 +402,11 @@ impl Hub {
         } else {
             parent_meta.cmux_context.clone()
         };
+        // Read again after the cut: the parent's turn may have recorded its rules since
+        // `parent_meta` was read, and the fork's copy holds them when that turn is in it.
         let rules_kept = !matches!(made, Made::Fresh | Made::Empty)
             && !moved
-            && crate::context_inventory::fork_keeps_rules(&parent_meta, fork_seq);
+            && session.read_meta(|m| crate::context_inventory::fork_keeps_rules(m, fork_seq));
         let mut meta = SessionMeta {
             schema: META_SCHEMA.into(),
             id: id.clone(),
