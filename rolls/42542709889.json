@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42542709889",
+  "recorded_at": "2026-11-09T01:03:15Z",
+  "reason": "cmux-tui 7538a3663f30 changes the image's cmux-tui (pinned 11dfbd62acd4)",
+  "dry_run": false,
+  "cmux_tui": "7538a3663f305a217a8ed279f8a6ac8879a7b97b",
+  "fixes": [
+    {
+      "sha": "7538a3663f305a217a8ed279f8a6ac8879a7b97b",
+      "mergedAt": "2026-11-09T00:37:42Z",
+      "subject": "chore(next): base autofix at a6b39b8c5252"
+    },
+    {
+      "sha": "bc090ff525c1c8a5d348010cb4582bbc092bf75d",
+      "mergedAt": "2026-11-08T16:35:24-08:00",
+      "subject": "cmux-rd host: Cloud media onto a UDP link next to the carrier stream (cap link.udp) (#39009)"
+    },
+    {
+      "sha": "3c68f3125e54cb9e9bd050fe27cb5d149412b8ce",
+      "mergedAt": "2026-11-09T00:34:34Z",
+      "subject": "Cloud phone start: the machine holds a phone's new chat to acpmux's Cloud mobile floor (#38878)"
+    },
+    {
+      "sha": "7f63ac539f3c39517afdebfe37dc7afdfa2de421",
+      "mergedAt": "2026-11-09T00:34:22Z",
+      "subject": "Agent pane: Costs and Waiting on you, two new History tabs (#38546)"
+    },
+    {
+      "sha": "9dacf1d25ee4a68655846863d3a0216f0cb5f3c8",
+      "mergedAt": "2026-11-08T16:33:59-08:00",
+      "subject": "remote: the first dial's deadline wins a tie (#38995)"
+    },
+    {
+      "sha": "ed623adb492526d226c17dd42c53f43ae692272f",
+      "mergedAt": "2026-11-09T00:33:31Z",
+      "subject": "acpmux: connections through the Cloud carrier get owner or teammate rules (#38392)"
+    },
+    {
+      "sha": "d27536e854abeedd8a62fa74184ffc4ef260f276",
+      "mergedAt": "2026-11-09T00:33:18Z",
+      "subject": "Cloud environment: send a secret only to chosen hosts, in a header (#38306)"
+    },
+    {
+      "sha": "2f405fc123513c95d39eed8ac7ef9e561e1f7bc3",
+      "mergedAt": "2026-11-09T00:33:06Z",
+      "subject": "cmux-command-class: classify a shell command by what it needs to run (agent home step 1) (#37800)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T01:03:15Z",
+    "snapshot_id": "sh-7c31db071eff4bb0943c7c2589642b8b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42542709889): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8cc40f95257a97016857a96f7f8c6178e4089554",
+    "image": "cloud-native-auto-7538a366-42542709889-1",
+    "revision": "ci-42542709889-1",
+    "at": "2026-11-09T01:03:15Z"
+  },
+  "rolled_back": false
+}
