@@ -65,6 +65,9 @@ import Testing
     @Test func anAppDialogsRegionGrowsToHoldItsCard() {
         let drawing = Drawing()
         let center = CmuxDialogCenter(host: CmuxDialogOverlayHost(drawing: drawing, activate: {}, isAppActive: { true }))
+        // An app dialog shows in the app overlay's own panel, which the dialog makes: the test closes it after the
+        // dismiss (the panel is kept, not released, and orders in again for the next app overlay).
+        defer { WindowOverlayHost.appHost().panel.closeAfterTest() }
         let id = center.present(CmuxDialogSpec(title: "Quit cmux?", buttons: [.cancel(), .ok()]), in: .app) { _ in }
         defer { center.dismiss(id) }
         guard let dialog = center.dialog(id), let view = dialog.view else {
