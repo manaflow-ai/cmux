@@ -119,7 +119,7 @@ final class HomeFirstRunSwitchCard: NSView {
         }
         for button in [hide, openSettings] {
             button.attributedTitle = NSAttributedString(string: button.title, attributes: [
-                .foregroundColor: button === hide ? tertiary : primary, .font: NSFont.systemFont(ofSize: TypeScale.Base.caption * scale),
+                .foregroundColor: button === hide ? tertiary : primary, .font: Typography.system(size: TypeScale.Base.caption * scale),
             ])
         }
     }

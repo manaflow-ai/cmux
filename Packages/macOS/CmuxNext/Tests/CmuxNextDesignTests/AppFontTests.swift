@@ -89,6 +89,37 @@ struct AppFontRetargetTests {
         #expect(layer.font.familyName == NSFont.systemFont(ofSize: 12).familyName)
     }
 
+    /// Review F1 at 3d6b70f1: tabs, sidebar rows and pane chrome are `ChromeLabel`s (not
+    /// controls), and a button's attributed title carries its own font.
+    @Test func mountedChromeLabelsAndButtonTitlesMoveToTheNewFaceAndBack() {
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let tab = ThemedLabel(labelWithString: "Tab")
+        tab.font = .systemFont(ofSize: 13, weight: .medium)
+        let rich = ChromeLabel(labelWithString: "")
+        let runs = NSMutableAttributedString(string: "ab", attributes: [.font: NSFont.systemFont(ofSize: 12)])
+        runs.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular), range: NSRange(location: 1, length: 1))
+        rich.attributedStringValue = runs
+        let button = NSButton(title: "Open", target: nil, action: nil)
+        button.attributedTitle = NSAttributedString(string: "Open", attributes: [.font: NSFont.systemFont(ofSize: 11)])
+        [tab, rich, button].forEach(root.addSubview)
+
+        AppFontRetarget.apply(to: root, from: nil, to: "Georgia")
+        #expect(tab.font?.familyName == "Georgia")
+        #expect(tab.font?.pointSize == 13)
+        let first = rich.ownRuns?.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+        let second = rich.ownRuns?.attribute(.font, at: 1, effectiveRange: nil) as? NSFont
+        #expect(first?.familyName == "Georgia")
+        #expect(second?.familyName != "Georgia")
+        let title = button.attributedTitle.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+        #expect(title?.familyName == "Georgia")
+        #expect(title?.pointSize == 11)
+
+        AppFontRetarget.apply(to: root, from: "Georgia", to: nil)
+        #expect(tab.font?.familyName == NSFont.systemFont(ofSize: 13).familyName)
+        let back = button.attributedTitle.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+        #expect(back?.familyName == NSFont.systemFont(ofSize: 11).familyName)
+    }
+
     @Test func richTextKeepsItsOtherRuns() {
         let text = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
         text.textStorage?.setAttributedString(NSAttributedString(string: "ab", attributes: [.font: NSFont.systemFont(ofSize: 13)]))

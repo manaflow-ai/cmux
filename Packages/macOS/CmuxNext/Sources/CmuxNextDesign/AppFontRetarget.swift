@@ -3,8 +3,9 @@ import AppKit
 /// `appearance.font` live on chrome already on screen (#39272 review F1): a label takes its font
 /// once, when it is made, so a change of the app font (or its palette preview) reaches only new
 /// labels. On each change this walks every window's views once and gives each text control,
-/// text view run and ``ChromeTextLayer`` drawn in the old app face (the default design: the
-/// system font, or the last `appearance.font`) the same size and weight in the new one. Monospaced
+/// ``ChromeLabel`` (and its runs), button title run, text view run and ``ChromeTextLayer`` drawn
+/// in the old app face (the default design: the system font, or the last `appearance.font`) the
+/// same size and weight in the new one. Monospaced
 /// faces, tabular-digit fonts, italics and other named families keep theirs. One walk per change
 /// (a palette highlight move), proportional to the views on screen; views made later read
 /// `Typography`.
@@ -20,9 +21,20 @@ enum AppFontRetarget {
     static func apply(to view: NSView, from old: String?, to new: String?) {
         if let text = view as? NSTextView {
             retarget(text, from: old, to: new)
-        } else if let control = view as? NSControl, let font = control.font, let next = retargeted(font, from: old, to: new) {
-            control.font = next
-            control.invalidateIntrinsicContentSize()
+        } else if let label = view as? ChromeLabel {
+            // The chrome label (tabs, sidebar rows, pane chrome) keeps its font and runs itself.
+            if let font = label.font, let next = retargeted(font, from: old, to: new) { label.font = next }
+            if let runs = label.ownRuns, let next = retargeted(runs, from: old, to: new) { label.attributedStringValue = next }
+        } else if let control = view as? NSControl {
+            if let font = control.font, let next = retargeted(font, from: old, to: new) {
+                control.font = next
+                control.invalidateIntrinsicContentSize()
+            }
+            // A button's attributed title carries its own font, which `font` does not reach.
+            if let button = control as? NSButton, button.attributedTitle.length > 0,
+               let next = retargeted(button.attributedTitle, from: old, to: new) {
+                button.attributedTitle = next
+            }
         }
         if let layer = view.layer { apply(to: layer, from: old, to: new) }
         for subview in view.subviews { apply(to: subview, from: old, to: new) }
@@ -46,6 +58,18 @@ enum AppFontRetarget {
         if let font = text.typingAttributes[.font] as? NSFont, let next = retargeted(font, from: old, to: new) {
             text.typingAttributes[.font] = next
         }
+    }
+
+    /// `text` with each run in the old face moved to the new one; nil when no run is in the old face.
+    static func retargeted(_ text: NSAttributedString, from old: String?, to new: String?) -> NSAttributedString? {
+        let moved = NSMutableAttributedString(attributedString: text)
+        var changed = false
+        text.enumerateAttribute(.font, in: NSRange(location: 0, length: text.length)) { value, range, _ in
+            guard let font = value as? NSFont, let next = retargeted(font, from: old, to: new) else { return }
+            moved.addAttribute(.font, value: next, range: range)
+            changed = true
+        }
+        return changed ? moved : nil
     }
 
     /// `font` at its size and weight in `new`'s face (nil: the system font), or nil when `font` is

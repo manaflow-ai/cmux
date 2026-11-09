@@ -108,7 +108,7 @@ public final class BrowserFitFrameView: NSView {
             for button in [choose, off] {
                 button.contentTintColor = Palette.textSecondary
                 button.attributedTitle = NSAttributedString(string: button.title, attributes: [
-                    .foregroundColor: Palette.textSecondary, .font: NSFont.systemFont(ofSize: TypeScale.caption, weight: TypeScale.emphasis),
+                    .foregroundColor: Palette.textSecondary, .font: Typography.system(size: TypeScale.caption, weight: TypeScale.emphasis),
                 ])
             }
         }

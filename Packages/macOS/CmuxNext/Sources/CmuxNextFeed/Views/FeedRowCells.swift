@@ -154,7 +154,7 @@ final class FeedRowCell: NSTableCellView {
         detail.stringValue = content.detail
         detail.font = content.detailIsCode
             ? .monospacedSystemFont(ofSize: TypeScale.detail, weight: TypeScale.regular)
-            : .systemFont(ofSize: TypeScale.detail, weight: TypeScale.regular)
+            : Typography.system(size: TypeScale.detail, weight: TypeScale.regular)
         detail.textColor = colors.secondary
         detail.isHidden = content.detail.isEmpty
         var line = content.meta
@@ -203,7 +203,7 @@ final class FeedRowCell: NSTableCellView {
         let width = bounds.width - left - right
         // Measured from the text: a one-line truncating label's intrinsic width follows its frame.
         let timeText = time.stringValue as NSString
-        let timeWidth = min(ceil(timeText.size(withAttributes: [.font: time.font ?? NSFont.systemFont(ofSize: TypeScale.caption)]).width) + 4, 64)
+        let timeWidth = min(ceil(timeText.size(withAttributes: [.font: time.font ?? Typography.system(size: TypeScale.caption)]).width) + 4, 64)
         dot.frame = NSRect(x: 9, y: top + (TypeScale.bodyLineHeight - 6) / 2, width: 6, height: 6)
         let side = CGFloat.iconRowSize(forLabelPointSize: TypeScale.body)
         glyph.frame = NSRect(x: 19, y: top + (TypeScale.bodyLineHeight - side) / 2, width: side, height: side)
@@ -211,7 +211,7 @@ final class FeedRowCell: NSTableCellView {
         // A clipped headline reads in full as the row's themed tooltip, as a clipped sidebar title does
         // (WorkspaceRowView.updateCalmTitleTip). Set on the cell, not the label: a tooltip that repeats
         // its own label's text is dropped (TooltipTracker.repeatsVisibleLabel).
-        let headlineWidth = (headline.stringValue as NSString).size(withAttributes: [.font: headline.font ?? NSFont.systemFont(ofSize: TypeScale.body)]).width
+        let headlineWidth = (headline.stringValue as NSString).size(withAttributes: [.font: headline.font ?? Typography.system(size: TypeScale.body)]).width
         let tip = ceil(headlineWidth) > headline.frame.width + 0.5 ? headline.stringValue : nil
         if themedToolTip != tip { themedToolTip = tip }
         time.frame = NSRect(x: bounds.width - right - timeWidth, y: top + 2, width: timeWidth, height: TypeScale.captionLineHeight)
@@ -223,7 +223,7 @@ final class FeedRowCell: NSTableCellView {
         let localSide: CGFloat = local.isHidden ? 0 : CGFloat.iconRowSize(forLabelPointSize: TypeScale.caption)
         meta.frame = NSRect(x: left, y: y, width: max(0, width - localSide - 4), height: TypeScale.captionLineHeight)
         let metaText = meta.stringValue as NSString
-        let metaWidth = min(ceil(metaText.size(withAttributes: [.font: meta.font ?? NSFont.systemFont(ofSize: TypeScale.caption)]).width), meta.frame.width)
+        let metaWidth = min(ceil(metaText.size(withAttributes: [.font: meta.font ?? Typography.system(size: TypeScale.caption)]).width), meta.frame.width)
         local.frame = NSRect(x: left + metaWidth + 4, y: y + (TypeScale.captionLineHeight - localSide) / 2, width: localSide, height: localSide)
     }
 }

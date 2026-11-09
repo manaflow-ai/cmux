@@ -42,8 +42,8 @@ public final class BrowserMediaRowView: NSView {
         artwork.wantsLayer = true
         artwork.layer?.cornerRadius = Metrics.controlCornerRadius
         artwork.layer?.masksToBounds = true
-        style(titleLabel, title, font: .systemFont(ofSize: TypeScale.body, weight: TypeScale.emphasis), color: .labelColor)
-        style(subtitleLabel, subtitle, font: .systemFont(ofSize: TypeScale.caption, weight: TypeScale.regular), color: .secondaryLabelColor)
+        style(titleLabel, title, font: Typography.system(size: TypeScale.body, weight: TypeScale.emphasis), color: .labelColor)
+        style(subtitleLabel, subtitle, font: Typography.system(size: TypeScale.caption, weight: TypeScale.regular), color: .secondaryLabelColor)
         let text = NSStackView(views: [titleLabel, subtitleLabel])
         text.orientation = .vertical
         text.alignment = .leading
