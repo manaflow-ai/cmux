@@ -8,6 +8,20 @@
   z-index: var(--layer-sticky);
   height: 0;
 }
+/* The column's end while the minimap is on (App.tsx sets data-vscode-minimap on .acpmux-main, only in a
+   pane wide enough and unless Session Info pushes): the widest strip and its edges (paint.ts
+   MINIMAP_RESERVE), or the column's own inset when that is wider, so Chat Text Width's column never
+   leaves it a narrow strip. The transcript's rows, the composer and the dock's bands read it;
+   model.ts transcriptColumn mirrors it. Beside the computer use preview, the wider room of the two. */
+.acpmux-main[data-vscode-minimap] {
+  --cv-inset-end: max(var(--cv-inset), 140px);
+}
+.acpmux-main[data-vscode-minimap][data-cu-preview] {
+  --cv-inset-end: max(var(--cv-inset), 204px);
+}
+.acpmux-main[data-vscode-minimap] .acpmux-composer {
+  padding-right: var(--cv-inset-end);
+}
 /* Sized inline, so it contains its own layout and style (not paint: that would clip the focus ring). */
 .acpmux-chat-minimap__track {
   position: absolute;

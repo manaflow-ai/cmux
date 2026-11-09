@@ -14,11 +14,15 @@ import {
   LINE_HEIGHT,
   LINE_PITCH,
   MAX_SCALE,
+  MINIMAP_EDGE,
   MINIMAP_MAX_WIDTH,
+  MINIMAP_MIN_PANE,
+  MINIMAP_RESERVE,
   MINIMAP_WIDTH,
   MIN_VIEW,
   type MinimapContext,
 } from "../src/agent-session/acpmux/chatMinimap/paint";
+import { COMPUTER_USE_PREVIEW_RESERVE } from "../src/agent-session/acpmux/computerUse/computerUsePreview";
 
 const row = (index: number, kind: string, text?: string): AcpmuxRow => ({
   id: `r${index}`,
@@ -204,6 +208,25 @@ test("the strip is as wide as the right gutter allows, from 56 to 120 px, and ab
   expect(minimapWidth(100)).toBe(80);
   expect(minimapWidth(140)).toBe(120);
   expect(minimapWidth(400)).toBe(120);
+});
+
+test("with its room kept at the column's end, the strip is its full width in every pane from 600 px", async () => {
+  // Chat Text Width's 800px column (#36342) left a 952-1080px pane a 56-120px strip and a narrower
+  // pane none: the column's end keeps MINIMAP_RESERVE instead, as VS Code's minimap takes its own width.
+  const { transcriptColumn } = await import("../src/agent-session/acpmux/model");
+  expect(MINIMAP_RESERVE).toBe(MINIMAP_MAX_WIDTH + 2 * MINIMAP_EDGE);
+  for (let pane = MINIMAP_MIN_PANE; pane <= 2400; pane += 20) {
+    const column = transcriptColumn(pane, undefined, MINIMAP_RESERVE);
+    expect(minimapWidth(column.insetEnd)).toBe(MINIMAP_MAX_WIDTH);
+    // The column's start stays where it was.
+    expect(column.inset).toBe(transcriptColumn(pane).inset);
+  }
+  // chatMinimap.css keeps the same room.
+  const css = await Bun.file(
+    new URL("../src/agent-session/acpmux/chatMinimap/chatMinimap.css", import.meta.url),
+  ).text();
+  expect(css).toContain(`--cv-inset-end: max(var(--cv-inset), ${MINIMAP_RESERVE}px);`);
+  expect(css).toContain(`--cv-inset-end: max(var(--cv-inset), ${COMPUTER_USE_PREVIEW_RESERVE}px);`);
 });
 
 test("a reply draws as 2 px text lines every 4 px, as VS Code's minimap at scale 2", () => {

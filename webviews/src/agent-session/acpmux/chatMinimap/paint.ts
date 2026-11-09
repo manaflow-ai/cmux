@@ -15,6 +15,15 @@ import { THREAD_PADDING_TOP } from "../threadMinimap/model";
 export const MINIMAP_WIDTH = 56;
 export const MINIMAP_MAX_WIDTH = 120;
 export const MINIMAP_EDGE = 10;
+/// The room the chat's column keeps at its right while the minimap is on (chatMinimap.css
+/// --cv-inset-end, model.ts transcriptColumn's endReserve): the widest strip with its edge on each
+/// side, as VS Code's minimap takes its own width from the editor. Without it the strip had only the
+/// gutter Chat Text Width left, so the 800px column made it narrow again, or hid it, in any pane
+/// under 1080px.
+export const MINIMAP_RESERVE = MINIMAP_MAX_WIDTH + 2 * MINIMAP_EDGE;
+/// The narrowest pane whose column keeps that room: narrower, the column it leaves is too narrow to
+/// read, and the strip takes what gutter there is, as before.
+export const MINIMAP_MIN_PANE = 600;
 
 /// The strip's width for a right gutter (the text column's inset) of `inset` px: as wide as the gutter
 /// allows between MINIMAP_WIDTH and MINIMAP_MAX_WIDTH, so it never lies over the text, or 0 when the

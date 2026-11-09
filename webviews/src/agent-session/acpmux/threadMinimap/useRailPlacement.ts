@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useState, type RefObject } from "react";
 import { useChatDisplay, useChatMinimap } from "../chatDisplay";
-import { MINIMAP_EDGE, minimapWidth } from "../chatMinimap/paint";
+import { MINIMAP_EDGE, MINIMAP_RESERVE, minimapWidth } from "../chatMinimap/paint";
 import { CHAT_LAYOUT_EVENT, chatColumnOf, useChatSizing } from "../chatWidth";
 import { transcriptColumn } from "../model";
 import { experimentArm } from "../../../experiments/experiment";
@@ -60,7 +60,12 @@ export function useRailPlacement(
       // CHAT_LAYOUT_EVENT), so the gutter on the rail's side is that centered column's.
       const column = chatColumnOf(display, scale);
       const own = transcriptColumn(columnWidth, column);
-      let inset = own.inset;
+      // On the right, the column's end, which keeps the VS Code minimap's room while it is on (App.tsx
+      // data-vscode-minimap, chatMinimap.css).
+      let inset =
+        side === "right" && node.closest(".acpmux-main")?.hasAttribute("data-vscode-minimap")
+          ? transcriptColumn(columnWidth, column, MINIMAP_RESERVE).insetEnd
+          : own.inset;
       if (shell?.dataset.sessionInfoChatPlacement === "push") {
         const room = Number.parseFloat(shell.style.getPropertyValue("--acpmux-session-info-room")) || 0;
         const pinned = Number.parseFloat(shell.style.getPropertyValue("--acpmux-session-info-column")) || own.width;
