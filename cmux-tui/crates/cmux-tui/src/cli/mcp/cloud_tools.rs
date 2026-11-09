@@ -814,7 +814,8 @@ esac
         );
         let bin = dir.join("cmux-cua");
         std::fs::write(&bin, stub).unwrap();
-        std::fs::set_permissions(&bin, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(&bin, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .unwrap();
         let step = desktop_step(op, arguments.as_object().unwrap()).unwrap();
         // The machine's bin dir becomes the stand-in's.
         let prelude = DESKTOP_PRELUDE.replace("/opt/cmux/current/bin", &dir.display().to_string());

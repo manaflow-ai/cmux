@@ -1186,7 +1186,12 @@ fn send_prompt(
 
 /// `cloud chat send` / `cloud_chat_send`: the next prompt of a running chat, without waiting ([`send_to`]).
 /// Answers `after`, the newest turn before this one, for [`status`] to tell this prompt's turn from an older one.
-pub(super) fn send(runner: &mut dyn Runner, machine_id: &str, session: &str, prompt: &str) -> Outcome {
+pub(super) fn send(
+    runner: &mut dyn Runner,
+    machine_id: &str,
+    session: &str,
+    prompt: &str,
+) -> Outcome {
     let request = Request {
         prompt: Some(prompt.to_owned()),
         agent: String::new(),
