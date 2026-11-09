@@ -517,7 +517,7 @@ describe("cloud journey: desktop link readback (--desktop-link)", () => {
 
   test("reads the link's notes from the dial's own connect log, as the viewer that keeps the session", async () => {
     const { dir, bin } = fakeDesktop(`echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
-cat > "${dir}/stdin" &
+cat > "${"$"}{0%/*}/stdin" <&0 &
 sleep 0.3; ${started}
 printf 'cloud.desktop_link machine=vm_x answered\\ncloud.desktop_link machine=vm_x up\\ncloud.desktop_link machine=vm_x host_up\\n' >> "$log"
 wait`);
