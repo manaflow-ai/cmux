@@ -91,7 +91,8 @@ where
     if changed {
         // The reload drops this stream's session; first the asker reads the answer and
         // closes (bounded). A reply lost anyway is asked for again (`key_adoption.rs`).
-        let drained = tokio::io::copy(stream, &mut tokio::io::sink());
+        let mut sink = tokio::io::sink();
+        let drained = tokio::io::copy(stream, &mut sink);
         let _ = tokio::time::timeout(REKEY_REPLY_DRAIN, drained).await;
         target.reload();
     }
