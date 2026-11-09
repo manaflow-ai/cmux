@@ -359,20 +359,39 @@ fi
 run_url="https://github.com/$REPO/actions/runs/$run_id"
 cancel_on_interrupt=true
 
-# Re-read the run before accepting it so a branch/ref race cannot make us
-# watch a run for a different revision. The dispatch named this run, so its
-# title (run-name, with request_id) is not checked: GitHub renders it a moment
-# after the dispatch, and a run read sooner is titled only "cmux-tui".
-run_identity="$(gh run view --repo "$REPO" "$run_id" \
-  --json headSha,headBranch,event \
-  --jq '[.headSha, .headBranch, .event] | @tsv')"
-IFS=$'\t' read -r run_head_sha run_head_branch run_event <<< "$run_identity"
-if [[ "$run_head_sha" != "$commit" || "$run_head_branch" != "$remote_branch" || \
-      "$run_event" != "workflow_dispatch" ]]; then
-  echo "error: dispatched workflow run $run_id is not this revision; refusing it" >&2
-  printf 'expected: sha=%s branch=%s event=workflow_dispatch\n' "$commit" "$remote_branch" >&2
-  printf 'actual:   sha=%s branch=%s event=%s\n' "$run_head_sha" "$run_head_branch" "$run_event" >&2
+# Read the run before accepting it so a branch/ref race cannot make us accept
+# a run of a different revision. The dispatch named this run, so its title
+# (run-name, with request_id) is not checked: GitHub renders it a moment after
+# the dispatch, and a run read sooner is titled only "cmux-tui".
+#
+# GitHub can answer 404 or 500 for a few seconds after it creates a run (run
+# 42688604218: HTTP 404; run 42688525295: HTTP 500). The run exists, so a
+# failed read is not a failure and is not retried here: the script names the
+# run, gives the wait to glaeda-gh wait run (the single poller), and checks the
+# revision again before it accepts the result or an artifact.
+run_identity_confirmed=false
+check_run_identity() {
+  local identity
+  identity="$(gh run view --repo "$REPO" "$run_id" \
+    --json headSha,headBranch,event \
+    --jq '[.headSha, .headBranch, .event] | @tsv' 2>"$temp_dir/identity.err")" || return 2
+  IFS=$'\t' read -r run_head_sha run_head_branch run_event <<< "$identity"
+  if [[ "$run_head_sha" != "$commit" || "$run_head_branch" != "$remote_branch" || \
+        "$run_event" != "workflow_dispatch" ]]; then
+    echo "error: dispatched workflow run $run_id is not this revision; refusing it" >&2
+    printf 'expected: sha=%s branch=%s event=workflow_dispatch\n' "$commit" "$remote_branch" >&2
+    printf 'actual:   sha=%s branch=%s event=%s\n' "$run_head_sha" "$run_head_branch" "$run_event" >&2
+    return 1
+  fi
+  run_identity_confirmed=true
+}
+identity_status=0
+check_run_identity || identity_status=$?
+if [[ $identity_status -eq 1 ]]; then
   exit 1
+elif [[ $identity_status -eq 2 ]]; then
+  printf 'note: GitHub created run %s but could not show it yet (%s); waiting on it, its revision is checked before the result counts\n' \
+    "$run_id" "$(tr '\n' ' ' < "$temp_dir/identity.err")" >&2
 fi
 
 echo "Run: $run_url"
@@ -572,6 +591,20 @@ if [[ "$run_finished" != true ]]; then
 fi
 cancel_on_interrupt=false
 exec 3>&-
+
+# The first read of the run failed: check its revision now, before its result
+# or an artifact counts.
+if [[ "$run_identity_confirmed" != true ]]; then
+  identity_status=0
+  check_run_identity || identity_status=$?
+  if [[ $identity_status -eq 2 ]]; then
+    printf 'error: could not read run %s to confirm its revision (%s); its result is not accepted: %s\n' \
+      "$run_id" "$(tr '\n' ' ' < "$temp_dir/identity.err")" "$run_url" >&2
+    exit 1
+  elif [[ $identity_status -ne 0 ]]; then
+    exit 1
+  fi
+fi
 
 if [[ "$run_conclusion" != "success" ]]; then
   echo "Hosted verification failed: $run_url" >&2

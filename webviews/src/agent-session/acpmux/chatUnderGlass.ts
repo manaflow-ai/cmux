@@ -11,8 +11,12 @@ export const chatUnderGlass: CoveredCandidates = (surface) =>
 
 // The composer never takes a filter (it would re-anchor the composer's fixed menus), so a glass over
 // it keeps its underlay there: a short pane's Session Info reaches down over the composer.
-const composer: CoveredCandidates = (surface) =>
-  surface.closest(".acpmux-shell")?.querySelectorAll(".acpmux-dock") ?? [];
+// The dock has a box only while it floats over the transcript (bottomStack.css). Everywhere else,
+// the New chat screen included, it is `display: contents` with an empty rect, so its parts are what
+// a glass overlaps: a menu over the New chat composer went clear and its text read through
+// (Lucas, 2026-11-10).
+const DOCK = ".acpmux-dock, .acpmux-dock > *";
+const composer: CoveredCandidates = (surface) => surface.closest(".acpmux-shell")?.querySelectorAll(DOCK) ?? [];
 
 /** Session Info's overlay. */
 export const chatGlass: SeeThroughOptions = { keepUnderlayOver: composer };
@@ -33,11 +37,11 @@ export const chatUnderHoverCard: CoveredCandidates = (surface) =>
 /** A hover card's in-place blur: its blocks carry data-glass-under="hover-card" (glass.css). */
 export const hoverCardGlass: SeeThroughOptions = {
   owner: "hover-card",
-  keepUnderlayOver: (surface) => surface.ownerDocument.querySelectorAll(".acpmux-dock"),
+  keepUnderlayOver: (surface) => surface.ownerDocument.querySelectorAll(DOCK),
 };
 
 /** A menu or popover on the App's glass (ui/glass/hostGlass.ts): like a hover card it is portaled out
  * of the shell, covers the stage's blocks, and keeps its underlay over the composer. */
 export const hostGlassCover: SeeThroughOptions = {
-  keepUnderlayOver: (surface) => surface.ownerDocument.querySelectorAll(".acpmux-dock"),
+  keepUnderlayOver: (surface) => surface.ownerDocument.querySelectorAll(DOCK),
 };
