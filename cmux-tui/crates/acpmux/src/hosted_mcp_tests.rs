@@ -1,6 +1,5 @@
 use super::*;
 use std::sync::Mutex;
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 fn temp_dir(tag: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("acpmux-hosted-{tag}-{}", uuid::Uuid::now_v7()));
