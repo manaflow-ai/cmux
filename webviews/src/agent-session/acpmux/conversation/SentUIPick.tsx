@@ -51,7 +51,8 @@ export function SentUIPicks({
   slot,
 }: {
   segments: SentPromptSegment[];
-  typed: (text: string) => ReactNode;
+  /// `index`: the segment's place in `segments`.
+  typed: (text: string, index: number) => ReactNode;
   /// Where the segments are in the prompt (its typed part), keying each pick's disclosure.
   slot: string;
 }) {
@@ -60,7 +61,7 @@ export function SentUIPicks({
       {segments.map((segment, index) => (
         <Fragment key={index}>
           {segment.kind === "text" ? (
-            typed(segment.text)
+            typed(segment.text, index)
           ) : (
             <SentUIPickChip slot={`${slot}:pick:${index}`} name={segment.name} text={segment.text} />
           )}

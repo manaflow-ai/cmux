@@ -3116,6 +3116,7 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true'
         env:
           TIP_SHA: ${{ needs.decide.outputs.head_sha }}
+          GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci/nightly-steps/resolve-tree-pending.sh
 
       - name: Resolve cmux-tui client commit
