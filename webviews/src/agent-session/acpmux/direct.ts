@@ -6026,8 +6026,7 @@ export class AcpmuxDirectClient {
       void this.fetchCommands(sessionId, generation, readCommandsThrough).catch(() => {});
     // Merged after the opener's read: live events that landed meanwhile are kept. Over a journal
     // that went back, the page's records are the machine's and win over those held of their seqs.
-    this.events =
-      rewoundTo === undefined ? mergeEventRecords(page, this.events) : mergeEventRecords(this.events, page);
+    this.events = rewoundTo === undefined ? mergeEventRecords(page, this.events) : mergeEventRecords(this.events, page);
     this.sawPrompts(page);
     this.rebuild();
     // acpmux's list is the order; the replayed `queued` records give each prompt its whole text.

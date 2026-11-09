@@ -83,7 +83,9 @@ async function pane(log: Rec[]) {
   const answer = (method: string, params: any): { result?: unknown; error?: unknown } => {
     switch (method) {
       case "initialize":
-        return { result: { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } } };
+        return {
+          result: { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } },
+        };
       case "_acpmux/watch":
         return { result: { sessions: [session] } };
       case "_acpmux/attach": {
