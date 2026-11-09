@@ -33,7 +33,9 @@ struct ReservedWorkspaceKeepsFocusTests {
             // that ask as the window's makeFirstResponder on the page's view, outside an input event: send the same ask
             // for each page now, so the window's refusal is checked whenever the page would ask (no load wait).
             let reserved = try #require(controller.reservedContent.ready)
-            for page in Self.descendants(of: reserved.contentView).compactMap({ $0 as? AgentPaneView }) {
+            let pages = Self.descendants(of: reserved.contentView).compactMap { $0 as? AgentPaneView }
+            #expect(!pages.isEmpty, "the reserved view holds no page, so no page's ask was checked")
+            for page in pages {
                 #expect(!window.makeFirstResponder(page.focusTarget), "the window gave the reserved view's hidden page the keyboard")
             }
             #expect(window.firstResponder === responder,
