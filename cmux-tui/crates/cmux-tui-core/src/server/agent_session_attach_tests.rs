@@ -1731,10 +1731,13 @@ fn a_side_chat_forks_the_pinned_session_tags_it_and_prompts_it() {
     fake.no_frame();
 }
 
-/// A phone on the Cloud carrier keeps its asking policy in a side chat, as in the chat itself
-/// (`agent-session-prompt`): the daemon marks the side chat's first prompt `via: cloud-mobile`.
+/// A phone on the Cloud carrier never gets a side chat with a looser asking policy than its chat:
+/// its channel reaches only hostd's adapter commands (`phone_carrier.rs`, cmux-next-ios/SECURITY.md),
+/// and `agent-session-side` is not one of them (a side chat is a fork, which that channel is
+/// refused). The side chat is refused `remote_denied` and nothing reaches acpmux. Should a phone's
+/// side chat be allowed later, `submit_prompt` already marks its first prompt `via: cloud-mobile`.
 #[test]
-fn a_phones_side_chat_prompt_keeps_the_phones_asking_policy() {
+fn a_phones_side_chat_is_refused_on_its_carrier_channel() {
     let fake = FakeAcpmux::start("side-phone");
     let mux = mux_with(&fake, "asa-side-phone");
     let surface = agent_tab(&mux, Some(SESSION));
@@ -1747,14 +1750,6 @@ fn a_phones_side_chat_prompt_keeps_the_phones_asking_policy() {
     let _ = fake.frame();
     let reply = client.request(json!({"cmd":"agent-session-side","surface":surface,"live":true,
                                       "prompt":"Try it in Rust","prompt_id":"side-p2"}));
-    assert_eq!(reply["data"], json!({"sessionId": "acp_side_1", "prompted": true}), "{reply}");
-    let _ = fake.frame();
-    let _ = fake.frame();
-    let prompt = fake.frame();
-    assert_eq!(prompt["method"], json!("session/prompt"));
-    assert_eq!(prompt["params"]["sessionId"], json!("acp_side_1"));
-    assert_eq!(
-        prompt["params"]["_meta"],
-        json!({"acpmux": {"promptId": "side-p2", "via": "cloud-mobile"}})
-    );
+    assert_code(&reply, "remote_denied");
+    fake.no_frame();
 }

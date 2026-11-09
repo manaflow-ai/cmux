@@ -475,6 +475,10 @@ impl Hub {
             cmux_context_delivered: !matches!(made, Made::Fresh | Made::Empty)
                 && !moved
                 && parent_meta.cmux_context_delivered,
+            // Rules the parent's transcript carries, which a native fork keeps.
+            cmux_rules_in_transcript: !matches!(made, Made::Fresh | Made::Empty)
+                && !moved
+                && parent_meta.cmux_rules_in_transcript,
             // The account's limits, which the fork shares.
             usage_limits: parent_meta.usage_limits.clone(),
             available_commands: parent_meta.available_commands.clone(),

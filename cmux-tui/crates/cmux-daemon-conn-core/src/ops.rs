@@ -231,6 +231,12 @@ pub fn call(op: &str, request: &Value) -> OpResult {
             let now_ms = number(request, "now_ms")?;
             to_value(offline::sweep(&held, now_ms, flag(request, "reachable"), bound_ms))
         }
+        "offline_intent_requeue" => {
+            let entry: Held =
+                serde_json::from_value(request.get("held").cloned().unwrap_or_default())
+                    .map_err(|_| invalid("held"))?;
+            to_value(offline::requeue(&entry, text(request, "kind")?))
+        }
         "offline_intent_text" => to_value(offline::text(
             text(request, "action")?,
             optional_text(request, "name").unwrap_or_default(),

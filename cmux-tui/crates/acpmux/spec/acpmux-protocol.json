@@ -463,6 +463,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/project_new",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/mcp/reconnect",
       "params": {
         "$ref": "#/types/McpReconnectParams"
@@ -2673,7 +2679,8 @@
         "inline": true,
         "model": true,
         "question": true,
-        "sessionId": true
+        "sessionId": true,
+        "targetHarness": true
       },
       "type": "object"
     },

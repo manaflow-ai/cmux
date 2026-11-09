@@ -64,16 +64,15 @@ pub(crate) async fn harness_command_ready(
     crate::login_env::build_ready(
         &mut plan,
         || harness_command(name, profile, cwd, command_line.clone(), session),
-        explicit_env,
+        |cmd| explicit_env(cmd.as_std()),
         |e| anyhow!(e),
     )
     .await
 }
 
 /// The env changes `cmd` makes: a name it sets, or removes (`None`).
-pub(crate) fn explicit_env(cmd: &Command) -> Vec<(String, Option<String>)> {
-    cmd.as_std()
-        .get_envs()
+pub(crate) fn explicit_env(cmd: &std::process::Command) -> Vec<(String, Option<String>)> {
+    cmd.get_envs()
         .map(|(k, v)| {
             (k.to_string_lossy().into_owned(), v.map(|v| v.to_string_lossy().into_owned()))
         })
@@ -83,6 +82,10 @@ pub(crate) fn explicit_env(cmd: &Command) -> Vec<(String, Option<String>)> {
 /// The harness command line and environment, as acpmux runs it: the login
 /// environment, no nested-agent markers, the session's `ACPMUX_*` caller
 /// context, and the profile's env. Shared by direct children and hosts.
+///
+/// Every spawn builds through [`harness_command_ready`], never this directly:
+/// the only direct callers are that function and tests that read the built
+/// command without starting it.
 pub(crate) fn harness_command(
     name: &str,
     profile: &HarnessProfile,
