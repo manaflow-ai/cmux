@@ -1,9 +1,11 @@
 {
-  "$comment": "HAND-EDITED source of the cmux.json keys cmux used to read and no longer does (cx-d5b5d). The daemon (cmux-config) embeds this file; scripts/cmux-next/gen-settings-sources.py writes the Swift copy (SettingsSchema+RetiredKeys.generated.swift). Loading drops a retired key without a diagnostic, the schema export and Settings never list it, a write is refused as removed (reason shown), and a reset prunes it from an old file. Add an entry when a key is removed; never reuse a retired key for a new meaning.",
+  "$comment": "HAND-EDITED source of the cmux.json keys cmux used to read and no longer does (cx-d5b5d). The daemon (cmux-config) embeds this file; scripts/cmux-next/gen-settings-sources.py writes the Swift copy (SettingsSchema+RetiredKeys.generated.swift). Loading drops a retired key without a diagnostic, the schema export and Settings never list it, a write is refused as removed (reason shown), and a reset prunes it from an old file. Add an entry when a key is removed; never reuse a retired key for a new meaning. replaced_by names the row that took a key's place, and values what the old key's values read as in it (any other reads as the row's default): while the row is unset Settings and the daemon read the old key through it, and every write or reset of the row, and Reset All, removes the old key, so it never applies behind the row.",
   "retired": [
     {
       "key": "remote.ultraMode",
       "reason": "Ultra Connection Mode is now remote.ultra: Off, Auto or Always (true reads as Always)",
+      "replaced_by": "remote.ultra",
+      "values": [{"from": true, "to": "always"}],
       "why": "Auto became the default on Mac and iPhone (Leo, 2026-11-09: it is a different kind of default, it is auto)."
     },
     {

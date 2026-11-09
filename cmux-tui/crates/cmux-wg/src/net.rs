@@ -34,7 +34,7 @@ use crate::stream::WgStream;
 use crate::tcp_stack::{Accepted, TcpStack};
 use crate::timers::TimerSchedule;
 use crate::ultra::{UltraCounters, UltraMode, UltraStats, UltraUnderlay};
-use crate::ultra_auto::{AutoUltra, UltraChoice};
+use crate::ultra_auto::{self, AutoUltra, UltraChoice};
 use crate::ultra_hello::{self, Negotiation};
 use crate::underlay::{Origin, SocketPath, Underlay, is_transient};
 use crate::watchdog::Watchdog;
@@ -576,6 +576,12 @@ impl Driver {
                     // turns rebuilding on keeps that datagram too.
                     let hello = ultra_hello::decode(packet)
                         .filter(|_| allowed && self.negotiation.intercepts());
+                    // So is a note of the counters the peer sent on other
+                    // paths, so the meter skips them before it sees the gap.
+                    let off_path = ultra_auto::decode_off_path(packet).filter(|_| allowed);
+                    if let Some(counters) = &off_path {
+                        self.underlay.off_path(counters);
+                    }
                     if let Some(hello) = hello {
                         self.negotiation.receive(hello);
                         // Field by field (not `apply_ultra_mode`): `packet`
@@ -587,12 +593,15 @@ impl Driver {
                     }
                     self.underlay.authenticated(origin);
                     self.watchdog.on_inbound_data();
-                    if hello.is_some() {
-                        // Taken above; a hello is not activity.
+                    if hello.is_some() || off_path.is_some() {
+                        // Taken above; neither is activity.
                     } else if let Some(probe) = probing::decode(packet).filter(|_| allowed) {
                         // A probe is answered here and is not activity.
                         let (tunn, scratch) = (&mut self.tunn, &mut self.scratch);
-                        probing::receive(tunn, &mut self.underlay, scratch, probe, origin.path);
+                        let mut sent = Vec::new();
+                        let path = origin.path;
+                        probing::receive(tunn, &mut self.underlay, scratch, probe, path, &mut sent);
+                        self.tell_off_path(&sent);
                     } else if allowed
                         && let Some((source, destination, payload)) = crate::udp::parse(packet)
                     {

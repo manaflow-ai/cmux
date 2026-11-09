@@ -370,7 +370,7 @@ impl UltraCounters {
 }
 
 /// The receiver index and counter of a WireGuard data message.
-fn data_id(datagram: &[u8]) -> Option<([u8; 4], u64)> {
+pub(crate) fn data_id(datagram: &[u8]) -> Option<([u8; 4], u64)> {
     if classify(datagram) != DatagramClass::WireGuardData {
         return None;
     }
@@ -884,6 +884,15 @@ impl UltraUnderlay {
     /// Loss on the way in since the last call (for Auto).
     pub(crate) fn take_loss(&mut self) -> LossSample {
         self.meter.take()
+    }
+
+    /// The peer's note, carried by the datagram the tunnel is handling, that
+    /// `counters` of that datagram's session went out on another path: the
+    /// meter does not count them as loss.
+    pub(crate) fn off_path(&mut self, counters: &[u64]) {
+        if let Some((index, _)) = self.staged {
+            self.meter.off_path(index, counters);
+        }
     }
 
     /// Auto turned the repair data on.

@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::sync::atomic::AtomicBool;
 
 use super::*;
@@ -172,4 +173,76 @@ fn the_first_missing_counter_turns_auto_on_at_the_next_datagram() {
     }
     assert!(!auto.observe(next, meter.take(), 0));
     assert!(auto.is_on());
+}
+
+#[test]
+fn counters_sent_off_the_data_path_are_not_loss() {
+    // Probes took 3 and 4 and went out on a dead path; the note naming them
+    // arrives (as 5) before the meter sees the gap.
+    let (mut meter, _) = meter_of(&[0, 1, 2]);
+    meter.off_path(INDEX, &[3, 4]);
+    for counter in 5..5 + WINDOW + 2 {
+        meter.observe(INDEX, counter, false);
+    }
+    assert_eq!(
+        meter.take(),
+        LossSample { gaps: 0, late: 0, lost: 0, received: WINDOW + 2 },
+        "no gap, and nothing ages into a loss"
+    );
+    // A real loss beside an off-path counter still counts.
+    let newest = 5 + WINDOW + 1;
+    meter.off_path(INDEX, &[newest + 1]);
+    meter.observe(INDEX, newest + 3, false);
+    assert_eq!(meter.take().gaps, 1, "one of the two skipped counters was off the data path");
+}
+
+#[test]
+fn a_note_behind_its_gap_reads_as_reordering() {
+    // The data path overtook the note: the gap was counted, and the note
+    // explains it the way a late datagram does, so Auto turns off at once.
+    let (mut meter, sample) = meter_of(&[0, 1, 3]);
+    assert_eq!(sample.gaps, 1);
+    meter.off_path(INDEX, &[2]);
+    let note = meter.take();
+    assert_eq!((note.late, note.lost), (1, 0));
+    for counter in 4..4 + WINDOW {
+        meter.observe(INDEX, counter, false);
+    }
+    assert_eq!(meter.take().lost, 0, "the explained gap never ages into a loss");
+    let mut auto = UltraChoice::AUTO.auto().expect("auto");
+    let now = Instant::now();
+    assert!(auto.observe(now, sample, 0), "the gap turned Auto on");
+    assert!(auto.observe(now, note, 0), "and the note turned it off again");
+    assert!(!auto.is_on());
+}
+
+#[test]
+fn a_note_for_another_session_is_kept_for_it() {
+    let (mut meter, _) = meter_of(&[0, 1, 2]);
+    let next = [9, 9, 9, 9];
+    meter.off_path(next, &[1]);
+    meter.observe(next, 0, false);
+    meter.observe(next, 2, false);
+    assert_eq!(meter.take().gaps, 0, "the new session's probe counter is skipped too");
+}
+
+#[test]
+fn off_path_notes_round_trip_and_are_neither_probes_nor_hellos() {
+    let local: IpAddr = "10.0.0.1".parse().unwrap();
+    let remote: IpAddr = "10.0.0.2".parse().unwrap();
+    let counters: Vec<u64> = (1..=20).map(|n| n * 1_000_003).collect();
+    let packets = off_path_packets(local, remote, &counters);
+    assert_eq!(packets.len(), 2, "sixteen counters a note");
+    let decoded: Vec<u64> =
+        packets.iter().flat_map(|packet| decode_off_path(packet).expect("a note")).collect();
+    assert_eq!(decoded, counters);
+    assert!(off_path_packets(local, remote, &[]).is_empty());
+    for packet in &packets {
+        assert!(crate::probing::decode(packet).is_none());
+        assert!(crate::ultra_hello::decode(packet).is_none());
+    }
+    let negotiation = crate::ultra_hello::Negotiation::new(UltraMode::SETTING);
+    let hello = negotiation.due(Instant::now()).expect("a first hello is due");
+    let hello = crate::ultra_hello::packet(local, remote, hello);
+    assert!(decode_off_path(&hello).is_none());
 }

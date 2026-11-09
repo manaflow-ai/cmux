@@ -37,4 +37,12 @@ extension SettingsSchema {
         // One close path for pinned and unpinned tabs (Lawrence 2026-11-08, cmux-ad i8: "make it consistent, match chrome's behavior"): no kept pinned tab.
         "tabs.cmdWClosesPinnedTabs": "Cmd-W closes a pinned tab like any other tab, as in Chrome",
     ]
+
+    /// Retired keys a row took the place of, by the row's path: the old key's path and what its
+    /// values read as in the row (any other value reads as the row's default). While the row is
+    /// unset Settings shows the old key's value, and every write or reset of the row removes the
+    /// old key (``RenamedSettingKeys``), as the daemon does (cmux-config `schema::retired`).
+    static let replacedKeys: [[String]: (old: [String], values: [JSONValue: JSONValue])] = [
+        ["remote", "ultra"]: (old: ["remote", "ultraMode"], values: [.bool(true): .string("always")]),
+    ]
 }

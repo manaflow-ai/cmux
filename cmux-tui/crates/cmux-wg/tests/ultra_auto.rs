@@ -20,10 +20,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use cmux_transport::PathId;
+use cmux_transport::{PathId, PathKind, SelectorConfig};
 use cmux_wg::testing::config_pair;
 use cmux_wg::testing::sim::{LinkProfile, SimNet};
-use cmux_wg::{Origin, Received, SocketPath, UltraChoice, UltraStats, Underlay, WgNet};
+use cmux_wg::{
+    Multipath, Origin, ProbeConfig, Received, SocketPath, UltraChoice, UltraStats, Underlay, WgNet,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::Instant;
 
@@ -178,4 +180,72 @@ async fn the_first_loss_costs_auto_about_one_round_trip() {
     // Without repair the same loss cuts the window in slow start: the
     // check above is not passing for want of a loss.
     assert!(off > auto + RTT, "off {off:?} against auto {auto:?}: the loss cut nothing");
+}
+
+const CLIENT_DEAD: &str = "192.0.2.98:51820";
+const SERVER_DEAD: &str = "192.0.2.99:51820";
+
+/// Both ends on two paths with path probes: the clean one, and a candidate
+/// whose link drops everything, which each side keeps probing every 100 ms
+/// (the dial interval) as production underlays do. Returns the client's and
+/// the server's ultra counters, and the datagrams sent on the dead path.
+async fn download_beside_a_dead_candidate(choice: UltraChoice) -> (UltraStats, UltraStats, u64) {
+    let sim = SimNet::new();
+    let link = LinkProfile { latency: ONE_WAY, ..LinkProfile::default() };
+    sim.set_link(addr(CLIENT), addr(SERVER), link);
+    let dead = LinkProfile { cut: true, ..link };
+    sim.set_link(addr(CLIENT_DEAD), addr(SERVER_DEAD), dead);
+    let configs = config_pair(addr(SERVER));
+    let paths = |good: (&str, &str), dead: (&str, &str)| {
+        let (underlay, control) =
+            Multipath::with_probes(SelectorConfig::default(), ProbeConfig::default());
+        let socket = SocketPath::new(sim.bind(addr(good.0)).unwrap(), Some(addr(good.1)));
+        control.add_path(PathKind::DirectLan, socket);
+        let socket = SocketPath::new(sim.bind(addr(dead.0)).unwrap(), Some(addr(dead.1)));
+        control.add_path(PathKind::DirectWan, socket);
+        (underlay, control)
+    };
+    let (server_paths, _server_control) = paths((SERVER, CLIENT), (SERVER_DEAD, CLIENT_DEAD));
+    let server = WgNet::start_with_choice(configs.server, server_paths, choice).unwrap();
+    let mut listener = server.listen(7000).await.unwrap();
+    tokio::spawn(async move {
+        while let Some(mut stream) = listener.accept().await {
+            tokio::spawn(async move {
+                let mut request = [0u8; 1];
+                if stream.read_exact(&mut request).await.is_ok() {
+                    let _ = stream.write_all(&vec![7u8; DOWNLOAD]).await;
+                }
+            });
+        }
+    });
+    let (client_paths, _client_control) = paths((CLIENT, SERVER), (CLIENT_DEAD, SERVER_DEAD));
+    let client = WgNet::start_with_choice(configs.client, client_paths, choice).unwrap();
+    let mut stream = client.connect(SocketAddr::new(configs.server_v4, 7000)).await.unwrap();
+    stream.write_all(&[1]).await.expect("request");
+    let mut body = vec![0u8; DOWNLOAD];
+    tokio::time::timeout(Duration::from_secs(120), stream.read_exact(&mut body))
+        .await
+        .expect("download within 120 s")
+        .expect("read");
+    assert!(body.iter().all(|&byte| byte == 7), "the body arrived intact");
+    let dead_sent = sim.sent_from(addr(CLIENT_DEAD)) + sim.sent_from(addr(SERVER_DEAD));
+    let stats = (client.ultra_stats(), server.ultra_stats());
+    client.shutdown().await;
+    server.shutdown().await;
+    (stats.0, stats.1, dead_sent)
+}
+
+/// Path probes take WireGuard counters but leave on their own path: a
+/// candidate that never delivers one must not look like loss on the clean
+/// path the data takes, or Auto would send repair data on a clean link for
+/// as long as the candidate is probed.
+#[tokio::test(start_paused = true)]
+async fn probes_on_a_dead_candidate_leave_auto_off() {
+    let (client, server, dead_sent) = download_beside_a_dead_candidate(UltraChoice::AUTO).await;
+    eprintln!("dead candidate: {dead_sent} datagrams on it; client {client:?}; server {server:?}");
+    assert!(dead_sent >= 20, "the dead candidate was probed throughout: {dead_sent}");
+    for stats in [client, server] {
+        assert_eq!(stats.auto_on, 0, "Auto stays off beside a dead candidate: {stats:?}");
+        assert_eq!(stats.overhead_bytes, 0, "and sends no repair bytes: {stats:?}");
+    }
 }

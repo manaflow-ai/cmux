@@ -117,8 +117,8 @@ def load_retired():
     entries = data["retired"]
     seen = set()
     for entry in entries:
-        if set(entry) - {"key", "reason", "why"} or not {"key", "reason"} <= set(entry):
-            raise SystemExit("%s: entry needs key, reason (and optional why): %r" % (RETIRED_SOURCE, entry))
+        if set(entry) - {"key", "reason", "why", "replaced_by", "values"} or not {"key", "reason"} <= set(entry):
+            raise SystemExit("%s: entry needs key, reason (and optional why, replaced_by, values): %r" % (RETIRED_SOURCE, entry))
         key = entry["key"]
         parts = key.split(".")
         if not key or any(not part for part in parts):
@@ -130,8 +130,34 @@ def load_retired():
         for field in ("key", "reason", "why"):
             if any(ord(ch) < 0x20 for ch in entry.get(field, "")):
                 raise SystemExit("%s: control character in %s of %r" % (RETIRED_SOURCE, field, key))
+        check_replacement(entry)
         seen.add(key)
     return entries
+
+
+def check_replacement(entry):
+    """`replaced_by` names the row that took the key's place; `values` lists what the old key's
+    values read as in that row ({"from", "to"} scalars). Any other old value reads as the row's
+    default."""
+    key = entry["key"]
+    if "values" in entry and "replaced_by" not in entry:
+        raise SystemExit("%s: values without replaced_by for %r" % (RETIRED_SOURCE, key))
+    if "replaced_by" not in entry:
+        return
+    new = entry["replaced_by"]
+    if not isinstance(new, str) or not new or any(not part for part in new.split(".")) or new == key:
+        raise SystemExit("%s: bad replaced_by %r for %r" % (RETIRED_SOURCE, new, key))
+    values = entry.get("values", [])
+    if not isinstance(values, list):
+        raise SystemExit("%s: values of %r is a list" % (RETIRED_SOURCE, key))
+    froms = []
+    for pair in values:
+        if not isinstance(pair, dict) or set(pair) != {"from", "to"} \
+                or any(isinstance(v, (dict, list)) or v is None for v in pair.values()):
+            raise SystemExit("%s: each value of %r is {from, to}, both scalars: %r" % (RETIRED_SOURCE, key, pair))
+        froms.append(json.dumps(pair["from"]))
+    if len(set(froms)) != len(froms):
+        raise SystemExit("%s: values of %r map one old value twice" % (RETIRED_SOURCE, key))
 
 
 def retired_swift(entries):
@@ -140,6 +166,15 @@ def retired_swift(entries):
         if entry.get("why"):
             rows.append("        // " + entry["why"])
         rows.append("        %s: %s," % (swift_string(entry["key"]), swift_string(entry["reason"])))
+    def path(key):
+        return "[%s]" % ", ".join(swift_string(part) for part in key.split("."))
+    replaced = []
+    for entry in entries:
+        if "replaced_by" not in entry:
+            continue
+        values = ", ".join("%s: %s" % (json_value_swift(pair["from"]), json_value_swift(pair["to"]))
+                           for pair in entry.get("values", []))
+        replaced.append("        %s: (old: %s, values: [%s])," % (path(entry["replaced_by"]), path(entry["key"]), values or ":"))
     return """// {header}
 
 extension SettingsSchema {{
@@ -151,8 +186,17 @@ extension SettingsSchema {{
     public static let retiredKeys: [String: String] = [
 {rows}
     ]
+
+    /// Retired keys a row took the place of, by the row's path: the old key's path and what its
+    /// values read as in the row (any other value reads as the row's default). While the row is
+    /// unset Settings shows the old key's value, and every write or reset of the row removes the
+    /// old key (``RenamedSettingKeys``), as the daemon does (cmux-config `schema::retired`).
+    static let replacedKeys: [[String]: (old: [String], values: [JSONValue: JSONValue])] = [
+{replaced}
+    ]
 }}
-""".format(header=HEADER.format(c="//", src=RETIRED_SOURCE), rows="\n".join(rows))
+""".format(header=HEADER.format(c="//", src=RETIRED_SOURCE), rows="\n".join(rows),
+           replaced="\n".join(replaced))
 
 
 # Swift names per section source, one file per source in schemas/settings/generator/<stem>.json (one

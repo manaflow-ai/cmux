@@ -10,6 +10,7 @@ use tokio::time::Instant;
 use super::Driver;
 use crate::probing;
 use crate::timers::SESSION_FRESH;
+use crate::ultra_auto;
 use crate::ultra_hello;
 use crate::underlay::Underlay as _;
 
@@ -173,12 +174,29 @@ impl Driver {
     /// session probes nothing.
     pub(super) fn run_probes(&mut self) {
         let now = Instant::now();
+        let mut off_path = Vec::new();
         self.probe_deadline = if self.schedule.is_active(now) {
             let (tunn, scratch) = (&mut self.tunn, &mut self.scratch);
-            probing::send_due(tunn, &mut self.underlay, scratch, self.probe_route, now)
+            let route = self.probe_route;
+            probing::send_due(tunn, &mut self.underlay, scratch, route, now, &mut off_path)
         } else {
             None
         };
+        self.tell_off_path(&off_path);
+    }
+
+    /// Right behind probes, on the data path: tell the peer which counters
+    /// went out on their own paths, so its Auto does not take the ones a
+    /// dead path loses for loss (`crate::ultra_auto`).
+    pub(super) fn tell_off_path(&mut self, counters: &[u64]) {
+        let Some((local, remote)) = self.probe_route else { return };
+        for packet in ultra_auto::off_path_packets(local, remote, counters) {
+            if let TunnResult::WriteToNetwork(encrypted) =
+                self.tunn.encapsulate(&packet, &mut self.scratch)
+            {
+                self.underlay.send(encrypted);
+            }
+        }
     }
 
     /// Run boringtun's timers on any event a tick or more after the last

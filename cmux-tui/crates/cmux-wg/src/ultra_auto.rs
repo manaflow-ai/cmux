@@ -18,7 +18,19 @@
 //! (`crate::tcp_stack::TcpStack::link_repairs_losses`): the loss that turned
 //! Auto on, and any other of data already in flight, is resent about one
 //! round trip later but cuts no congestion window, so after that round trip
-//! the tunnel runs as one that had "Always" from the start. A gap that a late datagram fills (reordering across
+//! the tunnel runs as one that had "Always" from the start.
+//!
+//! Not every counter travels on the data path: a path probe, and the answer
+//! to one, goes out on its own path (`crate::probing`), and a candidate path
+//! that does not work never delivers it. Those gaps are not loss on the path
+//! the data takes. Right behind the probes of a pass, on the data path, the
+//! sender says which counters it sent elsewhere ([`off_path_packets`]), and
+//! the receiver's meter skips them before it sees the gap
+//! ([`LossMeter::off_path`]), so a clean link with a dead candidate stays at
+//! no repair data. Every other datagram (data, ACKs, hellos, keepalives, these
+//! notes) goes on the data path, and handshake messages carry no counter.
+//!
+//! A gap that a late datagram fills (reordering across
 //! paths) is not loss: when every gap since turning on was filled late, and
 //! no segment was sent again, Auto turns off at once. Otherwise it stays on
 //! until the link has been clean for [`HOLD`] and [`CLEAN_DATAGRAMS`]
@@ -30,12 +42,15 @@
 //! and the hello asks the peer to keep to that too, since the phone pays for
 //! what it receives. "Always" ([`UltraChoice::Always`]) is never capped.
 
+use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use tokio::time::Instant;
 
+use crate::udp;
 use crate::ultra::{ENV, UltraMode};
+use crate::ultra_hello::HELLO_PORT;
 
 /// How long a link must be clean before Auto turns the repair data off.
 pub(crate) const HOLD: Duration = Duration::from_secs(30);
@@ -48,6 +63,14 @@ pub(crate) const METERED_OVERHEAD: u32 = 2;
 const WINDOW: u64 = 64;
 /// A jump this far is a new counter epoch, not loss.
 const MAX_GAP: u64 = 1 << 16;
+/// Off-path counters the meter holds until the data path passes them.
+const OFF_PATH_KEPT: usize = 64;
+/// Magic of an off-path note: which counters the sender sent on another path.
+const OFF_PATH_MAGIC: [u8; 4] = *b"CMXK";
+const OFF_PATH_VERSION: u8 = 1;
+/// Counters in one note. Its payload is 6 + 8n bytes, never the length of a
+/// probe (15) or a hello (9 or 33), so neither reads it as one.
+const OFF_PATH_MAX: usize = 16;
 
 /// What a person's setting asks of a tunnel: Off, Auto or Always.
 #[derive(Debug, Clone, Copy, Default)]
@@ -163,6 +186,9 @@ pub(crate) struct LossMeter {
     previous: Option<[u8; 4]>,
     /// Bit `i`: counter `newest - 1 - i` has not arrived.
     missing: u64,
+    /// Counters the peer sent off the data path that the data path has not
+    /// passed yet, with their session: skipped, not missing.
+    off_path: Vec<([u8; 4], u64)>,
     sample: LossSample,
 }
 
@@ -177,6 +203,7 @@ impl LossMeter {
             self.previous = self.current.map(|(current, _)| current);
             self.current = Some((index, counter));
             self.missing = 0;
+            self.forget_passed();
             return;
         };
         if counter > newest {
@@ -184,6 +211,7 @@ impl LossMeter {
             if gap >= MAX_GAP {
                 self.current = Some((current, counter));
                 self.missing = 0;
+                self.forget_passed();
                 return;
             }
             let shift = gap + 1;
@@ -192,10 +220,21 @@ impl LossMeter {
                 if shift >= WINDOW { self.missing } else { self.missing >> (WINDOW - shift) };
             self.sample.lost += u64::from(leaving.count_ones());
             let kept = if shift >= WINDOW { 0 } else { self.missing << shift };
-            let fresh = if gap >= WINDOW { u64::MAX } else { (1u64 << gap) - 1 };
+            let mut fresh = if gap >= WINDOW { u64::MAX } else { (1u64 << gap) - 1 };
+            let mut skipped = 0;
+            for &(_, sent) in self.off_path.iter().filter(|(at, _)| *at == current) {
+                if sent > newest && sent < counter {
+                    skipped += 1;
+                    let behind = counter - 1 - sent;
+                    if behind < WINDOW {
+                        fresh &= !(1u64 << behind);
+                    }
+                }
+            }
             self.missing = kept | fresh;
-            self.sample.gaps += gap;
+            self.sample.gaps += gap - skipped.min(gap);
             self.current = Some((current, counter));
+            self.forget_passed();
             return;
         }
         let Some(behind) = (newest - counter).checked_sub(1).filter(|behind| *behind < WINDOW)
@@ -214,10 +253,91 @@ impl LossMeter {
         }
     }
 
+    /// The peer says it sent `counters` of session `index` on another path
+    /// than the data path (path probes and their answers): a gap there is
+    /// not loss. One already counted as a gap counts as late, as a datagram
+    /// that arrived after its successor does; one still ahead is skipped
+    /// when the data path passes it.
+    pub(crate) fn off_path(&mut self, index: [u8; 4], counters: &[u64]) {
+        for &counter in counters {
+            if let Some((current, newest)) = self.current
+                && current == index
+                && counter < newest
+            {
+                let behind = newest - 1 - counter;
+                if behind < WINDOW && self.missing & (1u64 << behind) != 0 {
+                    self.missing &= !(1u64 << behind);
+                    self.sample.late += 1;
+                }
+                continue;
+            }
+            if self.off_path.len() >= OFF_PATH_KEPT {
+                self.off_path.remove(0);
+            }
+            self.off_path.push((index, counter));
+        }
+    }
+
+    /// Drop the off-path counters the current session's data path passed.
+    fn forget_passed(&mut self) {
+        if let Some((current, newest)) = self.current {
+            self.off_path.retain(|&(index, counter)| index != current || counter > newest);
+        }
+    }
+
     /// What arrived since the last call.
     pub(crate) fn take(&mut self) -> LossSample {
         std::mem::take(&mut self.sample)
     }
+}
+
+/// The overlay packets saying that `counters` went out on another path than
+/// the data path, from and to the control port; empty for no counters. A
+/// build without them drops them at the control port, as it drops a hello.
+pub(crate) fn off_path_packets(
+    source: IpAddr,
+    destination: IpAddr,
+    counters: &[u64],
+) -> Vec<Vec<u8>> {
+    let from = SocketAddr::new(source, HELLO_PORT);
+    let to = SocketAddr::new(destination, HELLO_PORT);
+    counters
+        .chunks(OFF_PATH_MAX)
+        .map(|chunk| {
+            let mut payload = Vec::with_capacity(6 + 8 * chunk.len());
+            payload.extend_from_slice(&OFF_PATH_MAGIC);
+            payload.push(OFF_PATH_VERSION);
+            payload.push(chunk.len() as u8);
+            for counter in chunk {
+                payload.extend_from_slice(&counter.to_le_bytes());
+            }
+            udp::packet(from, to, &payload)
+        })
+        .collect()
+}
+
+/// The counters an off-path note in a decrypted packet names, or `None` for
+/// every other packet.
+pub(crate) fn decode_off_path(packet: &[u8]) -> Option<Vec<u64>> {
+    let (_, destination, payload) = udp::parse(packet)?;
+    if destination.port() != HELLO_PORT {
+        return None;
+    }
+    let (head, rest) = payload.split_at_checked(6)?;
+    let count = usize::from(head[5]);
+    if head[..4] != OFF_PATH_MAGIC
+        || head[4] != OFF_PATH_VERSION
+        || count == 0
+        || count > OFF_PATH_MAX
+        || rest.len() != 8 * count
+    {
+        return None;
+    }
+    Some(
+        rest.chunks_exact(8)
+            .map(|bytes| u64::from_le_bytes(bytes.try_into().unwrap_or_default()))
+            .collect(),
+    )
 }
 
 /// One tunnel's Auto: whether it wants repair data now.
