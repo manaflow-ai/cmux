@@ -1,8 +1,9 @@
 // The App draws a floating surface's glass under a see-through Chromium page (ui/glass/hostGlass.ts;
 // Leo, 2026-11-06: "why the f*** is this not glass? Like the way the native menus are"). A marked
-// surface is reported with its box, level, radius and opacity, draws nothing until the App has drawn
-// its glass, keeps the page's own glass past the deadline or when the App refuses, and its report is
-// withdrawn when it goes.
+// surface is reported with its box, level, radius and opacity, shows its content in the frame it
+// mounts (Leo, 2026-11-09: "it loads the placeholder, THEN the content... every single time"), keeps
+// the page's own glass past the deadline or when the App refuses, and its report is withdrawn in the
+// task it goes in.
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import {
@@ -68,7 +69,7 @@ afterEach(() => {
   dom = undefined;
 });
 
-test("a marked surface is reported and draws only once the App drew its glass", async () => {
+test("a marked surface is reported and shows its content before the App answers", async () => {
   const doc = page();
   const reports: HostGlassSurface[][] = [];
   let answer: (() => void) | undefined;
@@ -82,8 +83,8 @@ test("a marked surface is reported and draws only once the App drew its glass", 
   expect(reports.at(-1)).toEqual([
     { id: "g1", level: "popover", left: 40, top: 60, right: 240, bottom: 180, radius: 12, opacity: 1 },
   ]);
-  // Not answered yet: glass.css keeps it hidden (no drawn mark).
-  expect(element.hasAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe(false);
+  // Not answered yet: it already draws its content on the App's glass, which the App put there on the report.
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
   answer!();
   await settled();
   expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
@@ -94,7 +95,7 @@ test("a surface the App has not drawn by the deadline keeps the page's own glass
   stop = reportHostGlass(doc, () => new Promise(() => undefined));
   const element = surface(doc);
   await frames();
-  expect(element.hasAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe(false);
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
   await pastDeadline();
   expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
 });
@@ -311,5 +312,45 @@ test("a surface whose report changes every frame is drawn on an answer to an ear
   expect(answers.length).toBeGreaterThan(1);
   answers[0]!();
   await settled();
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+});
+
+test("a new surface is marked in the task it mounts in, before any frame paints it", async () => {
+  const doc = page();
+  stop = reportHostGlass(doc, () => new Promise(() => undefined));
+  const element = surface(doc);
+  // The observer's microtask, not a frame: the first frame that paints the surface paints its content.
+  await Promise.resolve();
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+});
+
+test("a surface that goes is withdrawn in the task it goes in, so its glass leaves with its content", async () => {
+  const doc = page();
+  const reports: HostGlassSurface[][] = [];
+  stop = reportHostGlass(doc, (surfaces) => (reports.push(surfaces), Promise.resolve()));
+  const one = surface(doc);
+  surface(doc, "menu");
+  await frames();
+  expect(reports.at(-1)?.map((entry) => entry.level)).toEqual(["popover", "menu"]);
+  one.remove();
+  await Promise.resolve();
+  expect(reports.at(-1)?.map((entry) => entry.level)).toEqual(["menu"]);
+});
+
+test("a deadline that ran late behind the page's own work leaves the queued answer time to land", async () => {
+  const doc = page();
+  let answer: (() => void) | undefined;
+  stop = reportHostGlass(doc, () => new Promise<void>((resolve) => (answer ??= resolve)));
+  const element = surface(doc);
+  await frames();
+  // The page is busy past the deadline (a big render after the popup mounts): the App's answer and
+  // the deadline both wait behind it, and the deadline's timer runs first.
+  const busyUntil = performance.now() + HOST_GLASS_DEADLINE_MS * 3;
+  while (performance.now() < busyUntil) {
+    // busy: the page's own work
+  }
+  setTimeout(() => answer!(), 0);
+  await pastDeadline();
+  await pastDeadline();
   expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
 });
