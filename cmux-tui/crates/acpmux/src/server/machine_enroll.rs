@@ -14,10 +14,19 @@ use crate::cli::cloud_join::{EnrollOutcome, EnrollRequest};
 use crate::hub::Hub;
 use crate::rpc::RpcError;
 
-/// The local app's socket only: never a peer, a phone or a web page.
+/// The local app's socket only: never a peer, a phone or a web page. And only the person
+/// (`hub/person.rs`): a local shell or agent may neither leave this machine's join nor enroll it
+/// with a token and user id it chose, so a connection that did not prove the person is refused
+/// with the declared `permission.person_required`.
 fn local(conn: &Conn, method: &str) -> Result<(), RpcError> {
     if conn.origin != Origin::Local || conn.origin.web_class() {
         return Err(RpcError::method_not_found(&format!("{method} (local socket only)")));
+    }
+    if !conn.is_person() {
+        return Err(crate::hub::person::person_required(match method {
+            crate::rpc::method::MUX_MACHINE_ENROLL => "enrolling this machine in cmux Cloud",
+            _ => "removing this machine from cmux Cloud",
+        }));
     }
     Ok(())
 }
@@ -107,4 +116,57 @@ pub(crate) async fn start_relay_at_start(hub: &Arc<Hub>) {
             stop_relay(&hub).await;
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    //! A local connection that did not prove the person (a shell, the CLI, an agent) is refused
+    //! both RPCs before anything runs: no hub request, no join or leave on disk.
+    use crate::config::{Config, StoreMode};
+    use crate::rpc::{Message, method};
+    use serde_json::{Value, json};
+    use std::time::Duration;
+    use tokio::sync::mpsc;
+
+    async fn refused(m: &str, params: Value) -> Value {
+        let mut config = Config::default();
+        config.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = crate::hub::Hub::new(config, store);
+        let (input, incoming) = mpsc::channel(8);
+        let (out, mut output) = mpsc::channel(64);
+        // task-owner: the test's one connection; ends when `input` drops at the test's end.
+        tokio::spawn(crate::server::serve_connection(hub, incoming, out));
+        let init = Message::request(1, method::INITIALIZE, json!({"protocolVersion": 1}));
+        input.send(init.to_line()).await.unwrap();
+        input.send(Message::request(2, m, params).to_line()).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                let reply: Value = serde_json::from_str(&output.recv().await.unwrap()).unwrap();
+                if reply["id"] == 2 {
+                    return reply;
+                }
+            }
+        })
+        .await
+        .expect("the reply comes")
+    }
+
+    #[tokio::test]
+    async fn enroll_from_a_local_connection_that_is_not_the_person_is_refused() {
+        let reply = refused(
+            method::MUX_MACHINE_ENROLL,
+            json!({"accessToken": "chosen-token", "userId": "someone-else", "hub": "http://127.0.0.1:9"}),
+        )
+        .await;
+        assert!(reply.get("result").is_none(), "{reply}");
+        assert_eq!(reply["error"]["data"]["reason"], crate::hub::person::REASON, "{reply}");
+    }
+
+    #[tokio::test]
+    async fn leave_if_auto_from_a_local_connection_that_is_not_the_person_is_refused() {
+        let reply = refused(method::MUX_MACHINE_LEAVE_IF_AUTO, json!({})).await;
+        assert!(reply.get("result").is_none(), "{reply}");
+        assert_eq!(reply["error"]["data"]["reason"], crate::hub::person::REASON, "{reply}");
+    }
 }
