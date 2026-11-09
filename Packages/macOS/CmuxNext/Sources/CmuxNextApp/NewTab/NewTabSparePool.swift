@@ -374,6 +374,9 @@ final class NewTabSparePool {
     /// Whether this run has warmed a spare yet: the first one starts at once, before the person
     /// types (a cold launch's first Cmd-N then finds a page that is loading or loaded, cx-ec99).
     private var warmedOnce = false
+    let shownChats = AgentPaneShownChatsWait()
+    /// The restored chat pages on screen not drawn yet; tests stand in pages.
+    var shownChatsLoading: @MainActor (AppServices) -> [AgentPaneShownChatsWait.WhenPainted] = { AgentPaneShownChatsWait.loading($0.agentTabs.views.values) }
 
     private func armWarmTimer() {
         // Only the launch warm comes early, after the first frame: a `take()` that found nothing
