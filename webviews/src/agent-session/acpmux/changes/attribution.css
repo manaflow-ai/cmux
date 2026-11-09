@@ -1,0 +1,176 @@
+/* Who wrote a changed line (AttributionCard.tsx). The marker is a small dot in the line-number
+   gutter of a hovered added line that a recorded turn wrote; Pierre places it on the hovered line,
+   so it never takes room in the diff. The card is the shared glass hover card (.ui-card.ui-glass,
+   ui/Tooltip.tsx AnchoredCard), in the session hover card's geometry: a hairline under the glass
+   rim, a 12px corner, 12px by 16px of padding. The newest writer reads in the body step (its chat at
+   emphasis, the age at its end, then the model and the prompt's first line in the caption step,
+   two lines at most); older writers follow under "Earlier", one caption row each. Nothing here
+   animates: the card shows in the frame it opens in (design/hover-cards.md). */
+.cv-attribution-marker {
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  width: var(--ds-icon-12);
+  height: 100%;
+  margin-inline-end: var(--ds-space-1);
+  padding: 0;
+  border: 0;
+  /* A 6px dot in the accent, drawn by the background so the marker keeps the line's height. */
+  background: radial-gradient(circle, var(--agent-accent) 3px, transparent 3.5px) no-repeat center;
+  cursor: default;
+}
+.cv-attribution-marker:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1px;
+  border-radius: var(--ds-radius-sm);
+}
+
+.cv-attribution-card.ui-card {
+  max-width: min(420px, calc(100vw - var(--ds-space-3)));
+  padding: 0;
+  border-width: var(--cmux-hairline-ring);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.cv-attribution {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  min-width: 240px;
+  max-width: min(420px, calc(100vw - var(--ds-space-6)));
+  color: var(--agent-text);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
+}
+.cv-attribution :is(.cv-attribution__writer, .cv-attribution__older-row) {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  padding: var(--ds-space-3) var(--ds-space-4);
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  text-decoration: none;
+  cursor: default;
+}
+.cv-attribution :is(button, a):hover {
+  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+}
+.cv-attribution :is(button, a):focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -2px;
+}
+.cv-attribution__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+.cv-attribution__chat {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: var(--weight-emphasis);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+:is(.cv-attribution__age, .cv-attribution__model, .cv-attribution__meta, .cv-attribution__label) {
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.cv-attribution__age {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.cv-attribution__model {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cv-attribution__prompt {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+  overflow-wrap: anywhere;
+}
+.cv-attribution__older {
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--ds-space-1);
+  border-top: var(--cmux-hairline-ring) solid var(--agent-border);
+}
+.cv-attribution__label {
+  padding: var(--ds-space-1) var(--ds-space-4) 0;
+}
+.cv-attribution .cv-attribution__older-row {
+  flex-direction: row;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  padding-block: var(--ds-space-1);
+}
+.cv-attribution__older-row .cv-attribution__chat {
+  font-weight: normal;
+}
+.cv-attribution__older-row:last-child {
+  padding-bottom: var(--ds-space-2);
+}
+.cv-attribution__meta {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* The one-line look (gallery only). */
+.cv-attribution[data-look="line"] .cv-attribution__writer {
+  padding: var(--ds-space-1) var(--ds-space-3);
+}
+.cv-attribution[data-look="line"] {
+  min-width: 0;
+}
+.cv-attribution__line {
+  overflow: hidden;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Every writer in full with its chat's initials (gallery only). */
+.cv-attribution[data-look="stack"] .cv-attribution__writer {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: var(--ds-space-3);
+}
+.cv-attribution[data-look="stack"] .cv-attribution__writer + .cv-attribution__writer {
+  border-top: var(--cmux-hairline-ring) solid var(--agent-border);
+}
+.cv-attribution__avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--ds-icon-20);
+  height: var(--ds-icon-20);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--agent-accent) 20%, transparent);
+  color: var(--agent-text);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
+}
+.cv-attribution__body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
