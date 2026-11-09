@@ -38,6 +38,8 @@
     "chat.scrollAnchor": "chat.scrollAnchor",
     "chat.scrollAnchor.get": "chat.scrollAnchor.get",
     "chat.sideChat": "chat.sideChat",
+    "chat.snapshot.get": "chat.snapshot.get",
+    "chat.snapshot.put": "chat.snapshot.put",
     "chat.subagentPane": "chat.subagentPane",
     "chat.subagentShown": "chat.subagentShown",
     "chat.tail": "chat.tail",

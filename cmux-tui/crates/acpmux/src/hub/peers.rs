@@ -159,6 +159,11 @@ impl Hub {
         {
             peer.set_wireguard(transport.clone(), address);
         }
+        #[cfg(feature = "hub-carrier")]
+        peer.set_hub_carrier(
+            self.hub_carrier.clone(),
+            pc.wireguard.as_ref().map(|configured| configured.public_key.clone()),
+        );
         // The cmux link's `acpmux` service, when this peer is one of its paired installs.
         if let Some(host) = pc.link_host.clone().or_else(|| {
             pc.wireguard.as_ref().and_then(|wg| crate::peer::paired_install(&wg.public_key))

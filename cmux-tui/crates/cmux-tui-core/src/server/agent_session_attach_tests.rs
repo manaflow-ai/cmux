@@ -237,8 +237,11 @@ fn serve(
                 }
                 Some(table)
             }
+            // acpmux's catalog lists every family it runs, opencode included, so a family with
+            // no phone mode resolves and is refused by the phone floor, not the catalog.
             "_acpmux/harnesses" if fixture.phone.is_some() => Some(json!({
-                "defaultHarness": fixture.phone.as_ref().unwrap().family, "families": {"claude": {}, "codex": {}},
+                "defaultHarness": fixture.phone.as_ref().unwrap().family,
+                "families": {"claude": {}, "codex": {}, "opencode": {}},
                 "harnesses": {},
             })),
             "session/set_mode" if fixture.phone.is_some() => {
