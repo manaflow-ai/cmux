@@ -21,7 +21,7 @@ import {
   endpointProblemAt,
   failureText,
   fetchEndpointModels,
-  ownedAfter,
+  addedTarget,
   type AddTarget,
   type EndpointBackend,
   type EndpointDraft,
@@ -93,18 +93,21 @@ export function EndpointForm({ done }: { done: () => void }) {
   const preset = endpointPreset(presetId);
   const busy = endpointBusy(status);
   const problem = endpointProblemAt(draft, preset.key, target);
-  // The next add's id, picked ahead of the click (no read between the click and the add).
-  const targetFor = useNextTarget(service, draft.name, preset.idBase, target);
-  // The form owns what an add wrote as soon as it answers (or what a failed add may have written).
-  const addedAt = (at: AddTarget, backend: EndpointBackend) => (harness: string, answered: boolean) => {
+  // The next add's id, known before the click (no read between the click and the add); until the
+  // ids are read, Add and Fetch Models wait (never a guessed id).
+  const next = useNextTarget(service, draft.name, preset.idBase, target);
+  // The form owns an add once it answers, never one that failed (it may have hit an id it never got;
+  // the ids are read again after a failure, so a timed-out add that wrote is never taken over).
+  const addedAt = (at: AddTarget, backend: EndpointBackend) => (harness: string) => {
     owned.claim(harness);
-    setTarget(ownedAfter(at, backend, harness, answered));
+    setTarget(addedTarget({ ...at, id: harness }, backend));
   };
   // Another endpoint: the earlier add (another preset's, or another URL's) is removed, and the next
   // add is a new id that asks for this one's key.
   const startOver = () => {
     owned.discard();
     setTarget(null);
+    next.refresh();
     setFetched(null);
     setStatus({ state: "editing" });
   };
@@ -123,11 +126,11 @@ export function EndpointForm({ done }: { done: () => void }) {
     setPresetId(id);
   };
   const fetchModels = async () => {
-    if (busy || !canFetchModels(draft, preset.key, target)) return;
+    const at = next.target;
+    if (busy || !at || !canFetchModels(draft, preset.key, target)) return;
     setStatus({ state: "fetching" });
     setFetched(null);
     try {
-      const at = targetFor();
       const answer = await fetchEndpointModels(service, draft, at, addedAt(at, endpointBackend(draft, at)));
       setTarget(answer.target);
       // The key is stored now: the field empties, and a save keeps what was stored.
@@ -137,16 +140,19 @@ export function EndpointForm({ done }: { done: () => void }) {
       setFetched({ count: models.length });
     } catch (failure) {
       setFetched({ error: failureText(failure) });
+      next.refresh();
     }
     setStatus({ state: "editing" });
   };
   const submit = async () => {
-    if (busy || problem) return;
-    const at = targetFor();
+    const at = next.target;
+    if (busy || problem || !at) return;
     const backend = endpointBackend(draft, at);
     // The key leaves the page's state now: only the host's add call carries it.
     change({ apiKey: "" });
     const result = await bringEndpoint(service, backend, setStatus, addedAt(at, backend));
+    // A refused add (another harness took the id meanwhile): the next one reads the ids again.
+    if (result.state === "failed") next.refresh();
     if (result.state === "passed" && !owned.closed) {
       owned.keep();
       done();
@@ -231,7 +237,7 @@ export function EndpointForm({ done }: { done: () => void }) {
                     <Button
                       type="button"
                       className="button"
-                      disabled={busy || !canFetchModels(draft, preset.key, target)}
+                      disabled={busy || !next.target || !canFetchModels(draft, preset.key, target)}
                       onClick={() => void fetchModels()}
                     >
                       {t("settingsPage.agents.endpoint.fetch")}
@@ -257,8 +263,18 @@ export function EndpointForm({ done }: { done: () => void }) {
         }}
       />
       <EndpointProgress status={status} />
+      {next.failed && (
+        <p className="col-span-2 m-0 text-detail text-danger" role="alert" data-endpoint-ids-failed="">
+          {next.failed}
+        </p>
+      )}
       <div className="col-span-2 flex justify-end">
-        <Button type="submit" className="button" disabled={busy || problem !== null} data-endpoint-add="">
+        <Button
+          type="submit"
+          className="button"
+          disabled={busy || problem !== null || !next.target}
+          data-endpoint-add=""
+        >
           <StableLabel
             label={busy ? t("settingsPage.agents.checking") : t("settingsPage.agents.endpoint.add")}
             alternatives={[t("settingsPage.agents.endpoint.add"), t("settingsPage.agents.checking")]}

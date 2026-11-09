@@ -1027,14 +1027,14 @@ async fn byo_endpoint_a_removed_endpoints_key_is_deleted_and_never_reused_by_a_f
     .unwrap();
     let (profile, meta) = load(&added.path, "team");
     let cfg = config("team", profile, meta);
-    // Remove (Settings' Remove, or a form's cleanup): the key in this id's own item goes too.
+    // A remove that forgets the key (a caller dropping its own add for good): this id's own item goes too.
     let forgot = std::sync::Mutex::new(Vec::<Vec<String>>::new());
     let forget = |c: &StoreCommand| -> anyhow::Result<()> {
         assert!(c.stdin.is_empty());
         forgot.lock().unwrap().push(c.argv.clone());
         Ok(())
     };
-    admin::remove("team", &cfg, &src, &home, &forget).unwrap();
+    admin::remove("team", &cfg, &src, &home, Some(&forget)).unwrap();
     let forgot = forgot.into_inner().unwrap();
     assert_eq!(forgot.len(), 1, "{forgot:?}");
     assert!(forgot[0].iter().any(|a| a == "team/CMUX_BYO_API_KEY"), "{forgot:?}");
@@ -1058,7 +1058,7 @@ async fn byo_endpoint_a_removed_endpoints_key_is_deleted_and_never_reused_by_a_f
         "schema = 1\nid = \"x\"\ncommand = \"x\"\n[env]\nK = { keychain = \"cmux-harness/x/K\" }\n";
     std::fs::write(root.join("harnesses").join("x.toml"), other).unwrap();
     let none = |_: &StoreCommand| -> anyhow::Result<()> { panic!("deleted a key it does not own") };
-    admin::remove("x", &Config::default(), &src, &home, &none).unwrap();
+    admin::remove("x", &Config::default(), &src, &home, Some(&none)).unwrap();
 }
 
 #[test]
@@ -1128,7 +1128,7 @@ fn byo_endpoint_a_remove_and_an_add_of_one_id_never_leave_a_profile_without_its_
         std::thread::scope(|s| {
             s.spawn(|| {
                 barrier.wait();
-                let _ = admin::remove("team", &cfg, &src, &home, &forget);
+                let _ = admin::remove("team", &cfg, &src, &home, Some(&forget));
             });
             s.spawn(|| {
                 barrier.wait();
@@ -1216,4 +1216,63 @@ fn byo_endpoint_a_cli_add_then_secret_set_sends_the_key_with_no_config_rewrite()
         inline["provider"]["byo"]["options"]["apiKey"],
         json!(format!("{{env:{OPENAI_KEY_ENV}}}"))
     );
+}
+
+#[test]
+fn byo_endpoint_remove_then_undo_brings_back_a_working_endpoint_with_its_key() {
+    let root = scratch("undo");
+    let src = sources(&root);
+    let home = root.join("home");
+    let (log, store) = recording(false);
+    let p = params("openai-endpoint", "team", "https://one.example.com/v1", "m", None);
+    let key =
+        admin::EndpointKey { value: Some(GOOD_KEY), store: &store, ..admin::EndpointKey::NONE };
+    let added = admin::add_endpoint_keyed(&p, &src, &key).unwrap();
+    assert_eq!(log.lock().unwrap().len(), 1);
+    let (profile, meta) = load(&added.path, "team");
+    let cfg = config("team", profile, meta);
+    // Settings' Remove (with Undo): the profile goes to the backups, the key stays in the Keychain.
+    let removed = admin::remove("team", &cfg, &src, &home, None).unwrap();
+    assert!(!added.path.exists());
+    let backup = std::fs::read_to_string(admin::backup_dir(&home).join(&removed.backup)).unwrap();
+    assert!(!backup.contains(GOOD_KEY), "plaintext in a backup");
+    assert!(backup.contains("cmux-harness/team/CMUX_BYO_API_KEY"), "{backup}");
+    // Undo: the same profile, and its env resolves the key from the item that stayed.
+    let restored = admin::restore(&removed.backup, &src, &home).unwrap();
+    let (profile, _) = load(&restored.path, "team");
+    let mut env = profile.env.clone();
+    profiles::resolve_env_refs(&mut env, &|_| None, &|service, account| match (service, account) {
+        ("cmux-harness", Some("team/CMUX_BYO_API_KEY")) => Ok(GOOD_KEY.to_owned()),
+        _ => Err("not found".into()),
+    })
+    .unwrap();
+    assert_eq!(env.get(OPENAI_KEY_ENV).map(String::as_str), Some(GOOD_KEY));
+    // The key was stored once and never deleted on the way.
+    assert_eq!(log.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn byo_endpoint_a_taken_id_is_refused_before_the_models_read() {
+    let root = scratch("idfirst");
+    let src = sources(&root);
+    let (_, store) = recording(false);
+    let p = params("openai-endpoint", "team", "https://one.example.com/v1", "m", None);
+    let key =
+        admin::EndpointKey { value: Some(GOOD_KEY), store: &store, ..admin::EndpointKey::NONE };
+    admin::add_endpoint_keyed(&p, &src, &key).unwrap();
+    // A `*` add of that id (whose models read could fail some other way) is `exists` first.
+    let mut again = params("openai-endpoint", "team", "http://127.0.0.1:9/v1", "*", None);
+    let refused = admin::endpoint_id_free(&again, &src, &|_| false).unwrap_err();
+    assert!(matches!(refused, AdminError::Exists(_)), "{refused:?}");
+    // Another source's id, `replace` or not.
+    let other = params("openai-endpoint", "builtin", "http://127.0.0.1:9/v1", "*", None);
+    assert!(matches!(
+        admin::endpoint_id_free(&other, &src, &|id| id == "builtin").unwrap_err(),
+        AdminError::Exists(_)
+    ));
+    // This folder's own file with `replace`, and a free id, pass.
+    again.replace = true;
+    admin::endpoint_id_free(&again, &src, &|_| false).unwrap();
+    let free = params("openai-endpoint", "fresh", "http://127.0.0.1:9/v1", "*", None);
+    admin::endpoint_id_free(&free, &src, &|_| false).unwrap();
 }

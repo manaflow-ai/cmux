@@ -43,6 +43,9 @@ export interface EndpointService {
   addBackend(backend: EndpointBackend): Promise<string>;
   checkBackend(id: string): Promise<{ ok: boolean; steps: EndpointStep[] }>;
   backends(): Promise<{ id: string; models: { id: string }[] }[]>;
+  /** Every harness id acpmux has, from any source and of any kind (terminal harnesses too, which
+   * `backends()` leaves out): the set a new endpoint's id must be past. */
+  harnessIds(): Promise<string[]>;
 }
 
 /** The model-list entry acpmux fills in with every model the endpoint lists. */
@@ -281,34 +284,38 @@ export async function bringEndpoint(
   service: Pick<EndpointService, "addBackend" | "checkBackend">,
   backend: { kind: string; name: string; id?: string; replace?: string; apiKey?: string },
   report: (status: EndpointStatus) => void,
-  added: (harness: string, answered: boolean) => void = () => {},
+  added: (harness: string) => void = () => {},
 ): Promise<EndpointStatus> {
   report({ state: "adding" });
   let harness: string;
   try {
     harness = await service.addBackend(backend as EndpointBackend);
   } catch (failure) {
-    const asked = askedId(backend, failure);
-    if (asked) added(asked, false);
+    // Not the form's: only an add that answered is (a failed one may have hit an id it never got).
     const failed: EndpointStatus = { state: "failed", step: { name: "add", ok: false, detail: failureText(failure) } };
     report(failed);
     return failed;
   }
   // The harness exists from here on, before the check: a form closed meanwhile still removes it.
-  added(harness, true);
+  added(harness);
   report({ state: "checking", harness });
   const checked = await checkEndpoint(service, harness);
   report(checked);
   return checked;
 }
 
-/** A new id for the draft, past every harness acpmux has (`fallback`: the preset's or kind's). */
+/** A new id for the draft, past every harness acpmux has from any source (`fallback`: the preset's
+ * or kind's). */
 export async function newTarget(
-  service: Pick<EndpointService, "backends">,
+  service: Pick<EndpointService, "harnessIds">,
   name: string,
   fallback: string,
 ): Promise<AddTarget> {
-  const taken = (await service.backends()).map((backend) => backend.id);
+  return newTargetPast(name, fallback, await service.harnessIds());
+}
+
+/** A new id for the draft past `taken` (every harness id acpmux has). */
+export function newTargetPast(name: string, fallback: string, taken: readonly string[]): AddTarget {
   return { id: endpointId(name, fallback, taken), own: false, typedKey: false };
 }
 
@@ -320,37 +327,15 @@ export async function fetchEndpointModels(
   service: Pick<EndpointService, "addBackend" | "backends">,
   draft: EndpointDraft,
   target: AddTarget,
-  added: (harness: string, answered: boolean) => void = () => {},
+  added: (harness: string) => void = () => {},
 ): Promise<{ models: string[]; target: AddTarget }> {
   const backend = endpointBackend(draft, target, [ALL_MODELS]);
-  let harness: string;
-  try {
-    harness = await service.addBackend(backend);
-  } catch (failure) {
-    const asked = askedId(backend, failure);
-    if (asked) added(asked, false);
-    throw failure;
-  }
-  // Owned as soon as the add answers, before the read below (which may fail).
-  added(harness, true);
+  // Owned only once the add answers (a failed add is never the form's), before the read below.
+  const harness = await service.addBackend(backend);
+  added(harness);
   const listed = (await service.backends()).find((entry) => entry.id === harness);
   return {
     models: endpointModelIds(draft.kind, listed?.models ?? []),
     target: addedTarget({ ...target, id: harness }, backend),
   };
-}
-
-/** After an add that failed: the id it asked for, which the form owns from now on, since a
- * timed-out add may still have written it (a Cancel then removes it; a retry replaces it). Never
- * the id of another harness acpmux refused it over, and nothing for a retry (already owned). */
-export function askedId(backend: { id?: string; replace?: string }, failure: unknown): string | null {
-  const code = failure && typeof failure === "object" ? (failure as { code?: unknown }).code : undefined;
-  if (!backend.id || backend.replace || code === "cmux.agents.exists") return null;
-  return backend.id;
-}
-
-/** The form's target after an add at `at` with `backend`: `answered`, as `addedTarget`; else (a
- * failed add it may still own) the id, without counting a key as stored. */
-export function ownedAfter(at: AddTarget, backend: EndpointBackend, harness: string, answered: boolean): AddTarget {
-  return answered ? addedTarget({ ...at, id: harness }, backend) : { id: harness, own: true, typedKey: at.typedKey };
 }

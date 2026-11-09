@@ -222,14 +222,15 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
             print!("{GUIDE}");
             Ok(())
         }
-        HarnessCmd::Remove { id } => {
+        HarnessCmd::Remove { id, forget_key } => {
             let cfg = Config::load()?;
+            let forget: &dyn Fn(&_) -> _ = &super::harness_secret::run_store;
             let removed = crate::harness_admin::remove(
                 &id,
                 &cfg,
                 &ProfileSources::current(),
                 &crate::config::home(),
-                &super::harness_secret::run_store,
+                forget_key.then_some(forget),
             )?;
             let reloaded = reload_daemon().await;
             if json_out {

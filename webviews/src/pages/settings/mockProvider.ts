@@ -399,6 +399,7 @@ export class MockSettingsProvider {
               claude: { displayName: "Claude Code" },
               codex: { displayName: "Codex" },
               ...this.agents.endpointHarnesses(),
+              ...this.agents.terminalHarnesses(),
             },
           },
           // Codex's probed models, named as acpmux names them; Claude's are not probed (read off the id).
@@ -417,6 +418,8 @@ export class MockSettingsProvider {
       },
       "cmux.chief.backend.add": async (params) => {
         await this.agents.endpoint.holdAdd;
+        const before = this.agents.endpoint.addFails;
+        if (before) throw new ProtocolError(before, "the endpoint's model list could not be read");
         const added = this.agents.addEndpoint(params);
         const fail = this.agents.endpoint.addThenFail;
         if (fail) throw new ProtocolError(fail, "the add did not answer in time");

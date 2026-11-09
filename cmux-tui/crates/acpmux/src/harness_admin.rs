@@ -508,6 +508,46 @@ pub fn add_endpoint_keyed(
     add_endpoint(kind, p, &user_dir(sources)?, key)
 }
 
+/// Refuses an id this add may not write: another source's id (a built-in, a managed or
+/// cmux.json profile) is never written over, `replace` or not (a user file there would only be
+/// ignored on reload); this folder's own file only with `replace`.
+fn id_free(
+    id: &str,
+    path: &Path,
+    replace: bool,
+    taken: &dyn Fn(&str) -> bool,
+) -> Result<(), AdminError> {
+    if !path.exists() && taken(id) {
+        return Err(AdminError::Exists(format!(
+            "{id} is already a harness from another source; pick another id"
+        )));
+    }
+    if path.exists() && !replace {
+        return Err(AdminError::Exists(format!(
+            "{id} already has a profile; pass replace to write it again"
+        )));
+    }
+    Ok(())
+}
+
+/// The id check of an endpoint add, run before anything else it does (reading the endpoint's
+/// `*` models included), so an add of a taken id fails as `exists` whatever else would fail.
+/// The add checks again under its lock.
+pub fn endpoint_id_free(
+    p: &AddParams,
+    sources: &ProfileSources,
+    taken: &dyn Fn(&str) -> bool,
+) -> Result<(), AdminError> {
+    let Some(kind) = p.example.as_deref().and_then(byo_endpoint::Kind::from_example) else {
+        return Ok(());
+    };
+    let id = p.id.clone().unwrap_or_else(|| kind.example().to_owned());
+    if !profiles::valid_id(&id) {
+        return Ok(());
+    }
+    id_free(&id, &user_dir(sources)?.join(format!("{id}.toml")), p.replace, taken)
+}
+
 /// The Keychain item an existing endpoint profile reads its key from, if any.
 fn existing_item(path: &Path, kind: byo_endpoint::Kind) -> Option<String> {
     let text = std::fs::read_to_string(path).ok()?;
@@ -575,19 +615,7 @@ fn add_endpoint(
     let path = dir.join(format!("{id}.toml"));
     let default = byo_endpoint::default_item(kind, &id);
     let _one = lock_endpoint_adds(dir)?;
-    // Another source's id (a built-in, a managed or cmux.json profile) is never written over,
-    // `replace` or not: a user file there would only be ignored on reload. `replace` writes
-    // over this folder's own file only.
-    if !path.exists() && (key.taken)(&id) {
-        return Err(AdminError::Exists(format!(
-            "{id} is already a harness from another source; pick another id"
-        )));
-    }
-    if path.exists() && !p.replace {
-        return Err(AdminError::Exists(format!(
-            "{id} already has a profile; pass replace to write it again"
-        )));
-    }
+    id_free(&id, &path, p.replace, key.taken)?;
     let item = match (given, key.value) {
         (Some(item), _) => Some(item),
         (None, Some(_)) => Some(default.clone()),
@@ -731,12 +759,16 @@ fn move_file(from: &Path, to: &Path) -> Result<(), AdminError> {
 
 /// Moves the user profile file of `id` into the backups. `cfg` says where
 /// other harnesses of that id come from, to refuse them by name.
+///
+/// An endpoint's key stays in the Keychain (the backup holds only the reference, never the
+/// key), so Undo (`restore`) brings back a working endpoint. `forget` (a caller that owns the
+/// add, cleaning up one it never kept) also deletes the items in this id's own Keychain space.
 pub fn remove(
     id: &str,
     cfg: &Config,
     sources: &ProfileSources,
     acpmux_home: &Path,
-    forget: &dyn Fn(&crate::cli::harness_secret::StoreCommand) -> anyhow::Result<()>,
+    forget: Option<&dyn Fn(&crate::cli::harness_secret::StoreCommand) -> anyhow::Result<()>>,
 ) -> Result<Removed, AdminError> {
     if !profiles::valid_id(id) {
         return Err(AdminError::Invalid(format!("{id:?} is not a harness id")));
@@ -765,11 +797,14 @@ pub fn remove(
     let backup = format!("{id}-{}.toml", unix_millis());
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     move_file(&path, &dir.join(&backup))?;
-    // An endpoint's key goes with it: the items in this id's own Keychain space
-    // (`cmux-harness/<id>/...`) are deleted, so no later endpoint of this id
-    // can send it to another URL. Best effort: an item already gone is fine.
-    for key in endpoint_own_keys(&text, id) {
-        let _ = forget(&crate::cli::harness_secret::delete_command(std::env::consts::OS, id, &key));
+    // Only on `forget`: the items in this id's own Keychain space (`cmux-harness/<id>/...`)
+    // go too. Kept otherwise, for Undo; a later fresh add of this id never reads them (it names
+    // no item unless given a key, which then replaces the item).
+    if let Some(forget) = forget {
+        for key in endpoint_own_keys(&text, id) {
+            let _ =
+                forget(&crate::cli::harness_secret::delete_command(std::env::consts::OS, id, &key));
+        }
     }
     Ok(Removed { id: id.to_owned(), backup })
 }

@@ -14,7 +14,7 @@ import {
   endpointBackend,
   endpointBusy,
   modelList,
-  ownedAfter,
+  addedTarget,
   type AddTarget,
   type EndpointDraft,
   type EndpointKind,
@@ -283,17 +283,20 @@ function BringYourOwn({
   // change of kind or URL starts over.
   const [target, setTarget] = useState<AddTarget | null>(null);
   const owned = useOwnedEndpoint((id) => service.removeBackend?.(id));
+  const endpoint = kind !== "command";
+  // The next add's id, known before the click (no read between the click and the add); until the
+  // ids are read, an endpoint's Add waits (never a guessed id).
+  const next = useNextTarget(service, name, kind, target);
   const startOver = () => {
     owned.discard();
     setTarget(null);
+    next.refresh();
     setStatus({ state: "editing" });
   };
-  const endpoint = kind !== "command";
-  // The next add's id, picked ahead of the click (no read between the click and the add).
-  const targetFor = useNextTarget(service, name, kind, target);
   const busy = endpointBusy(status);
   const complete =
     name.trim() !== "" &&
+    (!endpoint || next.target !== null) &&
     (endpoint
       ? draft.baseUrl.trim() !== "" &&
         modelList(draft.models).length > 0 &&
@@ -312,22 +315,26 @@ function BringYourOwn({
     if (!complete || busy) return;
     const model = endpoint ? (modelList(draft.models)[0] ?? "") : "";
     const full = { ...draft, kind: kind as EndpointKind, name };
-    const at = endpoint ? targetFor() : undefined;
+    const at = endpoint ? (next.target ?? undefined) : undefined;
+    if (endpoint && !at) return;
     const backend: HomeChiefByoBackend = endpoint
       ? endpointBackend(full, at)
       : { kind: "command", name: name.trim(), command: command.trim(), args: words(args) };
-    // The form owns what an add wrote as soon as it answers (or what a failed add may have written).
+    // The form owns an add once it answers, never one that failed (it may have hit an id it never got;
+    // the ids are read again after a failure, so a timed-out add that wrote is never taken over).
     const added =
       at && backend.kind !== "command"
-        ? (harness: string, answered: boolean) => {
+        ? (harness: string) => {
             owned.claim(harness);
-            setTarget(ownedAfter(at, backend, harness, answered));
+            setTarget(addedTarget({ ...at, id: harness }, backend));
           }
         : undefined;
     // The key leaves the page's state now: only the host's add call carries it.
     setDraft((before) => ({ ...before, apiKey: "" }));
     setPicked(model);
     const done = await bringEndpoint(service, backend, setStatus, added);
+    // A refused add (another harness took the id meanwhile): the next one reads the ids again.
+    if (done.state === "failed" && endpoint) next.refresh();
     if (done.state === "passed" && !owned.closed) {
       owned.keep();
       onPassed(done.harness, model);
@@ -419,6 +426,11 @@ function BringYourOwn({
           step={status.step}
           onRetry={status.harness ? () => void recheck(status.harness!) : undefined}
         />
+      )}
+      {endpoint && next.failed && (
+        <output className="ce-check failed" role="alert" data-chief-byo-ids-failed="">
+          {next.failed}
+        </output>
       )}
       <span className="ce-row ce-byo-actions">
         <button type="button" className="ce-button" disabled={busy} onClick={onCancel}>

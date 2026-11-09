@@ -67,8 +67,12 @@ export type MockEndpoint = {
   holdDoctor?: Promise<void>;
   holdRemove?: Promise<void>;
   holdList?: Promise<void>;
+  /** The add answers this error before writing anything (a `*` read that failed). */
+  addFails?: string;
   /** The add writes the endpoint, then answers this error (an add that timed out after writing). */
   addThenFail?: string;
+  /** Terminal harness ids acpmux lists (kind "terminal"; the Chief picker leaves them out). */
+  terminals?: string[];
 };
 
 export class MockAgents {
@@ -135,6 +139,13 @@ export class MockAgents {
         models: entry.models.map((model) => (entry.kind === "openai-endpoint" ? `byo/${model}` : model)),
       };
     return out;
+  }
+
+  /** The terminal harnesses for the same list (kind "terminal"). */
+  terminalHarnesses(): Record<string, { displayName: string; kind: string; models: string[] }> {
+    return Object.fromEntries(
+      (this.endpoint.terminals ?? []).map((id) => [id, { displayName: id, kind: "terminal", models: [] }]),
+    );
   }
 
   /** One gesture, as the host runs it; the change goes to every subscriber. */

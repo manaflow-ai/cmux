@@ -3,7 +3,6 @@
 import { expect, test } from "bun:test";
 import {
   ENDPOINT_PRESETS,
-  askedId,
   bringEndpoint,
   addedTarget,
   canFetchModels,
@@ -14,7 +13,7 @@ import {
   endpointProblem,
   endpointUrlProblem,
   fetchEndpointModels,
-  ownedAfter,
+  newTarget,
   modelList,
   type EndpointBackend,
   type EndpointDraft,
@@ -142,8 +141,8 @@ test("fetch adds the endpoint with * at the form's id and reads its models back"
   });
 });
 
-test("a failed add claims the id it asked for, before any read; never another harness's or a retry's", async () => {
-  const claimed: [string, boolean][] = [];
+test("a failed add is never claimed (a timeout either); an answered add is, before any later read", async () => {
+  const claimed: string[] = [];
   const timedOut = {
     addBackend: async () => {
       throw { code: "cmux.agents.timeout", message: "no answer" };
@@ -155,19 +154,9 @@ test("a failed add claims the id it asked for, before any read; never another ha
     timedOut,
     backend,
     () => {},
-    (id, answered) => claimed.push([id, answered]),
+    (id) => claimed.push(id),
   );
-  expect(claimed).toEqual([["local", false]]);
-  expect(askedId(backend, { code: "cmux.agents.exists" })).toBeNull();
-  expect(askedId({ ...backend, replace: "local" }, { code: "cmux.agents.timeout" })).toBeNull();
-  expect(
-    ownedAfter(
-      { id: "local", own: false, typedKey: true },
-      endpointBackend(draft(), { id: "local", own: false, typedKey: true }),
-      "local",
-      false,
-    ),
-  ).toEqual({ id: "local", own: true, typedKey: true });
+  expect(claimed).toEqual([]);
   // Fetch claims the answered add before its list read, which here fails.
   const listFails = {
     addBackend: async () => "local",
@@ -175,16 +164,20 @@ test("a failed add claims the id it asked for, before any read; never another ha
       throw new Error("list failed");
     },
   };
-  const fetched: [string, boolean][] = [];
   await expect(
-    fetchEndpointModels(
-      listFails,
-      draft({ models: "" }),
-      { id: "local", own: false, typedKey: false },
-      (id, answered) => fetched.push([id, answered]),
+    fetchEndpointModels(listFails, draft({ models: "" }), { id: "local", own: false, typedKey: false }, (id) =>
+      claimed.push(id),
     ),
   ).rejects.toThrow("list failed");
-  expect(fetched).toEqual([["local", true]]);
+  expect(claimed).toEqual(["local"]);
+});
+
+test("a new target goes past every harness id, terminal ones too", async () => {
+  expect(await newTarget({ harnessIds: async () => ["local", "local-2"] }, "Local", "local")).toEqual({
+    id: "local-3",
+    own: false,
+    typedKey: false,
+  });
 });
 
 test("a new id is an ASCII slug numbered past every harness, never a localized name's my-backend", () => {

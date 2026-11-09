@@ -196,6 +196,13 @@ pub(super) async fn handle(
                 }
             };
             let mut p = AddParams::from_json(&params).map_err(rpc_error)?;
+            // A taken id is refused first, before the `*` read below can fail some other way: a
+            // page never takes a failed add of an id it did not get for its own.
+            if endpoint.is_some() {
+                let cfg = hub.config.read().await;
+                admin::endpoint_id_free(&p, &sources, &|id| cfg.profile(id).is_some())
+                    .map_err(rpc_error)?;
+            }
             // `*`: the endpoint's own model list, read with the key this add brings or the stored one.
             admin::fetch_endpoint_models(
                 &mut p,
@@ -254,9 +261,13 @@ pub(super) async fn handle(
         method::MUX_HARNESS_REMOVE => {
             let id =
                 text("id").ok_or_else(|| RpcError::invalid_params("id is required"))?.to_owned();
+            // `forgetKey`: the caller owns this add and drops it for good (no Undo), so the
+            // endpoint's own Keychain items go too. Otherwise they stay for Undo.
+            let forget_key = params.get("forgetKey").and_then(Value::as_bool).unwrap_or(false);
             let cfg = hub.config.read().await.clone();
             let removed = tokio::task::spawn_blocking(move || {
-                admin::remove(&id, &cfg, &sources, &home, &crate::cli::harness_secret::run_store)
+                let forget: &dyn Fn(&_) -> _ = &crate::cli::harness_secret::run_store;
+                admin::remove(&id, &cfg, &sources, &home, forget_key.then_some(forget))
             })
             .await
             .map_err(joined)?

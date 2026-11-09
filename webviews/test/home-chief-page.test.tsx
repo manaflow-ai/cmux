@@ -135,7 +135,7 @@ const REVISIONS: HomeChiefRevision[] = [
 type Call = { op: string; args: unknown[] };
 
 /** A controllable editor service: it records every call; each check waits until the test answers it. */
-function fakeService(grants = true) {
+function fakeService(grants = true, options: { ids?: () => Promise<string[]> } = {}) {
   const calls: Call[] = [];
   const checks: { id: string; answer(result: HomeChiefDoctor): void }[] = [];
   const service: ChiefEditorService = {
@@ -158,9 +158,10 @@ function fakeService(grants = true) {
       return { ...CHIEF, rev: chief.rev + 1, name: toRev === 1 ? "Boss" : chief.name, instructions: "" };
     },
     backends: async () => BACKENDS,
+    harnessIds: options.ids ?? (async () => BACKENDS.map((backend) => backend.id)),
     addBackend: async (backend: HomeChiefByoBackend) => {
       calls.push({ op: "addBackend", args: [backend] });
-      return "acme";
+      return ("id" in backend ? backend.id : undefined) ?? "acme";
     },
     checkBackend: (id: string) =>
       new Promise<HomeChiefDoctor>((resolve) => {
@@ -455,6 +456,39 @@ test("Bring your own: Cancel after a failed check, or closing during a held chec
   await flush();
   expect(removed(second.calls)).toEqual(["acme"]);
   expect(second.calls.some((call) => call.op === "update" || call.op === "create")).toBe(false);
+});
+
+test("Bring your own: a new id goes past a terminal harness's id (any kind), never onto it", async () => {
+  const container = installDom();
+  const { service, calls } = fakeService(true, { ids: async () => ["claude", "codex", "acme"] });
+  await mount(container, service, CHIEF);
+  await openBringYourOwn(container);
+  const added = calls.find((call) => call.op === "addBackend")!.args[0] as HomeChiefByoBackend;
+  expect("id" in added && added.id).toBe("acme-2");
+});
+
+test("Bring your own: until the harness ids are read, Add waits (no guessed id)", async () => {
+  const container = installDom();
+  let answer = (_ids: string[]) => {};
+  const { service, calls } = fakeService(true, { ids: () => new Promise((resolve) => (answer = resolve)) });
+  await mount(container, service, CHIEF);
+  const picker = byLabel<HTMLSelectElement>(container, t("chief.backend.title"));
+  await choose(picker, picker.options[picker.options.length - 1]!.value);
+  const within = "[data-chief-byo]";
+  await click(byLabel(container, t("chief.byo.kind.anthropic"), within));
+  await type(byLabel(container, t("chief.byo.name"), within), "Acme");
+  await type(byLabel(container, t("chief.byo.baseUrl"), within), "https://api.acme.dev");
+  await type(byLabel(container, t("chief.byo.model"), within), "acme-1");
+  await type(byLabel(container, t("chief.byo.apiKey"), within), "sk-secret-123");
+  expect(button(container, t("chief.byo.add")).disabled).toBe(true);
+  await click(button(container, t("chief.byo.add")));
+  expect(calls.some((call) => call.op === "addBackend")).toBe(false);
+  await act(async () => answer(["acme"]));
+  await flush();
+  expect(button(container, t("chief.byo.add")).disabled).toBe(false);
+  await click(button(container, t("chief.byo.add")));
+  const added = calls.find((call) => call.op === "addBackend")!.args[0] as HomeChiefByoBackend;
+  expect("id" in added && added.id).toBe("acme-2");
 });
 
 test("the lock switch sends locked, and only when it changed", async () => {
