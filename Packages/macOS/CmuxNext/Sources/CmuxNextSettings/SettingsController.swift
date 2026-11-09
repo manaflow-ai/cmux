@@ -134,8 +134,9 @@ public final class SettingsController {
     /// person about a value it ignores (`SettingsDiagnosticToasts`); tests leave it off.
     /// `rotatingFavoriteThemes`: the app's launch turns to the next starred theme when Rotate Starred
     /// Themes says so (`rotateFavoriteThemeAtLaunch`); tests leave it off.
-    /// `freshInstall`: the Mac's first launch, whose window starts on Glass (`startFreshInstallOnGlass`).
-    public func start(announcingDiagnostics: Bool = false, rotatingFavoriteThemes: Bool = false, freshInstall: Bool = false) {
+    /// A launch that made the settings file from nothing (``readAtLaunch(file:buildDefaults:)``) starts
+    /// the window on Glass (`startFreshInstallOnGlass`).
+    public func start(announcingDiagnostics: Bool = false, rotatingFavoriteThemes: Bool = false) {
         guard watcher == nil else { return }
         if announcingDiagnostics, diagnosticToasts == nil {
             let toasts = SettingsDiagnosticToasts(registry: applier.registry)
@@ -149,6 +150,7 @@ public final class SettingsController {
         watcher.start()
         startManagedWatchers()
         watchThemeFiles(named: ThemeFileSetting.name(in: snapshot.root))
+        let freshInstall = launchRead?.createdEmptyFile == true // loadNow lets the launch read go
         if loadCount == 0 { loadNow() } else { requestReload() }
         if rotatingFavoriteThemes { rotateFavoriteThemeAtLaunch(root: snapshot.root) }
         // A task, so it reads the Ghostty blur after the launch that called this set its reader.
@@ -364,7 +366,18 @@ public final class SettingsController {
         fileprivate let loaded: Loaded
         public let fileURL: URL
         let buildDefaults: SettingsBuildDefaults
+        /// This launch made the settings file from nothing (`CmuxConfigFile.LaunchFile`): a fresh install.
+        var createdEmptyFile = false
         public var snapshot: CmuxConfigSnapshot { loaded.snapshot }
+    }
+
+    /// ``readAtLaunch(fileURL:managedReader:buildDefaults:)`` of the launch's file, remembering whether
+    /// the launch made it from nothing, so ``start(announcingDiagnostics:rotatingFavoriteThemes:)``
+    /// starts a fresh install's window on Glass.
+    public static func readAtLaunch(file: CmuxConfigFile.LaunchFile, buildDefaults: SettingsBuildDefaults = .none) -> LaunchRead {
+        var read = readAtLaunch(fileURL: file.url, buildDefaults: buildDefaults)
+        read.createdEmptyFile = file.createdEmpty
+        return read
     }
 
     public static func readAtLaunch(

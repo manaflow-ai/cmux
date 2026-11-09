@@ -161,7 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // cmux.json's appearance goes on the Ghostty overrides before the
         // runtime's first config load, so the first frame needs no reload.
         let settingsRead = SettingsController.readAtLaunch(
-            fileURL: CmuxConfigFile.launchURL(), buildDefaults: .channel(downloadsAutomatically: UpdateBuildIdentity.main().track.downloadsAutomaticallyByDefault))
+            file: CmuxConfigFile.launchFile(), buildDefaults: .channel(downloadsAutomatically: UpdateBuildIdentity.main().track.downloadsAutomaticallyByDefault))
         TerminalThemeSetting.prime(settingsRead.snapshot)
         // Before the import cards start (AppActions.bind): off at launch, they never scan or resume.
         BrowserImportGate.prime(settingsRead.snapshot)
@@ -359,7 +359,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 bundleID: bundleID
             )
         )
-        settings.start(announcingDiagnostics: true, rotatingFavoriteThemes: true, freshInstall: OnboardingWindowPresenter.isFirstLaunch())
+        settings.start(announcingDiagnostics: true, rotatingFavoriteThemes: true)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, isFirstLaunch: OnboardingWindowPresenter.isFirstLaunch(), firstWindow: { [firstFrame] in await firstFrame.opened() })
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store, menuBar: services.menuBarExtra)
         services.mobile.follow(settings, launch: services.environment.launch, configureAdmission: services.iphone.followPhoneAccess)
