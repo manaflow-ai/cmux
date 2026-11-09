@@ -432,6 +432,9 @@ const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => void listeners.delete(listener);
 };
+/// Calls `listener` after each display change the host pushes; returns its stop (direct.ts's held
+/// prompt coach offers listen only while they wait for Prompt Coach to be turned on).
+export const onChatDisplayChange = subscribe;
 const snapshot = () => current;
 const minimapSnapshot = () => minimapOn;
 const threadMinimapSnapshot = () => threadMinimapArm;

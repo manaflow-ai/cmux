@@ -126,7 +126,7 @@ test("a history batch that holds the coach record after its offer asks nothing",
   }
 });
 
-test("with the setting off, nothing is asked and no card draws", async () => {
+test("with the setting off nothing is asked; turning it on asks for the held offer and keeps the made card", async () => {
   const { setChatDisplay, PROMPT_COACH_KEY } = await import("./chatDisplay");
   setChatDisplay({ [PROMPT_COACH_KEY]: false });
   const { client, cards, until, settle, asked, rows } = await open([
@@ -137,7 +137,19 @@ test("with the setting off, nothing is asked and no card draws", async () => {
     await until(() => rows().length > 0);
     await settle();
     expect(asked).toHaveLength(0);
-    expect(cards()).toHaveLength(0);
+    // The made card's row is kept; while the setting is off it draws nothing and its estimate is 0
+    // (rows/PromptCoachRow.tsx, model.ts).
+    const kept = cards();
+    expect(kept.map((row) => row.coach?.coachId)).toEqual(["k2"]);
+    // Turned on in this open chat: the held offer is asked for once, and both cards show.
+    setChatDisplay({ [PROMPT_COACH_KEY]: true });
+    await until(() => cards().length === 2);
+    expect(asked).toHaveLength(1);
+    expect((asked[0] as { coachId: string }).coachId).toBe("k1");
+    setChatDisplay({ [PROMPT_COACH_KEY]: false });
+    setChatDisplay({ [PROMPT_COACH_KEY]: true });
+    await settle();
+    expect(asked).toHaveLength(1);
   } finally {
     client.close?.();
   }

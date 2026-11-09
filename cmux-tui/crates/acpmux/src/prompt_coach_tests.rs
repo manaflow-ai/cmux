@@ -129,3 +129,27 @@ fn a_rewrite_answer_is_cleaned() {
     let long = "y".repeat(MAX_REWRITE_CHARS + 10);
     assert_eq!(clean_rewrite(&long).unwrap().chars().count(), MAX_REWRITE_CHARS + 1);
 }
+
+#[test]
+fn a_retried_prompt_id_counts_once() {
+    let mut coach = Coach::default();
+    coach.prompt_once("build it", Some("p0"));
+    coach.turn_ended(true);
+    // One correction, sent three times with the same id (a retry the daemon answers as a
+    // duplicate), is one correction.
+    for _ in 0..3 {
+        coach.prompt_once("no, in rust", Some("p1"));
+    }
+    coach.turn_ended(true);
+    coach.prompt_once("ok, ship it", Some("p2"));
+    assert!(!coach.turn_ended(true), "one correction, not three");
+    assert_eq!(coach.count(), 1);
+    // Prompts without an id are each counted.
+    for text in ["no, in go", "actually in zig"] {
+        coach.prompt_once(text, None);
+        coach.turn_ended(true);
+    }
+    coach.prompt_once("great", Some("p3"));
+    assert!(coach.turn_ended(true));
+    assert_eq!(coach.count(), 3);
+}

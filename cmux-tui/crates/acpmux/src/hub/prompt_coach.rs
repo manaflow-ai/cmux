@@ -65,9 +65,10 @@ fn read_log(hub: &Hub, sid: &str, id: &str) -> LogRead {
 }
 
 impl Hub {
-    /// A person's prompt to `session` (`server/requests.rs`), checked once as it is sent.
-    pub(crate) fn coach_prompt(&self, session: &Session, text: &str) {
-        session.coach.lock().unwrap_or_else(|e| e.into_inner()).prompt(text);
+    /// A person's prompt to `session` (`server/requests.rs`), checked once as it is sent; a retry
+    /// of its `promptId` is not counted again.
+    pub(crate) fn coach_prompt(&self, session: &Session, text: &str, prompt_id: Option<&str>) {
+        session.coach.lock().unwrap_or_else(|e| e.into_inner()).prompt_once(text, prompt_id);
     }
 
     /// A turn of `session` ended: once the chat qualifies, its offer is logged, unless an earlier

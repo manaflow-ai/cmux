@@ -20,6 +20,8 @@ pub const THRESHOLD: usize = 3;
 pub const MAX_KEPT: usize = 8;
 /// The longest prompt kept, in characters: the first prompt and each correction.
 pub const MAX_PROMPT_CHARS: usize = 2000;
+/// The prompt ids remembered, so a retried send counts once.
+const MAX_SEEN_IDS: usize = 32;
 /// The longest rewrite kept, in characters.
 pub const MAX_REWRITE_CHARS: usize = 4000;
 
@@ -37,9 +39,26 @@ pub struct Coach {
     offered: Option<String>,
     /// The offer's rewrite is being made, or was made: never asked twice.
     asked: bool,
+    /// The newest prompt ids seen, at most [`MAX_SEEN_IDS`]: a retry of one is not a new prompt.
+    seen_ids: std::collections::VecDeque<String>,
 }
 
 impl Coach {
+    /// A person's prompt with its `promptId`, if it has one: a retried send of an id seen
+    /// already (the daemon answers it as a duplicate and runs nothing) is not counted again.
+    pub fn prompt_once(&mut self, text: &str, id: Option<&str>) {
+        if let Some(id) = id {
+            if self.seen_ids.iter().any(|seen| seen == id) {
+                return;
+            }
+            if self.seen_ids.len() == MAX_SEEN_IDS {
+                self.seen_ids.pop_front();
+            }
+            self.seen_ids.push_back(id.to_owned());
+        }
+        self.prompt(text);
+    }
+
     /// A person's prompt.
     pub fn prompt(&mut self, text: &str) {
         let corrects = is_redirect(text);
