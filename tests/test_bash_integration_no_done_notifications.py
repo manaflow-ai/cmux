@@ -280,7 +280,8 @@ def test_bash_prompt_history_ignores_other_terminals_history() -> None:
         gh_stub = bin_path / "gh"
         send_log = tmp_path / "send.log"
         shared_history = tmp_path / "shared_history"
-        shared_history.write_text("", encoding="utf-8")
+        # Bash 3.2's `history -n` reads nothing new from a file that started empty.
+        shared_history.write_text("echo seed\n", encoding="utf-8")
 
         (repo_path / ".git").mkdir(parents=True)
         (repo_path / ".git" / "HEAD").write_text("ref: refs/heads/feature/x\n", encoding="utf-8")
@@ -325,6 +326,8 @@ def test_bash_prompt_history_ignores_other_terminals_history() -> None:
                 )
                 # A user hook appended after cmux's, as .bashrc setups do.
                 bash.run(' PROMPT_COMMAND="$PROMPT_COMMAND;history -a;history -n"')
+                # The prompt after a PROMPT_COMMAND change reports nothing.
+                bash.run("true")
                 bash.run("gh pr merge 7")
                 bash.run("true")
 
@@ -392,14 +395,12 @@ def test_bash_prompt_history_ignores_other_terminals_history() -> None:
         _remove_tree_after_reporters_exit(tmp)
 
 
-def test_bash_prompt_history_with_preexec_and_early_hooks() -> None:
-    """Bash before 4.4: cmux's prompt-history mark must not break bash-preexec.
+def _run_prompt_history_session(setup: list[str], steps: list[str]) -> tuple[list[str], list[str], str]:
+    """Runs bash on the pre-4.4 prompt-history path with shared history.
 
-    bash-preexec keeps `__bp_interactive_mode` as the last PROMPT_COMMAND entry
-    to arm its DEBUG trap for the user's next command; anything after it fires
-    preexec early and uses it up. A history sync hook that runs ahead of
-    cmux's prompt hook must still not get another terminal's command reported,
-    and HISTCONTROL=erasedups must not hide a repeated PR command.
+    Each step is a command line typed into this shell, or `other:<command>`
+    for a command another terminal appends to the shared history file. Returns
+    the PR-action payloads, the lines the setup's preexec logged, and the PTY.
     """
     repo_root = Path(__file__).resolve().parents[1]
     integration_script = repo_root / "Resources/shell-integration/cmux-bash-integration.bash"
@@ -414,7 +415,8 @@ def test_bash_prompt_history_with_preexec_and_early_hooks() -> None:
         send_log = tmp_path / "send.log"
         preexec_log = tmp_path / "preexec.log"
         shared_history = tmp_path / "shared_history"
-        shared_history.write_text("", encoding="utf-8")
+        # Bash 3.2's `history -n` reads nothing new from a file that started empty.
+        shared_history.write_text("echo seed\n", encoding="utf-8")
 
         (repo_path / ".git").mkdir(parents=True)
         (repo_path / ".git" / "HEAD").write_text("ref: refs/heads/feature/x\n", encoding="utf-8")
@@ -439,12 +441,9 @@ def test_bash_prompt_history_with_preexec_and_early_hooks() -> None:
                     "PATH": f"{bin_path}{os.pathsep}{os.environ.get('PATH', '')}",
                     "HISTFILE": str(shared_history),
                     "CMUX_BASH_TEST_PROMPT_HISTORY": "1",
+                    "PREEXEC_LOG": str(preexec_log),
                 }
             )
-
-            def other_terminal_runs(command: str) -> None:
-                with shared_history.open("a", encoding="utf-8") as handle:
-                    handle.write(command + "\n")
 
             with InteractiveBash(env) as bash:
                 bash.run("HISTCONTROL=ignorespace; shopt -s histappend")
@@ -457,64 +456,132 @@ def test_bash_prompt_history_with_preexec_and_early_hooks() -> None:
                     f"{shlex.quote(str(send_log))}; }}; "
                     '_cmux_send_bg() { _cmux_send "$1"; }'
                 )
-                # bash-preexec's contract: a history sync hook first (its
-                # precmd functions), `__bp_interactive_mode` last, and a DEBUG
-                # trap that fires preexec once per armed prompt.
-                bash.run(
-                    " __bp_interactive_mode() { _bp_armed=1; }; "
-                    "trap '[[ -n \"${_bp_armed:-}\" ]] && { _bp_armed=; "
-                    f"printf \"%s\\n\" \"$BASH_COMMAND\" >> {shlex.quote(str(preexec_log))}; }}' DEBUG; "
-                    'PROMPT_COMMAND="history -a; history -n"$\'\\n\'"$PROMPT_COMMAND"$\'\\n\'"__bp_interactive_mode"'
-                )
-                bash.run("echo one")
-                bash.run("echo two")
-                bash.run("echo three")
-                bash.run("gh pr merge 21")
-                other_terminal_runs("gh pr merge")
-                bash.run("echo four")
-                bash.run("gh pr merge 22")
-                bash.run("echo five")
-
-                bash.run(" HISTCONTROL=erasedups")
-                bash.run("gh pr merge 21")
-                bash.run("echo six")
-
-            preexec_commands = (
-                preexec_log.read_text(encoding="utf-8").splitlines()
-                if preexec_log.exists() else []
-            )
-            for expected in ("echo three", "echo four", "gh pr merge 22", "echo six"):
-                if expected not in preexec_commands:
-                    raise AssertionError(
-                        "cmux's prompt hooks must leave bash-preexec's "
-                        "`__bp_interactive_mode` last so preexec fires for "
-                        f"every command; missing {expected!r}.\n\n"
-                        f"Preexec saw:\n{preexec_commands}\n\n"
-                        f"Full PTY output:\n{bash.text}"
-                    )
-
-            sent_payloads = send_log.read_text(encoding="utf-8") if send_log.exists() else ""
-            actual_payloads = [
-                line for line in sent_payloads.splitlines()
-                if line.startswith("report_pr_action ")
-            ]
-            expected_payloads = [
-                f'report_pr_action merge --tab=tab-test --panel=panel-test --target="{target}"'
-                for target in ("21", "22", "21")
-            ]
-            if actual_payloads != expected_payloads:
-                raise AssertionError(
-                    "prompt-history PR reporting must report this terminal's own "
-                    "gh commands, including a repeat under erasedups, and never "
-                    "one pulled in from another terminal.\n\n"
-                    f"Expected:\n{expected_payloads}\n\n"
-                    f"Observed:\n{actual_payloads}\n\n"
-                    f"Full PTY output:\n{bash.text}"
-                )
+                for command in setup:
+                    bash.run(command)
+                for step in steps:
+                    if step.startswith("other:"):
+                        with shared_history.open("a", encoding="utf-8") as handle:
+                            handle.write(step[len("other:"):] + "\n")
+                    else:
+                        bash.run(step)
+            text = bash.text
         finally:
             sock.close()
+
+        sent = send_log.read_text(encoding="utf-8") if send_log.exists() else ""
+        payloads = [line for line in sent.splitlines() if line.startswith("report_pr_action ")]
+        preexec = preexec_log.read_text(encoding="utf-8").splitlines() if preexec_log.exists() else []
+        return payloads, preexec, text
     finally:
         _remove_tree_after_reporters_exit(tmp)
+
+
+def _merge_payloads(*targets: str) -> list[str]:
+    return [
+        f'report_pr_action merge --tab=tab-test --panel=panel-test --target="{target}"'
+        for target in targets
+    ]
+
+
+def test_bash_prompt_history_with_bash_preexec() -> None:
+    """bash-preexec keeps `__bp_interactive_mode` last to arm its DEBUG trap.
+
+    cmux's mark must not run after it (preexec would fire on the mark and skip
+    the user's command), a history sync in precmd_functions must not get
+    another terminal's command reported.
+    """
+    bash_preexec = (
+        ' __bp_precmd_invoke_cmd() { local s=$? f; for f in "${precmd_functions[@]}"; do '
+        '(exit $s); "$f"; done; }; '
+        "__bp_interactive_mode() { _bp_armed=1; }; "
+        "_sync() { history -a; history -n; }; precmd_functions=(_sync); "
+        "trap '[[ -n \"${_bp_armed:-}\" ]] && { _bp_armed=; "
+        "printf \"%s\\n\" \"$BASH_COMMAND\" >> \"$PREEXEC_LOG\"; }' DEBUG; "
+        'PROMPT_COMMAND="__bp_precmd_invoke_cmd"$\'\\n\'"$PROMPT_COMMAND"$\'\\n\'"__bp_interactive_mode"'
+    )
+    payloads, preexec, text = _run_prompt_history_session(
+        [bash_preexec, "true"],
+        [
+            "echo one", "echo two", "echo three", "gh pr merge 21",
+            "other:gh pr merge", "echo four", "", "other:gh pr merge 77", "",
+            "gh pr merge 22", "echo five",
+        ],
+    )
+    for expected in ("echo three", "echo four", "gh pr merge 22", "echo five"):
+        if expected not in preexec or "_cmux_bash_pr_history_mark" in preexec:
+            raise AssertionError(
+                "cmux's prompt hooks must leave bash-preexec's `__bp_interactive_mode` "
+                f"last so preexec fires for every command; missing {expected!r}.\n\n"
+                f"Preexec saw:\n{preexec}\n\nFull PTY output:\n{text}"
+            )
+    if payloads != _merge_payloads("21", "22"):
+        raise AssertionError(
+            "with bash-preexec, only this terminal's gh commands may be reported.\n\n"
+            f"Observed:\n{payloads}\n\nFull PTY output:\n{text}"
+        )
+
+
+def test_bash_prompt_history_untrusted_prompts_report_nothing() -> None:
+    """Prompts where another terminal's command could look like ours report nothing.
+
+    That covers a history sync hook placed ahead of cmux's (an empty Enter or
+    an ignored command adds no entry, so the next entry is another
+    terminal's), and the prompts right after a hook is appended, before
+    cmux's mark is trusted again.
+    """
+    payloads, _, text = _run_prompt_history_session(
+        [' PROMPT_COMMAND="history -a; history -n"$\'\\n\'"$PROMPT_COMMAND"'],
+        [
+            "echo a", "echo b", "other:gh pr merge 77", "",
+            "other:gh pr merge 78", " echo hidden", "other:gh pr close 79", "echo b",
+        ],
+    )
+    if payloads:
+        raise AssertionError(
+            "a history hook ahead of cmux's must not get another terminal's command "
+            f"reported.\n\nObserved:\n{payloads}\n\nFull PTY output:\n{text}"
+        )
+
+    payloads, _, text = _run_prompt_history_session(
+        [' PROMPT_COMMAND="$PROMPT_COMMAND;history -a;history -n"'],
+        ["other:gh pr merge 77", "echo a", "echo b", "gh pr merge 3", ""],
+    )
+    if payloads != _merge_payloads("3"):
+        raise AssertionError(
+            "another terminal's command written during the first commands must not "
+            f"be reported; this shell's own must be.\n\nObserved:\n{payloads}\n\n"
+            f"Full PTY output:\n{text}"
+        )
+
+
+def test_bash_prompt_history_keeps_starship_timer() -> None:
+    """starship (without bash-preexec) arms its DEBUG-trap timer last in PROMPT_COMMAND.
+
+    The same session checks that HISTCONTROL=erasedups, which keeps the newest
+    history number in place for a repeated command, does not hide a repeat.
+    """
+    starship = (
+        " starship_precmd() { STARSHIP_PREEXEC_READY=true; }; "
+        "trap '[[ \"${STARSHIP_PREEXEC_READY:-}\" == true ]] && { STARSHIP_PREEXEC_READY=false; "
+        "printf \"%s\\n\" \"$BASH_COMMAND\" >> \"$PREEXEC_LOG\"; }' DEBUG; "
+        'PROMPT_COMMAND="$PROMPT_COMMAND"$\'\\n\'"starship_precmd"'
+    )
+    payloads, preexec, text = _run_prompt_history_session(
+        [starship, "true"],
+        ["echo a", "echo b", "gh pr merge 4", "echo c",
+         " HISTCONTROL=erasedups", "gh pr merge 4", "echo d"],
+    )
+    if "_cmux_bash_pr_history_mark" in preexec or "echo c" not in preexec:
+        raise AssertionError(
+            "cmux's mark must not fire starship's command timer.\n\n"
+            f"Timer started on:\n{preexec}\n\nFull PTY output:\n{text}"
+        )
+    if payloads != _merge_payloads("4", "4"):
+        raise AssertionError(
+            "starship setups still report PR commands, including a repeat under "
+            f"erasedups.\n\nObserved:\n{payloads}\n\n"
+            f"Full PTY output:\n{text}"
+        )
 
 
 if __name__ == "__main__":
@@ -522,5 +589,9 @@ if __name__ == "__main__":
     print("PASS: no bash job completion notifications observed")
     test_bash_prompt_history_ignores_other_terminals_history()
     print("PASS: prompt-history PR reporting ignores other terminals' history")
-    test_bash_prompt_history_with_preexec_and_early_hooks()
+    test_bash_prompt_history_with_bash_preexec()
     print("PASS: prompt-history PR reporting keeps bash-preexec working")
+    test_bash_prompt_history_untrusted_prompts_report_nothing()
+    print("PASS: prompt-history PR reporting skips untrusted prompts")
+    test_bash_prompt_history_keeps_starship_timer()
+    print("PASS: prompt-history PR reporting keeps starship's timer")
