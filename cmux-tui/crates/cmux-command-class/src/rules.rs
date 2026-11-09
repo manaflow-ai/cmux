@@ -207,12 +207,12 @@ fn is_sink(path: &str) -> bool {
 
 /// `NAME=value`, `NAME+=value` or `NAME[i]=value`.
 fn is_assignment(word: &str) -> bool {
-    let Some(eq) = word.find('=') else {
+    let Some((name, _)) = word.split_once('=') else {
         return false;
     };
-    let name = word[..eq].trim_end_matches('+');
-    let name = match name.find('[') {
-        Some(open) if name.ends_with(']') => &name[..open],
+    let name = name.trim_end_matches('+');
+    let name = match name.split_once('[') {
+        Some((base, _)) if name.ends_with(']') => base,
         _ => name,
     };
     let mut chars = name.chars();
@@ -321,7 +321,7 @@ impl Classifier {
                 }
                 // Case patterns don't fit this lexer; fail closed.
                 "case" => return Classification::new(Machine, word),
-                _ => return self.command(&argv[i..], depth),
+                _ => return self.command(argv.get(i..).unwrap_or_default(), depth),
             }
         }
         Classification::new(FileRead, "")
@@ -329,10 +329,12 @@ impl Classifier {
 
     /// A command with its arguments; `args` is not empty.
     fn command(&self, args: &[&str], depth: usize) -> Classification {
-        let Some(name) = command_name(args[0]) else {
-            return Classification::new(Machine, args[0]);
+        let Some((&first, tail)) = args.split_first() else {
+            return Classification::new(Machine, "");
         };
-        let tail = &args[1..];
+        let Some(name) = command_name(first) else {
+            return Classification::new(Machine, first);
+        };
         match name {
             "timeout" => {
                 self.wrapped(name, tail, &["-s", "-k", "--signal", "--kill-after"], 1, depth)
@@ -419,7 +421,7 @@ impl Classifier {
                         .or_else(|| word.strip_prefix("-S"))
                         .unwrap_or_default();
                     let mut script = first.to_owned();
-                    for rest in &tail[j + 1..] {
+                    for rest in tail.get(j + 1..).unwrap_or_default() {
                         script.push(' ');
                         script.push_str(rest);
                     }
@@ -427,7 +429,7 @@ impl Classifier {
                 }
                 "-" => j += 1,
                 _ if is_flag(word) || is_assignment(word) => j += 1,
-                _ => return self.argv(&tail[j..], depth),
+                _ => return self.argv(tail.get(j..).unwrap_or_default(), depth),
             }
         }
         Classification::new(FileRead, "env")
@@ -447,9 +449,10 @@ impl Classifier {
                 "-o" | "+o" | "-O" | "+O" | "--rcfile" | "--init-file" => j += 2,
                 _ if word.starts_with("--") => j += 1,
                 _ if word.len() > 1 && (word.starts_with('-') || word.starts_with('+')) => {
-                    has_c |= word.starts_with('-') && word[1..].contains('c');
+                    let flags = word.get(1..).unwrap_or_default();
+                    has_c |= word.starts_with('-') && flags.contains('c');
                     // `-euo pipefail`: a cluster with `o` takes the next word.
-                    j += if word[1..].contains(['o', 'O']) { 2 } else { 1 };
+                    j += if flags.contains(['o', 'O']) { 2 } else { 1 };
                 }
                 _ => break,
             }
@@ -503,7 +506,7 @@ fn git(tail: &[&str]) -> Classification {
     let Some(&sub) = tail.get(j) else {
         return Classification::new(GitLocal, "git");
     };
-    let rest = &tail[j + 1..];
+    let rest = tail.get(j + 1..).unwrap_or_default();
     let first = rest.iter().copied().find(|w| !w.starts_with('-'));
     let class = match sub {
         "push" | "fetch" | "ls-remote" => Network,
@@ -562,7 +565,10 @@ fn gh(tail: &[&str]) -> Classification {
 /// `sed` prints unless it edits in place.
 fn sed(tail: &[&str]) -> Classification {
     let in_place = tail.iter().any(|w| {
-        w.starts_with("--in-place") || (is_flag(w) && !w.starts_with("--") && w[1..].contains('i'))
+        w.starts_with("--in-place")
+            || (is_flag(w)
+                && !w.starts_with("--")
+                && w.get(1..).is_some_and(|flags| flags.contains('i')))
     });
     if in_place {
         Classification::new(FileWrite, "sed -i")
@@ -602,7 +608,9 @@ fn awk(name: &str, tail: &[&str]) -> Classification {
 /// Whether an awk program (blanks removed) redirects with `op` into a quoted
 /// command or file. `"|"` or `">"`, a string holding the operator, doesn't count.
 fn awk_redirect(program: &str, op: &str) -> bool {
-    program.match_indices(op).any(|(at, _)| !program[..at].ends_with('"'))
+    program
+        .match_indices(op)
+        .any(|(at, _)| program.get(..at).is_some_and(|before| !before.ends_with('"')))
 }
 
 fn tee(tail: &[&str]) -> Classification {
@@ -627,10 +635,10 @@ fn curl(tail: &[&str]) -> Classification {
         } else if matches!(word, "--remote-name" | "--remote-name-all" | "--output-dir") {
             saves = true;
         } else if is_flag(word) && !word.starts_with("--") {
-            let flags = &word[1..];
+            let flags = word.get(1..).unwrap_or_default();
             saves |= flags.contains('O');
             if let Some(at) = flags.find('o') {
-                let attached = &flags[at + 1..];
+                let attached = flags.get(at + 1..).unwrap_or_default();
                 if attached.is_empty() {
                     saves |= tail.get(j).is_some_and(|path| !is_sink(path));
                     j += 1;
@@ -664,7 +672,7 @@ fn wget(tail: &[&str]) -> Classification {
             && !word.starts_with("--")
             && let Some(at) = word.find('O')
         {
-            let attached = &word[at + 1..];
+            let attached = word.get(at + 1..).unwrap_or_default();
             if attached.is_empty() {
                 output = tail.get(j).copied();
                 j += 1;
