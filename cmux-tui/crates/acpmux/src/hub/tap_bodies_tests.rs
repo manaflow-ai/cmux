@@ -185,3 +185,50 @@ fn a_claude_turns_raw_lines_are_logged_without_the_bodies_its_updates_carry() {
         bytes(&sent)
     );
 }
+
+/// Leo, 2026-11-09: "we should fix those too." Claude Code's whole system/init at every turn was
+/// ~99 MB a day of the log; through the tap a session's second init keeps its scalars and names
+/// the sections it left out (`claude_stdio/logged_init.rs`).
+#[test]
+fn a_repeated_system_init_is_logged_without_its_unchanged_sections() {
+    let hub = hub();
+    let s = claude_chat(&hub, "i");
+    let tap = hub.session_tap(&s);
+    let init = |uuid: &str| {
+        Message::notification(
+            "claude.system.init",
+            json!({"type": "system", "subtype": "init", "session_id": "cc-1", "uuid": uuid,
+                "tools": ["Bash", "Read"], "slash_commands": ["compact", "review"]}),
+        )
+    };
+    assert!(tap(Direction::In, &init("u1"), None));
+    assert!(tap(Direction::In, &init("u2"), None));
+    let logged = hub.store.events("i", 0, usize::MAX).unwrap();
+    let inits: Vec<&EventRecord> =
+        logged.iter().filter(|r| r.kind == "claude.system.init").collect();
+    assert_eq!(inits[0].msg["slash_commands"], json!(["compact", "review"]));
+    assert_eq!(
+        inits[1].msg,
+        json!({"type": "system", "subtype": "init", "session_id": "cc-1", "uuid": "u2",
+            "_acpmux": {"sameAsLastInit": ["slash_commands", "tools"]}})
+    );
+}
+
+/// Through the tap, Claude Code's state updates that repeat the last logged ones are not logged
+/// again (`update_repeats.rs`), while the session's meta still takes each one (`on_update`).
+#[test]
+fn repeated_state_updates_are_not_logged_again() {
+    let hub = hub();
+    let s = claude_chat(&hub, "r");
+    let tap = hub.session_tap(&s);
+    let tools = update(json!({"sessionUpdate": "session_info_update", "title": null,
+        "_meta": {"claude": {"tools": ["Bash"], "mcp_servers": []}}}));
+    let context = update(json!({"sessionUpdate": "session_info_update",
+        "_meta": {"acpmux": {"contextBreakdown": {"total": 7}}}}));
+    for msg in [&tools, &context, &tools, &context, &tools] {
+        assert!(tap(Direction::In, msg, None));
+    }
+    let logged = hub.store.events("r", 0, usize::MAX).unwrap();
+    let infos = logged.iter().filter(|r| r.kind == "session_info_update").count();
+    assert_eq!(infos, 2, "{logged:?}");
+}
