@@ -179,6 +179,7 @@ pub(crate) use spawn_options::{
     terminal_identity,
 };
 pub use spawn_options::{PaneSurfaceCreation, TerminalSpawnOptions};
+pub(crate) use topology_ops::split_direction_field;
 mod agent_chat_columns;
 #[cfg(unix)]
 mod agent_chat_notices;
@@ -225,6 +226,7 @@ use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
 mod agent_prompts;
 pub use agent_presence::{AgentActivity, AgentPresence};
+pub(crate) use agent_prompts::{with_agent_session, with_last_reply};
 mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
 use agent_types::{
@@ -350,7 +352,7 @@ use agent_hook_errors::{
 pub use agent_chat_columns::AGENT_CHAT_COLUMN_CODE;
 pub(crate) use agent_chat_columns::{
     agent_chat_columns, ensure_agent_chat_columns_unsplit, ensure_pane_column_not_agent_chat,
-    is_agent_chat_top, release_agent_chat_role,
+    is_agent_chat_top, pane_is_agent_chat_top, release_agent_chat_role,
 };
 pub use column_move::{ColumnMoveDirection, ColumnMoveError};
 pub(crate) use divider_visibility::DIVIDER_HIDDEN_FIELD;
@@ -378,7 +380,8 @@ use resource_content::ensure_screen_split_public_ids;
 pub(crate) use resource_topology::AgentCLIJobBusy;
 pub(crate) use resource_topology::{
     BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD,
-    PANE_SPLIT_FOCUS_FIELD, RoomClose, TabSplit, WORKSPACE_CREATE_FOCUS_FIELD,
+    PANE_SPLIT_FOCUS_FIELD, RoomClose, SCREEN_CREATE_FOCUS_FIELD, TabSplit,
+    WORKSPACE_CREATE_FOCUS_FIELD,
 };
 pub use rows::{RowHeightsOutcome, RowsError};
 pub(crate) use screen_groups::workspace_screen_groups;

@@ -1031,6 +1031,16 @@ fn start(
     if let Err(e) = crate::skills::install_builtin(&crate::skills::shared_dir(&paths.home)) {
         eprintln!("optchat-chief: installing the shipped Chief skills: {e}");
     }
+    // The person's Claude Code skills cmux.json names (`chief.claudeSkills`,
+    // default every `emil-*` skill) join the shared Chief skills
+    // (slash_skills.rs).
+    let linked = crate::slash_skills::link_default_claude_skills(&paths.home);
+    if !linked.is_empty() {
+        eprintln!(
+            "optchat-chief: linked Claude skills into the Chief skills: {}",
+            linked.join(", ")
+        );
+    }
     // The tool packs cmux ships (toolpacks.rs); their skills reach each
     // Chief through session_dir::write (toolpacks::sync_skills).
     if let Err(e) = crate::toolpacks::install_builtin(&crate::toolpacks::shared_dir(&paths.home)) {
@@ -1405,6 +1415,15 @@ fn start(
             ControlRequest::Engine(request) => {
                 let (reply, answer) = channel();
                 tx.send(Input::Engine { request, reply })
+                    .map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
+            ControlRequest::StartSubagent(name) => {
+                let (reply, answer) = channel();
+                tx.send(Input::StartSubagent { name, reply })
                     .map_err(stopping)?;
                 answer
                     .recv_timeout(wait)

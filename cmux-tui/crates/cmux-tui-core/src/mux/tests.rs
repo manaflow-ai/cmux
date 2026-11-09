@@ -12,6 +12,7 @@ mod agent_roster_catch_up;
 mod agent_roster_fold_lock;
 mod agent_roster_poison;
 mod agent_roster_restore;
+mod agent_screen_exit;
 mod cell_pixel_fanout;
 mod cell_pixels;
 mod column_update;

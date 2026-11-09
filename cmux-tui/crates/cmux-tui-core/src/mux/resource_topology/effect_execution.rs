@@ -907,12 +907,16 @@ impl Mux {
             ResourceOperation::PaneCreate
         }
         .wire_name();
-        // Split Down (`down`, not swapped above its target) may grow the agent chat dock below
-        // its chat (#29848); every other new pane in the dock is refused.
-        let splits_down = row_height.is_none() && split_direction == Some((SplitDir::Down, false));
+        // Split Down may grow the agent chat dock below its chat (#29848), and so may Split Up
+        // (`up`, split-before-v1) of a pane below the chat: the new pane lands between them, as
+        // `down` then `swap-pane` did. Every other new pane in the dock is refused.
+        let vertical = row_height.is_none() && matches!(split_direction, Some((SplitDir::Down, _)));
+        let up = split_direction == Some((SplitDir::Down, true));
+        let splits_down =
+            |state: &State| vertical && (!up || !pane_is_agent_chat_top(state, target));
         if viewport_width.is_none() {
             self.with_state(|state| {
-                ensure_pane_column_not_agent_chat(operation, state, target, splits_down)
+                ensure_pane_column_not_agent_chat(operation, state, target, splits_down(state))
             })?;
         }
         let workspace_key = self
@@ -971,7 +975,7 @@ impl Mux {
                 anyhow::bail!("pane disappeared before new pane attachment");
             };
             if viewport_width.is_none() {
-                ensure_pane_column_not_agent_chat(operation, &state, target, splits_down)?;
+                ensure_pane_column_not_agent_chat(operation, &state, target, splits_down(&state))?;
             }
             let workspace_id = state.workspaces[workspace].id;
             let screen_id = state.workspaces[workspace].screens[screen_index].id;

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 85d48312afa033913baf00baf6d8023710286adfb8dee65e731ca5d4bf025153. */
+/* cmux-tui mux protocol 12, IR e9e3c14c0c9bea8be5b214b0f2b89a5a040f34ea68060b5bd8598c2d456d16c2. */
 
 
 import type * as T from "./types.js";
@@ -1939,6 +1939,7 @@ export type ParkTabsResult = T.JsonValue;
 export interface PasteImageRequest extends CmuxRequestBase {
   cmd: "paste-image";
   "data"?: (string) | null;
+  "filename"?: (string) | null;
   "lease": string;
   "mime"?: (string) | null;
   "offset"?: (bigint) | null;
@@ -2621,6 +2622,7 @@ export interface ShutdownDaemonRequest extends CmuxRequestBase {
   "generation": string;
   "keep_layout"?: boolean;
   "pid": number;
+  "restart"?: (boolean) | null;
 }
 
 /** Protocol v6; authority: frontend. */
@@ -2645,6 +2647,7 @@ export interface SplitRequest extends CmuxRequestBase {
   cmd: "split";
   /** The split the new split wraps whole (the new pane after it, as wide or tall as the whole subtree): inserting a pane at a divider. pane must be that split's last pane and dir right or down. */
   "around"?: (T.Id) | null;
+  "before"?: boolean;
   "cols"?: (number) | null;
   "cwd"?: (string) | null;
   "dir": T.SplitDirection;

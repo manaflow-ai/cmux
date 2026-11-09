@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "85d48312afa033913baf00baf6d8023710286adfb8dee65e731ca5d4bf025153";
+inline constexpr std::string_view kProtocolIrSha256 = "e9e3c14c0c9bea8be5b214b0f2b89a5a040f34ea68060b5bd8598c2d456d16c2";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -845,6 +845,7 @@ struct AgentRecord {
     std::optional<std::uint64_t> since_ms{};
     AgentSource source{};
     AgentState state{};
+    Field<AgentState> status{};
     Id surface{};
     std::uint64_t updated_at_ms{};
     friend bool operator==(const AgentRecord&, const AgentRecord&) = default;
@@ -2746,6 +2747,7 @@ struct CreateWorkspaceRequest {
 };
 
 struct DaemonShutdownEvent {
+    std::optional<bool> restart{};
     friend bool operator==(const DaemonShutdownEvent&, const DaemonShutdownEvent&) = default;
 };
 
@@ -4334,6 +4336,7 @@ struct ParticipantAvatarChangedEvent {
 
 struct PasteImageRequest {
     Field<std::string> data{};
+    Field<std::string> filename{};
     std::string lease{};
     Field<std::string> mime{};
     Field<std::uint64_t> offset{};
@@ -5441,6 +5444,7 @@ struct ShutdownDaemonRequest {
     std::string generation{};
     std::optional<bool> keep_layout{};
     std::uint32_t pid{};
+    Field<bool> restart{};
     friend bool operator==(const ShutdownDaemonRequest&, const ShutdownDaemonRequest&) = default;
 };
 
@@ -5504,6 +5508,7 @@ struct SnapshotRequestResult {
 
 struct SplitRequest {
     Field<Id> around{};
+    std::optional<bool> before{};
     Field<std::uint16_t> cols{};
     Field<std::string> cwd{};
     SplitDirection dir{};

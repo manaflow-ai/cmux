@@ -45,12 +45,12 @@ public final class CmuxToastWebHost: CmuxToastHosting, CmuxToastReanchoring {
         }
     }
 
-    private let pool = CmuxToastWebHost.makePool()
+    private let pool: OverlayPagePool<CmuxToastPageProvider>
 
     /// The toasts' page pool. A first click in an inactive window presses a toast's button, as the
     /// native toast's buttons did (review of #37289 at 97fe7eab, F1), not only the window.
-    static func makePool() -> OverlayPagePool<CmuxToastPageProvider> {
-        OverlayPagePool(route: "/toasts", acceptsFirstMouse: true) { CmuxToastPageProvider() }
+    static func makePool(overlayProcess: PageOverlayProcess? = nil) -> OverlayPagePool<CmuxToastPageProvider> {
+        OverlayPagePool(route: "/toasts", acceptsFirstMouse: true, overlayProcess: overlayProcess) { CmuxToastPageProvider() }
     }
     private var stacks: [ObjectIdentifier: Stack] = [:]
 
@@ -62,8 +62,10 @@ public final class CmuxToastWebHost: CmuxToastHosting, CmuxToastReanchoring {
     /// reports its toasts (the widest a toast gets).
     static let assumedWidth: CGFloat = 420
 
-    /// Draws `center`'s toasts from now on (the composition root makes one, for the shared center).
-    public init(drawing center: CmuxToastCenter) {
+    /// Draws `center`'s toasts from now on (the composition root makes one, for the shared center). Its pages
+    /// run in `overlayProcess` (the app's one ``PageOverlayProcess``); nil gives each its own process.
+    public init(drawing center: CmuxToastCenter, overlayProcess: PageOverlayProcess? = nil) {
+        pool = Self.makePool(overlayProcess: overlayProcess)
         center.host = self
     }
 

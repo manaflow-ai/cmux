@@ -215,7 +215,7 @@ pub const HARNESS: Argument = Argument { name: "harness", title: Text::raw("Harn
 #[rustfmt::skip]
 pub const ENGINE_2: Argument = Argument { name: "engine", title: Text::raw("Engine"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
-pub const CHIEF: Argument = Argument { name: "chief", title: t("HomeActions", "argument.home.chief.id", "Chief"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
+pub const CHIEF: Argument = Argument { name: "chief", title: t("HomeActions", "argument.home.chief.id", "Chief"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "homeChiefs", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
 pub const CONVERSATION: Argument = Argument { name: "conversation", title: t("HomeActions", "argument.home.conversation", "Conversation"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
@@ -250,8 +250,6 @@ pub const STYLE: Argument = Argument { name: "style", title: t("HomeActions", "a
 pub const EXPANDED: Argument = Argument { name: "expanded", title: t("HomeActions", "argument.home.playgroundExpanded", "Expanded"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
 pub const TEAM: Argument = Argument { name: "team", title: t("HomeActions", "argument.home.playgroundTeam", "Team Chat"), kind: ArgKind::Bool, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
-#[rustfmt::skip]
-pub const OPEN: Argument = Argument { name: "open", title: t("HomeActions", "argument.home.playgroundOpen", "Pill Click"), kind: ArgKind::Int(Some((0, 6))), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
 pub const PEER: Argument = Argument { name: "peer", title: t("HomeActions", "argument.home.playgroundPeer", "Agent"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]

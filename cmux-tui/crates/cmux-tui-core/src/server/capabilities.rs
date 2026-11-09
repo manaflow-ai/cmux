@@ -214,7 +214,10 @@ pub fn build_capabilities() -> Vec<&'static str> {
             && *capability != BROWSER_RUNTIME_CAPABILITY
     });
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
-    capabilities.retain(|capability| *capability != crate::image_paste::CAPABILITY);
+    capabilities.retain(|capability| {
+        *capability != crate::image_paste::CAPABILITY
+            && *capability != crate::image_paste::FILE_CAPABILITY
+    });
     capabilities.sort_unstable();
     capabilities.dedup();
     capabilities
@@ -232,6 +235,7 @@ pub(super) fn advertised_capabilities(
         split_kind::SPLIT_CLIENT_SPLIT_ID_CAPABILITY,
         split_kind::SPLIT_AROUND_CAPABILITY,
         crate::mux::SPLIT_DIVIDER_VISIBILITY_CAPABILITY,
+        split_kind::SPLIT_BEFORE_CAPABILITY,
         creating_input::TERMINAL_INPUT_WHILE_CREATING_CAPABILITY,
         cmd_terminal_io::SEND_EXPECT_FOREGROUND_CAPABILITY,
         cmd_terminal_io::SEND_EXPECT_AGENT_CAPABILITY,
@@ -276,7 +280,6 @@ pub(super) fn advertised_capabilities(
         terminal_snapshot::ATTACH_VISIBILITY_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_HISTORY_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_LOCAL_HISTORY_CAPABILITY,
-        terminal_snapshot::TERMINAL_SNAPSHOT_IMAGES_CAPABILITY,
         CREATION_RECEIPTS_CAPABILITY,
         CREATION_ATTEMPT_KEYS_CAPABILITY,
         CREATION_SELECTOR_FALLBACKS_CAPABILITY,
@@ -288,6 +291,7 @@ pub(super) fn advertised_capabilities(
         MACHINE_LISTENING_TCP_CAPABILITY,
         TERMINAL_PORTS_CAPABILITY,
         SERVER_STATS_CAPABILITY,
+        DAEMON_SHUTDOWN_RESTART_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
         RESUME_COMMAND_CAPABILITY,
@@ -310,6 +314,9 @@ pub(super) fn advertised_capabilities(
         WORKSPACE_CREATE_FOCUS_CAPABILITY,
         WORKSPACE_SIDEBAR_PLACEMENT_CAPABILITY,
         WORKSPACE_CREATED_BY_CAPABILITY,
+        TERMINAL_READ_UNWRAP_CAPABILITY,
+        TERMINAL_WAIT_NEW_CAPABILITY,
+        TERMINAL_EXIT_STATUS_CAPABILITY,
         TAB_METADATA_CAPABILITY,
         FRONTEND_BROWSER_TABS_CAPABILITY,
         FRONTEND_BROWSER_HISTORY_CAPABILITY,
@@ -444,7 +451,7 @@ pub(super) fn advertised_capabilities(
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
     }
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
-    capabilities.push(crate::image_paste::CAPABILITY);
+    capabilities.extend([crate::image_paste::CAPABILITY, crate::image_paste::FILE_CAPABILITY]);
     capabilities.extend(crate::apps::advertised_capabilities());
     #[cfg(unix)]
     capabilities.extend(crate::fs_ops::advertised());

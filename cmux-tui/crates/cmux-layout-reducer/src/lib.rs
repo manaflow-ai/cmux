@@ -958,6 +958,7 @@ pub mod closing_panes;
 pub mod divider_insert;
 
 pub mod group_hover_summary;
+pub mod keep_awake;
 pub mod new_placement;
 pub mod optimistic;
 #[cfg(kani)]

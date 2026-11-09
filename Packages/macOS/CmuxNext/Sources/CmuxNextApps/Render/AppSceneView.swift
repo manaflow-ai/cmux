@@ -24,7 +24,7 @@ public struct AppSceneView: View {
         Group {
             switch model.status {
             case .failed(let reason):
-                AppSceneFailureRow(reason: reason)
+                AppSceneFailureRow(reason: reason, onReload: { [model] in model.reload() })
             case .disconnected(let reason):
                 AppSceneFailureRow(reason: reason, symbol: "bolt.horizontal", tone: \.tertiary)
             case .loading, .ready:
@@ -36,21 +36,40 @@ public struct AppSceneView: View {
     }
 }
 
-/// The error row of a failed mount.
+/// The error card of a failed mount: the reason in full (selectable, so it can be copied), the
+/// script line it names on its own line, and Reload, which runs the saved script again.
 struct AppSceneFailureRow: View {
     @Environment(\.appSceneColors) private var colors
     let reason: String
     var symbol = "exclamationmark.triangle"
     var tone: KeyPath<AppSceneColors, Color> = \.attention
+    /// Nil: no Reload (a disconnected mount comes back by itself).
+    var onReload: (() -> Void)?
 
     var body: some View {
+        let failure = AppScriptFailure(reason: reason)
         HStack(alignment: .firstTextBaseline, spacing: Metrics.space2) {
             Icon(symbol: symbol, size: 13)
                 .foregroundStyle(colors[keyPath: tone])
-            Text(reason)
-                .font(Font(Typography.caption))
-                .foregroundStyle(colors.secondary)
-                .lineLimit(3)
+            VStack(alignment: .leading, spacing: Metrics.space1) {
+                Text(failure.message)
+                    .font(Font(Typography.caption))
+                    .foregroundStyle(colors.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                if let location = failure.location {
+                    Text(location)
+                        .font(Font(Typography.caption).monospaced())
+                        .foregroundStyle(colors.tertiary)
+                        .textSelection(.enabled)
+                }
+                if let onReload {
+                    Button(AppsStrings.reload, action: onReload)
+                        .buttonStyle(.link)
+                        .font(Font(Typography.caption))
+                        .help(AppsStrings.reloadHelp)
+                }
+            }
         }
         .padding(.horizontal, Metrics.space4)
         .padding(.vertical, Metrics.space2)

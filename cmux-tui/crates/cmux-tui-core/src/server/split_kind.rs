@@ -45,6 +45,10 @@ pub(super) struct SplitParams {
     /// instead of `pane` alone. `pane` must be that split's last leaf.
     #[serde(default)]
     around: Option<SplitId>,
+    /// `split-before-v1`: the new pane goes before `pane` on the split axis
+    /// (Split Left with `dir: "right"`, Split Up with `dir: "down"`).
+    #[serde(default)]
+    before: bool,
     #[serde(flatten)]
     content: PaneContentParams,
 }
@@ -53,6 +57,13 @@ pub(super) struct SplitParams {
 /// (the new pane after it, as wide or tall as the whole subtree): inserting
 /// a pane at a divider. `pane` must be the split's last leaf.
 pub(super) const SPLIT_AROUND_CAPABILITY: &str = "split-around-v1";
+
+/// `split` takes `before: true`, which puts the new pane before the target on
+/// the split axis (left of it for `right`, above it for `down`) in the one
+/// split commit, so a client that shows Split Left or Split Up before the
+/// daemon has it (`split-client-keys-v1`) gets the layout it already shows,
+/// with no `swap-pane` after it.
+pub(super) const SPLIT_BEFORE_CAPABILITY: &str = "split-before-v1";
 
 /// `split` takes a client-minted `split_id` for the split it makes, and every
 /// layout split node carries its public id as `split_id`, so a client that
@@ -207,10 +218,7 @@ pub(super) fn split(mux: &Arc<Mux>, client: u64, mut params: SplitParams) -> any
         if let Some(around) = params.around {
             fields.insert(crate::mux::AROUND_SPLIT_FIELD.into(), Value::from(around));
         }
-        let direction = match dir {
-            SplitDir::Right => "right",
-            SplitDir::Down => "down",
-        };
+        let direction = crate::mux::split_direction_field(dir, params.before);
         let surface = mux.split_browser_pane_with_fields_as(
             &origin_gate::connection_actor(mux, client),
             params.pane,
@@ -225,10 +233,11 @@ pub(super) fn split(mux: &Arc<Mux>, client: u64, mut params: SplitParams) -> any
     let mut spawn = params.content.spawn(mux, client)?;
     spawn.split_id = params.split_id;
     spawn.around = params.around;
-    let created = mux.split_with_options_as(
+    let created = mux.split_placed_with_options_as(
         &origin_gate::connection_actor(mux, client),
         params.pane,
         dir,
+        params.before,
         spawn,
         size,
     )?;

@@ -67,6 +67,9 @@ pub(super) struct OpenWork {
     /// `permission_request` records by agent request id: (permissionId,
     /// request, logged decision when there is one).
     pub(super) permissions: HashMap<String, (String, Value, Option<Value>)>,
+    /// When each of those was first asked, and under which turn, by permissionId: the review
+    /// index takes them before the ask is reissued, so a restored ask keeps its age and turn.
+    pub(super) asked_at: HashMap<String, (u64, Option<String>)>,
     /// Of those, the agent request ids whose logged decision an ancestor session gave
     /// (`answeredBy.session`, `subsession_answer.rs`).
     ancestor_answers: std::collections::HashSet<String>,
@@ -555,7 +558,7 @@ impl Hub {
         };
         // Its replay is not known to be in the log until its end is learned (below).
         child.mark_replay_unknown();
-        let proven = self.adopt_caller_token(&session.id, caller_token);
+        let proven = self.adopt_caller_token(&session.id, caller_token, &incarnation);
         // A fork through an adopted agent asks for the list it started with
         // (`spawn.rs` decides it at session/new for a spawned one).
         let meta = session.meta();
@@ -1034,6 +1037,8 @@ impl Hub {
                         });
                         asked.insert(aid.to_string(), (pid.to_owned(), request, decided));
                         by_permission.insert(pid.to_owned(), aid.to_string());
+                        let turn = e.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
+                        work.asked_at.insert(pid.to_owned(), (e.at, turn));
                     }
                 }
                 ("mux", "permission_withdrawn")
@@ -1190,7 +1195,7 @@ impl Hub {
     ) {
         Self::recover_floor(session, &work);
         session.compacting.store(work.compacting, Ordering::SeqCst);
-        self.rebuild_processes(session);
+        self.recover_processes(session);
         // A carried turn the restart cut before its prompt went out (or before it started):
         // the agent runs it still, and it goes on (`carried_turn.rs`).
         if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) = work.turn.clone()
@@ -1399,6 +1404,14 @@ impl Hub {
                 && let Some((permission_id, request, decided)) =
                     work.permissions.get(&id.to_string()).cloned()
             {
+                // The review index learns the ask as first recorded, before any reissue.
+                if (decided.is_none() || work.ancestor_answers.contains(&id.to_string()))
+                    && let Some((at, turn)) = work.asked_at.get(&permission_id)
+                {
+                    let original = json!({"permissionId": permission_id.clone(),
+                                          "turnId": turn, "request": request.clone()});
+                    self.review_index.note_ask(&session.id, &original, *at);
+                }
                 if floored {
                     let cancelled = json!({"outcome": {"outcome": "cancelled"}});
                     let _ = child.respond(id.clone(), Ok(cancelled)).await;
@@ -1588,6 +1601,9 @@ impl Hub {
                    "agentRequestId": agent_request_id.clone()}),
         );
         self.set_status(session, SessionStatus::Waiting);
+        // A chat restored as Waiting changes no status here, so its parent's count of asks below
+        // is decided now: a new daemon starts every count at none (`asks_below.rs`).
+        self.refresh_parent_asks_below(session);
         let hub = self.clone();
         let s = session.clone();
         let c = child.clone();
@@ -1860,6 +1876,7 @@ impl Hub {
             router_owner_fifo: crate::daemon::router_owner_path(),
             cwd_pin: crate::cwd_pin::CwdPin::current(),
             orphan_exit: None,
+            prompt_suggestions_managed: crate::claude_stdio::prompt_suggestions::managed(),
         };
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
         // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
@@ -1922,7 +1939,7 @@ impl Hub {
         if let Some(pid) = record.harness_pid {
             crate::cpu_class::clear_running(pid);
         }
-        self.forget_adopted_caller(&session.id);
+        self.forget_adopted_caller(&session.id, &record.incarnation);
         // Logged before the first entry, so a later controller counts every
         // entry of this incarnation.
         let mut started = json!({

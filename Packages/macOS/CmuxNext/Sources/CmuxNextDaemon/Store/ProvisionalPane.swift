@@ -44,6 +44,9 @@ public struct ProvisionalPane: Sendable, Hashable {
     /// Set when the pane wraps a whole split (`split-around-v1`, Insert New at a divider): the split shows
     /// that split and the new pane after it, where the split request names the split's last pane.
     public private(set) var around: SplitID?
+    /// Set when the pane opens before the target on the split axis (Split Left, Split Up; `split {before: true}`,
+    /// `split-before-v1`): the split shows it as its first side, where the daemon's split puts it.
+    public private(set) var before = false
 
     /// This pane, its terminal opening in `cwd` (the create's own folder, ``cwd``).
     public func opening(in cwd: String?) -> ProvisionalPane {
@@ -56,6 +59,13 @@ public struct ProvisionalPane: Sendable, Hashable {
     public func wrapping(_ around: SplitID?) -> ProvisionalPane {
         var pane = self
         pane.around = around
+        return pane
+    }
+
+    /// This pane, opening before the target on the split axis when `before` (``before``).
+    public func placed(before: Bool) -> ProvisionalPane {
+        var pane = self
+        pane.before = before
         return pane
     }
 

@@ -208,8 +208,8 @@ public struct Metrics {
     /// The density's outer corner radius, used when `layout.paneCornerRadius` is unset:
     /// the omnibar's 8 pt in every density (Lawrence 2026-11-05: "default roundness is too
     /// round now", "default roundness should be omnibar roundness"). The tab pills and the
-    /// sidebar's rows nest the corner padding inside it; the main pane is less round than
-    /// the 16 pt window across its 6 pt gutter, never rounder.
+    /// sidebar's rows nest the corner padding inside it. The curved main pane does not read it
+    /// by default: it is concentric with the window instead (`mainPaneCornerRadius(windowCornerRadius:)`).
     public static var densityPaneCornerRadius: CGFloat { MetricTunables.densityPaneCornerRadius.value }
     /// How panes are told apart (`layout.paneSeparation`, else the legacy
     /// `layout.paneBorder` and padding).
@@ -334,9 +334,11 @@ public struct Typography {
 
     /// Tab titles, sidebar rows, palette results.
     public static var body: NSFont { system(.default, size: size(12, 13), weight: .regular) }
-    /// Tab titles: `appearance.metrics.tabFontSize` (times the interface scale when it is on), else `body`.
+    /// Tab titles: `appearance.metrics.tabFontSize` (times the interface scale when it is on), else Chrome's 12 pt at
+    /// every density (Chromium's `ChromeTypographyProvider` gives a tab label its default 12 pt; Lawrence 2026-11-07:
+    /// match Chrome's tab title size).
     public static var tabTitle: NSFont {
-        guard let points = DesignSettings.shared.overrides[.tabFontSize] else { return body }
+        guard let points = DesignSettings.shared.overrides[.tabFontSize] else { return system(.default, size: size(12, 12), weight: .regular) }
         return system(.default, size: Metrics.scale(points), weight: .regular)
     }
     /// Selected or emphasized row titles.

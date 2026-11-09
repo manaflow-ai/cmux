@@ -214,6 +214,15 @@ function expandedBy({ node, previousRect: was, currentRect: now }: LayoutShiftSo
   // A box with no previous area (a clipped shimmer band in the line under the fold) only came
   // into view: no move of its own to judge, so it goes with the rows it sits in.
   if (was.width <= 0 || was.height <= 0) return following;
+  // One with no current area left the view: the browser clips its new rect to nothing, so the rect
+  // says nothing of where it went. A row after the target that an opening pushed past the
+  // transcript's bottom (the running turn's live line under a digest that opens whole) is the
+  // expansion's push; judge it by where its box is now, which must be straight below where it was.
+  if (now.width <= 0 || now.height <= 0) {
+    if (!following) return false;
+    const live = element.getBoundingClientRect();
+    return Math.abs(live.x - was.x) <= MOVE_SLACK && live.y > was.y + MOVE_SLACK;
+  }
   const dx = now.x - was.x;
   const dy = now.y - was.y;
   if (Math.abs(dx) > MOVE_SLACK) return false;

@@ -137,6 +137,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `set-divider-visible {split, visible}`, and a screen's `hidden_dividers`: a split's divider
     /// drawn or not, kept with the layout.
     case splitDividerVisibility = "split-divider-visibility-v1"
+    /// `split {before: true}`: the new pane opens before its target on the split axis in the one split (Split Left,
+    /// Split Up), so the app shows it there in the key's turn and sends no `swap-pane`.
+    case splitBefore = "split-before-v1"
     /// Client-minted `pane_id` / `tab_id` on `new-row` (New Row in the key's turn), as
     /// ``splitClientKeys`` on `split`.
     case rowClientKeys = "row-client-keys-v1"
@@ -505,8 +508,6 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// A READY cut exactly at a host resize, restored with the view's own
     /// reflowed history (S2c; plans/cmux-next/ghostty-next.md 2.2).
     case terminalSnapshotLocalHistory = "terminal-snapshot-local-history-v1"
-    /// The Kitty image replay after a plain READY (S3k).
-    case terminalSnapshotImages = "terminal-snapshot-images-v1"
     /// The OSC 52 clipboard-read broker: `terminal-clipboard-subscribe`,
     /// `terminal-clipboard-reply` and the targeted read events
     /// (`TerminalClipboardBroker`; plans/cmux-next/ghostty-config.md).
@@ -566,7 +567,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .tabWorkspaceName, .notificationAck, .feedLocalOwner, .tabGroups, .savedTabGroups, .workspacePin,
              .workspaceChecklist, .notificationMarkUnread, .tabMarkUnread, .tabAttention, .tabAttentionRequestID, .workspaceDescription, .workspaceStatus,
              .screenMetadata, .screenGroups, .stateResources, .windowRecords, .terminalEnv, .terminalPlacementEnv,
-             .splitClientKeys, .splitClientSplitID, .splitAround, .splitDividerVisibility, .rowClientKeys, .conversationTabSplit, .frontendBrowserTabSplit,
+             .splitClientKeys, .splitClientSplitID, .splitAround, .splitDividerVisibility, .splitBefore, .rowClientKeys, .conversationTabSplit, .frontendBrowserTabSplit,
              .terminalInputWhileCreating, .terminalReap, .resumeCommand, .terminalLastCommand, .terminalReaperActive,
              .endTerminalsKeepLayout, .batchClose, .sendExpectForeground, .closeReason, .closeWorkspaceIfEmpty,
              .browserHostProvider, .remoteHost, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
@@ -589,7 +590,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .browserFitWidth, .keybindings, .iconAssets, .projectList, .tabSplitRespawn, .tabSplitKeepFocus,
              .workspaceCreateFocus, .attachIdentity, .creationReceipts, .creationAttemptKeys,
              .terminalColorOverrides, .terminalSnapshotHistory, .terminalSnapshotLocalHistory,
-             .terminalSnapshotImages, .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
+             .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare:
             return .optional

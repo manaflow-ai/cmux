@@ -16,15 +16,17 @@ import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { ChangelogStore, compareVersions, type UpdateSpan } from "./store";
 import type { ReleaseNotes } from "./types";
-import type { UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
+import type { ChangelogTarget, UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
 import { UpdatedCard, UpdateReadyHighlights } from "./UpdateSurfaces";
+import { UpdatedNotes } from "./UpdatedNotes";
 import { rememberRow, type CardDragHost, type CardPlace, type CardRow } from "./updatedCardDrag";
 import "../shared/pageBase.css";
 import "../../ui/glass/composerMaterial.css";
 import "./updateSurfaces.css";
 import "./surface.css";
 
-export type SurfaceKind = "ready" | "updated";
+/** `updated-notes`: the Updated card's changes in a popover beside the sidebar (UpdatedNotes.tsx). */
+export type SurfaceKind = "ready" | "updated" | "updated-notes";
 
 export const SurfaceOps = {
   get: "cmux.changelog.surface.get",
@@ -51,7 +53,7 @@ function isCardPlace(value: unknown): value is CardPlace {
 
 /** `#/surface/ready` -> "ready"; null for any other route. */
 export function parseSurface(hash: string): SurfaceKind | null {
-  const match = /^#\/surface\/(ready|updated)\b/.exec(hash);
+  const match = /^#\/surface\/(ready|updated-notes|updated)\b/.exec(hash);
   return match ? (match[1] as SurfaceKind) : null;
 }
 
@@ -64,13 +66,15 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
   // the lens draws no wallpaper copy over it, not even around a tooltip's glass.
   if (kind === "updated") document.documentElement.setAttribute(NATIVE_GLASS_ATTRIBUTE, "");
   const call = (op: string, params: unknown = {}) => void client?.call(op, params).catch(() => undefined);
+  // A row (the card's list, or its changes beside the sidebar) opens What's New at its change. Only a
+  // row's target goes to the host: a button's click event passed along is not one.
+  const openChangelog = (target?: ChangelogTarget) =>
+    call(SurfaceOps.openChangelog, {
+      ...(typeof target?.area === "string" ? { area: target.area } : {}),
+      ...(typeof target?.title === "string" ? { title: target.title } : {}),
+    });
   const actions: UpdateSurfaceActions =
-    kind === "updated"
-      ? {
-          openChangelog: () => call(SurfaceOps.openChangelog),
-          dismiss: () => call(SurfaceOps.dismiss),
-        }
-      : { openChangelog: () => call(SurfaceOps.openChangelog) };
+    kind === "updated" ? { openChangelog, dismiss: () => call(SurfaceOps.dismiss) } : { openChangelog };
   // The sidebar host draws the Updated card's x natively (SidebarUpdatedCardHost: WebKit shows no
   // hover and takes no first click while a Chromium page's window has the key). Escape closes the
   // card once the page has the keyboard (a click into it).
@@ -82,8 +86,8 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
     });
   }
   const react = createRoot(root);
-  // Both surfaces read the notes of every build the update spans: the card sums them up, the
-  // popover lists every change (Leo 2026-11-05: "i can't even scroll through the changes").
+  // Every surface reads the notes of every build the update spans: the card sums them up, the
+  // popovers list every change (Leo 2026-11-05: "i can't even scroll through the changes").
   const spans = client ? new SpanNotes(client, () => render(latest)) : null;
   let latest: UpdateHighlights | null = null;
   // The Updated card's hover preview: where the host says the pointer is, and the room the open
@@ -126,6 +130,8 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
               strings={strings}
               actions={actions}
             />
+          ) : kind === "updated-notes" ? (
+            <UpdatedNotes data={data} span={spans?.notes(data.changelog)} strings={strings} actions={actions} />
           ) : (
             <UpdatedCard
               data={data}

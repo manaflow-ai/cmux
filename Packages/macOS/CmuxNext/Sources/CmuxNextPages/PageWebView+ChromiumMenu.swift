@@ -43,6 +43,7 @@ extension PageWebView {
             menu.addItem(copy)
         }
         if let contextMenuEditor { contextMenuEditor(menu) } else { Self.keepDefaultMenuItems(in: menu) }
+        appendDeveloperTools(to: menu)
         guard menu.items.contains(where: { !$0.isSeparatorItem }) else { return request.finish() }
         // The menu tracks from a run-loop callout of its own, never inline. The request comes inside
         // a CEF pump pass (the pump skips a pass it re-enters, so Chromium stood still while the

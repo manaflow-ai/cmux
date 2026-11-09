@@ -929,6 +929,9 @@
         "values": [
           "\"daemon-shutdown\""
         ]
+      },
+      "/restart": {
+        "ty": "boolean"
       }
     },
     "event:detached": {
@@ -10783,6 +10786,10 @@
         "ty": "string",
         "nullable": true
       },
+      "/filename": {
+        "ty": "string",
+        "nullable": true
+      },
       "/lease": {
         "ty": "string",
         "required": true
@@ -12054,6 +12061,10 @@
       "/pid": {
         "ty": "uint32",
         "required": true
+      },
+      "/restart": {
+        "ty": "boolean",
+        "nullable": true
       }
     },
     "request:sidebar-plugin": {
@@ -12103,6 +12114,9 @@
       "/around": {
         "ty": "uint64",
         "nullable": true
+      },
+      "/before": {
+        "ty": "boolean"
       },
       "/cols": {
         "ty": "uint16",
@@ -17353,6 +17367,17 @@
       "/data/agents/*/state": {
         "ty": "enum",
         "required": true,
+        "values": [
+          "blocked",
+          "done",
+          "idle",
+          "unknown",
+          "working"
+        ]
+      },
+      "/data/agents/*/status": {
+        "ty": "enum",
+        "nullable": true,
         "values": [
           "blocked",
           "done",

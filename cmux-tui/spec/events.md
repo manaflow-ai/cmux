@@ -1399,13 +1399,21 @@ Example:
 Payload:
 
 ```text
-object{event:"daemon-shutdown"}
+object{event:"daemon-shutdown",restart?:boolean}
 ```
 
 Meaning: Sent on the control queue to every live control client after the
 `shutdown-daemon` or `session.shutdown` success response is flushed. It is sent even when the
 requesting client did not open a subscription. Clients should classify the
 following EOF and pending requests as expected daemon shutdown.
+
+`restart` repeats the requester's `shutdown-daemon` `restart`: `true` when a replacement
+daemon takes over the same session (the interactive TUI reconnects and keeps its view),
+`false` when the session stops (the TUI exits with a message). The daemon sends it only to a
+client that listed `daemon-shutdown-restart-v1` in `set-client-info` (servers advertise it in
+`identify`), so strict older decoders keep reading the bare event. It is absent when the
+requester did not say (`session.shutdown`, an older CLI); the TUI then tries to reconnect
+for a short time.
 
 Example:
 

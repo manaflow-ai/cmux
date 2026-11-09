@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 85d48312afa033913baf00baf6d8023710286adfb8dee65e731ca5d4bf025153.
+// cmux-tui mux protocol 12, IR e9e3c14c0c9bea8be5b214b0f2b89a5a040f34ea68060b5bd8598c2d456d16c2.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2798,6 +2798,8 @@ pub type ParkTabsResult = T::JsonValue;
 pub struct PasteImageRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub data: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub filename: Optional<String>,
     pub lease: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mime: Optional<String>,
@@ -3735,6 +3737,8 @@ pub struct ShutdownDaemonRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub keep_layout: Option<bool>,
     pub pid: u32,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub restart: Optional<bool>,
 }
 
 #[rustfmt::skip]
@@ -3764,6 +3768,8 @@ pub struct SplitRequest {
     /// The split the new split wraps whole (the new pane after it, as wide or tall as the whole subtree): inserting a pane at a divider. pane must be that split's last pane and dir right or down.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub around: Optional<T::Id>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub before: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -5283,6 +5289,9 @@ impl CmuxClient {
     }
 
     pub fn paste_image(&mut self, request: PasteImageRequest) -> Result<PasteImageResult> {
+        if !request.filename.is_missing() {
+            self.require_capability_field("paste-image", "terminal-file-paste-v1")?;
+        }
         self.execute(&PASTE_IMAGE_METADATA, &request)
     }
 
@@ -5726,6 +5735,9 @@ impl CmuxClient {
             self.require_protocol_field("shutdown-daemon", 12)?;
             self.require_capability_field("shutdown-daemon", "end-terminals-keep-layout-v1")?;
         }
+        if !request.restart.is_missing() {
+            self.require_protocol_field("shutdown-daemon", 12)?;
+        }
         self.execute(&SHUTDOWN_DAEMON_METADATA, &request)
     }
 
@@ -5741,6 +5753,10 @@ impl CmuxClient {
         if !request.around.is_missing() {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "split-around-v1")?;
+        }
+        if request.before.is_some() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "split-before-v1")?;
         }
         if !request.cwd.is_missing() {
             self.require_protocol_field("split", 12)?;

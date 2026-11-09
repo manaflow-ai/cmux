@@ -65,23 +65,17 @@ const CLOUD_API_CALLS = [
   "cloud.runs.sandbox",
   "cloud.runs.start",
   "cloud.runs.wait",
-  "cloud.vm.delete_snapshot",
   "cloud.vm.domains",
   "cloud.vm.firewall_create",
   "cloud.vm.firewall_delete",
   "cloud.vm.firewall_get",
   "cloud.vm.firewall_list",
-  "cloud.vm.fork",
   "cloud.vm.networks",
   "cloud.vm.provision_api",
   "cloud.vm.publication_api_keys",
   "cloud.vm.publications",
-  "cloud.vm.resize",
-  "cloud.vm.restore",
   "cloud.vm.revoke_publication_api_key",
   "cloud.vm.scp_endpoint",
-  "cloud.vm.snapshot",
-  "cloud.vm.snapshots",
   "cloud.vm.tunnel_attach",
   "cloud.vm.tunnel_detach",
   "cloud.vm.tunnel_enroll",
@@ -204,7 +198,9 @@ export function generate(): Record<string, string> {
     "coderouter.accounts.list": { scope: "coderouter:read", class: "read" },
     "coderouter.usage.get": { scope: "coderouter:read", class: "read" },
     // The Agent Memory app's search, from the agent memory index (optchat-chief agent-memory).
-    "memory.search": { scope: "memory:read", class: "read" }
+    "memory.search": { scope: "memory:read", class: "read" },
+    // The agent chats the sidebar shows (AgentChatAppOps in CmuxNextApps), for a customize section's thread list.
+    "agent_chat.list": { scope: "agent_chat:read", class: "read" }
   }
   Object.assign(scopes, hostOps)
 

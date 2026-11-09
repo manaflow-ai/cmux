@@ -8,6 +8,7 @@ version = "1.0.0"
 dependencies = [
  "acpmux-build-id",
  "acpmux-hot",
+ "aho-corasick",
  "anyhow",
  "base64",
  "bytes",
@@ -26,6 +27,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-local-url",
  "cmux-mcp-connect",
  "cmux-palette-ranker",
  "cmux-panic-log",
@@ -33,6 +35,8 @@ dependencies = [
  "cmux-server",
  "cmux-server-core",
  "cmux-tailnet",
+ "cmux-transport",
+ "cmux-tui-platform",
  "cmux-unix-socket",
  "cmux-vault-egress",
  "cmux-wg",
@@ -1549,6 +1553,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-local-url"
+version = "0.1.0"
+dependencies = [
+ "regex",
+]
+
+[[package]]
 name = "cmux-mcp-connect"
 version = "0.1.0"
 dependencies = [
@@ -1938,6 +1949,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-terminal-prediction"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-terminal-sizing"
 version = "0.1.0"
 dependencies = [
@@ -1953,6 +1968,7 @@ version = "0.1.0"
 name = "cmux-transport"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "proptest",
 ]
 
@@ -1980,6 +1996,7 @@ dependencies = [
  "cmux-cloud-wire",
  "cmux-config",
  "cmux-conversation",
+ "cmux-focus-core",
  "cmux-git",
  "cmux-holder",
  "cmux-host",
@@ -2092,6 +2109,7 @@ dependencies = [
  "cmux-conversation",
  "cmux-feed-core",
  "cmux-flow-trace",
+ "cmux-focus-core",
  "cmux-git",
  "cmux-history",
  "cmux-holder",
@@ -2100,6 +2118,7 @@ dependencies = [
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-local-url",
  "cmux-palette-ranker",
  "cmux-process",
  "cmux-pty",
