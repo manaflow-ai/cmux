@@ -3492,7 +3492,15 @@ impl<'a> Socket<'a> {
             // window and discard the scoreboard. If the repair is lost too,
             // the probe resends it before the RTO.
             if repr.seq_number == self.local_seq_no {
-                self.arm_retransmit_timer(cx.now());
+                // As arm_retransmit_timer, inline: `repr` still borrows the
+                // send buffer.
+                let rto = self.rtte.retransmission_timeout();
+                match self.probe_timeout() {
+                    Some(probe) if probe < rto => {
+                        self.timer.set_for_tail_loss_probe(cx.now(), probe, rto)
+                    }
+                    _ => self.timer.set_for_retransmit(cx.now(), rto),
+                }
             }
         }
 
