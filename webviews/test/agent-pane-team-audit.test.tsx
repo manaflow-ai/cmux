@@ -193,6 +193,36 @@ test("Team's table shows each row's measures, and Download CSV asks for the file
   await act(async () => root.unmount());
 });
 
+test("switching the grouping keeps the last rows under their own heading until the new reply comes", async () => {
+  const { TeamAuditScreen } = await import("../src/agent-session/acpmux/teamAudit/TeamAuditScreen");
+  let release: (value: unknown) => void = () => undefined;
+  const load = (params: Record<string, unknown>) =>
+    params.groupBy === "day" ? new Promise((resolve) => (release = resolve)) : Promise.resolve(answer());
+  const root: Root = createRoot(host);
+  await act(async () => root.render(<TeamAuditScreen load={load} now={NOW} />));
+  await settle();
+  const heading = () => host.querySelector("thead .tma-key")?.textContent;
+  const keys = () => [...host.querySelectorAll("tbody .tma-key")].map((cell) => cell.textContent);
+  expect(heading()).toBe("Person");
+  const trigger = host.querySelector<HTMLElement>(".cst-controls [aria-haspopup=menu]")!;
+  await act(async () => trigger.click());
+  await settle();
+  const day = [...dom.window.document.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find(
+    (item) => item.textContent?.trim() === "Day",
+  )!;
+  await act(async () => day.click());
+  await settle();
+  // The day read is still out: the person rows stay, still labelled as people.
+  expect(host.querySelector(".tma")!.hasAttribute("data-loading")).toBe(true);
+  expect(heading()).toBe("Person");
+  expect(keys()).toEqual(["user_a", "user_b"]);
+  await act(async () => release(answer({ groupBy: "day", rows: [{ ...totals(), key: "2026-11-09" }] })));
+  await settle();
+  expect(heading()).toBe("Day");
+  expect(keys()).toEqual(["Mon, Nov 9"]);
+  await act(async () => root.unmount());
+});
+
 test("Team says why there is nothing: not in a sharing team, off, signed out", async () => {
   const { TeamAuditScreen } = await import("../src/agent-session/acpmux/teamAudit/TeamAuditScreen");
   for (const [status, words] of [
