@@ -9627,7 +9627,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudPicked: sandbox.mode === "cloud",
     started: Boolean(snapshot.sessionId),
   };
-  const cloudHintDue = !quick && !onOtherMachine && cloudChatHintDue(cloudHintFacts);
+  /// Only where it draws: the chat composer, or the New Tab screen (not the classic New Tab page, nor
+  /// history), so a claim never spends the budget on a hint nobody saw.
+  const cloudHintDraws =
+    !showNewTab || (newTab !== undefined && !newTab.history && shownTemplate(newTab) !== "classic");
+  const cloudHintDue = !quick && !onOtherMachine && cloudHintDraws && cloudChatHintDue(cloudHintFacts);
   const claimCloudHint = cloudHint.claim;
   useEffect(() => {
     if (cloudHintDue) claimCloudHint();

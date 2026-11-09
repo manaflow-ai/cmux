@@ -150,7 +150,7 @@ test("it shows once: the app's claim records it, and the next new chat has none 
   expect(hint.current().record).toBe("done");
 });
 
-test("within 14 days of another tip the app refuses it, and it never shows", async () => {
+test("within 14 days of another tip the app refuses it, and this page shows none", async () => {
   const host = memoryTipHost();
   host.lastShownAt = host.now() - 86_400_000;
   const hint = await mountHint(host);

@@ -10,15 +10,16 @@ import type { TipHost } from "../../ui/featureTips/store";
 /// own storage, which ends with the launch). It shows at most once per install (Leo, 2026-11-06, on
 /// tips and guides: far too many, far too often): when a new chat could show it, the page asks the
 /// app (`claim`), and the app says yes only once, and only when no tip showed in the last 14 days,
-/// spending that one budget the feature tips and the sidebar's card share. A no, a later new
+/// spending that one budget the feature tips and the sidebar's card share. Once shown, a later new
 /// chat, a close or a Cloud pick by any path (the hint, the Where menu, New Cloud Chat in the
-/// palette) ends it for good. An app that keeps no records shows no hint, since a hint that could
+/// palette) ends it for good; a no ends it for this page only, so a later page may ask again once
+/// the budget is open. An app that keeps no records shows no hint, since a hint that could
 /// not stay closed must not show at all; neither does an install whose feature tips are off.
 export const CLOUD_CHAT_HINT_ID = "cloud-chat";
 
 /// `unknown`: the record has not been read yet (nothing shows); `open`: no record, the page may ask
 /// the app for it; `shown`: the app granted it to this new chat; `done`: it showed, was closed or
-/// used, the app refused it, or the app keeps no records.
+/// used, the app refused it to this page, or the app keeps no records.
 export type CloudChatHintRecord = "unknown" | "open" | "shown" | "done";
 
 /// The record of `records` for the hint: a record of any kind is done.
