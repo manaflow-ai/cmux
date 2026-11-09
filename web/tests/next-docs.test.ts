@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import cliGenerated from "../data/next-docs/cli-reference.generated.json";
@@ -7,6 +7,7 @@ import paletteGenerated from "../data/next-docs/palette-reference.generated.json
 import settingsGenerated from "../data/next-docs/settings-reference.generated.json";
 import { nextDocHref, nextDocPage, nextDocPages, nextDocPublicPath } from "../data/next-docs/pages";
 import { buildLlmsText, resolveAgentPageVariant } from "../app/lib/agent-page-paths";
+import { buildNextDocsFullText } from "../app/lib/next-docs-text";
 import { sitemapEntries } from "../app/sitemap";
 import {
   buildCliReference,
@@ -108,6 +109,10 @@ describe("cmux-next docs", () => {
       "cmux action list", "cmux action run", "cmux <noun> <verb>", "cmux mcp serve", "cmux mcp tools",
       "cmux settings set", "cmux version", "cmux harness add", "cmux harness secret", "cmux harness doctor",
       "cmux acp ledger", "cmux acp machine", "cmux cloud secret", "cmux machine vault",
+      // acpmux's sessions and daemon (cmux-tui/crates/acpmux/docs/cli-sessions.md, cli-daemon.md),
+      // and `cmux device` (src/devices/mod.rs).
+      "cmux acp ls", "cmux acp new", "cmux acp send", "cmux acp wait", "cmux acp last", "cmux acp daemon",
+      "cmux device list", "cmux device doctor", "cmux device revoke",
     ]);
     const unknown: string[] = [];
     for (const page of nextDocPages) {
@@ -120,6 +125,17 @@ describe("cmux-next docs", () => {
       }
     }
     expect(unknown).toEqual([]);
+  });
+
+  // The architecture pages point at the code of each part. A move or rename of that code would
+  // leave the page pointing at nothing, so every cited path must still exist.
+  test("every repository path a hand-written page cites exists", () => {
+    const cited = nextDocPages.flatMap((page) =>
+      page.body.flatMap((block) => ("source" in block ? block.source.map((path) => ({ slug: page.slug, path })) : [])),
+    );
+    expect(cited.length).toBeGreaterThan(0);
+    const missing = cited.filter(({ path }) => path.startsWith("/") || path.includes("..") || !existsSync(join(repo, path)));
+    expect(missing.map(({ slug, path }) => `${slug}: ${path}`)).toEqual([]);
   });
 
   test("the sidebar lists every page once, in nightly only", () => {
@@ -144,6 +160,21 @@ describe("cmux-next docs", () => {
     }
     expect(nextDocPublicPath("getting-started")).toBe("/docs/nightly/next");
     expect(nextDocPublicPath("own-keys")).toBe("/docs/nightly/next/own-keys");
+  });
+
+  // Agents read the docs more than people do: llms-full.txt gives them every page in one fetch.
+  test("llms-full.txt carries every page's headings, commands and cited code paths", () => {
+    const full = buildNextDocsFullText("https://cmux.com");
+    expect(buildLlmsText("https://cmux.com")).toContain("https://cmux.com/llms-full.txt");
+    expect(resolveAgentPageVariant("/llms-full.txt")).toBeNull();
+    for (const page of nextDocPages) {
+      expect(full).toContain(`# ${page.title}\n\nURL: https://cmux.com${nextDocPublicPath(page.slug)}`);
+      for (const block of page.body) {
+        if ("h2" in block) expect(full).toContain(`## ${block.h2}`);
+        if ("code" in block) expect(full).toContain(block.code);
+        if ("source" in block) for (const path of block.source) expect(full).toContain(`[\`${path}\`]`);
+      }
+    }
   });
 
   test("Markdown variants resolve on cmux.com and in the nightly zone", () => {

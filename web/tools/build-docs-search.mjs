@@ -356,6 +356,8 @@ function nextDocsContent(href) {
     else if ("p" in block) text(block.p);
     else if ("note" in block) text(block.note);
     else if ("code" in block) text(block.code);
+    else if ("diagram" in block) text(block.caption);
+    else if ("source" in block) text(block.source.join(" "));
     else for (const item of block.ul) text(item);
   }
   if (page.generated === "cli") {

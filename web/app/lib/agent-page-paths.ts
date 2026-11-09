@@ -441,6 +441,7 @@ export function buildLlmsText(
     "",
     "## Agent-readable pages",
     "",
+    `- [Every cmux NEXT docs page in full, as one Markdown file](${link("/llms-full.txt")})`,
     ...agentReadablePages.flatMap(({ path, title }) => [
       `- [${title}](${link(variantPathForPage(path, "md"))})`,
       `  - Text: ${link(variantPathForPage(path, "txt"))}`,
