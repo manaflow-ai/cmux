@@ -20,15 +20,43 @@ use super::super::{
 use super::build::{Build, BuildControl, CaughtUp, build, catch_up, ensure_build_state, set_state};
 use super::chunks::{CHUNK_SCHEMA, StagedRecord, insert_chunk};
 use super::codec::{inflate_segment, split_records};
+use super::session_puts::{
+    SESSION_PUT_KIND, SESSION_PUTS_SCHEMA, SESSION_PUTS_STATE, SessionPuts, record_live_puts,
+    release_held_puts,
+};
 use super::{
     MAX_KEPT_RECORDS, OUTPUT_KIND, copied_bytes, free_space_refusal, kept_refusal, live_records,
-    remove_staging, staged_bytes_refusal, staging_path,
+    refused_path, remove_if_present, remove_staging, staged_bytes_refusal, staging_path,
 };
 use crate::platform;
 
 /// Format 3 stores kept records compressed (`chunks.rs`); a format 2 file
-/// (plain JSON per record) is discarded and staged again.
-const STAGING_FORMAT: &str = "3";
+/// (plain JSON per record) is discarded and staged again. Format 4 drops
+/// superseded session puts (`session_puts.rs`): a format 3 file kept them
+/// all, so it is staged again.
+const STAGING_FORMAT: &str = "4";
+/// Session put records (live rows, and every record of a sealed segment
+/// that lists the kind) from which a registry without stored output still
+/// needs the cleanup: superseded puts may be most of its journal.
+const PUT_RECORDS_WORTH_A_CLEANUP: u64 = 100_000;
+
+#[cfg(test)]
+thread_local! {
+    /// [`PUT_RECORDS_WORTH_A_CLEANUP`] for a test on this thread.
+    pub(super) static PUT_RECORDS_LIMIT: std::cell::Cell<u64> =
+        const { std::cell::Cell::new(PUT_RECORDS_WORTH_A_CLEANUP) };
+}
+
+#[cfg(test)]
+fn put_records_worth_a_cleanup() -> u64 {
+    PUT_RECORDS_LIMIT.with(std::cell::Cell::get)
+}
+
+#[cfg(not(test))]
+fn put_records_worth_a_cleanup() -> u64 {
+    PUT_RECORDS_WORTH_A_CLEANUP
+}
+
 /// Free space is checked again after this many staged segments.
 const SEGMENTS_PER_SPACE_CHECK: u64 = 256;
 const PROGRESS_LOG_INTERVAL: Duration = Duration::from_secs(10);
@@ -46,7 +74,8 @@ pub(super) fn progress_log_interval() -> Duration {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum StageOutcome {
-    /// No stored terminal output: nothing to clean up.
+    /// No stored terminal output and too few session puts to matter:
+    /// nothing to clean up.
     NotNeeded,
     /// The new registry is built (and was kept current until the owner
     /// stopped); the next owner start swaps.
@@ -107,13 +136,18 @@ fn stage_registry_until_stopped(
         .with_context(|| format!("open workspace registry {}", db_path.display()))?;
     source.busy_timeout(Duration::from_secs(5))?;
     stop_reads_on(&source, control.stopped.clone())?;
-    if !output_present(&source)? {
+    if let Some(reason) = refusal_memo(db_path, journal_head(&source)?) {
+        return Ok(StageOutcome::Skipped(reason));
+    }
+    if !output_present(&source)? && !session_puts_present(&source)? {
         return Ok(StageOutcome::NotNeeded);
     }
     // A mixed segment counts as output here (the staged count checks it as
     // it goes), but every record counts toward the journal's size.
     let sealed = sealed_records(&source, 0)?;
-    let (live_kept, live_total) = live_records(&source)?;
+    // Before the live puts are read, none counts as kept: the staged counts
+    // check the real number as staging goes.
+    let (live_kept, live_total) = live_records(&source, None)?;
     if let Some(reason) = kept_refusal(sealed.kept_at_least + live_kept, sealed.total + live_total)
     {
         remove_staging(db_path)?;
@@ -126,6 +160,8 @@ fn stage_registry_until_stopped(
     }
     let registry_id = required_meta(&source, "registry_id")?;
     let staging = open_staging(db_path, &registry_id)?;
+    // Before any segment is staged: the latest live put of each session.
+    record_live_puts(&source, &staging)?;
     let build_control = BuildControl { next_step: control.next_segment, space: (db_path, copied) };
     // Each pass stages what was sealed since the last one (a restart: the
     // owner sealed while the live rows were staged) or ends; a stop ends it.
@@ -149,6 +185,7 @@ fn stage_registry_until_stopped(
     if let Some(reason) = abandoned {
         drop(staging);
         remove_staging(db_path)?;
+        write_refusal_memo(db_path, journal_head(&source)?, &reason);
         return Ok(StageOutcome::Skipped(reason));
     }
     // Until the owner stops: the records it appends go into the built
@@ -160,6 +197,7 @@ fn stage_registry_until_stopped(
             CaughtUp::Abandoned(reason) => {
                 drop(staging);
                 remove_staging(db_path)?;
+                write_refusal_memo(db_path, journal_head(&source)?, &reason);
                 return Ok(StageOutcome::Skipped(reason));
             }
         }
@@ -193,8 +231,10 @@ fn stage_sealed(
         Staged::Finished => {}
         other => return Ok(other),
     }
+    // Every sealed segment is staged: the held puts are the latest ones.
+    release_held_puts(staging)?;
     let (staged_kept, staged_total) = staged_records(staging)?;
-    let (live_kept, live_total) = live_records(source)?;
+    let (live_kept, live_total) = live_records(source, Some(&SessionPuts::load(staging)?))?;
     if let Some(reason) = staged_bytes_refusal(staging)?
         .or_else(|| kept_refusal(staged_kept + live_kept, staged_total + live_total))
     {
@@ -237,10 +277,80 @@ pub(super) fn output_present(source: &Connection) -> anyhow::Result<bool> {
     )?)
 }
 
+/// At least [`PUT_RECORDS_WORTH_A_CLEANUP`] session put records, counted
+/// from the `(kind, sequence)` index (stopping at the bound) and the
+/// segment kind map (every record of a segment that lists the kind).
+pub(super) fn session_puts_present(source: &Connection) -> anyhow::Result<bool> {
+    let limit = put_records_worth_a_cleanup();
+    let (live, sealed): (i64, i64) = source.query_row(
+        "SELECT (SELECT COUNT(*) FROM (
+                   SELECT 1 FROM session_journal INDEXED BY session_journal_by_kind_sequence
+                   WHERE kind = ?1 LIMIT ?2)),
+                (SELECT COALESCE(SUM(segment.record_count), 0) FROM journal_segments AS segment
+                 WHERE EXISTS (SELECT 1 FROM journal_segment_kinds AS kinds
+                               WHERE kinds.segment_id = segment.segment_id AND kinds.kind = ?1))",
+        params![SESSION_PUT_KIND, i64::try_from(limit)?],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    Ok(u64::try_from(live)?.saturating_add(u64::try_from(sealed)?) >= limit)
+}
+
+/// The journal's last sequence, live or sealed (two index seeks).
+fn journal_head(source: &Connection) -> anyhow::Result<u64> {
+    let head: i64 = source.query_row(
+        "SELECT MAX(COALESCE((SELECT MAX(sequence) FROM session_journal), 0),
+                    COALESCE((SELECT MAX(end_sequence) FROM journal_segments), 0))",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(u64::try_from(head)?)
+}
+
+/// Records that staging finished and was refused at journal head `head`,
+/// so later starts do not stage the same journal again (each would copy it
+/// all and be refused the same way). Best effort: without the memo the next
+/// start stages again.
+fn write_refusal_memo(db_path: &Path, head: u64, reason: &str) {
+    let memo = format!("format {STAGING_FORMAT}\nhead {head}\n{reason}\n");
+    if let Err(error) = std::fs::write(refused_path(db_path), memo) {
+        eprintln!("cmux-tui: output cleanup: could not record the refusal: {error}");
+    }
+}
+
+/// `Some(reason)` while a refusal memo covers this journal: same staging
+/// format, and the journal head below twice the head it was refused at. A
+/// memo past that (or unreadable) is removed and the cleanup runs again.
+fn refusal_memo(db_path: &Path, head: u64) -> Option<String> {
+    let path = refused_path(db_path);
+    let text = std::fs::read_to_string(&path).ok()?;
+    let mut lines = text.lines();
+    let format = lines.next().and_then(|line| line.strip_prefix("format "));
+    let refused_at = lines
+        .next()
+        .and_then(|line| line.strip_prefix("head "))
+        .and_then(|n| n.parse::<u64>().ok());
+    let reason = lines.next().unwrap_or_default();
+    if let Some(refused_at) = refused_at
+        && format == Some(STAGING_FORMAT)
+        && head < refused_at.saturating_mul(2)
+    {
+        return Some(format!(
+            "staging was refused at journal head {refused_at} ({reason}); it runs again once \
+             the journal reaches {}",
+            refused_at.saturating_mul(2)
+        ));
+    }
+    if let Err(error) = remove_if_present(&path) {
+        eprintln!("cmux-tui: output cleanup: could not remove {}: {error:#}", path.display());
+    }
+    None
+}
+
 /// The records of the sealed segments after sequence `after`, from their
 /// kind map alone (a row of each segment, never its content).
 pub(super) struct SealedRecords {
-    /// Records of segments without output: kept for certain.
+    /// Records of segments without output or session puts: kept for certain
+    /// (superseded puts are dropped, and the map does not say how many).
     pub(super) kept_at_least: u64,
     /// Records of every segment that is not output only (mixed and unmapped
     /// segments too): at most this many are kept.
@@ -251,7 +361,8 @@ pub(super) struct SealedRecords {
 
 pub(super) fn sealed_records(source: &Connection, after: u64) -> anyhow::Result<SealedRecords> {
     let (at_least, at_most, total): (i64, i64, i64) = source.query_row(
-        "SELECT COALESCE(SUM(CASE WHEN has_other AND NOT has_output THEN record_count END), 0),
+        "SELECT COALESCE(SUM(CASE WHEN has_other AND NOT has_output AND NOT has_put
+                                  THEN record_count END), 0),
                 COALESCE(SUM(CASE WHEN has_other OR NOT has_output THEN record_count END), 0),
                 COALESCE(SUM(record_count), 0)
          FROM (
@@ -260,11 +371,14 @@ pub(super) fn sealed_records(source: &Connection, after: u64) -> anyhow::Result<
                          WHERE kinds.segment_id = segment.segment_id AND kinds.kind = ?1)
                     AS has_output,
                   EXISTS(SELECT 1 FROM journal_segment_kinds AS kinds
+                         WHERE kinds.segment_id = segment.segment_id AND kinds.kind = ?3)
+                    AS has_put,
+                  EXISTS(SELECT 1 FROM journal_segment_kinds AS kinds
                          WHERE kinds.segment_id = segment.segment_id AND kinds.kind != ?1)
                     AS has_other
            FROM journal_segments AS segment
            WHERE segment.start_sequence > ?2)",
-        params![OUTPUT_KIND, i64::try_from(after)?],
+        params![OUTPUT_KIND, i64::try_from(after)?, SESSION_PUT_KIND],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
     )?;
     Ok(SealedRecords {
@@ -329,8 +443,9 @@ pub(super) fn open_staging(db_path: &Path, registry_id: &str) -> anyhow::Result<
          );",
     )?;
     connection.execute_batch(CHUNK_SCHEMA)?;
+    connection.execute_batch(SESSION_PUTS_SCHEMA)?;
     let tx = connection.unchecked_transaction()?;
-    for (key, value) in [
+    for (key, value) in SESSION_PUTS_STATE.into_iter().chain([
         ("format", STAGING_FORMAT),
         ("registry_id", registry_id),
         ("staged_through", "0"),
@@ -340,7 +455,7 @@ pub(super) fn open_staging(db_path: &Path, registry_id: &str) -> anyhow::Result<
         ("live_archive_end", "0"),
         ("live_head", "0"),
         ("live_output", "0"),
-    ] {
+    ]) {
         tx.execute("INSERT INTO output_cleanup_state(key, value) VALUES(?1, ?2)", [key, value])?;
     }
     tx.commit()?;
@@ -405,6 +520,7 @@ pub(super) fn stage_segments(
 ) -> anyhow::Result<Staged> {
     let total: i64 =
         source.query_row("SELECT COUNT(*) FROM journal_segments", [], |row| row.get(0))?;
+    let mut puts = SessionPuts::load(staging)?;
     let mut since_space_check = 0_u64;
     let mut last_log = Instant::now();
     loop {
@@ -439,6 +555,8 @@ pub(super) fn stage_segments(
             "journal segments contain a gap before sequence {start}"
         );
         let kept = kept_segment_records(source, &segment_id, start, end, record_count)?;
+        let split = puts.split_segment(kept, start);
+        let kept_count = i64::try_from(split.staged.len())? + i64::try_from(split.held)?;
         let tx = staging.unchecked_transaction()?;
         tx.execute(
             "INSERT INTO output_cleanup_segments(
@@ -448,11 +566,12 @@ pub(super) fn stage_segments(
                 i64::try_from(start)?,
                 i64::try_from(end)?,
                 record_count,
-                i64::try_from(kept.len())?,
-                record_count - i64::try_from(kept.len())?
+                kept_count,
+                record_count - kept_count
             ],
         )?;
-        insert_chunk(&tx, &kept)?;
+        insert_chunk(&tx, &split.staged)?;
+        puts.record_split(&tx, &split)?;
         tx.execute(
             "UPDATE output_cleanup_state SET value = ?1 WHERE key = 'staged_through'",
             [end.to_string()],

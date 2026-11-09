@@ -600,8 +600,8 @@ fn assert_structural_tables_equal(new: &Path, old: &Path) {
         "journal_event_index",
         "journal_pruned_ranges",
     ];
-    const CLEANUP_META: &str = "'output_cleanup_v1', 'journal_segment_kinds_backfill', 'output_cleanup_full_starts', \
-         'output_cleanup_swap'";
+    const CLEANUP_META: &str = "'output_cleanup_v1', 'output_cleanup_v2', \
+         'journal_segment_kinds_backfill', 'output_cleanup_full_starts', 'output_cleanup_swap'";
     let db = read_only(new);
     db.execute("ATTACH DATABASE ?1 AS old", [old.to_str().unwrap()]).unwrap();
     let tables: Vec<(String, String)> = db

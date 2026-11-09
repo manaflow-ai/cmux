@@ -279,7 +279,12 @@ fn swapped_registry(db_path: &Path) -> anyhow::Result<bool> {
     if read(&previous_path(db_path), "registry_id")?.as_deref() != Some(current.as_str()) {
         return Ok(false);
     }
-    Ok(read(db_path, DONE_META_KEY)?.is_some_and(|value| value.contains("\"kept\"")))
+    // A swap of the version 1 cleanup wrote only the version 1 key.
+    let done = match read(db_path, DONE_META_KEY)? {
+        Some(value) => Some(value),
+        None => read(db_path, super::V1_DONE_META_KEY)?,
+    };
+    Ok(done.is_some_and(|value| value.contains("\"kept\"")))
 }
 
 /// A previous registry exists and no owner got through a full start on the

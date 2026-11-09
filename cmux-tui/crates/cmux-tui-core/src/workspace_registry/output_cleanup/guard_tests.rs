@@ -17,7 +17,8 @@ fn temp_dir(name: &str) -> PathBuf {
 }
 
 /// A registry with the journal tables the cleanup reads: `output` live
-/// output rows and `other` live rows of another kind.
+/// output rows and `other` live rows of another kind (not a session put,
+/// which the cleanup may drop).
 fn registry(dir: &Path, output: i64, other: i64) -> PathBuf {
     let db_path = dir.join("workspace-registry.sqlite3");
     let connection = Connection::open(&db_path).unwrap();
@@ -25,7 +26,8 @@ fn registry(dir: &Path, output: i64, other: i64) -> PathBuf {
         .execute_batch(
             "CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
              INSERT INTO meta VALUES('registry_id', 'registry-guard');
-             CREATE TABLE session_journal(sequence INTEGER PRIMARY KEY, kind TEXT NOT NULL);
+             CREATE TABLE session_journal(sequence INTEGER PRIMARY KEY, kind TEXT NOT NULL,
+               payload_json TEXT NOT NULL DEFAULT '{}');
              CREATE INDEX session_journal_by_kind_sequence ON session_journal(kind, sequence);
              CREATE TABLE journal_segments(
                segment_id TEXT PRIMARY KEY, start_sequence INTEGER, end_sequence INTEGER,
@@ -37,8 +39,8 @@ fn registry(dir: &Path, output: i64, other: i64) -> PathBuf {
     connection
         .execute(
             "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?1 + ?2)
-             INSERT INTO session_journal
-             SELECT i, CASE WHEN i <= ?1 THEN 'terminal.output' ELSE 'personal.session.put' END
+             INSERT INTO session_journal(sequence, kind)
+             SELECT i, CASE WHEN i <= ?1 THEN 'terminal.output' ELSE 'terminal.title' END
              FROM n",
             [output, other],
         )
@@ -123,17 +125,18 @@ fn the_sealed_estimate_reads_the_kind_map_and_counts_every_record() {
         .execute_batch(
             "INSERT INTO journal_segments VALUES
                ('output', 1, 100, 100), ('other', 101, 130, 30), ('mixed', 131, 140, 10),
-               ('unmapped', 141, 145, 5);
+               ('unmapped', 141, 145, 5), ('puts', 146, 165, 20);
              INSERT INTO journal_segment_kinds VALUES
-               ('output', 'terminal.output'), ('other', 'personal.session.put'),
+               ('output', 'terminal.output'), ('other', 'agent.session.started'),
                ('other', 'terminal.title'), ('mixed', 'terminal.output'),
-               ('mixed', 'terminal.title');",
+               ('mixed', 'terminal.title'), ('puts', 'personal.session.put');",
         )
         .unwrap();
     let all = sealed_records(&connection, 0).unwrap();
-    assert_eq!((all.kept_at_least, all.kept_at_most, all.total), (30, 45, 145));
+    // A segment of session puts may keep none of them (superseded puts go).
+    assert_eq!((all.kept_at_least, all.kept_at_most, all.total), (30, 65, 165));
     let tail = sealed_records(&connection, 130).unwrap();
-    assert_eq!((tail.kept_at_least, tail.kept_at_most, tail.total), (0, 15, 15));
+    assert_eq!((tail.kept_at_least, tail.kept_at_most, tail.total), (0, 35, 35));
     drop(connection);
     fs::remove_dir_all(&dir).unwrap();
 }
@@ -176,7 +179,7 @@ mod followups {
                  INSERT INTO journal_segment_kinds VALUES
                    ('mixed', 'terminal.output'), ('mixed', 'terminal.title');
                  WITH RECURSIVE n(i) AS (SELECT 1001 UNION ALL SELECT i + 1 FROM n WHERE i < 1010)
-                 INSERT INTO session_journal SELECT i, 'personal.session.put' FROM n;",
+                 INSERT INTO session_journal(sequence, kind) SELECT i, 'terminal.title' FROM n;",
             )
             .unwrap();
         drop(connection);
@@ -202,6 +205,46 @@ mod followups {
         let outcome = stage_registry(&db_path, &control()).unwrap();
         assert!(!matches!(outcome, StageOutcome::Built), "completed: {outcome:?}");
         assert!(!staging_path(&db_path).exists(), "the staging file stays: {outcome:?}");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_cleanup_refused_after_staging_is_not_staged_again_until_the_journal_doubles() {
+        // Staging finishes and passes the staged size bound: refused. The
+        // same journal would be staged and refused at every start.
+        let dir = temp_dir("refusal-memo");
+        let db_path = registry(&dir, 100, 1);
+        STAGED_BYTES_LIMIT.with(|limit| limit.set(4096));
+        // SAFETY: as in the test above.
+        unsafe { std::env::set_var("CMUX_TUI_TEST_OUTPUT_CLEANUP_MARGIN_BYTES", "0") };
+        let first = stage_registry(&db_path, &control()).unwrap();
+        let StageOutcome::Skipped(reason) = first else { panic!("not refused: {first:?}") };
+        assert!(reason.contains("staging file"), "{reason}");
+        assert!(refused_path(&db_path).is_file(), "the refusal is not recorded");
+
+        // The next start does not stage the same journal again.
+        let second = stage_registry(&db_path, &control()).unwrap();
+        let StageOutcome::Skipped(reason) = second else { panic!("staged again: {second:?}") };
+        assert!(reason.contains("runs again once the journal reaches 202"), "{reason}");
+        assert!(!staging_path(&db_path).exists(), "a staging file was made");
+
+        // Once the journal doubled, it stages (and is refused) again.
+        Connection::open(&db_path)
+            .unwrap()
+            .execute(
+                "WITH RECURSIVE n(i) AS (SELECT 102 UNION ALL SELECT i + 1 FROM n WHERE i < 202)
+                 INSERT INTO session_journal(sequence, kind) SELECT i, 'terminal.output' FROM n",
+                [],
+            )
+            .unwrap();
+        let third = stage_registry(&db_path, &control()).unwrap();
+        let StageOutcome::Skipped(reason) = third else { panic!("not refused: {third:?}") };
+        assert!(
+            reason.contains("staging file") && !reason.contains("runs again"),
+            "the doubled journal was not staged: {reason}"
+        );
+        let memo = fs::read_to_string(refused_path(&db_path)).unwrap();
+        assert!(memo.contains("head 202"), "{memo}");
         fs::remove_dir_all(&dir).unwrap();
     }
 
