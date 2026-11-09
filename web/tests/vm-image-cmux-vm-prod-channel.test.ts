@@ -15,7 +15,7 @@ import { runChild } from "./helpers/run-child";
 // and the copy is the dev image's lock and flags on the production account, recorded as names.production.
 
 type Step = { name?: string; if?: string; run?: string; env?: Record<string, string> };
-type Job = { environment?: string; if?: string; needs?: string; env?: Record<string, string>; steps: Step[] };
+type Job = { environment?: string | { name: string; deployment?: boolean }; if?: string; needs?: string; env?: Record<string, string>; steps: Step[] };
 type Workflow = { jobs: Record<string, Job> };
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -33,8 +33,14 @@ const load = (name: string) => {
 const bakeWf = load("cloud-vm-image-bake.yml");
 const promoteWf = load("cloud-vm-image-promote.yml");
 
+/** A job names its environment as a string, or as `{ name, deployment: false }` when it logs no deployment. */
+function envName(e: Job["environment"]): string | undefined {
+  return typeof e === "string" ? e : e?.name;
+}
+
 /** Evaluates `${{ inputs.X == 'v' && 'a' || 'b' }}`, the one form these jobs' environment takes; throws on any other. */
-function environmentFor(expr: string | undefined, inputs: Record<string, string>): string {
+function environmentFor(raw: Job["environment"], inputs: Record<string, string>): string {
+  const expr = envName(raw);
   const m = expr?.match(/^\$\{\{ inputs\.(\w+) == '([^']+)' && '([^']+)' \|\| '([^']+)' \}\}$/);
   if (!m) throw new Error(`unexpected environment ${JSON.stringify(expr)}`);
   return inputs[m[1]!] === m[2] ? m[3]! : m[4]!;
@@ -73,14 +79,14 @@ describe("environments", () => {
   test("bake: mode prod-copy runs in cmux-next-vm-image-prod, every other mode keeps cmux-next-vm-image-dev", () => {
     expect(environmentFor(bakeWf.jobs.bake!.environment, { mode: "prod-copy" })).toBe("cmux-next-vm-image-prod");
     for (const mode of ["bake", "repro"]) expect(environmentFor(bakeWf.jobs.bake!.environment, { mode })).toBe("cmux-next-vm-image-dev");
-    expect(bakeWf.jobs["first-build-before"]!.environment).toBe("cmux-next-vm-image-dev");
+    expect(envName(bakeWf.jobs["first-build-before"]!.environment)).toBe("cmux-next-vm-image-dev");
     expect(bakeWf.jobs.bake!.needs).toBe("prod-gate");
     expect(bakeWf.jobs.bake!.if).toBe("${{ !cancelled() && (needs.prod-gate.result == 'success' || (inputs.mode != 'prod-copy' && needs.prod-gate.result == 'skipped')) }}");
     expect(bakeWf.jobs["prod-gate"]!.if).toBe("inputs.mode == 'prod-copy'");
   });
 
   test("no job names the production environment except the two gated ones", () => {
-    const named = [bakeWf, promoteWf].flatMap((wf) => Object.entries(wf.jobs).filter(([, j]) => j.environment?.includes("cmux-next-vm-image-prod")).map(([n]) => n));
+    const named = [bakeWf, promoteWf].flatMap((wf) => Object.entries(wf.jobs).filter(([, j]) => envName(j.environment)?.includes("cmux-next-vm-image-prod")).map(([n]) => n));
     expect(named).toEqual(["bake", "promote"]);
     for (const wf of [bakeWf, promoteWf]) expect(wf.jobs["prod-gate"]!.environment).toBeUndefined();
   });
