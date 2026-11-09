@@ -49,7 +49,7 @@ export const NEW_TAB_LABELS = {
     terminal: "newTabPage.openFailed.terminal",
     browser: "newTabPage.openFailed.browser",
     agent: "newTabPage.openFailed.agent",
-  } satisfies Record<TabKind, string>,
+  } satisfies Record<TabKind, StringKey>,
   openRetry: "retry.action",
   suggestions: "newTabPage.suggestions",
   rows: {
