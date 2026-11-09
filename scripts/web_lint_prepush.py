@@ -1758,6 +1758,18 @@ def main(argv: list[str] | None = None) -> int:
                 for line in sockets:
                     if "ESTAB" not in line or "vp" in line or "node" in line or "tsgolint" in line:
                         print(f"web-lint: sock: {line}", file=sys.stderr, flush=True)
+                for proc in Path("/proc").iterdir():
+                    try:
+                        comm = (proc / "comm").read_text().strip()
+                        if not any(word in comm for word in ("vp", "node", "tsgo", "oxlint", "bun")):
+                            continue
+                        state = (proc / "stat").read_text().rsplit(")", 1)[1].split()[0]
+                        wchan = (proc / "wchan").read_text().strip()
+                        threads = len(list((proc / "task").iterdir()))
+                        print(f"web-lint: proc: {proc.name} {comm} state={state} wchan={wchan} threads={threads}",
+                              file=sys.stderr, flush=True)
+                    except (OSError, IndexError):
+                        continue
                 time.sleep(15)
         import threading as _t
         _t.Thread(target=sample, daemon=True).start()
