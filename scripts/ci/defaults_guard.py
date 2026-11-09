@@ -675,7 +675,56 @@ def changes(old: Mapping[str, object], new: Mapping[str, object]) -> list[Change
     for key in sorted(set(old) | set(new)):
         if old.get(key) != new.get(key) or (key in old) != (key in new):
             found.append(Change(key, old.get(key), new.get(key)))
-    return found
+    if not any(c.id.startswith((MOVABLE_TUNABLE, MOVABLE_FLAG)) for c in found):
+        return found
+    sides = (Movable(old), Movable(new))
+    return [c for c in found if not moved(c, *sides)]
+
+
+# Two kinds of id carry the source file's path: `tunable-source.PATH:NAME` (a fingerprint of the declaration's
+# tokens) and `flag.PATH.NAME` (a literal Bool). Moving a declaration to another file, renaming its file, or
+# splitting a file changes the id but not the default, and was counted as a changed default (#39569: one
+# Tunable helper moved from CmuxNextSidebar/Logic/SidebarGroupHeaderLook.swift to
+# CmuxNextDesign/GroupGlass/SidebarGroupGlass.swift with the same fingerprint). The same holds for the `#`
+# suffixes that keep same-named declarations in one file apart: moving the first one out renumbers the rest.
+# - A tunable-source change is a move when every fingerprint it touches occurs as often in the head as in the
+#   base: the same declaration, token for token, still exists, only under another id. An edit makes a new
+#   fingerprint and a removal loses one, so either still counts.
+# - A flag added or removed is a move when its name occurs once in the base and once in the head, with the same
+#   value. A Bool alone is no identity (a new `isEnabled = true` elsewhere is not the old one moved), so a name
+#   shared by several flags is never paired.
+# Not resolved: a moved declaration whose same-file dependency resolves to another declaration in its new file
+# that was already a tunable source with an unchanged fingerprint.
+MOVABLE_TUNABLE = "tunable-source."
+MOVABLE_FLAG = "flag."
+
+
+def flag_name(key: str) -> str:
+    """`flag.CmuxNextApp/Trace.isEnabled#2` -> `isEnabled`."""
+    return key.rpartition(".")[2].partition("#")[0]
+
+
+class Movable:
+    """One side's path-keyed defaults, counted by what survives a move: fingerprints, and flag names."""
+
+    def __init__(self, side: Mapping[str, object]):
+        self.fingerprints: dict[object, int] = {}
+        self.flags: dict[str, list[object]] = {}
+        for key, value in side.items():
+            if key.startswith(MOVABLE_TUNABLE):
+                self.fingerprints[value] = self.fingerprints.get(value, 0) + 1
+            elif key.startswith(MOVABLE_FLAG):
+                self.flags.setdefault(flag_name(key), []).append(value)
+
+
+def moved(change: Change, old: Movable, new: Movable) -> bool:
+    if change.id.startswith(MOVABLE_TUNABLE):
+        touched = [value for value in (change.old, change.new) if value is not None]
+        return all(old.fingerprints.get(value, 0) == new.fingerprints.get(value, 0) for value in touched)
+    if change.id.startswith(MOVABLE_FLAG) and (change.old is None) != (change.new is None):
+        before, after = old.flags.get(flag_name(change.id), []), new.flags.get(flag_name(change.id), [])
+        return len(before) == 1 and before == after
+    return False
 
 
 def is_off(value: object) -> bool:

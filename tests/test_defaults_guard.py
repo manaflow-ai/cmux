@@ -414,6 +414,82 @@ struct Flags: TunableFactory {
         self.assertEqual(result.returncode, 1)
         self.assertIn("DEFAULTS flag.CmuxNextApp/Trace.isEnabled: false -> true", result.stdout)
 
+    def moved_head(self, files):
+        """A head that replaces the base's Swift sources with FILES (path under the sources -> text, None deletes)."""
+        self.repo.git("checkout", "-q", "-b", f"pr-{len(self.repo.git('branch').splitlines())}", self.base)
+        for path, text in files.items():
+            full = f"Packages/macOS/CmuxNext/Sources/{path}"
+            if text is None:
+                self.repo.git("rm", "-q", full)
+            else:
+                self.repo.write(full, text)
+        head = self.repo.commit("head")
+        self.repo.git("checkout", "-q", self.base)
+        return head
+
+    def test_a_moved_renamed_or_split_tunable_with_the_same_value_is_no_change(self):
+        # #39569: a Tunable helper moved from CmuxNextSidebar/Logic/SidebarGroupHeaderLook.swift to
+        # CmuxNextDesign/GroupGlass/SidebarGroupGlass.swift with the same fingerprint, and the guard asked for a
+        # call on "2 default(s) changed". The first of four same-named helpers moved out renumbers the rest.
+        def helper(type_name, value):
+            return (f"enum {type_name} {{\n    static func tunable(_ key: String) -> Tunable<Double> {{\n"
+                    f"        Tunable<Double>.slider(key, .status, \"Look\", help: \"h\", default: {value})\n    }}\n}}\n")
+        look = "CmuxNextSidebar/Logic/SidebarGroupHeaderLook.swift"
+        self.repo.write(f"Packages/macOS/CmuxNext/Sources/{look}",
+                        "".join(helper(name, value) for name, value in (("A", 1), ("B", 2), ("C", 3), ("D", 4))))
+        self.repo.write("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Trace.swift",
+                        "enum Trace {\n    static let traceRowsEnabled = true\n}\n")
+        self.base = self.repo.commit("tunable helpers")
+        cases = {
+            "moved and split": {look: helper("B", 2) + helper("C", 3),
+                                "CmuxNextDesign/GroupGlass/SidebarGroupGlass.swift": helper("A", 1),
+                                "CmuxNextDesign/GroupGlass/Other.swift": helper("D", 4)},
+            "renamed file": {look: None, "CmuxNextSidebar/Logic/SidebarGroupLook.swift":
+                             "".join(helper(n, v) for n, v in (("A", 1), ("B", 2), ("C", 3), ("D", 4)))},
+            "flag moved": {"CmuxNextApp/Trace.swift": None,
+                           "CmuxNextDiagnostics/Trace.swift": "enum Trace {\n    static let traceRowsEnabled = true\n}\n"},
+        }
+        for name, files in cases.items():
+            with self.subTest(name):
+                result = self.check(self.moved_head(files))
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertNotIn("DEFAULTS tunable-source", result.stdout)
+                self.assertNotIn("DEFAULTS flag", result.stdout)
+
+    def test_a_moved_tunable_whose_value_changed_still_needs_a_call(self):
+        def helper(type_name, value):
+            return (f"enum {type_name} {{\n    static func tunable(_ key: String) -> Tunable<Double> {{\n"
+                    f"        Tunable<Double>.slider(key, .status, \"Look\", help: \"h\", default: {value})\n    }}\n}}\n")
+        self.repo.write("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Look.swift", helper("A", 1) + helper("B", 2))
+        self.repo.write("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Trace.swift",
+                        "enum Trace {\n    static let traceRowsEnabled = false\n}\n")
+        self.base = self.repo.commit("tunable helpers")
+        cases = {
+            "moved and edited": ({"CmuxNextSidebar/Look.swift": helper("B", 2),
+                                  "CmuxNextDesign/Glass.swift": helper("A", 5)}, "tunable-source.CmuxNextDesign/Glass.swift"),
+            "removed": ({"CmuxNextSidebar/Look.swift": helper("B", 2)}, "tunable-source.CmuxNextSidebar/Look.swift"),
+            "flag moved and flipped": ({"CmuxNextApp/Trace.swift": None, "CmuxNextDiagnostics/Trace.swift":
+                                        "enum Trace {\n    static let traceRowsEnabled = true\n}\n"},
+                                       "flag.CmuxNextDiagnostics/Trace.traceRowsEnabled"),
+        }
+        for name, (files, expected) in cases.items():
+            with self.subTest(name):
+                result = self.check(self.moved_head(files))
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("DEFAULTS " + expected, result.stdout)
+
+    def test_a_flag_name_shared_by_several_flags_is_never_paired_as_a_move(self):
+        self.repo.write("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Trace.swift",
+                        "enum Trace {\n    static let isEnabled = true\n}\n")
+        self.repo.write("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Other.swift",
+                        "enum Other {\n    static let isEnabled = true\n}\n")
+        self.base = self.repo.commit("two flags")
+        head = self.moved_head({"CmuxNextApp/Trace.swift": None,
+                                "CmuxNextTerminal/New.swift": "enum New {\n    static let isEnabled = true\n}\n"})
+        result = self.check(head)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("DEFAULTS flag.CmuxNextTerminal/New.isEnabled: (none) -> true", result.stdout)
+
     def test_a_default_that_steps_aside_in_a_terminal_fails(self):
         swift = "public static let yieldsToTerminal: Set<ActionID> = [\n    \"focusHistoryBack\",\n]\n"
         self.repo.write("Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift", swift)
