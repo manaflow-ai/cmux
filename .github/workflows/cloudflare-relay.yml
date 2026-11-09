@@ -416,7 +416,9 @@ jobs:
       !cancelled() && needs.plan.outputs.journeys == 'true' &&
       needs.deploy-staging.result == 'success' && needs.build-journey-cmux.result == 'success'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    environment: cmux-next-vm-image-dev
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
     timeout-minutes: 50
     permissions:
       contents: read
@@ -460,7 +462,9 @@ jobs:
     needs: [plan, journey-staging]
     if: "!cancelled() && needs.plan.outputs.production == 'true' && needs.journey-staging.result == 'success'"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    environment: cmux-next-cloud-journey
+    environment:
+      name: cmux-next-cloud-journey
+      deployment: false
     timeout-minutes: 50
     permissions:
       contents: read
@@ -643,7 +647,9 @@ jobs:
     needs: [plan, deploy-production, build-journey-cmux, journey-production-baseline]
     if: "!cancelled() && needs.plan.outputs.journeys == 'true' && needs.deploy-production.result == 'success'"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    environment: cmux-next-cloud-journey
+    environment:
+      name: cmux-next-cloud-journey
+      deployment: false
     timeout-minutes: 50
     permissions:
       contents: read
