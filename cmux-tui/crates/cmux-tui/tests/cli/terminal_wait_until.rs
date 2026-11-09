@@ -193,3 +193,32 @@ fn terminal_wait_until_refuses_an_unknown_condition() {
         );
     }
 }
+
+/// Bench round 4 item 10 (W5-R): `wait --until idle` right after input
+/// returned the idle state the terminal had before that input, because the
+/// command the input started had not shown yet. The wait now holds until
+/// the terminal answers the input (here the command it started ends), or a
+/// short grace passes with nothing started.
+#[test]
+fn w5r_terminal_wait_until_idle_after_input_waits_for_the_input_to_answer() {
+    let server = HeadlessServer::start_without_shell_integration("w5r-wait-after-input");
+    let terminal = new_terminal(&server);
+    // The command shows as running only after a moment, as an agent's turn
+    // starts a moment after Enter.
+    write(
+        &server,
+        &terminal,
+        &format!("sleep 1; printf '{COMMAND_START}'; sleep 1; printf '{COMMAND_END}'\n"),
+    );
+    let output = finished(
+        spawn_wait(&server, &terminal, &["--until", "idle", "--timeout", "30s"]),
+        Duration::from_secs(30),
+    );
+    assert_success(&output);
+    let shown = json_output(&output);
+    assert!(
+        shown["extra"]["last_command"]["finished_at_ms"].is_string(),
+        "the wait returned before the command the input started ended: {shown}"
+    );
+    assert!(shown["extra"]["activity"].is_null(), "a command still shows: {shown}");
+}

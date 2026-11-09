@@ -1234,3 +1234,114 @@ fn w5_no_stream_waits_out_the_fallback_and_an_invalid_cursor_is_dropped() {
     assert_eq!(waited, at_most);
     assert_eq!(cursor, None);
 }
+
+/// What sr2 prints before Claude Code starts: no input box yet.
+const LAUNCHER_BANNER: &str = "\
+sr2 route: gateway http://sr2-gateway.example:4016
+sr2 claude2: automatic /compact through cmux terminal term_c7d53df9a7de; log /tmp/claude2.log";
+
+/// A resume whose new terminal shows `screen` and whose `agent list` gives
+/// `records`, waited on for at most 5 s.
+fn resume_with(screen: &'static str, records: Value) -> (Value, i32) {
+    resume_of("claude", screen, records)
+}
+
+/// [`resume_with`] for an agent whose hooks reported as `harness`.
+fn resume_of(harness: &'static str, screen: &'static str, records: Value) -> (Value, i32) {
+    let snapshot = snapshot();
+    let daemon = Fake::new(move |operation, params, _count| match operation {
+        "session.snapshot" => snapshot.clone(),
+        "agent.list" if params["terminal_id"] == OLD || params["terminal"] == OLD => json!([
+            {"terminal_id": OLD, "state": "done", "source": "hook", "updated_at_ms": "900",
+             "extra": {"agent": harness, "agent_session_id": SESSION}},
+        ]),
+        "agent.list" => records.clone(),
+        "terminal.process.get" => json!({"argv": snapshot["terminals"][1]["argv_for_test"]}),
+        "pane.run" => created(
+            "pane_22222222222222222222222222222222",
+            "tab_e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0",
+            NEW,
+        ),
+        "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
+        "terminal.screen.read" => json!({"text": screen}),
+        _ => json!({}),
+    });
+    let options = Options { timeout: Duration::from_secs(5), ..Options::default() };
+    let target = ResumeTarget::Agent("alpha".into());
+    run_with_clock(|clock| resume(&daemon, &env(), clock, &target, &options)).expect("resume")
+}
+
+/// Bench round 4 (A6, 2 of 2): `agent resume` said ready 2 s after the
+/// launch, while the screen still showed the launcher's banner. The ready
+/// signal was the screen-detection plugin's fresh `idle` record, a guess
+/// from the screen; Claude's own SessionStart hook came 5 s later, and the
+/// first message typed before it was never submitted. A resume is ready
+/// only once the agent itself reports idle (its hooks: the session id that
+/// resume needs came from them).
+#[test]
+fn w5r_resume_is_ready_only_when_the_agents_own_hook_reports_idle() {
+    let plugin_idle = json!([{"terminal_id": NEW, "state": "idle", "source": "plugin",
+                              "updated_at_ms": "1500"}]);
+    let (report, exit) = resume_with(LAUNCHER_BANNER, plugin_idle.clone());
+    assert_eq!(
+        report["state"], "timeout",
+        "a screen-detection record is no ready signal: {report}"
+    );
+    assert_eq!(exit, 124, "{report}");
+    // An input box on the screen is not enough either: the hook says when
+    // the resumed session took its transcript and accepts a message.
+    let (report, exit) = resume_with(COMPOSER, plugin_idle);
+    assert_eq!(report["state"], "timeout", "resume waits for the hook, not the screen: {report}");
+    assert_eq!(exit, 124, "{report}");
+    // The agent's SessionStart hook (idle, source hook) after the resume began.
+    let hook_idle = json!([
+        {"terminal_id": NEW, "state": "idle", "source": "plugin", "updated_at_ms": "1400"},
+        {"terminal_id": NEW, "state": "idle", "source": "hook", "updated_at_ms": "1500"},
+    ]);
+    let (report, exit) = resume_with(COMPOSER, hook_idle);
+    assert_eq!(report["state"], "ready", "{report}");
+    assert_eq!(exit, 0, "{report}");
+}
+
+/// Review 6731023492 item 4: a resume waits for the agent's own idle report
+/// only when its harness's hooks report a session start. Amp's report
+/// nothing at its start, so its input box makes it ready, as for a start,
+/// instead of a wait to the timeout.
+#[test]
+fn w5r_resume_of_a_harness_without_a_session_start_hook_is_ready_on_its_input_box() {
+    let plugin_idle = json!([{"terminal_id": NEW, "state": "idle", "source": "plugin",
+                              "updated_at_ms": "1500"}]);
+    let (report, exit) = resume_of("amp", COMPOSER, plugin_idle);
+    assert_eq!(report["state"], "ready", "amp cannot report its start: {report}");
+    assert_eq!(exit, 0, "{report}");
+    // Claude's SessionStart hook reports: its resume still waits for it.
+    let plugin_idle = json!([{"terminal_id": NEW, "state": "idle", "source": "plugin",
+                              "updated_at_ms": "1500"}]);
+    let (report, exit) = resume_of("claude", COMPOSER, plugin_idle);
+    assert_eq!(report["state"], "timeout", "{report}");
+    assert_eq!(exit, 124, "{report}");
+}
+
+/// `agent start` has the same race: a fresh screen-detection record says
+/// `idle` before the agent drew its input box. Only the agent's own reports
+/// (hooks, socket) or its input box make a start ready.
+#[test]
+fn w5r_start_is_not_ready_on_a_screen_detection_record_alone() {
+    let look = |hook_state| Look { screen: LAUNCHER_BANNER, exited: false, hook_state };
+    let records = json!([{"terminal_id": NEW, "state": "idle", "source": "plugin",
+                          "updated_at_ms": "1500"}]);
+    let state = readiness::fresh_hook_state(&records, 1_000);
+    assert_eq!(readiness::assess(&look(state)), Readiness::Starting, "state {state:?}");
+    let detected = json!([{"terminal_id": NEW, "state": "idle", "source": "detected",
+                           "updated_at_ms": "1500"}]);
+    let state = readiness::fresh_hook_state(&detected, 1_000);
+    assert_eq!(readiness::assess(&look(state)), Readiness::Starting, "state {state:?}");
+    // The agent's own hook or socket report still counts.
+    for source in ["hook", "socket"] {
+        let own = json!([{"terminal_id": NEW, "state": "idle", "source": source,
+                          "updated_at_ms": "1500"}]);
+        let hook_state = readiness::fresh_hook_state(&own, 1_000);
+        let own_look = Look { screen: LAUNCHER_BANNER, exited: false, hook_state };
+        assert_eq!(readiness::assess(&own_look), Readiness::Ready, "{source}");
+    }
+}
