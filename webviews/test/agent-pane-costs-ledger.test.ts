@@ -10,11 +10,15 @@ import {
   groupLabel,
   LEDGER_GROUPS,
   ledgerCsv,
+  ledgerFileName,
+  ledgerJson,
   ledgerLines,
   ledgerParams,
+  ledgerShortfall,
   readLedger,
   tokensIn,
 } from "../src/agent-session/acpmux/ledger/ledgerModel";
+import { historyPages } from "../src/agent-session/acpmux/queue/historyPages";
 
 const HOUR = 3_600_000;
 const NOW = 1_800_000_000_000;
@@ -49,6 +53,7 @@ const reply = readLedger({
       pullRequests: [],
       repo: "acme/app",
       branch: "lane/docs",
+      account: "work",
     },
     {
       ...totals({ costUsd: 8, harnessCostUsd: 8, turns: 20 }),
@@ -200,4 +205,111 @@ test("Copy CSV: the rows shown, ranked as shown, spreadsheet-safe", () => {
   });
   expect(ledgerCsv(tabbed, "account").split("\n")[1]!.startsWith("audit =1+1 end,audit =1+1 end,")).toBe(true);
   expect(ledgerCsv(tricky, "account").split("\n")[1]!.startsWith(`"'=cmd|""x"", y","'=cmd|""x"", y",1,`)).toBe(true);
+});
+
+test("Save's read asks for acpmux's most sessions, and a session row keeps its account", () => {
+  expect(ledgerParams("7d", NOW, 5000).limit).toBe(5000);
+  expect(reply.rows.find((row) => row.sessionId === "s1")!.account).toBe("work");
+  expect(reply.rows.find((row) => row.sessionId === "s2")!.account).toBeUndefined();
+});
+
+test("JSON holds the range, the price table, the totals and every row with its cost source", () => {
+  const read = readLedger({
+    priceTable: { version: "2026-11-08", currency: "USD" },
+    range: { since: NOW - 7 * 24 * HOUR, until: NOW },
+    totals: totals({ costUsd: 3, harnessCostUsd: 3, turns: 3, sessions: 3, inputTokens: 10, cacheReadTokens: 90 }),
+    rows: [
+      {
+        ...totals({ costUsd: 0.1 + 0.2, harnessCostUsd: 0.1 + 0.2, turns: 1, inputTokens: 10, cacheReadTokens: 90 }),
+        sessionId: "s1",
+        title: 'Fix "quotes", commas\nand lines',
+        models: ["model-a", "model-b"],
+        pullRequests: ["https://example.com/pull/1"],
+        account: "work",
+        lastAt: NOW,
+      },
+      {
+        ...totals({ costUsd: 2, tableCostUsd: 2, turns: 1 }),
+        sessionId: "s2",
+        title: "Second",
+        models: [],
+        pullRequests: [],
+      },
+    ],
+    rollups: {},
+  });
+  const body = JSON.parse(ledgerJson(read, "7d", "session"));
+  expect(body.range).toEqual({
+    name: "7d",
+    since: new Date(NOW - 7 * 24 * HOUR).toISOString(),
+    until: new Date(NOW).toISOString(),
+  });
+  expect(body.groupBy).toBe("session");
+  expect(body.priceTable).toEqual({ version: "2026-11-08", currency: "USD" });
+  // The share from cache is the page's (`cacheShare`), to four places.
+  expect(body.totals.cacheShare).toBe(0.9);
+  expect(body.rows.map((row: { key: string }) => row.key)).toEqual(["s2", "s1"]);
+  const [second, first] = body.rows;
+  expect(second.costSource).toBe("table");
+  expect("cacheShare" in second).toBe(false);
+  expect(first.costSource).toBe("harness");
+  expect(first.costUsd).toBe(0.3);
+  // JSON keeps a title whole: quotes, commas and the line break.
+  expect(first.label).toBe('Fix "quotes", commas\nand lines');
+  expect(first.models).toBe("model-a model-b");
+  expect(first.account).toBe("work");
+  expect(first.lastAt).toBe(new Date(NOW).toISOString());
+  // A rollup row has no session fields.
+  const repos = JSON.parse(ledgerJson(reply, "7d", "repo"));
+  expect(repos.rows[0]).toMatchObject({ key: "acme/app", label: "App", costSource: "mixed" });
+  expect("harness" in repos.rows[0]).toBe(false);
+  const day = new Date(NOW).toISOString().slice(0, 10);
+  expect(ledgerFileName(read, "7d", "repo")).toBe(`cmux-costs-7d-by-repo-${day}`);
+});
+
+test("Save writes through the host's save panel, and copies when the host cannot save", async () => {
+  const calls: { method: string; params: Record<string, unknown> | undefined }[] = [];
+  const copied: string[] = [];
+  let host: "save" | "cancel" | "refuse" = "save";
+  const pages = historyPages({
+    client: () => undefined,
+    callNative: async <T>(method: string, params?: Record<string, unknown>) => {
+      calls.push({ method, params });
+      if (host === "refuse") throw new Error("unsupported");
+      return (host === "save") as unknown as T;
+    },
+    selectSession: () => {},
+    asks: [],
+    copy: async (text) => {
+      copied.push(text);
+      return text !== "refused";
+    },
+  });
+  const save = pages.ledger.save!;
+  expect(await save("a,b\n", "cmux-costs", "csv")).toBe("saved");
+  expect(calls[0]).toEqual({
+    method: "pane.saveFile",
+    params: { text: "a,b\n", suggestedName: "cmux-costs", kind: "csv" },
+  });
+  host = "cancel";
+  expect(await save("{}", "cmux-costs", "json")).toBe("cancelled");
+  expect(copied).toEqual([]);
+  // An app that predates the kind refuses it: the file goes to the clipboard instead.
+  host = "refuse";
+  expect(await save("{}", "cmux-costs", "json")).toBe("copied");
+  expect(copied).toEqual(["{}"]);
+  await expect(save("refused", "cmux-costs", "csv")).rejects.toThrow();
+});
+
+test("a session file short of the range's sessions says how many it holds, and a rollup never is", () => {
+  const short = { ...reply, totals: { ...reply.totals, sessions: 7 } };
+  expect(ledgerShortfall(short, "session")).toEqual({ shown: 3, total: 7 });
+  expect(ledgerShortfall(reply, "session")).toBeUndefined();
+  expect(ledgerShortfall(short, "repo")).toBeUndefined();
+  const body = JSON.parse(ledgerJson(short, "7d", "session"));
+  expect(body.truncated).toBe(true);
+  expect(body.sessionsTotal).toBe(7);
+  expect(JSON.parse(ledgerJson(reply, "7d", "session")).truncated).toBe(false);
+  // A rollup holds every group: no such fields.
+  expect("truncated" in JSON.parse(ledgerJson(short, "7d", "repo"))).toBe(false);
 });

@@ -938,6 +938,10 @@ def compile_pass_at(repo: str, sha: str, github) -> str | None:
 # its merge-base's. Every other receipt state (no verdict, unread, another commit) stays the head's.
 COMPILE_RECEIPTS = os.environ.get("BASE_RED_EXCUSE_COMPILE_RECEIPTS", "https://gh-events.cmux.com/compile-checks/v1")
 COMPILE_RECEIPT_SECONDS = 20
+# The receipts host sits behind a proxy that answers Python's default User-Agent ("Python-urllib/3.x") with HTTP 403
+# (error code 1010, a refused client signature), so every read was refused and no compile red could be judged
+# (cmux#39582, 2026-11-09). Name the client.
+COMPILE_RECEIPT_USER_AGENT = "cmux-base-red-excuse"
 COMPILE_RECEIPT_RECIPE = (2, "release-onone")
 FLEET_COMPILE_JOB = "cmux-next fleet Release compile"
 FLEET_COMPILE_FAIL = re.compile(r"^##\[error\]\s*cmux-next/compile is not a pass for [0-9a-f]{40} \(fail\)")
@@ -950,7 +954,8 @@ def compile_receipt(repo: str, sha: str) -> dict | None:
     import urllib.request
     url = f"{COMPILE_RECEIPTS}/{sha}?repo={urllib.parse.quote(repo, safe='')}&wait=0"
     try:
-        with urllib.request.urlopen(url, timeout=COMPILE_RECEIPT_SECONDS) as answer:
+        request = urllib.request.Request(url, headers={"User-Agent": COMPILE_RECEIPT_USER_AGENT})
+        with urllib.request.urlopen(request, timeout=COMPILE_RECEIPT_SECONDS) as answer:
             receipt = json.loads(answer.read(1 << 16))
     except urllib.error.HTTPError as error:
         if error.code == 404:

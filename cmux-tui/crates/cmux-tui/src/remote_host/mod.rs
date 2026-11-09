@@ -14,6 +14,7 @@ pub(crate) mod audit;
 mod client;
 pub(crate) mod config;
 mod grant;
+mod platform_shares;
 mod preface;
 mod serve;
 mod service;
@@ -40,6 +41,13 @@ const USAGE: &str = "usage: cmux host enable [--owner LOGIN] [--session NAME] [-
        cmux host share SURFACE LOGIN [--role member|guest] [--json]
        cmux host unshare SURFACE LOGIN [--json]
        cmux host shares [--json]
+       on a cmux Cloud machine (this one, or --machine vm_ID), shares live on the cmux platform:
+       cmux host share CHAT... PERSON [--machine vm_ID]
+       cmux host unshare [CHAT...] PERSON | csh_ID [--machine vm_ID]
+       cmux host shares [--machine vm_ID]
+         CHAT: a surface number or session name (this machine) or a session id; PERSON: user_ID or name;
+         sign in with --cloud-token-file PATH, --cloud-token-stdin or CMUX_CLOUD_ACCESS_TOKEN
+         (with --team TEAM or CMUX_CLOUD_TEAM, and --platform URL)
        cmux host list [--json] [--all] [--port N]
        cmux host dial HOST [--port N]
        cmux host serve [--dir DIR]
