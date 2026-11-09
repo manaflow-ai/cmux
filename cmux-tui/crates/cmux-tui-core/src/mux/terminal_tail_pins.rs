@@ -345,11 +345,11 @@ impl Mux {
 }
 
 impl TerminalTailPins {
-    fn lock(&self) -> std::sync::MutexGuard<'_, PinsState> {
+    fn lock(&self) -> MutexGuard<'_, PinsState> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn publishing(&self) -> std::sync::MutexGuard<'_, ()> {
+    fn publishing(&self) -> MutexGuard<'_, ()> {
         self.publishing.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -399,7 +399,7 @@ fn run_publisher(weak: &Weak<Mux>) {
     }
 }
 
-const PIN_IDLE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+const PIN_IDLE_WAIT: Duration = Duration::from_secs(5);
 
 #[cfg(test)]
 #[path = "terminal_tail_pins_tests.rs"]
