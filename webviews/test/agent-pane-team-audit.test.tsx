@@ -4,7 +4,7 @@
 // answer, and the tab showing only while the `team-audit` experiment is on.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { act } from "react";
+import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { teamAudit } from "../src/agent-session/acpmux/teamAudit/teamAudit.experiment";
 import {
@@ -217,14 +217,15 @@ test("History shows the Team tab only while the experiment is on", async () => {
     ledger: { load: async () => ({}), openSession: () => undefined },
     team: { load: async () => answer() },
   };
+  const shown = props as unknown as ComponentProps<typeof HistoryScreen>;
   const tabs = () => [...host.querySelectorAll("[role=tab]")].map((tab) => tab.textContent);
   const root: Root = createRoot(host);
-  await act(async () => root.render(<HistoryScreen {...(props as never)} />));
+  await act(async () => root.render(<HistoryScreen {...shown} />));
   expect(tabs()).not.toContain("Team");
   await act(async () => root.unmount());
   scope.cmuxExperiments = { "team-audit": "on" };
   const again: Root = createRoot(host);
-  await act(async () => again.render(<HistoryScreen {...(props as never)} initialTab="team" />));
+  await act(async () => again.render(<HistoryScreen {...shown} initialTab="team" />));
   await settle();
   expect(tabs()).toContain("Team");
   expect(host.querySelector(".tma")).not.toBeNull();
