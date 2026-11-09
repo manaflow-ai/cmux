@@ -137,3 +137,67 @@ struct ScreenCaptureBackendPasteTests {
     }
 }
 #endif
+
+#if os(macOS)
+/// A real stream in one process: the viewer's Paste Image over libwebrtc's data
+/// channel to the host, which hands the whole image to its backend and answers.
+@Suite(.serialized)
+struct ScreenImagePasteStreamTests {
+    /// A small scrolling screen that also pastes (records) images.
+    final class PastingScreen: ScreenBackend, @unchecked Sendable {
+        let screen = ScrollingScreen(width: 640, height: 400, fps: 30)
+        let paster = PastingBackend()
+        var inputCapabilities: [String] { paster.inputCapabilities }
+        func start(frame: @escaping @Sendable (CVPixelBuffer, CGRect) -> Void,
+                   displays: @escaping @Sendable ([CGSize], Int) -> Void) async throws {
+            try await screen.start(frame: frame, displays: displays)
+        }
+        func select(display index: Int) { screen.select(display: index) }
+        func handle(_ input: ScreenInput) {}
+        func stop() { screen.stop() }
+        func pasteImage(_ data: Data, type: String) -> Bool { paster.pasteImage(data, type: type) }
+    }
+
+    final class Answers: @unchecked Sendable {
+        // @unchecked: behind `lock`.
+        private let lock = NSLock()
+        private var caps: [String] = []
+        private var outcomes: [ScreenHostMessage.PasteImageOutcome] = []
+        var capabilities: [String] { lock.withLock { caps } }
+        var all: [ScreenHostMessage.PasteImageOutcome] { lock.withLock { outcomes } }
+        func setCaps(_ value: [String]) { lock.withLock { caps = value } }
+        func append(_ outcome: ScreenHostMessage.PasteImageOutcome) { lock.withLock { outcomes.append(outcome) } }
+    }
+
+    /// 3 MB: past the channel's 2 MB high-water mark once base64'd, so the send must pace.
+    @Test(.timeLimit(.minutes(1))) func aPastedImageCrossesTheStreamWholeAndIsAnswered() async throws {
+        let (hostSide, viewerSide) = LoopbackSignaling.pair()
+        let backend = PastingScreen()
+        let host = ScreenStreamHost(name: "Mac", backend: { backend }, log: { print("host: \($0)") })
+        let hostTask = Task { try? await host.serve(hostSide) }
+        defer { hostTask.cancel() }
+
+        let answers = Answers()
+        let viewer = ScreenStreamViewer(signaling: viewerSide)
+        viewer.onCapabilities = { answers.setCaps($0) }
+        viewer.onPasteImage = { answers.append($0) }
+        try await viewer.connect()
+        defer {
+            viewer.close()
+            host.disconnectViewer()
+        }
+        // task-owner: bounded wait for the host's caps message (sent as its channel opens)
+        for _ in 0 ..< 100 where answers.capabilities.isEmpty { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(answers.capabilities.contains(ScreenHostMessage.pasteImageCapability))
+
+        let image = Data((0 ..< 3_000_000).map { UInt8(truncatingIfNeeded: $0 &* 7 &+ $0 >> 9) })
+        #expect(await viewer.pasteImage(image, type: "public.png"))
+        // task-owner: bounded wait for the host's answer
+        for _ in 0 ..< 300 where answers.all.isEmpty { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(answers.all == [.pasted])
+        #expect(backend.paster.pasted.count == 1)
+        #expect(backend.paster.pasted.first?.0 == image, "the Mac got the image byte for byte")
+        #expect(backend.paster.pasted.first?.1 == "public.png")
+    }
+}
+#endif
