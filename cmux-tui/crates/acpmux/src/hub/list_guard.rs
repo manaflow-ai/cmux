@@ -529,8 +529,8 @@ impl RowKey {
             .updated_at
             .cmp(&self.updated_at)
             .then_with(|| {
-                let id = |key: &Self| key.session_id.as_deref().unwrap_or("");
-                id(self).cmp(id(other))
+                let (a, b) = (self.session_id.as_deref(), other.session_id.as_deref());
+                a.unwrap_or("").cmp(b.unwrap_or(""))
             })
             .then_with(|| self.peer.cmp(&other.peer))
     }

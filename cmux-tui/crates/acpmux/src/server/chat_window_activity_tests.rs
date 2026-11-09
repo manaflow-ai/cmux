@@ -251,6 +251,8 @@ async fn a_ranked_top_level_window_recomputes_only_when_a_chats_fold_moves() {
         hub.append(s, "mux", "status", json!({"status": "idle"}));
     }
     tokio::time::sleep(Duration::from_millis(300)).await;
+    // What those recomputes sent: the totals below are read from later messages only.
+    while out.try_recv().is_ok() {}
     let before = recomputes(WINDOW);
 
     // Records of a chat the window does not show and whose fold stays: no recompute.
