@@ -321,12 +321,19 @@ fn row_round_trip(
     while got.len() < 2 {
         match lines.recv_timeout(Duration::from_secs(30)) {
             Ok(line) => got.push(line),
-            Err(why) => panic!(
-                "round trip {id}: {why:?} after {got:?}\nconnect log:\n{}\nssh args:\n{}\nhub dialed: {:?}",
-                world.connect_log(),
-                std::fs::read_to_string(&world.ssh_args).unwrap_or_default(),
-                world.hub_dialed.lock().unwrap()
-            ),
+            Err(why) => {
+                // The connect log's tail first: a CI log may keep only the
+                // panic's first lines.
+                let log = world.connect_log();
+                let tail: Vec<&str> = log.lines().rev().take(12).collect();
+                let tail: Vec<&str> = tail.into_iter().rev().collect();
+                panic!(
+                    "round trip {id}: {why:?} after {got:?}\nconnect log tail:\n{}\nhub dialed: {:?}\nssh args:\n{}",
+                    tail.join("\n"),
+                    world.hub_dialed.lock().unwrap(),
+                    std::fs::read_to_string(&world.ssh_args).unwrap_or_default().replace('\n', " "),
+                )
+            }
         }
     }
     assert_eq!(got[0], ask, "the device's line reached the daemon");

@@ -837,8 +837,9 @@ exec /bin/sh -c "exec $proxy"
 /// The stand-in tunnel hub on `listener`: SOCKS5 CONNECT without auth (what
 /// `wg dial` sends for port 22), recorded in `dialed`, then the machine's
 /// sshd with the carrier key's forced command: `cmux-tui remote-link
-/// --stdio` into the daemon's `link` socket, on the tunneled stream. While
-/// `cut` is set every tunneled stream ends and new ones are dropped.
+/// --stdio` into the daemon's `link` socket, with the tunneled stream as its
+/// stdin and stdout. While `cut` is set every tunneled stream ends (the
+/// command is killed and the stream shut down) and new ones are dropped.
 fn stand_in_hub(
     listener: std::os::unix::net::UnixListener,
     link: std::path::PathBuf,
@@ -888,27 +889,20 @@ fn hub_stream(
     if stream.write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0]).is_err() {
         return;
     }
+    // sshd hands the forced command the session's own descriptors: here the
+    // tunneled stream itself is its stdin and stdout, with nothing copying
+    // between them.
+    let (Ok(input), Ok(output)) = (stream.try_clone(), stream.try_clone()) else { return };
     let mut child = std::process::Command::new(BIN)
         .args(["remote-link", "--stdio", "--session", "carrier-ssh", "--link-socket"])
         .arg(link)
         .env_clear()
         .env("HOME", home)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
+        .stdin(std::process::Stdio::from(std::os::fd::OwnedFd::from(input)))
+        .stdout(std::process::Stdio::from(std::os::fd::OwnedFd::from(output)))
         .stderr(std::process::Stdio::inherit())
         .spawn()
         .unwrap();
-    let mut to_child = child.stdin.take().unwrap();
-    let mut from_child = child.stdout.take().unwrap();
-    let mut upload = stream.try_clone().unwrap();
-    let mut download = stream.try_clone().unwrap();
-    std::thread::spawn(move || {
-        let _ = std::io::copy(&mut upload, &mut to_child);
-    });
-    std::thread::spawn(move || {
-        let _ = std::io::copy(&mut from_child, &mut download);
-        let _ = download.shutdown(std::net::Shutdown::Write);
-    });
     while child.try_wait().ok().flatten().is_none() {
         if cut.load(Ordering::SeqCst) {
             let _ = child.kill();
