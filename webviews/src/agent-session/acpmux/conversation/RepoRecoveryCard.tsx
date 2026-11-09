@@ -62,7 +62,7 @@ export function RepoRecoveryCardView({
   const message = say(t, view.message);
   if (view.tone === "done")
     return (
-      <div className="cv-repo-recovery" role="status">
+      <div className="cv-repo-recovery" aria-live="polite">
         <span className="cv-repo-recovery__chip">
           <Icon name="status.check" size={12} />
           {message}
@@ -74,10 +74,11 @@ export function RepoRecoveryCardView({
     <Tag
       className={`cv-repo-recovery${view.tone === "plain" ? "" : ` cv-repo-recovery--${view.tone}`}`}
       aria-label={view.group ? message : undefined}
-      role={view.tone === "error" ? "alert" : view.tone === "quiet" ? "status" : undefined}
+      role={view.tone === "error" ? "alert" : undefined}
+      aria-live={view.tone === "quiet" ? "polite" : undefined}
     >
       <span>{message}</span>
-      {left !== undefined && <span className="cv-repo-recovery__eta">{t("cloudRepository.waitLeft", { time: left })}</span>}
+      {left !== undefined && <span className="cv-repo-recovery__eta" aria-hidden="true">{t("cloudRepository.waitLeft", { time: left })}</span>}
       {view.actions.map((action) => (
         <button
           key={`${action.id}:${action.repo ?? ""}`}
