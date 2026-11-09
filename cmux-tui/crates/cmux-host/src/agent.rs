@@ -94,8 +94,11 @@ pub const PAUSE_GAP: Duration = Duration::from_secs(20);
 /// that read the boot clock at `before_ns` and again at `after_ns`; `None`
 /// when the sleep ended within [`PAUSE_GAP`] of its tick.
 pub fn paused_for(before_ns: i128, after_ns: i128) -> Option<Duration> {
-    let _ = (before_ns, after_ns);
-    None
+    let late = after_ns - before_ns - i128::try_from(PAUSE_TICK.as_nanos()).ok()?;
+    if late <= i128::try_from(PAUSE_GAP.as_nanos()).ok()? {
+        return None;
+    }
+    Some(Duration::from_nanos(u64::try_from(late).unwrap_or(u64::MAX)))
 }
 
 /// Wall time within which a clock set and a pause-watch gap are the same
@@ -114,8 +117,11 @@ pub struct ResumeOnce {
 impl ResumeOnce {
     /// Whether a resume signal at wall time `wall_ns` is a new resume.
     pub fn first(&mut self, wall_ns: i128) -> bool {
-        self.last_wall_ns = Some(wall_ns);
-        true
+        let same = self.last_wall_ns.is_some_and(|last| (wall_ns - last).abs() < SAME_RESUME_NS);
+        if !same {
+            self.last_wall_ns = Some(wall_ns);
+        }
+        !same
     }
 }
 
@@ -282,7 +288,7 @@ impl<P: Platform> Agent<P> {
                     // Failure must fence an inherited identity, just like a clone signal.
                     clone_signal = true;
                 }
-                Wake::ClockSet => {
+                Wake::ClockSet | Wake::Paused => {
                     self.platform.invalidate_remote_authority();
                     resumed = true;
                     observe = true;
@@ -293,7 +299,7 @@ impl<P: Platform> Agent<P> {
                 // the identity), but remote authority, the roles and their
                 // receivers stay up and no `Resumed` is sent. Ending them
                 // here dropped the Native receiver on every provider exec.
-                Wake::ClockAdjusted | Wake::Paused => {
+                Wake::ClockAdjusted => {
                     observe = true;
                     clone_signal = true;
                 }
