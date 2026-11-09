@@ -22393,6 +22393,1971 @@
           }
         }
       }
+    },
+    "diffViewer.plainEnglish": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الشرح المبسّط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jednostavno objašnjenje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Almindeligt sprog"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klartext"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plain English"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lenguaje sencillo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En clair"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linguaggio semplice"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "わかりやすい説明"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភាសាសាមញ្ញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "쉬운 설명"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enkelt språk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prosty język"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linguagem simples"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Простым языком"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภาษาง่าย ๆ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sade dil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Простою мовою"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ngôn ngữ đơn giản"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通俗说明"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "白話說明"
+          }
+        }
+      }
+    },
+    "diffViewer.plainEnglishOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض الشيفرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži kod"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis kode"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show code"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar código"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher le code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra codice"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញកូដ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코드 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis kode"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż kod"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar código"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать код"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงโค้ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kodu göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати код"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện mã"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示代码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示程式碼"
+          }
+        }
+      }
+    },
+    "diffViewer.plainEnglishChecking": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ البحث عن وكيل يمكنه كتابة ملخصات…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traženje agenta koji može pisati sažetke…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leder efter en agent, der kan skrive resuméer…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suche nach einem Agenten, der Zusammenfassungen schreiben kann…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking for an agent that can write summaries…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscando un agente que pueda escribir resúmenes…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recherche d'un agent capable de rédiger des résumés…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ricerca di un agente in grado di scrivere riepiloghi…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要約を書けるエージェントを確認中…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងរកភ្នាក់ងារដែលអាចសរសេរសេចក្តីសង្ខេប…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약을 작성할 수 있는 에이전트를 확인하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ser etter en agent som kan skrive sammendrag …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szukanie agenta, który potrafi pisać podsumowania…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Procurando um agente que possa escrever resumos…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск агента, который может писать сводки…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังตรวจหาเอเจนต์ที่เขียนสรุปได้…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Özet yazabilen bir ajan aranıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пошук агента, який може писати підсумки…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang tìm tác tử có thể viết bản tóm tắt…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在查找可以撰写摘要的智能体…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在尋找可撰寫摘要的代理程式…"
+          }
+        }
+      }
+    },
+    "diffViewer.plainEnglishNeedsHost": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج الشرح المبسّط إلى تطبيق cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jednostavno objašnjenje zahtijeva aplikaciju cmux"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Almindeligt sprog kræver cmux-appen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klartext benötigt die cmux-App"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plain English needs the cmux app"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El lenguaje sencillo necesita la app de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« En clair » nécessite l'app cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il linguaggio semplice richiede l'app cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "わかりやすい説明にはcmuxアプリが必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភាសាសាមញ្ញត្រូវការកម្មវិធី cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "쉬운 설명을 쓰려면 cmux 앱이 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enkelt språk krever cmux-appen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prosty język wymaga aplikacji cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A linguagem simples precisa do app cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для режима «Простым языком» нужно приложение cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภาษาง่าย ๆ ต้องใช้แอป cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sade dil için cmux uygulaması gerekir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для режиму «Простою мовою» потрібен застосунок cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ngôn ngữ đơn giản cần ứng dụng cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通俗说明需要 cmux 应用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "白話說明需要 cmux App"
+          }
+        }
+      }
+    },
+    "diffViewer.plainEnglishNoAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج الشرح المبسّط إلى وكيل على هذا الـ Mac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jednostavno objašnjenje zahtijeva agenta na ovom Macu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Almindeligt sprog kræver en agent på denne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klartext benötigt einen Agenten auf diesem Mac"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plain English needs an agent on this Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El lenguaje sencillo necesita un agente en este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« En clair » nécessite un agent sur ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il linguaggio semplice richiede un agente su questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "わかりやすい説明にはこのMac上のエージェントが必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភាសាសាមញ្ញត្រូវការភ្នាក់ងារមួយនៅលើ Mac នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "쉬운 설명을 쓰려면 이 Mac에 에이전트가 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enkelt språk krever en agent på denne Macen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prosty język wymaga agenta na tym Macu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A linguagem simples precisa de um agente neste Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для режима «Простым языком» нужен агент на этом Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภาษาง่าย ๆ ต้องมีเอเจนต์บน Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sade dil için bu Mac'te bir ajan gerekir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для режиму «Простою мовою» потрібен агент на цьому Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ngôn ngữ đơn giản cần một tác tử trên máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通俗说明需要此 Mac 上有智能体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "白話說明需要此 Mac 上有代理程式"
+          }
+        }
+      }
+    },
+    "diffViewer.plainEnglishNoHarness": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج الشرح المبسّط إلى وكيل مُعدّ في الإعدادات > الوكلاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jednostavno objašnjenje zahtijeva agenta postavljenog u Postavke > Agenti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Almindeligt sprog kræver en agent, der er sat op i Indstillinger > Agenter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klartext benötigt einen Agenten, der unter Einstellungen > Agenten eingerichtet ist"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plain English needs an agent set up in Settings > Agents"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El lenguaje sencillo necesita un agente configurado en Ajustes > Agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« En clair » nécessite un agent configuré dans Réglages > Agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il linguaggio semplice richiede un agente configurato in Impostazioni > Agenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "わかりやすい説明には「設定」>「エージェント」で設定したエージェントが必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភាសាសាមញ្ញត្រូវការភ្នាក់ងារដែលបានរៀបចំក្នុងការកំណត់ > ភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "쉬운 설명을 쓰려면 설정 > 에이전트에서 에이전트를 설정해야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enkelt språk krever en agent som er satt opp i Innstillinger > Agenter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prosty język wymaga agenta skonfigurowanego w Ustawienia > Agenci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A linguagem simples precisa de um agente configurado em Ajustes > Agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для режима «Простым языком» нужен агент, настроенный в «Настройки» > «Агенты»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภาษาง่าย ๆ ต้องมีเอเจนต์ที่ตั้งค่าไว้ใน การตั้งค่า > เอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sade dil için Ayarlar > Ajanlar'da kurulmuş bir ajan gerekir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для режиму «Простою мовою» потрібен агент, налаштований у «Налаштування» > «Агенти»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ngôn ngữ đơn giản cần một tác tử được thiết lập trong Cài đặt > Tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通俗说明需要在“设置”>“智能体”中设置智能体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "白話說明需要在「設定」>「代理程式」中設定代理程式"
+          }
+        }
+      }
+    },
+    "diffViewer.plainEnglishNotInstalled": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج الشرح المبسّط إلى تثبيت أداة سطر الأوامر الخاصة بالوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jednostavno objašnjenje zahtijeva instaliran alat komandne linije agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Almindeligt sprog kræver, at agentens kommandolinjeværktøj er installeret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klartext benötigt das installierte Kommandozeilenwerkzeug des Agenten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plain English needs the agent's command line tool installed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El lenguaje sencillo necesita que esté instalada la herramienta de línea de comandos del agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« En clair » nécessite que l'outil en ligne de commande de l'agent soit installé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il linguaggio semplice richiede che lo strumento a riga di comando dell'agente sia installato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "わかりやすい説明にはエージェントのコマンドラインツールのインストールが必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភាសាសាមញ្ញត្រូវការឱ្យបានដំឡើងឧបករណ៍ command line របស់ភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "쉬운 설명을 쓰려면 에이전트의 명령줄 도구가 설치되어 있어야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enkelt språk krever at agentens kommandolinjeverktøy er installert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prosty język wymaga zainstalowanego narzędzia wiersza poleceń agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A linguagem simples precisa que a ferramenta de linha de comando do agente esteja instalada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для режима «Простым языком» нужно установить инструмент командной строки агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภาษาง่าย ๆ ต้องติดตั้งเครื่องมือบรรทัดคำสั่งของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sade dil için ajanın komut satırı aracının kurulu olması gerekir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для режиму «Простою мовою» потрібно встановити інструмент командного рядка агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ngôn ngữ đơn giản cần cài công cụ dòng lệnh của tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通俗说明需要安装智能体的命令行工具"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "白話說明需要安裝代理程式的命令列工具"
+          }
+        }
+      }
+    },
+    "diffViewer.plainEnglishUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يستطيع هذا الوكيل كتابة ملخصات لمرة واحدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj agent ne može pisati jednokratne sažetke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne agent kan ikke skrive enkeltstående resuméer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Agent kann keine einmaligen Zusammenfassungen schreiben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This agent can't write one-off summaries"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este agente no puede escribir resúmenes puntuales"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet agent ne peut pas rédiger de résumés ponctuels"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo agente non può scrivere riepiloghi singoli"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このエージェントは単発の要約を書けません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារនេះមិនអាចសរសេរសេចក្តីសង្ខេបម្តងម្កាលបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 에이전트는 일회성 요약을 작성할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne agenten kan ikke skrive enkeltstående sammendrag"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten agent nie potrafi pisać jednorazowych podsumowań"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este agente não consegue escrever resumos avulsos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот агент не может писать разовые сводки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์นี้เขียนสรุปแบบครั้งเดียวไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu ajan tek seferlik özet yazamaz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей агент не може писати одноразові підсумки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử này không thể viết bản tóm tắt dùng một lần"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此智能体无法撰写一次性摘要"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此代理程式無法撰寫一次性摘要"
+          }
+        }
+      }
+    },
+    "diffViewer.plainEnglishUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الملخصات غير متاحة الآن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sažeci trenutno nisu dostupni"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resuméer er ikke tilgængelige lige nu"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zusammenfassungen sind gerade nicht verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Summaries are not available right now"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los resúmenes no están disponibles ahora mismo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les résumés ne sont pas disponibles pour le moment"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I riepiloghi non sono disponibili al momento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在、要約は利用できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេចក្តីសង្ខេបមិនទាន់អាចប្រើបានទេនៅពេលនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금은 요약을 사용할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sammendrag er ikke tilgjengelige akkurat nå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podsumowania są teraz niedostępne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os resumos não estão disponíveis no momento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сводки сейчас недоступны"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตอนนี้ยังใช้สรุปไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Özetler şu an kullanılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підсумки зараз недоступні"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện chưa có bản tóm tắt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "摘要目前不可用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "摘要目前無法使用"
+          }
+        }
+      }
+    },
+    "diffViewer.hunkSummaryLoading": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ التلخيص…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sažimanje…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opsummerer…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird zusammengefasst…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Summarizing…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resumiendo…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Résumé en cours…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riepilogo in corso…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要約中…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងសង្ខេប…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppsummerer …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podsumowywanie…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resumindo…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Составление сводки…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังสรุป…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Özetleniyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Складання підсумку…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang tóm tắt…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在生成摘要…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在產生摘要…"
+          }
+        }
+      }
+    },
+    "diffViewer.hunkSummaryFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد ملخص لهذا التغيير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nema sažetka za ovu promjenu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intet resumé af denne ændring"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Zusammenfassung für diese Änderung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No summary for this change"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay resumen de este cambio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun résumé pour cette modification"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun riepilogo per questa modifica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この変更の要約はありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានសេចក្តីសង្ខេបសម្រាប់ការផ្លាស់ប្តូរនេះទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 변경에 대한 요약이 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen sammendrag for denne endringen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak podsumowania tej zmiany"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não há resumo para esta alteração"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет сводки для этого изменения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีสรุปสำหรับการเปลี่ยนแปลงนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu değişiklik için özet yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немає підсумку для цієї зміни"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có bản tóm tắt cho thay đổi này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此更改没有摘要"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此變更沒有摘要"
+          }
+        }
+      }
+    },
+    "diffViewer.hunkSummaryShowCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض الشيفرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži kod"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis kode"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show code"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar código"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher le code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra codice"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញកូដ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코드 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis kode"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż kod"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar código"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать код"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงโค้ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kodu göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати код"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện mã"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示代码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示程式碼"
+          }
+        }
+      }
+    },
+    "diffViewer.hunkSummaryHideCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء الشيفرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakrij kod"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul kode"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code ausblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide code"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar código"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer le code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nascondi codice"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードを非表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លាក់កូដ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코드 숨기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul kode"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukryj kod"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar código"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрыть код"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ่อนโค้ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kodu gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сховати код"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ẩn mã"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏代码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏程式碼"
+          }
+        }
+      }
+    },
+    "diffViewer.hunkSummaryOpenInDiff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح في الفروقات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori u diffu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn i diff"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Diff öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in diff"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir en el diff"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir dans le diff"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri nel diff"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分で開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកក្នុង diff"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "diff에서 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne i diff"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz w diffie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir no diff"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть в диффе"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดใน diff"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff'te aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрити в диффі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở trong diff"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在差异中打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在差異中開啟"
+          }
+        }
+      }
+    },
+    "diffViewer.hunkSummaryNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كتبه وكيل اعتمادًا على الشيفرة. تحقّق من الشيفرة قبل الاعتماد عليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Napisao agent na osnovu koda. Provjerite kod prije nego se oslonite na ovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrevet af en agent ud fra koden. Tjek koden, før du stoler på det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von einem Agenten anhand des Codes geschrieben. Prüfe den Code, bevor du dich darauf verlässt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Written by an agent from the code. Check the code before you rely on it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escrito por un agente a partir del código. Revisa el código antes de fiarte de él."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rédigé par un agent à partir du code. Vérifiez le code avant de vous y fier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scritto da un agente a partire dal codice. Controlla il codice prima di fidarti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードをもとにエージェントが書きました。頼る前にコードを確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សរសេរដោយភ្នាក់ងារពីកូដ។ សូមពិនិត្យកូដមុនពេលពឹងផ្អែកលើវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코드를 바탕으로 에이전트가 작성했습니다. 의존하기 전에 코드를 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrevet av en agent ut fra koden. Sjekk koden før du stoler på det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Napisane przez agenta na podstawie kodu. Sprawdź kod, zanim na tym polegasz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escrito por um agente a partir do código. Confira o código antes de confiar nele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Написано агентом по коду. Проверьте код, прежде чем полагаться на это."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เขียนโดยเอเจนต์จากโค้ด โปรดตรวจสอบโค้ดก่อนเชื่อถือ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koddan yola çıkılarak bir ajan tarafından yazıldı. Güvenmeden önce kodu kontrol et."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Написано агентом за кодом. Перевірте код, перш ніж на це покладатися."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Do tác tử viết dựa trên mã. Hãy kiểm tra mã trước khi tin vào nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由智能体根据代码撰写。请先核对代码再作依赖。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由代理程式根據程式碼撰寫。請先核對程式碼再加以依賴。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
