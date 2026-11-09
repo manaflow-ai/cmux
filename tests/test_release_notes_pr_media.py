@@ -402,6 +402,14 @@ class GalleryRenderPlanTests(unittest.TestCase):
         text_at = lambda rev, path: files.get(rev)
         self.assertEqual(self.tool.infer(row, cases, text_at, lambda c, p: set()), "a.b/new")
 
+    def test_infer_takes_the_added_variant_its_note_calls_selected(self):
+        # A new file's first variant was its closed row, which showed nothing of the cards it added (2026-11-09).
+        cases = [self.case("a.b", "closed"), self.case("a.b", "cards")]
+        files = {"c": 'variants: {\n  closed: {\n    note: "Closed, one row.",\n  },\n  cards: {\n'
+                      '    note: "Selected: opened.",\n  },\n}\n'}
+        row = {"id": "h", "role": "after", "sources": ["src/a.gallery.tsx"], "commit": "c"}
+        self.assertEqual(self.tool.infer(row, cases, lambda rev, path: files.get(rev), lambda c, p: set()), "a.b/cards")
+
     def test_infer_takes_the_variant_whose_lines_the_commit_changed_most(self):
         cases = [self.case("a.b", v) for v in ("first", "picked", "picked-solid")]
         text = "variants: {\n  first: {\n    x: 1,\n  },\n  picked: {\n    x: 2,\n    y: 3,\n  },\n  \"picked-solid\": {},\n}\n"
@@ -463,8 +471,23 @@ class GalleryRenderPlanTests(unittest.TestCase):
     def test_an_entry_that_marks_no_old_look_renders_the_before_at_the_parent(self):
         cases = [self.case("a.b", "x"), self.case("a.b", "y")]
         rows = [{"id": "h", "role": "before", "state": "a.b/x", "parent": "p"}]
-        out, _ = self.tool.resolve(rows, cases, source_text=lambda state, cases: "x: {}\ny: {}\n")
-        self.assertEqual((out[0]["state"], out[0]["parent"]), ("a.b/x", "p"))
+        files = {("p", "webviews/src/a.gallery.tsx"): "x: {}\n"}
+        out, missing = self.tool.resolve(rows, cases, lambda rev, path: files.get((rev, path)),
+                                         lambda state, cases: "x: {}\ny: {}\n")
+        self.assertEqual((out[0]["state"], out[0]["parent"], missing), ("a.b/x", "p", []))
+
+    def test_a_before_whose_state_its_commit_added_is_named_not_rendered_at_the_parent(self):
+        # agent-file-result-cards added its gallery file: at the parent there was nothing to render (2026-11-09).
+        cases = [self.case("a.b", "x"), self.case("a.b", "y")]
+        rows = [{"id": "h", "role": "before", "state": "a.b/x", "parent": "p" * 40}]
+        for at_parent in (None, "y: {}\n"):
+            with self.subTest(at_parent=at_parent):
+                out, missing = self.tool.resolve(rows, cases, lambda rev, path: at_parent,
+                                                 lambda state, cases: "x: {}\ny: {}\n")
+                self.assertEqual(out, [])
+                self.assertEqual(len(missing), 1)
+                self.assertIn("h before: a.b/x is new in its commit, not in src/a.gallery.tsx at pppppppppppp", missing[0])
+                self.assertIn('"Before:"', missing[0])
 
     def test_parents_come_newest_highlight_first(self):
         import json
