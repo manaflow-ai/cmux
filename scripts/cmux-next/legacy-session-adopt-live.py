@@ -3,7 +3,8 @@
 
 Before cx-6so.41 an untagged NIGHTLY, RC or staging build ran daemon session `cmux-app` in
 cmux-tui's default state root. Since then it runs `cmux-app-<channel>` in
-`cmux/tags/<channel>/tui`, so its first launch after the update opened an empty session. The app
+`cmux-next/tags/<channel>/tui` (`cmux/tags/<channel>/tui` before NEXT's own folder), so its first launch after the
+update opened an empty session. The app
 now adopts `cmux-app` in place when the old session has workspaces and its own is untouched
 (DaemonLauncher.appNames, LegacyChannelSession).
 
@@ -158,7 +159,7 @@ class Home:
 
     def stop_all(self):
         """Stops every daemon of this HOME, the app's own channel session included."""
-        own = (f"cmux-app-{CHANNEL}", os.path.join(self.support, f"cmux/tags/{CHANNEL}/tui"))
+        own = (f"cmux-app-{CHANNEL}", os.path.join(self.support, f"cmux-next/tags/{CHANNEL}/tui"))
         failed = []
         for session, state_dir in reversed(self.started + ([] if own in self.started else [own])):
             code, result, error = self.tui(session, state_dir, "server", "stop", "--end-terminals")
@@ -176,7 +177,7 @@ class Home:
             raise SystemExit(f"could not stop {failed}; refusing to run the next scenario on a live daemon")
 
     def marker(self):
-        return os.path.join(self.support, f"cmux/tags/{CHANNEL}/legacy-session-adopted")
+        return os.path.join(self.support, f"cmux-next/tags/{CHANNEL}/legacy-session-adopted")
 
 
 class App:
@@ -259,7 +260,7 @@ def adopt(stage, root, failures):
             failures.append(f"adopt: the old session's workspaces are not shown ({sorted(n for n in names if n)})")
         if not os.path.exists(home.marker()):
             failures.append("adopt: no adopt marker recorded")
-        if glob.glob(os.path.join(home.support, f"cmux/tags/{CHANNEL}/tui/cmux-app-{CHANNEL}-*")):
+        if glob.glob(os.path.join(home.support, f"cmux-next/tags/{CHANNEL}/tui/cmux-app-{CHANNEL}-*")):
             failures.append(f"adopt: a cmux-app-{CHANNEL} session was started anyway")
         app = App(home, legacy)
         try:
@@ -281,7 +282,7 @@ def keep(stage, root, failures):
     home = Home(stage, root, "keep")
     try:
         legacy = home.daemon("cmux-app", None, LEGACY)
-        own_state = os.path.join(home.support, f"cmux/tags/{CHANNEL}/tui")
+        own_state = os.path.join(home.support, f"cmux-next/tags/{CHANNEL}/tui")
         os.makedirs(own_state)
         own = home.daemon(f"cmux-app-{CHANNEL}", own_state, ["own-1"])
         with open(own) as handle:
@@ -317,7 +318,7 @@ def late(stage, root, failures):
             first = app.workspace_names()
         finally:
             app.quit()
-        own_state = os.path.join(home.support, f"cmux/tags/{CHANNEL}/tui")
+        own_state = os.path.join(home.support, f"cmux-next/tags/{CHANNEL}/tui")
         bounded(lambda: glob.glob(os.path.join(own_state, f"cmux-app-{CHANNEL}-*", "launch-snapshot.json")), 60,
                 "the own session's launch snapshot")
         print(f"  late launch 1 (own session): workspaces {sorted(n for n in first if n)}")
