@@ -112,7 +112,6 @@ impl HostedReader {
         pty: &'a PtySurface,
         reader: UnixStream,
     ) -> Option<StreamEnd<'a>> {
-        let id = self.id;
         let mux = self.mux.clone();
         let mut stager = HostedFrameStager::new_for_version(
             self.sequence_boundary,
@@ -124,13 +123,7 @@ impl HostedReader {
         let mut journal_target = None;
         let mut journal_update = None;
         // `reader` moves into the demultiplexer; a reconnect reassigns it.
-        let frames = match host_frames::HostFrames::spawn(
-            format!("surface-{id}-host-frames"),
-            reader,
-            self.control_responses.clone(),
-            self.protocol_version,
-            self.smart_renderer,
-        ) {
+        let frames = match self.spawn_frames(reader) {
             Ok(frames) => frames,
             Err(_) => return None,
         };
@@ -247,6 +240,21 @@ impl HostedReader {
             _journal_update: journal_update,
             _frames: frames,
         })
+    }
+
+    /// Start the frame demultiplexer that reads this connection's `reader`.
+    fn spawn_frames(&self, reader: UnixStream) -> std::io::Result<host_frames::HostFrames> {
+        #[cfg(test)]
+        if self.mux.upgrade().is_some_and(|mux| mux.take_host_frames_spawn_failure_for_test()) {
+            return Err(std::io::Error::other("test: the frame demultiplexer did not start"));
+        }
+        host_frames::HostFrames::spawn(
+            format!("surface-{}-host-frames", self.id),
+            reader,
+            self.control_responses.clone(),
+            self.protocol_version,
+            self.smart_renderer,
+        )
     }
 
     /// After a stream ended: publish an exit, or report the loss and wait out
