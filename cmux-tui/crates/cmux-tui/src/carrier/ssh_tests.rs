@@ -643,7 +643,6 @@ fn concurrent_carrier_key_creations_agree_and_leave_no_temporary_file() {
 /// up, as one quoted line, in the link's error when the run exits.
 #[tokio::test]
 async fn a_captured_ssh_s_stderr_goes_into_the_link_error_as_one_line() {
-    use cmux_remote::link::FrameLink as _;
     use cmux_remote::provider::{SshProvider, SshProviderConfig, TransportProvider as _};
     let dir = tempfile::tempdir().unwrap();
     let fake = dir.path().join("ssh");
