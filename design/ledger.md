@@ -2,8 +2,8 @@
 
 The agent pane's History screen has a Costs tab (`webviews/src/agent-session/acpmux/ledger/`,
 `LedgerScreen.tsx`). It reads acpmux's `_acpmux/ledger` for one range and shows every vendor's
-spend in one place: cost, tokens, prompt cache reads and writes with the cache hit rate, turns,
-tool calls and agent time, grouped the way the person asks, and exports it as CSV or JSON. It is shared web inside an existing host (the History screen), so it needs no new Swift.
+spend in one place: cost, tokens, prompt cache reads and writes, turns, tool calls and agent
+time, grouped the way the person asks. It is shared web inside an existing host (the History screen), so it needs no new Swift.
 
 Leo: "We should just make the best thing we can; any namedropped references to other
 companies/projects should typically just stay internal. We should defo build ALL of these things tho."
@@ -17,21 +17,42 @@ companies/projects should typically just stay internal. We should defo build ALL
 
 ## Layout
 
-- The controls row: the range (24h, 7d, 30d, All) as a segmented control, then Export (a menu:
-  CSV for a spreadsheet, JSON for a script), then Group by (Session, Workspace, Repository, Pull
-  request, Day, Person and machine, Account, Provider, Model) as a select.
-- The strip: nine tiles on one tonal fill (Cost, Tokens in, Cache reads, Cache writes, Cache hit
-  rate, Tokens out, Turns, Tool calls, Agent time). Numbers are compact and tabular, and the labels
-  are captions. Tokens in is uncached input plus cache writes, never cache reads.
-- The cache hit rate is the share of prompt tokens (uncached input, cache reads, cache writes) the
-  cache served: Session Info's prompt cache share (`usageStats.ts` `cacheReadShare`, acpmux
-  `usage_stats.rs` `cache_read_share`), one decimal. With no prompt tokens it is the unknown mark,
-  never 0%.
-- The note line: the price table's version (small, tertiary ink), how many turns had no price,
-  and a legend for the cost-source marks.
-- Rows: label and detail on the left, cost on the right with its source mark. The detail line ends
-  with the row's cache hit rate. The share against the largest row is a tonal fill behind the row
-  (`transform: scaleX`, so it never causes layout).
+- The controls row: the range (24h, 7d, 30d, All) as a segmented control, then Group by
+  (Session, Workspace, Repository, Pull request, Day, Person and machine, Provider, Model,
+  Account) as a select, with Copy CSV and Save before it. Account is the sign-in a chat ran on (its profile or preset),
+  so spend on an API key reads apart from a subscription's.
+- The strip: nine tiles on one tonal fill (Cost, Tokens in, Cache reads, Cache writes, Tokens
+  out, Cache saved, Turns, Tool calls, Agent time). Numbers are compact and tabular, and the labels are captions. Cache saved is
+  what cache reads saved against the input price, at the price table, whoever priced the turn.
+- The note line: the price table's version (small, tertiary ink), the share of all input read
+  from cache, how many turns had no price, what the last Copy CSV or Save did, and a legend for
+  the cost-source marks.
+
+## Audit export
+
+Copy CSV puts the rows shown (the range and the grouping) on the clipboard with a header row:
+the group's key and label (a session adds its harness, repository, branch and models), then
+every total under the name acpmux gives it. `acpmux ledger --by DIM --csv` prints the same
+columns for scripts. A field that starts with `=`, `+`, `-` or `@` gets a `'`, so a spreadsheet
+never reads a chat title as a formula. A host without a clipboard path shows no button.
+
+Save writes a file through the host's save panel (`pane.saveFile`, kinds `csv` and `json`): the
+same CSV, or JSON for a script (`ledgerModel.ts` `ledgerJson`: the range, the price table, the
+totals and every row with its cost source and share from cache). It holds every session of the
+range, not only the 200 the page reads: grouped by session it reads the range again at acpmux's
+most (5,000). A host that cannot save the file copies it to the clipboard and says so. A host with
+no save panel shows no Save. Like Copy CSV, it acts only on the answer for the range shown.
+
+## Person, machine and account
+
+The ledger is one machine's: acpmux keeps it per machine and never forwards `_acpmux/ledger` to a
+peer, and the app combines no daemons' ledgers. So every row ran here, Person is this machine's
+login and name (`user@machine`), and the group says "Person and machine". Grouping by machine
+across machines belongs to the team view, which reads every member's shared usage.
+- Rows: label and detail on the left, cost on the right with its source mark. The detail ends with
+  the row's share of input from cache (`cacheShare`, the note line's number); `table` has columns
+  for cache reads, cache writes and that share. The share against
+  the largest row is a tonal fill behind the row (`transform: scaleX`, so it never causes layout).
 - There are no borders anywhere: tonal fills only.
 
 ## Cost sources
@@ -42,24 +63,6 @@ companies/projects should typically just stay internal. We should defo build ALL
 | hollow dot | Priced from the table: cmux's price table (its version is on the note line) |
 | half dot | Partly priced: partly reported and partly priced, or some turns had no price (the cost is a floor) |
 | dash | No price known: tokens and turns are shown, the cost is zero |
-
-## Person, machine and account
-
-The ledger is one machine's: acpmux keeps it per machine and never forwards `_acpmux/ledger` to a
-peer, so every row of it ran here. Person is this machine's login and name (`user@machine`), and
-the group says "Person and machine". A machine grouping across machines belongs to the team view,
-which reads every member's shared usage. Account is the sign-in or profile a session ran on.
-
-## Export
-
-Export saves the range and grouping on screen as CSV (RFC 4180, CRLF, a header row) or JSON
-(`ledgerModel.ts` `ledgerCsv`, `ledgerJson`). It writes every row of the read, not the visible ones;
-grouped by session, when acpmux returned only the top sessions, it reads the same range again at
-acpmux's most (5,000). Each row carries its cost source, the price table version and the range.
-Text a spreadsheet would run as a formula gets a leading apostrophe. The file goes through the
-host's save panel (`pane.saveFile`, kinds `csv` and `json`); a host that cannot save it copies it
-to the clipboard and says so. The note line says Saved, Copied to the clipboard, or that the export
-failed.
 
 ## Row states
 
@@ -78,10 +81,10 @@ failed.
 3. `stacked`: two-line labels, with the share bar beneath.
 
 Shipped: `bars`. It reads in one glance at 380 px, the ranking is the fill itself, and it uses
-no extra row height. `table` (eight measure columns, cache reads, cache writes and hit rate
-among them) stops fitting below about 760 px, and `stacked` doubles the row height for no new
-information. The gallery also covers the Export menu open, a cold cache (bars and table),
-by-account, by-repo, by-day, 2,000 sessions, loading, empty and older.
+no extra row height. `table` (eight measure columns) stops fitting below about 760 px, and
+`stacked` doubles the row height for no new information. The gallery also covers Save's menu
+open, a cold cache (bars and table), by-account, by-repo, by-day, no copy, 2,000 sessions,
+loading, empty and older.
 
 ## Host and cost
 
@@ -89,7 +92,6 @@ by-account, by-repo, by-day, 2,000 sessions, loading, empty and older.
   action. There is no new page provider and no Swift view.
 - The relay allowlist (`AcpmuxPaneMethods`, and `cmux-agent-pane-policy/policy.json`) lists
   `_acpmux/ledger` with the params `since`, `until`, `limit` and `groupBy`. All of them are read-only.
-  Export's save goes through the pane's own `pane.saveFile`, which needs no relay entry.
 - One read per range: every rollup comes back in it, so switching the group never reads again.
 - The list is windowed (`ui/VirtualList`), so a frame draws only the visible rows, whatever the
   number of sessions. Rows are memoized, so switching the group recomputes one sort.

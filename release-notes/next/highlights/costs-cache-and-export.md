@@ -1,6 +1,6 @@
-title: Costs shows your prompt cache, and exports to CSV or JSON
+title: Costs shows cache reads and writes, and saves to a file
 category: improved
 docs: https://cmux.com/docs/next/agents
-gallery: agent-pane.costs/bars
+gallery: agent-pane.costs/save-open
 
-History › Costs now shows cache reads, cache writes and the cache hit rate for every row, groups by account, and Export saves the range as CSV or JSON.
+History › Costs now shows cache reads and cache writes, and each row's share from cache. Save writes every session of the range to a CSV or JSON file.

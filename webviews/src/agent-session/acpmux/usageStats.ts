@@ -98,15 +98,6 @@ export function usageCost(usd: number, locale?: string): string {
   }).format(usd);
 }
 
-/** Of prompt tokens (uncached input, cache reads and cache writes), the share the prompt cache
- *  served, to four places; undefined with no prompt tokens. acpmux's `cache_read_share`
- *  (usage_stats.rs, sent as `cacheReadShare24h`), for counts the page adds up itself (Costs,
- *  ledger/ledgerModel.ts): one definition of the cache hit rate. */
-export function cacheReadShare(read: number, input: number, write: number): number | undefined {
-  const total = read + input + write;
-  return total > 0 ? Math.round((read / total) * 10_000) / 10_000 : undefined;
-}
-
 /** "94.3%" from 0.9431: one decimal, so a 94.3% and a 98.1% chat read apart. */
 export function usageShare(share: number, locale?: string): string {
   return new Intl.NumberFormat(locale, { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(
