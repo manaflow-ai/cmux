@@ -528,7 +528,7 @@ Built bundles carry none of this. The code is `webviews/src/devkit/perfBudgets.t
 |---|---|
 | Nothing changes after `server --local` | `web-overlay.sh status` lists the dev server. `curl -sI http://127.0.0.1:4200/agent-pane/index.html` answers 200, and with `-H 'X-Cmux-Dev-Nonce: 1'` it adds an `X-Cmux-Dev-Proof` (none: the server is older than this change, or `web-dev.json` has no `token`). The app's commit includes #22664 (above). |
 | A page loads, then stops updating | The dev server stopped: the page says so in its corner, and if the server exited, `dev-server.exit` in the state folder says when. Pages go back to the shipped web UI. Run `server --local` again. |
-| A page is blank, or a script "has a MIME type of text/html" | The server is older than #(this change): it answered files it lacks with its index page. Pull the checkout and start it again. |
+| A page is blank, or a script "has a MIME type of text/html" | The server is older than this change: it answered files it lacks with its index page. Pull the checkout and start it again. |
 | `the dev server did not start` | Another process holds the port (the server won't move to another one). Use `--port N`; the app follows `web-dev.json`. |
 | You see another tree's edits | A dev server that `web-overlay.sh` didn't start already answers on the port, and `server --local` reuses it. Stop it where it was started, or use `--port N` for a free port. |
 | You want the shipped pages without deleting anything | Set `"enabled": false` in `web-dev.json`, or turn **Live Web Reload** off (`cmux settings set updates.liveWebReload false`). |
