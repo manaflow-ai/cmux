@@ -11,6 +11,7 @@ import { BackgroundTurnLine } from "../src/agent-session/acpmux/conversation/Bac
 import { BACKGROUND_TURN } from "../src/agent-session/acpmux/conversation/backgroundTurns";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { SubagentNavContext } from "../src/agent-session/acpmux/subagents/subagentGroupModel";
 import { connect, fakeDaemon, record, type Step } from "./support/agentPairDaemon";
 
 const update = (update: Record<string, unknown>) => ({ method: "session/update", params: { update } });
@@ -43,8 +44,15 @@ const ended = (id: string): Step => [
 ];
 const lineOf = (rows: AcpmuxRow[]) =>
   turnView(rows, new Set()).find((row) => row.kind === BACKGROUND_TURN && row.background !== undefined)!;
+// In the pane, as App.tsx provides it: a helper's name opens its transcript.
 const html = (row: AcpmuxRow) =>
-  renderToStaticMarkup(createElement(BackgroundTurnLine, { row, expanded: false, onToggle: () => {} }));
+  renderToStaticMarkup(
+    createElement(
+      SubagentNavContext.Provider,
+      { value: () => {} },
+      createElement(BackgroundTurnLine, { row, expanded: false, onToggle: () => {} }),
+    ),
+  );
 
 test("a background turn's line shows the raw command of the task that started it", async () => {
   const command = "cargo test -p acpmux --lib -- background_cause";
