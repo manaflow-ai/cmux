@@ -1754,6 +1754,10 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"web-lint: mem: total={gb('MemTotal'):.1f}G avail={gb('MemAvailable'):.1f}G "
                       f"swapfree={gb('SwapFree'):.1f}G/{gb('SwapTotal'):.1f}G load={os.getloadavg()[0]:.1f}",
                       file=sys.stderr, flush=True)
+                sockets = subprocess.run(["ss", "-tnpH"], capture_output=True, text=True).stdout.splitlines()
+                for line in sockets:
+                    if "ESTAB" not in line or "vp" in line or "node" in line or "tsgolint" in line:
+                        print(f"web-lint: sock: {line}", file=sys.stderr, flush=True)
                 time.sleep(15)
         import threading as _t
         _t.Thread(target=sample, daemon=True).start()
