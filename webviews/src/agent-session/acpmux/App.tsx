@@ -12003,6 +12003,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   // A replay draws under its chat's view too (conversation/viewFolds.ts), as the live transcript.
                   expanded={folds}
                   showMinimap={minimapVisible}
+                  // It draws in the same .acpmux-main, so its column ends where the live one's does.
+                  endReserve={columnEndReserve}
                   registry={noDismissRegistry}
                   onToggleActivity={toggleActivity}
                 />
