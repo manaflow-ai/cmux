@@ -45,7 +45,7 @@ struct PaletteArgumentFlow {
             let on = PaletteTargetOption(id: "true", title: PaletteStrings.on, symbol: "checkmark.circle")
             let off = PaletteTargetOption(id: "false", title: PaletteStrings.off, symbol: "circle")
             // An optional one the palette asks for opens on Off, its default: Return leaves it.
-            return .push(listPage(for: argument, options: argument.isRequired ? [on, off] : [off, on], collected: collected))
+            return .push(listPage(for: argument, options: argument.isAskedInPalette ? [off, on] : [on, off], collected: collected))
         case .enumeration(let cases):
             let options = cases.map { PaletteTargetOption(id: $0.value, title: $0.title, symbol: descriptor.symbol) }
             return .push(withPreview(listPage(for: argument, options: options, collected: collected), argument, collected))
@@ -162,15 +162,16 @@ struct PaletteArgumentFlow {
         return PaletteTextInputSpec(
             id: "argument:\(descriptor.id.rawValue):\(argument.name)",
             title: Self.stepTitle(descriptor, argument),
-            placeholder: argument.isRequired ? argument.title : PaletteStrings.optionalArgument(argument.title),
+            placeholder: argument.isAskedInPalette ? PaletteStrings.optionalArgument(argument.title) : argument.title,
             symbol: descriptor.symbol,
             initialText: askedText(for: argument) ?? currentText(for: argument, of: collected.target) ?? "",
             skipsUnchangedText: argument.isTargetName || argument.isTargetDescription || askedText(for: argument) != nil,
             submitTitle: { text in PaletteStrings.submitText(title: descriptor.title, text: text) },
-            // An optional one the palette asks for may be left empty: the run carries "" and the
-            // handler's default applies (the session host names a new worktree itself).
+            // Only an optional one the palette asks for (`isAskedInPalette`) may be left empty: the run
+            // carries "" and the handler's default applies (the session host names a new worktree).
+            // A handler's own ask (a Rename with no name) stays non-empty, or its run would ask again.
             isValid: { text in
-                text.trimmingCharacters(in: .whitespaces).isEmpty ? !argument.isRequired : argument.parse(text) != nil
+                text.trimmingCharacters(in: .whitespaces).isEmpty ? argument.isAskedInPalette : argument.parse(text) != nil
             },
             next: { text in
                 guard let next = flow.adding(argument, text, to: collected) else { return .performKeepingOpen {} }

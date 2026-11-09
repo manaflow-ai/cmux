@@ -40,6 +40,23 @@ struct PaletteAskedOptionalArgumentTests {
         #expect(runs, "both left empty: the action runs, with no third step")
     }
 
+    /// Review (codex) at a054991b: a handler's own ask for an optional name (Rename Space and Rename
+    /// Browser Profile with no name) took empty text too, so Return on a cleared name ran the handler,
+    /// which asked again: the prompt came back forever. Only `isAskedInPalette` may be left empty.
+    @Test func aHandlersOwnAskForAnOptionalNameStillRefusesEmpty() throws {
+        for id: ActionID in ["space.rename", "browserProfile.rename"] {
+            let descriptor = try #require(ActionCatalog.all.first { $0.id == id })
+            let name = try #require(descriptor.arguments.first { $0.name == "name" })
+            #expect(!name.isRequired && !name.isAskedInPalette, "\(id): a name only the handler asks for")
+            var flow = PaletteArgumentFlow(registry: .standard(), descriptor: descriptor, targets: nil)
+            flow.ask = ActionArgumentAsk(argument: "name", initialText: "Old")
+            let spec = try Self.text(flow.effect(collected: ActionInvocation()))
+            #expect(!spec.isValid(""), "\(id): a cleared name would rerun the handler, which asks again")
+            #expect(!spec.isValid("   "))
+            #expect(spec.placeholder == name.title, "\(id): no \"(optional)\" on a name the handler needs")
+        }
+    }
+
     @Test func requiredTextStillRefusesEmpty() throws {
         let spec = try Self.text(Self.flow("renameWorkspace").effect(collected: ActionInvocation()))
         #expect(!spec.isValid(""))
