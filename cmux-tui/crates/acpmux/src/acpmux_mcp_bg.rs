@@ -98,6 +98,9 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
                         "{line}\nBackground task {id}; this chat gets one message when it is done."
                     )
                 };
+                if by_subagent {
+                    structured.set("endMessage", json!(SUBAGENT_END));
+                }
                 ok(text, structured)
             }
             Err(e) => refusal(e),
@@ -127,6 +130,8 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
             let mut text = format!("{line}\n{}", summary(name, &structured)).trim_end().to_owned();
             if by_subagent && name == "bg_start" && structured.get("notify") == Some(&json!(true)) {
                 text.push_str(&format!("\n{SUBAGENT_END}"));
+                // Claude Code shows the structured result, not the text, when there is one.
+                structured.set("endMessage", json!(SUBAGENT_END));
             }
             ok(text, structured)
         }

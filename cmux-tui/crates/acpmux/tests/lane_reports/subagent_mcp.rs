@@ -237,6 +237,9 @@ async fn subagent_bg_start(sock: &Path, parent: &str, call: &str, n: u8) {
     assert_eq!(r["isError"], false, "{r}");
     let text = r["content"][0]["text"].as_str().unwrap_or_default();
     assert!(text.contains("after your next Bash or acpmux tool call"), "{text}");
+    // Claude Code shows a subagent the structured result when there is one.
+    let shown = r["structuredContent"]["endMessage"].as_str().unwrap_or_default();
+    assert!(shown.contains("after your next Bash or acpmux tool call"), "{r}");
     assert_eq!(hook(parent, call_input("PostToolUse", tool, call, true)), None);
     std::fs::write(&go, "").unwrap();
 }
