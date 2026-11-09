@@ -29336,7 +29336,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Inspect UI Element",
+      "title" : "Point at Element",
       "title_key" : null,
       "title_table" : null
     },
@@ -50695,7 +50695,7 @@
               "enabled_when" : "can_perform",
               "id" : "agentPane.togglePointerInspector",
               "kind" : "action",
-              "label" : "Inspect Element",
+              "label" : "Point at Element…",
               "order" : 1,
               "visible_when" : {
                 "debug_only" : false,

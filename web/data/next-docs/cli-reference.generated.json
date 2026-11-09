@@ -407,7 +407,7 @@
         },
         {
           "command": "cmux agent toggle-ui-pointer",
-          "title": "Inspect UI Element",
+          "title": "Point at Element",
           "id": "agentPane.togglePointerInspector",
           "mcp": true,
           "mcpTool": "app_agent_toggle_ui_pointer"

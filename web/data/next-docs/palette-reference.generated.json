@@ -6472,12 +6472,6 @@
           "command": null
         },
         {
-          "id": "agentPane.togglePointerInspector",
-          "title": "Inspect UI Element",
-          "shortcut": null,
-          "command": "cmux agent toggle-ui-pointer"
-        },
-        {
           "id": "palette.addHarness",
           "title": "Integrate a Harness with an Agent…",
           "shortcut": null,
@@ -6590,6 +6584,12 @@
           "title": "Open Voice Room",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "agentPane.togglePointerInspector",
+          "title": "Point at Element",
+          "shortcut": null,
+          "command": "cmux agent toggle-ui-pointer"
         },
         {
           "id": "agentPane.previousBookmarkedPrompt",
