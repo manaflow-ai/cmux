@@ -230,6 +230,37 @@ describe("mesh device intents", () => {
     expect(await claim(meshId, "i-17", newDeviceId(), later(INTENT_TOMBSTONE_MS + 3))).toBe(true);
   });
 
+  it("clears a commit revoked during its rollback whichever confirms the delete: the rollback, or a later revoke's reconcile", async () => {
+    const meshId = newMeshId();
+    const stateOf = async (intentId: string) =>
+      (await run(store.findDeviceIntent(A, meshId, intentId))).pipe(Option.map((row) => [row.committedAt === null, row.deviceId === null, row.revokedAt === null]));
+    // The rollback confirms the delete: it resolves the attempt, then gives the claim back.
+    const rolled = newDeviceId();
+    await claim(meshId, "i-18", rolled, at);
+    await run(store.commitDeviceIntent(A, "i-18", deviceRow(meshId, rolled), later(1)));
+    await revokeAs(meshId, "i-18", later(2));
+    await run(store.uncommitDeviceIntent(keyOf(meshId, "i-18", rolled)));
+    expect(await stateOf("i-18")).toEqual(Option.some([false, false, false]));
+    await run(store.resolveAttempt(keyOf(meshId, "i-18", rolled), later(3)));
+    await run(store.releaseDeviceIntent(keyOf(meshId, "i-18", rolled)));
+    expect(await stateOf("i-18")).toEqual(Option.some([true, true, false]));
+    // The rollback's delete failed: the attempt stays open, and the revoke's reconcile releases it once it deletes the tunnel.
+    const stuck = newDeviceId();
+    await claim(meshId, "i-19", stuck, at);
+    await run(store.commitDeviceIntent(A, "i-19", deviceRow(meshId, stuck), later(1)));
+    await revokeAs(meshId, "i-19", later(2));
+    await run(store.uncommitDeviceIntent(keyOf(meshId, "i-19", stuck)));
+    expect(await openOf(meshId, "i-19")).toEqual([stuck]);
+    await run(store.releaseCommitOfDevice(A, stuck, later(3)));
+    expect(await stateOf("i-19")).toEqual(Option.some([true, true, false]));
+    expect(await openOf(meshId, "i-19")).toEqual([]);
+    // Either way the tombstone alone decides when the intent is usable again.
+    for (const intentId of ["i-18", "i-19"]) {
+      expect(await claim(meshId, intentId, newDeviceId(), later(INTENT_TOMBSTONE_MS))).toBe(false);
+      expect(await claim(meshId, intentId, newDeviceId(), later(INTENT_TOMBSTONE_MS + 3))).toBe(true);
+    }
+  });
+
   it("keeps a tombstone 7 days, written before any enroll or by a device's delete", async () => {
     const meshId = newMeshId();
     await revokeAs(meshId, "i-5", at);
