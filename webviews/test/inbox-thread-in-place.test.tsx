@@ -194,19 +194,22 @@ test("shut, a short one-line newest message reads on the line, with no card, and
   );
   expect(longer.querySelector(".cv-inbox__newest")?.textContent).toContain("SHIP at abc.");
   // The estimator measures the short one as a one-line row and the other with its card.
-  const row = (id: string, newest: string): AcpmuxRow => ({
-    id,
-    version: 1,
-    at: 1,
-    kind: "user",
-    text: newest,
-    untyped: true,
-    incoming: { kind: "inbox", notice: notice(newest) },
-  } as AcpmuxRow);
+  const row = (id: string, newest: string): AcpmuxRow =>
+    ({
+      id,
+      version: 1,
+      at: 1,
+      kind: "user",
+      text: newest,
+      untyped: true,
+      incoming: { kind: "inbox", notice: notice(newest) },
+    }) as AcpmuxRow;
   const height = (r: AcpmuxRow) => layoutConversation([r], 720, new Map()).heights[0]!;
   // A long newest acpmux sent whole is measured whole (cut to eight lines), never as its preview.
   const long = Array.from({ length: 12 }, (_, index) => `Line ${index + 1} of the landing report.`).join("\n");
-  expect(height(row("est-long-newest", long))).toBeGreaterThan(height(row("est-two-lines", "Line 1.\n\nLine 2.")) + 3 * 18);
+  expect(height(row("est-long-newest", long))).toBeGreaterThan(
+    height(row("est-two-lines", "Line 1.\n\nLine 2.")) + 3 * 18,
+  );
   expect(height(row("est-one", "Ready for review."))).toBeLessThan(
     height(row("est-two", "Ready for review.\n\nSHIP at abc.")),
   );

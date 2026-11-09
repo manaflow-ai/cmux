@@ -2669,7 +2669,9 @@ function measuredRowHeight(
     // Its card is always under it, shut or open (inboxThreadCard).
     if (row.inboxThread) {
       const read = threadRead(sessionId, openKey, readForIds(row.inboxThread.promptIds)) ?? undefined;
-      return finish(line + inboxThreadCard(sessionId, openKey, read, row.incoming.message.text, width, row.inboxThread.newest));
+      return finish(
+        line + inboxThreadCard(sessionId, openKey, read, row.incoming.message.text, width, row.inboxThread.newest),
+      );
     }
     const message = row.incoming.message;
     // The `card` look's message row (conversation/receivedLook.ts; not a tool's notice or a lane's
@@ -2704,7 +2706,8 @@ function measuredRowHeight(
       const messages = thread.messages?.length
         ? thread.messages
         : (threadRead(sessionId, key, readForIds(thread.promptIds)) ?? undefined);
-      height += line + inboxThreadCard(sessionId, key, messages, thread.preview, width - (grouped ? 24 : 0), thread.newest);
+      height +=
+        line + inboxThreadCard(sessionId, key, messages, thread.preview, width - (grouped ? 24 : 0), thread.newest);
     }
     return finish(height + LINE_FRAME);
   }

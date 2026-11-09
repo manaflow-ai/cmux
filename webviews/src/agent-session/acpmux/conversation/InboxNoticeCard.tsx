@@ -342,22 +342,22 @@ function InboxThreadLine({
       keepsPreviewOpen={onLine}
       peek={
         onLine ? undefined : (
-        <>
-          <CardCopy text={newestText} />
-          <ClampedText
-            className="cv-received__text cv-inbox__newest selectable"
-            expanded={whole}
-            onExpand={showWhole}
-            watch={newestText}
-          >
-            {newestText ? (
-              <Markdown githubRepository={repository} commits="quiet" messageAt={newest?.at ?? messageAt}>
-                {newestText}
-              </Markdown>
-            ) : null}
-          </ClampedText>
-          {newestFrom && <SentFromLine from={newestFrom} />}
-        </>
+          <>
+            <CardCopy text={newestText} />
+            <ClampedText
+              className="cv-received__text cv-inbox__newest selectable"
+              expanded={whole}
+              onExpand={showWhole}
+              watch={newestText}
+            >
+              {newestText ? (
+                <Markdown githubRepository={repository} commits="quiet" messageAt={newest?.at ?? messageAt}>
+                  {newestText}
+                </Markdown>
+              ) : null}
+            </ClampedText>
+            {newestFrom && <SentFromLine from={newestFrom} />}
+          </>
         )
       }
       body={
