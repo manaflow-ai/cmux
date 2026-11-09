@@ -113,12 +113,13 @@ export function TeamAuditScreen({ load, initialRange = "30d", initialGroup = "pe
   // and for that reply's own days and grouping (never a newer pick still loading).
   const shownAudit = state.phase === "answered" && state.answer.kind === "ready" ? state.answer.reply : undefined;
   const download = () => {
-    if (!shownAudit || state.phase !== "answered") return;
-    const { since, until } = shownAudit.range;
+    if (!shownAudit) return;
+    // The reply's own days and grouping: the file holds what the table on screen holds.
+    const { range: days, groupBy } = shownAudit;
     const params =
-      since && until
-        ? { since, until, groupBy: state.group, format: "csv" }
-        : teamAuditParams(range, state.group, now ?? Date.now(), "csv");
+      days.since && days.until
+        ? { since: days.since, until: days.until, groupBy, format: "csv" }
+        : teamAuditParams(range, groupBy, now ?? Date.now(), "csv");
     setSaved(undefined);
     loadRef.current(params).then(
       (value) => {
