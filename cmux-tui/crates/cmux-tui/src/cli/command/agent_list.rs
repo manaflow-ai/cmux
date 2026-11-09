@@ -129,11 +129,14 @@ mod tests {
         assert_eq!(needs_me.params["terminal_id"], TERMINAL);
         // W5-P: any other terminal selector is the `terminal` field the
         // daemon resolves: a raw `run` reply's host id, a prefix, a name.
-        for selector in ["00000000000040008000000000000001", "term_5555", "pane_ab", "alpha"] {
+        for selector in ["00000000000040008000000000000001", "term_5555", "pane_abcd", "alpha"] {
             let list = protocol(&["agent", "list", "--terminal", selector]);
             assert_eq!(list.params["terminal"], selector);
             assert_eq!(list.params.get("terminal_id"), None);
         }
+        // An id prefix needs 4 hex digits: a shorter one is a usage error.
+        let short = parsed(&["agent", "list", "--terminal", "pane_ab"]).err().map(|e| e.0);
+        assert!(short.as_deref().is_some_and(|e| e.contains("at least 4 hex digits")), "{short:?}");
         let both = protocol(&["agent", "list", "--needs-me", "--state", "blocked"]);
         assert_eq!(both.params["state"], "blocked");
         let ResponseView::AgentRoster(view) = needs_me.view else { panic!("a roster") };
