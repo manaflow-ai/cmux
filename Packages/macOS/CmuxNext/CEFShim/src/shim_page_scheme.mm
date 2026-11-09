@@ -58,7 +58,7 @@ class DynamicResource : public CefResourceHandler {
   // stream asked for. False when that request already ended or was answered.
   bool Answer(int token, int status, std::string mime, std::string body, std::string range_headers = "",
               std::string csp = "") {
-    if (token != token_) return Chunk(std::move(body), status, range_headers);
+    if (token != token_) return Chunk(token, std::move(body), status, range_headers);
     return Respond(status, std::move(mime), std::move(body), std::move(range_headers), std::move(csp));
   }
 
@@ -92,12 +92,12 @@ class DynamicResource : public CefResourceHandler {
 
   // The next chunk of a stream (main thread), handed to the read that waits for it; a chunk that
   // is not the next part of the same file fails the response.
-  bool Chunk(std::string body, int status, const std::string& range_headers) {
+  bool Chunk(int token, std::string body, int status, const std::string& range_headers) {
     CefRefPtr<CefResourceReadCallback> callback;
     int delivered = 0;
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      if (!read_callback_) return false;
+      if (!read_callback_ || token != chunk_token_) return false;
       callback = read_callback_;
       read_callback_ = nullptr;
       chunk_token_ = 0;
