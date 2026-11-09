@@ -318,6 +318,27 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("pre-push: refused in cmux-next-gate", result.stderr)
         self.assertIn("do not retry", result.stderr)
 
+    def test_a_ui_font_check_stopped_by_its_read_guard_refuses_the_push(self):
+        # Review of #39838: the check stops ("reads X, which is not in INPUTS") on a read outside INPUTS. The base pass
+        # and the head pass print the same line, so the gate's base/head diff hid it, and the push went through with
+        # the check not run. The gate must refuse with the guard's message.
+        snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
+        installed = snapshot.resolve() / "check-ui-font.py"
+        entry = "def check_tree(tree: Tree) -> list[str]:\n"
+        text = installed.read_text()
+        self.assertIn(entry, text)
+        installed.write_text(text.replace(entry, entry + '    tree.read("README.md")\n', 1))
+        before = self.remote_head()
+        self.write("webviews/src/pages/shared/desktop.css", "/* a webviews change */\n")
+        self.commit("a webviews change")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("README.md, which is not in INPUTS", output)
+
     def test_the_ui_font_check_runs_only_on_a_push_that_changes_what_it_reads(self):
         # 2026-11-09 (push-reliability): check-ui-font.py reads every webviews/src and Native/OptChat source at the
         # base and again at the head (4268 files on feat-cmux-next). On a push that changed one Python file it took
