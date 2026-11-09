@@ -132,6 +132,13 @@ pub enum PeerCmd {
         #[command(subcommand)]
         cmd: ConsentCmd,
     },
+    /// This Mac's Cloud tunnel on the team mesh, through the daemon: attach, detach, rekey.
+    /// The daemon takes them only from the cmux app (its person proof), with the person's
+    /// cmux access token on stdin; a shell or agent is refused.
+    Tunnel {
+        #[command(subcommand)]
+        cmd: TunnelCmd,
+    },
     /// The person's vault on this joined machine: env vars and API keys kept
     /// once for every machine, stored in the OS secret store and given to
     /// every agent here. Never a Claude or Codex subscription login.
@@ -361,6 +368,24 @@ pub enum DepsCmd {
         /// The project folder (default: the current folder).
         dir: Option<std::path::PathBuf>,
     },
+}
+
+#[derive(Subcommand)]
+pub enum TunnelCmd {
+    /// Put this Mac in its team's WireGuard peer map.
+    Attach {
+        /// The team network id; it must be this Mac's own team.
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+    },
+    /// Take this Mac out of its team's peer map until the next attach.
+    Detach {
+        /// The team network id; it must be this Mac's own team.
+        #[arg(long, value_name = "ID")]
+        network: Option<String>,
+    },
+    /// Give this Mac a new WireGuard key (in the process that holds the key).
+    Rekey,
 }
 
 #[derive(Subcommand)]

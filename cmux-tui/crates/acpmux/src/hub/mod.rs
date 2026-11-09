@@ -4,6 +4,9 @@
 //! (export, import), `views` (summaries), `handoff` (a reviewed first message to another harness),
 //! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
+// A reply's checkable claims against the turn's runs (`claim_checks`).
+mod claim_check;
+
 mod activity;
 // A foreground shell still running after a minute goes to the background (Claude Code).
 mod auto_background;
@@ -207,6 +210,7 @@ pub(crate) mod mcp_probe;
 mod meta_save;
 mod offer_results;
 mod offers;
+mod question_replies;
 mod resume;
 mod secrets;
 mod seen;
@@ -238,6 +242,7 @@ mod stream;
 mod tags;
 mod tailnet_controller;
 mod tap;
+pub(crate) mod time_breakdown;
 mod titles;
 mod tool_paths;
 mod tool_read_images;
@@ -283,6 +288,7 @@ pub(crate) mod questions;
 mod remote_cwd;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
+mod review_brief;
 pub(crate) mod review_queue;
 mod touched;
 pub mod vm_boundary;
@@ -576,6 +582,11 @@ pub struct PromptOptions {
     /// hold in an idle chat that it does not wake is refused at once (`inbox.rs`
     /// `not_woken`), never left waiting for a turn that does not come.
     pub wake_or_fail: bool,
+    /// The sender waits for the reply and prints it (`readsReply`, `wakeOrFail`): its
+    /// connection's end, `true` once it left. An inbox message keeps it, so a notice says
+    /// "waiting" only while that caller is still there, and a question nobody waits for gets its
+    /// reply sent back (`hub/question_replies.rs`).
+    pub reply_reader: Option<tokio::sync::watch::Receiver<bool>>,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -716,6 +727,13 @@ pub struct Hub {
     /// whenever a session starts, so the picker can list a harness that has
     /// no live session.
     pub(super) known_models: StdMutex<HashMap<String, Vec<(String, String)>>>,
+    /// The ACP lists kept on disk by earlier probes (`live_models::AcpCache`), read once at
+    /// start: by harness, the profile key it was probed under and the list. Each fills
+    /// `known_models` for a profile with the same key until its probe answers (`model_probe.rs`).
+    pub(super) acp_cached: StdMutex<HashMap<String, (String, Vec<(String, String)>)>>,
+    /// The harnesses whose `known_models` entry is that disk copy, not a report of this
+    /// daemon's: the probe still runs for them.
+    pub(super) acp_from_disk: StdMutex<std::collections::HashSet<String>>,
     /// Model lists from Claude Code's and Codex's own CLIs, by profile name
     /// (`hub/live_models.rs`): richer than `known_models` (efforts, fast).
     pub(super) live_models: StdMutex<HashMap<String, Vec<crate::live_models::LiveModel>>>,
@@ -749,6 +767,8 @@ pub struct Hub {
     pub(crate) adoption_ready: tokio::sync::watch::Sender<bool>,
     /// Startup has read the login environment: the catalog sees its PATH.
     pub(super) catalog_ready: tokio::sync::watch::Sender<bool>,
+    /// Startup has served the model lists kept on disk: `_acpmux/models` waits for it.
+    pub(super) model_caches_ready: tokio::sync::watch::Sender<bool>,
     pub(super) login_env_requested: AtomicBool,
     /// Session ids an `import` is writing right now.
     pub(super) importing: StdMutex<std::collections::HashSet<String>>,
@@ -873,6 +893,8 @@ pub struct Hub {
     #[cfg(test)]
     pub(super) queue_approval_off: AtomicBool,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
+    /// The one check of every watched transcript (`watch_tick.rs`).
+    pub(super) watch_ticker: watch::WatchTicker,
     /// The settings file watched for start-mode changes (`settings_watch.rs`).
     pub(super) settings_watch: settings_watch::SettingsWatchState,
     /// The HEAD of each attached session's folder, watched for a checkout (`git_watch.rs`).
@@ -957,6 +979,9 @@ pub struct Hub {
     pub(crate) briefs: dispatch::Briefs,
     /// Every Claude workflow of this daemon's chats (`workflow_index.rs`).
     pub(crate) workflow_index: workflow_index::WorkflowIndex,
+    /// Which predicted next prompts reach the person (`suggestion_gate.rs`): this daemon's own
+    /// chats and the peers' chats it relays to its person.
+    pub(crate) suggestion_gate: StdMutex<crate::suggestion_gate::Gate>,
 }
 
 /// Serialized forms of one closed session. Each form has its own generation and tag-expiry
@@ -1034,6 +1059,7 @@ impl Hub {
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
         let peer_paths = Arc::new(crate::peer_last_good::LastGood::open(home.as_deref()));
+        let suggestion_gate = StdMutex::new(crate::suggestion_gate::Gate::open(home.as_deref()));
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
@@ -1105,6 +1131,8 @@ impl Hub {
             peer_notices_finished: AtomicBool::new(false),
             peer_notices_done: Arc::new(Notify::new()),
             known_models: StdMutex::new(HashMap::new()),
+            acp_cached: StdMutex::new(HashMap::new()),
+            acp_from_disk: StdMutex::new(std::collections::HashSet::new()),
             live_models: StdMutex::new(HashMap::new()),
             live_rechecks: StdMutex::new(HashMap::new()),
             refused_models: StdMutex::new(HashMap::new()),
@@ -1118,6 +1146,7 @@ impl Hub {
             retention_wake: Arc::new(Notify::new()),
             adoption_ready: tokio::sync::watch::channel(true).0,
             catalog_ready: tokio::sync::watch::channel(true).0,
+            model_caches_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
             importing: StdMutex::new(std::collections::HashSet::new()),
             pending_forks: Default::default(),
@@ -1185,6 +1214,7 @@ impl Hub {
             #[cfg(test)]
             refuse_seam: Default::default(),
             harness_watch: Default::default(),
+            watch_ticker: Default::default(),
             settings_watch: Default::default(),
             git_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
@@ -1193,6 +1223,7 @@ impl Hub {
             person: Default::default(),
             presence: Default::default(),
             workflow_index: Default::default(),
+            suggestion_gate,
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             watched_moves: Default::default(),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
@@ -1521,6 +1552,7 @@ impl Hub {
             harness_use: RwLock::new(()),
             idle_refusal_logged: AtomicU64::new(0),
             append_lock: StdMutex::new(()),
+            time_breakdown: StdMutex::new(Default::default()),
             meta_writer: Default::default(),
             message_ids: StdMutex::new(None),
             log_deferral: StdMutex::new(Default::default()),
@@ -1591,6 +1623,7 @@ impl Hub {
             closing: AtomicBool::new(false),
             stops: AtomicU64::new(0),
             cancels: AtomicU64::new(0),
+            claim_runs: StdMutex::new(Default::default()),
             start_retry_wake: Notify::new(),
             start_retry_waits: AtomicBool::new(false),
             start_retry_cancels: AtomicU64::new(start_retry::NO_RETRY),
@@ -2223,6 +2256,13 @@ impl Hub {
         };
         if stored {
             session.note_transfer_event(&record);
+            {
+                let mut breakdown =
+                    session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+                if breakdown.initialized {
+                    breakdown.record(&record);
+                }
+            }
             // The review queue's index and the audit trail: O(1), never blocking on a write.
             self.observe_for_review(session, &record);
         }
@@ -2624,13 +2664,21 @@ impl Hub {
         // loaded (`load_logs`, after the daemon's ready line) or its first append: its tail is
         // counted first, so the cap below leaves out only a line whose record is not appended
         // yet. A caught-up chat takes no lock here (a replay never waits for an append).
-        if !session.caught_up.load(Ordering::SeqCst) {
-            self.catch_up(&session);
-        }
+        self.catch_up_tail(&session);
         let last = session.meta().last_seq;
         #[cfg(test)]
         log_load::catch_up_note(&log_load::NOTE_BEFORE_REPLAY_SCAN, "scans the log");
         self.store.scan(id, after, &mut |record| record.seq <= last && visit(record))
+    }
+
+    /// Counts `session`'s log tail past its saved `lastSeq` if no one has yet ([`Self::catch_up`]):
+    /// a read that compares a client's cursor with `lastSeq` (`_acpmux/events`) reads it after
+    /// this, or after a hard stop it refuses the records the log holds and the saved session does
+    /// not (`cursor_future`) until the chat's log loads. A caught-up chat takes no lock.
+    pub(crate) fn catch_up_tail(&self, session: &Session) {
+        if !session.caught_up.load(Ordering::SeqCst) {
+            self.catch_up(session);
+        }
     }
 
     pub fn session_dir(&self, id: &str) -> Option<PathBuf> {

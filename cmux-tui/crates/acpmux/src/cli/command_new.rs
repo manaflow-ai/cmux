@@ -108,7 +108,7 @@ pub struct NewArgs {
     /// label, matched ignoring case and outer spaces; an id is refused (exit 2).
     #[arg(long, value_name = "GROUP")]
     pub group: Option<String>,
-    /// When a session named --name already exists, use it instead of failing;
+    /// When a session named --name (in any case) already exists, use it instead of failing;
     /// the first prompt is not sent to it again.
     #[arg(long)]
     pub reuse: bool,

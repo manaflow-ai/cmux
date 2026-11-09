@@ -1,5 +1,6 @@
 @testable import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -294,21 +295,28 @@ import Testing
         let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) {
             ["CMUX_CLOUD_ACCESS_TOKEN": "t-\(await tokens.next())"]
         }
-        let serve = CloudCarrierServe(connector: connector, socket: "/tmp/cmux-link-0123456789ab.sock", refreshDelay: { _ in .milliseconds(20) }) { _ in }
+        let clock = ManualClock()
+        let serve = CloudCarrierServe(connector: connector, socket: "/tmp/cmux-link-0123456789ab.sock", refreshDelay: { _ in .seconds(60) },
+                                      clock: clock) { _ in }
         _ = try await serve.socketPath()
+        // The first refresh is asleep on the clock; moving the clock past its delay sends the next token.
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(60))
         let stdin = folder.appendingPathComponent("stdin")
-        var deadline = ContinuousClock.now + .seconds(5)
+        let deadline = ContinuousClock.now + .seconds(5)
         while (try? String(contentsOf: stdin, encoding: .utf8))?.contains(#"{"access_token":"t-2"}"#) != true, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(try String(contentsOf: stdin, encoding: .utf8).hasPrefix(#"{"access_token":"t-2"}"# + "\n"))
+        // The refresh after it is asleep on the clock again: the loop runs while the child does.
+        try await clock.waitForSleeper()
         #expect(await serve.refreshing)
         await serve.stop()
-        deadline = ContinuousClock.now + .seconds(5)
-        while await serve.refreshing, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
         #expect(await serve.refreshing == false)
         let asked = await tokens.current()
-        try await Task.sleep(for: .milliseconds(200))
+        // Nothing is left asleep on the clock, so no amount of time asks for another token.
+        #expect(clock.sleeperCount == 0, "the refresh loop outlived the child")
+        clock.advance(by: .seconds(3_600))
         #expect(await tokens.current() == asked, "the refresh loop outlived the child")
     }
 
@@ -360,7 +368,10 @@ import Testing
         await serve.stop()
         // The next connect closes the first child and waits for it to exit.
         let connect = Task { try await serve.socketPath() }
-        try await Task.sleep(for: .milliseconds(300))
+        // The launch closed the first child and waits for its exit, next to the child's own exit watcher.
+        let deadline = ContinuousClock.now + .seconds(5)
+        while await serve.childExitWaiters < 2, ContinuousClock.now < deadline { await Task.yield() }
+        #expect(await serve.childExitWaiters == 2)
         await serve.stop()
         try Data().write(to: folder.appendingPathComponent("go"))
         await #expect(throws: CloudLinkError.disconnected(reason: "closed")) { _ = try await connect.value }

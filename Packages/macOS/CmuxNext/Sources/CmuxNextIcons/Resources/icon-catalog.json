@@ -394,7 +394,11 @@
    "name": "browser",
    "meaning": "Browser / web page / site",
    "sf": "globe",
-   "family": "browser"
+   "family": "browser",
+   "overrides": [
+    "globe",
+    "globe.badge.chevron.backward"
+   ]
   },
   {
    "name": "browser.extensions.manage",
@@ -1936,7 +1940,10 @@
    "name": "terminal",
    "meaning": "Terminal",
    "sf": "terminal",
-   "family": "terminal"
+   "family": "terminal",
+   "overrides": [
+    "terminal"
+   ]
   },
   {
    "name": "terminal.copymode",

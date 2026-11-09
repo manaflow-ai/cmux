@@ -624,6 +624,20 @@ pub(crate) fn record_auth_result(token: &str, revoked: bool, heartbeat: bool) ->
     Ok(())
 }
 
+/// Records the WireGuard public key the hub now holds for `machine_id` (a rekey,
+/// `crate::machine_tunnel`). Only that machine's record changes.
+pub(crate) fn record_wg_public_key(machine_id: &str, wg_public_key: &str) -> Result<()> {
+    let _lock = join_lock()?;
+    if let Some(mut record) = load()?
+        && record.machine_id == machine_id
+        && record.wg_public_key != wg_public_key
+    {
+        record.wg_public_key = wg_public_key.to_owned();
+        save(&record)?;
+    }
+    Ok(())
+}
+
 pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     let pending_origin = recovery::pending_origin()?;
     let fallback_hub = pending_origin.clone().unwrap_or(origin(hub)?);

@@ -387,8 +387,8 @@ fn the_github_status_server_reaches_every_harness_kind() {
 #[test]
 fn the_claude_guidance_switch_also_leaves_the_chat_skill_out_of_the_plugin() {
     let state = tempfile::tempdir().unwrap();
-    let on = super::materialize(state.path(), true).unwrap();
-    let off = super::materialize(state.path(), false).unwrap();
+    let on = super::materialize(state.path(), |_| true).unwrap();
+    let off = super::materialize(state.path(), |skill| skill != "cmux-chat").unwrap();
     assert_ne!(on, off, "each set of skills gets its own folder");
     assert!(on.join("skills/cmux-chat/SKILL.md").is_file());
     assert!(!off.join("skills/cmux-chat").exists());
@@ -411,4 +411,46 @@ fn cmux_cua_still_resolves_after_automatic_enrollment() {
     // Any other join: only with the local control consent.
     assert!(!super::computer_use_allowed(|| false, || false));
     assert!(super::computer_use_allowed(|| false, || true));
+}
+
+/// A chat without computer use or the secrets server is not told about their skills: the
+/// fitted plugin leaves out `cmux-cua` and `cmux-sudo`, keeps the rest (the chat skill
+/// as the full plugin had it), and the tool rows and context sources say the same.
+#[test]
+fn a_skill_for_a_server_the_chat_lacks_is_not_listed() {
+    let state = tempfile::tempdir().unwrap();
+    let server = |name: &str| super::McpServer {
+        name: name.into(),
+        command: "/bin/true".into(),
+        args: vec![],
+        env: vec![],
+    };
+    let full = super::materialize(state.path(), |_| true).unwrap();
+    let with = super::AgentTools {
+        servers: vec![server("cmux"), server("cmux-cua"), server(crate::secret_mcp::SERVER_NAME)],
+        plugin_dir: Some(full.clone()),
+        ..Default::default()
+    };
+    assert_eq!(with.clone().fit_skills().plugin_dir, Some(full.clone()), "nothing to leave out");
+    let without = super::AgentTools { servers: vec![server("cmux")], ..with }.fit_skills();
+    let fit = without.plugin_dir.clone().unwrap();
+    assert_ne!(fit, full);
+    assert_eq!(fit.parent(), full.parent());
+    for gone in ["cmux-cua", "cmux-sudo"] {
+        assert!(!fit.join("skills").join(gone).exists(), "{gone} is listed");
+    }
+    for kept in ["cmux-browser", "cmux-chat", "acpmux", "cmux-live"] {
+        assert!(fit.join("skills").join(kept).join("SKILL.md").is_file(), "{kept} is gone");
+    }
+    assert!(fit.join("hooks/hooks.json").is_file());
+    let rows: Vec<_> = without.tool_rows(true, true).into_iter().map(|r| r.id).collect();
+    assert!(rows.contains(&"skill:cmux:cmux-browser".to_owned()), "{rows:?}");
+    assert!(!rows.iter().any(|r| r.ends_with("cmux-cua") || r.ends_with("cmux-sudo")), "{rows:?}");
+    let parts: Vec<_> = without.context_parts(true).into_iter().map(|p| p.id).collect();
+    assert!(!parts.iter().any(|p| p == "cmux-source-skill-cmux-cmux-cua"), "{parts:?}");
+    // A plugin without the chat skill (`agents.guidance.claude` off) stays without it.
+    let no_chat = super::materialize(state.path(), |skill| skill != "cmux-chat").unwrap();
+    let fit = super::AgentTools { plugin_dir: Some(no_chat), ..without }.fit_skills();
+    let fit = fit.plugin_dir.unwrap();
+    assert!(!fit.join("skills/cmux-chat").exists() && !fit.join("skills/cmux-cua").exists());
 }

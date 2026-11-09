@@ -382,11 +382,11 @@ final class CloudMachineSession {
         }
     }
 
-    /// A start's or a move's wait: true once the daemon answers or a resume failed; a paused app-link machine is resumed once.
+    /// A start's or a move's wait: true once the daemon answers or a resume failed; a paused machine resumes once, an ended link redials.
     func linkUp(within limit: Duration) async -> Bool {
-        var resumed = false // one resume per wait: a start that settles back to paused is the platform's answer
+        let beats = CloudWait.StartRedials() // what each beat does is Rust's (`start_redial`)
         return await CloudWait.holds(within: limit, redialing: CloudWait.startRedial, redial: {
-            if machine.status == .paused, !resumed { resumed = true; attach(origin: .script) }
+            beats.beat(ended: linkEnded != nil && !appConnecting, status: machine.status, resume: { attach(origin: .script) }, connect: { connect() })
         }) { [daemon] in
             self.resumeFailure != nil || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
         }

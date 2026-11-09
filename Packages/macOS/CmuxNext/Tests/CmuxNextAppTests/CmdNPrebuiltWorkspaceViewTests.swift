@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+@testable import CmuxNextAppCore
 @testable import CmuxNextDaemon
 import Foundation
 import Testing
@@ -107,8 +108,9 @@ struct CmdNPrebuiltWorkspaceViewTests {
             try await PasswordManagerRouteTests.until({
                 services.windows.active?.workspaceContent?.workspace.id == key && services.windows.active?.workspaceContent?.focusedPane != nil
             }, within: .seconds(2), report: { "the window shows no focused pane of Cmd-N's workspace" })
-            // Let the refill's later steps run.
-            try await Task.sleep(for: .milliseconds(500))
+            // The refill's later steps run (and any refill after the key): the slot settles before the check.
+            try await PasswordManagerRouteTests.until({ !controller.reservedContent.isFilling },
+                                                      within: .seconds(10), report: { "the window's refill never settled" })
             let shown = try #require(controller.workspaceContent)
             #expect(controller.reservedContent.ready?.workspace !== shown.workspace, "the refill built a second view of the shown workspace")
             let views = controller.root.contentHost.subviews.filter { $0 is WorkspaceContentView }
