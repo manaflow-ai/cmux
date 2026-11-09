@@ -88,29 +88,62 @@ function fromText(output: string): Walkthrough | undefined {
   return parseWalkthrough(output.slice(at + MARK.length, end < 0 ? undefined : end));
 }
 
-/// Every string in a JSON envelope (an MCP result's `content[].text`), deepest last.
-function strings(value: unknown, out: string[]): string[] {
-  if (typeof value === "string") out.push(value);
-  else if (Array.isArray(value)) for (const item of value) strings(item, out);
-  else if (value && typeof value === "object") for (const item of Object.values(value)) strings(item, out);
-  return out;
+/// How deep the envelope walk goes, counting each JSON string it decodes as a level: an MCP
+/// result's `content[].text`, a `cmux_exec` answer's `logs[]` holding the REPL's result as JSON,
+/// sit well inside it. Deeper output (any tool can print 5,000 nested arrays) is not looked at.
+const MAX_DEPTH = 12;
+/// The most values the walk visits, so a wide envelope costs no more than a deep one.
+const MAX_VISITS = 4096;
+
+/// The last walkthrough inside a JSON envelope: its strings, and the JSON a string holds (a
+/// serialized REPL result in a script's logs), walked without recursion and within both bounds.
+function fromEnvelope(root: unknown): Walkthrough | undefined {
+  const stack: { value: unknown; depth: number }[] = [{ value: root, depth: 0 }];
+  for (let visits = 0; stack.length && visits < MAX_VISITS; visits += 1) {
+    const { value, depth } = stack.pop()!;
+    if (depth > MAX_DEPTH) continue;
+    if (typeof value === "string") {
+      if (!value.includes(MARK)) continue;
+      const read = fromText(value) ?? decoded(value, depth);
+      // Strings are popped last first: the first one read is the output's last walkthrough.
+      if (read) return read;
+      continue;
+    }
+    const children = Array.isArray(value)
+      ? value
+      : value && typeof value === "object"
+        ? Object.values(value as Record<string, unknown>)
+        : [];
+    for (const child of children) stack.push({ value: child, depth: depth + 1 });
+  }
+  return undefined;
+
+  function decoded(text: string, depth: number): Walkthrough | undefined {
+    const trimmed = text.trim();
+    if (!/^[[{"]/.test(trimmed)) return undefined;
+    try {
+      stack.push({ value: JSON.parse(trimmed), depth: depth + 1 });
+    } catch {
+      // Not JSON: a string that only mentions the mark.
+    }
+    return undefined;
+  }
 }
 
 /// The walkthrough a finished call printed, read from its output as it came or from inside the
 /// JSON envelope a harness wrapped it in. Cheap for every other call: it looks for the mark first.
+/// Never throws: a call's output is any text a tool printed, and turn shaping must not fail on it.
 export function toolWalkthrough(tool: Tool | undefined): Walkthrough | undefined {
   const output = tool?.output;
   if (!output || tool.status !== "completed" || !output.includes("cmux.walkthrough")) return undefined;
-  const direct = fromText(output);
-  if (direct) return direct;
-  let envelope: unknown;
   try {
-    envelope = JSON.parse(output);
+    const direct = fromText(output);
+    if (direct) return direct;
+    const trimmed = output.trim();
+    return /^[[{]/.test(trimmed) ? fromEnvelope(JSON.parse(trimmed)) : undefined;
   } catch {
     return undefined;
   }
-  const found = strings(envelope, []).filter((s) => s.includes(MARK));
-  return found.length ? fromText(found[found.length - 1]!) : undefined;
 }
 
 /// The last walkthrough among a turn's rows: the one the turn ends on, after any fix it made.

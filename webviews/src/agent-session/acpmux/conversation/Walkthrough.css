@@ -1,7 +1,7 @@
 /* A browser walkthrough under a turn's answer (Walkthrough.tsx, design/verify-walkthrough.md): a
    one-line head with the verdict, then a strip of fixed-size shots, each over its mark and line.
-   Every shot holds the same 128 x 80 box whether or not its image loaded, so nothing moves when one
-   arrives. */
+   Every shot holds the same 128 x 80 box (16:10) whether or not its image loaded, so nothing moves
+   when one arrives. */
 .cv-walk {
   margin: var(--ds-space-2, 8px) 0;
   font-size: inherit;
@@ -12,11 +12,11 @@
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   max-width: 100%;
   height: 28px;
-  padding: 0 6px;
-  margin-inline-start: -6px;
+  padding: 0 4px;
+  margin-inline-start: -4px;
   border-radius: 6px;
   cursor: default;
 }
@@ -40,7 +40,7 @@
 }
 .cv-walk__title {
   flex: none;
-  font-weight: 500;
+  font-weight: 600;
   white-space: nowrap;
 }
 .cv-walk__place {
@@ -65,7 +65,7 @@
 }
 .cv-walk__steps {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   margin: 0;
   padding: 0 0 4px;
   overflow-x: auto;
@@ -76,7 +76,7 @@
   display: flex;
   flex: none;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   width: 128px;
 }
 .cv-walk__shot,
@@ -84,7 +84,7 @@
   box-sizing: border-box;
   display: block;
   width: 128px;
-  height: 80px;
+  aspect-ratio: 16 / 10;
   border-radius: 6px;
 }
 .cv-walk__shot {
@@ -102,10 +102,9 @@
 .cv-walk__shot .cv-thumb,
 .cv-walk__shot .cv-thumb--sized {
   width: 128px;
-  height: 80px;
   margin: 0;
   padding: 0;
-  aspect-ratio: auto;
+  aspect-ratio: 16 / 10;
   border-radius: 0;
   background: none;
   box-shadow: none;
@@ -124,14 +123,16 @@
 }
 .cv-walk__mark {
   flex: none;
-  margin-top: 2px;
+  /* As tall as the caption's line, so the 12px glyph sits centred on its first line. */
+  width: 12px;
+  height: 1lh;
 }
 .cv-walk__mark.is-skipped {
   display: inline-block;
-  width: 8px;
-  height: 1.5px;
-  margin: 7px 2px 0;
-  background: currentColor;
+  box-sizing: border-box;
+  height: 0;
+  margin-top: 8px;
+  border-top: 2px solid currentColor;
   opacity: 0.5;
 }
 .cv-walk__line {
