@@ -256,7 +256,12 @@ enum Command {
         since_last: bool,
         head_first: Option<String>,
     },
-    Clone { socket: PathBuf, repo: String, git_ref: Option<String>, remote: String },
+    Clone {
+        socket: PathBuf,
+        repo: String,
+        git_ref: Option<String>,
+        remote: String,
+    },
 }
 
 fn parse(args: &[String]) -> Option<Command> {
