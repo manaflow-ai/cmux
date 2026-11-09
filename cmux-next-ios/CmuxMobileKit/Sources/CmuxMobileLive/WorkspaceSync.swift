@@ -28,6 +28,7 @@ public final class WorkspaceSync {
     @ObservationIgnored public var onNotification: (@MainActor (NotificationPost) -> Void)?
     @ObservationIgnored private var client: DaemonClient?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
+    @ObservationIgnored private var setupTask: Task<[Result<DaemonClient.ReceivedLine, any Error>], Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var updateTask: Task<Void, Never>?
     @ObservationIgnored private var projection = WorkspaceProjection()
@@ -87,16 +88,27 @@ public final class WorkspaceSync {
         stopUpdates()
         let oldClient = client
         client = nil
-        if let oldClient { await oldClient.close() }
         connectionSerial += 1
+        let serial = connectionSerial
         activity = [:]
         titles = [:]
-        guard let channel else {
+        if channel == nil {
             lastError = nil
             identity = nil
+        }
+        if let oldClient { await oldClient.close() }
+        guard let channel else { return }
+        guard connectionSerial == serial, !Task.isCancelled else {
+            await channel.close(code: "eof", reason: "binding superseded")
             return
         }
-        await bind(Self.prepare(channel, deviceID: deviceID, deviceName: deviceName), macID: macID, cached: cached)
+        let prepared = await Self.prepare(channel, deviceID: deviceID, deviceName: deviceName)
+        guard connectionSerial == serial, !Task.isCancelled else {
+            prepared.replies.cancel()
+            await prepared.client.close()
+            return
+        }
+        await bind(prepared, macID: macID, cached: cached)
     }
 
     /// A `daemon` channel whose client is reading and whose setup batch is on
@@ -144,8 +156,6 @@ public final class WorkspaceSync {
     public func bind(_ prepared: Prepared, macID: String, cached: [Workspace] = []) async {
         stopUpdates()
         let oldClient = client
-        client = nil
-        if let oldClient, oldClient !== prepared.client { await oldClient.close() }
         initializing = true
         projection = WorkspaceProjection()
         let projection = projection
@@ -157,6 +167,7 @@ public final class WorkspaceSync {
         self.macID = macID
         let client = prepared.client
         self.client = client
+        setupTask = prepared.replies
         connectionSerial += 1
         let events = client.orderedEvents
         eventTask = Task.detached { [weak self] in
@@ -166,15 +177,36 @@ public final class WorkspaceSync {
                 await self?.receive(event, sequence: line.sequence, from: client)
             }
         }
-        let replies = await prepared.replies.value
+        // Publish the new owner before closing the old one; close can suspend
+        // while another bind arrives. Stale cleanup must never replace that owner.
+        if let oldClient, oldClient !== client { await oldClient.close() }
+        let replies = await withTaskCancellationHandler {
+            await prepared.replies.value
+        } onCancel: {
+            prepared.replies.cancel()
+        }
         // Bound again meanwhile (another link or Mac): this answer is stale.
-        guard self.client === client else {
+        guard self.client === client, !Task.isCancelled else {
+            await closeFailedClient(client)
+            return
+        }
+        setupTask = nil
+        // A missing transport reply invalidates the subscription. A server's
+        // explicit rejection is different: keep its live channel so a later
+        // workspace event can recover the baseline without another bind.
+        let transportError = replies.compactMap { result -> (any Error)? in
+            if case .failure(let error) = result { return error }
+            return nil
+        }.first
+        if let error = transportError {
+            lastError = LinkController.reason(error)
+            identity = nil
             await closeFailedClient(client)
             return
         }
         do {
             let setup = try await Task.detached { try Self.decodeSetup(replies.map { $0.map(\.data) }) }.value
-            guard self.client === client else {
+            guard self.client === client, !Task.isCancelled else {
                 await closeFailedClient(client)
                 return
             }
@@ -190,7 +222,7 @@ public final class WorkspaceSync {
             let next = try await projection.reset(snapshot: snapshot.data, macID: macID,
                                                   previous: known.isEmpty ? cached : known,
                                                   agents: agents, activity: activity, arrangement: arrangement)
-            guard self.client === client else {
+            guard self.client === client, !Task.isCancelled else {
                 await closeFailedClient(client)
                 return
             }
@@ -208,11 +240,10 @@ public final class WorkspaceSync {
                 await refresh()
             }
         } catch {
-            guard self.client === client else {
+            guard self.client === client, !Task.isCancelled else {
                 await closeFailedClient(client)
                 return
             }
-            await closeFailedClient(client)
             initializing = false
             lastError = LinkController.reason(error)
             log.error("daemon bind failed: \(String(describing: error), privacy: .public)")
@@ -234,6 +265,8 @@ public final class WorkspaceSync {
     }
 
     private func stopUpdates() {
+        setupTask?.cancel()
+        setupTask = nil
         eventTask?.cancel()
         refreshTask?.cancel()
         updateTask?.cancel()
@@ -254,9 +287,7 @@ public final class WorkspaceSync {
     private func closeFailedClient(_ candidate: DaemonClient) async {
         if self.client === candidate {
             self.client = nil
-            eventTask?.cancel()
-            eventTask = nil
-            initializing = false
+            stopUpdates()
         }
         await candidate.close()
     }

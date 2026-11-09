@@ -159,10 +159,14 @@ import Testing
         await client.close()
     }
 
-    @Test func anEarlyReplySurvivesEOFBeforeReplyIsAwaited() async throws {
+    @Test(.timeLimit(.minutes(1))) func anEarlyReplySurvivesEOFBeforeReplyIsAwaited() async throws {
         let channel = ReplyThenEOFChannel()
         let client = DaemonClient(channel: channel)
         let id = try await client.submit("send")
+        // Stream completion happens after finish has set the channel error;
+        // do not race reply(to:) against the reader with a scheduling sleep.
+        var events = client.events.makeAsyncIterator()
+        #expect(await events.next() == nil)
         let reply = try await client.reply(to: id)
         #expect(String(decoding: reply, as: UTF8.self).contains("\"ok\":true"))
     }
@@ -217,7 +221,6 @@ private final class ReplyThenEOFChannel: LinkChannel, @unchecked Sendable {
         let object = try JSONSerialization.jsonObject(with: data.dropLast()) as! [String: Any]
         let id = object["id"] as! String
         continuation.yield(Data(#"{"id":"\#(id)","ok":true}"#.utf8) + Data([0x0A]))
-        try await Task.sleep(for: .milliseconds(20))
         continuation.finish()
     }
 

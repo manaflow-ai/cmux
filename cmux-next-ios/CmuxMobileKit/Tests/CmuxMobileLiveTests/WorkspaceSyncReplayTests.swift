@@ -209,6 +209,84 @@ import Testing
         await sync.bind(nil, macID: "mac")
     }
 
+    @Test(.timeLimit(.minutes(1)), arguments: ["identify", "list-agents", "list-workspaces"])
+    func unansweredSetupClosesReaderAndAllowsRetry(command: String) async throws {
+        let channel = ReplayDaemonChannel(dropCommand: command)
+        defer { channel.finish() }
+        let sync = WorkspaceSync(deviceID: "test", deviceName: "iPhone")
+        let prepared = await WorkspaceSync.prepare(channel, deviceID: "test", deviceName: "iPhone",
+                                                   authorizationTimeout: .zero, replyTimeout: .milliseconds(50))
+        await sync.bind(prepared, macID: "mac")
+        #expect(sync.daemon == nil)
+        #expect(channel.isClosed)
+        #expect(sync.tree == nil)
+        #expect(sync.lastError != nil)
+
+        let retry = ReplayDaemonChannel()
+        defer { retry.finish() }
+        await sync.bind(retry, macID: "mac")
+        #expect(sync.tree?.workspaces.first?.id == "one")
+        #expect(sync.daemon != nil)
+        #expect(sync.lastError == nil)
+        await sync.bind(nil, macID: "mac")
+        #expect(retry.isClosed)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func cancellingSetupClosesItsReader() async throws {
+        let (held, continuation) = AsyncStream<Void>.makeStream()
+        defer { continuation.finish() }
+        let channel = ReplayDaemonChannel(holdSnapshotRequest: 1, onSnapshotHeld: { continuation.yield(()) })
+        defer { channel.finish() }
+        let sync = WorkspaceSync(deviceID: "test", deviceName: "iPhone")
+        let prepared = await WorkspaceSync.prepare(channel, deviceID: "test", deviceName: "iPhone")
+        let (started, start) = AsyncStream<Void>.makeStream()
+        defer { start.finish() }
+        let binding = Task {
+            start.yield(())
+            await sync.bind(prepared, macID: "mac")
+        }
+        var startedIterator = started.makeAsyncIterator()
+        _ = await startedIterator.next()
+        var iterator = held.makeAsyncIterator()
+        _ = await iterator.next()
+        binding.cancel()
+        await binding.value
+        #expect(sync.daemon == nil)
+        #expect(channel.isClosed)
+        #expect(sync.tree == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func replacingPendingSetupClosesOnlyTheOldReader() async throws {
+        let (held, continuation) = AsyncStream<Void>.makeStream()
+        defer { continuation.finish() }
+        let old = ReplayDaemonChannel(holdSnapshotRequest: 1, onSnapshotHeld: { continuation.yield(()) })
+        defer { old.finish() }
+        let sync = WorkspaceSync(deviceID: "test", deviceName: "iPhone")
+        let prepared = await WorkspaceSync.prepare(old, deviceID: "test", deviceName: "iPhone")
+        let (started, start) = AsyncStream<Void>.makeStream()
+        defer { start.finish() }
+        let binding = Task {
+            start.yield(())
+            await sync.bind(prepared, macID: "old")
+        }
+        var startedIterator = started.makeAsyncIterator()
+        _ = await startedIterator.next()
+        var iterator = held.makeAsyncIterator()
+        _ = await iterator.next()
+        let current = ReplayDaemonChannel()
+        defer { current.finish() }
+        await sync.bind(current, macID: "current")
+        await binding.value
+        #expect(old.isClosed)
+        #expect(!current.isClosed)
+        #expect(sync.macID == "current")
+        #expect(sync.tree?.workspaces.first?.id == "one")
+        #expect(sync.lastError == nil)
+        await sync.bind(nil, macID: "current")
+    }
+
     @Test func setupFailureRecoversOnWorkspaceAddedWithoutAnotherBind() async throws {
         let channel = ReplayDaemonChannel(failIdentify: true)
         defer { channel.finish() }
@@ -220,7 +298,7 @@ import Testing
         await sync.bind(channel, macID: "mac")
         #expect(sync.tree == nil)
         #expect(sync.lastError != nil)
-        #expect(channel.isClosed, "a failed setup closes its reader before a retry")
+        #expect(!channel.isClosed, "a server rejection keeps the subscribed channel available for recovery")
 
         // A complete delta must trigger baseline recovery rather than silently
         // constructing a partial tree after the setup failed.
@@ -276,6 +354,7 @@ private final class ReplayDaemonChannel: LinkChannel, @unchecked Sendable {
     private let onSnapshotHeld: (@Sendable () -> Void)?
     private var heldSnapshot: Data?
     private let failIdentify: Bool
+    private let dropCommand: String?
     private var snapshotBody: String?
     private let lock = NSLock()
     private var inbox: [Data] = []
@@ -292,12 +371,13 @@ private final class ReplayDaemonChannel: LinkChannel, @unchecked Sendable {
     func replaceSnapshot(_ body: String) { lock.withLock { snapshotBody = body } }
 
     init(replayOnRequest: Int? = nil, failIdentify: Bool = false, snapshotBody: String? = nil, captureRaceOnRequest: Int? = nil,
-         holdSnapshotRequest: Int? = nil, onSnapshotHeld: (@Sendable () -> Void)? = nil) {
+         holdSnapshotRequest: Int? = nil, onSnapshotHeld: (@Sendable () -> Void)? = nil, dropCommand: String? = nil) {
         self.replayOnRequest = replayOnRequest
         self.captureRaceOnRequest = captureRaceOnRequest
         self.holdSnapshotRequest = holdSnapshotRequest
         self.onSnapshotHeld = onSnapshotHeld
         self.failIdentify = failIdentify
+        self.dropCommand = dropCommand
         self.snapshotBody = snapshotBody
     }
 
@@ -311,6 +391,7 @@ private final class ReplayDaemonChannel: LinkChannel, @unchecked Sendable {
                 continue
             }
             guard let command = request["cmd"] as? String else { continue }
+            if command == dropCommand { continue }
             if command == "list-personal" { lock.withLock { personalCount += 1 } }
             if command == "list-workspaces" {
                 let number = lock.withLock { listCount += 1; return listCount }
