@@ -42,7 +42,7 @@ const create = (o: Awaited<ReturnType<typeof owner>>, key = HOSTED_DEFAULT_KEY) 
 
 describe("signup Chief activation and client adoption", () => {
   it("an older account's working Chief on a harness the machine does not run stays hosted after ensure; admission still succeeds", async () => {
-    for (const [n, harness] of [[195, "opencode"], [196, "claude-sr"], [197, null]] as const) {
+    for (const [n, harness] of [[291, "opencode"], [292, "claude-sr"], [293, null]] as const) {
       const o = await owner(n, false)
       const made = resultOf(await create(o)).value as { id: string; rev: number }
       resultOf(await o.stub.submit(o.user, o.principal, { t: "op", op: "chief.update", params: { chief: made.id, expected_rev: made.rev, harness }, idempotency_key: `harness-${n}`, origin: "user" }))
