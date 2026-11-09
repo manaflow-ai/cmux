@@ -71,6 +71,9 @@ pub(crate) enum EnrollOutcome {
     Revoked,
     /// Joined by another person: left alone.
     OtherUser,
+    /// Joined with no account recorded (an older join, or one whose hub named none), or asked with
+    /// no account: whose it is is not known, so it is left alone, and no join is made.
+    OwnerUnknown,
     /// Joined to another hub: left alone.
     OtherHub,
     /// A relay the person set up holds config.json (a `tokenCommand`, a credential of its own,
@@ -85,8 +88,8 @@ pub(crate) enum EnrollOutcome {
 pub(crate) struct EnrollRequest {
     /// The hub origin; None is the join's default (`CMUX_PLATFORM_ORIGIN`, else production).
     pub hub: Option<String>,
-    /// The signed-in person's id, when the caller knows it: a join recorded under another
-    /// person is left alone.
+    /// The signed-in person's id (the local app's, person-proven): the join is recorded under it.
+    /// With none, nothing is enrolled ([`EnrollOutcome::OwnerUnknown`]).
     pub user_id: Option<String>,
     /// A DEV build's tag, added to the machine's name so its join is told apart.
     pub build_tag: Option<String>,
@@ -97,8 +100,10 @@ pub(crate) struct EnrollRequest {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LeaveOutcome {
     pub left: bool,
-    /// Why nothing was left: `notJoined`, `notBySignIn`, `revoked`, `signedIn` (a sign-in since
-    /// replaced the sign-out) or `busy` (not finished: the next daemon start finishes it).
+    /// Why nothing was left: `notJoined`, `notBySignIn`, `revoked`, `otherUser` (joined for
+    /// another account), `ownerUnknown` (no account recorded, or none named signing out),
+    /// `signedIn` (a sign-in since replaced the sign-out) or `busy` (not finished: the next
+    /// daemon start finishes it).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kept: Option<&'static str>,
     /// What the hub said to the revoke, when one was asked.
@@ -128,12 +133,14 @@ pub(super) trait EnrollHub {
     fn credentials(&self) -> impl Future<Output = Result<Vec<(String, String, bool)>>> + Send;
     fn revoke(&self, machine_id: &str) -> impl Future<Output = Result<()>> + Send;
     fn mint(&self, label: &str) -> impl Future<Output = Result<Zeroizing<String>>> + Send;
-    /// Redeems `token` as this machine (`recovery::join`), writing the record.
+    /// Redeems `token` as this machine (`recovery::join`), writing the record under `owner`, the
+    /// account that minted it.
     fn redeem(
         &self,
         name: &str,
         token: Zeroizing<String>,
         replace: bool,
+        owner: &str,
     ) -> impl Future<Output = Result<()>> + Send;
     /// Finishes a join whose redeem the hub already took (a pending proposal), with no token.
     fn resume(&self) -> impl Future<Output = Result<()>> + Send;
@@ -148,6 +155,28 @@ pub(super) trait EnrollHub {
     /// capabilities with its own credential (`self_capabilities.rs`). It saves only after the
     /// enroll let go of the join lock.
     fn state_capabilities(&self);
+}
+
+/// Whose a join is to the account acting on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Owner {
+    /// Recorded under this account.
+    Mine,
+    /// Recorded under another account.
+    Theirs,
+    /// No account recorded, or none acting: never read as this account's.
+    Unknown,
+}
+
+/// Whose a join recorded under `recorded` is to `account`. Every enroll, leave and retire of a
+/// sign-in's join asks this: only [`Owner::Mine`] acts on it, and a missing id on either side is
+/// [`Owner::Unknown`], never a match.
+pub(super) fn owner_of(recorded: Option<&str>, account: Option<&str>) -> Owner {
+    match (recorded, account) {
+        (Some(recorded), Some(account)) if recorded == account => Owner::Mine,
+        (Some(_), Some(_)) => Owner::Theirs,
+        _ => Owner::Unknown,
+    }
 }
 
 /// The machine's name: its host name, with a DEV build's tag after it.
@@ -220,13 +249,28 @@ pub(crate) fn leave_pending() -> bool {
     std::fs::symlink_metadata(home.join(LEAVE_FILE)).is_ok() || to_revoke::any_queued(&home)
 }
 
-/// Marks a sign-out's leave. A mark that already says its local cleanup began keeps saying so.
-fn mark_leave(home: &Path) -> Result<()> {
+/// Marks a sign-out's leave by `account`, the account signing out. A mark that already says its
+/// local cleanup began keeps saying so, and one asked again with no account keeps the account
+/// it names.
+fn mark_leave(home: &Path, account: Option<&str>) -> Result<()> {
     if leave_removing(home) {
         return Ok(());
     }
+    let account = account.map(str::to_owned).or_else(|| leave_account(home));
+    let mark = match account {
+        Some(account) => json!({ "account": account }),
+        None => json!({}),
+    };
     crate::config::private_state_dir(home)?;
-    recovery::write_durable(&home.join(LEAVE_FILE), b"{}", true)
+    recovery::write_durable(&home.join(LEAVE_FILE), &serde_json::to_vec(&mark)?, true)
+}
+
+/// The account a marked leave is for, when it names one.
+fn leave_account(home: &Path) -> Option<String> {
+    let mark: Value =
+        serde_json::from_reader(crate::config::private_state_file(&home.join(LEAVE_FILE)).ok()?)
+            .ok()?;
+    mark.get("account").and_then(Value::as_str).and_then(safe_id)
 }
 
 /// Marks that the leave's local cleanup ([`leave::remove_local`]) begins: it marks the record
@@ -268,6 +312,8 @@ pub(super) async fn enroll_at(
     current: Option<&str>,
     port: &impl EnrollHub,
 ) -> EnrollOutcome {
+    // No account: a join made now would be no one's, and one here is not known to be this one's.
+    let Some(account) = user_id else { return EnrollOutcome::OwnerUnknown };
     let Some(_lock) = wait_for_lock(home).await else { return EnrollOutcome::Unavailable };
     // A sign-out whose local cleanup stopped part way left the record marked revoked: finished
     // first, so that mark is never read as a revoke at the hub.
@@ -293,20 +339,22 @@ pub(super) async fn enroll_at(
         tracing::debug!("sign-in enroll: no join to finish: {e:#}");
     }
     let Ok(mut record) = load_at(home) else { return EnrollOutcome::Unavailable };
-    // The last person's sign-in join, and another person signs in (an account switch whose
-    // sign-out's leave acpmux never got): that person's leave is finished first, then this one
-    // enrolls. A join made any other way, or someone else's revoked one, is left as it is.
+    // The last person's sign-in join, recorded under their account, and another person signs in
+    // (an account switch whose sign-out's leave acpmux never got): that person's leave is
+    // finished first, as theirs, then this one enrolls. A join made any other way, one recorded
+    // under no account, or someone else's revoked one, is left as it is.
     if let Some(theirs) = record.as_ref().filter(|record| {
         record.joined_by.as_deref() == Some(JOINED_BY_SIGN_IN)
             && !record.revoked
             && !copied_here(home, record, current)
-            && matches!((user_id, record.user_id.as_deref()), (Some(mine), Some(theirs)) if mine != theirs)
+            && owner_of(record.user_id.as_deref(), Some(account)) == Owner::Theirs
     }) {
         tracing::info!(machine = %theirs.machine_id, "sign-in enroll: the last person's sign-in join leaves first");
-        if mark_leave(home).is_err() {
+        let last = theirs.user_id.clone();
+        if mark_leave(home, last.as_deref()).is_err() {
             return EnrollOutcome::Unavailable;
         }
-        if !leave_locked(home, current, &revoke_own).await.left {
+        if !leave_locked(home, current, last.as_deref(), &revoke_own).await.left {
             return EnrollOutcome::Unavailable;
         }
         record = None;
@@ -325,10 +373,12 @@ pub(super) async fn enroll_at(
             if origin(Some(record.hub_origin.clone())).ok().as_deref() != Some(hub) {
                 return EnrollOutcome::OtherHub;
             }
-            if let (Some(mine), Some(theirs)) = (user_id, record.user_id.as_deref())
-                && mine != theirs
-            {
-                return EnrollOutcome::OtherUser;
+            // Only this account's join is this sign-in's: one recorded under no account is not
+            // read as anyone's.
+            match owner_of(record.user_id.as_deref(), Some(account)) {
+                Owner::Mine => {}
+                Owner::Theirs => return EnrollOutcome::OtherUser,
+                Owner::Unknown => return EnrollOutcome::OwnerUnknown,
             }
             port.check_self(&record).await
         };
@@ -403,7 +453,7 @@ pub(super) async fn enroll_at(
             return EnrollOutcome::Unavailable;
         }
     };
-    match port.redeem(name, token, replace).await {
+    match port.redeem(name, token, replace, account).await {
         Ok(()) => EnrollOutcome::Joined,
         Err(e) => {
             tracing::warn!("sign-in enroll: the redeem failed: {e:#}");
@@ -507,16 +557,22 @@ impl EnrollHub for Platform {
         Ok(Zeroizing::new(parse_token_text(token).map_err(|_| anyhow!("minted token malformed"))?))
     }
 
-    async fn redeem(&self, name: &str, token: Zeroizing<String>, replace: bool) -> Result<()> {
-        // A new proposal is the sign-in's; a pending one finishes as what began it (a pasted
-        // join line's stays the person's).
+    async fn redeem(
+        &self,
+        name: &str,
+        token: Zeroizing<String>,
+        replace: bool,
+        owner: &str,
+    ) -> Result<()> {
+        // A new proposal is the sign-in's, under the account that minted it; a pending one
+        // finishes as what began it (a pasted join line's stays the person's).
         recovery::join(
             Some(self.hub.clone()),
             Some(name.to_owned()),
             replace,
             Report::Quiet,
             Some(token.as_str().to_owned()),
-            Some(JOINED_BY_SIGN_IN),
+            Some(recovery::Began { joined_by: JOINED_BY_SIGN_IN, owner }),
         )
         .await
     }
@@ -568,12 +624,15 @@ async fn revoke_self(record: MachineCredential) -> leave::HubAnswer {
         .unwrap_or_else(|_| leave::HubAnswer::Unavailable("no answer in time".to_owned()))
 }
 
-/// Signing out: leaves the hub only when signing in joined this machine (`joined_by: "sign-in"`).
-/// A pair-code or join-line machine stays joined, and a revoked one stays revoked. The leave is
-/// marked first, so one cut short is finished at the next daemon start ([`finish_leave_at_start`]).
-pub(crate) async fn leave_if_auto() -> LeaveOutcome {
+/// Signing out `account`: leaves the hub only when signing in joined this machine
+/// (`joined_by: "sign-in"`) for that account. A pair-code or join-line machine stays joined, a
+/// revoked one stays revoked, and one joined for another account, or for none known, stays the
+/// way it is. The leave is marked first, with its account, so one cut short is finished at the
+/// next daemon start ([`finish_leave_at_start`]).
+pub(crate) async fn leave_if_auto(account: Option<&str>) -> LeaveOutcome {
     let home = state_dir();
-    if let Err(e) = mark_leave(&home) {
+    let account = account.and_then(safe_id);
+    if let Err(e) = mark_leave(&home, account.as_deref()) {
         tracing::warn!("sign-out leave: not marked: {e:#}");
     }
     leave_marked(&home, host_fingerprint::current().as_deref(), false, revoke_self).await
@@ -614,7 +673,8 @@ where
         revoke_queued_own(home, current, &revoke).await;
         return kept("signedIn");
     }
-    leave_locked(home, current, &revoke).await
+    let account = leave_account(home);
+    leave_locked(home, current, account.as_deref(), &revoke).await
 }
 
 fn kept(why: &'static str) -> LeaveOutcome {
@@ -628,8 +688,10 @@ fn left(home: &Path, removed: &[&str], hub: Option<&'static str>) -> LeaveOutcom
     LeaveOutcome { left: true, kept: None, hub, relay_removed }
 }
 
-/// A sign-out's leave of the join in `home`, marked ([`mark_leave`]), with the join lock held. A
-/// sign-in's join proposal still pending is set aside where no join resumes it, its credential
+/// A sign-out's leave by `account` of the join in `home`, marked ([`mark_leave`]), with the join
+/// lock held. Only what signing in made for `account` ([`owner_of`] is [`Owner::Mine`]) is left:
+/// a join or proposal of another account's, or of none known, stays. A sign-in's join proposal
+/// still pending is set aside where no join resumes it, its credential
 /// queued to be revoked at the hub (`to_revoke`); the mark stays until every queued revoke of
 /// this box is done. The hub is asked to revoke the joined credential with the credential itself
 /// (`revoke`), after a durable mark says this box is revoking it, so a revoke the hub committed
@@ -638,12 +700,17 @@ fn left(home: &Path, removed: &[&str], hub: Option<&'static str>) -> LeaveOutcom
 /// someone had revoked there is marked so no sign-in enrolls it again on its own. The mark stays
 /// until the leave is done, and says when its local cleanup began, so a cleanup cut short is
 /// finished.
-async fn leave_locked<F, Fut>(home: &Path, current: Option<&str>, revoke: &F) -> LeaveOutcome
+async fn leave_locked<F, Fut>(
+    home: &Path,
+    current: Option<&str>,
+    account: Option<&str>,
+    revoke: &F,
+) -> LeaveOutcome
 where
     F: Fn(MachineCredential) -> Fut,
     Fut: Future<Output = leave::HubAnswer>,
 {
-    if recovery::retire_sign_in_pending_at(home, current).is_err() {
+    if recovery::retire_sign_in_pending_at(home, current, account).is_err() {
         return kept("busy");
     }
     let queued_done = revoke_queued_own(home, current, revoke).await;
@@ -677,6 +744,12 @@ where
         }
         // A revoked machine stays so: its record keeps the next sign-in from enrolling it again.
         return done("revoked");
+    }
+    // Another account's join, or one recorded under none: this sign-out never revokes it.
+    match owner_of(record.user_id.as_deref(), account) {
+        Owner::Mine => {}
+        Owner::Theirs => return done("otherUser"),
+        Owner::Unknown => return done("ownerUnknown"),
     }
     let copy = copied_here(home, &record, current);
     let answer = if copy {
@@ -767,7 +840,13 @@ mod tests {
             self.mints.fetch_add(1, Ordering::SeqCst);
             Ok(Zeroizing::new("cmj_fake".to_owned()))
         }
-        async fn redeem(&self, name: &str, token: Zeroizing<String>, replace: bool) -> Result<()> {
+        async fn redeem(
+            &self,
+            name: &str,
+            token: Zeroizing<String>,
+            replace: bool,
+            owner: &str,
+        ) -> Result<()> {
             assert_eq!(token.as_str(), "cmj_fake");
             if let Some(wait) = self.redeem_wait {
                 tokio::time::sleep(wait).await;
@@ -784,7 +863,7 @@ mod tests {
                     hub_origin: HUB.into(),
                     wg_public_key: key,
                     credential_generation: 1,
-                    user_id: Some("user_me".into()),
+                    user_id: Some(owner.into()),
                     host_fingerprint: Some("box-a".into()),
                     joined_by: Some(JOINED_BY_SIGN_IN.into()),
                     capabilities: Some(machine_capabilities()),
@@ -840,7 +919,7 @@ mod tests {
     }
 
     async fn sign_out(home: &Path, answer: leave::HubAnswer) -> LeaveOutcome {
-        mark_leave(home).unwrap();
+        mark_leave(home, Some("user_me")).unwrap();
         leave_marked(home, Some("box-a"), false, move |_| {
             let answer = answer.clone();
             async move { answer }
@@ -1066,6 +1145,7 @@ mod tests {
         });
         if let Some(joined_by) = joined_by {
             pending["joined_by"] = json!(joined_by);
+            pending["owner"] = json!("user_me");
         }
         recovery::write_durable(
             &home.join("machine-join.pending.json"),
@@ -1085,7 +1165,7 @@ mod tests {
             asked.lock().unwrap().push((record.credential.clone(), record.hub_origin.clone()));
             async { leave::HubAnswer::Unavailable("down".into()) }
         };
-        mark_leave(home.path()).unwrap();
+        mark_leave(home.path(), Some("user_me")).unwrap();
         let left = leave_marked(home.path(), Some("box-a"), false, unanswered).await;
         assert_eq!(left.kept, Some("notJoined"));
         assert_eq!(*asked.lock().unwrap(), vec![("cmm_pending".to_owned(), HUB.to_owned())]);
@@ -1106,7 +1186,7 @@ mod tests {
         // new sign-in's own proposal stays.
         let home = tempfile::tempdir().unwrap();
         pending_join(home.path(), Some(JOINED_BY_SIGN_IN), "box-a");
-        mark_leave(home.path()).unwrap();
+        mark_leave(home.path(), Some("user_me")).unwrap();
         leave_marked(home.path(), Some("box-a"), false, |_| async {
             leave::HubAnswer::Unavailable("down".into())
         })
@@ -1127,7 +1207,7 @@ mod tests {
             let home = tempfile::tempdir().unwrap();
             pending_join(home.path(), joined_by, fingerprint);
             let calls = AtomicUsize::new(0);
-            mark_leave(home.path()).unwrap();
+            mark_leave(home.path(), Some("user_me")).unwrap();
             let left = leave_marked(home.path(), Some("box-a"), false, |_| {
                 calls.fetch_add(1, Ordering::SeqCst);
                 async { leave::HubAnswer::Revoked }
@@ -1154,7 +1234,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         interrupted(home.path());
         // A second sign-out keeps saying the cleanup began.
-        mark_leave(home.path()).unwrap();
+        mark_leave(home.path(), Some("user_me")).unwrap();
         assert!(leave_removing(home.path()));
         let calls = AtomicUsize::new(0);
         let at_start = leave_marked(home.path(), Some("box-a"), true, |_| {
@@ -1179,7 +1259,7 @@ mod tests {
             signed_in(r);
             r.revoked = true;
         });
-        mark_leave(home.path()).unwrap();
+        mark_leave(home.path(), Some("user_me")).unwrap();
         let left = leave_marked(home.path(), Some("box-a"), false, |_| async {
             leave::HubAnswer::Revoked
         })
@@ -1198,7 +1278,7 @@ mod tests {
         });
         pending_join(home.path(), Some(JOINED_BY_SIGN_IN), "box-a");
         let asked = Mutex::new(Vec::new());
-        mark_leave(home.path()).unwrap();
+        mark_leave(home.path(), Some("user_me")).unwrap();
         let left = leave_marked(home.path(), Some("box-a"), false, |record: MachineCredential| {
             asked.lock().unwrap().push(record.credential.clone());
             // A second revoke of the same credential would say someone revoked it.
@@ -1322,7 +1402,7 @@ mod tests {
         repair_relay_at(home.path(), HUB, Some("box-a")).unwrap();
         assert!(relay_config(home.path()).is_some());
         // The sign-out marked its leave and stopped there (no reply, or the daemon went).
-        mark_leave(home.path()).unwrap();
+        mark_leave(home.path(), Some("user_me")).unwrap();
         let asked = std::sync::atomic::AtomicBool::new(false);
         let revoked = &asked;
         let at_start = leave_marked(home.path(), Some("box-a"), true, move |_| async move {
@@ -1339,7 +1419,7 @@ mod tests {
         // Signed in again before the start: the mark is gone and the join stays.
         let home = tempfile::tempdir().unwrap();
         joined(home.path(), signed_in);
-        mark_leave(home.path()).unwrap();
+        mark_leave(home.path(), Some("user_me")).unwrap();
         let port = FakeHub::at(home.path());
         assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::AlreadyJoined);
         asked.store(false, Ordering::SeqCst);
@@ -1580,7 +1660,7 @@ mod tests {
     async fn stopped_after_the_revoke(home: &Path) {
         joined(home, signed_in);
         configure_mesh_relay_at(&home.join("config.json"), HUB).unwrap();
-        mark_leave(home).unwrap();
+        mark_leave(home, Some("user_me")).unwrap();
         let leave = leave_marked(home, Some("box-a"), false, |_| {
             std::future::pending::<leave::HubAnswer>()
         });
@@ -1652,6 +1732,117 @@ mod tests {
         let left = sign_out(home.path(), leave::HubAnswer::Revoked).await;
         assert!(left.left && left.relay_removed, "{left:?}");
         assert!(!relay_may_start(&left));
+    }
+
+    /// What another account, or no account, signing in and out did to the join in `home`: the
+    /// join's credential stays, nothing is revoked and nothing minted.
+    fn assert_untouched(home: &Path, port: &FakeHub) {
+        assert_eq!(load_at(home).unwrap().unwrap().credential, "cmm_old");
+        assert!(port.own_revokes.lock().unwrap().is_empty());
+        assert!(port.revoked.lock().unwrap().is_empty());
+        assert_eq!(port.mints.load(Ordering::SeqCst), 0);
+        assert!(!to_revoke::any_queued(home));
+    }
+
+    #[tokio::test]
+    async fn another_accounts_sign_in_never_gets_already_joined() {
+        // A join recorded under no account (an older join, or a hub that named none): not this
+        // account's, so neither AlreadyJoined nor a switch's leave.
+        let home = tempfile::tempdir().unwrap();
+        joined(home.path(), |r| {
+            signed_in(r);
+            r.user_id = None;
+        });
+        configure_mesh_relay_at(&home.path().join("config.json"), HUB).unwrap();
+        let port = FakeHub::at(home.path());
+        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::OwnerUnknown);
+        assert_untouched(home.path(), &port);
+        assert!(relay_config(home.path()).is_some());
+        // A join line's under another account: that account's, left alone.
+        let home = tempfile::tempdir().unwrap();
+        joined(home.path(), |r| r.user_id = Some("user_b".into()));
+        let port = FakeHub::at(home.path());
+        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::OtherUser);
+        assert_untouched(home.path(), &port);
+        // An enroll naming no account: nothing is read as its, and nothing is made.
+        for edit in [signed_in as fn(&mut MachineCredential), |r| r.user_id = None] {
+            let home = tempfile::tempdir().unwrap();
+            joined(home.path(), edit);
+            let port = FakeHub::at(home.path());
+            let outcome = enroll_at(home.path(), HUB, "box", None, Some("box-a"), &port).await;
+            assert_eq!(outcome, EnrollOutcome::OwnerUnknown);
+            assert_untouched(home.path(), &port);
+        }
+        let home = tempfile::tempdir().unwrap();
+        let port = FakeHub::at(home.path());
+        let outcome = enroll_at(home.path(), HUB, "box", None, Some("box-a"), &port).await;
+        assert_eq!(outcome, EnrollOutcome::OwnerUnknown);
+        assert_eq!(port.mints.load(Ordering::SeqCst), 0);
+        assert!(load_at(home.path()).unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn another_accounts_sign_out_leaves_the_join() {
+        // user_me's sign-in joined, and a proposal of user_me's is pending.
+        let home = tempfile::tempdir().unwrap();
+        joined(home.path(), signed_in);
+        pending_join(home.path(), Some(JOINED_BY_SIGN_IN), "box-a");
+        configure_mesh_relay_at(&home.path().join("config.json"), HUB).unwrap();
+        let port = FakeHub::at(home.path());
+        for account in [Some("user_b"), None] {
+            mark_leave(home.path(), account).unwrap();
+            let left =
+                leave_marked(home.path(), Some("box-a"), false, |record| port.revoke_own(record))
+                    .await;
+            let why = if account.is_some() { "otherUser" } else { "ownerUnknown" };
+            assert_eq!(left.kept, Some(why));
+            assert!(relay_may_start(&left));
+            assert_untouched(home.path(), &port);
+            assert!(relay_config(home.path()).is_some());
+            assert!(home.path().join("machine-join.pending.json").exists(), "user_me's stays");
+            assert!(!home.path().join(LEAVE_FILE).exists());
+        }
+        // The account that joined it signs out: it goes.
+        let left = sign_out(home.path(), leave::HubAnswer::Revoked).await;
+        assert!(left.left);
+        assert!(load_at(home.path()).unwrap().is_none());
+        assert!(!home.path().join("machine-join.pending.json").exists());
+    }
+
+    #[tokio::test]
+    async fn an_ownerless_record_is_never_revoked_by_a_sign_out() {
+        let home = tempfile::tempdir().unwrap();
+        joined(home.path(), |r| {
+            signed_in(r);
+            r.user_id = None;
+        });
+        configure_mesh_relay_at(&home.path().join("config.json"), HUB).unwrap();
+        let port = FakeHub::at(home.path());
+        let left = sign_out(home.path(), leave::HubAnswer::Revoked).await;
+        assert_eq!(left.kept, Some("ownerUnknown"));
+        assert_untouched(home.path(), &port);
+        assert!(relay_config(home.path()).is_some());
+        // Nor at the next start, nor once another account signed in and out.
+        assert!(finish_marked_at_start(home.path()).await.is_none_or(|left| !left.left));
+        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::OwnerUnknown);
+        assert_untouched(home.path(), &port);
+    }
+
+    async fn finish_marked_at_start(home: &Path) -> Option<LeaveOutcome> {
+        if std::fs::symlink_metadata(home.join(LEAVE_FILE)).is_err() {
+            return None;
+        }
+        Some(leave_marked(home, Some("box-a"), true, |_| async { leave::HubAnswer::Revoked }).await)
+    }
+
+    #[test]
+    fn a_leave_asked_again_with_no_account_keeps_the_account_it_named() {
+        let home = tempfile::tempdir().unwrap();
+        mark_leave(home.path(), Some("user_me")).unwrap();
+        mark_leave(home.path(), None).unwrap();
+        assert_eq!(leave_account(home.path()).as_deref(), Some("user_me"));
+        mark_leave(home.path(), Some("user_b")).unwrap();
+        assert_eq!(leave_account(home.path()).as_deref(), Some("user_b"));
     }
 
     #[test]

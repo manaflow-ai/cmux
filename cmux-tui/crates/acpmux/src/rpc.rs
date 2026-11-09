@@ -766,7 +766,8 @@ pub mod method {
     /// Signing in enrolls this machine (`server/machine_enroll.rs`): `{accessToken, hub?, userId?,
     /// buildTag?}` -> `{outcome, relay?}`. Local socket only.
     pub const MUX_MACHINE_ENROLL: &str = "_acpmux/machine_enroll";
-    /// Signing out leaves the hub only when signing in joined this machine: `{}` -> `{left, kept?, hub?}`.
+    /// Signing out leaves the hub only when signing in joined this machine for the account signing
+    /// out: `{userId?}` -> `{left, kept?, hub?}`. Local socket only.
     pub const MUX_MACHINE_LEAVE_IF_AUTO: &str = "_acpmux/machine_leave_if_auto";
     // This Mac's Cloud tunnel on the team mesh (`crate::machine_tunnel`,
     // `server/machine_tunnel.rs`): the app's person-proved connection only, with the person's

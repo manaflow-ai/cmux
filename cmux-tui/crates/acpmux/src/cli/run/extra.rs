@@ -775,10 +775,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             crate::cli::cloud_join::leave(local_only, json_out).await
         }
         // The enroll runs here; a running daemon starts its relay at its next start.
-        Command::Host(PeerCmd::EnrollSelf { access_token_stdin: _, hub, build_tag }) => {
+        Command::Host(PeerCmd::EnrollSelf { access_token_stdin: _, hub, build_tag, user_id }) => {
             let access = crate::cli::join_input::read_stdin_line(false)?
                 .ok_or_else(|| anyhow!("the access token must be on stdin"))?;
-            let request = crate::cli::cloud_join::EnrollRequest { hub, user_id: None, build_tag };
+            let request = crate::cli::cloud_join::EnrollRequest { hub, user_id, build_tag };
             let outcome = crate::cli::cloud_join::enroll_self(request, access).await;
             if json_out {
                 print_json(&json!({ "outcome": outcome }));

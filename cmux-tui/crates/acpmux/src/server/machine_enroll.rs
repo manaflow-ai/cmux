@@ -119,10 +119,17 @@ async fn start_relay_with(
     }
 }
 
-/// `_acpmux/machine_leave_if_auto {}` -> `{left, kept?, hub?}`: leaves only a join signing in made.
-pub(super) async fn leave_if_auto(hub: &Arc<Hub>, conn: &Conn) -> Result<Value, RpcError> {
+/// `_acpmux/machine_leave_if_auto {userId?}` -> `{left, kept?, hub?}`: leaves only a join signing
+/// in made for `userId`, the account signing out. With no account named, or a join recorded under
+/// another or no account, the join stays.
+pub(super) async fn leave_if_auto(
+    hub: &Arc<Hub>,
+    conn: &Conn,
+    params: &Value,
+) -> Result<Value, RpcError> {
     local(conn, crate::rpc::method::MUX_MACHINE_LEAVE_IF_AUTO)?;
-    let outcome = leave_transition(hub, crate::cli::cloud_join::leave_if_auto()).await;
+    let account = params.get("userId").and_then(Value::as_str).filter(|v| !v.trim().is_empty());
+    let outcome = leave_transition(hub, crate::cli::cloud_join::leave_if_auto(account)).await;
     serde_json::to_value(outcome).map_err(|e| RpcError::internal(e.to_string()))
 }
 
