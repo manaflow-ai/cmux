@@ -231,6 +231,18 @@ fn byo_endpoint_classify_names_the_fix() {
         ),
         ("getaddrinfo ENOTFOUND llm.example.invalid", Problem::BaseUrl),
         ("API Error: 404 Not Found", Problem::BaseUrl),
+        (
+            r#"API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the API."}}"#,
+            Problem::Credit,
+        ),
+        (
+            r#"429 {"error":{"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota"}}"#,
+            Problem::Credit,
+        ),
+        ("billing_hard_limit_reached", Problem::Credit),
+        ("402 Payment Required: Insufficient credits", Problem::Credit),
+        // A plain rate limit is not out of credit.
+        ("429 Too Many Requests: rate limit reached", Problem::Other),
         ("listening on port 4011", Problem::Other),
         ("something odd happened", Problem::Other),
     ];
@@ -244,6 +256,8 @@ fn byo_endpoint_classify_names_the_fix() {
     assert!(key.contains(&format!("cmux harness secret set acme {OPENAI_KEY_ENV}")), "{key}");
     assert!(fix(Problem::BaseUrl, Kind::Anthropic, "acme").contains("check the base URL"));
     assert!(fix(Problem::Model, Kind::OpenAi, "acme").contains("model not found"));
+    let credit = fix(Problem::Credit, Kind::OpenAi, "acme");
+    assert!(credit.contains("out of credit") && credit.contains("cmux harness doctor acme"), "{credit}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
