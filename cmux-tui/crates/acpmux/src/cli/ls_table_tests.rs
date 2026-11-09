@@ -75,7 +75,19 @@ fn stuck_says_why_in_a_few_words() {
         (json!({"state": "stuck", "stuckReason": "capacity"}), "stuck", "capacity"),
         (json!({"state": "stuck", "stuckReason": "harness_unavailable"}), "stuck", "harness down"),
         (json!({"state": "idle", "lane": {"state": "failed"}}), "idle", "failed turn"),
-        (json!({"harnessSandboxFailed": NOW - 60_000}), "running", "harness sandbox"),
+        (
+            json!({"harnessSandboxFailed": NOW - 60_000, "harnessSandboxFailing": true}),
+            "running",
+            "harness sandbox",
+        ),
+        // A stalled turn or a question still shows while it fails.
+        (
+            json!({"harnessSandboxFailing": true,
+                   "lane": {"state": "working", "stalledSince": NOW - 12 * 60_000}}),
+            "running",
+            "stalled 12m",
+        ),
+        (json!({"harnessSandboxFailing": true, "lane": {"state": "input"}}), "running", "question"),
         (
             json!({"lane": {"state": "working", "stalledSince": NOW - 12 * 60_000}}),
             "running",
@@ -91,6 +103,16 @@ fn stuck_says_why_in_a_few_words() {
         assert!(out.starts_with("NAME  STATE"), "{out}");
         assert!(out.lines().next().unwrap().ends_with("STUCK"), "{out}");
     }
+}
+
+/// A refusal its harness recovered from (`harnessSandboxFailed` without `harnessSandboxFailing`)
+/// is history: the row needs no one.
+#[test]
+fn a_recovered_harness_sandbox_says_nothing() {
+    let past = json!({"harnessSandboxFailed": NOW - 60_000, "harnessSandboxFailing": false});
+    let out = compact(&[with(lane("x"), past)]);
+    assert!(!out.contains("harness sandbox"), "{out}");
+    assert!(!out.lines().next().unwrap().ends_with("STUCK"), "{out}");
 }
 
 #[test]
