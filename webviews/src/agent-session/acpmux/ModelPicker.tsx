@@ -1288,167 +1288,181 @@ export function ModelPicker(props: ModelPickerProps) {
       <span className="sr-only">{forkText}</span>
     </span>
   );
-  const picker = (
+  // The chip's right-click customizes it (Leo 2026-11-08: "make right clicking the model picker let
+  // you customize"). Its menu host wraps the chip's button inside the chip, drawn as display:
+  // contents, so the composer row's chips keep their siblings and fit (composerRowFit.ts). A
+  // right-click inside its open menu or picker keeps theirs.
+  const chipMenu = [
+    {
+      id: "model-chip-icon",
+      label: t("modelChip.menu.showIcon"),
+      checked: showChipIcon,
+      onSelect: () => setModelChipIcon(!showChipIcon),
+    },
+  ];
+  return (
     <span
       ref={root}
       className="acpmux-picker acpmux-model"
-      // Its right-click is its own customize menu (below), not its picker (composerChipMenu.ts).
+      // Its right-click is its own customize menu (above), not its picker (composerChipMenu.ts).
       data-own-context-menu=""
       data-chip-icon={showChipIcon ? undefined : "off"}
       style={{ position: "relative" }}
       // The controls row's harness mark alone names the model in a tooltip (composerRowFit.ts).
       {...(rowChip ? { "data-fit-title": chipTitle, "data-fit-title-unit": "model" } : {})}
     >
-      {quick ? (
-        // The compact menu's chip is its Base UI menu button (submenus need one); a press while
-        // the full picker is open only closes it.
-        <>
-          <QuickModelColumns
-            open={quickOpen}
-            onOpenChange={(next) => {
-              // A close is only ever the compact menu's own; a press on the chip while the full
-              // picker is open closes that one instead.
-              if (!next) setQuickOpen(false);
-              else if (open) close();
-              else setQuickOpen(true);
-            }}
-            trigger={trigger}
-            chip={{
-              "data-menu": modelText,
-              label: modelText,
+      <ContextMenu className="acpmux-model-chip-menu" targets="own" ignore=".acpmux-mp" items={chipMenu}>
+        {quick ? (
+          // The compact menu's chip is its Base UI menu button (submenus need one); a press while
+          // the full picker is open only closes it.
+          <>
+            <QuickModelColumns
+              open={quickOpen}
+              onOpenChange={(next) => {
+                // A close is only ever the compact menu's own; a press on the chip while the full
+                // picker is open closes that one instead.
+                if (!next) setQuickOpen(false);
+                else if (open) close();
+                else setQuickOpen(true);
+              }}
+              trigger={trigger}
+              chip={{
+                "data-menu": modelText,
+                label: modelText,
+                /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
+                title: [chipLabel, forkText, fastOn ? fastModeText : undefined, sessionAuthText, usage, updateText]
+                  .filter(Boolean)
+                  .join(" · "),
+              }}
+              menu={{
+                ...quick,
+                ...(quickEffort
+                  ? {
+                      effort: {
+                        ...quickEffort,
+                        onPick: (value: string) => {
+                          quickPicked.current = true;
+                          quickEffort.onPick(value);
+                        },
+                      },
+                    }
+                  : {}),
+                ...(props.sessionAuth
+                  ? {
+                      auth: {
+                        verdict: props.sessionAuth,
+                        onLogin: props.onSessionLogin,
+                        onRefresh: props.onSessionAuthRefresh,
+                      },
+                    }
+                  : {}),
+                ...(update && updateText ? { update: { text: updateText, run: update.update } } : {}),
+                ...(props.setup ? { setup: props.setup } : {}),
+                // This harness's top models, the running one among them; a signed-out harness lists none.
+                models:
+                  modelsNeeded && current && !needsSetup(current)
+                    ? quickSections(current, props.model, (model) => !model.unavailable, lang).shown.map((model) =>
+                        quickRow("", model),
+                      )
+                    : [],
+                current: props.predictedModel ?? props.model,
+                ...(picksOwnModel(current?.family) ? { ownModel: true } : {}),
+                onModel: (id) => {
+                  quickPicked.current = true;
+                  onLand(id);
+                },
+                inlineEffort: onCombo !== undefined,
+                onModelEffort: (id, effort) => {
+                  if (current) pickQuickToPrompt({ id, name: id, family: current.id, effort });
+                },
+                search: { find: quickSearch, pick: pickQuickToPrompt },
+                ...(quickFamilies
+                  ? {
+                      families: {
+                        list: quickFamilies,
+                        current: current?.id,
+                        onPick: pickQuickToPrompt,
+                        ...(onAddAgent ? { onAddHarness: onAddAgent } : {}),
+                        ...(forkHarnesses || (!harnessFixed && onHarness) ? { onLaunch: pickProfile } : {}),
+                        ...(held
+                          ? {
+                              held: {
+                                family: heldEntry?.id ?? held.harness,
+                                ...(held.model ? { id: held.model } : {}),
+                                ...(held.effort ? { effort: held.effort } : {}),
+                                ...(held.fast ? { fast: true } : {}),
+                              },
+                            }
+                          : {}),
+                        ...(used ? { used } : {}),
+                        // Each row's star, the full picker's favourites (the Starred tab lists them).
+                        stars: {
+                          has: (model) => favorites.has(model.id),
+                          toggle: (model) => toggleFavorite(model.id),
+                        },
+                      },
+                    }
+                  : {}),
+              }}
+              onMore={more}
+            >
+              {chipFace}
+              {/* A quiet label, as Claude Code's: the model, then its effort, and no chevron. */}
+              {detail && (
+                <span
+                  className="acpmux-model-detail"
+                  data-fit-part="effort"
+                  data-fit-forms={detailShort ? "full" : "full short"}
+                >
+                  {detail}
+                </span>
+              )}
+              {detail && detailShort && (
+                <span
+                  className="acpmux-model-detail acpmux-fit-label"
+                  data-fit-part="effort"
+                  data-fit-forms="short"
+                  data-label={detailShort}
+                />
+              )}
+              {forkGlyph}
+            </QuickModelColumns>
+          </>
+        ) : (
+          <>
+            <PickerButton
+              ref={trigger}
+              type="button"
+              className="acpmux-picker-button"
+              data-menu={modelText}
+              aria-label={modelText}
               /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
-              title: [chipLabel, forkText, fastOn ? fastModeText : undefined, sessionAuthText, usage, updateText]
+              title={[chipLabel, forkText, fastOn ? fastModeText : undefined, sessionAuthText, usage, updateText]
                 .filter(Boolean)
-                .join(" · "),
-            }}
-            menu={{
-              ...quick,
-              ...(quickEffort
-                ? {
-                    effort: {
-                      ...quickEffort,
-                      onPick: (value: string) => {
-                        quickPicked.current = true;
-                        quickEffort.onPick(value);
-                      },
-                    },
-                  }
-                : {}),
-              ...(props.sessionAuth
-                ? {
-                    auth: {
-                      verdict: props.sessionAuth,
-                      onLogin: props.onSessionLogin,
-                      onRefresh: props.onSessionAuthRefresh,
-                    },
-                  }
-                : {}),
-              ...(update && updateText ? { update: { text: updateText, run: update.update } } : {}),
-              ...(props.setup ? { setup: props.setup } : {}),
-              // This harness's top models, the running one among them; a signed-out harness lists none.
-              models:
-                modelsNeeded && current && !needsSetup(current)
-                  ? quickSections(current, props.model, (model) => !model.unavailable, lang).shown.map((model) =>
-                      quickRow("", model),
-                    )
-                  : [],
-              current: props.predictedModel ?? props.model,
-              ...(picksOwnModel(current?.family) ? { ownModel: true } : {}),
-              onModel: (id) => {
-                quickPicked.current = true;
-                onLand(id);
-              },
-              inlineEffort: onCombo !== undefined,
-              onModelEffort: (id, effort) => {
-                if (current) pickQuickToPrompt({ id, name: id, family: current.id, effort });
-              },
-              search: { find: quickSearch, pick: pickQuickToPrompt },
-              ...(quickFamilies
-                ? {
-                    families: {
-                      list: quickFamilies,
-                      current: current?.id,
-                      onPick: pickQuickToPrompt,
-                      ...(onAddAgent ? { onAddHarness: onAddAgent } : {}),
-                      ...(forkHarnesses || (!harnessFixed && onHarness) ? { onLaunch: pickProfile } : {}),
-                      ...(held
-                        ? {
-                            held: {
-                              family: heldEntry?.id ?? held.harness,
-                              ...(held.model ? { id: held.model } : {}),
-                              ...(held.effort ? { effort: held.effort } : {}),
-                              ...(held.fast ? { fast: true } : {}),
-                            },
-                          }
-                        : {}),
-                      ...(used ? { used } : {}),
-                      // Each row's star, the full picker's favourites (the Starred tab lists them).
-                      stars: {
-                        has: (model) => favorites.has(model.id),
-                        toggle: (model) => toggleFavorite(model.id),
-                      },
-                    },
-                  }
-                : {}),
-            }}
-            onMore={more}
-          >
-            {chipFace}
-            {/* A quiet label, as Claude Code's: the model, then its effort, and no chevron. */}
-            {detail && (
-              <span
-                className="acpmux-model-detail"
-                data-fit-part="effort"
-                data-fit-forms={detailShort ? "full" : "full short"}
-              >
-                {detail}
-              </span>
-            )}
-            {detail && detailShort && (
-              <span
-                className="acpmux-model-detail acpmux-fit-label"
-                data-fit-part="effort"
-                data-fit-forms="short"
-                data-label={detailShort}
-              />
-            )}
-            {forkGlyph}
-          </QuickModelColumns>
-        </>
-      ) : (
-        <>
-          <PickerButton
-            ref={trigger}
-            type="button"
-            className="acpmux-picker-button"
-            data-menu={modelText}
-            aria-label={modelText}
-            /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
-            title={[chipLabel, forkText, fastOn ? fastModeText : undefined, sessionAuthText, usage, updateText]
-              .filter(Boolean)
-              .join(" · ")}
-            aria-haspopup="dialog"
-            aria-expanded={open}
-            aria-controls={open ? menuId : undefined}
-            keyboard={(event) => {
-              if (open && event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
-                event.preventDefault();
-                setQuery(event.key);
-                setActive(0);
-                search.current?.focus();
-              } else if (!open && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
-                event.preventDefault();
-                show();
-              }
-            }}
-            {...press}
-          >
-            {chipFace}
-            {forkGlyph}
-            <ChevronIcon />
-          </PickerButton>
-        </>
-      )}
+                .join(" · ")}
+              aria-haspopup="dialog"
+              aria-expanded={open}
+              aria-controls={open ? menuId : undefined}
+              keyboard={(event) => {
+                if (open && event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+                  event.preventDefault();
+                  setQuery(event.key);
+                  setActive(0);
+                  search.current?.focus();
+                } else if (!open && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+                  event.preventDefault();
+                  show();
+                }
+              }}
+              {...press}
+            >
+              {chipFace}
+              {forkGlyph}
+              <ChevronIcon />
+            </PickerButton>
+          </>
+        )}
+      </ContextMenu>
       {open && (
         <PickerDialog
           ref={menu}
@@ -1845,24 +1859,5 @@ export function ModelPicker(props: ModelPickerProps) {
         </PickerDialog>
       )}
     </span>
-  );
-  // The chip's right-click customizes it (Leo 2026-11-08: "make right clicking the model picker let
-  // you customize"). A right-click inside its open menu or picker keeps theirs.
-  return (
-    <ContextMenu
-      asChild
-      targets="own"
-      ignore=".acpmux-mp"
-      items={[
-        {
-          id: "model-chip-icon",
-          label: t("modelChip.menu.showIcon"),
-          checked: showChipIcon,
-          onSelect: () => setModelChipIcon(!showChipIcon),
-        },
-      ]}
-    >
-      {picker}
-    </ContextMenu>
   );
 }
