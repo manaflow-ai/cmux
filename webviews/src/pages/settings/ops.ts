@@ -872,6 +872,42 @@ export type SharesState = {
   titles?: Record<string, string>;
 };
 
+/** Settings > Accounts and Devices > Connectors (`cmux.settings.connectors.list`): cmux-platform's
+ * `GET /v1/connectors` for the team chosen in Settings > Accounts (cmux-platform docs/connectors.md),
+ * plus what the host knows: whether it can reach the platform, whether the person is signed in, and
+ * the team the list is for (null: the person's own). `error` is the platform's refusal text. */
+export type ConnectorConnectionWire = {
+  id: string;
+  /** `pending`, `active`, `needs_reauth` or `error` (revoked and expired rows are left out). */
+  status: string;
+  /** Who may use it: `private` (only the person who connected it) or `team`. */
+  sharing: "private" | "team";
+  account: { name: string; url?: string } | null;
+  /** The person connected it. */
+  mine: boolean;
+  canDisconnect: boolean;
+  createdAt: number;
+};
+export type ConnectorWire = {
+  provider: string;
+  name?: string;
+  /** `available`, `installed`, `needs-auth`, `expired` or `unavailable`. */
+  state: string;
+  detail?: string;
+  account?: string;
+  /** This deployment can connect it. */
+  configured?: boolean;
+  connections?: ConnectorConnectionWire[];
+};
+export type ConnectorsState = {
+  /** False in a preview build or with no platform: the card says so instead of listing. */
+  available: boolean;
+  signedIn?: boolean;
+  team?: string | null;
+  connectors?: ConnectorWire[];
+  error?: string;
+};
+
 /** Settings > Devices (`cmux.settings.devices.state`): this Mac and the person's other devices on
  * the device hub, Mac Screen access to this Mac, relays and the access history. The host sends
  * every text localized; the page draws and forwards each gesture (`cmux.settings.devices.run`). */
@@ -1217,6 +1253,12 @@ export type SettingsOps = {
   "cmux.settings.shares.list": [Record<string, never>, SharesState];
   /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */
   "cmux.settings.shares.revoke": [{ share_id: string }, unknown];
+  /** Native: the person's connectors (Settings > Accounts and Devices > Connectors). */
+  "cmux.settings.connectors.list": [Record<string, never>, ConnectorsState];
+  /** Native, a click only: asks the provider's approval page and opens it in the browser. */
+  "cmux.settings.connectors.connect": [{ provider: string; sharing: "private" | "team" }, unknown];
+  /** Native, a click only: disconnects one connection; its stored credential is deleted at once. */
+  "cmux.settings.connectors.disconnect": [{ provider: string; connection: string }, unknown];
   /** Native: Settings > Agents > Worktree Setup, the session host's `project.list`,
    * `git.worktree.setup` and (on your click) `project.update` field `worktree`, on the app's own
    * connection: a page may not reach them itself. */

@@ -50,6 +50,7 @@ import {
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type ConnectorsState,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -750,6 +751,23 @@ export class SettingsStore {
     const state = await this.environments();
     if (!reply.ok) return { state, error: reply.error.message };
     return { state, error: reply.value?.error ?? null };
+  }
+
+  /** Settings > Accounts and Devices > Connectors; null when the host has no connectors part. */
+  async connectors(): Promise<ConnectorsState | null> {
+    const reply = await this.request("cmux.settings.connectors.list", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** Connect or Disconnect on one connector; the host's refusal text, else null. */
+  async runConnector(
+    run: { action: "connect"; provider: string; sharing: "private" | "team" } | { action: "disconnect"; provider: string; connection: string },
+  ): Promise<string | null> {
+    const reply =
+      run.action === "connect"
+        ? await this.request("cmux.settings.connectors.connect", { provider: run.provider, sharing: run.sharing })
+        : await this.request("cmux.settings.connectors.disconnect", { provider: run.provider, connection: run.connection });
+    return reply.ok ? null : reply.error.message;
   }
 
   /** Settings > Privacy and Security > Shared Links: this Mac's chat shares; null when the host has

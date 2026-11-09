@@ -311,13 +311,13 @@ struct PageFactory {
                       PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute()),
                       // Settings > Menus: right-click menu arrangements (cmux.json contextMenus).
                       PageRoute(prefix: ContextMenusPageProvider.prefix, provider: services.settingsWindow.contextMenusRoute),
-                      // Settings > Server > This Mac on Your Tailnet: sign in and out on the app's person connection to acpmux.
-                      PageRoute(prefix: SettingsTailnet.prefix, provider: SettingsTailnet { [weak services] in services.flatMap(QuitAgents.environment) }),
                       // Settings > Server: Restart… (the toast's confirm) and Pair (the Server panel).
                       PageRoute(prefix: ServerSettingsPageRoute.prefix, provider: ServerSettingsPageRoute(
                           confirmRestart: { [weak services] in services?.serverUpdates.confirmRestart(kind: $0, host: $1) },
                           pair: { [weak services] in services?.registry.perform("server.showPanel") }))]
             + (images.map { [PageRoute(prefix: BackdropImagesPageProvider.prefix, provider: $0)] } ?? [])
+            // Settings > Accounts and Devices > Connectors, and Settings > Server > This Mac on Your Tailnet.
+            + SettingsConnectors.routes(auth: services.cloud.auth, platform: services.cloud.configuration.relayAPIBaseURL(), preview: services.environment.showcase) { [weak services] in services.flatMap(QuitAgents.environment) }
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
         let catalog = services.settingsWindow.backdropCatalog
         let dynamicResources = SettingsBackdropThumbnails(choices: catalog.catalog.choices,

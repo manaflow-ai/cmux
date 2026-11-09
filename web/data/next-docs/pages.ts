@@ -436,6 +436,28 @@ export const nextDocPages: NextDocPage[] = [
     links: ["cli"],
   },
   {
+    slug: "connectors",
+    navKey: "nextConnectors",
+    title: "Connectors",
+    description: "Let your agents use your GitHub and other accounts, only when you connect them.",
+    body: [
+      { p: "Settings > Accounts and Devices > Connectors lists the accounts your agents can use, and the ones you can connect. Nothing is connected until you click Connect: cmux works without GitHub or any other account." },
+      { h2: "Connect an account" },
+      { ul: [
+        "Click Connect next to a provider. The provider's own page opens in your browser; approve there, then come back to cmux.",
+        "When a team is selected in Settings > Accounts, Connect first asks who can use it: Only you (the default) or Your team.",
+        "A provider this server cannot connect yet says Not set up on this server yet.",
+      ] },
+      { h2: "Who can use a connection" },
+      { p: "Only you: you and your own agents. Your team: everyone on the selected team and their agents. The provider's credential stays on the cmux server; agents act through cmux and never see it." },
+      { h2: "Disconnect" },
+      { p: "Disconnect asks once, then deletes the stored credential at once. Agents can no longer use the account. A connection your team shares can be disconnected by the person who connected it or a team admin." },
+      { h2: "Hosted MCP" },
+      { p: "Claude and Codex can also reach your connected accounts through the hosted cmux MCP server, signing in with your cmux account. This is in development and not yet on by default." },
+    ],
+    links: ["mcp", "settings"],
+  },
+  {
     slug: "settings",
     navKey: "nextSettings",
     title: "Settings reference",

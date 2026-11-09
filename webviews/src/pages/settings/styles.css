@@ -2315,3 +2315,53 @@ button.menu-disclosure {
   display: flex;
   gap: 4px;
 }
+
+/* Settings > Accounts and Devices > Connectors (ConnectorsCard.tsx). */
+.connectors-mark {
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+}
+
+.connectors-initial {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--ds-radius-sm);
+  background: var(--accent-soft);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
+  line-height: 16px;
+  text-align: center;
+}
+
+.connectors-choice {
+  display: flex;
+  gap: var(--ds-space-2);
+  align-items: flex-start;
+}
+
+.connectors-choice > span {
+  display: flex;
+  flex-direction: column;
+}
+
+.connectors-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+}
+
+.connectors-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-md);
+}
+
+.connectors-tile > .row-control {
+  margin-top: auto;
+  padding-top: var(--ds-space-2);
+}
