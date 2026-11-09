@@ -70,6 +70,33 @@ import AppKit
         return container
     }
 
+    /// A multi-selection's card (Leo 2026-11-08: "ours vs edge's group moving i think we need to make ours more like
+    /// edge and chrome"): every selected row the list draws, stacked in `ids` order (the order the drop and the drag's
+    /// look lay them out, `SidebarDragLook`) at the list's row spacing, with the pressed row where it was, under the
+    /// pointer. The card is as tall as the gap the list opens for the rows. `shown` counts the rows on the card (a row
+    /// in a collapsed group has none). Nil for fewer than two rows.
+    static func stack(_ list: SidebarListView, ids: [WorkspaceID], pressed: SidebarRowKey)
+        -> (frame: NSRect, content: NSView, head: CGFloat, shown: Int)? {
+        let rows = ids.compactMap { list.displayed.row(for: .workspace($0)) }
+        guard rows.count > 1, let at = rows.firstIndex(where: { $0.key == pressed }) else { return nil }
+        let spacing = list.displayed.rowSpacing
+        let frames = rows.map { list.frame(for: $0) }
+        let minX = frames.map(\.minX).min() ?? 0, maxX = frames.map(\.maxX).max() ?? 0
+        let above = frames[..<at].reduce(0) { $0 + $1.height + spacing }
+        let height = frames.reduce(0) { $0 + $1.height } + spacing * CGFloat(frames.count - 1)
+        let frame = NSRect(x: minX, y: frames[at].minY - above, width: maxX - minX, height: height)
+        let container = SidebarLiftBlockView(frame: NSRect(origin: .zero, size: frame.size))
+        var y: CGFloat = 0
+        for (row, rowFrame) in zip(rows, frames) {
+            let view = rowView(list, row)
+            view.frame = NSRect(x: 0, y: y, width: frame.width, height: rowFrame.height)
+            view.autoresizingMask = [.width]
+            container.addSubview(view)
+            y += rowFrame.height + spacing
+        }
+        return (frame, container, frames[0].height, rows.count)
+    }
+
     private static func rowView(_ list: SidebarListView, _ row: SidebarRow) -> SidebarRowView {
         let content = list.dequeue(row.key)
         content.targetSize = list.frame(for: row).size

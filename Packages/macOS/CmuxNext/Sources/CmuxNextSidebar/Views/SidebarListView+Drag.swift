@@ -59,9 +59,19 @@ extension SidebarListViewComponents {
         }
         // A group lifts as one block: its header and the member rows under it (cx-bp40).
         let rows = SidebarListLift.rows(self, for: key, hidden: hidden)
-        guard let rowFrame = SidebarListLift.blockFrame(self, rows), let content = SidebarListLift.content(self, rows, in: rowFrame) else { return }
-        let count: Int
-        if case let .workspaces(ids) = payload { count = ids.count } else { count = 1 }
+        let rowFrame: NSRect, content: NSView, count: Int, head: CGFloat?
+        var stacked = false
+        if case let .workspaces(ids) = payload, let stack = SidebarListLift.stack(self, ids: ids, pressed: key) {
+            // A selection lifts as the stack it drops as, as in Edge and Chrome: every row on the card, the gap its
+            // height. The count badge and stacked backs stay only for rows the card cannot show.
+            (rowFrame, content, head) = (stack.frame, stack.content, stack.head)
+            count = stack.shown < ids.count ? ids.count : 1
+            stacked = true
+        } else {
+            guard let frame = SidebarListLift.blockFrame(self, rows), let block = SidebarListLift.content(self, rows, in: frame) else { return }
+            (rowFrame, content, head) = (frame, block, rows.first?.height)
+            if case let .workspaces(ids) = payload { count = ids.count } else { count = 1 }
+        }
         let lift = SidebarReorderLift.lift(content, count: count, frame: rowFrame, in: self)
         let drag = Drag(
             payload: payload,
@@ -69,7 +79,7 @@ extension SidebarListViewComponents {
             hiddenKeys: hidden,
             grabOffsetY: press.point.y - rowFrame.minY,
             gapHeight: rowFrame.height,
-            lift: lift, head: rows.first?.height,
+            lift: lift, head: head,
             target: origin
         )
         drag.grabOffsetX = press.point.x - rowFrame.minX
@@ -80,7 +90,7 @@ extension SidebarListViewComponents {
         let stepIn = max(0, rowFrame.minX - inset)
         drag.restFrame.origin.x -= stepIn
         drag.restFrame.size.width += stepIn
-        drag.morphs = rows.count == 1
+        drag.morphs = rows.count == 1 && !stacked // a stack keeps its shape, as a group's block does
         self.drag = drag
         // The document's acceptance table: the drag's one reducer call before its drop.
         if let doc = model.docDrag, let items = doc.items(payload) {
