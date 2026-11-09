@@ -18,7 +18,13 @@ import {
 } from "../../i18n/locale-availability";
 import { genericCodingAgents } from "../../i18n/coding-agents";
 import { nextDocPages, nextDocPublicPath } from "../../data/next-docs/pages";
-import { docsCanonicalOrigin, isDocsZoneDeployment } from "./docs-channel";
+import {
+  docsCanonicalOrigin,
+  docsPathAvailableInChannel,
+  isDocsPathname,
+  isDocsZoneDeployment,
+  type DocsChannel,
+} from "./docs-channel";
 
 export type AgentPageFormat = "md" | "txt";
 
@@ -355,20 +361,32 @@ export function variantPathForPage(
 }
 
 /**
- * The origin llms.txt links point at. A docs zone (the release or nightly
- * deployment cmux.com/docs rewrites to) serves only its own docs, under
- * /docs rather than the public /docs/nightly, so its links name the public
- * cmux.com pages instead. Any other deployment (cmux.com, a preview) links
- * to itself.
+ * A link in llms.txt, for the deployment serving it. cmux.com and previews
+ * serve every page under its public path. A docs zone (the deployment
+ * cmux.com/docs or /docs/nightly rewrites to, next.config.ts) serves only the
+ * docs of its own channel, at /docs/... without the /nightly prefix: those
+ * keep its own host and path, since cmux.com/docs reaches the release zone,
+ * which may not have them yet. Every other page names its public cmux.com URL.
  */
-export function llmsTextOrigin(
+export function llmsLink(
+  origin: string,
+  publicPath: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  if (!isDocsZoneDeployment(env)) return `${origin}${publicPath}`;
+  const channel: DocsChannel = env.CMUX_DOCS_CHANNEL === "nightly" ? "nightly" : "release";
+  const zonePath = publicPath.replace(/\/docs\/nightly(?=\/|\.|$)/u, "/docs");
+  if (isDocsPathname(zonePath) && docsPathAvailableInChannel(channel, zonePath)) {
+    return `${origin}${zonePath}`;
+  }
+  return `${docsCanonicalOrigin()}${publicPath}`;
+}
+
+export function buildLlmsText(
   origin: string,
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): string {
-  return isDocsZoneDeployment(env) ? docsCanonicalOrigin() : origin;
-}
-
-export function buildLlmsText(origin: string): string {
+  const link = (path: string) => llmsLink(origin, path, env);
   const lines = [
     "# cmux",
     "",
@@ -404,15 +422,15 @@ export function buildLlmsText(origin: string): string {
     "- Automation: `cmux` CLI and Unix socket API, browser automation, hooks, skills, and custom commands",
     "- Remote tmux: attach to existing tmux sessions over SSH while preserving cmux workspaces and notifications.",
     "- Agent pages: every public page has Markdown and plain-text variants for AI crawlers and answer engines.",
-    `- Download: ${origin}/docs/getting-started`,
-    `- Updates: ${origin}/feed.xml`,
+    `- Download: ${link("/docs/getting-started")}`,
+    `- Updates: ${link("/feed.xml")}`,
     "- Source: https://github.com/manaflow-ai/cmux",
     "",
     "## Comparisons and buying guides",
     "",
     ...comparePages.map(
       (page) =>
-        `- [${comparePageTitles[page.key]}](${origin}${comparePath(page.slug)}): ${llmsCompareDescriptions[page.slug]}`,
+        `- [${comparePageTitles[page.key]}](${link(comparePath(page.slug))}): ${llmsCompareDescriptions[page.slug]}`,
     ),
     "",
     "## Page variants",
@@ -422,8 +440,8 @@ export function buildLlmsText(origin: string): string {
     "## Agent-readable pages",
     "",
     ...agentReadablePages.flatMap(({ path, title }) => [
-      `- [${title}](${origin}${variantPathForPage(path, "md")})`,
-      `  - Text: ${origin}${variantPathForPage(path, "txt")}`,
+      `- [${title}](${link(variantPathForPage(path, "md"))})`,
+      `  - Text: ${link(variantPathForPage(path, "txt"))}`,
     ]),
     "",
     "Localized pages use the same extension pattern with the locale prefix, for example `/ja/docs/getting-started.md`.",
