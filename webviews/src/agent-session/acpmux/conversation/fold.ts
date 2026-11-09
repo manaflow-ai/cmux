@@ -263,15 +263,17 @@ export function turnMs(ms: number, from: number, to: number, extent: number): nu
   return Math.max(Math.min(ms, MOTION_MS.quick), ms * share);
 }
 
-/// Whether `node` lies wholly outside the transcript's view (`.acpmux-scroll`): a fold there (a Find
-/// reveal far up, a group a regroup opened off screen) lands at once, so nobody pays for a motion no
-/// one sees and the follow motion never stops for it. Two box reads, whatever the transcript's length.
+/// Whether `node` lies wholly under the transcript's view (`.acpmux-scroll`): a fold there (a row the
+/// reader opened and scrolled away from, then Find or a regroup set) lands at once, so nobody pays for
+/// a motion no one sees and the follow motion never stops for it. A fold above the view still plays:
+/// it moves every row under it, the ones in view too, and the transcript rides that move on the fold's
+/// own frames (its hold, or the bottom pinned while it follows), so landing it at once there moved the
+/// rows in view by its whole height in one frame (turn-transition-jumps.test.ts tool-group, 32 px as
+/// the turn's run folded above the reply). Two box reads, whatever the transcript's length.
 export function foldOffScreen(node: HTMLElement): boolean {
   const scroller = node.closest(".acpmux-scroll");
   if (!scroller) return false;
-  const box = node.getBoundingClientRect();
-  const view = scroller.getBoundingClientRect();
-  return box.top > view.bottom || box.bottom < view.top;
+  return node.getBoundingClientRect().top > scroller.getBoundingClientRect().bottom;
 }
 
 export type Fold = {

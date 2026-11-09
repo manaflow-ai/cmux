@@ -105,6 +105,12 @@ await requireBrowserLane("tool-toggle-motion.test.ts", async () => {
         tearPx: Math.min(window.tearPx, 0.5),
         reversals: 0,
       });
+      // On the frames' clock nothing streams between the last painted frame and the click: the click's
+      // own frame moves nothing over the line either.
+      expect({ step: window.step, clickFramePx: window.clickFramePx }).toEqual({
+        step: window.step,
+        clickFramePx: Math.min(window.clickFramePx, 0.5),
+      });
       expect({ step: window.step, restMs: window.restMs }).toEqual({
         step: window.step,
         restMs: Math.min(window.restMs, REST_MS),
@@ -112,6 +118,9 @@ await requireBrowserLane("tool-toggle-motion.test.ts", async () => {
       // An open grows from closed: never drawn whole in its first frame.
       if (window.firstShare !== undefined) expect(window.firstShare).toBeLessThan(0.9);
     }
+    // The close 60 ms into the open turns that open back over the travel it drew, not a whole fold
+    // from there: at rest sooner than a whole fold replayed (131 ms, the gallery's `stack` look).
+    expect(report.find((window) => window.step === "reverse")!.restMs).toBeLessThan(125);
     // A 12 px drag across the line opens nothing and moves nothing.
     expect(report.find((window) => window.step === "drag")?.edgePx).toBe(0);
   });

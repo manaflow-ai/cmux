@@ -9,8 +9,13 @@
 // hold still, the details open or close in one motion, and the rows under it ride on the details' foot
 // in the same frames. Per click window (from the click's frame to the next click, at most
 // WINDOW_FRAMES):
-// - `anchorPx`: the most the clicked line, or a row over it in view, moved in a frame (a jump of the
-//   whole view: a chase snapped home, a hold put back a frame late);
+// - `anchorPx`: the most the clicked line, or a row over it in view, moved in a frame after the
+//   click's own (a jump of the whole view: a chase snapped home, a hold put back a frame late);
+// - `clickFramePx`: the same in the click's own frame. On the wall clock under load a streamed commit
+//   can land after the last painted frame and before the click, so the click's frame paints the
+//   stream's own step (every row over the line moving with it, the details still shut); the toggle
+//   holds the line from where that left it, as the reader's input is handled before that frame paints;
+//   on the frames' clock it is 0;
 // - `tearPx`: the most the row under the call moved apart from the call row's foot in a frame (rows
 //   placed a frame late, a second motion on top of the fold);
 // - `edgePx`: the most the call row's foot moved in a frame (the fold's own motion);
@@ -35,6 +40,7 @@ export type ToggleWindow = {
   frames: number;
   open: boolean;
   anchorPx: number;
+  clickFramePx: number;
   tearPx: number;
   edgePx: number;
   reversals: number;
@@ -55,6 +61,7 @@ export function toggleReport(samples: Sample[], steps: readonly string[]): Toggl
       frames: end - first,
       open: Boolean(samples[end - 1]?.line?.open),
       anchorPx: 0,
+      clickFramePx: 0,
       tearPx: 0,
       edgePx: 0,
       reversals: 0,
@@ -76,7 +83,8 @@ export function toggleReport(samples: Sample[], steps: readonly string[]): Toggl
         const is = row(now, was.id);
         if (is) anchor = Math.max(anchor, Math.abs(is.top - was.top));
       }
-      report.anchorPx = Math.max(report.anchorPx, r1(anchor));
+      if (index === first) report.clickFramePx = r1(anchor);
+      else report.anchorPx = Math.max(report.anchorPx, r1(anchor));
       const foot = call.top + call.height - (callWas.top + callWas.height);
       report.edgePx = Math.max(report.edgePx, r1(Math.abs(foot)));
       const under = row(now, UNDER_ROW);
@@ -85,10 +93,11 @@ export function toggleReport(samples: Sample[], steps: readonly string[]): Toggl
       if (under && underWas && underWas.inView)
         report.tearPx = Math.max(report.tearPx, r1(Math.abs(underMoved - foot)));
       if (Math.abs(foot) > STILL_PX || Math.abs(underMoved) > STILL_PX || anchor > STILL_PX) lastMove = now.t;
-      // A foot that turns back mid-motion, after the click's first frame.
-      if (Math.abs(foot) > STILL_PX) {
+      // A foot that turns back mid-motion, from the frame after the click's (whose move may be the
+      // stream's step before the click, `clickFramePx`).
+      if (Math.abs(foot) > STILL_PX && index > first) {
         const sign = Math.sign(foot);
-        if (direction !== 0 && sign !== direction && index > first) report.reversals += 1;
+        if (direction !== 0 && sign !== direction) report.reversals += 1;
         direction = sign;
       }
       if (index === first && now.line.open && !before.line.open) {
