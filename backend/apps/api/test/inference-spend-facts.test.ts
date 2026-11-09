@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { chat, inDO, loopback, paidPerson, post, testEnv } from "./setup/inference-person.ts"
 import { personalTeamIdFor, stackTeamIdFor, userIdFor } from "../src/domains/user.ts"
 import { fakeBoundaries, fakeStripe, nowS, sync, SYNC_KEY } from "./setup/fake-stripe.ts"
+import { handleBillingTeamMode } from "../src/billing-team-mode.ts"
 
 /**
  * cx-y79zh S1 (plans/cmux-next/usage-billing.md): one model router call is one fact, and the member's
@@ -390,6 +391,55 @@ describe("team included mode per team or per seat (cx-y79zh.1)", () => {
     await sync(e2eEnv)
     expect(byCustomer("cus_side_b")).toHaveLength(2)
     expect(planItemsUntouched(stripe)).toBe(true)
+  })
+})
+
+/** Price set v2 (Leo 2026-11-09): Team 25 USD per seat, pooled; a Team team with no setting is per seat. Staging only here. */
+describe("price set v2: Team 25 USD per seat, per seat by default", () => {
+  const v2Env = { ...(env as object), ENVIRONMENT: "staging", BILLING_USAGE_PRICE_SET: "v2" }
+
+  it("syncs a 3-seat Team team with no setting per seat against 75 USD under v2, and per team under v1", async () => {
+    const v2Team = "5b6a7f8e-9c0d-4e1f-8a2b-4c5d6e7f8091"
+    const v1Team = "6c7b8a9f-0d1e-4f2a-9b3c-5d6e7f809102"
+    const teamV2 = stackTeamIdFor(testEnv.STACK_PROJECT_ID, v2Team)
+    const stripe = fakeStripe({ start: nowS() - 3600, end: nowS() + 30 * 86_400 })
+    const sub = stripe.addSub("sub_v2_team", "cus_v2_team", { plan: "team", stackTeamId: v2Team }, "cmux-team-monthly-20")
+    sub.items.data[0].quantity = 3
+    fakeBoundaries(stripe, 0)
+    await spendOn(teamV2, 80)
+    expect((await sync(v2Env)).body).toMatchObject({ checked: 1, items_added: 1, pushed: 1, failed: 0 })
+    expect(stripe.calls.filter((c) => c.path === "/v1/subscription_items").map((c) => c.form.price)).toEqual(["price_v2_team_seat"])
+    // 80 - 3 x 25 = 5 on the per-seat meter.
+    expect(stripe.events).toEqual([expect.objectContaining({ event_name: "cmux_ai_usage_above_included", "payload[value]": "5.000000" })])
+    const usage = await (testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(teamV2)) as any).teamUsage(teamV2)
+    expect(usage.billable).toMatchObject({ mode: "per_seat", seats: 3, included_usd: 75 })
+    // The operator read under v2 says per seat for a team with no setting.
+    const read = await handleBillingTeamMode(new Request("https://api.test/v1/internal/billing/team-mode", { method: "POST", headers: { authorization: `Bearer ${MODE_KEY}` }, body: JSON.stringify({ stack_team: v2Team, actor: "ops" }) }), v2Env as any)
+    expect(await read.json()).toMatchObject({ requested: "per_seat", in_force_now: "per_seat", changes: [] })
+
+    // The same kind of team under v1 (this pool's env): per team, on the graduated price.
+    const v1Sub = stripe.addSub("sub_v1team", "cus_v1_team", { plan: "team", stackTeamId: v1Team }, "cmux-team-monthly-20")
+    v1Sub.items.data[0].quantity = 3
+    await spendOn(stackTeamIdFor(testEnv.STACK_PROJECT_ID, v1Team), 1)
+    expect((await sync(env, JSON.stringify({ subscription: "sub_v1team" }))).body).toMatchObject({ checked: 1, items_added: 1, failed: 0 })
+    expect(stripe.calls.filter((c) => c.path === "/v1/subscription_items" && c.form.subscription === "sub_v1team").map((c) => c.form.price)).toEqual(["price_u_team"])
+    expect((await teamMode({ stack_team: v1Team, actor: "ops" })).body).toMatchObject({ requested: "per_team", in_force_now: "per_team" })
+  })
+
+  it("stops an unbilled Team team with no setting at 25 x its last seats under v2, and at 25 under v1", async () => {
+    const team = stackTeamIdFor(testEnv.STACK_PROJECT_ID, "7d8c9b0a-1e2f-4a3b-8c4d-6e7f80910213")
+    const meter = testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)) as any
+    await spendOn(team, 70)
+    // A lapsed 3-seat subscription (its mark is not fresh, so the stop applies).
+    await inDO(meter, async (m) => {
+      m.ctx.storage.sql.exec(`INSERT INTO usage_billable (subscription, period_end, seen_at, period_start, mode, seats, included_usd) VALUES ('sub_v2_lapsed', ?, ?, ?, 'per_seat', 3, 25)`, Math.floor((Date.now() - 3 * 3600_000) / 1000), Date.now() - 3 * 3600_000, Math.floor((Date.now() - 30 * 86_400_000) / 1000))
+    })
+    const included = 25_000_000
+    expect(await meter.reserveUser(team, "user_a", "v2-call-1", 4_000_000, 200_000_000, included, "per_seat")).toEqual({ ok: true })
+    await meter.settleCall(team, "v2-call-1", null)
+    expect(await meter.reserveUser(team, "user_a", "v2-call-2", 6_000_000, 200_000_000, included, "per_seat")).toMatchObject({ ok: false, included: true, limit_usd: 75 })
+    expect(await meter.reserveUser(team, "user_a", "v1-call", 1_000_000, 200_000_000, included, "per_team")).toMatchObject({ ok: false, included: true, limit_usd: 25 })
+    expect(await meter.reserveUser(team, "user_a", "old-call", 1_000_000, 200_000_000, included)).toMatchObject({ ok: false, included: true, limit_usd: 25 })
   })
 })
 
