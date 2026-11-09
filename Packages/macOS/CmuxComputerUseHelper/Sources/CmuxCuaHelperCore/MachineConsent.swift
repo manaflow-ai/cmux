@@ -300,14 +300,18 @@ public final class ConsentGate: Sendable {
         lockFlag(session: CGSessionCopyCurrentDictionary() as? [String: Any])
     }
 
-    /// The window server sets `CGSSessionScreenIsLocked` only while locked: no key is
-    /// unlocked, but only for a session it reports on the console (`kCGSSessionOnConsoleKey`
-    /// true). No session dictionary, a key that is not a Boolean, or a missing key in a session
-    /// not known to be on the console is unknown: locked.
+    /// The window server sets `CGSSessionScreenIsLocked` (true) only while locked and leaves it out
+    /// while unlocked: it never reports `false`, so requiring an explicit `false` would refuse every
+    /// call on an unlocked Mac (NotificationPreviews and scripts/cmux-next/bench_launch.py read the
+    /// same key the same way). A missing key is unlocked only for a session it reports logged in
+    /// and on the console (`kCGSessionLoginDoneKey` and `kCGSSessionOnConsoleKey` both true). No
+    /// session dictionary, a key that is not a Boolean, or a missing key in any other session is
+    /// unknown: locked.
     static func lockFlag(session: [String: Any]?) -> Bool {
         guard let session else { return true }
         guard let value = session["CGSSessionScreenIsLocked"] else {
-            return !isBoolean(session["kCGSSessionOnConsoleKey"], true)
+            return !(isBoolean(session["kCGSessionLoginDoneKey"], true)
+                && isBoolean(session["kCGSSessionOnConsoleKey"], true))
         }
         guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return true }
         return number.boolValue
