@@ -116,9 +116,6 @@
     "ui.paneAnimations": [
       false
     ],
-    "updates.downloadAutomatically": [
-      true
-    ],
     "updates.idleInstallMaxWaitSeconds": [
       900
     ],

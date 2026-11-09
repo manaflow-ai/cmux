@@ -14,7 +14,7 @@ extension UpdatesSettings {
     public nonisolated static let checkIntervalRange: ClosedRange<Double> = 900...604_800
     /// `updates.downloadAutomatically`.
     public nonisolated static let downloadAutomaticallyPath = ["updates", "downloadAutomatically"]
-    public nonisolated static let downloadAutomaticallyDefault = false
+    public nonisolated static let downloadAutomaticallyDefault = true
     /// `updates.oneClickInstall`: One click on a found update's Update downloads it with its progress, then installs and restarts (Leo 2026-11-04, after the Codex app's Update available button). Off: the Update Ready card asks before the restart.
     public nonisolated static let oneClickInstallPath = ["updates", "oneClickInstall"]
     public nonisolated static let oneClickInstallDefault = false
