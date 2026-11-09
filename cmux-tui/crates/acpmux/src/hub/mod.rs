@@ -606,6 +606,9 @@ pub struct Hub {
     pub(crate) workflow_runs: crate::workflow_runs::Service,
     pub config: RwLock<Config>,
     pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
+    /// The hub carrier once it starts (`hub_carrier.rs`); every peer holds this slot.
+    #[cfg(feature = "hub-carrier")]
+    pub hub_carrier: crate::hub_carrier::HubCarrierSlot,
     /// Each peer's last-known-good path (`peer_last_good.rs`), beside the peer caches.
     pub(crate) peer_paths: Arc<crate::peer_last_good::LastGood>,
     /// The daemon's store, read through each fork's referenced history (`store/fork_view.rs`).
@@ -1032,11 +1035,16 @@ impl Hub {
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let audit = audit_log::AuditLog::open(store.audit_dir());
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
+        #[cfg(feature = "hub-carrier")]
+        let hub_carrier =
+            crate::hub_carrier::HubCarrierSlot::for_daemon(&config, wireguard.as_ref());
         let hub = Arc::new(Self {
             hub_ref: std::sync::OnceLock::new(),
             config: RwLock::new(config),
             usage_limits,
             wireguard,
+            #[cfg(feature = "hub-carrier")]
+            hub_carrier,
             peer_paths,
             store: Box::new(crate::store::ForkView::new(store)),
             mailbox,

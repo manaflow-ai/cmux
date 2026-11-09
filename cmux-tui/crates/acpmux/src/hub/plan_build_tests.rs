@@ -50,11 +50,15 @@ fn the_build_prompt_carries_the_plan() {
 
 #[test]
 fn a_build_is_done_only_once_a_turn_ended_and_none_waits() {
-    assert_eq!(build_status(SessionStatus::Ready, false, false), "working");
-    assert_eq!(build_status(SessionStatus::Idle, true, true), "working");
-    assert_eq!(build_status(SessionStatus::Idle, true, false), "done");
-    assert_eq!(build_status(SessionStatus::Running, true, false), "working");
-    assert_eq!(build_status(SessionStatus::Closed, false, false), "closed");
+    assert_eq!(build_status(SessionStatus::Ready, None, false), "working");
+    assert_eq!(build_status(SessionStatus::Idle, Some("completed"), true), "working");
+    assert_eq!(build_status(SessionStatus::Idle, Some("completed"), false), "done");
+    assert_eq!(build_status(SessionStatus::Running, Some("completed"), false), "working");
+    assert_eq!(build_status(SessionStatus::Closed, None, false), "closed");
+    // A build whose turn failed or was stopped, its agent ready again, is not done.
+    assert_eq!(build_status(SessionStatus::Ready, Some("failed"), false), "failed");
+    assert_eq!(build_status(SessionStatus::Ready, Some(""), false), "failed");
+    assert_eq!(build_status(SessionStatus::Idle, Some("cancelled"), false), "closed");
 }
 
 #[test]
@@ -132,4 +136,17 @@ fn a_plan_only_in_the_acp_subject_is_read_too() {
     let command = json!({"sessionId": "s", "subject": {"type": "command", "toolCall": {
         "kind": "switch_mode", "rawInput": {"plan": "Step one"}}}});
     assert_eq!(plan_of(&command), None, "only a tool call subject");
+}
+
+#[test]
+fn one_build_call_holds_an_approval_at_a_time() {
+    let first = claim("s-claim", "p1").expect("the first call holds it");
+    let second = claim("s-claim", "p1").expect_err("a second call is refused");
+    assert_eq!(
+        second.data.as_ref().and_then(|d| d.get("reason")),
+        Some(&json!("plan_build.in_progress"))
+    );
+    assert!(claim("s-claim", "p2").is_ok(), "another approval is free");
+    drop(first);
+    assert!(claim("s-claim", "p1").is_ok(), "released when the call ends");
 }

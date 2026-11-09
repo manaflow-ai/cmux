@@ -912,9 +912,7 @@ struct UserBubble: View {
             if !attachments.isEmpty {
                 SentAttachments(attachments: attachments)
             }
-            Text(prompt)
-                .font(.body)
-                .lineSpacing(4)
+            bubbleText
                 .padding(.horizontal, 16)
                 .padding(.vertical, 11)
                 .background(Color.cmuxMobileBubble, in: .rect(cornerRadius: 20, style: .continuous))
@@ -945,6 +943,23 @@ struct UserBubble: View {
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { selecting = false } } }
             }
             .presentationDetents([.medium, .large])
+        }
+    }
+}
+
+extension UserBubble {
+    /// The prompt, its leading quote drawn as the Mac draws one: muted, behind a bar.
+    @ViewBuilder var bubbleText: some View {
+        if let split = NextStepAsk.replyQuote(prompt) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(split.quote)
+                    .font(.body).lineSpacing(4).foregroundStyle(.secondary)
+                    .padding(.leading, 10)
+                    .overlay(alignment: .leading) { Capsule().fill(.tertiary).frame(width: 2) }
+                Text(split.body).font(.body).lineSpacing(4)
+            }
+        } else {
+            Text(prompt).font(.body).lineSpacing(4)
         }
     }
 }
