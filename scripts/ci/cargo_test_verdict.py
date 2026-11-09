@@ -51,13 +51,40 @@ PASSED = re.compile(r"^test (\S+) \.\.\. ok$")
 FAILED_LINE = re.compile(r"^test (\S+) \.\.\. FAILED$")
 
 
+def _default_optional(manifest: dict) -> set[str]:
+    """The optional dependencies MANIFEST's default features turn on (`dep:x`, `x`, `x/feature`)."""
+    features = manifest.get("features", {})
+    enabled, queue, seen = set(), list(features.get("default", [])), set()
+    while queue:
+        item = queue.pop()
+        if item in seen:
+            continue
+        seen.add(item)
+        if item.startswith("dep:"):
+            enabled.add(item[4:])
+        elif "/" in item:
+            name = item.split("/", 1)[0]
+            if not name.endswith("?"):
+                enabled.add(name)
+        elif item in features:
+            queue += features[item]
+        else:
+            enabled.add(item)
+    return enabled
+
+
 def _path_dependencies(manifest: dict, crate: Path, workspace: Path, shared: dict) -> list[Path]:
+    """The path dependencies a plain `cargo test` of the crate builds: an optional one only when a default feature
+    turns it on (acpmux's `hub-carrier` pulls in cmux-remote only when a build asks for it)."""
     tables = [manifest.get(name, {}) for name in DEPENDENCY_TABLES]
     tables += [target.get(name, {}) for target in manifest.get("target", {}).values() for name in DEPENDENCY_TABLES]
+    default_optional = _default_optional(manifest)
     found = []
     for table in tables:
         for name, spec in table.items():
             if not isinstance(spec, dict):
+                continue
+            if spec.get("optional") and name not in default_optional:
                 continue
             if "path" in spec:
                 found.append(crate / spec["path"])

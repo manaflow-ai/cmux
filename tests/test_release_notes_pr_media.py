@@ -253,6 +253,61 @@ class GalleryPictureTests(HighlightRepo):
         self.assertNotEqual(self.url("after", self.AFTER), self.url("after", self.BEFORE))
 
 
+class LatePictureTests(HighlightRepo):
+    """A highlight whose pictures were published after its nightly cut rides along with the next build that
+    finds them, once (release-notes.py late_pictures)."""
+
+    def setUp(self):
+        super().setUp()
+        self.shipped = self.head
+        git(self.repo, "commit", "-q", "--allow-empty", "-m", "later work (#124)")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        auto = lambda role: release_notes.gallery_auto_url("group-colors", role)
+        self.pictures = {auto("after"): PNG, auto("before"): PNG + b"before"}
+
+    def notes(self, shipped_media, pictures=True, feed=True):
+        """This span's highlights, with the feed's one earlier build showing group-colors with `shipped_media`."""
+        feed_base = release_notes.NOTES_FEED
+        published = {"highlights": [{"id": "group-colors", "category": "improved", "media": shipped_media}]}
+        files = dict(self.pictures) if pictures else {}
+        if feed:
+            files[feed_base + "index.json"] = json.dumps({"builds": [{"build": "1"}]}).encode()
+            files[feed_base + "1.json"] = json.dumps(published).encode()
+        fixture = os.path.join(self.repo, "fixture.json")
+        stored = {}
+        for url, data in files.items():
+            path = os.path.join(self.repo, hashlib.sha256(url.encode()).hexdigest())
+            with open(path, "wb") as f:
+                f.write(data)
+            stored[url] = path
+        with open(fixture, "w") as f:
+            json.dump({"bodies": {}, "files": stored}, f)
+        out = os.path.join(self.repo, "out")
+        subprocess.run([sys.executable, SCRIPT, "build", "--build", "2", "--short", "1.0.0-nightly.2", "--date",
+                        "2026-10-21", "--head", self.head, "--since", self.shipped, "--out", out, "--pr-media"],
+                       cwd=self.repo, capture_output=True, text=True, check=True,
+                       env={**os.environ, "CMUX_RELEASE_NOTES_PR_FIXTURE": fixture})
+        with open(os.path.join(out, "2.json")) as f:
+            return json.load(f)["highlights"]
+
+    def test_a_highlight_that_shipped_without_its_pictures_rides_along_with_them(self):
+        highlights = self.notes([])
+        self.assertEqual([h["id"] for h in highlights], ["group-colors"])
+        self.assertEqual([m["role"] for m in highlights[0]["media"]], ["after", "before"])
+
+    def test_an_improvement_that_shipped_without_its_before_rides_along(self):
+        shipped = [{"url": release_notes.gallery_auto_url("group-colors", "after"), "sha256": "0" * 64}]
+        self.assertEqual([h["id"] for h in self.notes(shipped)], ["group-colors"])
+
+    def test_once_it_shipped_with_its_pictures_it_rides_no_more(self):
+        roles = [{"url": f"https://x/{r}.png", "role": r} for r in ("after", "before")]
+        self.assertEqual(self.notes(roles), [])
+
+    def test_no_pictures_yet_or_no_feed_means_no_ride_along(self):
+        self.assertEqual(self.notes([], pictures=False), [])
+        self.assertEqual(self.notes([], feed=False), [])
+
+
 class GalleryRenderPlanTests(unittest.TestCase):
     """media/whats-new-gallery.py: each planned state renders as the dark default theme's case of its entry."""
 
@@ -261,6 +316,60 @@ class GalleryRenderPlanTests(unittest.TestCase):
             "whats_new_gallery", os.path.join(os.path.dirname(SCRIPT), "media", "whats-new-gallery.py"))
         self.tool = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.tool)
+
+    def picture(self, width, height, marks, filtered=False):
+        """An RGB PNG of a dark stage with light squares at (x, y, size); `filtered` encodes every row
+        with a different PNG filter, as Chromium's encoder may."""
+        import struct, zlib
+        rows = [bytearray(b"\x20\x20\x20" * width) for _ in range(height)]
+        for x0, y0, size in marks:
+            for y in range(y0, y0 + size):
+                rows[y][x0 * 3:(x0 + size) * 3] = b"\xe0\xe0\xe0" * size
+        if not filtered:
+            return self.tool.png_write(width, height, 3, rows)
+        raw, prior = b"", bytearray(width * 3)
+        for y, row in enumerate(rows):
+            kind, out = y % 5, bytearray()
+            for i, value in enumerate(row):
+                left = row[i - 3] if i >= 3 else 0
+                up, corner = prior[i], prior[i - 3] if i >= 3 else 0
+                guess = left + up - corner
+                pa, pb, pc = abs(guess - left), abs(guess - up), abs(guess - corner)
+                paeth = left if pa <= pb and pa <= pc else up if pb <= pc else corner
+                out.append((value - [0, left, up, (left + up) >> 1, paeth][kind]) & 255)
+            raw += bytes([kind]) + bytes(out)
+            prior = row
+        chunk = lambda k, b: struct.pack(">I", len(b)) + k + b + struct.pack(">I", zlib.crc32(k + b))
+        return (self.tool.PNG + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+    def test_png_read_undoes_every_row_filter(self):
+        width, height, channels, rows = self.tool.png_read(self.picture(40, 30, [(5, 6, 4)], filtered=True))
+        self.assertEqual((width, height, channels), (40, 30, 3))
+        self.assertEqual(self.tool.content_box(width, height, channels, rows), (5, 6, 9, 10))
+
+    def test_a_pair_is_cropped_to_one_box_with_a_margin(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            after, before = os.path.join(tmp, "after.png"), os.path.join(tmp, "before.png")
+            with open(after, "wb") as f:
+                f.write(self.picture(200, 120, [(40, 50, 10)]))
+            with open(before, "wb") as f:
+                f.write(self.picture(200, 120, [(60, 40, 10)]))
+            from pathlib import Path
+            out = self.tool.crop_pictures([Path(after), Path(before)], Path(tmp) / "cropped")
+            sizes = [self.tool.png_read(p.read_bytes())[:2] for p in out]
+        # Union (40, 40)-(70, 60), plus 32 each side: (8, 8)-(102, 92).
+        self.assertEqual(sizes, [(94, 84), (94, 84)])
+
+    def test_an_empty_or_odd_picture_is_kept_as_it_is(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            from pathlib import Path
+            blank = Path(tmp) / "blank.png"
+            blank.write_bytes(self.picture(50, 50, []))
+            self.assertEqual(self.tool.crop_pictures([blank], Path(tmp) / "c"), [blank])
+            webp = Path(tmp) / "x.webp"
+            webp.write_bytes(b"RIFF\0\0\0\0WEBPVP8 ")
+            self.assertEqual(self.tool.crop_pictures([webp], Path(tmp) / "c"), [webp])
 
     def test_manifest_keeps_one_dark_case_per_state_and_names_the_missing(self):
         case = lambda entry, variant, scheme: {"id": f"{entry}--{variant}--{scheme}", "path_or_url": "frame.html",

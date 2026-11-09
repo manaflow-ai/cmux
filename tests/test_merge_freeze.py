@@ -327,6 +327,19 @@ class SpentRestQuotaTests(unittest.TestCase):
         self.assertIn("owner=x", query)
         self.assertIn("name=y", query)
 
+    def test_the_quota_shims_refusal_also_falls_back_to_graphql(self):
+        import subprocess
+
+        def gh(*args):
+            if args[1].startswith("repos/x/y/issues?"):
+                raise subprocess.CalledProcessError(1, ["gh", *args], stderr=(
+                    "gh: gh-quota: refused for tool:merge-freeze (budget 600/h, used 600 in the last hour)"))
+            if self.issues_query(args):
+                return self.graphql_answer([])
+            self.fail(f"unexpected read: {args}")
+        status, _, err, _ = self.run_check(gh)
+        self.assertEqual(status, 0, err)
+
     def test_a_graphql_fallback_freeze_still_blocks(self):
         frozen = issue(body=body())
 

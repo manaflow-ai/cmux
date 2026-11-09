@@ -84,6 +84,9 @@ pub(crate) mod heap_future;
 pub mod host_load;
 pub mod host_pressure;
 pub mod hub;
+/// The live stream to one's own machines through the platform's relay (`hub_carrier.rs`).
+#[cfg(feature = "hub-carrier")]
+pub mod hub_carrier;
 #[cfg(windows)]
 mod job;
 pub mod launch_credential;
@@ -116,7 +119,9 @@ pub mod pairing;
 pub mod parent_watch;
 pub mod path_canon;
 pub mod peer;
+pub mod peer_last_good;
 pub mod peer_link;
+pub mod peer_paths;
 pub mod peer_states;
 pub mod placement;
 #[cfg(not(unix))]
@@ -168,6 +173,7 @@ pub(crate) mod ssh_forward;
 pub mod stats;
 pub(crate) mod stderr;
 pub mod store;
+pub mod subagent_call;
 pub mod subagent_notice;
 pub mod subagents;
 pub mod subrouter_session;

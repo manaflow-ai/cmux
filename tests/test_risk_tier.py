@@ -678,6 +678,28 @@ class RecentRevertTests(unittest.TestCase):
         # A pure addition taken out again is a revert.
         self.assertTrue(risk.undoes("@@ -1,3 +1,1 @@\n-.a{}\n-.b{}\n ctx", "@@ -1 +1,3 @@\n+.a{}\n+.b{}\n ctx"))
 
+    def test_a_reflowed_list_does_not_take_back_the_line_it_rewraps(self):
+        # PR #38436 (2026-11-08): two exports added to a `pub use listen::{...}` list made rustfmt rewrap it.
+        # #37363 had added the line `verify_session_socket_directory,`; after the rewrap that name sits on a
+        # longer line, so line matching read the PR as taking #37363 back and held it.
+        commit = ("@@ -2746,6 +2746,7 @@ mod listen;\n pub use listen::{\n"
+                  "     connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,\n"
+                  "+    verify_session_socket_directory,\n };")
+        pr = ("@@ -2769,11 +2769,13 @@ mod listen;\n pub use listen::{\n"
+              "-    connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,\n"
+              "-    verify_session_socket_directory,\n"
+              "+    connect_session_socket, prepare_socket_parent, remove_socket_start_lock, serve, serve_bound,\n"
+              "+    serve_paused, socket_start_lock_path, verify_session_socket_directory,\n };")
+        self.assertFalse(risk.undoes(pr, commit))
+        # Really deleting the line still takes it back.
+        self.assertTrue(risk.undoes("@@ -2769,3 +2769,2 @@\n pub use listen::{\n"
+                                    "-    verify_session_socket_directory,\n };", commit))
+        # A line that loses a token is not a reflow: `foo(a, b)` to `foo(a)`, then back, is a revert.
+        shortened = "@@ -1,2 +1,2 @@\n-    foo(a, b);\n+    foo(a);\n ctx"
+        self.assertTrue(risk.undoes("@@ -1,2 +1,2 @@\n-    foo(a);\n+    foo(a, b);\n ctx", shortened))
+        widened = "@@ -1,2 +1,2 @@\n-    foo(a);\n+    foo(a, b);\n ctx"
+        self.assertTrue(risk.undoes("@@ -1,2 +1,2 @@\n-    foo(a, b);\n+    foo(a);\n ctx", widened))
+
     def test_a_revert_of_last_weeks_change_names_its_pull_request(self):
         now = time.time()
         with tempfile.TemporaryDirectory() as repo:
@@ -971,6 +993,41 @@ class SameAccountReceiptTests(unittest.TestCase):
         block = self.comment(f"Review (claude-review-subagent): BLOCK at {HEAD}", at="2026-10-21T20:05:00Z")
         self.assertIsNone(self.signed(other, block, body=no_agent))
         self.assertEqual(self.signed(other, body=no_agent), "review (codex)")
+
+    # The review service an author lane asks for (`router-review OWNER/REPO N --request`): next-review reviews the
+    # head and the cmux-bot App posts its receipt, so the author neither starts the reviewer nor writes the line.
+    def bot(self, body, at="2026-10-21T20:00:00Z", node_id="BOT_kgDOFMYsLQ", login="cmux-bot[bot]", kind="Bot"):
+        return {"body": body, "created_at": at, "submitted_at": at, "author_association": "NONE", "commit_id": HEAD,
+                "user": {"login": login, "type": kind, "node_id": node_id}}
+
+    def test_the_review_service_receipt_counts_and_an_author_started_one_still_fails(self):
+        service = self.bot(f"Review (codex gpt-6.1-sol xhigh, next-review): SHIP at {HEAD}")
+        self.assertEqual(self.signed(service), "review (codex gpt-6.1-sol xhigh, next-review)")
+        # Posted as a review body too.
+        self.assertEqual(risk.signed_off([], [dict(service, state="COMMENTED")], HEAD, self.AUTHOR, self.pr()),
+                         "review (codex gpt-6.1-sol xhigh, next-review)")
+        # The #38430 shape: the author lane started router-review itself; from its own account that never counts.
+        self.assertIsNone(self.signed(
+            self.comment(f"Review (codex, router-review, started by claude-author): SHIP at {HEAD}")))
+
+    def test_only_the_cmux_bot_app_by_node_id_counts_and_never_its_approval(self):
+        line = f"Review (codex gpt-6.1-sol xhigh, next-review): SHIP at {HEAD}"
+        for item in (self.bot(line, node_id="BOT_wrong"), self.bot(line, login="other-bot[bot]"),
+                     self.bot(line, kind="User")):
+            self.assertIsNone(self.signed(item), item["user"])
+        approval = dict(self.bot("cmux-bot approves it"), state="APPROVED")
+        self.assertIsNone(risk.signed_off([], [approval], HEAD, self.AUTHOR, self.pr()))
+        # An approval whose body mirrors a self-started receipt never counts, and never beats a BLOCK.
+        mirrored = dict(self.bot(f"Review (codex, router-review, started by claude-author): SHIP at {HEAD}",
+                                 at="2026-10-21T20:10:00Z"), state="APPROVED")
+        self.assertIsNone(risk.signed_off([], [mirrored], HEAD, self.AUTHOR, self.pr()))
+        block = self.comment(f"Review (codex-reviewer-7, started by lead): BLOCK at {HEAD}")
+        self.assertIsNone(risk.signed_off([block], [mirrored], HEAD, self.AUTHOR, self.pr()))
+
+    def test_a_later_service_block_beats_an_earlier_ship(self):
+        ship = self.comment(f"Review (codex-reviewer-7, started by lead): SHIP at {HEAD}", at="2026-10-21T20:00:00Z")
+        block = self.bot(f"Review (codex gpt-6.1-sol xhigh, next-review): BLOCK at {HEAD}", at="2026-10-21T20:05:00Z")
+        self.assertIsNone(self.signed(ship, block))
 
     def test_a_receipt_from_another_account_keeps_the_old_rule(self):
         line = f"Review (claude-review-subagent): SHIP at {HEAD}"
