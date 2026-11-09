@@ -19,13 +19,22 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-/// The sections compared, by update kind: JSON pointers into the update. Each is replaced whole
-/// by its reader (`_meta.claude` by `absorb_reported_tools`), so each is compared whole.
+/// The sections compared, by update kind: JSON pointers into the update, each compared whole.
+/// Of system/init's `_meta.claude` only its lists are: its `model` and `version` stay on every
+/// record, as a paged attach finds the chat's session start in its newest page
+/// (`webviews/.../sessionStart.ts`; review F1 on #39147).
 const SECTIONS: &[(&str, &[&str])] = &[
     ("available_commands_update", &["/availableCommands"]),
     (
         "session_info_update",
-        &["/_meta/claude", "/_meta/acpmux/contextBreakdown", "/_meta/acpmux/usageLimits"],
+        &[
+            "/_meta/claude/tools",
+            "/_meta/claude/mcp_servers",
+            "/_meta/claude/plugins",
+            "/_meta/claude/skills",
+            "/_meta/acpmux/contextBreakdown",
+            "/_meta/acpmux/usageLimits",
+        ],
     ),
 ];
 

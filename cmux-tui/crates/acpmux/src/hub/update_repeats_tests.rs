@@ -30,14 +30,20 @@ fn alternating_shapes_log_only_what_changed() {
     let kind = "session_info_update";
     assert!(!log(&mut repeats, kind, &mut init_info("opus")));
     assert!(!log(&mut repeats, kind, &mut breakdown(100)));
-    assert!(log(&mut repeats, kind, &mut init_info("opus")), "same tools: nothing logged");
+    let mut again = init_info("opus");
+    assert!(!log(&mut repeats, kind, &mut again), "its model and version are always logged");
+    assert_eq!(
+        again,
+        json!({"sessionUpdate": "session_info_update", "title": null,
+            "_meta": {"claude": {"model": "opus"}}})
+    );
     let mut grown = breakdown(140);
     assert!(!log(&mut repeats, kind, &mut grown));
     assert_eq!(grown, breakdown(140), "a changed section is logged whole");
     assert!(log(&mut repeats, kind, &mut breakdown(140)));
     let mut switched = init_info("sonnet");
     assert!(!log(&mut repeats, kind, &mut switched));
-    assert_eq!(switched, init_info("sonnet"));
+    assert_eq!(switched["_meta"]["claude"]["model"], "sonnet");
 }
 
 /// A record with other fields keeps them when its repeated section goes; a goal or a title is

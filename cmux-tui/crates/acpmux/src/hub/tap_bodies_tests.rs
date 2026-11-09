@@ -222,13 +222,28 @@ fn repeated_state_updates_are_not_logged_again() {
     let s = claude_chat(&hub, "r");
     let tap = hub.session_tap(&s);
     let tools = update(json!({"sessionUpdate": "session_info_update", "title": null,
-        "_meta": {"claude": {"tools": ["Bash"], "mcp_servers": []}}}));
+        "_meta": {"claude": {"tools": ["Bash"], "mcp_servers": [], "version": "2.1.400"}}}));
     let context = update(json!({"sessionUpdate": "session_info_update",
         "_meta": {"acpmux": {"contextBreakdown": {"total": 7}}}}));
     for msg in [&tools, &context, &tools, &context, &tools] {
         assert!(tap(Direction::In, msg, None));
     }
     let logged = hub.store.events("r", 0, usize::MAX).unwrap();
-    let infos = logged.iter().filter(|r| r.kind == "session_info_update").count();
-    assert_eq!(infos, 2, "{logged:?}");
+    let infos: Vec<&EventRecord> =
+        logged.iter().filter(|r| r.kind == "session_info_update").collect();
+    // Each system/init's update keeps its scalars (a paged attach reads the session start from
+    // them); its lists and the unchanged breakdown are logged once.
+    assert_eq!(infos.len(), 4, "{logged:?}");
+    let with_tools =
+        infos.iter().filter(|r| r.msg.pointer("/params/update/_meta/claude/tools").is_some());
+    assert_eq!(with_tools.count(), 1);
+    let breakdowns = infos
+        .iter()
+        .filter(|r| r.msg.pointer("/params/update/_meta/acpmux/contextBreakdown").is_some());
+    assert_eq!(breakdowns.count(), 1);
+    // Every init's record names Claude Code's version, so the newest page alone has the start.
+    let versions = infos.iter().filter(|r| {
+        r.msg.pointer("/params/update/_meta/claude/version") == Some(&json!("2.1.400"))
+    });
+    assert_eq!(versions.count(), 3);
 }
