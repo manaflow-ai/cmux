@@ -922,9 +922,8 @@ fn link_targets(linked: &BTreeMap<String, Linked>) -> Vec<String> {
         if !seen.insert(path) {
             continue;
         }
-        let Some(target) = linked
-            .get(path)
-            .and_then(|link| links::resolve(links::parent_of(path), &link.target))
+        let Some(target) =
+            linked.get(path).and_then(|link| links::resolve(links::parent_of(path), &link.target))
         else {
             continue;
         };
