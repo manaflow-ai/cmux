@@ -499,7 +499,7 @@ fn newest_prompt_back(chat: &str, socket: Option<&Path>) -> Result<u64, Value> {
             Some(oldest)
                 if page.get("hasMore").and_then(Value::as_bool) == Some(true) && oldest > 1 =>
             {
-                before = oldest
+                before = oldest;
             }
             _ => return Ok(0),
         }
