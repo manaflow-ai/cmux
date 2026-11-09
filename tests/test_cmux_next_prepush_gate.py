@@ -2150,6 +2150,36 @@ let package = Package(
                     self.assertIn('its note opening "Before:"', output)
                     self.assertNotIn("Give each one a picture", output)
 
+    @unittest.skipUnless(shutil.which("bun"), "needs bun to load the gallery entries")
+    def test_a_new_gallery_file_is_judged_by_its_loaded_variants(self):
+        # Review of #39688: text patterns missed a note on the key's line and counted a nested `before:` prop.
+        # Loaded through notes.ts, the variants and their own notes are what the gallery itself sees.
+        for relative in ("webviews/scripts/gallery/notes.ts", "webviews/scripts/gallery/entries.ts"):
+            self.write(relative, (SOURCE / relative).read_text())
+        self.commit("the gallery notes reader")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        improved = self.HIGHLIGHT_NO_PICTURE.replace("category: new", "category: improved")
+        new_file = "webviews/src/side/SideChat.gallery.ts"
+        cases = {
+            "a note on the key's line": ('export default { id: "side.chat", variants: { open: {}, '
+                                         'flat: { note: "Before: one row." } } };\n', False),
+            "a nested before prop": ('export default { id: "side.chat", variants: {\n  open: {\n    props: {\n'
+                                     '      before: {},\n      note: "Before: a prop",\n    },\n  },\n} };\n', True),
+        }
+        for name, (gallery, refused) in cases.items():
+            with self.subTest(gallery=name):
+                self.git("reset", "--quiet", "--hard", "origin/feat-cmux-next")
+                self.write(f"{self.HIGHLIGHTS}/side-chat.md", improved)
+                self.write(new_file, gallery)
+                self.commit(f"adds an improvement on a new gallery file, {name}")
+
+                direct = subprocess.run(["python3", "-I", GATE, "--only", "pictures"], cwd=self.repo, env=self.env,
+                                        text=True, capture_output=True)
+
+                output = direct.stdout + direct.stderr
+                self.assertEqual("gallery file is new, with no before" in output, refused, output)
+
     def test_a_validator_warning_on_stderr_does_not_turn_a_refusal_into_a_pass(self):
         # The validator's result is read from its own file, never from its output: a warning it prints (a future
         # SyntaxWarning) must not make the check fail open (review of #31260).
