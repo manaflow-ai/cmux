@@ -319,6 +319,9 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             guard !isReadOnly else { return refuseReadOnly(id, method) }
             guard names(params["sessionId"]), params["inline"] as? Bool == true,
                   params["model"] == nil || params["model"] is NSNull,
+                  // A guest's second opinion (`targetHarness`) needs another harness the daemon's
+                  // verb never starts: refused, not answered by this chat's own harness.
+                  params["targetHarness"] == nil || params["targetHarness"] is NSNull,
                   let question = params["question"] as? String,
                   !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   let client = state.withLock({ $0.client }) else { return refuse(id, method) }
@@ -432,6 +435,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             throw AgentSessionRemoteError(code: Self.unsupported, message: "the remote chat has no session")
         }
         return try await client.media(path: path)
+    }
+
+    public func loadRemoteMediaRange(_ path: String, offset: Int, length: Int, handle: String?) async throws -> Data {
+        guard let client = state.withLock({ $0.client }) else {
+            throw AgentSessionRemoteError(code: Self.unsupported, message: "the remote chat has no session")
+        }
+        return try await client.mediaRange(path: path, offset: offset, length: length, handle: handle)
     }
 
     /// A login frame as the daemon's `agent-session-login` step: its `op` and fields; nil when a

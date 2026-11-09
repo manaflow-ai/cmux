@@ -64,19 +64,20 @@ import Testing
         for frame in [
             #"{"jsonrpc":"2.0","id":2,"method":"_acpmux/btw","params":{"sessionId":"sub","question":"why?","inline":true}}"#,
             #"{"jsonrpc":"2.0","id":3,"method":"_acpmux/btw","params":{"sessionId":"sub","question":"no read-only mode","inline":true}}"#,
-            // Another chat, a side session to open (no `inline`), a model, or no question goes nowhere.
+            // Another chat, a side session to open (no `inline`), a model, a guest harness, or no question goes nowhere.
             #"{"jsonrpc":"2.0","id":4,"method":"_acpmux/btw","params":{"sessionId":"acp_other","question":"why?","inline":true}}"#,
             #"{"jsonrpc":"2.0","id":5,"method":"_acpmux/btw","params":{"sessionId":"sub","question":"why?"}}"#,
             #"{"jsonrpc":"2.0","id":6,"method":"_acpmux/btw","params":{"sessionId":"sub","question":"why?","inline":true,"model":"opus"}}"#,
             #"{"jsonrpc":"2.0","id":7,"method":"_acpmux/btw","params":{"sessionId":"sub","question":"  ","inline":true}}"#,
+            #"{"jsonrpc":"2.0","id":8,"method":"_acpmux/btw","params":{"sessionId":"sub","question":"why?","inline":true,"targetHarness":"codex"}}"#,
         ] {
             wire.send(frame) { _ in }
         }
-        try await Self.waitUntil { (2...7).allSatisfy { frames.reply($0) != nil } }
+        try await Self.waitUntil { (2...8).allSatisfy { frames.reply($0) != nil } }
         #expect((frames.reply(2)?["result"] as? [String: Any])?["text"] as? String == "It flaked on a timeout.")
         #expect(Self.error(frames, 3)?["reason"] as? String == "btw.no_read_only_mode")
         #expect(Self.error(frames, 3)?["code"] as? String == RemoteAcpmuxWire.btwRefused)
-        for id in 4...7 { #expect(Self.error(frames, id)?["code"] as? String == RemoteAcpmuxWire.unsupported) }
+        for id in 4...8 { #expect(Self.error(frames, id)?["code"] as? String == RemoteAcpmuxWire.unsupported) }
         // Each question runs in its own task: either may reach the daemon first.
         #expect(client.questions.withLock { $0 }.sorted() == ["no read-only mode", "why?"])
     }
