@@ -45,6 +45,17 @@ public final class FirstRunSetup {
         return true
     }
 
+    /// What a launch's first-run steps do: start the card now, leave them to a card that started on an earlier
+    /// launch (pending or ended: the old windows never run after it, so Bring your history's flag stays the row's),
+    /// or run the first-run windows (no card ever started).
+    public enum Route: Sendable { case startCard, cardOwns, windows }
+
+    /// The launch's first-run route; starts the card when ``begin(isFirstRun:replacedKeys:screenReader:)`` does.
+    public func route(isFirstRun: Bool, replacedKeys: [String], screenReader: Bool = false) -> Route {
+        if begin(isFirstRun: isFirstRun, replacedKeys: replacedKeys, screenReader: screenReader) { return .startCard }
+        return defaults.string(forKey: Self.stateKey) == nil ? .windows : .cardOwns
+    }
+
     /// Hide, or every row done: the card leaves for good, and its chat history row with it.
     public func end() {
         guard defaults.string(forKey: Self.stateKey) != "ended" else { return }

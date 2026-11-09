@@ -19,8 +19,8 @@ export interface SetupState {
   account: { signedIn: boolean; email?: string };
   /** `missing`: no `cmux` on the login PATH; `other`: another cmux app's CLI (classic, a moved copy), which
    * Replace overwrites; `foreign`: a `cmux` that is no cmux app's, never touched; `fromImage`: cmux runs from
-   * its disk image, so nothing installs until it runs from Applications. */
-  cli: "missing" | "other" | "installed" | "foreign" | "fromImage";
+   * its disk image, so nothing installs until it runs from Applications; `installing`: an install runs. */
+  cli: "missing" | "other" | "installed" | "foreign" | "fromImage" | "installing";
   /** Chats from other agents on this Mac (the host found some): the row opens the history import; `done` once
    * that page showed or the row was dismissed. Null or absent: none found (the row does not show). */
   history?: { done: boolean } | null;
@@ -144,6 +144,7 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
           : state.cli === "fromImage"
             ? t("home.setup.cli.fromImage")
             : t("home.setup.cli.detail"),
+    busy: state.cli === "installing",
     ...((state.cli === "missing" || state.cli === "other") && {
       action: {
         label: t(state.cli === "other" ? "home.setup.replace" : "home.setup.install"),

@@ -109,6 +109,50 @@ import Testing
         #expect(mac.installs == 0)
     }
 
+    /// The launch after the card started (pending, or ended) runs no first-run window: the old path would mark
+    /// Bring your history shown with nothing shown and silently finish the card's chat history row.
+    @Test func aLaterLaunchLeavesTheFirstRunStepsToTheCard() throws {
+        let defaults = try defaults()
+        #expect(FirstRunSetup(defaults: defaults).route(isFirstRun: true, replacedKeys: Self.replaced) == .startCard)
+        let relaunch = FirstRunSetup(defaults: defaults)
+        #expect(relaunch.route(isFirstRun: false, replacedKeys: Self.replaced) == .cardOwns)
+        #expect(relaunch.shows && !relaunch.historyDone)
+        #expect(!defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey), "the chat history row stays")
+        relaunch.end()
+        #expect(FirstRunSetup(defaults: defaults).route(isFirstRun: false, replacedKeys: Self.replaced) == .cardOwns)
+
+        // No card ever started (an upgrade, or VoiceOver at the first run): the first-run windows run as before.
+        let upgrade = try self.defaults()
+        #expect(FirstRunSetup(defaults: upgrade).route(isFirstRun: false, replacedKeys: Self.replaced) == .windows)
+        #expect(FirstRunSetup(defaults: try self.defaults()).route(isFirstRun: true, replacedKeys: Self.replaced, screenReader: true) == .windows)
+    }
+
+    /// The command line row's install runs once: while it runs the row is "installing" and another click starts
+    /// nothing; when it ends, the row shows what the PATH read found.
+    @Test func theCommandLineInstallRunsOnce() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        let mac = PressLog()
+        let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: SetupCardEnvironment(
+            account: { (false, nil) }, signInAccount: {}, cliState: { mac.cliAfter }, installCLI: { _ in
+                mac.installs += 1
+                await withCheckedContinuation { mac.installRuns = $0 }
+            }, openAgents: {}))
+        defer { provider.stop() }
+        await until { provider.cli != nil }
+        let install: JSONValue = ["action": ["kind": "installCLI"]]
+        let click = { (at: TimeInterval) in PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: at) }
+        _ = try await provider.call("cmux.setup.run", params: install, context: click(1))
+        await until { mac.installRuns != nil }
+        #expect(provider.state["cli"] == "installing")
+        await #expect(throws: PageError.self) { try await provider.call("cmux.setup.run", params: install, context: click(2)) }
+        #expect(mac.installs == 1)
+
+        mac.cliAfter = "installed"
+        mac.installRuns?.resume()
+        await until { !provider.cliInstalling }
+        #expect(provider.state["cli"] == "installed")
+    }
+
     /// Not Now on the chat history row answers it for good.
     @Test func notNowDismissesTheChatHistoryRow() async throws {
         let defaults = try defaults()
@@ -175,5 +219,7 @@ import Testing
     var signIns = 0
     var imports = 0
     var installs = 0
+    var cliAfter = "missing"
+    var installRuns: CheckedContinuation<Void, Never>?
     var importShows = false
 }

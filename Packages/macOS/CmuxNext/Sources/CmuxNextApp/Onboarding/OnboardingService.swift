@@ -197,11 +197,9 @@ final class OnboardingService {
     /// (``OnboardingWindowPresenter/showFirstRunSteps``); never when ``AppEnvironment/skipsOnboarding``.
     func showFirstRunSteps(isFirstRun: Bool) async {
         guard !services.environment.skipsOnboarding else { return }
-        if setup.begin(isFirstRun: isFirstRun, replacedKeys: [CLIInstallHandlers.offeredAtLaunchKey],
-                       screenReader: NSWorkspace.shared.isVoiceOverEnabled) {
-            DebugTimings.markLaunch("first_run.setup_card_shown")
-            return
-        }
+        let route = setup.route(isFirstRun: isFirstRun, replacedKeys: [CLIInstallHandlers.offeredAtLaunchKey], screenReader: NSWorkspace.shared.isVoiceOverEnabled)
+        if route == .startCard { DebugTimings.markLaunch("first_run.setup_card_shown") }
+        guard route == .windows else { return }
         await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses) { self.showHistoryAtFirstRun(isFirstRun: isFirstRun) }
     }
 

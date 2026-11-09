@@ -122,6 +122,8 @@ public final class SetupCardPageProvider: PageProvider {
     @ObservationIgnored var onSize: ((CGFloat) -> Void)?
     @ObservationIgnored private var spentGesture: TimeInterval?
     @ObservationIgnored private var cliRead: Task<Void, Never>?
+    /// An install of the `cmux` command runs (the row shows its spinner, and another click starts nothing).
+    private(set) var cliInstalling = false
 
     init(setup: FirstRunSetup, agents: (any AgentSignInSource)?, environment: SetupCardEnvironment) {
         self.setup = setup
@@ -168,7 +170,7 @@ public final class SetupCardPageProvider: PageProvider {
         var wire: [String: JSONValue] = ["signedIn": .bool(account.signedIn)]
         if account.signedIn, let email = account.email { wire["email"] = .string(email) }
         return ["agents": .array(rows), "history": history == true ? ["done": .bool(setup.historyDone)] : .null,
-                "account": .object(wire), "cli": .string(cli ?? "missing"), "classic": .null]
+                "account": .object(wire), "cli": .string(cliInstalling ? "installing" : cli ?? "missing"), "classic": .null]
     }
 
     /// Every row is done: an agent signed in, the chat history answered (when found), the account signed in,
@@ -224,12 +226,18 @@ public final class SetupCardPageProvider: PageProvider {
         case "installCLI":
             // Only the row's own offer: Install when missing, Replace for another cmux app's CLI; never over a
             // `cmux` that is no cmux app's.
-            guard cli == "missing" || cli == "other" else { throw PageError.invalidParams("nothing to install") }
+            guard !cliInstalling, cli == "missing" || cli == "other" else { throw PageError.invalidParams("nothing to install") }
             let replacing = cli == "other"
-            // task-owner: one install the person asked for, ended by its toast; then the PATH is read again.
+            cliInstalling = true
+            cliRead?.cancel()
+            // task-owner: one install the person asked for, ended by its toast; then the PATH is read again, and the
+            // spinner gives way to what that read found (no button flashes back in between).
             Task { [weak self, environment] in
                 await environment.installCLI(replacing)
-                self?.readCLI()
+                let state = await environment.cliState()
+                guard let self else { return }
+                cli = state
+                cliInstalling = false
             }
         default: throw PageError.invalidParams("unknown setup action")
         }

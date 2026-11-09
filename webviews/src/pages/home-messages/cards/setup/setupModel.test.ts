@@ -82,6 +82,12 @@ describe("setupSteps", () => {
     }
   });
 
+  test("a command line install in flight: a spinner and no button, so a second click starts nothing", () => {
+    const row = setupSteps({ ...fresh, cli: "installing" }, strings).find((step) => step.id === "cli")!;
+    expect(row).toMatchObject({ done: false, busy: true });
+    expect(row.action).toBeUndefined();
+  });
+
   test("every row done: no next step", () => {
     const steps = setupSteps(
       {
