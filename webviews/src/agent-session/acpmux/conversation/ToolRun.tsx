@@ -48,6 +48,8 @@ export function ToolRun({
   children,
   disclosureKey,
   inherits,
+  passesDown,
+  closedBy,
   defaultOpen = false,
 }: {
   items: readonly AcpmuxActivity[];
@@ -55,6 +57,10 @@ export function ToolRun({
   disclosureKey: string;
   /// The keys of the group lines this run's line took the place of: one the reader opened opens it.
   inherits?: readonly string[];
+  /// The group lines this run's line splits back into, which take the reader's choice on it.
+  passesDown?: readonly string[];
+  /// The group lines that drew open while the turn ran: the reader closing every one closes this.
+  closedBy?: readonly string[];
   /// Open until the reader closes it: a run inside a steered turn's opened Worked for (turns.ts).
   defaultOpen?: boolean;
 }) {
@@ -67,14 +73,12 @@ export function ToolRun({
   // A call in the run the reader opened keeps the run open when it folds (`members`); a choice inside
   // the run pins it (`pin`).
   const members = useMemo(() => callDisclosureKeys(items), [items]);
-  const [open, setOpen] = useTranscriptDisclosure(
-    disclosureKey,
-    defaultOpen || holdsThought,
-    true,
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, defaultOpen || holdsThought, true, {
     inherits,
-    true,
+    passesDown,
     members,
-  );
+    closedBy,
+  });
   const pin = useFoldPin(disclosureKey);
   useFindReveal(items, () => setOpen(true));
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });

@@ -23,6 +23,8 @@ const ANCHOR_CHARS: usize = 48;
 const MIN_ANCHOR_CHARS: usize = 20;
 /// How far from the bottom the footer search looks, in lines.
 const FOOTER_LINES: usize = 14;
+/// How many lines a turn summary wraps into at most in a narrow pane.
+const SUMMARY_LINES: usize = 4;
 /// How many of the last non-empty lines of the screen before the send mark
 /// where the reply starts when the echo is not found.
 const BEFORE_TAIL_LINES: usize = 3;
@@ -147,11 +149,30 @@ fn without_footer(body: &[String]) -> &[String] {
     while let Some((last, rest)) = body.split_last() {
         if last.trim().is_empty() || is_turn_summary(last) {
             body = rest;
+        } else if let Some(start) = wrapped_summary_start(body) {
+            body = body.get(..start).unwrap_or_default();
         } else {
             break;
         }
     }
     body
+}
+
+/// Where a turn summary that a narrow pane wrapped starts at the end of
+/// `body`: its first line, then indented continuation lines (`✻ Churned` /
+/// `  for 1s · done` / `  2:36 PM`).
+fn wrapped_summary_start(body: &[String]) -> Option<usize> {
+    (2..=SUMMARY_LINES).find_map(|count| {
+        let start = body.len().checked_sub(count)?;
+        let lines = body.get(start..)?;
+        let (first, rest) = lines.split_first()?;
+        let continued = rest
+            .iter()
+            .all(|line| line.starts_with(char::is_whitespace) && !line.trim().is_empty());
+        let joined = lines.iter().map(|line| line.trim()).collect::<Vec<_>>().join(" ");
+        (continued && !first.starts_with(char::is_whitespace) && is_turn_summary(&joined))
+            .then_some(start)
+    })
 }
 
 /// Trailing whitespace off each line; leading and trailing blank lines off.

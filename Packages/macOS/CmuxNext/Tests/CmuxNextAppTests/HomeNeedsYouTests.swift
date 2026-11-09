@@ -157,6 +157,46 @@ import Testing
         #expect(view.transcript.rowsTopClearance == 0)
         #expect(view.transcript.frame == transcriptFrame)
     }
+
+    @Test func theSetupCardFitsAShortPaneAndIsNeverHidden() async throws {
+        let source = EmptyChiefSource()
+        let id = ConversationID("conv_chief")
+        let inbox = try await source.inbox()
+        let store = HomeStore(source: source)
+        store.start()
+        let view = HomeNativeTranscriptView(store: store, conversation: id, me: inbox.me.id)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 420), styleMask: [.titled],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { view.stop(); store.stop(); window.close() }
+        view.frame = NSRect(x: 0, y: 0, width: 600, height: 420)
+        window.contentView = view
+        await view.binding.opened()
+        let card = NSView()
+
+        view.setSetupCard(card, height: 0)
+        view.layoutSubtreeIfNeeded()
+        #expect(!card.isHidden && card.frame.height == 1, "unsized, the page stays in the window to measure: \(card.frame)")
+
+        // Taller than the pane: the slot stops above the message box and the page scrolls inside it.
+        view.setSetupCard(card, height: 2000)
+        view.layoutSubtreeIfNeeded()
+        #expect(card.frame.height > 1 && card.frame.height < 2000, "\(card.frame)")
+        #expect(card.frame.maxY < view.transcript.fieldTop, "above the message box")
+
+        // Needs you rows taller than the pane: the pinned section gives way, and the card keeps a usable height.
+        let pinned = TallSection()
+        view.setPinnedSection(pinned)
+        view.layoutSubtreeIfNeeded()
+        #expect(card.frame.height >= 120, "the card keeps its title and a row: \(card.frame)")
+        #expect(pinned.frame.maxY < card.frame.minY && card.frame.maxY < view.transcript.fieldTop, "\(pinned.frame) \(card.frame)")
+        view.setPinnedSection(nil)
+    }
+}
+
+/// Needs you rows taller than any pane.
+private final class TallSection: NSView {
+    override var fittingSize: NSSize { NSSize(width: 400, height: 2000) }
 }
 
 /// A stand-in for `feed.needsYouInChief` (the app reads it from the observable settings snapshot).

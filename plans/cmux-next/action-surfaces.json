@@ -32828,6 +32828,46 @@
         {
           "kind" : "string",
           "name" : "id",
+          "required" : true
+        },
+        {
+          "kind" : "string",
+          "name" : "icon",
+          "required" : true
+        }
+      ],
+      "cli" : "ownerVerb",
+      "cli_name" : "action agent-harness-set-icon",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agent.harness.setIcon",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Agent Icon…",
+      "title_key" : "action.agent.harness.setIcon",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "id",
           "required" : false
         },
         {
@@ -32861,6 +32901,148 @@
       "palette_suggested" : null,
       "title" : "Update Agent CLIs",
       "title_key" : "action.agent.harness.updateAll",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "name",
+          "required" : false
+        },
+        {
+          "kind" : "string",
+          "name" : "base",
+          "required" : false
+        }
+      ],
+      "cli" : "ownerVerb",
+      "cli_name" : "action git-worktree-create",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "git.worktree.create",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Git Worktree",
+      "title_key" : "action.git.worktree.create",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "ownerVerb",
+      "cli_name" : "action git-worktree-apply",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "git.worktree.apply",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Apply Worktree to Main Checkout",
+      "title_key" : "action.git.worktree.apply",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "bool",
+          "name" : "discard",
+          "required" : false
+        },
+        {
+          "kind" : "bool",
+          "name" : "confirm",
+          "required" : false
+        }
+      ],
+      "cli" : "ownerVerb",
+      "cli_name" : "action git-worktree-remove",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "git.worktree.remove",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Remove Git Worktree",
+      "title_key" : "action.git.worktree.remove",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "ownerVerb",
+      "cli_name" : "action git-checkpoint-create",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "git.checkpoint.create",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Create Git Checkpoint",
+      "title_key" : "action.git.checkpoint.create",
       "title_table" : "ActionCatalog"
     },
     {
@@ -33651,7 +33833,7 @@
         {
           "kind" : "string",
           "name" : "path",
-          "required" : true
+          "required" : false
         }
       ],
       "cli" : "offered",
@@ -33686,7 +33868,7 @@
         {
           "kind" : "string",
           "name" : "path",
-          "required" : true
+          "required" : false
         }
       ],
       "cli" : "offered",
@@ -33718,11 +33900,7 @@
     },
     {
       "args" : [
-        {
-          "kind" : "string",
-          "name" : "publicKey",
-          "required" : true
-        }
+
       ],
       "cli" : "offered",
       "cli_name" : "cloud tunnel-rotate-key",
@@ -36089,6 +36267,11 @@
         {
           "kind" : "string",
           "name" : "cwd",
+          "required" : false
+        },
+        {
+          "kind" : "string",
+          "name" : "fromFolder",
           "required" : false
         },
         {
@@ -46542,6 +46725,68 @@
 
       ],
       "cli" : "guiOnly",
+      "cli_name" : "action sidebar-float-on-hover-on",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.floatOnHover.on",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Float Hidden Sidebar on Hover",
+      "title_key" : "action.sidebar.floatOnHover.on",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-float-on-hover-off",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.floatOnHover.off",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Never Float Hidden Sidebar",
+      "title_key" : "action.sidebar.floatOnHover.off",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "guiOnly",
       "cli_name" : "action sidebar-group-by-none",
       "context_menu" : "offered",
       "context_menus" : [
@@ -55864,14 +56109,40 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.floatOnHover.on",
+              "kind" : "action",
+              "order" : 11,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.floatOnHover.off",
+              "kind" : "action",
+              "order" : 12,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 11
+              "order" : 13
             },
             {
               "enabled_when" : "can_perform",
               "id" : "sidebar.layout.reset",
               "kind" : "action",
-              "order" : 12,
+              "order" : 14,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,

@@ -24,6 +24,10 @@ pub(super) fn handle(
         .omitting_superseded(params.get("maxBytes").is_some_and(|b| !b.is_null()))
         // One subagent's own records, for its pane (`EventFilter::of_subagent`).
         .of_subagent(str_param(params, "subagent"));
+    // After a hard stop the log runs ahead of the saved session until the chat's log loads: a
+    // client reading the records it missed (its own cursor, a lag's resync) asks past the saved
+    // `lastSeq`, and was refused as `cursor_future`, so its hole stayed.
+    hub.catch_up_tail(&s);
     let (last, created) = {
         let meta = s.meta();
         (meta.last_seq, meta.created_at)
@@ -77,3 +81,7 @@ pub(super) fn newest_seq(records: &[crate::store::EventRecord]) -> u64 {
 pub(super) fn values(session_id: &str, records: Vec<crate::store::EventRecord>) -> Vec<Value> {
     records.into_iter().map(|r| into_event_value(session_id, r)).collect()
 }
+
+#[cfg(test)]
+#[path = "events_tests.rs"]
+mod tests;

@@ -133,7 +133,7 @@ final class PageFloatingOverlays {
     func sync() {
         guard !cards.isEmpty, let page else { return }
         guard let window = page.window, !page.isHiddenOrHasHiddenAncestor else {
-            for index in cards.indices { dismiss(index) }
+            for index in cards.indices where !holdInPlace(index, in: page.window) { dismiss(index) }
             return
         }
         let clip = page.convert(page.bounds, to: nil)
@@ -143,10 +143,13 @@ final class PageFloatingOverlays {
             let view = cards[index].view
             // A hidden card waits for its tab (one chrome per pane): off screen, it takes no clicks.
             // So does a card that a pane in front of the page covers whole: the page is cut there too.
-            if view.isHidden || !shown.showsAny(of: placedRect(of: cards[index], in: clip)) {
+            // The cookie import card, once presented, waits hidden in place instead (`holdInPlace`).
+            let off = view.isHidden || !shown.showsAny(of: placedRect(of: cards[index], in: clip))
+            if off, !holdInPlace(index, in: window) {
                 dismiss(index)
                 continue
             }
+            if off { continue }
             // Waiting for its tab's keyboard (focus moved to a terminal or chat beside it): hidden
             // where it is. Each focus flip dismissed and presented it again, and its page drew a
             // blank frame when it came back.
@@ -309,6 +312,23 @@ final class PageFloatingOverlays {
                 self.sync()
             }
         }
+    }
+
+    /// Hides the cookie import card at `index` where it is, taking no clicks, while it is presented on
+    /// `window`'s overlay host: its tab, its workspace or a pane in front hid its page. Dismissed, it
+    /// came back with a new present at full opacity, and its page drew a blank frame (Leo 2026-11-08:
+    /// "the import cookies from google chrome card flickers sometimes"). False for any other card, or
+    /// one not presented there, which leaves.
+    private func holdInPlace(_ index: Int, in window: NSWindow?) -> Bool {
+        let view = cards[index].view
+        guard view is BrowserCookieImportCard, let window, let handle = cards[index].handle, !handle.isDismissed,
+              view.window?.parent === window else { return false }
+        if !cards[index].isWaiting {
+            cards[index].isWaiting = true
+            handle.setHiddenInPlace(true)
+            handle.stopTakingMouse()
+        }
+        return true
     }
 
     private func dismiss(_ index: Int) {

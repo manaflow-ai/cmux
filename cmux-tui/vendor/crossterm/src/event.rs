@@ -121,6 +121,9 @@
 //! them (`event-*`).
 
 pub(crate) mod filter;
+mod host_reply;
+#[cfg(unix)]
+mod input_parser;
 pub(crate) mod read;
 pub(crate) mod source;
 #[cfg(feature = "event-stream")]
@@ -255,6 +258,12 @@ pub fn read() -> std::io::Result<Event> {
     }
 }
 
+#[doc(hidden)]
+pub use host_reply::{scan_host_reply, HostReply};
+#[doc(hidden)]
+#[cfg(unix)]
+pub use input_parser::InputParser;
+
 /// Parse one buffered terminal event without reading from the process input stream.
 ///
 /// `input_available` has the same meaning as [`poll`]: when true, an isolated
@@ -267,6 +276,39 @@ pub fn parse_event_from_bytes(
 ) -> std::io::Result<Option<Event>> {
     match sys::unix::parse::parse_event(bytes, input_available)? {
         Some(InternalEvent::Event(event)) => Ok(Some(event)),
+        Some(_) | None => Ok(None),
+    }
+}
+
+/// Parses `bytes` as one read of terminal input with nothing after it, as
+/// the live event source does, and returns the events in order (cmux patch;
+/// for tests).
+#[doc(hidden)]
+#[cfg(unix)]
+pub fn parse_events_from_bytes(bytes: &[u8]) -> Vec<Event> {
+    let mut pending = Vec::new();
+    let mut events = std::collections::VecDeque::new();
+    sys::unix::parse::advance(&mut pending, bytes, false, &mut events);
+    events
+        .into_iter()
+        .filter_map(|event| match event {
+            InternalEvent::Event(event) => Some(event),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The event at the start of `bytes` and how many bytes it used; the bytes
+/// after it are input of their own (cmux patch). `input_available` is as
+/// for [`parse_event_from_bytes`].
+#[doc(hidden)]
+#[cfg(unix)]
+pub fn parse_event_len_from_bytes(
+    bytes: &[u8],
+    input_available: bool,
+) -> std::io::Result<Option<(Event, usize)>> {
+    match sys::unix::parse::parse_event_len(bytes, input_available)? {
+        Some((InternalEvent::Event(event), used)) => Ok(Some((event, used))),
         Some(_) | None => Ok(None),
     }
 }

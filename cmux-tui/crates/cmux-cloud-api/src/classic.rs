@@ -2,8 +2,9 @@
 //! NEXT route yet, so each is sent as it was, with the same body, deadline and answer. A machine's
 //! resize, snapshots, restore and fork are the Cloud app server's `cloud.machine.resize` and
 //! `cloud.snapshot.*` ops, its SCP route is cmux-platform's (`vm.scp_endpoint`,
-//! [`crate::machine::scp_endpoint`]), and domains, publications and their API keys are
-//! cmux-platform's previews (`crate::previews::publications`).
+//! [`crate::machine::scp_endpoint`]), domains, publications and their API keys are
+//! cmux-platform's previews (`crate::previews::publications`), and `vm.networks` is
+//! cmux-platform's network target (network.rs).
 
 use std::time::Duration;
 
@@ -94,12 +95,6 @@ pub(crate) async fn run(
             http.classic(Method::DELETE, &["api", "vm", "firewall"], &query, None, None, secs(60))
                 .await
                 .map(|_| Value::Null)
-        }
-        "vm.networks" => {
-            let list = http
-                .classic(Method::GET, &["api", "vm", "network"], &[], None, None, DEFAULT)
-                .await?;
-            field(list, "networks", "/api/vm/network")
         }
         other => Err(Failure::Transport(format!("no cloud api call {other:?}"))),
     }

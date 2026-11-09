@@ -30,14 +30,37 @@ use serde_json::{Value, json};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
 
 #[cfg(test)]
 #[path = "watch_seed_tests.rs"]
 mod seed_tests;
 
-/// How often a watched transcript is checked for new lines.
-const POLL: Duration = Duration::from_millis(400);
+#[path = "watch_tick.rs"]
+mod tick;
+pub(crate) use tick::WatchTicker;
+
+#[cfg(test)]
+#[path = "watch_idle_tests.rs"]
+mod idle_tests;
+
+/// Tests only: what the watches of this thread's runtime cost while transcripts are quiet: timer
+/// wakeups, and hops to a blocking thread (`watch_idle_tests.rs`).
+#[cfg(test)]
+pub(super) mod idle_cost {
+    thread_local! {
+        static COST: std::cell::Cell<(u64, u64)> = const { std::cell::Cell::new((0, 0)) };
+    }
+    pub(crate) fn wakeup() {
+        COST.with(|c| c.set((c.get().0 + 1, c.get().1)));
+    }
+    pub(crate) fn blocking() {
+        COST.with(|c| c.set((c.get().0, c.get().1 + 1)));
+    }
+    /// (wakeups, blocking hops) since the last take.
+    pub(crate) fn take() -> (u64, u64) {
+        COST.with(|c| c.replace((0, 0)))
+    }
+}
 
 /// A transcript bigger than this is read from its newest part only.
 const MAX_BYTES: u64 = 64 << 20;
@@ -120,6 +143,18 @@ fn read_lines_with_limits(
     Ok((lines, start + end as u64 + 1))
 }
 
+/// The prompt id and text of a delivered prompt `record` is the app's transcript line of: a
+/// Claude Code `peer` user line with the uuid acpmux sent it with (`bridge.rs`).
+fn bridged_line(family: &str, session_id: &str, record: &Value) -> Option<(String, String)> {
+    if family != "claude"
+        || record.get("type").and_then(Value::as_str) != Some("user")
+        || record.pointer("/origin/kind").and_then(Value::as_str) != Some("peer")
+    {
+        return None;
+    }
+    super::bridge::delivered(session_id, record.get("uuid")?.as_str()?)
+}
+
 impl Hub {
     /// Makes a just-created adopted `session` watch `file` instead of running the conversation.
     pub(super) fn begin_watch(
@@ -145,6 +180,14 @@ impl Hub {
         }
         let (hub, session) = (self.clone(), session.clone());
         tokio::spawn(async move {
+            // Woken by the hub's one check of all watched transcripts (`watch_tick.rs`) when
+            // this one's length moved, never on a timer of its own.
+            let check = hub.watch_ticker.register(&session);
+            let over = || {
+                session.meta().watching.is_none()
+                    || session.purged.load(std::sync::atomic::Ordering::SeqCst)
+                    || session.status() == SessionStatus::Closed
+            };
             // Do not start copying the transcript before its older-history
             // boundary is safely journaled and checkpointed. Retry a transient
             // append, fsync, or metadata error while this is still a watch.
@@ -152,34 +195,39 @@ impl Hub {
                 if hub.seek_watch_to_page(&session).await {
                     break;
                 }
-                if session.meta().watching.is_none()
-                    || session.purged.load(std::sync::atomic::Ordering::SeqCst)
-                    || session.status() == SessionStatus::Closed
-                {
+                if over() {
                     return;
                 }
-                tokio::time::sleep(POLL).await;
+                check.retry();
+                check.wait().await;
             }
             loop {
-                let Some(watching) = session.meta().watching else { return };
-                if session.status() == SessionStatus::Closed {
+                if over() {
                     return;
                 }
+                let Some(watching) = session.meta().watching else { return };
                 let file = watching.file.clone();
+                #[cfg(test)]
+                idle_cost::blocking();
                 let read =
                     tokio::task::spawn_blocking(move || read_lines(&file, watching.offset)).await;
                 let (lines, offset) = match read {
                     Ok(Ok(read)) => read,
                     // Gone or unreadable for now (the app rotates or rewrites it): try again.
-                    _ => (Vec::new(), watching.offset),
+                    _ => {
+                        check.retry();
+                        (Vec::new(), watching.offset)
+                    }
                 };
-                // Even an oversized skipped chunk is progress; drain the backlog without a poll delay.
+                // Even an oversized skipped chunk is progress; drain the backlog without waiting.
                 let more = offset > watching.offset;
                 if offset != watching.offset {
                     hub.show_watched(&session, &lines, offset).await;
                 }
                 if !more {
-                    tokio::time::sleep(POLL).await;
+                    check.wait().await;
+                    #[cfg(test)]
+                    idle_cost::wakeup();
                 }
             }
         });
@@ -342,13 +390,21 @@ impl Hub {
         for line in lines {
             let Ok(record) = serde_json::from_str::<Value>(line) else { continue };
             let at = record_time(&record);
+            // A prompt acpmux delivered into the app (`bridge.rs`) shows as sent, under its id.
+            if let Some((prompt_id, text)) = bridged_line(&watching.family, &session.id, &record) {
+                if let Some(turn) = open.take() {
+                    self.end_watched_turn(session, &turn, at);
+                }
+                *open = Some(self.begin_watched_turn(session, &text, at, Some(prompt_id)));
+                continue;
+            }
             for step in record_steps(&watching.family, &record, &mut watching.codex_items) {
                 match step {
                     Step::Prompt(text) => {
                         if let Some(turn) = open.take() {
                             self.end_watched_turn(session, &turn, at);
                         }
-                        *open = Some(self.begin_watched_turn(session, &text, at));
+                        *open = Some(self.begin_watched_turn(session, &text, at, None));
                     }
                     Step::Answer(mut text) => {
                         // The pieces of one answer (text around a tool call) read as paragraphs.
@@ -387,9 +443,17 @@ impl Hub {
     }
 
     /// The records a turn starts with, for a prompt the original app sent.
-    fn begin_watched_turn(&self, session: &Session, text: &str, at: Option<u64>) -> WatchedTurn {
+    /// `bridged`: the id of the prompt acpmux delivered (`bridge.rs`), which this turn answers.
+    fn begin_watched_turn(
+        &self,
+        session: &Session,
+        text: &str,
+        at: Option<u64>,
+        bridged: Option<String>,
+    ) -> WatchedTurn {
         let turn_id = format!("watched-{}", uuid::Uuid::now_v7());
-        let prompt_id = format!("{turn_id}-prompt");
+        let client = if bridged.is_some() { "bridge" } else { "watch" };
+        let prompt_id = bridged.unwrap_or_else(|| format!("{turn_id}-prompt"));
         {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             if m.title.is_none()
@@ -401,10 +465,9 @@ impl Hub {
             m.turn_count += 1;
         }
         let preview: String = text.chars().take(200).collect();
-        let started = json!({"prompt": preview, "client": "watch", "promptId": prompt_id, "turnId": turn_id, "control": "local"});
+        let started = json!({"prompt": preview, "client": client, "promptId": prompt_id, "turnId": turn_id, "control": "local"});
         let turn_seq = self.append_at(session, "mux", "turn_started", started, None, at).0.seq;
-        let msg =
-            json!({"text": text, "client": "watch", "promptId": prompt_id, "turnId": turn_id});
+        let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
         self.append_at(session, "mux", "user_message", msg, None, at);
         WatchedTurn { turn_id, prompt_id, turn_seq, answered: false }
     }
@@ -416,6 +479,7 @@ impl Hub {
         self.append_at(session, "mux", "turn_end", end, None, at);
         let result = json!({"status": "completed", "stopReason": "end_turn", "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
         self.append_at(session, "mux", "turn_result", result, None, at);
+        super::bridge::answered(&session.id, prompt_id, turn_id);
     }
 
     /// `_acpmux/watch_take_over`: ends the watch so the chat runs the conversation itself.
