@@ -3374,10 +3374,15 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
                     self.judge()
 
     def test_a_real_fleet_compile_failure_is_compared_with_the_base(self):
+        """With no receipt to read (InheritedCompileRed), the job is compared with the base run, as before. The
+        receipt read is a fake: the test never reaches the network."""
         line = "##[error]cmux-next/compile is not a pass for {} (fail)"
         self.gh.logs[1] = log(self.FLEET, self.STEP, line.format(HEAD))
         self.gh.logs[2] = log(self.FLEET, self.STEP, line.format(BASE_SHA))
-        self.assertIn(f"excused '{self.FLEET}'", "\n".join(self.judge()))
+        read = []
+        with unittest.mock.patch.object(excuse, "compile_receipt", lambda repo, sha: read.append(sha)):
+            self.assertIn(f"excused '{self.FLEET}'", "\n".join(self.judge()))
+        self.assertEqual(read, [HEAD])
 
 
 class InheritedCompileRed(unittest.TestCase):
@@ -3484,16 +3489,25 @@ class CompileReceiptRead(unittest.TestCase):
             return contextlib.closing(io.BytesIO(json.dumps(body).encode()))
         return unittest.mock.patch("urllib.request.urlopen", urlopen)
 
+    RECEIPT = {"repo": REPO, "sha": HEAD, "state": "fail", "recipe_version": 2, "configuration": "release-onone"}
+
     def test_the_receipt_answer_404_and_errors(self):
-        with self.answer({"repo": REPO, "sha": HEAD, "state": "fail"}):
+        with self.answer(self.RECEIPT):
             self.assertEqual(excuse.compile_receipt(REPO, HEAD)["state"], "fail")
         with self.answer(code=404):
             self.assertIsNone(excuse.compile_receipt(REPO, HEAD))
         with self.answer(code=524), self.assertRaisesRegex(excuse.Refused, "HTTP 524"):
             excuse.compile_receipt(REPO, HEAD)
-        with self.answer({"repo": REPO, "sha": BASE_SHA, "state": "fail"}), \
-                self.assertRaisesRegex(excuse.Refused, "another commit"):
+        with self.answer(dict(self.RECEIPT, sha=BASE_SHA)), self.assertRaisesRegex(excuse.Refused, "another commit"):
             excuse.compile_receipt(REPO, HEAD)
+
+    def test_a_receipt_of_another_recipe_or_configuration_refuses(self):
+        """The workflow trusts only recipe 2's release-onone receipt (cmux-next.yml's compile-status step): a receipt
+        of another recipe never excuses a red."""
+        for other in ({"recipe_version": 1}, {"configuration": "debug"}, {"recipe_version": None}, {"configuration": None}):
+            with self.subTest(other=other), self.answer(dict(self.RECEIPT, **other)), \
+                    self.assertRaisesRegex(excuse.Refused, "another recipe"):
+                excuse.compile_receipt(REPO, HEAD)
 
 
 CLIPPY = "clippy (changed cmux-tui packages)"

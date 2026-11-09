@@ -14,11 +14,17 @@
  *
  * Only exact provider ids from that listing are deleted, never a slug pattern. Listing is complete before anything is
  * deleted, so a delete never shifts the pages still to read.
+ *
+ * `sweepOrphanTunnels` does the same for device tunnels (migration 0018): see its comment.
  */
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
+import { parseDeviceId } from "../lib/ids.ts";
 import { UpstreamError } from "./client.ts";
 import { makeUpstreamHttp } from "./live-http.ts";
+import { deviceTunnelSlug } from "./live-mesh.ts";
 import type { UpstreamConfig } from "./live.ts";
+import { upstreamName, upstreamNamePrefix } from "./naming.ts";
+import { attachedOnlyTo } from "./tunnel-attachment.ts";
 
 /** The youngest VM the sweep may delete; a caller can ask for older, never younger. */
 export const ORPHAN_MIN_AGE_MS = 15 * 60_000;
@@ -134,5 +140,147 @@ export const sweepOrphanVms = <E, R>(config: UpstreamConfig, options: OrphanSwee
       }
     }
     const report: OrphanSweepReport = { listed, complete, orphans, deleted, failed };
+    return report;
+  });
+
+const ListedTunnel = Schema.Struct({
+  id: Schema.optional(Schema.NullOr(Schema.String)),
+  tunnelId: Schema.optional(Schema.NullOr(Schema.String)),
+  slug: Schema.optional(Schema.NullOr(Schema.String)),
+  displayName: Schema.optional(Schema.NullOr(Schema.String)),
+  attachments: Schema.optional(Schema.NullOr(Schema.Array(Schema.Struct({ vpcId: Schema.optional(Schema.NullOr(Schema.String)) })))),
+});
+/** The tunnel listing's bounds: one tunnel (its WireGuard config and attachments) and the whole reply, in characters. */
+const MAX_TUNNEL_CHARS = 64 * 1024;
+const MAX_LISTING_CHARS = 512 * 1024 * 1024;
+const LIST_TIMEOUT_MS = 60_000;
+
+/** A device tunnel at the provider, by the tenant and device its slug and name say made it. */
+export interface TunnelOwner {
+  readonly tenantId: string;
+  readonly deviceId: string;
+}
+
+export interface OrphanTunnel extends TunnelOwner {
+  readonly upstreamId: string;
+  /** The networks the provider lists the tunnel attached to (null: an attachment with no network id). */
+  readonly networks: ReadonlyArray<string | null>;
+}
+
+export interface TunnelSweepReport {
+  /** Tunnels at this environment's device slugs the provider listed. */
+  readonly listed: number;
+  readonly orphans: ReadonlyArray<OrphanTunnel>;
+  /**
+   * Provider ids the lookup named but that are not attached to exactly their mesh's network
+   * (src/upstream/tunnel-attachment.ts): never deleted, only reported.
+   */
+  readonly skipped: ReadonlyArray<string>;
+  /** Provider ids deleted this run (a 404 counts: the tunnel is gone). */
+  readonly deleted: ReadonlyArray<string>;
+  /** Provider ids whose delete failed; the next run tries again. */
+  readonly failed: ReadonlyArray<string>;
+}
+
+export interface TunnelSweepOptions<E, R> {
+  /** List and report only. */
+  readonly dryRun: boolean;
+  /** Deletes per run (default 200). */
+  readonly maxDeletes?: number;
+  /**
+   * The device ids among these whose tunnel nothing can use, each with its mesh's provider network id: no live device
+   * row, and an enroll attempt that is resolved or whose intent is revoked (src/db/orphans.ts). A device with no attempt
+   * row, or whose mesh's network is not recorded, is never named.
+   */
+  readonly sweepable: (owners: ReadonlyArray<TunnelOwner>) => Effect.Effect<ReadonlyMap<string, string>, E, R>;
+}
+
+/** The tenant and device a listed tunnel's slug and display name name, when both are exactly what a device create sends. */
+const ownerOf = (environment: UpstreamConfig["environment"], tunnel: Schema.Schema.Type<typeof ListedTunnel>): TunnelOwner | null => {
+  const prefix = `cmux-tun-${environment}-`;
+  const slug = tunnel.slug ?? "";
+  if (!slug.startsWith(prefix)) return null;
+  const deviceId = slug.slice(prefix.length).replace("-", "_");
+  if (Option.isNone(parseDeviceId(deviceId)) || deviceTunnelSlug(environment, deviceId) !== slug) return null;
+  const name = tunnel.displayName ?? "";
+  const namePrefix = upstreamNamePrefix(environment);
+  const suffix = ` ${deviceId}`;
+  if (!name.startsWith(namePrefix) || !name.endsWith(suffix)) return null;
+  const tenantId = name.slice(namePrefix.length, name.length - suffix.length);
+  if (tenantId.length === 0 || upstreamName(environment, tenantId, deviceId) !== name) return null;
+  return { tenantId, deviceId };
+};
+
+/**
+ * Deletes device tunnels nothing can use. A device create sends its tunnel's slug, `cmux-tun-<environment>-<device id>`,
+ * with a device id fresh per attempt. A revoke (or an enroll's reconcile) resolves an attempt whose tunnel the provider
+ * did not have once INTENT_SEND_GRACE_MS passed, and a create the provider processes after that still makes the
+ * tunnel; when its reply is lost too, no request is left to delete it. This sweep is what does: it lists the provider's
+ * tunnels, keeps those at this environment's device slug whose display name is exactly the create's (tenant and
+ * device), and deletes each whose device has no live device row and whose attempt is resolved or whose intent is
+ * revoked. A resolved attempt never commits a device row (`commitDeviceIntent` needs it unresolved), and a revoked
+ * intent never commits, so no device can come to use a tunnel this deletes; each is asked again right before its delete.
+ * Before any delete it also checks the rule every found-tunnel delete checks (src/upstream/tunnel-attachment.ts): the
+ * tunnel is attached to exactly its mesh's network. One that is not (a revoke refused it for that reason, and its
+ * tombstone named it here) is skipped and reported, never deleted.
+ * The provider does not page the listing, so it is read as it streams (src/upstream/json-items.ts) rather than through
+ * the 1 MiB cap of a whole reply: a large account's listing never disables the sweep. Only exact provider ids from it are
+ * deleted.
+ */
+export const sweepOrphanTunnels = <E, R>(config: UpstreamConfig, options: TunnelSweepOptions<E, R>) =>
+  Effect.gen(function* () {
+    const http = makeUpstreamHttp(config);
+    // The provider does not page this listing: it is read as it streams, keeping only this environment's device tunnels.
+    const listed = yield* http.items(
+      "listOrphanTunnels",
+      "/v5/tunnels",
+      "tunnels",
+      (item): OrphanTunnel | null => {
+        const tunnel = Schema.decodeUnknownOption(ListedTunnel)(item);
+        if (Option.isNone(tunnel)) return null;
+        const owner = ownerOf(config.environment, tunnel.value);
+        const upstreamId = tunnel.value.id ?? tunnel.value.tunnelId ?? null;
+        if (owner === null || upstreamId === null) return null;
+        return { ...owner, upstreamId, networks: (tunnel.value.attachments ?? []).map((attachment) => attachment.vpcId ?? null) };
+      },
+      { timeoutMs: LIST_TIMEOUT_MS, maxItemChars: MAX_TUNNEL_CHARS, maxChars: MAX_LISTING_CHARS },
+    );
+    const candidates = new Map<string, OrphanTunnel>();
+    for (const tunnel of listed) if (tunnel !== null) candidates.set(tunnel.upstreamId, tunnel);
+    const all = [...candidates.values()];
+    const sweepable = new Map<string, string>();
+    for (let index = 0; index < all.length; index += LOOKUP_BATCH) {
+      for (const [device, network] of yield* options.sweepable(all.slice(index, index + LOOKUP_BATCH))) sweepable.set(device, network);
+    }
+    const named = all.filter((tunnel) => sweepable.has(tunnel.deviceId));
+    // The same exact-network rule as the revoke's lookup: a tunnel not attached to exactly its mesh's network is never
+    // deleted here, whatever its intent's state.
+    const onItsMesh = (tunnel: OrphanTunnel, network: string | undefined) =>
+      network !== undefined && attachedOnlyTo(tunnel.networks.map((vpcId) => ({ vpcId })), network);
+    const orphans = named.filter((tunnel) => onItsMesh(tunnel, sweepable.get(tunnel.deviceId)));
+    const skipped = named.filter((tunnel) => !onItsMesh(tunnel, sweepable.get(tunnel.deviceId))).map((tunnel) => tunnel.upstreamId);
+    const deleted: string[] = [];
+    const failed: string[] = [];
+    if (!options.dryRun) {
+      for (const tunnel of orphans.slice(0, options.maxDeletes ?? 200)) {
+        const still = yield* Effect.either(options.sweepable([tunnel]));
+        if (still._tag === "Left") {
+          failed.push(tunnel.upstreamId);
+          continue;
+        }
+        if (!still.right.has(tunnel.deviceId)) continue;
+        if (!onItsMesh(tunnel, still.right.get(tunnel.deviceId))) {
+          skipped.push(tunnel.upstreamId);
+          continue;
+        }
+        const outcome = yield* Effect.either(
+          http.json("deleteOrphanTunnel", "DELETE", `/v5/tunnels/${encodeURIComponent(tunnel.upstreamId)}`).pipe(
+            Effect.catchAll((error) => (error.status === 404 ? Effect.void : Effect.fail(error))),
+          ),
+        );
+        (outcome._tag === "Right" ? deleted : failed).push(tunnel.upstreamId);
+      }
+    }
+    const report: TunnelSweepReport = { listed: all.length, orphans, skipped, deleted, failed };
     return report;
   });
