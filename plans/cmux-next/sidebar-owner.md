@@ -1,5 +1,22 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-09: Next and Previous Sidebar Item from a selected row step from where it draws. Leo (2026-11-07): "when I
+  command 1 2 3 4 5 6 7, right, when I do that around an area that has a group at the, like, immediate top or bottom,
+  it messes things up." #39747's review follow-ups: a selected row of an opened "Done (N)" fold stepped from the
+  fold's end, a folded row's place skipped link rows, and a selected archived row jumped to the list's ends. Places
+  now come from the list laid out with its folds, row limit and Archive section off (the order rows draw in when
+  selected); a row that layout does not draw either falls back to its model-order place. Numbers do not change.
+  Regression: `SidebarStepThroughGroupsTests`.
+
+- 2026-11-07: Cmd-1…9 count the rows the sidebar draws. Leo: "when I command 1 2 3 4 5 6 7, right, when I do that
+  around an area that has a group at the, like, immediate top or bottom, it messes things up. It messes things up a
+  ton." `itemOrder` laid rows out without the Done fold and the row limit, so a member folded into "Done (N)" (or
+  behind "Show N more") was a number stop: digits after it landed one row early and selecting it unfolded and refolded
+  rows. The order now starts from the list's own `rowOptions()` (opened folds live on the model), and a selected
+  folded member steps from where it draws. A reveal no longer takes a collapsed group above the selection as its
+  header, nor scrolls to the end past collapsed groups below; a known workspace listed again (a collapsed group's
+  member) animates into its gap instead of the new-row snap. Regression: `SidebarStepThroughGroupsTests`,
+  `ShortcutHintSidebarSlotsTests`, `SidebarRevealSelectionTests`.
 - 2026-11-09: a row patch with the list attached copies no node list. Leo, verbatim: "never ... acceptable ...
   linear time growth degradation". `patchRowsNow` cached the model's section and group again on each patch, so the
   list's cache shared the model's storage and the model's next in-place write copied the section's whole node list.

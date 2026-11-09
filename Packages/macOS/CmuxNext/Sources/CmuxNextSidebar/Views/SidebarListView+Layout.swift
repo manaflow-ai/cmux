@@ -95,7 +95,6 @@ extension SidebarListViewComponents {
             o.chatHistory = SidebarChatHistory.shared.state
         }
         o.excludedWorkspaces.formUnion(leaving)
-        (o.openDoneFolds, o.openShowMore) = (openDoneFolds, openShowMore)
         // A drag keeps the "Done (N)" rows folded, so its lift and its drop move no other row (ask-13d9bbd5e3): a drop
         // resolves by the drawn rows' model indexes, which a fold leaves as they are, and a drop gap at an index the
         // fold hides opens before the next drawn row (`SidebarLayout.gapEntry`). "Show N more" (off by default) still

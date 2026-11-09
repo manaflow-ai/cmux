@@ -53,6 +53,7 @@ pub mod cloud_rewind;
 pub mod codex_app_server;
 #[cfg(unix)]
 mod codex_auth_file;
+pub mod codex_desktop;
 pub mod complete;
 pub mod config;
 pub mod context_inventory;
@@ -65,6 +66,7 @@ mod default_harness;
 pub mod deliver;
 pub mod deps;
 pub mod desktop_bridge;
+pub mod desktop_link;
 pub mod folder_instructions;
 pub mod forum;
 pub mod forum_mcp;
@@ -90,6 +92,7 @@ pub mod hub;
 /// The live stream to one's own machines through the platform's relay (`hub_carrier.rs`).
 #[cfg(feature = "hub-carrier")]
 pub mod hub_carrier;
+pub mod hunk_summary;
 #[cfg(windows)]
 mod job;
 pub mod launch_credential;

@@ -31,7 +31,11 @@ const SUFFIX_MAX: u32 = 9999;
 /// The projects folders tried, in order, under the home folder; the first is made when none is there.
 const PROJECT_ROOTS: [&str; 5] = ["Projects", "projects", "Developer", "code", "src"];
 
-pub(super) async fn handle(hub: &Arc<Hub>, origin: Origin, params: &Value) -> Result<Value, RpcError> {
+pub(super) async fn handle(
+    hub: &Arc<Hub>,
+    origin: Origin,
+    params: &Value,
+) -> Result<Value, RpcError> {
     if !allowed(origin, params) {
         return Err(RpcError::invalid_params(
             "a project folder is made only from the app or the local unix socket",
@@ -55,7 +59,8 @@ pub(super) async fn handle(hub: &Arc<Hub>, origin: Origin, params: &Value) -> Re
             // a retry makes `name` again instead of leaving `name` behind and making `name-2`.
             let _ = std::fs::remove_dir_all(&cwd);
             return Err(match failure {
-                crate::trust::Failure::Invalid(message) | crate::trust::Failure::Record(message) => message,
+                crate::trust::Failure::Invalid(message)
+                | crate::trust::Failure::Record(message) => message,
             });
         }
         Ok(cwd)
@@ -116,8 +121,9 @@ fn make(root: &Path, name: &str) -> Result<PathBuf, String> {
             Err(e) => return Err(format!("{}: {e}", folder.display())),
         }
     }
-    let folder = made
-        .ok_or_else(|| format!("{name} through {name}-{SUFFIX_MAX} are taken: choose another name"))?;
+    let folder = made.ok_or_else(|| {
+        format!("{name} through {name}-{SUFFIX_MAX} are taken: choose another name")
+    })?;
     let folder = std::fs::canonicalize(&folder).unwrap_or(folder);
     let git = git_init(&folder, std::env::vars_os().map(|(key, _)| key))
         .stdin(std::process::Stdio::null())
@@ -135,7 +141,10 @@ fn make(root: &Path, name: &str) -> Result<PathBuf, String> {
 
 /// `git init` in `folder`, without Git's own variables of the daemon's environment (`inherited`):
 /// `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` and the rest would point it at another repository.
-fn git_init(folder: &Path, inherited: impl IntoIterator<Item = std::ffi::OsString>) -> std::process::Command {
+fn git_init(
+    folder: &Path,
+    inherited: impl IntoIterator<Item = std::ffi::OsString>,
+) -> std::process::Command {
     let mut init = std::process::Command::new("git");
     for key in inherited {
         if key.to_string_lossy().starts_with("GIT_") {
@@ -151,8 +160,11 @@ mod tests {
     use super::*;
 
     fn scratch(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir()
-            .join(format!("acpmux-project-new-{tag}-{}-{}", std::process::id(), uuid::Uuid::now_v7()));
+        let dir = std::env::temp_dir().join(format!(
+            "acpmux-project-new-{tag}-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -174,7 +186,9 @@ mod tests {
             assert!(valid_name(good), "{good}");
         }
         let long = "x".repeat(NAME_MAX + 1);
-        for bad in ["", ".", "..", ".git", "-rf", "a/b", "../up", "a b", "émoji", "a\0b", long.as_str()] {
+        for bad in
+            ["", ".", "..", ".git", "-rf", "a/b", "../up", "a b", "émoji", "a\0b", long.as_str()]
+        {
             assert!(!valid_name(bad), "{bad:?}");
         }
     }
@@ -188,7 +202,10 @@ mod tests {
         assert_eq!(cwd.file_name().unwrap(), "habit-tracker-2");
         assert!(cwd.join(".git").is_dir());
         // The taken folder is untouched.
-        assert_eq!(std::fs::read_to_string(root.join("habit-tracker").join("keep.txt")).unwrap(), "mine");
+        assert_eq!(
+            std::fs::read_to_string(root.join("habit-tracker").join("keep.txt")).unwrap(),
+            "mine"
+        );
         let third = make(&root, "habit-tracker").unwrap();
         assert_eq!(third.file_name().unwrap(), "habit-tracker-3");
         std::fs::remove_dir_all(&root).unwrap();
@@ -196,11 +213,18 @@ mod tests {
 
     #[test]
     fn project_new_git_init_drops_the_daemons_git_variables() {
-        let inherited = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "HOME", "PATH"].map(std::ffi::OsString::from);
+        let inherited = ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "HOME", "PATH"]
+            .map(std::ffi::OsString::from);
         let init = git_init(Path::new("/tmp/x"), inherited);
-        let removed: Vec<_> =
-            init.get_envs().filter(|(_, value)| value.is_none()).map(|(key, _)| key.to_owned()).collect();
-        assert_eq!(removed, ["GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE"].map(std::ffi::OsString::from));
+        let removed: Vec<_> = init
+            .get_envs()
+            .filter(|(_, value)| value.is_none())
+            .map(|(key, _)| key.to_owned())
+            .collect();
+        assert_eq!(
+            removed,
+            ["GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE"].map(std::ffi::OsString::from)
+        );
         assert_eq!(init.get_current_dir(), Some(Path::new("/tmp/x")));
     }
 

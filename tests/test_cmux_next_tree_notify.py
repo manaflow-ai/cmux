@@ -88,6 +88,10 @@ class FakeApi:
                 raise RuntimeError("HTTP 403")
             since = path.split("created=%3E%3D", 1)[1].split("&", 1)[0]
             return {"workflow_runs": [run for run in self.runs if run["created_at"] >= since]}
+        if path.startswith("repos/o/r/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha="):
+            # No artifacts run of the waiter's commit: the takeover (cmux_tui_tree_takeover.py) is refused, and
+            # a failed state is reported red (tests/test_cmux_tui_tree_takeover.py covers the takeover).
+            return {"workflow_runs": []}
         raise AssertionError(f"unexpected GET {path}")
 
     def download(self, url: str) -> bytes:
