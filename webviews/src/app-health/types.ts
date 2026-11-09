@@ -35,7 +35,7 @@ export interface HealthReceipt {
   atMs: number;
   id: string;
   action: HealthAction;
-  outcome: "ok" | "failed" | "gaveUp";
+  outcome: "started" | "ok" | "failed" | "gaveUp";
   detail: string;
 }
 

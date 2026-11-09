@@ -18,7 +18,8 @@ type Call = { op: string; params: unknown };
 
 function page(html = "<main></main>", setup?: (window: Record<string, unknown>) => void) {
   const dom = new JSDOM(`<!doctype html><body>${html}</body>`, {
-    url: "cmux-page://cmux.settings/#/general",
+    // jsdom gives a custom scheme an opaque origin with no storage; WebKit does not.
+    url: "https://cmux.settings/#/general",
     pretendToBeVisual: true,
   });
   setup?.(dom.window as unknown as Record<string, unknown>);
@@ -88,7 +89,7 @@ test("the host's save keeps a focused draft, and the next load puts it back", ()
   field.value = "half a thought";
   field.focus();
   expect(first.handlers.get(PAGE_SAVE_STATE_OP)?.({})).toEqual({ saved: true });
-  const kept = first.dom.window.sessionStorage.getItem("cmux.page.kept:cmux-page://cmux.settings/#/general");
+  const kept = first.dom.window.sessionStorage.getItem("cmux.page.kept:https://cmux.settings/#/general");
   expect(JSON.parse(kept!).draft).toMatchObject({ path: `[id="note"]`, text: "half a thought" });
   first.setVisible(false);
   first.dom.window.close();
