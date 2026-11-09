@@ -120,14 +120,13 @@ export function HostUnavailableLine({
 }
 
 /// The host line's second row: cmux is running and the chats are kept, and whether the pane keeps
-/// asking by itself. `action`: an optional step the person may take (Restart agent service), quiet,
-/// after those words.
-function HostReassurance({ selfRetrying, action }: { selfRetrying: boolean; action?: ReactNode }) {
+/// asking by itself. It holds no button in either line, so its height is its text's in both, and
+/// the waiting line turning into the failure line moves nothing.
+function HostReassurance({ selfRetrying }: { selfRetrying: boolean }) {
   const t = useT();
   return (
     <div className="acpmux-host-line acpmux-host-line-reassure">
       <p className="acpmux-host-line-note">{t(selfRetrying ? "host.keptRetrying" : "host.kept")}</p>
-      {action}
     </div>
   );
 }
@@ -136,7 +135,7 @@ function HostReassurance({ selfRetrying, action }: { selfRetrying: boolean; acti
 /// restarts a slow acpmux on its own (rule R5: a late answer is not a crash, and under load a
 /// restart reloads every chat), so the person sees how long the pane has waited, that cmux is
 /// running, the chats are kept and the pane keeps asking, and may decide: Restart agent service, a
-/// quiet text button after those words (optional, never the line's lead), stops that daemon (its
+/// quiet text button after the time (optional, never a filled button), stops that daemon (its
 /// chats are kept) and the pane asks again, which starts a new one. Nothing shows while a wait is short (`HOST_ERROR_DEADLINE_MS`, the pane's
 /// one rule for saying a recovery: "STOP SHOWING BULLSHIT ON LOAD"); that only decides what is
 /// drawn, never whether acpmux is restarted. `since`: when the wait began (`Date.now()` time).
@@ -165,17 +164,13 @@ export function HostWaitingLine({
     <output className="acpmux-host-line-group" data-host-waiting>
       <div className="acpmux-host-line">
         <p className="acpmux-host-line-message">{t("host.waitingService", { time: waitedText(waited) })}</p>
+        {onRestart && (
+          <button type="button" className="acpmux-host-line-quiet" onClick={onRestart} disabled={restarting}>
+            {t(restarting ? "host.restartingService" : "host.restartService")}
+          </button>
+        )}
       </div>
-      <HostReassurance
-        selfRetrying
-        action={
-          onRestart && (
-            <button type="button" className="acpmux-host-line-quiet" onClick={onRestart} disabled={restarting}>
-              {t(restarting ? "host.restartingService" : "host.restartService")}
-            </button>
-          )
-        }
-      />
+      <HostReassurance selfRetrying />
     </output>
   );
 }

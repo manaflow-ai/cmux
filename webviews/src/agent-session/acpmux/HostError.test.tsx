@@ -217,12 +217,12 @@ test("a long wait for acpmux says how long and offers Restart agent service", as
   });
   expect(container.textContent).toContain("Waiting for the agent service (1:35)");
   expect(buttons(container)).toEqual(["Restart agent service"]);
-  // The restart is optional: quiet text after the words that say cmux is running and retrying.
+  // The restart is optional: quiet text, under which the line says cmux is running and retrying.
+  expect(container.querySelector("button.acpmux-host-line-quiet")!.textContent).toBe("Restart agent service");
   const note = container.querySelector(".acpmux-host-line-reassure")!;
-  expect(note.querySelector(".acpmux-host-line-note")!.textContent).toBe(
-    "cmux is still running, and your chats are kept. It keeps retrying on its own.",
-  );
-  expect(note.querySelector("button.acpmux-host-line-quiet")!.textContent).toBe("Restart agent service");
+  expect(note.textContent).toBe("cmux is still running, and your chats are kept. It keeps retrying on its own.");
+  // The note row holds no button in either line, so its height never changes between them.
+  expect(note.querySelector("button")).toBeNull();
   await act(async () => container.querySelector("button")!.click());
   expect(pressed).toEqual(["restart"]);
 });

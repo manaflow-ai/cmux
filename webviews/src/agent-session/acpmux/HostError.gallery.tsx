@@ -85,10 +85,10 @@ function GalleryHostError({
   return (
     <div className="acpmux-shell" data-host-error-fixture>
       {pair ? (
-        <>
+        <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
           <HostWaitingLine since={0} now={waitedMs ?? 95_000} onRestart={() => undefined} />
           <HostUnavailableLine message={message} detail={detail} onRetry={() => undefined} />
-        </>
+        </div>
       ) : alternate ? (
         <AlternateWaiting kind={alternate} waited="1:35" />
       ) : connecting ? (
@@ -283,7 +283,7 @@ export default componentEntry<Props>({
     // be restarting it?" The line now answers both in its own words. Picked: "waiting".
     waiting: {
       props: { message: "", initialRetrying: false, withRetry: false, waitedMs: 95_000 },
-      note: "Picked. acpmux is slow to answer (a loaded Mac): after 25 s the line says how long, and a muted row under it says cmux is still running, the chats are kept and it keeps retrying. Restart agent service is quiet text after those words: optional, never the line's lead.",
+      note: "Picked. acpmux is slow to answer (a loaded Mac): after 25 s the line says how long, and a muted row under it says cmux is still running, the chats are kept and it keeps retrying. Restart agent service is quiet text after the time, where the failure line has Retry: optional, never a filled button.",
     },
     "waiting-restart": {
       props: { message: "", initialRetrying: false, withRetry: false, waitedMs: 95_000 },
