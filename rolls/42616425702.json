@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42616425702",
+  "recorded_at": "2026-11-09T12:31:58Z",
+  "reason": "cmux-tui 11464531da01 changes the image's cmux-tui (pinned 254be36a48c0)",
+  "dry_run": false,
+  "cmux_tui": "11464531da01d330f3b3210dec258e0058758ab6",
+  "fixes": [
+    {
+      "sha": "0b10ac6ab61c1945872014fb97ef316abdc88049",
+      "mergedAt": "2026-11-09T03:59:07-08:00",
+      "subject": "cmux-tui: send reply field, folder-trust options and accept keys, even agent splits (W5-Q C) (#39041)"
+    },
+    {
+      "sha": "6bff5cf16bfcb69e76010a816a24e5431e2aea3b",
+      "mergedAt": "2026-11-09T03:57:59-08:00",
+      "subject": "Cloud start: one Rust sequencer owns the start's step order, approvals prep, guest recheck and step times (step A) (#39180)"
+    },
+    {
+      "sha": "5ed596e69dc1c04f5626028475f6495c2f2e1f83",
+      "mergedAt": "2026-11-09T03:57:15-08:00",
+      "subject": "acpmux: Claude chats on every daemon can suggest a new session (offer tools on unless 0) (#39365)"
+    },
+    {
+      "sha": "789ae9b1971be5297ad05a6d1542cf5ac8aa3bf0",
+      "mergedAt": "2026-11-09T03:56:24-08:00",
+      "subject": "cmux chat --wait works for a chat on this Mac: start, wait and print the reply in one command (#38647)"
+    },
+    {
+      "sha": "0bd745127c5b4189b9948b38824fe9f2403b08ba",
+      "mergedAt": "2026-11-09T03:55:30-08:00",
+      "subject": "Palette rows for git worktree create/apply/remove, git checkpoint create and harness icon (#38631)"
+    },
+    {
+      "sha": "e7bb2206d7c0085620fad1d01451e42cc0555bac",
+      "mergedAt": "2026-11-09T11:53:51Z",
+      "subject": "chore(next): base autofix at 0333fa5ac335"
+    },
+    {
+      "sha": "0333fa5ac3357035ba92d3a85e45b89c7c1695ad",
+      "mergedAt": "2026-11-09T03:48:27-08:00",
+      "subject": "Cloud terminal: snapshot and digest ride the output lane, so output after a reconnect is kept (#39509)"
+    },
+    {
+      "sha": "50abb32d5a35e6bf715a3a7e2d4696e6205096e5",
+      "mergedAt": "2026-11-09T03:47:23-08:00",
+      "subject": "acpmux: a Cloud chat re-attached without history after a reconnect tells its clients to read the gap (#39514)"
+    },
+    {
+      "sha": "07774e8292ef41523d883f026519710afad0783c",
+      "mergedAt": "2026-11-09T03:47:02-08:00",
+      "subject": "Cloud start: dial an ended link again within the start's wait (lost in the carrier cut) (#39508)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T12:31:58Z",
+    "snapshot_id": "sh-9db778e640a24fe99fb4068635e61915",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42616425702): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "278a5a214038e6d812ad473b7b63783e3a210c71",
+    "image": "cloud-native-auto-11464531-42616425702-1",
+    "revision": "ci-42616425702-1",
+    "at": "2026-11-09T12:31:58Z"
+  },
+  "rolled_back": false
+}
