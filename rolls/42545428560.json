@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42545428560",
+  "recorded_at": "2026-11-09T01:32:53Z",
+  "reason": "cmux-tui e276dc660b67 changes the image's cmux-tui (pinned 2e29878f327c)",
+  "dry_run": false,
+  "cmux_tui": "e276dc660b67fb78ddc92a9c29c83f7f03207b4f",
+  "fixes": [
+    {
+      "sha": "e276dc660b67fb78ddc92a9c29c83f7f03207b4f",
+      "mergedAt": "2026-11-08T17:08:20-08:00",
+      "subject": "acpmux + webviews: queued prompts marked after their provenance; one agent-text case list for daemon and browser (#38977)"
+    },
+    {
+      "sha": "b1da322e5dcfcaa19b8dcb665d8ea8f2f7b4785a",
+      "mergedAt": "2026-11-08T17:08:08-08:00",
+      "subject": "cmux-tui, acpmux tests: follow #38952's fake server tool and bg runner (#39051)"
+    },
+    {
+      "sha": "6278c3d0dbd3e89c221d174c091e313db8a0ea2f",
+      "mergedAt": "2026-11-09T01:02:27Z",
+      "subject": "cmux-tui: unit tests of 11 large files move to their own _tests.rs files (#38898)"
+    },
+    {
+      "sha": "ec41668951f26bf7adb365362a3a14fef5bb9b0d",
+      "mergedAt": "2026-11-08T17:02:15-08:00",
+      "subject": "cmux-tui: split remote_runtime.rs into tests, client socket and daemon state modules (#38910)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T01:32:53Z",
+    "snapshot_id": "sh-a6a4d71702a7476b83f2197ff1e2a22d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42545428560): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f81f1938a6c58a8d004e20c81060eb4758ff8116",
+    "image": "cloud-native-auto-e276dc66-42545428560-1",
+    "revision": "ci-42545428560-1",
+    "at": "2026-11-09T01:32:53Z"
+  },
+  "rolled_back": false
+}
