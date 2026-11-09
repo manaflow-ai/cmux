@@ -76,6 +76,7 @@
   align-content: start;
   align-items: center;
   min-height: 44px;
+  max-height: none;
   height: auto;
   padding: var(--ds-space-2, 6px);
   overflow: hidden;

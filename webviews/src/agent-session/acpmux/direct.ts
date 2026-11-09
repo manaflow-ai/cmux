@@ -7662,8 +7662,8 @@ export class AcpmuxDirectClient {
       } else if (event.kind === "tripwires") {
         const state = readTripwires(msg);
         if (state) {
-          this.tripwireTurn = state;
           const latest = newerTripwires(readTripwires(this.summary?.tripwires), state);
+          if (latest === state) this.tripwireTurn = state;
           this.summary = { ...this.summary, tripwires: latest };
         }
       } else if (event.kind === "claim_checks") {

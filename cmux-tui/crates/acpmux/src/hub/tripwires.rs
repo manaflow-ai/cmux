@@ -181,7 +181,7 @@ impl Hub {
                     None => "none".to_owned(),
                 };
                 item.tool_call_id = found.map(|run| run.tool_call_id.clone());
-                item.command = found.map(|run| run.command.clone());
+                item.command = found.map(|run| super::session::masked_preview(&run.command, 160));
             }
             state.turn_id = Some(turn_id.to_owned());
             state.revision = state.revision.saturating_add(1);
