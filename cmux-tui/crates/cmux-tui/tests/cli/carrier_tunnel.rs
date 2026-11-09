@@ -144,3 +144,23 @@ fn run_until_sigterm(stall: bool) {
     assert!(!socket.exists(), "the stopped hub removed its socket");
     runtime.block_on(peer.shutdown());
 }
+
+#[test]
+fn carrier_tunnel_help_prints_usage_and_exits_0_and_misuse_exits_64() {
+    for flag in ["--help", "-h"] {
+        let out = Command::new(bin())
+            .args(["carrier", "tunnel", flag])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(0), "{flag}");
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert!(text.starts_with("usage: cmux carrier tunnel --machine-id"), "{flag}: {text}");
+    }
+    let out = Command::new(bin())
+        .args(["carrier", "tunnel", "--bogus"])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(64));
+}
