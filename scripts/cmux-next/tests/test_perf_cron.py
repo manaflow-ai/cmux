@@ -23,7 +23,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -504,6 +504,15 @@ class WebUiTests(unittest.TestCase):
         self.assertIsNone(cron.mac_host("webui.chat_open.compact.latest@blacksmith-4vcpu-ubuntu-2404"))
         self.assertEqual(cron.part_config("diff-viewer"), "9c9749c7fe76", "the diff-viewer rows are not rebased")
         self.assertNotEqual(cron.part_config("web-ui"), cron.part_config("diff-viewer"))
+
+    def test_the_update_one_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-scale"))
+        self.assertEqual(cron.part_for_row("webui.update_one.home.status.n3000@linux"), "web-ui-scale")
+        self.assertEqual(cron.part_for_row("webui.update_one.chat.title.growth@linux"), "web-ui-scale")
+        self.assertEqual(cron.part_for_row("webui.chat_open.compact.latest@linux"), "web-ui")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-scale")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "update-one"])
+        self.assertEqual(cwd, "/r/webviews")
 
     def test_a_regression_of_a_webui_row(self):
         name = "webui.chat_switch.unread.latest@linux"
