@@ -213,7 +213,7 @@ extension AgentTabStore {
         tabs.chiefKeepsSession = { session in AcpmuxChiefSessionRouter.keeps(session: session, home: home.acpmuxHome) }
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.
         tabs.blankChatHandler = { [weak services, weak tabs] key in
-            guard let services, let tabs, let (tab, pane) = services.locateTab(tabs.tabKey(key).key, onMachine: tabs.tabKey(key).machine), let controller = services.paneController(for: pane) else { return nil }
+            guard let services, let (tab, pane) = services.locateTab(key.key, onMachine: key.machine), let controller = services.paneController(for: pane) else { return nil }
             // A chat tab has no daemon folder: its own exact folder (a shell block's Open in Terminal, cx-zld).
             let cwd = tab.cwd ?? NewTerminalStart.folder(of: tab, services: services)
             return NewTabPage.handler(services, cwd: cwd) { [weak controller, weak tabs] key, request in
