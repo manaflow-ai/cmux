@@ -609,14 +609,16 @@ def reusable_build(root, tree):
     that build's intermediates and every file that differs from what it compiled patches in (an
     existing CmuxNextApp file); None when there is no such build or a file would wait for a build.
     Every other input of the build counts too (shared packages, resources, webviews, manifests): git
-    must show nothing changed since that build's commit but CmuxNextApp Swift."""
+    must show nothing changed since that build's commit but CmuxNextApp Swift, and the build itself
+    must have been of a checkout with nothing else uncommitted (its `reusable` mark)."""
     holds = root / "derived-data.commit"
     current = holds.read_text().strip() if holds.is_file() else ""
     if not re.fullmatch(r"[0-9a-f]{7,40}", current):
         return None
     entry = root / current[:12]
     built_from = entry / "sources.json"
-    if not ((entry / "live.app").is_dir() and (entry / "build/xcodebuild.log").is_file() and built_from.is_file()):
+    if not ((entry / "live.app").is_dir() and (entry / "build/xcodebuild.log").is_file() and built_from.is_file()
+            and (entry / "reusable").is_file()):
         return None
     if not only_app_swift_changed(tree, current):
         return None
@@ -677,6 +679,11 @@ def start_locked(args, path, ident, tag, root):
         holds.unlink(missing_ok=True)  # a build that stops half way leaves no commit's intermediates
         entry.mkdir(parents=True, exist_ok=True)
         save_sources(built_from, swift_sources(args.tree))  # before: a save during the build patches in after
+        # A build of a checkout with an uncommitted edit outside CmuxNextApp's Swift compiled an input
+        # git cannot compare later (reverted, it would look unchanged): such a build is never reused.
+        (entry / "reusable").unlink(missing_ok=True)
+        if only_app_swift_changed(args.tree, head):
+            (entry / "reusable").write_text(head + "\n")
         built_s = build_live(args.tree, tag, entry, log, app)
         holds.write_text(head + "\n")
     setting = "skipped" if args.setting_done else live_code_setting(path, True)

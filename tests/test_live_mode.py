@@ -384,6 +384,7 @@ class LiveModeTests(unittest.TestCase):
         (entry / "build").mkdir()
         (entry / "build/xcodebuild.log").write_text("")
         live_mode.save_sources(entry / "sources.json", live_mode.swift_sources(tree))
+        (entry / "reusable").write_text(commit + "\n")
         (root / "derived-data.commit").write_text(commit + "\n")
         return entry
 
@@ -435,6 +436,7 @@ class LiveModeTests(unittest.TestCase):
         (root / ("f" * 12) / "build").mkdir()
         (root / ("f" * 12) / "build/xcodebuild.log").write_text("")
         live_mode.save_sources(root / ("f" * 12) / "sources.json", live_mode.swift_sources(tree))
+        (root / ("f" * 12) / "reusable").write_text("f" * 40 + "\n")
         self.assertIsNone(live_mode.reusable_build(root, tree))
 
     def test_a_change_that_cannot_patch_in_builds_instead(self):
@@ -476,6 +478,51 @@ class LiveModeTests(unittest.TestCase):
         finally:
             for name, original in saved.items():
                 setattr(live_mode, name, original)
+
+    def test_a_build_of_a_checkout_with_another_uncommitted_edit_is_never_reused(self):
+        tree, source = self.app_tree()
+        root = live_mode.cache_root("t")
+        shared = tree / "Packages/Shared/Kit/Sources/Kit/K.swift"
+        shared.write_text("dirty")  # compiled into the build, then reverted
+        entry = self.live_build(root, self.commit_of(tree), tree)
+        (entry / "reusable").unlink()  # start marks only a build of a checkout dirty in CmuxNextApp Swift alone
+        self.assertFalse(live_mode.only_app_swift_changed(tree, self.commit_of(tree)))
+        shared.write_text("k")
+        source.write_text("two")
+        self.assertIsNone(live_mode.reusable_build(root, tree))
+
+    def test_start_marks_a_clean_build_reusable_and_a_dirty_one_not(self):
+        tree, _ = self.app_tree()
+        head = self.commit_of(tree)
+        saved = live_mode.git
+        live_mode.git = lambda tree_, *argv: head
+        try:
+            for dirty, expect in [(False, True), (True, False)]:
+                shared = tree / "Packages/Shared/Kit/Sources/Kit/K.swift"
+                shared.write_text("dirty" if dirty else "k")
+                root = live_mode.cache_root("t")
+                (root / "derived-data.commit").unlink(missing_ok=True)
+                built = []
+                stubs = {"build_live": lambda *a: built.append(a) or 1.0, "live_code_setting": lambda *a: "set",
+                         "swap": lambda *a, **k: {"binary": "1:1", "restart_s": 1, "quit_s": 0, "launch_s": 1,
+                                                  "sessions": {"all": True}},
+                         "apply_edits": lambda *a: {"files": [], "exit": 0}, "detach": lambda *a, **k: "log"}
+                originals = {name: getattr(live_mode, name) for name in stubs}
+                for name, stub in stubs.items():
+                    setattr(live_mode, name, stub)
+                try:
+                    app = self.bundle("cmux DEV t.app")
+                    with open(app / "Contents/Info.plist", "wb") as f:
+                        live_mode.plistlib.dump({"CFBundleExecutable": "cmux", "CMUXCommit": head}, f)
+                    args = live_mode.argparse.Namespace(tree=tree, fresh=True, setting_done=False)
+                    live_mode.start_locked(args, "sock", {"app_bundle_path": str(app)}, "t", root)
+                finally:
+                    for name, original in originals.items():
+                        setattr(live_mode, name, original)
+                self.assertEqual(len(built), 1)
+                self.assertEqual((root / head[:12] / "reusable").is_file(), expect, dirty)
+        finally:
+            live_mode.git = saved
 
     def test_start_reuses_the_last_live_build_with_no_build_and_patches_the_difference(self):
         tree, source = self.app_tree()
