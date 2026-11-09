@@ -139,11 +139,13 @@ pub(super) fn foreign_session(
 /// [`foreign_session`] over one `agent.list` read.
 fn foreign_in(read: impl FnOnce() -> anyhow::Result<Value>, terminal: &str, session: &str) -> bool {
     let Ok(rows) = read() else { return false };
+    let text = |row: &Value, key: &str| row.get(key).and_then(Value::as_str).map(str::to_owned);
     rows.as_array().into_iter().flatten().any(|row| {
-        row["terminal_id"].as_str() == Some(terminal)
-            && row["source"].as_str() == Some("hook")
-            && row["state"].as_str() != Some("done")
-            && row["extra"]["agent_session_id"].as_str().is_some_and(|live| live != session)
+        let live = row.get("extra").and_then(|extra| text(extra, "agent_session_id"));
+        text(row, "terminal_id").as_deref() == Some(terminal)
+            && text(row, "source").as_deref() == Some("hook")
+            && text(row, "state").as_deref() != Some("done")
+            && live.is_some_and(|live| live != session)
     })
 }
 
