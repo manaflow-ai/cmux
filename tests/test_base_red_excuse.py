@@ -300,6 +300,35 @@ class Excusing(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "no failed job"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["ci-status"])
 
+    def newer_skipped_check(self):
+        """#39027 (2026-11-09): a same-tree cmux-next run on the head branch skipped the job and
+        posted a newer check run of its name, which hid the push run's red on the head."""
+        self.gh.jobs[9] = dict(failed_job(9, 11, HEAD), conclusion="skipped", steps=[])
+        self.with_checks([check_run(self.gh.jobs[1]), check_run(self.gh.jobs[9])])
+
+    def test_a_newer_skipped_check_does_not_hide_a_head_red_the_base_has(self):
+        self.newer_skipped_check()
+        text = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[SWIFT]))
+        self.assertIn("run 20", text)
+        self.assertIn("writesTheRequestAfterTheReadyMarkerAndReturnsTheReply()", text)
+
+    def test_a_newer_skipped_check_does_not_hide_a_head_red_the_base_does_not_have(self):
+        self.gh.logs[1] = log(SWIFT, TEST_STEP, ISSUE, OTHER.replace("palettePages", "somethingNew"))
+        self.newer_skipped_check()
+        with self.assertRaisesRegex(excuse.Refused, "somethingNew") as caught:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[SWIFT])
+        self.assertNotIn("no verdict", str(caught.exception))
+
+    def test_a_newer_head_verdict_still_wins_over_an_older_red(self):
+        green = dict(failed_job(9, 11, HEAD), conclusion="success")
+        green["steps"] = [dict(step, conclusion="success") for step in green["steps"]]
+        self.gh.jobs[9] = green
+        self.with_checks([check_run(self.gh.jobs[1]), check_run(green)])
+        # The newest verdict is green: the older red is not judged, so no base run excuses it.
+        with self.assertRaisesRegex(excuse.Refused, "is success") as caught:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[SWIFT])
+        self.assertNotIn("run 20", str(caught.exception))
+
 
 def crashed(job, signal, unfinished, frames, *extra):
     """A swift test log whose test helper died on `signal` with `unfinished` tests in flight."""
