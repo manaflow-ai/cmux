@@ -76,7 +76,7 @@ fn frames_are_an_auth_line_then_a_user_line() {
 
 #[test]
 fn a_from_address_keeps_only_address_characters() {
-    assert_eq!(from_address("big red/review 42"), "acpmux:big-red/review-42");
+    assert_eq!(from_address("some host/review 42"), "acpmux:some-host/review-42");
     assert!(from_address(&"x".repeat(1000)).len() <= 300);
 }
 
