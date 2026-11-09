@@ -1690,7 +1690,9 @@ fn daemon_runtime_socket_paths_in(
 ) -> anyhow::Result<(PathBuf, PathBuf)> {
     use std::os::unix::ffi::OsStrExt;
 
-    let digest = format!("{:x}", Sha256::digest(state.as_os_str().as_bytes()));
+    // The name from before NEXT's folder move, so a daemon from before it keeps its sockets' names.
+    let identity = cmux_agent_pane_policy::build_identity::path_identity(state);
+    let digest = format!("{:x}", Sha256::digest(identity.as_os_str().as_bytes()));
     let socket_names = |runtime: &Path| {
         (runtime.join(format!("{digest}-l.sock")), runtime.join(format!("{digest}-a.sock")))
     };

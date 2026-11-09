@@ -32,6 +32,7 @@ import { TASK_ICONS } from "./taskIcons";
 import { useFoldMotion } from "./foldMotion";
 import { COMMAND_STATE } from "./tasksSectionModel";
 import { WindowedRows } from "./WindowedRows";
+import { Clock } from "../../../ui/Typography";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -105,7 +106,7 @@ export function TasksSection({
         >
           <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
           <span className="acpmux-session-info-task__command">{sendLabel(t, command) ?? command.command}</span>
-          {time !== undefined && <span className="acpmux-session-info-task__time">{time}</span>}
+          {time !== undefined && <Clock className="acpmux-session-info-task__time" text={time} />}
           {state !== undefined && <span className="acpmux-session-info-task__state">{state}</span>}
         </button>
         {command.state === "running" && command.processId && onStop && (
