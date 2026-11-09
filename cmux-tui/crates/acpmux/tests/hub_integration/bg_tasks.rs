@@ -7,7 +7,6 @@
 use super::session_hibernate::{Rig, alive, rig};
 use super::*;
 
-/// The background-task runner: this hermetic process starts it with its own environment.
 async fn start(r: &mut Rig, id: &str, command: &str) -> Value {
     let params = json!({"sessionId": id, "command": command});
     r.c.request(method::MUX_BG_START, params).await.unwrap()
