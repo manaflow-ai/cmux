@@ -86,6 +86,7 @@ def start(args, label, bumped):
         os.unlink(args.socket)
     log = open(os.path.join(args.home, f"owner-{label}.log"), "wb")
     before = {"registry_bytes": file_size(registry), "wal_bytes": file_size(str(registry) + "-wal")}
+    spawned_at_ms = time.time() * 1000
     started = time.monotonic()
     child = subprocess.Popen(
         [args.bin, "--headless", "--session", args.session, "--socket", args.socket],
@@ -145,6 +146,11 @@ def start(args, label, bumped):
         "ready_ms": ms(ready),
         "exited_early": exited,
         "startup": laps,
+        # From spawn to the owner's startup clock (exec and main before its first lap). The
+        # owner writes at_ms (wall clock) when its clock reads total_ms.
+        "before_clock_ms": None
+        if not laps or "at_ms" not in laps or "total_ms" not in laps
+        else round(laps["at_ms"] - laps["total_ms"] - spawned_at_ms, 1),
         **before,
     }
     print("DRS " + json.dumps(result), flush=True)
@@ -158,8 +164,18 @@ def main():
     parser.add_argument("--rounds", type=int, default=1)
     parser.add_argument("--bump", type=int, default=1)
     parser.add_argument("--ready-timeout", type=float, default=3600)
+    parser.add_argument("--warm-exec", type=int, default=0)
     args = parser.parse_args()
     generated = json.loads(Path(args.generate).read_text())
+    # The first exec of a binary just linked pays for macOS's check of it (no registry is
+    # opened). warm_exec=1 pays it before the timed starts, with `--version`, and reports it.
+    first_exec_ms = None
+    if args.warm_exec:
+        exec_started = time.monotonic()
+        subprocess.run([args.bin, "--version"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=600, check=False)
+        first_exec_ms = round((time.monotonic() - exec_started) * 1000, 1)
+        print("DRS-EXEC " + json.dumps({"first_exec_ms": first_exec_ms}), flush=True)
     starts = []
     registry = session_dir(args.state) / REGISTRY
     for index in range(max(args.rounds, 1)):
@@ -169,7 +185,7 @@ def main():
             bump_roster(registry)
         starts.append(start(args, f"bumped-{index}" if bumped else f"plain-{index}", bumped))
     starts.append(start(args, "after", False))
-    report = {"generate": generated, "starts": starts}
+    report = {"generate": generated, "first_exec_ms": first_exec_ms, "starts": starts}
     Path(args.report).write_text(json.dumps(report, indent=2))
     return 0 if all(item["ready_ms"] is not None for item in starts) else 1
 
