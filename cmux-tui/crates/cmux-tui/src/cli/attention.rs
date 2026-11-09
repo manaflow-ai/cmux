@@ -7,10 +7,15 @@
 //! cmux attention list
 //! ```
 //!
-//! `next` answers `{target, queue_length, focused}`: `target` is the entry
-//! after the focused tab (or after `--after`), wrapping, else the first, or
-//! null when nothing needs the person. It moves focus only with `--focus`,
-//! which sends `tab <tab> focus`. `list` answers `{queue}`.
+//! `next` answers `{target, queue_length, focused}`: `target` is the first
+//! (most urgent) entry, or with `--after` the entry after that tab, wrapping,
+//! or null when nothing needs the person. `--focus` without `--after` starts
+//! after the focused tab, so the same key cycles. It moves focus only with
+//! `--focus`, which sends `tab <tab> focus`. `list` answers `{queue}`.
+//!
+//! A blocked entry's `reason` is the terminal's newest unread notification
+//! (its body, else its title). An idle agent's unread notification is a
+//! finished turn nobody viewed: `kind: done`, before other unread entries.
 
 use serde_json::{Value, json};
 
@@ -117,14 +122,36 @@ fn focused_tab(snapshot: &Value) -> Option<String> {
     text(tab, "id").map(str::to_owned)
 }
 
-/// The tab `attention next` starts after: `--after`, else the focused tab.
-fn start_after(snapshot: &Value, after: Option<String>, _focus: bool) -> Option<String> {
-    after.or_else(|| focused_tab(snapshot))
+/// The tab `attention next` starts after: `--after`, else with `--focus`
+/// the focused tab (so the key cycles), else none: the most urgent entry,
+/// wherever the person looks.
+fn start_after(snapshot: &Value, after: Option<String>, focus: bool) -> Option<String> {
+    after.or_else(|| focus.then(|| focused_tab(snapshot)).flatten())
 }
 
-/// Why a blocked terminal waits on the person (stub: no reason yet).
-fn blocked_reason(_terminal: &Value, _notifications: &[Value]) -> Option<String> {
-    None
+/// `value` trimmed, when any text is left.
+fn shown(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|text| !text.is_empty())
+}
+
+/// Why a blocked terminal waits on the person: its newest unread
+/// notification's body (a hook's "needs your permission"), else its title.
+fn blocked_reason(terminal: &Value, notifications: &[Value]) -> Option<String> {
+    let terminal_id = field(terminal, "id");
+    if terminal_id.is_null() {
+        return None;
+    }
+    notifications
+        .iter()
+        .filter(|notification| {
+            field(notification, "unread") == true
+                && field(notification, "terminal_id") == terminal_id
+        })
+        .max_by_key(|notification| millis(field(notification, "created_at_ms")).unwrap_or(0))
+        .and_then(|notification| {
+            shown(text(notification, "body")).or_else(|| shown(text(notification, "title")))
+        })
+        .map(str::to_owned)
 }
 
 /// The snapshot's queue, one JSON entry per tab:
@@ -167,15 +194,28 @@ fn snapshot_queue(snapshot: &Value) -> Vec<Value> {
             newest.insert(terminal, notification);
         }
     }
+    // A terminal whose agent waits at its prompt: its unread notification is
+    // a finished turn nobody viewed (`done`).
+    let idle: std::collections::HashSet<&str> = records(snapshot, "agents")
+        .iter()
+        .filter(|agent| text(agent, "state") == Some("idle"))
+        .filter_map(|agent| text(agent, "terminal_id"))
+        .collect();
     for notification in newest.into_values() {
         if field(notification, "unread") != true {
             continue;
         }
+        let terminal_id = text(notification, "terminal_id");
         let Some(tab) = tab_of_terminal(field(notification, "terminal_id")) else { continue };
+        let kind = if terminal_id.is_some_and(|id| idle.contains(id)) {
+            AttentionKind::Done
+        } else {
+            AttentionKind::Unread
+        };
         let level = AttentionLevel::parse(text(notification, "level").unwrap_or_default());
         let since = millis(field(notification, "created_at_ms")).unwrap_or(u64::MAX);
         let title = text(notification, "title").filter(|title| !title.is_empty());
-        push(tab, AttentionKind::Unread, level, since, title.map(str::to_owned));
+        push(tab, kind, level, since, title.map(str::to_owned));
     }
     attention_queue(candidates)
         .into_iter()

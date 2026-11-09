@@ -1,15 +1,18 @@
 //! The attention queue: which tabs need the person, in the order one key
 //! (`next-attention`, `Ctrl-b a`) and `cmux attention next` visit them.
 //!
-//! Three tiers, each oldest first:
+//! Four tiers, each oldest first:
 //!
 //! 0. The person must act: an agent the roster shows `blocked` (approval,
 //!    question, plan review).
 //! 1. An unread `error` or `warning` notification.
-//! 2. Any other unread notification (a finished turn, `cmux notify`).
+//! 2. An agent's finished turn nobody has viewed (`done`: an idle agent
+//!    whose tab has an unread notification).
+//! 3. Any other unread notification (`cmux notify`, a bell).
 //!
-//! A tab with several reasons takes its strongest. "Next" is the entry after
-//! the focused tab, wrapping to the first, so repeated presses cycle through
+//! A tab with several reasons takes its strongest. The key's "next" is the
+//! entry after the focused tab, wrapping to the first (`cmux attention next`
+//! does so only with `--focus`), so repeated presses cycle through
 //! blocked agents (viewing does not clear a block) and unread tabs until
 //! their notifications are cleared.
 //!
@@ -80,7 +83,8 @@ pub(crate) struct AttentionCandidate<K> {
 }
 
 impl<K> AttentionCandidate<K> {
-    /// 0 (the person must act), 1 (an unread error or warning), 2 (unread).
+    /// 0 (the person must act), 1 (an unread error or warning), 2 (a
+    /// finished agent turn), 3 (unread).
     pub(crate) fn tier(&self) -> u8 {
         match (self.kind, self.level) {
             (AttentionKind::Blocked, _) => 0,
@@ -88,7 +92,8 @@ impl<K> AttentionCandidate<K> {
                 AttentionKind::Unread | AttentionKind::Done,
                 AttentionLevel::Error | AttentionLevel::Warning,
             ) => 1,
-            (AttentionKind::Unread | AttentionKind::Done, AttentionLevel::Info) => 2,
+            (AttentionKind::Done, AttentionLevel::Info) => 2,
+            (AttentionKind::Unread, AttentionLevel::Info) => 3,
         }
     }
 

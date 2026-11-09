@@ -22,7 +22,8 @@ pub(crate) struct AttentionEntry {
 }
 
 /// The tabs of `tree` that need the person, in queue order. `agents` is the
-/// roster; only `blocked` agents count.
+/// roster: a `blocked` agent's tab must act, and an `idle` agent's unread
+/// tab is a finished turn (`done`).
 pub(crate) fn tree_attention_entries(tree: &TreeView, agents: &[AgentInfo]) -> Vec<AttentionEntry> {
     let mut candidates = Vec::new();
     let mut labels = std::collections::HashMap::new();
@@ -33,9 +34,19 @@ pub(crate) fn tree_attention_entries(tree: &TreeView, agents: &[AgentInfo]) -> V
                 for tab in &pane.tabs {
                     position = position.saturating_add(1);
                     if let Some(notification) = tab.notification.filter(|marker| marker.unread) {
+                        // An unread tab whose agent waits at its prompt is
+                        // that agent's turn nobody viewed: `done`, as
+                        // `cmux attention list` says.
+                        let finished = agents
+                            .iter()
+                            .any(|agent| agent.surface == tab.surface && agent.state == "idle");
                         candidates.push(AttentionCandidate {
                             key: tab.surface,
-                            kind: AttentionKind::Unread,
+                            kind: if finished {
+                                AttentionKind::Done
+                            } else {
+                                AttentionKind::Unread
+                            },
                             level: AttentionLevel::parse(notification.level),
                             age: notification.sequence,
                             position,
@@ -148,7 +159,7 @@ impl App {
 }
 
 /// `! work › claude · waiting on you`: the marker (`!` the person must act,
-/// `•` unread), the workspace, the tab, and why.
+/// `•` done or unread), the workspace, the tab, and why.
 fn attention_row_label(entry: &AttentionEntry) -> String {
     let messages = &localization::catalog().attention;
     let (marker, detail) = match entry.candidate.kind {
