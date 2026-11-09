@@ -52,7 +52,7 @@ fn ids_are_one_path_segment() {
 #[test]
 fn a_workspace_id_compares_as_uuid_or_public_id() {
     let uuid = "1A2B3C4D-0000-4000-8000-00000000ABCD";
-    assert_eq!(workspace_key(uuid), workspace_key("ws_1a2b3c4d000040008000000000000abcd"));
+    assert_eq!(workspace_key(uuid), workspace_key("ws_1a2b3c4d00004000800000000000abcd"));
     assert_ne!(workspace_key(uuid), workspace_key("ws_ffff"));
 }
 
