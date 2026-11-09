@@ -64,6 +64,7 @@ export interface AcpmuxRequests {
   "_acpmux/forum/rules": { params: ForumRulesParams; result: unknown };
   "_acpmux/set_tools": { params: SetToolsParams; result: unknown };
   "_acpmux/set_directories": { params: unknown; result: unknown };
+  "_acpmux/project_new": { params: unknown; result: unknown };
   "_acpmux/mcp/reconnect": { params: McpReconnectParams; result: unknown };
   "_acpmux/subagent_stop": { params: SubagentStopParams; result: unknown };
   "_acpmux/subagent_transcript": { params: SubagentTranscriptParams; result: unknown };
@@ -407,6 +408,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/forum/rules", kind: "request", acp: false, typed: true },
   { name: "_acpmux/set_tools", kind: "request", acp: false, typed: true },
   { name: "_acpmux/set_directories", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/project_new", kind: "request", acp: false, typed: false },
   { name: "_acpmux/mcp/reconnect", kind: "request", acp: false, typed: true },
   { name: "_acpmux/subagent_stop", kind: "request", acp: false, typed: true },
   { name: "_acpmux/subagent_transcript", kind: "request", acp: false, typed: true },

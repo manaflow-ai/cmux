@@ -899,7 +899,10 @@ impl Hub {
                 m.delegator = Some(from);
             }
             // One shared turn path applies the creation snapshot exactly once, including
-            // queued/CLI prompts. A settings edit never changes an already-created chat.
+            // queued/CLI prompts. A settings edit never changes an already-created chat. The
+            // rules on a system-level channel are not in it: the spawn gives them
+            // (`context_inventory::launch_args`). Appended, never put first: a client's display
+            // parts name the person's blocks by index.
             if !m.cmux_context_delivered && control != Control::Web {
                 crate::context_inventory::append_snapshot(m.cmux_context.as_deref(), &mut blocks);
             }
@@ -1030,6 +1033,19 @@ impl Hub {
                 drop(guard);
                 return Err(e);
             }
+        };
+        // cmux's rules on a system-level channel that this agent's start did not carry (its own
+        // value, rules too long for one argument, a chat moved under a guard): once, in this
+        // message, like the first message's context. Read after the start, which records the
+        // command line it ran (`spawn_argv`).
+        let rules_owed = control != Control::Web && {
+            let m = session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            !m.cmux_rules_in_transcript
+                && crate::context_inventory::append_owed_rules(
+                    m.cmux_context.as_deref(),
+                    m.spawn_argv.as_deref(),
+                    &mut blocks,
+                )
         };
         // Add information after digest reconstruction and the person's display record. Slash
         // commands keep their prompt intact and leave these notices for a normal turn.
@@ -1165,11 +1181,11 @@ impl Hub {
             None,
             || {
                 if delivers_context {
-                    session
-                        .meta
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .cmux_context_delivered = true;
+                    let mut m =
+                        session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    m.cmux_context_delivered = true;
+                    m.cmux_rules_in_transcript |= rules_owed;
+                    drop(m);
                     self.save_meta(session);
                 }
                 self.mark_team_messages(session, &team_messages);
@@ -1301,6 +1317,17 @@ impl Hub {
                         // A fallback that could not resume (another store)
                         // starts fresh: it gets the restored transcript first.
                         let mut blocks = blocks;
+                        // Rules the fallback's start did not carry (its own appended prompt or
+                        // developer instructions), judged by its own command line.
+                        let rules_owed_here = !rules_owed && control != Control::Web && {
+                            let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                            !m.cmux_rules_in_transcript
+                                && crate::context_inventory::append_owed_rules(
+                                    m.cmux_context.as_deref(),
+                                    m.spawn_argv.as_deref(),
+                                    &mut blocks,
+                                )
+                        };
                         if session.rehydrate.swap(false, Ordering::SeqCst)
                             && let Some(transcript) = self.transcript(session, 24_000, &prompt_id)
                         {
@@ -1347,9 +1374,18 @@ impl Hub {
                                         false,
                                         false,
                                         fence.as_ref(),
-                                        confirm_team_write,
+                                        // Owed rules are recorded only once the writer took them.
+                                        confirm_team_write || rules_owed_here,
                                         None,
                                         || {
+                                            if rules_owed_here {
+                                                session
+                                                    .meta
+                                                    .lock()
+                                                    .unwrap_or_else(|e| e.into_inner())
+                                                    .cmux_rules_in_transcript = true;
+                                                self.save_meta(session);
+                                            }
                                             self.mark_team_messages(session, &team_messages);
                                             if team_enabled {
                                                 self.mark_team_work(session, &team_prompt_ids);
