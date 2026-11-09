@@ -10195,7 +10195,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                               <SubagentStopContext.Provider value={stopSubagent}>
                                                 <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
                                                   <SubagentHarnessContext.Provider
-                                                    value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
+                                                    value={knownMark(
+                                                      snapshot.summary?.harness,
+                                                      snapshot.summary?.family,
+                                                    )}
                                                   >
                                                     <SessionHoverContext.Provider value={sessionHover}>
                                                       <SubsessionNamesProvider
