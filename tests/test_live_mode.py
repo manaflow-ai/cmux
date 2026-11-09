@@ -376,6 +376,104 @@ class LiveModeTests(unittest.TestCase):
             live_mode.live_code_setting = saved
         self.assertEqual(writes, [False])
 
+    def live_build(self, root, commit, tree):
+        """A cached live code build of `commit` that compiled `tree` as it is now, held by the tag's
+        live derived data."""
+        entry = root / commit[:12]
+        (entry / "live.app").mkdir(parents=True)
+        (entry / "build").mkdir()
+        (entry / "build/xcodebuild.log").write_text("")
+        live_mode.save_sources(entry / "sources.json", live_mode.swift_sources(tree))
+        (root / "derived-data.commit").write_text(commit + "\n")
+        return entry
+
+    def app_tree(self):
+        tree = Path(self.dir) / "tree"
+        source = tree / live_mode.SOURCES / "CmuxNextApp/A.swift"
+        source.parent.mkdir(parents=True)
+        source.write_text("one")
+        return tree, source
+
+    def test_the_last_live_build_is_reused_when_everything_since_patches_in(self):
+        tree, source = self.app_tree()
+        root = live_mode.cache_root("t")
+        entry = self.live_build(root, "1111111111111111111111111111111111111111", tree)
+        source.write_text("two")  # a pull or an edit inside an existing CmuxNextApp file
+        reused = live_mode.reusable_build(root, tree)
+        self.assertEqual(reused, (entry, "1111111111111111111111111111111111111111",
+                                  [str(source.relative_to(tree))]))
+
+    def test_a_change_that_cannot_patch_in_builds_instead(self):
+        tree, _ = self.app_tree()
+        root = live_mode.cache_root("t")
+        self.assertIsNone(live_mode.reusable_build(root, tree))  # no live build yet
+        entry = self.live_build(root, "1111111111111111111111111111111111111111", tree)
+        new = tree / live_mode.SOURCES / "CmuxNextApp/New.swift"
+        new.write_text("new")  # a new file waits for a build, so the build is not reused
+        self.assertIsNone(live_mode.reusable_build(root, tree))
+        new.unlink()
+        (root / "derived-data.commit").unlink()  # a build that stopped half way: its intermediates are gone
+        self.assertIsNone(live_mode.reusable_build(root, tree))
+        self.assertTrue(entry.is_dir())
+
+    def start_with(self, tree, fresh):
+        """start_locked with a fake app at another commit than the checkout, the swap, setting and
+        patch compile stubbed; what it returned, and whether it built."""
+        app = self.bundle("cmux DEV t.app")  # CMUXCommit abcdef1234567890
+        root = live_mode.cache_root("t")
+        built, applied = [], []
+        stubs = {
+            "git": lambda tree_, *argv: "2222222222222222222222222222222222222222",
+            "build_live": lambda *a: built.append(a) or 1.0,
+            "live_code_setting": lambda *a: "set",
+            "swap": lambda path, ident, into, keep_as, swapped=None: {
+                "binary": "1:1", "restart_s": 1, "quit_s": 0, "launch_s": 1, "into_was": str(into),
+                "sessions": {"workspaces": "1/1", "tabs": "1/1", "terminals": "1/1", "all": True, "lost": []}},
+            "apply_edits": lambda tree_, entry, files: applied.append(files) or {"files": files, "exit": 0},
+            "detach": lambda *a, **k: "log",
+        }
+        saved = {name: getattr(live_mode, name) for name in stubs}
+        for name, stub in stubs.items():
+            setattr(live_mode, name, stub)
+        try:
+            args = live_mode.argparse.Namespace(tree=tree, fresh=fresh, setting_done=False)
+            ident = {"app_bundle_path": str(app), "bundle_id": "com.cmuxterm.app.debug.t", "pid": 1}
+            return live_mode.start_locked(args, "sock", ident, "t", root), built, applied
+        finally:
+            for name, original in saved.items():
+                setattr(live_mode, name, original)
+
+    def test_start_reuses_the_last_live_build_with_no_build_and_patches_the_difference(self):
+        tree, source = self.app_tree()
+        root = live_mode.cache_root("t")
+        entry = self.live_build(root, "1111111111111111111111111111111111111111", tree)
+        source.write_text("two")
+        result, built, applied = self.start_with(tree, fresh=False)
+        self.assertEqual(built, [])  # no build: the app at abcdef12 need not be HEAD 22222222
+        self.assertEqual(result["into_was"], str(entry / "live.app"))
+        self.assertEqual(applied, [[str(source.relative_to(tree))]])
+        self.assertEqual((result["built_commit"][:4], result["commit"][:4]), ("1111", "2222"))
+        self.assertIsNone(result["built_s"])
+        text = live_mode.summary("start", result)
+        self.assertIn("live code build of 111111111111, patched up to 222222222222", text)
+        self.assertIn("no build", text)
+        self.assertEqual(live_mode.read_state(root)["built_commit"][:4], "1111")
+
+    def test_start_fresh_keeps_the_commit_check_and_builds(self):
+        tree, _ = self.app_tree()
+        self.live_build(live_mode.cache_root("t"), "1111111111111111111111111111111111111111", tree)
+        with self.assertRaises(live_mode.Refused) as refused:
+            self.start_with(tree, fresh=True)  # building HEAD: the app must be at HEAD, as before
+        self.assertIn("check that commit out", str(refused.exception))
+
+    def test_status_line_says_what_the_reused_build_was_patched_up_to(self):
+        line = live_mode.line({"mode": "live", "tag": "t", "commit": "2222222222222222", "since": "now",
+                               "built_commit": "1111111111111111"})
+        self.assertIn("live code build of 111111111111, patched up to 222222222222 since now", line)
+        same = live_mode.line({"mode": "live", "tag": "t", "commit": "2222222222222222", "since": "now",
+                               "built_commit": "2222222222222222"})
+        self.assertIn("live code build of 222222222222 since now", same)
+
     def test_status_with_no_app_running(self):
         args = live_mode.argparse.Namespace(socket=os.path.join(self.dir, "none.sock"), tag="t", tree=ROOT)
         self.assertEqual(live_mode.line(live_mode.status(args)), "Swift live mode: off (cmux DEV t is not running)")
