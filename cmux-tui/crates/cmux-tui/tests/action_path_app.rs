@@ -10,17 +10,17 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use serde_json::{Value, json};
+
+#[path = "support/test_dir.rs"]
+mod test_dir;
 
 /// Runs `cmux <args>` in `cwd` against a fake app that answers every
 /// request `ok` and records it; returns the recorded `action.run` params.
 fn action_run_params(args: &[&str], cwd: &Path) -> Value {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    let dir: PathBuf =
-        Path::new("/tmp").join(format!("cmux-actpath-{}-{stamp}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = test_dir::new_test_dir("cmux-actpath");
     let socket = dir.join("app.sock");
     let listener = UnixListener::bind(&socket).unwrap();
     listener.set_nonblocking(true).unwrap();
@@ -81,9 +81,8 @@ fn action_run_params(args: &[&str], cwd: &Path) -> Value {
 }
 
 fn project() -> PathBuf {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    let dir = std::env::temp_dir().join(format!("cmux-actpath-project-{stamp}"));
-    std::fs::create_dir_all(dir.join("sub")).unwrap();
+    let dir = test_dir::new_test_dir("cmux-actpath-project");
+    std::fs::create_dir(dir.join("sub")).unwrap();
     dir.canonicalize().unwrap()
 }
 
