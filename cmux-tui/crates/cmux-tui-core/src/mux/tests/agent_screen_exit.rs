@@ -148,3 +148,40 @@ fn a_suspended_session_brought_back_with_fg_gets_its_public_row_back() {
     assert_eq!(agents[0]["state"], "working");
     assert_eq!(roster_agent_state(&mux, &terminal_id).as_deref(), Some("working"));
 }
+
+/// #39096 review F1: a hook that commits while the background roster replay
+/// runs its last slice. The pass that finishes the replay took its fold
+/// target before the hook, and the reconcile at the replay's end writes the
+/// roster's entries over the public projections. Unless that pass folds the
+/// hook first, the reconcile puts the replay's older plugin state over the
+/// row the hook projector wrote, and the later fold of the hook applies no
+/// delta, so the row stays wrong.
+#[test]
+fn a_hook_during_the_last_replay_slice_keeps_its_public_row() {
+    let mux = test_mux();
+    put_plugin_manifest(&mux);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    let t0 = crate::workspace_registry::unix_epoch_ms().unwrap();
+    screen(&mux, &terminal_id, "working", t0);
+    let agents = public_agents(&mux);
+    assert_eq!(agents.len(), 1);
+    assert_eq!(agents[0]["source"], "plugin");
+
+    // A replay from zero in the background, held at its first slice's gate.
+    let (entered_tx, entered) = std::sync::mpsc::sync_channel(0);
+    let (release, release_rx) = std::sync::mpsc::sync_channel(0);
+    mux.restart_agent_roster_replay_for_test(1, (entered_tx, release_rx));
+    entered.recv_timeout(Duration::from_secs(30)).expect("the replay waits at its gate");
+    tick();
+    hook(&mux, &terminal_id, "live", "SessionStart", t0 + 1_000);
+    hook(&mux, &terminal_id, "live", "UserPromptSubmit", t0 + 1_001);
+    // The gate opens: this slice runs the replay to its end.
+    drop(release);
+    drop(entered);
+    let agents = public_agents(&mux);
+    assert!(!mux.agent_roster_replaying(), "the replay finished");
+    assert_eq!(agents.len(), 1, "{agents:?}");
+    assert_eq!(agents[0]["source"], "hook", "the hook's row survives the replay's end: {agents:?}");
+    assert_eq!(agents[0]["state"], "working", "{agents:?}");
+}

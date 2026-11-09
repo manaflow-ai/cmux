@@ -574,3 +574,61 @@ fn a_stopped_kind_backfill_resumes_after_its_last_finished_segment() {
         .unwrap();
     assert_eq!(progress, None);
 }
+
+/// #39096 review F2: this build's backfill (marker `2`) stopped, an older
+/// build ran next (a downgrade), kept the marker and stopped partway through
+/// a segment, mapping only some of its kinds. Back on this build, the
+/// partly mapped segment is decoded again and gets its missing kinds; the
+/// segments this build finished before the downgrade, and one sealed with its
+/// map after the backfill began, are not decoded again.
+#[test]
+fn a_kind_backfill_after_a_downgrade_maps_the_segment_an_older_build_left_partly_mapped() {
+    let (registry, _) = output_heavy_sealed_registry(5, 64);
+    let db = registry.connection.get();
+    db.execute_batch(
+        "DELETE FROM journal_segment_kinds
+         WHERE segment_id IN ('segment_2049_3072', 'segment_3073_4096');
+         INSERT INTO journal_segment_kinds VALUES('segment_2049_3072', 'agent.test.noop');
+         INSERT INTO meta(key, value) VALUES('journal_segment_kinds_backfill', '2')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+         INSERT INTO meta(key, value) VALUES('journal_segment_kinds_backfill_through', '1025')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+         INSERT INTO meta(key, value) VALUES('journal_segment_kinds_backfill_end', '3073')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+         DROP TRIGGER IF EXISTS journal_segments_reject_update;
+         UPDATE journal_segments SET content = x'00112233'
+         WHERE segment_id IN ('segment_1_1024', 'segment_1025_2048', 'segment_4097_5120');",
+    )
+    .unwrap();
+    // The finished segments and the one sealed later no longer decode: a
+    // backfill that decoded them again would fail here.
+    backfill_legacy_journal_segment_kinds(&db).unwrap();
+    for segment_id in ["segment_2049_3072", "segment_3073_4096"] {
+        let kinds = db
+            .prepare("SELECT kind FROM journal_segment_kinds WHERE segment_id = ?1 ORDER BY kind")
+            .unwrap()
+            .query_map([segment_id], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(kinds, ["agent.test.noop", "terminal.output"], "{segment_id}");
+    }
+    let marker: String = db
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'journal_segment_kinds_backfill'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(marker, "1");
+    let left: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM meta WHERE key IN (
+               'journal_segment_kinds_backfill_through', 'journal_segment_kinds_backfill_end'
+             )",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(left, 0);
+}
