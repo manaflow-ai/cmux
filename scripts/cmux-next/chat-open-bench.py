@@ -679,12 +679,12 @@ def click_subagent(run, pane=None, skip=()):
 GROUP_TOGGLE = 'button.cv-subagents[aria-expanded="false"]'
 
 
-def open_subagent_groups(run, limit=8):
-    """Opens each closed subagent group the chat shows, before the trace is armed (unmeasured), so the click finds
-    a subagent's line. Returns how many it opened."""
+def open_subagent_groups(run, limit=8, pane=None):
+    """Opens each closed subagent group the chat shows (in `pane`, else the focused one), before the trace is armed
+    (unmeasured), so the click finds a subagent's line. Returns how many it opened."""
     opened = 0
     for _ in range(limit):
-        reply = run.rpc("debug.agent_pane", {"action": "click", "selector": GROUP_TOGGLE}) or {}
+        reply = run.rpc("debug.agent_pane", {"action": "click", "selector": GROUP_TOGGLE, **({"pane": pane} if pane else {})}) or {}
         if reply.get("error"):
             break
         opened += 1
@@ -921,9 +921,12 @@ def measure_case(run, case, sessions, index):
         first = click_subagent(run)
         chat, opened = first.get("pane"), {first.get("index")}
         time.sleep(2)  # test script: the first subagent's split lands
+        # The chat's pane is narrower now and drew its transcript again: its groups may be folded once more.
+        groups += open_subagent_groups(run, pane=chat)
         second = click_subagent(run, pane=chat, skip=opened)
         opened.add(second.get("index"))
         time.sleep(2)  # test script: the second one's split below it lands
+        groups += open_subagent_groups(run, pane=chat)
         record = traced(run, lambda: click_subagent(run, pane=chat, skip=opened))
         record["opened_groups"] = groups
         record["before"] = [first.get("subagent"), second.get("subagent"), first.get("error"), second.get("error")]
