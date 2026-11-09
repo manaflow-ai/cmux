@@ -530,6 +530,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      pull-requests: read
       checks: read
       statuses: read
     concurrency:
@@ -553,7 +554,7 @@ jobs:
       # A separate token, because a mint that asks for a permission the App
       # lacks fails whole: manaflow-cmux-release had contents, metadata and
       # workflows only on 2026-10-07. Without it the branch is still pushed
-      # (and CI runs on it) and the job prints the link to open the PR.
+      # (and CI runs on it) and the job fails with the link to open the PR.
       - name: Mint the release App token for the pull request
         id: pr-token
         continue-on-error: true

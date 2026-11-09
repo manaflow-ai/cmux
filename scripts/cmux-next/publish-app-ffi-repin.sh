@@ -50,15 +50,16 @@ previous="$(remote_head "$branch")"
 # app-ffi-repin.yml then re-pins the newest release at once. A failed check, an
 # older head or any failed read moves the head as before.
 hold_min="${REPIN_HOLD_MIN:-90}"
-# The head's commit, check runs and statuses are read with the job's
-# GITHUB_TOKEN (contents, checks and statuses: read): the pull-request token
-# has none of these, and a failed read would quietly turn the hold off.
-read_api() { GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" gh api "$@"; }
+# The open PR, the head's commit, check runs and statuses are read with the
+# job's GITHUB_TOKEN (contents, pull-requests, checks and statuses: read): the
+# pull-request token has none of the last three and may be missing, and a
+# failed read would quietly turn the hold off (#39645 F1).
+read_api() { GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the open re-pin PR and the checks at its head}" gh api "$@"; }
 held_pr() {
   local number state head age failed status
-  number="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=feat-cmux-next&head=${GITHUB_REPOSITORY%/*}:$branch" --jq '.[0].number // empty')" || return 1
+  number="$(read_api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=feat-cmux-next&head=${GITHUB_REPOSITORY%/*}:$branch" --jq '.[0].number // empty')" || return 1
   [[ "$number" =~ ^[0-9]+$ ]] || return 1
-  read -r state head < <(gh api "repos/$GITHUB_REPOSITORY/pulls/$number" --jq '"\(.state) \(.head.sha)"') || return 1
+  read -r state head < <(read_api "repos/$GITHUB_REPOSITORY/pulls/$number" --jq '"\(.state) \(.head.sha)"') || return 1
   [[ "$state" == open && "$head" == "$previous" ]] || return 1
   age="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous" --jq '(now - (.commit.committer.date | fromdateiso8601)) / 60 | floor')" || return 1
   [[ "$age" =~ ^[0-9]+$ ]] || return 1
@@ -81,7 +82,7 @@ held_pr() {
   fi
   echo "kept #$number at ${previous:0:12}: pushed $age min ago (hold $hold_min min), no check failed; it lands first and its merge re-pins $TAG (app-ffi-repin.yml)"
 }
-if [[ -n "$previous" && -n "${GH_TOKEN:-}" ]] && held_pr; then
+if [[ -n "$previous" ]] && held_pr; then
   exit 0
 fi
 # Resetting the stable head to the unpinned base auto-closes its PR. Only this
@@ -128,9 +129,11 @@ body="Pins CCmuxAppFFI to [$TAG]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/
 ## Changelog
 
 none"
+# No pull-request token (its mint failed): the pin is pushed but no PR carries
+# it, so the run fails where someone sees it instead of passing on a warning.
 if [[ -z "${GH_TOKEN:-}" ]]; then
-  echo "::warning title=Open the re-pin pull request::the release App has no pull-requests permission; open $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/feat-cmux-next...$branch?expand=1"
-  exit 0
+  echo "::error title=Open the re-pin pull request::the release App token for pull requests was not minted; $branch is pushed at ${pin_commit:0:12} with no PR. Open $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/feat-cmux-next...$branch?expand=1" >&2
+  exit 1
 fi
 pr_number="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=feat-cmux-next&head=${GITHUB_REPOSITORY%/*}:$branch" --jq '.[0].number // empty')"
 if [[ -n "$pr_number" ]]; then
