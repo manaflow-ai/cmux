@@ -240,4 +240,21 @@ import Testing
             #expect(model.step(from: selected, by: 1, all) == .workspace(WorkspaceID("second")))
         }
     }
+
+    /// A Done member of a collapsed group steps from its group, the stop that stands for it: Previous is the row
+    /// above the group, and pressing it again goes on up.
+    @Test func aDoneMemberOfACollapsedGroupStepsFromItsGroup() {
+        Self.withFolds {
+            let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+            let shut = SidebarGroup(id: Self.work, name: "Work", color: .red, isCollapsed: true,
+                                    workspaces: [Self.done("work-1"), Self.row("work-2")])
+            let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [
+                .workspace(Self.row("top")), .group(shut), .workspace(Self.row("below")),
+            ])])
+            let selected = SidebarItem.workspace(WorkspaceID("work-1"))
+            #expect(model.itemOrder.stop(for: selected) == .group(Self.work))
+            #expect(model.step(from: selected, by: -1, Self.numbers) == .workspace(WorkspaceID("top")))
+            #expect(model.step(from: selected, by: 1, Self.numbers) == .workspace(WorkspaceID("below")))
+        }
+    }
 }

@@ -27,7 +27,8 @@ extension SidebarModel {
     /// active, as the list does on every selection, so only such a press costs a layout; any other is a key compare.
     public func step(from selected: SidebarItem?, by offset: Int, _ settings: SidebarNavigationSettings) -> SidebarItem? {
         let order = itemOrder
-        guard case .workspace(let id)? = selected, let ws = workspace(id), !ws.rowState.isPending,
+        // A collapsed group's member steps from its group, the stop that stands for it (`stops`).
+        guard case .workspace(let id)? = selected, order.stops[id] == nil, let ws = workspace(id), !ws.rowState.isPending,
               order.stop(for: selected) == nil || ws.isArchived || ws.taskStatus == .done else {
             return order.step(from: selected, by: offset, settings)
         }
