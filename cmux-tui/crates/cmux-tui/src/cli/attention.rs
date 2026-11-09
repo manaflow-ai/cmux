@@ -22,7 +22,8 @@ use serde_json::{Value, json};
 use super::command::CommandPlan;
 use super::{GlobalArgs, wire};
 use crate::attention::{
-    AttentionCandidate, AttentionKind, AttentionLevel, attention_queue, next_attention,
+    AttentionCandidate, AttentionKind, AttentionLevel, attention_queue, is_finished_turn,
+    next_attention,
 };
 
 /// A parsed `attention` command (`command.rs` `parse_attention`).
@@ -196,9 +197,9 @@ fn snapshot_queue(snapshot: &Value) -> Vec<Value> {
     }
     // A terminal whose agent waits at its prompt: its unread notification is
     // a finished turn nobody viewed (`done`).
-    let idle: std::collections::HashSet<&str> = records(snapshot, "agents")
+    let finished: std::collections::HashSet<&str> = records(snapshot, "agents")
         .iter()
-        .filter(|agent| text(agent, "state") == Some("idle"))
+        .filter(|agent| text(agent, "state").is_some_and(is_finished_turn))
         .filter_map(|agent| text(agent, "terminal_id"))
         .collect();
     for notification in newest.into_values() {
@@ -207,7 +208,7 @@ fn snapshot_queue(snapshot: &Value) -> Vec<Value> {
         }
         let terminal_id = text(notification, "terminal_id");
         let Some(tab) = tab_of_terminal(field(notification, "terminal_id")) else { continue };
-        let kind = if terminal_id.is_some_and(|id| idle.contains(id)) {
+        let kind = if terminal_id.is_some_and(|id| finished.contains(id)) {
             AttentionKind::Done
         } else {
             AttentionKind::Unread

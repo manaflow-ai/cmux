@@ -69,6 +69,17 @@ impl AttentionLevel {
     }
 }
 
+/// Whether an unread notification on a terminal whose agent reports
+/// `agent_state` is that agent's finished turn nobody viewed (`done`). The
+/// rule is the shared agent status (`AgentStatus`, the word `agent list` and
+/// the sidebar show), with the unread marker as "unseen".
+pub(crate) fn is_finished_turn(agent_state: &str) -> bool {
+    matches!(
+        cmux_tui_core::AgentStatus::from_state_str(agent_state, true),
+        Some(cmux_tui_core::AgentStatus::Done)
+    )
+}
+
 /// One reason a tab needs the person. `key` names the tab (a TUI surface id,
 /// a CLI `tab_…` id); `age` orders entries of one tier, smaller first (Unix ms,
 /// or the daemon's notification number for unread entries in the TUI);

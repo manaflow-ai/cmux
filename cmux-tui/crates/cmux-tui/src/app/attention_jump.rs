@@ -9,7 +9,8 @@ use cmux_tui_core::SurfaceId;
 
 use super::{App, ContextMenu, MenuAction, MenuItem, SidebarTabTarget};
 use crate::attention::{
-    AttentionCandidate, AttentionKind, AttentionLevel, attention_queue, next_attention,
+    AttentionCandidate, AttentionKind, AttentionLevel, attention_queue, is_finished_turn,
+    next_attention,
 };
 use crate::localization;
 use crate::session::{AgentInfo, TreeView};
@@ -37,9 +38,9 @@ pub(crate) fn tree_attention_entries(tree: &TreeView, agents: &[AgentInfo]) -> V
                         // An unread tab whose agent waits at its prompt is
                         // that agent's turn nobody viewed: `done`, as
                         // `cmux attention list` says.
-                        let finished = agents
-                            .iter()
-                            .any(|agent| agent.surface == tab.surface && agent.state == "idle");
+                        let finished = agents.iter().any(|agent| {
+                            agent.surface == tab.surface && is_finished_turn(&agent.state)
+                        });
                         candidates.push(AttentionCandidate {
                             key: tab.surface,
                             kind: if finished {
