@@ -24,8 +24,6 @@ pub const APPS: &[App] = &[
     App { address: "claude-desktop", name: "Claude Desktop", harness: "claude" },
     App { address: "codex-desktop", name: "Codex Desktop", harness: "codex" },
 ];
-/// The longest message, as the session mailbox's (`mailbox.rs`).
-pub const MAX_TEXT_BYTES: usize = crate::mailbox::MAX_BODY_BYTES;
 /// Most messages one read returns; the rest stay unread for the next.
 pub const MAX_READ: usize = 50;
 /// How long a read message is kept before a later read removes it.
@@ -78,9 +76,6 @@ impl Bridge {
         let text = text.trim();
         if text.is_empty() {
             bail!("the message is empty");
-        }
-        if text.len() > MAX_TEXT_BYTES {
-            bail!("the message is {} bytes; the most is {MAX_TEXT_BYTES}", text.len());
         }
         let from = from.trim();
         if from.is_empty() {
@@ -231,11 +226,10 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_or_oversized_message_is_refused() {
+    fn an_empty_message_or_sender_is_refused() {
         let (_dir, bridge) = bridge();
         let codex = app("codex").unwrap();
         assert!(bridge.send("x", codex, "  ").is_err());
-        assert!(bridge.send("x", codex, &"a".repeat(MAX_TEXT_BYTES + 1)).is_err());
         assert!(bridge.send(" ", codex, "hi").is_err());
     }
 

@@ -78,6 +78,11 @@ const PARTS: &str = "_acpmuxParts";
 /// it are one hub message.
 const PART_BYTES: usize = 45 * 1024;
 
+/// The time a read in parts may take for each part, on average, past the first [`READ_WAIT`]: a
+/// hub that answers each part just inside its own wait ends the read, not the asker's patience.
+/// A part takes one hub round trip, well under a second on a working hub.
+const PART_WAIT: Duration = Duration::from_secs(5);
+
 /// The refusal prefix of a session the receiving daemon does not have.
 const NO_SESSION: &str = "mesh.read_no_session";
 
@@ -282,7 +287,8 @@ pub(crate) async fn read(
     m: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
-    let text = ask(mesh, host, key, body(m, params)).await?;
+    let until = tokio::time::Instant::now() + READ_WAIT;
+    let text = ask(mesh, host, key, body(m, params), until).await?;
     let mut reply: Value = serde_json::from_str(&text)
         .map_err(|_| RpcError::internal(format!("{host}'s answer to the read is not JSON")))?;
     if let Some(held) = reply.get(PARTS).cloned() {
@@ -308,13 +314,19 @@ async fn gather(
     let most = crate::rpc::MAX_MESSAGE_BYTES.div_ceil(PART_BYTES) as u64;
     let count = held.get("count").and_then(Value::as_u64).filter(|n| (1..=most).contains(n));
     let count = count.ok_or_else(malformed)?;
+    // The whole read's time: its first wait, then PART_WAIT for each part on average.
+    let parts = u32::try_from(count).unwrap_or(u32::MAX);
+    let until = tokio::time::Instant::now() + READ_WAIT + PART_WAIT.saturating_mul(parts);
     let mut text = Vec::new();
     for index in 0..count {
+        if tokio::time::Instant::now() >= until {
+            return Err(unanswered(host));
+        }
         let body = json!({
             "version": 1, "method": READ_PART, "params": {"id": id, "index": index}
         });
-        let part: Value = serde_json::from_str(&ask(mesh, host, key, body.to_string()).await?)
-            .map_err(|_| malformed())?;
+        let part = ask(mesh, host, key, body.to_string(), until).await?;
+        let part: Value = serde_json::from_str(&part).map_err(|_| malformed())?;
         let part = part.get("part").and_then(Value::as_str).ok_or_else(malformed)?;
         let part =
             base64::engine::general_purpose::STANDARD.decode(part).map_err(|_| malformed())?;
@@ -323,12 +335,14 @@ async fn gather(
     serde_json::from_slice(&text).map_err(|_| malformed())
 }
 
-/// One read message to `HOST/KEY` through the hub, and the receiver's answer text.
+/// One read message to `HOST/KEY` through the hub, and the receiver's answer text, waited for
+/// [`READ_WAIT`] at most and not past `until`.
 async fn ask(
     mesh: &dyn crate::mesh::MeshHub,
     host: &str,
     key: &str,
     body: String,
+    until: tokio::time::Instant,
 ) -> Result<String, RpcError> {
     let message = OutMessage {
         to: recipient(host, key),
@@ -340,7 +354,7 @@ async fn ask(
         idempotency_key: format!("read-{}", uuid::Uuid::now_v7()),
     };
     let mut receipt = mesh.send(&message).await.map_err(|e| hub_error(host, key, e))?;
-    let deadline = tokio::time::Instant::now() + READ_WAIT;
+    let deadline = (tokio::time::Instant::now() + READ_WAIT).min(until);
     loop {
         match receipt.state.as_str() {
             "delivered" => break,

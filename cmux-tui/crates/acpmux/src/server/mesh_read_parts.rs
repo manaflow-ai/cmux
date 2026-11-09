@@ -11,17 +11,24 @@ use std::time::{Duration, Instant};
 /// How long a held answer waits for the asker's next part read; each part read starts it again.
 const IDLE: Duration = Duration::from_secs(120);
 
+/// The most answer bytes held at once, for askers that have not read all their parts. One answer
+/// is at most one RPC message (31 MiB), so the newest always fits; older answers go first.
+pub(crate) const MAX_HELD_BYTES: usize = 64 << 20;
+
 /// One held answer: the session it reads, its JSON text and its last read.
 struct Held {
     session: String,
     text: Vec<u8>,
     touched: Instant,
+    /// The order it was held in, for answers touched at the same instant.
+    order: u64,
 }
 
 /// The answers this daemon holds for askers that read them in parts, by id.
 #[derive(Default)]
 pub(crate) struct ReadParts {
     held: Mutex<HashMap<String, Held>>,
+    next: std::sync::atomic::AtomicU64,
 }
 
 impl ReadParts {
@@ -30,8 +37,20 @@ impl ReadParts {
         let id = uuid::Uuid::new_v4().to_string();
         let mut held = self.held.lock().unwrap_or_else(|e| e.into_inner());
         held.retain(|_, h| h.touched.elapsed() < IDLE);
-        let entry =
-            Held { session: session.to_owned(), text: text.into_bytes(), touched: Instant::now() };
+        // Room for this answer: the answers read least lately go first.
+        let mut total: usize = held.values().map(|h| h.text.len()).sum::<usize>() + text.len();
+        while total > MAX_HELD_BYTES {
+            let oldest = held.iter().min_by_key(|(_, h)| (h.touched, h.order));
+            let Some(oldest) = oldest.map(|(k, _)| k.clone()) else { break };
+            total -= held.remove(&oldest).map_or(0, |h| h.text.len());
+        }
+        let order = self.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let entry = Held {
+            session: session.to_owned(),
+            text: text.into_bytes(),
+            touched: Instant::now(),
+            order,
+        };
         held.insert(id.clone(), entry);
         id
     }
@@ -78,7 +97,7 @@ mod tests {
         let parts = ReadParts::default();
         let answer = |n: u8| String::from_utf8(vec![b'a' + n; 8 << 20]).unwrap();
         let ids: Vec<String> = (0..9).map(|n| parts.hold("s", answer(n))).collect();
-        assert!(parts.held_bytes() <= 64 << 20, "{} bytes held", parts.held_bytes());
+        assert!(parts.held_bytes() <= MAX_HELD_BYTES, "{} bytes held", parts.held_bytes());
         let first = parts.part(&ids[8], "s", 0, 4).unwrap();
         let first = base64::engine::general_purpose::STANDARD.decode(first).unwrap();
         assert_eq!(first, b"iiii");
