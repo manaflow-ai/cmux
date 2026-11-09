@@ -149,6 +149,19 @@ export function historyPages({
     ledger: {
       load: async (params) => connected().ledger(params),
       openSession: selectSession,
+      copy,
+      // The host's save panel, as a side panel document's Save (`pane.saveFile`); a host that
+      // cannot save it (one that predates the kind, or a failed write) copies it instead.
+      save: async (text, suggestedName, kind) => {
+        try {
+          const saved = await callNative<boolean>("pane.saveFile", { text, suggestedName, kind });
+          return saved === true ? "saved" : "cancelled";
+        } catch {
+          // l10n-allow: a rejection reason for the wire log only; the page shows its own localized failure text
+          if (!(await copy(text))) throw new Error("clipboard refused");
+          return "copied";
+        }
+      },
     },
   };
 }

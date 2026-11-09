@@ -440,12 +440,21 @@
    .acpmux-text-card), as tall as a thumbnail in the text (two control rows), two lines over its
    label; never the underlined name above. */
 /* An oversized paste's chip in the text (composer/PastedTextChip.tsx): as wide as its label needs,
-   never wider than the line. Its width is its own fit (`auto`): the node's box around it shrinks to
-   it, so a percentage cap there would have nothing to measure against. */
+   never wider than the line. Its width is its own fit (`auto`); the node's box around it is capped at
+   the line, so the chip's percentage cap measures the line less its room: on a narrow line the chip
+   narrows and its label drops trailing parts whole, never pushing past the field to be cut. While the
+   node sizes to its content that percentage is cyclic and counts as no cap, so the node would take
+   the label's whole width and the chip, capped inside it, would leave more than its room after it
+   (the caret one chip gap off: composer-inline-caret-gap.browser.test.ts). The node's own cap is
+   the chip's cap plus the room, so its content ends where the room does. */
+.acpmux-md-inline:has(> .acpmux-md-inline-chip[data-preview="text"]),
+.acpmux-md-inline:has(> .acpmux-attachment-menu > .acpmux-md-inline-chip[data-preview="text"]) {
+  max-width: min(100%, calc(320px + var(--acpmux-inline-room, 8px)));
+}
 .acpmux-md-inline-chip[data-preview="text"] {
   justify-content: stretch;
   width: auto;
-  max-width: 320px;
+  max-width: min(320px, calc(100% - var(--acpmux-inline-room, 8px)));
   height: calc(var(--cmux-control-height, 24px) * 2);
   padding: 0;
 }
@@ -463,10 +472,10 @@
 .acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-remove {
   top: 3px;
 }
-.acpmux-md-inline-chip[data-preview="text"][data-design="expand"] {
+.acpmux-md-inline-chip[data-preview="text"][data-opening="panel"] {
   height: auto;
 }
-.acpmux-md-inline-chip[data-preview="text"][data-design="expand"] > .acpmux-paste-chip__face {
+.acpmux-md-inline-chip[data-preview="text"][data-opening="panel"] > .acpmux-paste-chip__face {
   height: calc(var(--cmux-control-height, 24px) * 2);
 }
 /* A failed tile in the text: its kind's glyph and the strip's small retry button side by side. */

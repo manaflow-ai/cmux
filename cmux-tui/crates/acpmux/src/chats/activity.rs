@@ -120,6 +120,7 @@ type Newest = (u64, String, Value);
 /// The activity of every chat a session continues, by chat key: the closed sessions' part built
 /// once and shared until one of them changes (`ActivityCache`), the live sessions' part read now.
 /// Decorating stays one lookup per chat.
+#[derive(Default)]
 pub struct ChatActivity {
     closed: Arc<HashMap<String, Newest>>,
     live: HashMap<String, Newest>,

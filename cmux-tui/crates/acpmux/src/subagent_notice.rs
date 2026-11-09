@@ -10,8 +10,9 @@
 //!
 //! `<home>/run/subagent-notices/<session>/<agent id>/`, the folders 0700:
 //!
-//! - `<id>.json`, 0600: one notice, `{text, lane, report}`: `text` is what the subagent reads,
-//!   the rest is what the daemon needs to give it to the lead instead. Written whole under
+//! - `<id>.json`, 0600: one notice, `{text, lane, report}` (a lane's report) or
+//!   `{text, bgTask, forSubagent}` (a background task's end, `hub/bg_notify.rs`): `text` is what
+//!   the subagent reads, the rest is what the daemon needs to give it to the lead instead. Written whole under
 //!   another name first, then renamed, so no reader sees half of one.
 //! - `stopped`: the subagent's `SubagentStop` hook ran; it reads no more notices. Notices left
 //!   after it go to the lead.

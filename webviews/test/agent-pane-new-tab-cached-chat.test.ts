@@ -41,11 +41,12 @@ afterAll(() => {
 
 type Message = { id?: number; method: string; params?: Record<string, unknown> };
 type Step = [dir: string, kind: string, msg: Record<string, unknown>];
-type Page = { events: Step[]; from?: number; hasMore?: boolean };
+/// `seqs` numbers the records itself, for a page with a hole (a chunk missed live).
+type Page = { events: Step[]; from?: number; hasMore?: boolean; seqs?: number[] };
 
 const events = (sessionId: string, page: Page) =>
   page.events.map(([dir, kind, msg], at) => {
-    const seq = (page.from ?? 1) + at;
+    const seq = page.seqs?.[at] ?? (page.from ?? 1) + at;
     return { sessionId, seq, at: START + seq * 1000, dir, kind, msg };
   });
 
@@ -70,6 +71,8 @@ class Daemon {
   onmessage: ((message: { data: string }) => void) | null = null;
   hold?: string;
   fail?: string;
+  /** What acpmux stores of a chat, for `_acpmux/events` reads after a seq (a finished turn's repair). */
+  stored = new Map<string, Page>();
   /** Keeps every request of this method unanswered until `answerStalled` (a busy acpmux at launch). */
   stall?: string;
   private stalled: Message[] = [];
@@ -174,7 +177,12 @@ class Daemon {
         hasMore: page.hasMore === true,
       };
     } else if (message.method === "_acpmux/events") {
-      result = { events: [], hasMore: false, lastSeq: 0 };
+      const stored = this.stored.get(sessionId);
+      const after = Number(message.params?.afterSeq ?? Number.NaN);
+      result =
+        stored && Number.isFinite(after)
+          ? { events: events(sessionId, stored).filter((event) => event.seq > after), hasMore: false, lastSeq: 0 }
+          : { events: [], hasMore: false, lastSeq: 0 };
     }
     this.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) });
   }
@@ -426,10 +434,13 @@ test("a tail drawn while connecting does not say the chat is working", async () 
   live.push(await tab.client);
 });
 
-/// #32735: a connect that fails before the attach leaves no rows behind as if the page had read
-/// the chat, and the page's retry while acpmux stays down draws nothing early (no rows that come
-/// and go with each retry). The host keeps its tail: the chat itself was not refused.
-test("a tail drawn while connecting goes when the connect fails, and a retry does not redraw it", async () => {
+/// A connect that fails before the attach while acpmux is only coming back (its socket refused, as
+/// while it restarts after an update) keeps the rows it drew: the page's retry draws the same ones
+/// while it connects, so the pane never goes blank between them (Leo, 2026-11-09: "the chat loading
+/// kinda flickered in and out"). This takes back #32735's drop for that case only: the rows stay
+/// unread (`chatRead` stays unset by the failed open), and the attach lays its page over them. The
+/// host keeps its tail: the chat itself was not refused.
+test("a tail drawn while connecting stays when acpmux refuses the socket, and a retry draws the same rows", async () => {
   const chat = new Fixture("slow-socket-refused");
   chat.pages.set(chat.a, { events: [prompt("Look at the retry path"), reply(chat.a, "Retry added.")] });
   chat.pages.set(chat.b, { events: [prompt("Docs"), reply(chat.b, "Docs updated.")] });
@@ -438,29 +449,24 @@ test("a tail drawn while connecting goes when the connect fails, and a retry doe
   const first = chat.tab(chat.a, { holdConnect: true });
   await flush();
   expect(text(first.last())).toContain("Retry added.");
+  const drawn = first.drawn.length;
   first.daemon.refuse();
   await first.client.then(
     () => undefined,
     () => undefined,
   );
   await flush();
-  expect(text(first.last())).not.toContain("Retry added.");
-  expect(first.last()!.chatRead).not.toBe(true);
+  // No snapshot after the failure takes the rows away.
+  for (const snapshot of first.drawn.slice(drawn)) expect(text(snapshot)).toContain("Retry added.");
   expect(chat.host.tails.has(chat.a)).toBe(true);
 
   const retry = chat.tab(chat.a, { holdConnect: true, samePage: true });
   await flush();
-  expect(text(retry.last())).not.toContain("Retry added.");
+  expect(text(retry.last())).toContain("Retry added.");
   retry.daemon.connect();
   live.push(await retry.client);
   expect(text(retry.last())).toContain("Retry added.");
-
-  // That connect worked: the next cold open draws early again.
-  const later = chat.tab(chat.a, { holdConnect: true });
-  await flush();
-  expect(text(later.last())).toContain("Retry added.");
-  later.daemon.connect();
-  live.push(await later.client);
+  expect(retry.last()!.chatRead).toBe(true);
 });
 
 /// The flow this cache is named for, which every other test here reaches the long way round: the
@@ -739,4 +745,124 @@ test("a host that answers something other than a tail leaves the chat to open co
     expect(text(tab.last())).toContain("Retry added.");
     client.close();
   }
+});
+
+/// Leo, 2026-11-08: "after a restart, it sort of doesn't load a ton of your recent messages, and
+/// it's just a bunch of, like, your tool calls and then, like, my messages to you ... what you saw
+/// when you clicked the restart button should ... be like, Oh, okay, here's literally what you just
+/// had". acpmux journals each streamed word group as its own record, and a working chat's records
+/// are mostly thinking chunks, so a tail of the newest 400 records held a few turns' worth of
+/// fragments. The tail keeps whole messages: 400 records once each message's chunks are one.
+test("a working chat's kept tail holds its recent turns whole, not the last 400 streamed fragments", async () => {
+  const chat = new Fixture("streamed");
+  const TURNS = 30;
+  const update = (kind: string, text: string, messageId?: string): Step => [
+    "in",
+    kind,
+    {
+      method: "session/update",
+      params: {
+        sessionId: chat.a,
+        update: { sessionUpdate: kind, content: { type: "text", text }, ...(messageId ? { messageId } : {}) },
+      },
+    },
+  ];
+  const steps: Step[] = [];
+  for (let turn = 1; turn <= TURNS; turn += 1) {
+    steps.push(prompt(`Question ${turn}`), ["mux", "turn_started", {}]);
+    for (let chunk = 0; chunk < 40; chunk += 1) steps.push(update("agent_thought_chunk", `think ${turn}.${chunk} `));
+    for (const word of `Answer ${turn} is in the retry path.`.split(/(?<= )/))
+      steps.push(update("agent_message_chunk", word, `msg-${turn}`));
+    steps.push(["mux", "turn_result", { stopReason: "end_turn" }]);
+  }
+  chat.pages.set(chat.a, { events: steps });
+  chat.pages.set(chat.b, { events: [prompt("Docs"), reply(chat.b, "Docs updated.")] });
+  await chat.readInATab();
+
+  // Relaunched, with acpmux slow to answer: the tail alone is on screen.
+  const tab = chat.tab(chat.a, { hold: true });
+  await tab.daemon.asked;
+  await flush();
+  const drawn = text(tab.last());
+  for (let turn = 1; turn <= TURNS; turn += 1) {
+    expect(drawn).toContain(`Question ${turn}"`);
+    expect(drawn).toContain(`Answer ${turn} is in the retry path.`);
+  }
+
+  // acpmux answers with its newest page of raw chunks, which overlaps the tail: each reply is
+  // still drawn once, not its chunks a second time after the tail's whole message.
+  const newest = 400;
+  chat.pages.set(chat.a, { events: steps.slice(-newest), from: steps.length - newest + 1, hasMore: true });
+  tab.daemon.release();
+  live.push(await tab.client);
+  await flush();
+  const attached = text(tab.last());
+  for (let turn = 1; turn <= TURNS; turn += 1)
+    expect(attached.split(`Answer ${turn} is in the retry path.`).length - 1).toBe(1);
+  expect(attached.split(`think ${TURNS}.39 `).length - 1).toBe(1);
+});
+
+/// #39431 review: a finished turn is repaired from acpmux's stored records (direct.ts
+/// `checkFinishedTurn`), merging only the records the pane does not hold. A tail's joined reply
+/// holds its first chunk's seq, so that read left the joined text as it was, missed chunk and all.
+test("a finished turn's repair restores a chunk a joined tail reply missed", async () => {
+  const chat = new Fixture("joined-repair");
+  const chunk = (text: string): Step => [
+    "in",
+    "agent_message_chunk",
+    {
+      method: "session/update",
+      params: {
+        sessionId: chat.a,
+        update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text }, messageId: "m-1" },
+      },
+    },
+  ];
+  // Read live with chunk 4 ("B") missed: the tail joins "A" and "C".
+  const whole: Step[] = [prompt("Go"), ["mux", "turn_started", {}], chunk("A"), chunk("B"), chunk("C")];
+  chat.pages.set(chat.a, { events: [whole[0]!, whole[1]!, whole[2]!, whole[4]!], seqs: [1, 2, 3, 5] });
+  chat.pages.set(chat.b, { events: [prompt("Docs"), reply(chat.b, "Docs updated.")] });
+  await chat.readInATab();
+  // The next open's attach page starts inside the reply: the joined record stays.
+  chat.pages.set(chat.a, { events: [whole[4]!], from: 5, hasMore: true });
+  const tab = chat.tab(chat.a);
+  const client = await tab.client;
+  live.push(client);
+  await flush();
+  expect(text(tab.last())).toContain("AC");
+  // The turn ends; its repair reads what acpmux stored.
+  tab.daemon.stored.set(chat.a, { events: whole });
+  (client as unknown as { checkFinishedTurn(sessionId: string, endSeq: number): void }).checkFinishedTurn(chat.a, 6);
+  await flush();
+  expect(text(tab.last())).toContain("ABC");
+});
+
+/// #39431 review: an attach page that starts inside a joined tail reply holds chunks the joined
+/// record may lack (one the tail missed live). The rest of the reply is read from acpmux, so the
+/// reply is drawn as acpmux holds it, even when its turn ended while the chat was away and no live
+/// turn end comes to repair it.
+test("an attach page starting inside a joined tail reply brings back a chunk the tail missed", async () => {
+  const chat = new Fixture("joined-attach");
+  const chunk = (text: string): Step => [
+    "in",
+    "agent_message_chunk",
+    {
+      method: "session/update",
+      params: {
+        sessionId: chat.a,
+        update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text }, messageId: "m-1" },
+      },
+    },
+  ];
+  // Read live with chunk 3 ("B") missed: the tail joins 2:"A" and 4:"C".
+  chat.pages.set(chat.a, { events: [prompt("Go"), chunk("A"), chunk("C")], seqs: [1, 2, 4] });
+  chat.pages.set(chat.b, { events: [prompt("Docs"), reply(chat.b, "Docs updated.")] });
+  await chat.readInATab();
+  // The next open's attach page is 3:"B", 4:"C", and acpmux holds the whole reply.
+  chat.pages.set(chat.a, { events: [chunk("B"), chunk("C")], seqs: [3, 4], hasMore: true });
+  const tab = chat.tab(chat.a);
+  tab.daemon.stored.set(chat.a, { events: [prompt("Go"), chunk("A"), chunk("B"), chunk("C")] });
+  live.push(await tab.client);
+  await flush();
+  expect(text(tab.last())).toContain('"text":"ABC"');
 });
