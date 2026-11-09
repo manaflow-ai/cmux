@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42543805767",
+  "recorded_at": "2026-11-09T01:17:24Z",
+  "reason": "cmux-tui ef3fe8db6e2b changes the image's cmux-tui (pinned 7679859e451b)",
+  "dry_run": false,
+  "cmux_tui": "ef3fe8db6e2babbbcdc1aef5276d1886addd78f1",
+  "fixes": [
+    {
+      "sha": "ef3fe8db6e2babbbcdc1aef5276d1886addd78f1",
+      "mergedAt": "2026-11-08T16:49:45-08:00",
+      "subject": "relay: a surviving legacy registration gets the circuits a dead one held during the upgrade (#38942) (#38947)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T01:17:24Z",
+    "snapshot_id": "sh-69f583b314c94be89562ad041bd04f07",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42543805767): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "edf3db35eadba92164ed580569077496c8089832",
+    "image": "cloud-native-auto-ef3fe8db-42543805767-1",
+    "revision": "ci-42543805767-1",
+    "at": "2026-11-09T01:17:24Z"
+  },
+  "rolled_back": false
+}
