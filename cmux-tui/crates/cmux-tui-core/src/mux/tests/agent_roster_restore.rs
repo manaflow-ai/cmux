@@ -506,3 +506,73 @@ fn a_terminal_retired_during_the_rebuild_stays_retired() {
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// A rebuild that gave up leaves the roster stale for the rest of the run,
+/// not only marked stale for the next start: projections (terminal adoption,
+/// respawn, the open's reconcile) are not reconciled from it.
+#[test]
+fn a_rebuild_that_gave_up_keeps_the_roster_stale() {
+    use crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION;
+    use crate::mux::agent_roster_fold::rebuild_faults;
+    let session = "roster-rebuild-gave-up-stale";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-roster-gave-up-stale-{}", crate::workspace_registry::new_uuid_v4()));
+    store_with_a_previous_version_snapshot(
+        session,
+        &root,
+        AGENT_ROSTER_REDUCER_VERSION - 1,
+        |_, _| {},
+    );
+    rebuild_faults::fail_reads(session, u32::MAX);
+    let mux = open_persistent_test_mux(session, &root);
+    mux.stop_journal_maintenance();
+    assert!(rebuild_ends_on_its_own(&mux));
+    assert!(mux.agent_roster_stale(), "a roster whose rebuild gave up is reconciled from");
+    rebuild_faults::fail_reads(session, 0);
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// When the start could not write the stale mark, a live pass does not save
+/// the migrated roster at the current version either: a stop before the
+/// rebuild finished would leave a snapshot every later start trusts. It
+/// saves at the version the roster was migrated from, so the next start
+/// migrates and marks it again.
+#[test]
+fn a_live_pass_does_not_save_an_unmarked_migrated_roster_at_the_current_version() {
+    use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION};
+    use crate::mux::agent_roster_fold::rebuild_faults;
+    let session = "roster-unmarked-live-save";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-roster-unmarked-save-{}", crate::workspace_registry::new_uuid_v4()));
+    let previous = AGENT_ROSTER_REDUCER_VERSION - 1;
+    let (terminal, _) = store_with_a_previous_version_snapshot(session, &root, previous, |_, _| {});
+    let database =
+        WorkspaceRegistry::open(&root, session).unwrap().session_journal_database_path().unwrap();
+    rusqlite::Connection::open(&database)
+        .unwrap()
+        .execute_batch(&format!(
+            "CREATE TRIGGER refuse_rebuild_mark BEFORE INSERT ON meta
+             WHEN NEW.key = 'journal_reducer_rebuild.{AGENT_ROSTER_REDUCER_ID}'
+             BEGIN SELECT RAISE(ABORT, 'the mark is refused'); END;"
+        ))
+        .unwrap();
+    // The rebuild does not finish in this run (the daemon stops first).
+    rebuild_faults::hold(session, true);
+    let mux = open_persistent_test_mux(session, &root);
+    append_journal_hook(&mux, &terminal, "Stop", Some("bump"));
+    assert_eq!(roster_agent_state(&mux, &terminal).as_deref(), Some("idle"));
+    let (version, _, _) = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .journal_reducer_state(AGENT_ROSTER_REDUCER_ID)
+        .unwrap()
+        .unwrap();
+    assert_eq!(version, previous, "a live pass saved the unmarked migrated roster as current");
+    rebuild_faults::hold(session, false);
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}

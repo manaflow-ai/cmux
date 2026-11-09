@@ -40,10 +40,12 @@ export const INTENT_TOMBSTONE_MS = 7 * 24 * 3_600_000;
 export const INTENT_STALE_CLAIM_MS = 10 * 60_000;
 /**
  * How long after a provider create was sent a revoke that finds no tunnel at its slug keeps answering 503. Past it the
- * attempt is resolved and the revoke answers 200. This is when a revoke may answer, not a proof that nothing landed: a
- * create the provider processes later still makes its tunnel, and the tunnel orphan sweep
- * (src/upstream/orphan-sweep.ts) deletes every tunnel at a device slug whose attempt is resolved or whose intent is
- * revoked. A resolved attempt never commits (`commitDeviceIntent`), so such a tunnel never backs a device.
+ * attempt is resolved and the revoke's 200 is final: no device of the intent can become live, and the tunnel orphan
+ * sweep owns whatever lands later. This is when a revoke may answer, not a proof that nothing landed: a create the
+ * provider processes later still makes its tunnel. The sweep (src/upstream/orphan-sweep.ts), run by the cron in every
+ * environment the VM API runs in (src/cron-plan.ts), deletes every tunnel at a device slug whose attempt is resolved or
+ * whose intent is revoked, and a resolved attempt never commits (`commitDeviceIntent`), so such a tunnel never backs a
+ * device.
  */
 export const INTENT_SEND_GRACE_MS = 15 * 60_000;
 /** A reconcile token's lease; each reconcile step renews it, and a lapsed one may be taken over. */
@@ -111,9 +113,10 @@ export const claimIsReconcilable = (attempt: IntentAttemptRow, now: Date): boole
 
 /**
  * A sent attempt the provider has no tunnel for is resolved when the provider answered its create (`answeredAt`, set
- * for every reply the provider itself sent, success or error), or once its send can no longer land. A create that only
- * finished (`finishedAt`) after its call timed out, lost its connection or got a gateway status proves nothing: the
- * aborted request may still be processed, so only the grace ends it.
+ * for every reply the provider itself sent, success or error), or once INTENT_SEND_GRACE_MS passed since its send (after
+ * which the tunnel sweep owns anything that still lands). A create that only finished (`finishedAt`) after its call
+ * timed out, lost its connection or got a gateway status proves nothing: the aborted request may still be processed, so
+ * only the grace ends it.
  */
 export const absenceIsFinal = (attempt: IntentAttemptRow, now: Date): boolean =>
   attempt.sentAt === null || attempt.upstreamId !== null || attempt.answeredAt !== null || now.getTime() - attempt.sentAt.getTime() >= INTENT_SEND_GRACE_MS;
@@ -195,7 +198,9 @@ export interface DeviceIntentStore {
   readonly commitDeviceIntent: (tenantId: TenantId, intentId: string, device: MeshDeviceRow, at: Date) => Effect.Effect<boolean, StoreError>;
   /**
    * Ends the live claim of `deviceId` (and its commit) so another enroll may claim the intent. Only for an attempt that is
-   * resolved, or that a caller reconciles next. A revoked intent keeps its claim pointer.
+   * resolved, or that a caller reconciles next. A revoked intent keeps its claim pointer and commit until the attempt is
+   * resolved (its tunnel's deletion confirmed), so a revoke still deletes a device it may have made; after that it is
+   * released too, so once its tombstone expires the intent can be used again.
    */
   readonly releaseDeviceIntent: (key: AttemptKey) => Effect.Effect<void, StoreError>;
   /** Undoes the commit of `deviceId` (its device was removed again) and keeps its claim: its attempt is not resolved. */
@@ -529,8 +534,11 @@ export const sqlDeviceIntents = (sql: SqlClientService): DeviceIntentStore => ({
     sql
       .query(
         "intent.release",
-        `UPDATE cmux_vm.mesh_device_intents SET device_cmux_id = NULL, committed_at = NULL
-          WHERE tenant_id = $1 AND mesh_cmux_id = $2 AND intent_id = $3 AND device_cmux_id = $4 AND revoked_at IS NULL`,
+        `UPDATE cmux_vm.mesh_device_intents i SET device_cmux_id = NULL, committed_at = NULL
+          WHERE i.tenant_id = $1 AND i.mesh_cmux_id = $2 AND i.intent_id = $3 AND i.device_cmux_id = $4
+            AND (i.revoked_at IS NULL OR EXISTS (
+              SELECT 1 FROM cmux_vm.mesh_device_intent_attempts a
+               WHERE a.tenant_id = $1 AND a.mesh_cmux_id = $2 AND a.intent_id = $3 AND a.device_cmux_id = $4 AND a.resolved_at IS NOT NULL))`,
         keyParams(key),
       )
       .pipe(Effect.asVoid),
@@ -710,7 +718,9 @@ export const memoryDeviceIntents = (
     releaseDeviceIntent: (key) =>
       Effect.sync(() => {
         const row = find(key.tenantId, key.meshId, key.intentId);
-        if (row !== undefined && row.deviceId === key.deviceId && row.revokedAt === null) Object.assign(row, { deviceId: null, committedAt: null });
+        if (row === undefined || row.deviceId !== key.deviceId) return;
+        const attempt = findAttempt(key);
+        if (row.revokedAt === null || (attempt !== undefined && attempt.resolvedAt !== null)) Object.assign(row, { deviceId: null, committedAt: null });
       }),
     uncommitDeviceIntent: (key) =>
       Effect.sync(() => {
