@@ -183,6 +183,19 @@ function devServerToken(): Plugin {
         }
         next();
       });
+      // After Vite's own middleware: its SPA fallback rewrote a file it does not have to the root
+      // index.html (the diff viewer) with a 200. cmux, which sends the nonce, takes a 200 and falls
+      // back to the overlay or bundled copy only on a 4xx, so a bundled page's chunk, stylesheet or
+      // JSON became HTML (the page's React content went blank) and a page missing from this checkout
+      // was the diff viewer. cmux gets a 404; a browser keeps the fallback (the guest page's routes).
+      return () => {
+        server.middlewares.use((request, response, next) => {
+          const asked = new URL(request.originalUrl ?? "/", "http://localhost").pathname;
+          const fellBack = request.url === "/index.html" && asked !== "/" && asked !== "/index.html";
+          if (fellBack && request.headers[DEV_NONCE_HEADER]) return send(response, 404, "text/plain", "");
+          next();
+        });
+      };
     },
   };
 }
