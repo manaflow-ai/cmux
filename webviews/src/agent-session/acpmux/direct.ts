@@ -7970,6 +7970,8 @@ export class AcpmuxDirectClient {
         if (agentStarted && this.progressRow) this.progressSuperseded = true;
         this.turnOpen = true;
         this.turnStartedAtMs = event.at;
+        // A turn's claim_checks mark its own reply: until it replies, there is none to mark.
+        this.lastReplyRow = undefined;
         if (startedTurnId !== undefined) this.runningTurnId = startedTurnId;
         else if (agentStarted) this.runningTurnId = undefined;
         this.turnTokens = event.seq >= this.usageFromSeq ? 0 : undefined;
