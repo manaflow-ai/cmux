@@ -96,8 +96,8 @@ fn notice_text(report: &Report) -> String {
     let name = &report.name;
     format!(
         "[acpmux] A session you started or prompted without waiting for its reply ended a \
-turn. Its report:\n{}\nAnswer it only if it needs you: `acpmux send {name} \"…\"`; `acpmux last \
-{name}` reads its whole reply.",
+turn. Its report:\n{}\nAnswer it only if it needs you, with the send tool (to: \"{name}\"); the \
+last tool (name: \"{name}\") reads its whole reply.",
         report.text()
     )
 }

@@ -12,10 +12,11 @@ pub(crate) const FILE: &str = "turns.jsonl";
 
 /// Folds `path` into `state`; returns its size. A complete line that does not parse is skipped.
 /// A last line with no newline (a write torn by a crash) is cut off the file, so the next append
-/// starts a line of its own instead of joining the fragment.
+/// starts a line of its own instead of joining the fragment. The file counts as existing
+/// (`State::existed`, no seed) only once a line of it parsed: an empty file, or one holding only a
+/// torn or unreadable first write, is seeded again rather than taken for a ledger.
 pub(crate) fn fold(path: &Path, state: &mut State) -> u64 {
     let Ok(file) = File::open(path) else { return 0 };
-    state.existed = true;
     let mut reader = BufReader::new(file);
     let mut buf = Vec::new();
     let mut whole: u64 = 0;
@@ -35,7 +36,10 @@ pub(crate) fn fold(path: &Path, state: &mut State) -> u64 {
             continue;
         }
         match serde_json::from_str::<Line>(text) {
-            Ok(line) => apply(state, line),
+            Ok(line) => {
+                state.existed = true;
+                apply(state, line);
+            }
             Err(e) => tracing::debug!("ledger: skipped a line: {e}"),
         }
     }
@@ -106,6 +110,14 @@ struct Writer {
     floor: u64,
     /// Lines up to this seq are already in a compacted file.
     written_upto: u64,
+    /// The first seed's rewrite failed: nothing is appended (a line in the file would read as a
+    /// ledger and skip the seed for good) and every step tries the rewrite again. A restart
+    /// before one lands finds no ledger and seeds again.
+    seed_pending: bool,
+    /// A first start that the hub will seed: nothing reaches the file before the seed's rewrite.
+    /// A line appended before it (a watcher's turn while the store loads) would read as a ledger,
+    /// and a crash before the rewrite landed would skip the seed for good.
+    awaiting_seed: bool,
     state: Arc<Mutex<State>>,
 }
 
@@ -128,6 +140,10 @@ impl Writer {
     }
 
     fn write(&mut self, text: &str) {
+        if self.seed_pending || self.awaiting_seed || text.is_empty() {
+            // Held in the state: the seed's rewrite carries it.
+            return;
+        }
         let Some(file) = self.file() else { return };
         match file.write_all(text.as_bytes()) {
             Ok(()) => self.size += text.len() as u64,
@@ -136,21 +152,24 @@ impl Writer {
     }
 
     fn maybe_compact(&mut self) {
-        if self.size <= self.compact_bytes.max(self.floor.saturating_mul(2)) {
+        if self.awaiting_seed || self.size <= self.compact_bytes.max(self.floor.saturating_mul(2)) {
             return;
         }
-        self.compact();
+        let _ = self.compact();
     }
 
-    /// Rewrites the file as the state's buckets and sessions.
-    fn compact(&mut self) {
+    /// Rewrites the file as the state's buckets and sessions, through a temporary file and a
+    /// rename: a crash leaves the old file or the new one, never part of either. True when it did.
+    fn compact(&mut self) -> bool {
         let (lines, seq) = {
             let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             (snapshot(&state), state.seq)
         };
         let tmp = self.dir.join(format!("{FILE}.tmp"));
         let text: String = lines.iter().filter_map(encode).collect();
-        let written = std::fs::write(&tmp, text.as_bytes())
+        // The first seed's rewrite may be the first write of all: the folder may not exist yet.
+        let written = std::fs::create_dir_all(&self.dir)
+            .and_then(|()| std::fs::write(&tmp, text.as_bytes()))
             .and_then(|()| File::open(&tmp)?.sync_all())
             .and_then(|()| std::fs::rename(&tmp, &self.path));
         match written {
@@ -159,13 +178,37 @@ impl Writer {
                 self.size = text.len() as u64;
                 self.floor = self.size;
                 self.written_upto = seq;
+                true
             }
             Err(e) => {
                 let _ = std::fs::remove_file(&tmp);
                 tracing::warn!("ledger: compaction failed: {e}");
                 // Try again only after as much again has been appended.
                 self.floor = self.size;
+                false
             }
+        }
+    }
+
+    /// The first start's seed ([`super::Ledger::seed`]): written as one compaction, so a crash
+    /// while seeding leaves no ledger file and the next start seeds again. A rewrite that fails
+    /// is tried again at every step ([`Writer::seed_pending`]), never replaced by appends.
+    fn seed(&mut self) {
+        self.awaiting_seed = false;
+        self.seed_pending = !self.compact();
+    }
+
+    /// Ends a step: a pending seed's rewrite again, else a compaction when one is due (`now`:
+    /// at once, for a purge).
+    fn settle(&mut self, now: bool) {
+        if self.awaiting_seed {
+            // The seed's rewrite carries everything held.
+        } else if self.seed_pending {
+            self.seed_pending = !self.compact();
+        } else if now {
+            let _ = self.compact();
+        } else {
+            self.maybe_compact();
         }
     }
 
@@ -212,25 +255,23 @@ impl Writer {
                         self.write(&std::mem::take(&mut text));
                         self.repo(sid, &cwd);
                     }
+                    Work::Seed => {
+                        // Lines queued before it are in the state the seed writes: none is
+                        // appended first, so the file is the whole rewrite or nothing.
+                        text.clear();
+                        self.seed();
+                    }
                     #[cfg(test)]
                     Work::Flush(done) => {
                         self.write(&std::mem::take(&mut text));
-                        if std::mem::take(&mut purged) {
-                            self.compact();
-                        } else {
-                            self.maybe_compact();
-                        }
+                        self.settle(std::mem::take(&mut purged));
                         let _ = done.send(());
                     }
                 }
             }
             self.write(&text);
-            if purged {
-                // A purged session's lines leave the file now, not at the next size bound.
-                self.compact();
-            } else {
-                self.maybe_compact();
-            }
+            // A purged session's lines leave the file now, not at the next size bound.
+            self.settle(purged);
         }
     }
 }
@@ -264,12 +305,23 @@ pub(crate) fn spawn_writer(
     path: PathBuf,
     size: u64,
     compact_bytes: u64,
+    awaiting_seed: bool,
     state: Arc<Mutex<State>>,
 ) -> Option<(Sender<Work>, WriterThread)> {
     let (tx, rx) = std::sync::mpsc::channel();
     let (end_tx, ended) = std::sync::mpsc::sync_channel::<()>(0);
-    let writer =
-        Writer { dir, path, file: None, size, compact_bytes, floor: 0, written_upto: 0, state };
+    let writer = Writer {
+        dir,
+        path,
+        file: None,
+        size,
+        compact_bytes,
+        floor: 0,
+        written_upto: 0,
+        seed_pending: false,
+        awaiting_seed,
+        state,
+    };
     let spawned = std::thread::Builder::new().name("acpmux-ledger".into()).spawn(move || {
         let _end = end_tx;
         writer.run(rx);

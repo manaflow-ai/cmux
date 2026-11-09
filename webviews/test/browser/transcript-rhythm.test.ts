@@ -72,6 +72,8 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
             const prompt = rect('[data-row-id="grid-prompt"] .cv-user__bubble');
             const message = rect('[data-row-id="grid-message"] .cv-md');
             const group = rect(".acpmux-activity .cv-tools > .cv-tool");
+            // The whole run: a running turn keeps its calls in sight under the group's line (cmux#38339).
+            const run = rect(".acpmux-activity .cv-tools");
             const live = rect(
               ".acpmux-thinking .cv-worked, .acpmux-working .cv-worked, .acpmux-activityLine .cv-activity",
             );
@@ -122,8 +124,8 @@ await requireBrowserLane("transcript-rhythm.test.ts", async () => {
               chevron,
               copy,
               gaps: [message.top - header.bottom, group.top - message.bottom],
-              // The live state keeps the scaled run gap below completed activity.
-              liveUnderRun: live.top - group.bottom,
+              // The live state keeps the scaled run gap below completed activity, its last row.
+              liveUnderRun: live.top - run.bottom,
               inner: paragraphs[1]!.top - paragraphs[0]!.bottom,
               composerGap: composer.top - live.bottom,
               floating: Boolean(document.querySelector(".acpmux-main[data-dock=float]")),

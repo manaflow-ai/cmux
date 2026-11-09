@@ -439,18 +439,17 @@
 /* A huge paste in the text: the strip's page of its first lines (composerAttachments.css
    .acpmux-text-card), as tall as a thumbnail in the text (two control rows), two lines over its
    label; never the underlined name above. */
+/* An oversized paste's chip in the text (composer/PastedTextChip.tsx): as wide as its label needs,
+   never wider than the line. Its width is its own fit (`auto`): the node's box around it shrinks to
+   it, so a percentage cap there would have nothing to measure against. */
 .acpmux-md-inline-chip[data-preview="text"] {
   justify-content: stretch;
-  /* Wide enough for two wrapped lines of the paste and its size ("42 lines · 1.8K characters"). */
-  width: 256px;
-  max-width: min(256px, 100%);
+  width: auto;
+  max-width: 320px;
   height: calc(var(--cmux-control-height, 24px) * 2);
   padding: 0;
 }
 .acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-retry {
-  flex: 1;
-  min-width: 0;
-  padding: 4px 12px;
   border-radius: inherit;
   text-decoration: none;
 }
@@ -463,6 +462,12 @@
 }
 .acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-remove {
   top: 3px;
+}
+.acpmux-md-inline-chip[data-preview="text"][data-design="expand"] {
+  height: auto;
+}
+.acpmux-md-inline-chip[data-preview="text"][data-design="expand"] > .acpmux-paste-chip__face {
+  height: calc(var(--cmux-control-height, 24px) * 2);
 }
 /* A failed tile in the text: its kind's glyph and the strip's small retry button side by side. */
 .acpmux-md-inline-chip[data-state="failed"] {

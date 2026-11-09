@@ -337,6 +337,71 @@ fn a_first_start_seeds_each_session_once() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A crash during the first start's seed must not stand in for a ledger. The seed used to append
+/// a line per row, so a crash part way through left a file that folded as existing: no reseed,
+/// and the sessions after the crash had no rows, for good. Now the seed is one rewrite (the
+/// file holds the whole snapshot or nothing), and a file with no line that parses, such as a
+/// first write torn by the crash, is seeded again.
+#[test]
+fn a_torn_or_partial_first_seed_is_rebuilt() {
+    let dir = scratch("seed-torn");
+    let path = dir.join(store::FILE);
+    let seed = |id: &str, cost: f64| Seed {
+        id: id.into(),
+        at: D0 + 5,
+        turns: 2,
+        totals: TurnUsage { cost_usd: Some(cost), ..Default::default() },
+        ctx: TurnContext { model: Some("claude-opus-5-5".into()), ..ctx("claude", "claude") },
+    };
+    // The crash cut the seed's first line short: nothing in the file parses.
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(&path, br#"{"t":"s","sid":"a","info":{"title":"cla"#).unwrap();
+    {
+        let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+        assert!(l.wants_seed(), "a file with no whole line is not a ledger");
+        l.seed(vec![seed("a", 1.0), seed("b", 2.0), seed("c", 4.0)]);
+        l.flush();
+    }
+    // The seed is the state's snapshot, written whole: every session line, then every bucket,
+    // not the row-by-row appends a crash could stop between.
+    let text = std::fs::read_to_string(&path).unwrap();
+    let kinds: Vec<&str> =
+        text.lines().map(|line| if line.contains("\"t\":\"s\"") { "s" } else { "u" }).collect();
+    assert_eq!(kinds, ["s", "s", "s", "u", "u", "u"], "{text}");
+    assert!(!dir.join(format!("{}.tmp", store::FILE)).exists());
+    let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    assert!(!l.wants_seed());
+    let reply = l.query(&all(D0, D0));
+    assert_eq!(reply.totals.turns, 6);
+    assert!((reply.totals.cost_usd - 7.0).abs() < 1e-9);
+    // A turn after the seed appends after it, and a restart keeps both.
+    turn(
+        &l,
+        "a",
+        D0 + 100,
+        0,
+        json!({"model": "claude-opus-5-5", "costUsd": 0.5}),
+        "claude",
+        "claude",
+    );
+    l.flush();
+    drop(l);
+    let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    assert_eq!(l.query(&all(D0, D0)).totals.turns, 7);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// An empty ledger file (created, never written) is not a ledger either.
+#[test]
+fn an_empty_ledger_file_is_seeded() {
+    let dir = scratch("seed-empty");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(store::FILE), b"").unwrap();
+    let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    assert!(l.wants_seed());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A read visits the buckets of its days only: a year of other days, and thousands of other
 /// sessions on them, add nothing to it.
 #[test]
@@ -595,6 +660,23 @@ fn nothing_is_recorded_about_a_session_after_its_purge() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A purge blocks its id only until a chat is created under it again (a trigger's fixed id):
+/// the new chat's turns count, the purged one's spend does not come back.
+#[test]
+fn a_chat_recreated_under_a_purged_id_counts_again() {
+    let l = mem();
+    let cost = json!({"model": "claude-opus-5-5", "costUsd": 1.0});
+    turn(&l, "same", D0, 0, cost.clone(), "claude", "claude");
+    l.purge("same");
+    turn(&l, "same", D0 + 1_000, 0, cost.clone(), "claude", "claude");
+    assert_eq!(l.query(&all(D0, D0)).totals.turns, 0);
+    l.reopen("same");
+    turn(&l, "same", D0 + 60_000, 0, cost.clone(), "claude", "claude");
+    let reply = l.query(&all(D0, D0));
+    assert_eq!(reply.totals.turns, 1);
+    assert!((reply.totals.cost_usd - 1.0).abs() < 1e-9);
+}
+
 #[test]
 fn a_meta_change_writes_one_session_line_only_when_a_field_changed() {
     let dir = scratch("session-info");
@@ -634,4 +716,141 @@ fn a_meta_change_writes_one_session_line_only_when_a_field_changed() {
     assert_eq!(row.account.as_deref(), Some("home"));
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_cut_session_list_keeps_the_biggest_spenders() {
+    let l = mem();
+    // The oldest chat spent the most; two newer ones spent less.
+    turn(&l, "old", D0, 0, json!({"costUsd": 9.0}), "claude", "claude");
+    turn(&l, "new", D0 + 10, 0, json!({"costUsd": 1.0}), "claude", "claude");
+    turn(&l, "newer", D0 + 20, 0, json!({"costUsd": 2.0}), "claude", "claude");
+    let reply = l.query(&LedgerQuery { limit: 2, ..all(D0, D0 + 20) });
+    let ids: Vec<_> = reply.rows.iter().map(|r| r.session_id.as_str()).collect();
+    assert_eq!(ids, ["old", "newer"]);
+    // The totals still count every chat.
+    assert_eq!(reply.totals.sessions, 3);
+}
+
+/// A first seed whose rewrite fails writes nothing rather than a part: a line in the file would
+/// read as a ledger and skip the seed for good. The rewrite is tried again at the next step, and a
+/// restart before one lands seeds again.
+#[test]
+fn a_failed_seed_rewrite_leaves_no_partial_ledger() {
+    let dir = scratch("seed-fails");
+    let path = dir.join(store::FILE);
+    let tmp = dir.join(format!("{}.tmp", store::FILE));
+    let seed = |id: &str| Seed {
+        id: id.into(),
+        at: D0 + 5,
+        turns: 1,
+        totals: TurnUsage { cost_usd: Some(1.0), ..Default::default() },
+        ctx: TurnContext { model: Some("claude-opus-5-5".into()), ..ctx("claude", "claude") },
+    };
+    // A directory where the rewrite's temporary file goes: the rewrite fails.
+    std::fs::create_dir_all(&tmp).unwrap();
+    let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    assert!(l.wants_seed());
+    l.seed(vec![seed("a"), seed("b")]);
+    l.flush();
+    // A turn while the seed waits appends nothing either.
+    turn(&l, "a", D0 + 100, 0, json!({"costUsd": 0.5}), "claude", "claude");
+    l.flush();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    assert!(text.is_empty(), "{text}");
+    assert!(Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into()).wants_seed());
+    // Once the rewrite can land, the next step writes the whole state.
+    std::fs::remove_dir_all(&tmp).unwrap();
+    turn(&l, "b", D0 + 200, 0, json!({"costUsd": 0.25}), "claude", "claude");
+    l.flush();
+    drop(l);
+    let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    assert!(!l.wants_seed());
+    assert_eq!(l.query(&all(D0, D0)).totals.turns, 4);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A first start writes nothing before its seed: a watcher's turn while the store loads would
+/// otherwise make a file that reads as a ledger, and a crash before the seed's rewrite landed
+/// would skip the seed for good. The seed's rewrite carries the held turn.
+#[test]
+fn a_first_start_writes_nothing_before_its_seed() {
+    let dir = scratch("seed-holds");
+    let path = dir.join(store::FILE);
+    let l = Ledger::open_as(Some(dir.clone()), COMPACT_BYTES, "leo@test".into(), true);
+    turn(&l, "live", D0 + 100, 0, json!({"costUsd": 0.5}), "claude", "claude");
+    l.flush();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    assert!(text.is_empty(), "{text}");
+    // A crash here: the next start still seeds.
+    assert!(Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into()).wants_seed());
+    l.seed(vec![Seed {
+        id: "old".into(),
+        at: D0 + 5,
+        turns: 2,
+        totals: TurnUsage { cost_usd: Some(1.0), ..Default::default() },
+        ctx: TurnContext { model: Some("claude-opus-5-5".into()), ..ctx("claude", "claude") },
+    }]);
+    l.flush();
+    drop(l);
+    let after = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    assert!(!after.wants_seed());
+    let t = after.query(&all(D0, D0)).totals;
+    assert_eq!(t.turns, 3);
+    assert!((t.cost_usd - 1.5).abs() < 1e-9);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A first start with nothing to seed still ends the hold: later turns reach the file.
+#[test]
+fn an_empty_seed_ends_the_hold() {
+    let dir = scratch("seed-empty-ends-hold");
+    let l = Ledger::open_as(Some(dir.clone()), COMPACT_BYTES, "leo@test".into(), true);
+    l.seed(Vec::new());
+    turn(&l, "a", D0, 0, json!({"costUsd": 0.5}), "claude", "claude");
+    l.flush();
+    drop(l);
+    let after = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    assert!(!after.wants_seed());
+    assert_eq!(after.query(&all(D0, D0)).totals.turns, 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A deleted chat's late record, after a new chat took its id, neither counts nor removes the
+/// new chat's spend: the old chat's own flag is read under the ledger's lock.
+#[test]
+fn a_deleted_chats_late_record_leaves_its_replacement_alone() {
+    let l = mem();
+    let c = || ctx("claude", "claude");
+    let old = AtomicBool::new(false);
+    let new = AtomicBool::new(false);
+    let r = |l: &Ledger, gone: &AtomicBool, kind: &str, at: u64, msg: Value| {
+        let dir = match kind {
+            "user_message" => "out",
+            "tool_call" => "in",
+            _ => "mux",
+        };
+        l.record_as("same", Some(gone), &rec(dir, kind, at, msg), c);
+    };
+    r(&l, &old, "user_message", D0, json!({"text": "go"}));
+    r(&l, &old, "turn_started", D0 + 1_000, json!({}));
+    // Deleted (`Hub::kill` sets the flag, then purges), then created again under the same id.
+    old.store(true, Ordering::SeqCst);
+    l.purge("same");
+    l.reopen("same");
+    r(&l, &new, "user_message", D0 + 60_000, json!({"text": "go"}));
+    r(&l, &new, "turn_started", D0 + 61_000, json!({}));
+    // The old chat's paused watcher resumes: a tool call and a result.
+    r(&l, &old, "tool_call", D0 + 62_000, json!({}));
+    r(&l, &old, "turn_result", D0 + 63_000, json!({"costUsd": 5.0}));
+    assert!(l.lock().open.contains_key("same"), "the new chat's turn is still open");
+    r(&l, &new, "turn_result", D0 + 71_000, json!({"costUsd": 1.0}));
+    let t = l.query(&all(D0, D0)).totals;
+    assert_eq!(t.turns, 1);
+    assert!((t.cost_usd - 1.0).abs() < 1e-9, "{}", t.cost_usd);
+    // The new chat keeps counting.
+    r(&l, &new, "user_message", D0 + 80_000, json!({"text": "go"}));
+    r(&l, &new, "turn_started", D0 + 81_000, json!({}));
+    r(&l, &new, "turn_result", D0 + 90_000, json!({"costUsd": 1.0}));
+    assert_eq!(l.query(&all(D0, D0)).totals.turns, 2);
 }

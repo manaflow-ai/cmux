@@ -1076,6 +1076,10 @@ impl Underlay for UltraUnderlay {
         self.inner.has_peer()
     }
 
+    fn take_path_change(&mut self) -> bool {
+        self.inner.take_path_change()
+    }
+
     fn peer_hint(&self) -> Option<SocketAddr> {
         self.inner.peer_hint()
     }

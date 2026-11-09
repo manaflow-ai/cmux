@@ -11,9 +11,9 @@ use super::answer::{
 };
 use super::client::{Marks, classify, pinned_daemon, resume_outcome};
 use super::contract::{
-    Backoff, Failure, INITIAL_BACKOFF, MAX_BACKOFF, Phase, PhaseTimes, PhasesOf, StdinLine, Step,
-    Vmk, answer_line, connected_line, detail_code, failure_line, parse_deadline, phases_line,
-    route_line, served_line, serving_line, stdin_line,
+    Failure, Phase, PhaseTimes, PhasesOf, StdinLine, Step, Vmk, answer_line, connected_line,
+    detail_code, failure_line, parse_deadline, phases_line, route_line, served_line, serving_line,
+    stdin_line,
 };
 use super::{
     DialArgs, DialService, ServeArgs, desktop_failure, parse, parse_key, parse_serve,
@@ -405,37 +405,6 @@ fn the_grant_vmk_claim_is_the_dial_s_ownership_answer() {
     value["grant"] = json!(grant(json!({"vmk": "owner"})));
     assert_eq!(parse_answer(&value).unwrap().vmk, Some(Vmk::Owner));
     assert_eq!(parse_answer(&answer_value()).unwrap().vmk, None);
-}
-
-#[test]
-fn backoff_is_full_jitter_doubling_to_a_cap_and_never_past_the_deadline() {
-    let mut backoff = Backoff::default();
-    let mut ceilings = Vec::new();
-    for _ in 0..8 {
-        let delay = backoff
-            .next(Duration::from_secs(600), |ceiling| {
-                ceilings.push(ceiling);
-                ceiling
-            })
-            .unwrap();
-        assert_eq!(Some(&delay), ceilings.last());
-    }
-    assert_eq!(ceilings[0], INITIAL_BACKOFF);
-    assert_eq!(ceilings[1], INITIAL_BACKOFF * 2);
-    assert_eq!(*ceilings.last().unwrap(), MAX_BACKOFF);
-    assert!(ceilings.windows(2).all(|w| w[1] >= w[0]));
-
-    // A draw of zero retries at once; a draw past the ceiling is held to it.
-    let mut backoff = Backoff::default();
-    assert_eq!(backoff.next(Duration::from_secs(1), |_| Duration::ZERO), Some(Duration::ZERO));
-    assert_eq!(
-        backoff.next(Duration::from_secs(10), |_| Duration::from_secs(99)),
-        Some(INITIAL_BACKOFF * 2)
-    );
-    // No attempt starts when the delay would reach the deadline.
-    let mut backoff = Backoff::default();
-    assert_eq!(backoff.next(Duration::from_millis(100), |c| c), None);
-    assert_eq!(Backoff::default().next(Duration::ZERO, |_| Duration::ZERO), None);
 }
 
 #[test]
