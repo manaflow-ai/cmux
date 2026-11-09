@@ -6099,7 +6099,11 @@ export class AcpmuxDirectClient {
     void this.readTurnRecords(sessionId, generation, afterSeq, endSeq).then(
       (stored) => {
         if (this.closed || generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
-        const held = new Set(this.events.map((event) => event.seq));
+        // A kept tail's joined reply (tailCache.ts `keptEvents`) is not held: acpmux's chunks of it
+        // are the record, and with its first chunk among them they replace it (`mergeEventRecords`).
+        const held = new Set(
+          this.events.filter((event) => event.coalescedThrough === undefined).map((event) => event.seq),
+        );
         const missing = stored.filter((event) => !held.has(event.seq));
         if (missing.length === 0) return;
         this.events = mergeEventRecords(this.events, missing);
