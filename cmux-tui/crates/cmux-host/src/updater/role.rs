@@ -368,8 +368,16 @@ pub fn check(paths: &Paths) -> Outcome {
     let Some(_lock) = Lock::take(paths, false) else {
         return Outcome::Failed("another update check runs".to_owned());
     };
-    let outcome =
-        check_step(paths, &crate::agent::PAUSES, &clocks, |started| check_inner(paths, started));
+    // The service's own watch; in another process (the operator's check), the
+    // record that watch writes, read again at every look.
+    let loaded;
+    let watch = if crate::agent::PAUSES.has_looked() {
+        &crate::agent::PAUSES
+    } else {
+        loaded = crate::agent::PauseWatch::load(&paths.at(super::PAUSE_FILE));
+        &loaded
+    };
+    let outcome = check_step(paths, watch, &clocks, |started| check_inner(paths, watch, started));
     let mut state = load_state(paths);
     let line = outcome.line();
     if state.last.as_deref() != Some(line.as_str()) {
@@ -400,7 +408,7 @@ pub(super) fn check_step(
     outcome
 }
 
-fn check_inner(paths: &Paths, started: i128) -> Outcome {
+fn check_inner(paths: &Paths, watch: &crate::agent::PauseWatch, started: i128) -> Outcome {
     if let Some(why) = off_reason(paths) {
         return Outcome::Off(why);
     }
@@ -463,7 +471,7 @@ fn check_inner(paths: &Paths, started: i128) -> Outcome {
     };
     let commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
     // A stop during this check (its download, its busy look) holds its flip.
-    hold_if_paused(paths, &crate::agent::PAUSES, started, clocks());
+    hold_if_paused(paths, watch, started, clocks());
     let last =
         last.or_else(|| stopped().then(|| Outcome::Failed("the updater stopped".to_owned())));
     if let Some(outcome) = last {
@@ -1043,6 +1051,11 @@ pub fn verb(args: &[String]) -> u8 {
             println!("{}", outcome.json());
             if matches!(outcome, Outcome::Failed(_)) { 1 } else { 0 }
         }
+        // The guard reads no pause record: its rollback flips past the connect
+        // hold on purpose (`rollback` runs the gate with `honor_hold` false,
+        // #37280: keeping a build that never proved itself is worse than a
+        // restart) and waits only for attached carrier sessions, so a pause's
+        // hold could not change what it does.
         ["guard", "--to", to] => {
             let Ok(to) = to.parse::<u64>() else { return 2 };
             let Some(pending) = load_pending(&paths).filter(|p| p.to == to) else { return 0 };
