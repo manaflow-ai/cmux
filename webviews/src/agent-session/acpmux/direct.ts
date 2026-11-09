@@ -5782,6 +5782,12 @@ export class AcpmuxDirectClient {
     } else this.turnOpener = served ?? undefined;
     if (readCommandsThrough !== undefined)
       void this.fetchCommands(sessionId, generation, readCommandsThrough).catch(() => {});
+    // A kept tail's joined reply the page starts inside (tailCache.ts `keptEvents`): the page's
+    // chunks of it may hold one the joined record lacks, so the rest of the reply is read below.
+    const straddled =
+      page.length > 0
+        ? this.events.find((event) => event.seq < oldest && (event.coalescedThrough ?? 0) >= oldest)
+        : undefined;
     // Merged after the opener's read: live events that landed meanwhile are kept.
     this.events = mergeEventRecords(page, this.events);
     this.sawPrompts(page);
@@ -5838,7 +5844,28 @@ export class AcpmuxDirectClient {
       this.waitingPermissions = new Map(asks.slice(1).map((item) => [item.permissionId, item]));
     }
     this.emit("attached");
+    if (straddled) this.readJoinedRun(sessionId, generation, straddled, oldest, page);
     return page;
+  }
+
+  /// Reads a joined tail reply that an attach page starts inside from acpmux, from its first chunk
+  /// to the page: with the page's own chunks of it, that is the reply as acpmux holds it, which
+  /// replaces the joined record (`mergeEventRecords`), a chunk the tail missed live included. The
+  /// joined record stays drawn until then, and stays when acpmux no longer holds the reply's start.
+  private readJoinedRun(sessionId: string, generation: number, run: EventRecord, pageFrom: number, page: EventRecord[]) {
+    const through = run.coalescedThrough!;
+    void this.readTurnRecords(sessionId, generation, run.seq - 1, pageFrom - 1).then(
+      (stored) => {
+        if (this.closed || generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+        if (!stored.some((event) => event.seq === run.seq)) return;
+        const runPage = page.filter((event) => event.seq <= through);
+        this.events = mergeEventRecords(this.events, stored, runPage);
+        this.sawPrompts(stored);
+        this.rebuildKeepingLiveState(run.seq - 1);
+        this.emit("connected");
+      },
+      () => undefined,
+    );
   }
 
   /// A chat opened with nothing of it drawn yet (no kept tail, no Mac's copy) takes its listed row as
