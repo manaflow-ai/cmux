@@ -437,6 +437,11 @@ impl WindowState {
             }
             Some(sent) => {
                 if *sent == next {
+                    // Nothing to send, but which chats fold within the page may have changed: a
+                    // later activity change of one of them must still recompute the window.
+                    if let Some(sent) = self.sent.as_mut() {
+                        sent.folded = next.folded;
+                    }
                     return None;
                 }
                 let before: HashMap<&str, &Value> =
@@ -631,6 +636,18 @@ mod tests {
         assert!(!state.shows_activity_of(None, "status"), "a session with no chat");
         assert!(state.shows_activity_of(Some("a:9"), "tags"), "tags may fold or unfold rows");
         assert!(state.shows_activity_of(None, "purged"));
+        // A refresh that sends nothing still keeps the chats it folded.
+        let parented = ("a:2".to_owned(), json!({"key": "a:2", "parent": "a:7"}));
+        let same = |folded: HashSet<String>| WindowRows {
+            rows: vec![row("a:1", "one"), parented.clone()],
+            has_more: true,
+            total: None,
+            filling: false,
+            folded,
+        };
+        assert_eq!(state.next(same(HashSet::from(["a:6".to_owned()]))), None);
+        assert!(state.shows_activity_of(Some("a:6"), "status"), "a chat folded since");
+        assert!(!state.shows_activity_of(Some("a:5"), "status"), "a chat no longer folded");
         let mut ranked =
             WindowState::new(spec(json!({"window": "q", "topLevel": true, "query": "x"})), 0);
         ranked.next(WindowRows::default());
