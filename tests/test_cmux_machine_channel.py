@@ -207,8 +207,7 @@ class EarlyUploadAndAnotherPublisher(unittest.TestCase):
 RELEASE_COMMIT = "c" * 40
 # 2026-11-09 07:00:12 UTC.
 COMMITTED_AT = 1794207612
-SIGNER = "manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml"
-RELEASE = ("--purpose", "linux-release", "--channel", "feat-cmux-next", "--attest-signer-workflow", SIGNER)
+RELEASE = ("--purpose", "linux-release", "--channel", "feat-cmux-next")
 
 
 def served_linux_build(directory, generation="1"):
@@ -231,28 +230,21 @@ class LinuxReleasePayload(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp)
         self.served = self.tmp / "served"
         self.sha = served_linux_build(self.served)
-        # The manifest also lists binaries the release file does not carry.
-        self.manifest = self.tmp / "manifest.json"
-        self.manifest.write_text(json.dumps({"commit": RELEASE_COMMIT, "binaries": {
-            **self.sha, "cmux-tui-aarch64-apple-darwin": "0" * 64, "cmux-tui-acpmux-x86_64-unknown-linux-gnu": "1" * 64}}))
+        # This run's own build artifacts (gh run download): the same bytes, plus files the release
+        # file does not carry.
+        self.built = self.tmp / "built"
+        shutil.copytree(self.served, self.built)
+        (self.built / "cmux-tui-acpmux-x86_64-unknown-linux-gnu").write_bytes(b"acpmux")
         self.downloads = []
-        self.attested = None  # None: GitHub attests every file the fixture serves
-        self.verified = []
 
     def download(self, argv, check=False, **kwargs):
-        if argv[0] == "gh":  # gh attestation verify FILE --repo R --signer-workflow W --source-digest SHA
-            path = argv[3]
-            self.verified.append((os.path.basename(path), argv[argv.index("--signer-workflow") + 1],
-                                  argv[argv.index("--source-digest") + 1]))
-            ok = self.attested is None or channel.sha256_file(path) in self.attested
-            return subprocess.CompletedProcess(argv, 0 if ok else 1, "", "" if ok else "no matching attestation")
         url, out = argv[-1], argv[argv.index("-o") + 1]
         self.downloads.append(url.split("?")[0])
         shutil.copyfile(self.served / url.split("/")[-1].split("?")[0], out)
 
-    def run_payload(self, *extra, manifest=None):
+    def run_payload(self, *extra, source=None):
         out = self.tmp / "payload.json"
-        argv = ["cmux-machine-channel.py", "payload", "--manifest", str(manifest or self.manifest),
+        argv = ["cmux-machine-channel.py", "payload", *(source or ("--binaries-dir", str(self.built))),
                 "--commit", RELEASE_COMMIT, "--committed-at", str(COMMITTED_AT),
                 "--download-dir", str(self.tmp / "dl"), "--out", str(out), *extra]
         with mock.patch.object(channel.subprocess, "run", side_effect=self.download):
@@ -280,22 +272,19 @@ class LinuxReleasePayload(unittest.TestCase):
         # Every URL was downloaded and checked; nothing is left on disk.
         self.assertEqual(sorted(self.downloads), sorted(e["url"] for f in value["targets"].values() for e in f.values()))
         self.assertEqual(list((self.tmp / "dl").iterdir()), [])
-        # And every one carried this workflow's attestation for this commit before it was signed.
-        self.assertEqual(sorted(self.verified), sorted((f"{n}-{t}", SIGNER, RELEASE_COMMIT)
-                                                       for t in channel.LINUX_RELEASE_TARGETS for n in channel.NAMES))
 
     def test_a_bucket_writer_cannot_get_its_bytes_signed(self):
-        # Review of #39452: the writer replaces a GNU binary and its manifest checksum after publish. The
-        # checksum then matches the bytes, but no attestation by this workflow covers them: refused.
-        self.attested = set(self.sha.values())
+        # Reviews of #39452: a bucket writer controls every byte in the bucket. Before publish it plants a
+        # musl binary that publish adopts (and attests) and copies to the GNU name; or after publish it
+        # replaces a GNU binary and the manifest's checksum. Either way the served bytes are not this
+        # run's build: refused, nothing written.
         evil = b"attacker build"
-        (self.served / "cmux-tui-x86_64-unknown-linux-gnu").write_bytes(evil)
-        forged = dict(self.sha, **{"cmux-tui-x86_64-unknown-linux-gnu": hashlib.sha256(evil).hexdigest()})
-        self.manifest.write_text(json.dumps({"commit": RELEASE_COMMIT, "binaries": forged}))
+        for name in ("cmux-tui-x86_64-unknown-linux-musl", "cmux-tui-x86_64-unknown-linux-gnu"):
+            (self.served / name).write_bytes(evil)
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()) as err:
             self.run_payload(*RELEASE)
-        self.assertIn("cmux-tui-x86_64-unknown-linux-gnu", err.getvalue())
-        self.assertIn("has no build-provenance attestation", err.getvalue())
+        self.assertIn("cmux-tui-x86_64-unknown-linux-", err.getvalue())
+        self.assertIn("does not have the expected sha256", err.getvalue())
         self.assertFalse((self.tmp / "payload.json").exists())
 
     def test_the_version_defaults_to_the_cmux_tui_cargo_version(self):
@@ -306,7 +295,7 @@ class LinuxReleasePayload(unittest.TestCase):
     def test_the_cloud_machine_payload_is_unchanged(self):
         manifest = self.tmp / "musl.json"
         manifest.write_text(json.dumps({"commit": RELEASE_COMMIT, "binaries": self.sha}))
-        value = self.run_payload(manifest=manifest)
+        value = self.run_payload(source=("--manifest", str(manifest)))
         self.assertEqual(sorted(value), ["channel", "commit", "committed_at", "expires_at", "key", "published_at",
                                          "purpose", "schema", "targets"])
         self.assertEqual(sorted(value["targets"]), sorted(channel.TARGETS))
@@ -316,19 +305,21 @@ class LinuxReleasePayload(unittest.TestCase):
             (("--purpose", "linux-release"), "needs --channel"),
             (("--purpose", "linux-release", "--channel", "every-merge"), "needs --channel"),
             (("--channel", "feat-cmux-next"), "are for --purpose linux-release"),
-            (("--purpose", "linux-release", "--channel", "nightly", "--attest-signer-workflow", SIGNER,
-              "--cargo-version", "1.0"), "not MAJOR.MINOR.PATCH"),
-            (("--purpose", "linux-release", "--channel", "feat-cmux-next"), "needs --attest-signer-workflow"),
-            (("--attest-signer-workflow", SIGNER), "are for --purpose linux-release"),
+            (("--purpose", "linux-release", "--channel", "nightly", "--cargo-version", "1.0"),
+             "not MAJOR.MINOR.PATCH"),
         ]
         for extra, message in cases:
             with self.subTest(extra=extra), self.assertRaises(SystemExit), \
                     contextlib.redirect_stderr(io.StringIO()) as err:
                 self.run_payload(*extra)
             self.assertIn(message, err.getvalue())
-        missing = dict(self.sha)
-        del missing["cmux-tui-hook-aarch64-unknown-linux-gnu"]
-        self.manifest.write_text(json.dumps({"commit": RELEASE_COMMIT, "binaries": missing}))
+        # The manifest is in the bucket: a release file never takes its checksums from it.
+        manifest = self.tmp / "manifest.json"
+        manifest.write_text(json.dumps({"commit": RELEASE_COMMIT, "binaries": self.sha}))
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()) as err:
+            self.run_payload(*RELEASE, source=("--manifest", str(manifest)))
+        self.assertIn("needs --binaries-dir", err.getvalue())
+        (self.built / "cmux-tui-hook-aarch64-unknown-linux-gnu").unlink()
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()) as err:
             self.run_payload(*RELEASE)
         self.assertIn("no sha256 for cmux-tui-hook-aarch64-unknown-linux-gnu", err.getvalue())
