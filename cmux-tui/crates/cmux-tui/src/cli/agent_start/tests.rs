@@ -843,12 +843,16 @@ fn snapshot_with_tab_name(pane: &str, name: Option<&str>) -> Value {
     snapshot
 }
 
-/// The launch argv agent start gives an agent's terminal (arg0
-/// `cmux-agent`), as `terminal <t> process show` answers it.
-fn agent_start_process() -> Value {
-    let argv =
-        Launch { shell: "/bin/zsh".into(), launcher: "sr2 claude".into(), args: Vec::new() }.argv();
-    json!({"pid": 4242, "argv": argv})
+/// Marks the terminals `ids` of `snapshot` as agent start launches
+/// (`extra.agent_start`, from the daemon's stored spawn argv).
+fn mark_agent_start(snapshot: &mut Value, ids: &[&str]) {
+    if let Some(terminals) = snapshot["terminals"].as_array_mut() {
+        for terminal in
+            terminals.iter_mut().filter(|terminal| ids.iter().any(|id| terminal["id"] == *id))
+        {
+            terminal["extra"] = json!({"agent_start": true});
+        }
+    }
 }
 
 /// W5-Q review (PR C, the column rule): a pane a person made keeps its
@@ -874,7 +878,8 @@ fn w5q_start_split_keeps_a_person_pane_with_an_agent_name() {
                 "first": {"kind": "leaf", "pane_id": CALLER_PANE, "tab_ids": []},
                 "second": {"kind": "leaf", "pane_id": BETA_PANE, "tab_ids": []}},
             "second": {"kind": "leaf", "pane_id": ALPHA_PANE, "tab_ids": []}}}),
-        // The person's shell: no agent start launch.
+        // A process read would show a shell; the snapshot has no agent start
+        // mark on the person's terminal, which is what counts.
         "terminal.process.get" => json!({"pid": 77, "argv": ["/bin/zsh", "-l"]}),
         "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
         "terminal.screen.read" => json!({"text": COMPOSER}),
@@ -906,7 +911,14 @@ fn w5q_start_split_evens_only_the_agent_panes_of_its_row() {
         tabs.push(json!({"id": "tab_b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1", "name": "beta",
             "content_id": "term_b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1", "pane_id": BETA_PANE}));
     }
-    let daemon = Fake::new(move |operation, params, _count| match operation {
+    if let Some(terminals) = snapshot["terminals"].as_array_mut() {
+        terminals
+            .push(json!({"id": "term_b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1", "lifecycle": "running",
+            "tab_id": "tab_b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1"}));
+    }
+    // alpha's and beta's terminals run agent start launches.
+    mark_agent_start(&mut snapshot, &[OLD, "term_b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1"]);
+    let daemon = Fake::new(move |operation, _params, _count| match operation {
         "session.snapshot" => snapshot.clone(),
         "pane.split" => created(
             GAMMA_PANE,
@@ -914,15 +926,6 @@ fn w5q_start_split_evens_only_the_agent_panes_of_its_row() {
             "term_5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e",
         ),
         "pane.run" => created(GAMMA_PANE, "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0", NEW),
-        // alpha's and beta's terminals run agent start launches.
-        "terminal.process.get"
-            if [OLD, "term_b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1"]
-                .iter()
-                .any(|terminal| params.to_string().contains(terminal)) =>
-        {
-            agent_start_process()
-        }
-        "terminal.process.get" => json!({"pid": 77, "argv": ["/bin/zsh", "-l"]}),
         // caller 1/2 | (alpha 1/4 | (beta 1/8 | gamma 1/8)).
         "screen.layout.export" => json!({"version": 1, "root": {
             "kind": "split", "split_id": OUTER_SPLIT, "direction": "horizontal", "ratio": 0.5,

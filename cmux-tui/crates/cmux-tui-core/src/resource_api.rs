@@ -526,6 +526,14 @@ pub(crate) fn public_terminal_snapshot(
     if running && let Some(at) = surface.and_then(crate::Surface::terminal_last_output) {
         extra.insert("last_output".into(), crate::terminal_activity::last_output_json(at));
     }
+    // `agent_start`: the stored spawn argv is the `cmux agent start` launch
+    // (agent_start_launch.rs); the CLI evens only such panes. No OS read.
+    if surface
+        .and_then(crate::Surface::spawn_argv)
+        .is_some_and(|argv| crate::agent_start_launch::is_agent_start_argv(&argv))
+    {
+        extra.insert("agent_start".into(), json!(true));
+    }
     if !extra.is_empty() {
         terminal.set("extra", Value::Object(extra));
     }
