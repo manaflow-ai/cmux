@@ -9,9 +9,10 @@
 //!   pane's own workspace.
 //!
 //! The daemon has no pane move, so this is a composite of `tab.move` steps.
-//! A split or a new screen starts with a shell tab; it closes after the tabs
-//! moved in, so the new pane never runs empty. The emptied source pane closes
-//! itself.
+//! A split or a new screen starts with a shell tab; its shell ends
+//! (`terminal <t> close`, which takes the tab with it) after the tabs moved
+//! in, so the new pane never runs empty and no shell outlives its tab (W5-O).
+//! The emptied source pane closes itself.
 //!
 //! `tab.move` makes the moved tab the daemon's focus. Without `--focus` the
 //! command then focuses the pane that had the focus before, so the person's
@@ -360,9 +361,22 @@ fn resolve<'a>(
 }
 
 /// The new pane a split or `screen create` made: `{workspace_id,
-/// screen_id, pane_id, tab_id}`.
+/// screen_id, pane_id, tab_id, terminal_id}`.
 fn created_path(result: &Value) -> Value {
     result.get("value").cloned().unwrap_or_else(|| result.clone())
+}
+
+/// The shell tab a new pane started with, and its terminal.
+struct Placeholder {
+    tab: String,
+    terminal: Option<String>,
+}
+
+fn placeholder_of(path: &Value) -> Placeholder {
+    Placeholder {
+        tab: text(path, "tab_id"),
+        terminal: path.get("terminal_id").and_then(Value::as_str).map(str::to_owned),
+    }
 }
 
 /// Runs `pane <pane> move`; the result names the moved tabs, where they
@@ -401,7 +415,7 @@ pub(super) fn move_pane<B: Daemon + ?Sized>(
     }
 
     // Where the tabs go: (workspace, screen, pane, first index), and the
-    // shell tab a new pane started with.
+    // shell a new pane started with.
     let (workspace, screen, pane, start, placeholder, created) = match &request.destination {
         Destination::Pane { pane, split } => {
             let target = text(resolve(&snapshot, "pane", pane, caller)?, "id");
@@ -422,7 +436,7 @@ pub(super) fn move_pane<B: Daemon + ?Sized>(
                         text(&path, "screen_id"),
                         text(&path, "pane_id"),
                         1,
-                        Some(text(&path, "tab_id")),
+                        Some(placeholder_of(&path)),
                         json!({"pane": text(&path, "pane_id")}),
                     )
                 }
@@ -477,7 +491,7 @@ pub(super) fn move_pane<B: Daemon + ?Sized>(
                 text(&path, "screen_id"),
                 text(&path, "pane_id"),
                 1,
-                Some(text(&path, "tab_id")),
+                Some(placeholder_of(&path)),
                 json!({"screen": text(&path, "screen_id"), "pane": text(&path, "pane_id")}),
             )
         }
@@ -508,7 +522,13 @@ pub(super) fn move_pane<B: Daemon + ?Sized>(
         )?;
     }
     if let Some(placeholder) = &placeholder {
-        let close = ["tab", placeholder.as_str(), "close"];
+        // Ending the shell takes its tab; closing only the tab left the
+        // shell running with no tab until the session ended (W5-O). A daemon
+        // that names no terminal gets the tab close.
+        let close = match &placeholder.terminal {
+            Some(terminal) => ["terminal", terminal.as_str(), "close"],
+            None => ["tab", placeholder.tab.as_str(), "close"],
+        };
         backend
             .request(plan(&close, Some(step_key(command_key, "close-shell")))?)
             .map_err(|error| step_failure(error, "close-shell", made(&moved)))?;

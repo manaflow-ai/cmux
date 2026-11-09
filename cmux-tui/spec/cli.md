@@ -424,8 +424,9 @@ focus as before (main's `workspace.create` has no focus option).
 they go into a new pane split off q. `--to-tab <t>` puts them after tab t in
 its pane. `--to-workspace <w>` and `--new-screen` (alias `--new-tab`, the
 pane's own workspace) put them into a new screen there, named `--name`. A new
-pane's shell tab closes once the tabs are in, and the new pane takes the
-moved pane's name. `tab.move` focuses what it moved, so afterwards the command
+pane's shell ends once the tabs are in (`terminal <t> close`, which takes its
+tab; a tab close alone left the shell running with no tab), and the new pane
+takes the moved pane's name. `tab.move` focuses what it moved, so afterwards the command
 focuses the pane that had the focus before (`--focus`: the destination pane);
 when the moved pane had the focus, the focus stays with its tabs. A
 destination in the pane itself is a usage error. The result is `{pane,
