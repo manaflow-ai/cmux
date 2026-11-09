@@ -103,6 +103,10 @@ export function withSessionIds(
 /// harness and the harness's own session id.
 export const agentLinkKey = (harness: string, agentSessionId: string) => `${harness}/${agentSessionId}`;
 
+/// Whether two id maps say the same thing.
+const sameEntries = (a: ReadonlyMap<string, string>, b: ReadonlyMap<string, string>) =>
+  a.size === b.size && [...a].every(([key, value]) => b.get(key) === value);
+
 export class SessionHoverStore {
   private infos = new Map<string, SessionHoverInfo>();
   private keys = new Map<string, string>();
@@ -165,6 +169,9 @@ export class SessionHoverStore {
     }
     // A page can list a session twice: the count that matters is of ids, not of entries.
     if (infos.size !== this.infos.size) changed = true;
+    // A reorder can move which chat an agent link opens with no card changing: a link reads these.
+    if (!changed && (!sameEntries(agents, this.agents) || !sameEntries(agentSessions, this.agentSessions)))
+      changed = true;
     this.infos = infos;
     this.keys = keys;
     this.agents = agents;
