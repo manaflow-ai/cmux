@@ -42,6 +42,23 @@ fn open_mux(session: &str, root: &Path) -> Arc<Mux> {
     mux
 }
 
+/// The bytes the newest `count` checkpoint rows hold.
+fn newest_rows_bytes(mux: &Mux, count: usize) -> usize {
+    let registry = mux.workspace_registry.lock().unwrap();
+    let bytes = registry
+        .connection
+        .get()
+        .query_row(
+            "SELECT COALESCE(SUM(length(state_json) + length(content_refs_json)), 0)
+             FROM (SELECT state_json, content_refs_json FROM journal_checkpoints
+                   ORDER BY source_sequence DESC LIMIT ?1)",
+            [i64::try_from(count).unwrap()],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    usize::try_from(bytes).unwrap()
+}
+
 fn prune(mux: &Mux) -> anyhow::Result<usize> {
     mux.workspace_registry.lock().unwrap().prune_journal_checkpoints()
 }
@@ -78,7 +95,10 @@ fn pruning_keeps_the_newest_checkpoints_and_bounds_the_table() {
     );
     assert_eq!(before_rows, ROUNDS, "without pruning every checkpoint stays");
     assert_eq!(after_rows, JOURNAL_CHECKPOINTS_KEPT);
-    assert!(after_bytes < before_bytes / 2, "{after_bytes} B of {before_bytes} B stayed");
+    // Each round adds a workspace, so newer checkpoints are larger: what
+    // stays is exactly the unpruned registry's newest rows.
+    assert_eq!(after_bytes, newest_rows_bytes(&unpruned, JOURNAL_CHECKPOINTS_KEPT));
+    assert!(after_bytes < before_bytes, "{after_bytes} B of {before_bytes} B stayed");
 
     // Restore still reads the newest one, and the next seal still finds a
     // checkpoint at or below its target.
