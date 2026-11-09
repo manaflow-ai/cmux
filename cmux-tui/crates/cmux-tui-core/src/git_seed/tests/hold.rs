@@ -29,13 +29,15 @@ fn state(folder: &Path) -> &'static str {
     }
 }
 
-/// Waits until the job leaves `running` (a lease running out), at most `limit`.
-fn ended(service: &GitSeedService, job: &str, limit: Duration) -> Value {
-    let deadline = Instant::now() + limit;
+/// The barrier's state once it reads `want`, or its last state after 30 s. A released lock can read
+/// held for a moment while another test's forked child still holds a copy of its descriptor before
+/// it execs, so a test waits out a release (a take never lags). Reading the barrier renews no lease.
+fn settles(folder: &Path, want: &str) -> &'static str {
+    let deadline = Instant::now() + Duration::from_secs(30);
     loop {
-        let answer = status(service, job);
-        if answer["state"] != "running" || Instant::now() >= deadline {
-            return answer;
+        let now = state(folder);
+        if now == want || Instant::now() >= deadline {
+            return now;
         }
         std::thread::sleep(Duration::from_millis(10));
     }
@@ -53,13 +55,13 @@ fn a_held_copy_opens_at_its_head_and_reads_ready_only_once_it_ends() {
     write(&folder.join("app/AGENTS.md"), "app\n");
     let head = service.call("git.seed.hold.head", &json!({ "job": job })).unwrap();
     assert_eq!(head["head_ready"], true, "{head}");
-    assert_eq!(state(&folder), "head");
+    assert_eq!(settles(&folder, "head"), "head");
     assert_eq!(status(&service, &job)["head_ready"], true);
     assert_eq!(status(&service, &job)["phase"], "copy");
     write(&folder.join("src/main.py"), "print('hi')\n");
     let end = service.call("git.seed.hold.end", &json!({ "job": job, "ok": true })).unwrap();
     assert_eq!(end["state"], "done", "{end}");
-    assert_eq!(state(&folder), "ready");
+    assert_eq!(settles(&folder, "ready"), "ready");
 }
 
 #[test]
@@ -75,7 +77,7 @@ fn a_head_that_would_start_mcp_servers_or_hooks_is_never_marked() {
         assert_eq!(head["head_ready"], false, "{settings}");
         assert_eq!(state(&folder), "syncing", "{settings}");
         service.call("git.seed.hold.end", &json!({ "job": job, "ok": true })).unwrap();
-        assert_eq!(state(&folder), "ready", "{settings}");
+        assert_eq!(settles(&folder, "ready"), "ready", "{settings}");
     }
 }
 
@@ -90,7 +92,7 @@ fn a_copy_that_ends_short_leaves_its_folder_failed() {
     let end = service.call("git.seed.hold.end", &json!({ "job": job, "ok": false })).unwrap();
     assert_eq!(end["state"], "failed", "{end}");
     assert_eq!(end["error_code"], "seed.copy_failed");
-    assert_eq!(state(&folder), "incomplete");
+    assert_eq!(settles(&folder, "incomplete"), "incomplete");
     let again = service.call("git.seed.hold.end", &json!({ "job": job, "ok": true })).unwrap_err();
     assert_eq!(again.code, "seed.unknown_job", "an ended hold cannot be ended ready");
     assert_eq!(state(&folder), "incomplete");
@@ -109,14 +111,15 @@ fn a_hold_whose_copy_goes_quiet_expires_failed_and_a_status_read_keeps_it() {
     }
     let quiet = home.join("work/quiet");
     let gone = hold(&service, &quiet, json!({ "lease_ms": 100 })).unwrap();
-    let answer = ended(&service, &gone, Duration::from_secs(30));
+    // Only the barrier is read while the lease runs out: a status read would renew it.
+    assert_eq!(settles(&quiet, "incomplete"), "incomplete");
+    let answer = status(&service, &gone);
     assert_eq!(answer["state"], "failed", "{answer}");
     assert_eq!(answer["error_code"], "seed.hold_expired");
-    assert_eq!(state(&quiet), "incomplete");
     let late = service.call("git.seed.hold.head", &json!({ "job": gone })).unwrap_err();
     assert_eq!(late.code, "seed.unknown_job");
     service.call("git.seed.hold.end", &json!({ "job": job, "ok": true })).unwrap();
-    assert_eq!(state(&kept), "ready");
+    assert_eq!(settles(&kept, "ready"), "ready");
 }
 
 #[test]
