@@ -244,3 +244,110 @@ fn sealed_kind_read_cost_stays_flat_as_session_puts_grow() {
     let per_put = costs[1].steps.saturating_sub(costs[0].steps) / (sizes[1] - sizes[0]) as u64;
     assert!(per_put < 1, "a sealed kind read costs {per_put} VM steps per session put:\n{table}");
 }
+
+/// Run the reducer record backfill on `registry` until it is done or has
+/// decoded `limit` segments; returns how many it decoded.
+fn run_reducer_record_backfill(registry: &WorkspaceRegistry, limit: usize) -> usize {
+    use super::reducer_records::ReducerRecordBackfillStep;
+    let reader =
+        SessionJournalReader::open(&registry.session_journal_database_path().unwrap()).unwrap();
+    let mut decoded = 0;
+    while decoded < limit {
+        match registry.plan_reducer_record_backfill(4).unwrap() {
+            ReducerRecordBackfillStep::Done => break,
+            ReducerRecordBackfillStep::Passed => {}
+            ReducerRecordBackfillStep::Decode(plan) => {
+                let prepared = plan.prepare(&reader).unwrap();
+                assert!(registry.commit_reducer_record_backfill(prepared).unwrap());
+                decoded += 1;
+            }
+        }
+    }
+    decoded
+}
+
+fn kept_reducer_records(registry: &WorkspaceRegistry) -> i64 {
+    registry
+        .connection
+        .get()
+        .query_row("SELECT COUNT(*) FROM journal_segment_reducer_records", [], |row| row.get(0))
+        .unwrap()
+}
+
+/// Segments sealed before sealing kept reducer records (simulated by
+/// deleting the rows) are read by decoding them, and the backfill fills
+/// them a segment per step, resuming after a reopen where it stopped. It
+/// decodes each segment that holds a folded kind once and passes over the
+/// rest; afterwards the read decodes none.
+#[test]
+fn reducer_record_backfill_fills_older_segments_and_resumes() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-reducer-record-backfill-{}", new_uuid_v4().replace('-', "")));
+    let session = "reducer-record-backfill";
+    let mut registry = WorkspaceRegistry::open(&root, session).unwrap();
+    registry
+        .append_journal_records_for_test(&(0..3_000).map(sealed_session_put).collect::<Vec<_>>());
+    registry.append_journal_records_for_test(&sealed_history(6_000));
+    registry.seal_journal_for_test("backfill");
+    let sealed = kept_reducer_records(&registry);
+    assert_eq!(sealed, SEALED_AGENT_RECORDS as i64, "sealing keeps every agent record");
+    let with_agents = registry
+        .connection
+        .get()
+        .query_row(
+            "SELECT COUNT(DISTINCT segment_id) FROM journal_segment_reducer_records",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    let segments = registry.journal_segments().unwrap().len();
+    assert!(segments as i64 > with_agents, "some segments hold no agent record");
+    registry.connection.get().execute("DELETE FROM journal_segment_reducer_records", []).unwrap();
+
+    // Without kept records the read decodes the segments, and still reads
+    // every agent record.
+    assert_eq!(read_agent_records(&registry).len(), SEALED_AGENT_RECORDS);
+
+    assert_eq!(run_reducer_record_backfill(&registry, 1), 1);
+    drop(registry);
+    let registry = WorkspaceRegistry::open(&root, session).unwrap();
+    let rest = run_reducer_record_backfill(&registry, usize::MAX);
+    assert_eq!(1 + rest, with_agents as usize, "each segment with an agent record decodes once");
+    assert_eq!(kept_reducer_records(&registry), sealed);
+    assert_eq!(run_reducer_record_backfill(&registry, usize::MAX), 0, "a done backfill stays done");
+
+    destroy_sealed_segments(&registry);
+    assert_eq!(read_agent_records(&registry).len(), SEALED_AGENT_RECORDS);
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A backfill cursor whose segment is gone (an output cleanup rebuilt the
+/// segments under new ids, and an older build's cleanup copied the cursor
+/// across) starts the backfill over instead of skipping the new segments.
+#[test]
+fn reducer_record_backfill_starts_over_when_its_segment_is_gone() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-reducer-record-restart-{}", new_uuid_v4().replace('-', "")));
+    let mut registry = WorkspaceRegistry::open(&root, "reducer-record-restart").unwrap();
+    registry.append_journal_records_for_test(&sealed_history(3_000));
+    registry.seal_journal_for_test("restart");
+    registry.connection.get().execute("DELETE FROM journal_segment_reducer_records", []).unwrap();
+    let first = run_reducer_record_backfill(&registry, usize::MAX);
+    assert!(first > 0);
+    // A cursor naming a segment id that no longer exists.
+    registry
+        .connection
+        .get()
+        .execute(
+            "UPDATE meta SET value = json_set(value, '$.segment_id', 'segment_gone')
+             WHERE key = 'journal_segment_reducer_records_backfill'",
+            [],
+        )
+        .unwrap();
+    registry.connection.get().execute("DELETE FROM journal_segment_reducer_records", []).unwrap();
+    assert_eq!(run_reducer_record_backfill(&registry, usize::MAX), first);
+    assert_eq!(kept_reducer_records(&registry), SEALED_AGENT_RECORDS as i64);
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
