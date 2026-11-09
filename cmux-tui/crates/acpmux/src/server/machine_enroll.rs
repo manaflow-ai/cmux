@@ -66,7 +66,7 @@ async fn start_relay(hub: &Arc<Hub>) -> &'static str {
         return "off";
     };
     let Some(relay) = config.mesh_relay else { return "off" };
-    start_relay_with(hub, &mut *slot, relay).await
+    start_relay_with(hub, &mut slot, relay).await
 }
 
 /// Starts the mesh relay on `relay`, the join's config, into `slot` (`Hub::mesh_relay`); its
