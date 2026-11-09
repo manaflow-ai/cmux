@@ -101,26 +101,250 @@ pub fn paused_for(before_ns: i128, after_ns: i128) -> Option<Duration> {
     Some(Duration::from_nanos(u64::try_from(late).unwrap_or(u64::MAX)))
 }
 
+/// What the pause watch has seen, for every thread of this process: the boot
+/// clock at its last look (ns, 0 for never) and how many pauses it found. The
+/// supervisor's `Wake::Paused` comes from the same looks; the updater holds a
+/// flip on a pause counted after the last one it handled
+/// ([`PauseWatch::pause_seq`]), or while the watch is still waking from one
+/// ([`PauseWatch::waking`]). A restore that stops the boot clock moves
+/// neither: the updater's own `realtime - boottime` look covers that.
+#[derive(Debug, Default)]
+pub struct PauseWatch {
+    last_look_ns: std::sync::atomic::AtomicI64,
+    pauses: std::sync::atomic::AtomicU64,
+    /// The look the last counted pause came after (its `last_look_ns` then),
+    /// or [`PAUSE_FROM_NONE`]: which wake a count is ([`PauseSeen::pause_from_ns`]).
+    pause_from_ns: std::sync::atomic::AtomicI64,
+    /// Odd while a look is being published: a reader that sees it odd, or
+    /// changed across its reads, reads again ([`PauseWatch::seen`]).
+    version: std::sync::atomic::AtomicU64,
+    /// One publisher at a time (the watch's thread, the supervisor's clock-set
+    /// wake, a reread of the record), and one write of the file.
+    publish: std::sync::Mutex<()>,
+    /// Where this watch writes its record ([`PauseWatch::persist_to`]).
+    file: std::sync::OnceLock<std::path::PathBuf>,
+    /// Where this watch reads its record from at every look ([`PauseWatch::load`]).
+    source: std::sync::OnceLock<std::path::PathBuf>,
+}
+
+/// The pause watch of this process (the Linux platform's thread feeds it).
+pub static PAUSES: PauseWatch = PauseWatch::new();
+
+impl PauseWatch {
+    pub const fn new() -> Self {
+        Self {
+            last_look_ns: std::sync::atomic::AtomicI64::new(0),
+            pauses: std::sync::atomic::AtomicU64::new(0),
+            pause_from_ns: std::sync::atomic::AtomicI64::new(PAUSE_FROM_NONE),
+            version: std::sync::atomic::AtomicU64::new(0),
+            publish: std::sync::Mutex::new(()),
+            file: std::sync::OnceLock::new(),
+            source: std::sync::OnceLock::new(),
+        }
+    }
+
+    /// One look of the watch at boot time `now_ns`: whether it found a pause.
+    pub fn looked(&self, now_ns: i128, paused: bool) {
+        let look = i64::try_from(now_ns).unwrap_or(i64::MAX);
+        self.publish_with(|pauses, last_look, from| {
+            if paused { (pauses + 1, look, last_look) } else { (pauses, look, from) }
+        });
+    }
+
+    /// A resume another way found (a clock set that moved realtime against
+    /// the boot clock, where the boot clock stops).
+    pub fn found(&self) {
+        self.publish_with(|pauses, last_look, _| (pauses + 1, last_look, PAUSE_FROM_NONE));
+    }
+
+    /// Publishes the count and the last look `next` makes of the current
+    /// ones as one look: the version is odd while the fields change, so a
+    /// reader never takes one field old and the other new. Then the file,
+    /// both fields in one rename.
+    fn publish_with(&self, next: impl FnOnce(u64, i64, i64) -> (u64, i64, i64)) {
+        use std::sync::atomic::Ordering;
+        let _one = self.publish.lock().unwrap_or_else(|e| e.into_inner());
+        let (pauses, last_look, from) = next(
+            self.pauses.load(Ordering::SeqCst),
+            self.last_look_ns.load(Ordering::SeqCst),
+            self.pause_from_ns.load(Ordering::SeqCst),
+        );
+        self.version.fetch_add(1, Ordering::SeqCst);
+        self.pauses.store(pauses, Ordering::SeqCst);
+        self.last_look_ns.store(last_look, Ordering::SeqCst);
+        self.pause_from_ns.store(from, Ordering::SeqCst);
+        self.version.fetch_add(1, Ordering::SeqCst);
+        self.write(pauses, last_look, from);
+    }
+
+    /// The count and the last look together, as one look of the watch saw
+    /// them: a reader that took the old count with the new look would miss
+    /// the pause that look just found.
+    pub fn seen(&self) -> PauseSeen {
+        use std::sync::atomic::Ordering;
+        self.refresh();
+        loop {
+            let version = self.version.load(Ordering::SeqCst);
+            if version % 2 == 1 {
+                std::hint::spin_loop();
+                continue;
+            }
+            let pauses = self.pauses.load(Ordering::SeqCst);
+            #[cfg(test)]
+            between_reads();
+            let last_look_ns = i128::from(self.last_look_ns.load(Ordering::SeqCst));
+            let pause_from_ns = i128::from(self.pause_from_ns.load(Ordering::SeqCst));
+            if self.version.load(Ordering::SeqCst) == version {
+                return PauseSeen { pauses, last_look_ns, pause_from_ns };
+            }
+        }
+    }
+
+    /// How many pauses were found so far: a reader that keeps the count it
+    /// last handled sees every newer one, whenever it was found.
+    pub fn pause_seq(&self) -> u64 {
+        self.seen().pauses
+    }
+
+    /// Whether the watch has not looked for longer than a pause takes to find
+    /// ([`paused_for`] from its last look) at boot time `now_ns`: it is still
+    /// waking from one. False while no watch runs.
+    pub fn waking(&self, now_ns: i128) -> bool {
+        self.seen().waking(now_ns)
+    }
+
+    /// From now on, every look and pause found is also written to `path`, so
+    /// the processes that flip outside this one (the operator's `cmux host
+    /// update check`) read the same record ([`PauseWatch::load`]).
+    pub fn persist_to(&self, path: std::path::PathBuf) {
+        let _ = self.file.set(path);
+        self.publish_with(|pauses, last_look, from| (pauses, last_look, from));
+    }
+
+    /// The record another process wrote at `path`, read again at every look
+    /// (an empty one, which never counts a stop, while there is none or it is
+    /// unreadable).
+    pub fn load(path: &Path) -> PauseWatch {
+        let watch = PauseWatch::new();
+        let _ = watch.source.set(path.to_path_buf());
+        watch.refresh();
+        watch
+    }
+
+    /// Whether the watch has looked at all (a watch runs, here or in the
+    /// process that writes the record this one reads).
+    pub fn has_looked(&self) -> bool {
+        self.seen().last_look_ns != 0
+    }
+
+    /// The record as `{"last_look_ns", "pauses", "pause_from_ns"}`, written
+    /// beside and renamed so a reader never sees half of it. Errors are
+    /// dropped: a record that can't be written leaves the other processes
+    /// reading none.
+    fn write(&self, pauses: u64, last_look_ns: i64, pause_from_ns: i64) {
+        let Some(path) = self.file.get() else { return };
+        let body = serde_json::json!({
+            "last_look_ns": last_look_ns,
+            "pauses": pauses,
+            "pause_from_ns": pause_from_ns,
+        });
+        let part = path.with_extension("json.part");
+        if std::fs::write(&part, body.to_string()).is_ok() {
+            let _ = std::fs::rename(&part, path);
+        }
+    }
+
+    /// Reads the record again when this watch is another process's copy.
+    fn refresh(&self) {
+        let Some(path) = self.source.get() else { return };
+        let read = std::fs::read(path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+        let field = |name: &str| read.as_ref().and_then(|v| v.get(name));
+        let look = field("last_look_ns").and_then(serde_json::Value::as_i64).unwrap_or(0);
+        let pauses = field("pauses").and_then(serde_json::Value::as_u64).unwrap_or(0);
+        // A record from before the field names no wake: its counts are never the refresh's own.
+        let from =
+            field("pause_from_ns").and_then(serde_json::Value::as_i64).unwrap_or(PAUSE_FROM_NONE);
+        self.publish_with(|_, _, _| (pauses, look, from));
+    }
+}
+
+/// One consistent look at a [`PauseWatch`] ([`PauseWatch::seen`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PauseSeen {
+    /// How many pauses were found so far.
+    pub pauses: u64,
+    /// The boot clock at the watch's last look (ns, 0 for never).
+    pub last_look_ns: i128,
+    /// The look the last counted pause came after ([`PAUSE_FROM_NONE`] when
+    /// none, or when it was found another way): a count is the wake from a
+    /// given look only when this names that look.
+    pub pause_from_ns: i128,
+}
+
+/// [`PauseSeen::pause_from_ns`] for no pause counted after a look: a clock
+/// set's [`PauseWatch::found`], a record without the field, or none yet.
+pub const PAUSE_FROM_NONE: i64 = -1;
+
+impl PauseSeen {
+    /// Whether the watch, as seen, has not looked for longer than a pause
+    /// takes to find at boot time `now_ns`: it is still waking from one.
+    pub fn waking(&self, now_ns: i128) -> bool {
+        self.last_look_ns != 0 && paused_for(self.last_look_ns, now_ns).is_some()
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Runs once inside the next [`PauseWatch::seen`] on this thread, between
+    /// its reads: a test's publish interleaved with the read.
+    pub static BETWEEN_READS: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn between_reads() {
+    if let Some(publish) = BETWEEN_READS.with(|hook| hook.borrow_mut().take()) {
+        publish();
+    }
+}
+
 /// Wall time within which a clock set and a pause-watch gap are the same
 /// resume. Each fires within about a second of the resume, and on a provider
 /// that has one of them the other never fires.
 pub const SAME_RESUME_NS: i128 = 10_000_000_000;
 
+/// The detector a resume signal came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResumeSource {
+    /// A clock set that moved realtime against the boot clock.
+    ClockSet,
+    /// The pause watch's gap on the boot clock.
+    PauseWatch,
+}
+
 /// One resume can reach the agent both as a clock set and as a pause-watch
 /// gap (a provider whose boot clock runs through a pause and whose realtime
-/// is set late). Only the first is a resume; the other is a clock sync.
+/// is set late). A signal within [`SAME_RESUME_NS`] of the last resume from
+/// the other detector is that resume, seen again: a clock sync. Each detector
+/// fires once per resume, so a second signal from the same detector is
+/// always a new resume, and a resume absorbs at most one signal from the
+/// other.
 #[derive(Debug, Default)]
 pub struct ResumeOnce {
-    last_wall_ns: Option<i128>,
+    /// The last resume that has not yet absorbed the other detector's signal.
+    last: Option<(ResumeSource, i128)>,
 }
 
 impl ResumeOnce {
-    /// Whether a resume signal at wall time `wall_ns` is a new resume.
-    pub fn first(&mut self, wall_ns: i128) -> bool {
-        let same = self.last_wall_ns.is_some_and(|last| (wall_ns - last).abs() < SAME_RESUME_NS);
-        if !same {
-            self.last_wall_ns = Some(wall_ns);
-        }
+    /// Whether a resume signal from `source` at wall time `wall_ns` is a new
+    /// resume.
+    pub fn first(&mut self, source: ResumeSource, wall_ns: i128) -> bool {
+        let same = self.last.is_some_and(|(last_source, last_ns)| {
+            last_source != source && (wall_ns - last_ns).abs() < SAME_RESUME_NS
+        });
+        self.last = if same { None } else { Some((source, wall_ns)) };
         !same
     }
 }
@@ -670,15 +894,34 @@ mod identity_tests {
 
     #[test]
     fn one_resume_seen_by_both_detectors_is_one_resume() {
+        use ResumeSource::{ClockSet, PauseWatch};
         let wall = 1_793_780_000_000_000_000_i128;
         let mut once = ResumeOnce::default();
-        assert!(once.first(wall));
+        assert!(once.first(ClockSet, wall));
         // The other detector a second later: the same resume.
-        assert!(!once.first(wall + 1_000_000_000));
-        // A second pause, 5 min of wall time later: a new resume.
-        assert!(once.first(wall + 300_000_000_000));
-        assert!(!once.first(wall + 300_000_000_000 + SAME_RESUME_NS - 1));
-        assert!(once.first(wall + 300_000_000_000 + 2 * SAME_RESUME_NS));
+        assert!(!once.first(PauseWatch, wall + 1_000_000_000));
+        // A second pause, 5 min of wall time later: a new resume, and the
+        // other detector just inside the window is the same one.
+        assert!(once.first(PauseWatch, wall + 300_000_000_000));
+        assert!(!once.first(ClockSet, wall + 300_000_000_000 + SAME_RESUME_NS - 1));
+        assert!(once.first(ClockSet, wall + 300_000_000_000 + 2 * SAME_RESUME_NS));
+    }
+
+    #[test]
+    fn consecutive_resumes_from_one_detector_are_each_a_resume() {
+        use ResumeSource::{ClockSet, PauseWatch};
+        let wall = 1_793_780_000_000_000_000_i128;
+        let mut once = ResumeOnce::default();
+        // Two real resumes 5 s apart, each a clock set: each gets its own
+        // Resumed (transport reset, report).
+        assert!(once.first(ClockSet, wall));
+        assert!(once.first(ClockSet, wall + 5_000_000_000));
+        // The pause watch's view of the second one is the same resume.
+        assert!(!once.first(PauseWatch, wall + 5_500_000_000));
+        // A third resume 2 s later is new, from either detector.
+        assert!(once.first(ClockSet, wall + 7_500_000_000));
+        assert!(!once.first(PauseWatch, wall + 8_000_000_000));
+        assert!(once.first(PauseWatch, wall + 9_000_000_000));
     }
 
     /// The session host (adopted, so `Running`) under a fake spawner: the

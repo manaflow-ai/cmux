@@ -1,4 +1,4 @@
-import { QUEUED_MESSAGE, PENDING_MESSAGES, LANE_NOTICE_BATCH, MESSAGE_RUN } from "../model";
+import { QUEUED_MESSAGE, PENDING_MESSAGES, LANE_NOTICE_BATCH, MESSAGE_RUN, SINCE_DIVIDER } from "../model";
 import { QUESTION_RECORD } from "../question/record";
 import { PERMISSION_RECORD } from "../permissions/record";
 import { TASK_LINE } from "../conversation/taskLineKind";
@@ -33,11 +33,13 @@ import { PlanRow } from "./PlanRow";
 import { BackgroundTaskRow } from "./BackgroundTaskRow";
 import { CompactionRow } from "./CompactionRow";
 import { FailoverRow } from "./FailoverRow";
-import { ReadOnlyRecapRow, RecapRow } from "./RecapRow";
+import { ReadOnlyRecapRow, ReadOnlySinceRow, RecapRow, SinceRow } from "./RecapRow";
 import { MemoryOfferRow } from "./MemoryOfferRow";
 import { MEMORY_OFFER } from "../conversation/memoryInbox";
 import { PromptCoachRow } from "./PromptCoachRow";
 import { PROMPT_COACH } from "../conversation/promptCoach";
+import { PresetApprovalRow } from "./PresetApprovalRow";
+import { PRESET_APPROVAL } from "../conversation/presetApproval";
 import { PolicyUnenforcedRow } from "./PolicyUnenforcedRow";
 import { AgentPairRow } from "./AgentPairRow";
 import { SessionStartRow } from "./SessionStartRow";
@@ -87,8 +89,10 @@ export const defaultRegistry: NativeRegistry = {
   compaction: CompactionRow,
   failover: FailoverRow,
   recap: RecapRow,
+  [SINCE_DIVIDER]: SinceRow,
   [MEMORY_OFFER]: MemoryOfferRow,
   [PROMPT_COACH]: PromptCoachRow,
+  [PRESET_APPROVAL]: PresetApprovalRow,
   policyUnenforced: PolicyUnenforcedRow,
   agentPair: AgentPairRow,
   sessionStart: SessionStartRow,
@@ -126,10 +130,13 @@ export const readOnlyRegistry: NativeRegistry = {
   [QUEUED_MESSAGE]: ReadOnlyQueuedMessageRow,
   agentPair: ReadOnlyAgentPairRow,
   recap: ReadOnlyRecapRow,
+  [SINCE_DIVIDER]: ReadOnlySinceRow,
   // An offer to write the owner's instructions file is the owner's own.
   [MEMORY_OFFER]: NoRow,
   // How the owner could have prompted better is feedback for the owner, not for a guest.
   [PROMPT_COACH]: NoRow,
+  // Approving one of the owner's presets is the owner's too.
+  [PRESET_APPROVAL]: NoRow,
   sessionOffer: NoRow,
   [OFFER_RESULT]: NoRow,
   [STARTED_SESSIONS]: NoRow,

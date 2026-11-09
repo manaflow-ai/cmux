@@ -96,7 +96,7 @@ extension StripScrollbarSetting {
 extension CloseFocusSetting {
     /// `layout.closeFocus`.
     public nonisolated static let configPath = ["layout", "closeFocus"]
-    public nonisolated static let fallback: CloseFocusPolicy = .previousNeighbor
+    public nonisolated static let fallback: CloseFocusPolicy = .mostRecent
 }
 
 extension ColumnLayoutSettings {

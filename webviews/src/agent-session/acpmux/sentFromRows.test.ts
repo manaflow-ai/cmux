@@ -22,6 +22,7 @@ type Feed = {
 };
 
 const settle = async (check: () => boolean) => {
+  // timeout: test-only bound; a row that never shows fails the test instead of hanging it.
   const deadline = performance.now() + 2_000;
   while (!check()) {
     if (performance.now() > deadline) throw new Error("timed out waiting for the sent-from row");
@@ -223,6 +224,22 @@ test("a sender_claim after a harness-named message's row still draws on it", asy
     io.feed.emit(io.target, claim("p-named-late"));
     await settle(() => row(io.snapshot(), "p-named-late")?.sentFrom !== undefined);
     expect(row(io.snapshot(), "p-named-late")?.sentFrom?.label).toBe("Claude desktop");
+  } finally {
+    io.close();
+  }
+});
+
+test("a sender_claim on an older page draws on its prompt's row already held from a newer one", async () => {
+  // The attach holds the newest 2000 records (mock.ts `page`), so the claim lands on the page
+  // loaded next while its prompt's row is already drawn.
+  const filler = Array.from({ length: 2100 }, (_, i) => prompt(`p-filler-${i}`));
+  const io = await connect([claim("p-held"), ...filler, prompt("p-held")]);
+  try {
+    await settle(() => row(io.snapshot(), "p-held") !== undefined);
+    expect(row(io.snapshot(), "p-held")?.sentFrom).toBeUndefined();
+    for (let pages = 0; io.snapshot()?.canLoadOlder && pages < 10; pages += 1) await io.client.loadOlder();
+    expect(io.snapshot()?.canLoadOlder).toBe(false);
+    expect(row(io.snapshot(), "p-held")?.sentFrom?.label).toBe("Claude desktop");
   } finally {
     io.close();
   }

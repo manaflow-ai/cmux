@@ -124,6 +124,12 @@ pub struct DialOptions {
     /// announcing its new endpoints.
     #[doc(hidden)]
     pub restrict_inbound_udp: bool,
+    /// Test and measurement support: what WireGuard does with each datagram
+    /// it receives, by whether it came through this side's TURN allocation
+    /// and where from: `None` drops it (a cut path), `Some(delay)` delivers
+    /// it that much later, in order (a path's one-way latency).
+    #[doc(hidden)]
+    pub impair_inbound: Option<fn(bool, &std::net::SocketAddr) -> Option<Duration>>,
     /// Offer and accept the input lane (PROTOCOL.md "Lanes"): a second
     /// stream for keystrokes and resizes. Off only to measure or test the
     /// single-stream behavior of older peers.
@@ -184,6 +190,7 @@ impl Default for DialOptions {
             refuse_udp_to: None,
             drop_udp_to: None,
             restrict_inbound_udp: false,
+            impair_inbound: None,
             input_lane: true,
             video_lane: false,
             webrtc_media: false,

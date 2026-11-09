@@ -88,7 +88,7 @@ class AgentMark(unittest.TestCase):
         root = tempfile.mkdtemp(prefix="seed-agent-")
         try:
             tag = "seedagent"
-            os.makedirs(os.path.join(root, "Library/Application Support/cmux/tags", tag, "tui"))
+            os.makedirs(os.path.join(root, "Library/Application Support/cmux-next/tags", tag, "tui"))
             PipeLaunch.lines = PAGE_HOST_SEED
             fake_storm = types.ModuleType("bench_cli_storm")
             fake_storm.Client = FakeDaemon

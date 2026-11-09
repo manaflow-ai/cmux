@@ -300,6 +300,11 @@ const variants: Record<string, AgentPaneVariant> = {
     note: "Selected default (look mark): a LANDED, a WARN and a FIRE, each its own line: the severity's mark in the icon column (red disc, quiet ring, amber triangle), the sender and its machine, the title.",
     snapshot: single(),
   },
+  "single-hover": {
+    note: "A notice's line under the pointer: its title lights all the way through, as a tool row's words do (Leo, 2026-11-09).",
+    snapshot: single(),
+    play: async (ctx) => ctx.hover({ selector: ".cv-disclosure__toggle:not(.is-chevron) .cv-notice__lead" }),
+  },
   "single-open": {
     note: "The FIRE opened: its body as Markdown, then its links named as chips name them; no [notice from …] head, no Links: line.",
     snapshot: single(),

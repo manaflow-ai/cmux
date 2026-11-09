@@ -6,7 +6,7 @@
 # reply, records the first turn's requests, counts their input tokens through
 # the team subrouter (count_tokens) and fails when one is over the limit.
 #   cmux-ci run --class isolated --script scripts/ci/chief-first-turn-cost.sh --ref SHA \
-#     --arg=count_url=http://HOST:PORT [--arg=scenario=smoke|coordinator] [--arg=limit=50000] [--arg=claude=X.Y.Z] \
+#     --arg=count_url=http://HOST:PORT [--arg=scenario=smoke|coordinator|mcp] [--arg=limit=50000] [--arg=claude=X.Y.Z] \
 #     [--arg=force_full_tools=1] [--arg=turns=N] [--arg=real=1 --arg=min_hit=PCT] --timeout 6000
 # count_url= is a Claude route that needs no credential (a router that signs
 # requests itself); only count_tokens goes there, never a turn (except real=1).
@@ -52,9 +52,9 @@ for arg in "$@"; do
   esac
 done
 [[ "$count_url" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "chief-first-turn-cost.sh: count_url=http://HOST[:PORT] is required" >&2; exit 2; }
-[[ "$scenario" =~ ^(smoke|coordinator)$ ]] || { echo "chief-first-turn-cost.sh: scenario=smoke|coordinator" >&2; exit 2; }
-if [[ "$scenario" == coordinator && "$real" != 1 ]]; then
-  echo "chief-first-turn-cost.sh: scenario=coordinator requires real=1" >&2
+[[ "$scenario" =~ ^(smoke|coordinator|mcp)$ ]] || { echo "chief-first-turn-cost.sh: scenario=smoke|coordinator|mcp" >&2; exit 2; }
+if [[ "$scenario" =~ ^(coordinator|mcp)$ && "$real" != 1 ]]; then
+  echo "chief-first-turn-cost.sh: scenario=$scenario requires real=1" >&2
   exit 2
 fi
 [[ "$limit" =~ ^[1-9][0-9]{2,6}$ ]] || { echo "chief-first-turn-cost.sh: limit is a token count" >&2; exit 2; }
@@ -197,6 +197,12 @@ if [[ "$status" != 0 ]]; then echo "FIRST-TURN-COST the driver failed ($status)"
 if ! grep -q "acpmux cleanup: .*no process holds its locks" "$work/driver.log"; then
   echo "FIRST-TURN-COST acpmux cleanup not confirmed: $(grep "acpmux cleanup" "$work/driver.log" || echo 'no cleanup line')" >&2
   status=1
+fi
+# mcp (docs/chief-mcp-hub.md): chat sentences add MCP servers, run a task, get an event.
+if [[ "$scenario" == mcp ]]; then
+  grep -E '^\[chief .*\] MCP' "$work/driver.log" || true
+  if grep -q 'MCP-PROOF .*=FAIL' "$work/driver.log" || ! grep -q 'MCP-PROOF' "$work/driver.log"; then status=1; fi
+  exit "$status"
 fi
 if [[ "$scenario" == coordinator ]]; then
   grep '^\[chief .*\] COORDINATOR ' "$work/driver.log" || true

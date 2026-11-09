@@ -50,6 +50,10 @@ public protocol PageChromiumHosting: AnyObject {
 extension PageChromiumPage {
     /// No clip: the page shows as a plain rectangle.
     public var windowClip: CGPath? { nil }
+    /// No docked DevTools: the page has its whole view.
+    public var dockedDevTools: (page: CGRect, devTools: CGRect)? { nil }
+    /// No DevTools image.
+    public func devToolsImage() async -> CGImage? { nil }
 }
 
 extension PageChromiumHosting {
@@ -74,6 +78,9 @@ public protocol PageChromiumPage: AnyObject {
     /// none; a `<video>` asks one range at a time), and a nil answerer is a 404. The host sets it
     /// before the first ``load(_:)``.
     var resources: (@MainActor (URL, String?) async -> PageChromiumResponse)? { get set }
+    /// Answers a request for a dynamic path at once, in the turn it arrives, when it can
+    /// (``PageReadyResourceSource``); nil from it, or no answerer, asks ``resources``.
+    var readyResources: (@MainActor (URL) -> PageChromiumResponse?)? { get set }
     /// Rects in ``contentView``'s coordinates where native UI of the host window shows over the
     /// page. A Chromium page is a child window above the whole host window, so the page window
     /// leaves these rects uncovered: the native view under them shows there and takes the mouse
@@ -83,6 +90,13 @@ public protocol PageChromiumPage: AnyObject {
     /// a docked column shows only its uncovered part); nil when the page shows as a plain
     /// rectangle. A window image paints the page's image only inside it.
     var windowClip: CGPath? { get }
+    /// The page's own area and its docked DevTools' area, in ``contentView``'s coordinates, while
+    /// DevTools are docked beside the page (Inspect Element); nil otherwise. A window image paints
+    /// the page's image only in the page's area, and the DevTools' own image in theirs.
+    var dockedDevTools: (page: CGRect, devTools: CGRect)? { get }
+    /// The docked DevTools as Chromium drew them (their frontend's `Page.captureScreenshot`); nil
+    /// with none docked or when Chromium gives no image.
+    func devToolsImage() async -> CGImage?
     /// Runs a DevTools protocol method and returns its JSON result.
     ///
     /// - Parameters:
@@ -166,4 +180,12 @@ extension PageChromiumPage {
     /// A host must explicitly provide native input; a placement view is not necessarily the renderer's input view.
     public func debugPress(at point: NSPoint) -> Bool { false }
     #endif
+}
+
+public extension PageChromiumPage {
+    /// A page that answers nothing at once (a fake in tests) sends every request to ``resources``.
+    var readyResources: (@MainActor (URL) -> PageChromiumResponse?)? {
+        get { nil }
+        set {}
+    }
 }

@@ -276,7 +276,7 @@ impl Hub {
 
     /// `_acpmux/harnesses_changed` with the current harness names: a model
     /// list changed, so watchers read `_acpmux/models` again.
-    async fn announce_harnesses(&self) {
+    pub(super) async fn announce_harnesses(&self) {
         let cfg = self.config.read().await;
         let names: Vec<&String> = cfg.harnesses.keys().collect();
         self.send_harness_change(

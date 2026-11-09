@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2f64fd8595b0c23ce4e6ad169aa7a5a48b6fd548d677b6128eb27abefb81caf8";
+pub const ir_sha256 = "33411ed45c930dea0ca028b6db8e5d621ec07122b5a27ea06083372650d53a2c";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1453,15 +1453,28 @@ pub const MoveTerminalResult = struct {
     generation: []const u8,
     lifecycle: TerminalLifecycle,
     pane: wire.Nullable(Id),
+    pane_id: ?[]const u8 = null,
     registry_id: []const u8,
     replayed: bool,
     screen: wire.Nullable(Id),
+    screen_id: ?[]const u8 = null,
     surface: wire.Nullable(Id),
+    tab_id: ?[]const u8 = null,
     terminal_id: []const u8,
     terminal_incarnation: wire.Nullable([]const u8),
+    terminal_resource_id: ?[]const u8 = null,
     terminal_revision: u64,
     workspace: wire.Nullable(Id),
+    workspace_id: ?[]const u8 = null,
     workspace_key: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "pane_id",
+        "screen_id",
+        "tab_id",
+        "terminal_resource_id",
+        "workspace_id",
+    };
 };
 
 pub const NameSource = enum {
@@ -1485,16 +1498,22 @@ pub const NameSource = enum {
 pub const NewRowResult = struct {
     pane: Id,
     pane_id: ?[]const u8 = null,
+    screen_id: ?[]const u8 = null,
     surface: Id,
     tab_id: ?[]const u8 = null,
     terminal_id: wire.Field([]const u8) = .absent,
     terminal_incarnation: wire.Field([]const u8) = .absent,
+    terminal_resource_id: ?[]const u8 = null,
     transaction: ?[]const u8 = null,
+    workspace_id: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "pane_id",
+        "screen_id",
         "tab_id",
+        "terminal_resource_id",
         "transaction",
+        "workspace_id",
     };
 };
 
@@ -1636,10 +1655,19 @@ pub const PaneRef = wire.Value;
 pub const PaneSurfaceResult = struct {
     pane_id: wire.Field([]const u8) = .absent,
     replayed: wire.Field(bool) = .absent,
+    screen_id: ?[]const u8 = null,
     surface: Id,
     tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     terminal_incarnation: wire.Field([]const u8) = .absent,
+    terminal_resource_id: ?[]const u8 = null,
+    workspace_id: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "screen_id",
+        "terminal_resource_id",
+        "workspace_id",
+    };
 };
 
 pub const PingResult = struct {
@@ -1865,12 +1893,25 @@ pub const ResolveTerminalResult = struct {
     generation: []const u8,
     launch_spec: JsonValue,
     lifecycle: TerminalLifecycle,
+    pane_id: ?[]const u8 = null,
     registry_id: []const u8,
+    screen_id: ?[]const u8 = null,
     surface: wire.Nullable(Id),
+    tab_id: ?[]const u8 = null,
     terminal_id: []const u8,
     terminal_incarnation: wire.Nullable([]const u8),
+    terminal_resource_id: ?[]const u8 = null,
     terminal_revision: u64,
+    workspace_id: ?[]const u8 = null,
     workspace_key: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "pane_id",
+        "screen_id",
+        "tab_id",
+        "terminal_resource_id",
+        "workspace_id",
+    };
 };
 
 pub const ResourceSelectors = struct {
@@ -1907,12 +1948,25 @@ pub const RunResult = struct {
     exit: wire.Nullable(TerminalExit),
     lifecycle: TerminalLifecycle,
     pane: wire.Nullable(Id),
+    pane_id: ?[]const u8 = null,
     screen: wire.Nullable(Id),
+    screen_id: ?[]const u8 = null,
     surface: wire.Nullable(Id),
+    tab_id: ?[]const u8 = null,
     terminal_id: []const u8,
     terminal_incarnation: wire.Nullable([]const u8),
+    terminal_resource_id: ?[]const u8 = null,
     terminal_revision: u64,
     workspace: wire.Nullable(Id),
+    workspace_id: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "pane_id",
+        "screen_id",
+        "tab_id",
+        "terminal_resource_id",
+        "workspace_id",
+    };
 };
 
 pub const SavedTabGroupMember = struct {
@@ -1984,6 +2038,69 @@ pub const ServerStatsConnections = struct {
     limit: u64,
     peak: u64,
     refused: u64,
+};
+
+pub const ServerStatsDisk = struct {
+    @"error": wire.Nullable([]const u8),
+    files: []const ServerStatsDiskFile,
+    files_truncated: bool,
+    files_unlisted: u64,
+    freelist_pages: u64,
+    journal: wire.Nullable(ServerStatsDiskJournal),
+    page_count: u64,
+    page_size: u64,
+    registry_bytes: u64,
+    segments: wire.Nullable(ServerStatsDiskSegments),
+    shm_bytes: u64,
+    wal_bytes: u64,
+};
+
+pub const ServerStatsDiskFile = struct {
+    bytes: u64,
+    files: u64,
+    name: []const u8,
+};
+
+pub const ServerStatsDiskJournal = struct {
+    estimated_live_bytes: u64,
+    first_sequence: u64,
+    head_sequence: u64,
+    kinds: []const ServerStatsDiskJournalKind,
+    live_rows: u64,
+    sample_bytes: u64,
+    sample_rows: u64,
+    sample_span_ms: u64,
+};
+
+pub const ServerStatsDiskJournalKind = struct {
+    budget_bytes_per_day: u64,
+    bytes_per_day: wire.Nullable(u64),
+    kind: []const u8,
+    over_budget: bool,
+    sample_bytes: u64,
+    sample_rows: u64,
+};
+
+pub const ServerStatsDiskSegmentCodec = struct {
+    codec: []const u8,
+    compressed_bytes: u64,
+    records: u64,
+    segments: u64,
+    uncompressed_bytes: u64,
+};
+
+pub const ServerStatsDiskSegmentKind = struct {
+    kind: []const u8,
+    segments: u64,
+};
+
+pub const ServerStatsDiskSegments = struct {
+    by_codec: []const ServerStatsDiskSegmentCodec,
+    compressed_bytes: u64,
+    kinds: []const ServerStatsDiskSegmentKind,
+    records: u64,
+    segments: u64,
+    uncompressed_bytes: u64,
 };
 
 pub const ServerStatsHistogram = struct {
@@ -2095,6 +2212,7 @@ pub const ServerStatsResourceProjection = struct {
 
 pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
+    disk: ?ServerStatsDisk = null,
     hook_queue: ?ServerStatsHookQueue = null,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
     locks: ?ServerStatsLocks = null,
@@ -2105,6 +2223,7 @@ pub const ServerStatsResult = struct {
     write_path: ?ServerStatsWritePath = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "disk",
         "hook_queue",
         "locks",
         "resource_projection",
@@ -2116,6 +2235,8 @@ pub const ServerStatsWritePath = struct {
     effect_intent_batches: u64,
     effect_intent_failures: u64,
     effect_intents: u64,
+    registry_wal_file_bytes: ?u64 = null,
+    registry_wal_file_high_water_bytes: ?u64 = null,
     registry_wal_frame_bytes: ?u64 = null,
     request_effect_commits: u64,
     wal_commits: ?u64 = null,
@@ -2123,6 +2244,8 @@ pub const ServerStatsWritePath = struct {
     writer_registry_locks: u64,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "registry_wal_file_bytes",
+        "registry_wal_file_high_water_bytes",
         "registry_wal_frame_bytes",
         "wal_commits",
         "wal_synced_commits",
@@ -2187,6 +2310,11 @@ pub const SetTerminalKeepResult = struct {
     keep: bool,
     terminal_id: []const u8,
     terminal_resource_id: wire.Field([]const u8) = .absent,
+};
+
+pub const SetTerminalTailPinResult = struct {
+    pinned: bool,
+    terminal: []const u8,
 };
 
 pub const ShownProgramStatus = struct {
@@ -2422,9 +2550,20 @@ pub const SplitRespawn = struct {
 };
 
 pub const SurfaceResult = struct {
+    pane_id: wire.Field([]const u8) = .absent,
+    screen_id: ?[]const u8 = null,
     surface: Id,
+    tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     terminal_incarnation: wire.Field([]const u8) = .absent,
+    terminal_resource_id: ?[]const u8 = null,
+    workspace_id: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "screen_id",
+        "terminal_resource_id",
+        "workspace_id",
+    };
 };
 
 pub const TabBrowserSource = enum {
@@ -3185,18 +3324,26 @@ pub const TerminalPlacement = struct {
     key: []const u8,
     lifecycle: TerminalLifecycle,
     pane: wire.Nullable(Id),
+    pane_id: ?[]const u8 = null,
     registry_id: []const u8,
     replayed: bool,
     screen: wire.Nullable(Id),
+    screen_id: ?[]const u8 = null,
     surface: wire.Nullable(Id),
+    tab_id: ?[]const u8 = null,
     terminal_id: []const u8,
     terminal_incarnation: wire.Nullable([]const u8),
     terminal_resource_id: ?[]const u8 = null,
     terminal_revision: u64,
     workspace: wire.Nullable(Id),
+    workspace_id: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "pane_id",
+        "screen_id",
+        "tab_id",
         "terminal_resource_id",
+        "workspace_id",
     };
 };
 
@@ -9383,6 +9530,25 @@ pub fn setTerminalKeep(client: anytype, request: SetTerminalKeepRequest) !wire.D
     );
 }
 
+pub const SetTerminalTailPinRequest = struct {
+    pinned: bool,
+    surface: wire.Field(Id) = .absent,
+    terminal: wire.Field([]const u8) = .absent,
+};
+
+pub fn setTerminalTailPin(client: anytype, request: SetTerminalTailPinRequest) !wire.Decoded(SetTerminalTailPinResult) {
+    return client.callTyped(
+        SetTerminalTailPinResult,
+        .{
+            .name = "set-terminal-tail-pin",
+            .authority = "control",
+            .since = 12,
+            .capability = "terminal-tail-pin-v1",
+        },
+        request,
+    );
+}
+
 pub const SetViewportPaneWidthRequest = struct {
     pane: Id,
     transaction: wire.Field(u64) = .absent,
@@ -12021,7 +12187,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 295;
+pub const command_count: usize = 296;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -12275,6 +12441,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-terminal-command-history", .authority = "local-admin", .since = 12, .capability = "terminal-command-history-v1", .stream = null },
     .{ .name = "set-terminal-idle-policy", .authority = "control", .since = 12, .capability = "terminal-idle-close-v1", .stream = null },
     .{ .name = "set-terminal-keep", .authority = "control", .since = 12, .capability = "terminal-reap-v1", .stream = null },
+    .{ .name = "set-terminal-tail-pin", .authority = "control", .since = 12, .capability = "terminal-tail-pin-v1", .stream = null },
     .{ .name = "set-viewport-pane-width", .authority = "control", .since = 9, .capability = "viewport-column-resize-v1", .stream = null },
     .{ .name = "set-window-title", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-workspace-metadata", .authority = "control", .since = 12, .capability = "workspace-metadata-v1", .stream = null },

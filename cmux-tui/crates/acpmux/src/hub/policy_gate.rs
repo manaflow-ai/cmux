@@ -16,7 +16,7 @@
 //!
 //! | policy | read, search, think | fetch | edit | read-only shell | anything else |
 //! | --- | --- | --- | --- | --- | --- |
-//! | deny-all | none | deny | deny | allow | deny |
+//! | deny-all | none | deny | deny | deny | deny |
 //! | review | none | none | deny | allow | deny |
 //! | approve-reads | none | none | ask | allow | ask |
 //! | approve-edits | none | none | none | ask | ask |
@@ -30,15 +30,15 @@
 //! `allow` and `deny` is logged as `permission_auto`, as the policy's answers to asks are.
 //!
 //! The policy the gate holds is the one the chat's mode follows (`policy_mode.rs`
-//! `narrow_policy`: its own, else a deny-all default), and also a review default: review, like
-//! deny-all, promises that nothing writes with no person to ask. A default of ask, approve-reads
-//! or approve-edits is not narrowing (chats start in full access by design).
+//! `narrow_policy`: its own, else a deny-all or review default, a lockdown). A default of ask,
+//! approve-reads or approve-edits is not narrowing (chats start in full access by design).
 //!
-//! Deny-all lets a read-only shell command run, as Codex's `read-only` mode does: the policy
-//! refuses every write, not every read (`shell_readonly.rs` decides what only reads).
+//! Deny-all denies every shell command, a read-only one too (lead, 2026-11-08: the name promises
+//! it). Review is the read-only preset: its read-only shell commands run (`shell_readonly.rs`
+//! decides what only reads).
 //!
-//! A deny-all or review chat whose harness has neither this gate nor a mode that keeps its
-//! policy does not start under it (`policy_mode.rs` `require_enforced`).
+//! A chat whose harness has neither this gate nor another way to keep its policy does not run
+//! under it (`policy_mode.rs` `require_enforced`).
 
 use super::*;
 use cmux_json::JsonSet as _;
@@ -102,11 +102,8 @@ pub(crate) fn gate_decision(
         return GateDecision::None;
     }
     // Approve-edits and ask never run a shell command unasked: under approve-edits its program
-    // could be one the agent wrote (`permissions.rs`).
-    let reads_shell = matches!(
-        policy,
-        PermissionPolicy::DenyAll | PermissionPolicy::Review | PermissionPolicy::ApproveReads
-    );
+    // could be one the agent wrote (`permissions.rs`). Deny-all runs none.
+    let reads_shell = matches!(policy, PermissionPolicy::Review | PermissionPolicy::ApproveReads);
     if kind == "execute" && shell_reads && reads_shell {
         return GateDecision::Allow;
     }
@@ -126,7 +123,9 @@ fn deny_reason(policy: PermissionPolicy, by_rule: bool) -> String {
         PermissionPolicy::Review => {
             "review allows reads, searches and read-only shell commands only"
         }
-        PermissionPolicy::DenyAll => "deny-all allows reads and read-only shell commands only",
+        PermissionPolicy::DenyAll => {
+            "deny-all allows the file read and search tools only (Read, Grep, Glob) and denies every shell command, a read-only one too"
+        }
         _ => "the policy refuses it",
     };
     format!(
@@ -146,9 +145,7 @@ pub(super) fn gate_policy(
     meta: &SessionMeta,
     default: PermissionPolicy,
 ) -> Option<PermissionPolicy> {
-    let review_default = meta.permission_policy.is_none() && default == PermissionPolicy::Review;
     super::policy_mode::narrow_policy(meta, default)
-        .or(review_default.then_some(PermissionPolicy::Review))
 }
 
 impl Hub {
@@ -167,12 +164,7 @@ impl Hub {
             .and_then(|r| super::rules::decide(r, &request));
         let needs_person = super::questions::needs_person(&request);
         let shell_reads = kind == "execute"
-            && matches!(
-                policy,
-                PermissionPolicy::DenyAll
-                    | PermissionPolicy::Review
-                    | PermissionPolicy::ApproveReads
-            )
+            && matches!(policy, PermissionPolicy::Review | PermissionPolicy::ApproveReads)
             && self.probe_shell_reads(session, &request).await;
         let mut decision = gate_decision(policy, rule, kind, needs_person, shell_reads);
         if decision == GateDecision::Allow && Self::web_turn(session) {
@@ -228,7 +220,7 @@ mod tests {
         use PermissionPolicy as P;
         // read, fetch, edit, read-only shell, other shell, other tool
         let rows = [
-            (P::DenyAll, [G::None, G::Deny, G::Deny, G::Allow, G::Deny, G::Deny]),
+            (P::DenyAll, [G::None, G::Deny, G::Deny, G::Deny, G::Deny, G::Deny]),
             (P::Review, [G::None, G::None, G::Deny, G::Allow, G::Deny, G::Deny]),
             (P::ApproveReads, [G::None, G::None, G::Ask, G::Allow, G::Ask, G::Ask]),
             (P::ApproveEdits, [G::None, G::None, G::None, G::Ask, G::Ask, G::Ask]),
@@ -325,5 +317,8 @@ mod tests {
         let reason = deny_reason(PermissionPolicy::Review, false);
         assert!(reason.contains("review") && reason.contains("Do not retry"), "{reason}");
         assert!(deny_reason(PermissionPolicy::DenyAll, true).contains("rule"));
+        // The real build's agent read "searches" as `rg` in a shell: deny-all names its tools.
+        let reason = deny_reason(PermissionPolicy::DenyAll, false);
+        assert!(reason.contains("Read, Grep, Glob") && reason.contains("every shell"), "{reason}");
     }
 }

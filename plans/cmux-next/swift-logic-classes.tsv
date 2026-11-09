@@ -1498,7 +1498,6 @@ CmuxNextApp	extension	CloudStartSessionRuns.Key	0	LOGIC	100	0	Packages/macOS/Cmu
 CmuxNextApp	struct	CloudStartSession	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartSession.swift	from struct CloudStartSession:20: `cmux cloud start-session`: machine take/create and session start
 CmuxNextApp	class	CloudStartSessionAsks	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartSessionAsks.swift	from class CloudStartSessionAsks:12: Agent start-session ask card lifecycle with timeout
 CmuxNextApp	class	CloudStartSessionRuns	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartSessionAsks.swift	from class CloudStartSessionAsks:12: Agent start-session ask card lifecycle with timeout
-CmuxNextApp	enum	CloudStartSessionStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartSessionStrings.swift	Localized string accessors
 CmuxNextApp	extension	CloudStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStrings+CLI.swift	Localized string accessors
 CmuxNextApp	extension	CloudStrings	1	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStrings+CLI.swift	Localized string accessors
 CmuxNextApp	extension	CloudStrings	2	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStrings+CLI.swift	Localized string accessors
@@ -4872,6 +4871,7 @@ CmuxNextCloudUI	struct	CloudPortStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/S
 CmuxNextCloudUI	enum	CloudWorkspaceSetupWizardSizeStrings	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudWorkspaceSetupWizard+Size.swift	from extension CloudWorkspaceSetupWizard:9: Machine size options from plan limits
 CmuxNextCloudUI	extension	CloudWorkspaceSetupWizard	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudWorkspaceSetupWizard+Size.swift	Machine size options from plan limits
 CmuxNextCloudUI	enum	CloudWorkspaceSetupWizardStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudWorkspaceSetupWizard.swift	from struct CloudWorkspaceSetupWizard:8: SwiftUI/AppKit view, strings or settings page glue
+CmuxNextCloudUI	struct	CloudStartSessionStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudStartSessionStrings.swift	Localized string accessors (moved from the App)
 CmuxNextCloudUI	struct	CloudWorkspaceSetupWizard	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudWorkspaceSetupWizard.swift	from struct CloudWorkspaceSetupWizard:8: SwiftUI/AppKit view, strings or settings page glue
 CmuxNextCodeRouter	enum	AIProvider	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCodeRouter/AIProvider.swift	CodeRouter account/provider detection, labels, client logic
 CmuxNextCodeRouter	extension	CloudAuth	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCodeRouter/API/CodeRouterAccountSource.swift	from protocol CodeRouterAccountSource:5: CodeRouter account/provider detection, labels, client logic
@@ -6864,8 +6864,6 @@ CmuxNextDesign	protocol	ThemedMenuItemView	0	PLATFORM	0	0	Packages/macOS/CmuxNex
 CmuxNextDesign	class	ThemedPickerTarget	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemedPicker+SwiftUI.swift	from struct ThemedPicker:8: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	struct	ThemedPicker	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemedPicker+SwiftUI.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	ThemedPopUpButton	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemedPopUpButton.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	class	ThemedSegmentedCell	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemedSegmentedControl.swift	from class ThemedSegmentedControl:9: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
-CmuxNextDesign	class	ThemedSegmentedControl	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemedSegmentedControl.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	ThemedSecureTextField	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemedTextField.swift	from class ThemedTextField:9: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	class	ThemedTextField	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemedTextField.swift	AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
 CmuxNextDesign	extension	NSTextField	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemedTextField.swift	from class ThemedTextField:9: AppKit/SwiftUI view, drawing, styling, tokens or window plumbing
@@ -9592,8 +9590,6 @@ CmuxNextRemoteViewSessions	struct	RemoteViewDebugRdHost	0	PLATFORM	0	0	Packages/
 CmuxNextRemoteViewSessions	class	RemoteViewPageSession	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/RemoteViewPageSession.swift	from class RemoteViewPageSession:16: Remote view/VNC frame sources, sessions and Keychain credentials
 CmuxNextRemoteViewSessions	struct	CloudDesktopByteStream	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/RemoteViewPageSession.swift	from class RemoteViewPageSession:16: Remote view/VNC frame sources, sessions and Keychain credentials
 CmuxNextRemoteViewSessions	class	RemoteViewPageTab	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/RemoteViewPageTab.swift	from class RemoteViewPageTab:22: Remote view/VNC frame sources, sessions and Keychain credentials
-CmuxNextRemoteViewSessions	class	CloudDesktopFrames	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/CloudDesktopFrames.swift	view-only RFB session lifecycle over the Swift CmuxVNC client (#31795); Rust has cmux-vnc; F14
-CmuxNextRemoteViewSessions	let	framesLogger	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/CloudDesktopFrames.swift	os.Logger
 CmuxNextResources	class	MockResourceSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/MockResourceSource.swift	from class MockResourceSource:6: process/OS plumbing or view
 CmuxNextResources	struct	ProcessKey	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/ProcessSample.swift	process identity key (host + pid) and parsing
 CmuxNextResources	struct	ProcessSample	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/ProcessSample.swift	from struct ProcessKey:5: process identity key (host + pid) and parsing
@@ -9605,7 +9601,6 @@ CmuxNextResources	class	ResourceCardSampler	0	LOGIC	100	0	Packages/macOS/CmuxNex
 CmuxNextResources	protocol	ResourceSampleSource	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/ResourceCardSampler.swift	resource sample source protocol and card sampler ordering
 CmuxNextResources	enum	Strings	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/ResourceFormat.swift	from struct ResourceFormat:6: Activity Monitor style CPU/memory formatter
 CmuxNextResources	struct	ResourceFormat	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/ResourceFormat.swift	Activity Monitor style CPU/memory formatter
-CmuxNextResources	class	ResourceSummaryView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/ResourceSummaryView.swift	process/OS plumbing or view
 CmuxNextResources	enum	SharedRole	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/SharedProcess.swift	why a process is shared (role enum)
 CmuxNextResources	struct	ResourceSampleSet	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/SharedProcess.swift	from enum SharedRole:5: why a process is shared (role enum)
 CmuxNextResources	struct	SharedProcess	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextResources/SharedProcess.swift	from enum SharedRole:5: why a process is shared (role enum)
@@ -9692,25 +9687,15 @@ CmuxNextServer	struct	JoinLine	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/Cm
 CmuxNextServer	struct	MachineJoinService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/MachineJoinService.swift	from struct JoinLine:6: thin call site that mints join line via CLI
 CmuxNextServer	class	SSHConnectRecovery	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/SSHConnectRecovery.swift	first-connect recovery dialog via dialog center
 CmuxNextServer	class	SSHPeerForgets	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddDevice/SSHPeerForgets.swift	from class SSHPeerForgets:9: forget peers for ssh host: match predicate and rm
-CmuxNextServer	class	AddMachineCard	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineCard.swift	from class AddMachineCard:9: Add Machine card presenter
-CmuxNextServer	class	AddMachineCardPanel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineCard.swift	from class AddMachineCard:9: Add Machine card presenter
-CmuxNextServer	class	AddMachineHostView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineCard.swift	from class AddMachineCard:9: Add Machine card presenter
-CmuxNextServer	struct	AddMachineRoot	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineCard.swift	from class AddMachineCard:9: Add Machine card presenter
-CmuxNextServer	class	AddMachineModel	0	MIXED	88	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineModel.swift	from enum HostCommand:5: command/buttons/services seam 60; Add Machine phases, enroll run, checklist flow 458
-CmuxNextServer	enum	AddMachineAction	0	MIXED	88	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineModel.swift	from enum HostCommand:5: command/buttons/services seam 60; Add Machine phases, enroll run, checklist flow 458
-CmuxNextServer	enum	HostCommand	0	MIXED	88	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineModel.swift	command/buttons/services seam 60; Add Machine phases, enroll run, checklist flow 458
-CmuxNextServer	struct	AddMachineButton	0	MIXED	88	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineModel.swift	from enum HostCommand:5: command/buttons/services seam 60; Add Machine phases, enroll run, checklist flow 458
-CmuxNextServer	struct	AddMachineServices	0	MIXED	88	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineModel.swift	from enum HostCommand:5: command/buttons/services seam 60; Add Machine phases, enroll run, checklist flow 458
-CmuxNextServer	struct	HostDestination	0	MIXED	88	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineModel.swift	from enum HostCommand:5: command/buttons/services seam 60; Add Machine phases, enroll run, checklist flow 458
+CmuxNextServer	enum	HostCommand	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineModel.swift	Add Machine runs: enroll/doctor CLI runs, app install fallback, connect, health record (system seam)
+CmuxNextServer	class	AddMachineRuns	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineModel.swift	Add Machine runs: enroll/doctor CLI runs, app install fallback, connect, health record (system seam)
+CmuxNextServer	class	AddMachineCardProvider	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineCardProvider.swift	Page relay: cmux.addMachine.<op> to AddMachineRuns for the server-cards page
+CmuxNextServer	struct	AddMachineServices	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineModel.swift	from class AddMachineRuns:107: Add Machine runs: enroll/doctor CLI runs, app install fallback, connect, health record (system seam)
+CmuxNextServer	struct	HostDestination	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineModel.swift	from class AddMachineRuns:107: Add Machine runs: enroll/doctor CLI runs, app install fallback, connect, health record (system seam)
 CmuxNextServer	enum	AddMachineStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineStrings.swift	localized strings
-CmuxNextServer	enum	AddMachineMetrics	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineView.swift	from struct AddMachineView:11: SwiftUI Add Machine view
-CmuxNextServer	struct	AddMachineCandidateList	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineView.swift	from struct AddMachineView:11: SwiftUI Add Machine view
-CmuxNextServer	struct	AddMachineChecklistView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineView.swift	from struct AddMachineView:11: SwiftUI Add Machine view
-CmuxNextServer	struct	AddMachineView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/AddMachineView.swift	SwiftUI Add Machine view
+CmuxNextServer	enum	AddMachineMetrics	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/MachineSection.swift	Machines section row metrics
 CmuxNextServer	struct	GroupSpawnHost	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/GroupSpawnHost.swift	spawn host placement rule for groups
-CmuxNextServer	enum	HostCandidates	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/HostCandidate.swift	from struct HostCandidate:5: decoded host candidates list from CLI
 CmuxNextServer	struct	HostCandidate	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/HostCandidate.swift	decoded host candidates list from CLI
-CmuxNextServer	struct	HostChecklist	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/HostChecklist.swift	checklist merge of step lines, unknown steps appended
 CmuxNextServer	enum	HostHealth	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/HostStep.swift	from struct HostStep:6: Swift copy of host step ids and states
 CmuxNextServer	enum	HostLine	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/HostStep.swift	from struct HostStep:6: Swift copy of host step ids and states
 CmuxNextServer	enum	HostStepState	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextServer/AddMachine/HostStep.swift	from struct HostStep:6: Swift copy of host step ids and states

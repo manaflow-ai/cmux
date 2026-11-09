@@ -690,6 +690,10 @@ fn run_response(
                         Err(error) => return print_operation_error(&error, global.output),
                     };
                     let result = agent_roster::with_terminals(reader, plan, result);
+                    // The agent status words come from terminal_talk, which is unix
+                    // only; elsewhere the program's own records stay as they are.
+                    #[cfg(unix)]
+                    let result = program_status_view::with_agent_status(reader, plan, result);
                     return super::agent_input_hint::print_result(global, plan, reader, result);
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {
@@ -887,7 +891,14 @@ pub(super) fn print_result(global: &GlobalArgs, plan: &RequestPlan, result: Valu
         && plan.view == super::command::ResponseView::TerminalProgramStatus)
         .then(|| result.pointer("/extra/last_command").cloned())
         .flatten();
-    let result = plan.view.project(result);
+    let mut result = plan.view.project(result);
+    wait_timeout::mark(plan, &mut result);
+    #[cfg(unix)]
+    if global.output == OutputMode::Human
+        && plan.view == super::command::ResponseView::TerminalProgramStatus
+    {
+        result = program_status_view::human_records(result);
+    }
     if global.output == OutputMode::Human
         && plan.view == super::command::ResponseView::ScreenText
         && let Some(text) = result.get("text").and_then(Value::as_str)
@@ -928,12 +939,15 @@ fn print_screen_text(text: &str) -> i32 {
     }
 }
 
-/// A printed result that exits 1: a `terminal <id> screen wait` timeout
-/// (spec/commands.md) or an `agent message unsend` whose outcome is `failed`.
+/// A printed result that does not exit 0: a `screen wait` or `process wait`
+/// whose time ran out exits 124 (wire/wait_timeout.rs), an `agent message
+/// unsend` whose outcome is `failed` exits 1.
 fn success_exit_code(plan: &RequestPlan, result: &Value) -> i32 {
     use cmux_tui_core::resource::ResourceOperation as Op;
+    if let Some(code) = wait_timeout::exit_code(plan, result) {
+        return code;
+    }
     i32::from(match &plan.operation {
-        WireOperation::Typed(Op::TerminalWait) => result["matched"] == false,
         WireOperation::Typed(Op::AgentMessageUnsend) => result["value"]["outcome"] == "failed",
         _ => false,
     })
@@ -970,8 +984,29 @@ fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a,
                 .collect(),
         )),
         Some(rows) if is_closed_list(plan) => std::borrow::Cow::Owned(closed_view::summarize(rows)),
+        // A screen's `layout` is its whole split tree as JSON: one cell of it
+        // made every row wider than the terminal (W5-P). `--json` keeps it,
+        // and `screen <s> layout export` prints it.
+        Some(rows) if is_screen_list(plan) => std::borrow::Cow::Owned(Value::Array(
+            rows.iter()
+                .map(|row| {
+                    let mut row = row.clone();
+                    if let Some(object) = row.as_object_mut() {
+                        object.remove("layout");
+                    }
+                    row
+                })
+                .collect(),
+        )),
         _ => std::borrow::Cow::Borrowed(result),
     }
+}
+
+fn is_screen_list(plan: &RequestPlan) -> bool {
+    matches!(
+        &plan.operation,
+        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::ScreenList)
+    )
 }
 
 fn is_closed_list(plan: &RequestPlan) -> bool {
@@ -1197,9 +1232,12 @@ mod human;
 mod list_filter;
 mod list_order;
 mod notify_desktop;
+#[cfg(unix)]
+mod program_status_view;
 mod retry;
 mod sanitize;
 mod socket;
+pub(super) mod wait_timeout;
 mod workspace_created_by;
 pub(super) use agent_roster::across as agent_roster_across;
 pub(super) use agent_roster::{NOTIFICATION_LIMIT, daemon_state_for_status};

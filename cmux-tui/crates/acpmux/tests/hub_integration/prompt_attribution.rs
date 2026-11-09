@@ -113,7 +113,7 @@ async fn an_outbox_send_from_an_agent_shell_is_that_agents() {
     let mut c = Client::open(&hub);
     let session = c.new_session(json!({"harness": "fake"})).await;
     let request = json!({"sessionId": session, "prompt": [{"type": "text", "text": "PR is green"}],
-        "_meta": {"acpmux": {"promptId": "p-outbox", "fromAgent": "Codex on big-red"}}});
+        "_meta": {"acpmux": {"promptId": "p-outbox", "fromAgent": "Codex on devbox"}}});
     c.call("_acpmux/send_queue", json!({"request": request})).await;
     let echo = c
         .until(|v| {
@@ -124,13 +124,13 @@ async fn an_outbox_send_from_an_agent_shell_is_that_agents() {
         .await;
     assert_eq!(
         echo["params"]["update"]["content"]["text"],
-        "echo: From another agent (Codex on big-red), not the person:PR is green"
+        "echo: From another agent (Codex on devbox), not the person:PR is green"
     );
     let record = c.user_message(&session, "p-outbox").await;
     assert!(record["client"].as_str().unwrap_or_default().starts_with("acpmux-outbox"), "{record}");
     assert_eq!(
         record.pointer("/_meta/provenance/fromName"),
-        Some(&json!("Codex on big-red")),
+        Some(&json!("Codex on devbox")),
         "{record}"
     );
 }

@@ -54,9 +54,20 @@ export interface TooltipProps {
    * a title tooltip). The whole control still opens it.
    */
   anchor?: string;
+  /** Shows nothing while set, keeping the control mounted (a row whose text is not cut). */
+  disabled?: boolean;
 }
 
-export function Tooltip({ label, detail, children, side = "top", shortcut, className, anchor }: TooltipProps) {
+export function Tooltip({
+  label,
+  detail,
+  children,
+  side = "top",
+  shortcut,
+  className,
+  anchor,
+  disabled,
+}: TooltipProps) {
   const container = usePortalContainer();
   const host = usePopupHost();
   // Below what covers the page's top (the tab row, an open find bar: ui/popupInset.ts), flipping or
@@ -76,27 +87,30 @@ export function Tooltip({ label, detail, children, side = "top", shortcut, class
     wraps,
   });
   return (
-    <BaseTooltip.Root>
+    <BaseTooltip.Root disabled={disabled}>
       <BaseTooltip.Trigger ref={host || anchor ? setTrigger : undefined} render={children} />
-      <BaseTooltip.Portal container={container}>
-        <BaseTooltip.Positioner
-          className="ui-positioner"
-          side={side}
-          sideOffset={tooltipGap}
-          collisionPadding={padding}
-          {...(anchor && { anchor: () => placed() })}
-        >
-          <BaseTooltip.Popup ref={setPopup} className={cx("ui-tooltip ui-glass", className)}>
-            {shortcut && <span className="ui-tooltip-hint">{shortcut}</span>}
-            {typeof label === "string" || typeof label === "number" ? (
-              <span className="ui-tooltip-text">{label}</span>
-            ) : (
-              label
-            )}
-            {detail != null && <span className="ui-tooltip-detail">{detail}</span>}
-          </BaseTooltip.Popup>
-        </BaseTooltip.Positioner>
-      </BaseTooltip.Portal>
+      {/* Disabled while it shows (the control changed under the pointer), it goes at once. */}
+      {!disabled && (
+        <BaseTooltip.Portal container={container}>
+          <BaseTooltip.Positioner
+            className="ui-positioner"
+            side={side}
+            sideOffset={tooltipGap}
+            collisionPadding={padding}
+            {...(anchor && { anchor: () => placed() })}
+          >
+            <BaseTooltip.Popup ref={setPopup} className={cx("ui-tooltip ui-glass", className)}>
+              {shortcut && <span className="ui-tooltip-hint">{shortcut}</span>}
+              {typeof label === "string" || typeof label === "number" ? (
+                <span className="ui-tooltip-text">{label}</span>
+              ) : (
+                label
+              )}
+              {detail != null && <span className="ui-tooltip-detail">{detail}</span>}
+            </BaseTooltip.Popup>
+          </BaseTooltip.Positioner>
+        </BaseTooltip.Portal>
+      )}
     </BaseTooltip.Root>
   );
 }

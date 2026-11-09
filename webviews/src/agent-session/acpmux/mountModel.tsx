@@ -21,6 +21,11 @@ import { liveBackground } from "../../ui/liveBackground/liveBackground.experimen
 import { reportHostGlass } from "../../ui/glass/hostGlass";
 import { chatUnderHoverCard, hostGlassCover } from "./chatUnderGlass";
 import { installUiPointer, type UiPointerControl } from "./uiPointer/picker";
+import { reportChatSnapshot } from "./chatSnapshot/live";
+
+// The chat's snapshot drew in the document's first frame (chatSnapshot/boot.ts): the host shows the
+// page now, before the handshake, instead of keeping its loading state until the rows are read.
+reportChatSnapshot(postNative);
 
 // Inspect Element's page side (uiPointer/picker.ts), driven by the native own-window picker. Its
 // report goes on the normal host protocol so the shared page host and the legacy WKWebView use the
@@ -29,6 +34,8 @@ import { installUiPointer, type UiPointerControl } from "./uiPointer/picker";
   document,
   {
     post: (report) => void postNative("uiPointer.report", report),
+    // Esc that reached the page: the native picker stops too (UIInspectorController.pageReport).
+    cancel: () => void postNative("uiPointer.report", { cancelled: true }),
   },
 );
 

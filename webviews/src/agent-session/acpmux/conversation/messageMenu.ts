@@ -5,7 +5,7 @@
 // handler, or null when there is neither. On an image that opens on click (`data-open-image`) the
 // report adds `openImage`, and the menu's Open Image clicks it (`openReportedImage`). The host uses
 // one report for one menu. On a code block, a command, a path or a link the report adds that
-// `part` (menuParts.ts), even outside a prompt or reply (a tool row).
+// `part` (menuParts.ts), even outside a prompt or reply (a tool row); with a selection, only a link.
 import { Lexer, lexer, type Token, walkTokens } from "marked";
 import { turnRows } from "../diff";
 import type { AcpmuxSnapshot } from "../model";
@@ -376,7 +376,10 @@ export function installMessageMenuReporter(
     const picture = reportedImage?.querySelector("img") ?? target?.closest?.("img") ?? undefined;
     reportedPicture = picture && (picture.currentSrc || picture.getAttribute("src")) ? picture : undefined;
     const selection = selectionAt(doc, target);
-    const part = selection ? undefined : menuPartAt(target);
+    // A selection stands for the part under it, except a link: WebKit selects on right-click, and a
+    // link keeps Open Link and Copy Link (Leo, 2026-11-09: "feel like this should have a copy link button").
+    const pointed = menuPartAt(target);
+    const part = !selection ? pointed : pointed?.link ? { link: pointed.link } : undefined;
     const body: MessageMenuReport | null =
       message || selection || reportedImage || reportedPicture || part
         ? {

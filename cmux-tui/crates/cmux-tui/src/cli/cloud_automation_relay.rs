@@ -20,6 +20,7 @@ use serde_json::Value;
 use super::cloud_client_session::secure_origin;
 
 /// The app's bound on one Cloud call.
+// timeout: the app's bound; a Cloud call that never answers fails that call.
 const TIMEOUT: Duration = Duration::from_secs(20);
 
 /// `Some(exit code)` when `args` is `cloud automation-relay`.

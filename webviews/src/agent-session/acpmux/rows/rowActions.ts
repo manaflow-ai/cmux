@@ -28,6 +28,10 @@ export const resolveMemory = (offerId: string, accept: string[], dismiss: string
 /// goes (direct.ts dismissPromptCoach).
 export const dismissPromptCoach = (rowId: string, sessionId: string) =>
   void window.cmuxAcpmuxActions?.["chat.coach.dismiss"]?.({ rowId, sessionId });
+/// Approve or Not now on a no-prompt preset's card: acpmux records the person's answer
+/// (`_acpmux/presets`, direct.ts answerPresetApproval); the row closes from its answer.
+export const answerPresetApproval = (rowId: string, approve: boolean) =>
+  void window.cmuxAcpmuxActions?.["chat.presetApproval.answer"]?.({ rowId, approve });
 
 /// Opens a chat started from an offer (`chat.offer.open`): beside this one, else here.
 export const openOfferChat = (sessionId: string) =>

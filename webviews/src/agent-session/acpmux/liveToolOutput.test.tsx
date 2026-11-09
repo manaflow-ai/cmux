@@ -228,7 +228,7 @@ test("every command form the row readers parse goes through the pane", () => {
     ["an assignment prefix", { command: "CMUX_SOCKET=/tmp/cmux.sock cmux acp send lane-a 'hi'" }],
     ["a timeout wrapper", { command: "timeout 30 cmux acp send lane-a 'hi'" }],
     ["a shell -c", { command: "bash -c 'cmux acp send lane-a hi'" }],
-    ["a reach wrapper", { command: "reach big-red 'cmux acp send lane-a hi'" }],
+    ["a reach wrapper", { command: "reach devbox 'cmux acp send lane-a hi'" }],
     [
       "a shell function",
       { command: "tell() { cmux acp send --no-wait \"$1\" 'Merged.' 2>&1 | tail -1; }; tell lane-a; tell lane-b" },

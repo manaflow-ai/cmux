@@ -33,6 +33,11 @@ import Testing
                   let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
             return (root["appearance"] as? [String: Any])?["sidebarSurface"] as? String
         }
+        /// Whether cmux.json is there and parses as an object, so a missing or unreadable file never passes for "the key is absent".
+        func fileParses() -> Bool {
+            guard let data = try? Data(contentsOf: url), let root = try? JSONSerialization.jsonObject(with: data) else { return false }
+            return root is [String: Any]
+        }
         func until(_ condition: () -> Bool) async {
             let deadline = ContinuousClock.now + .seconds(10)
             while !condition(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(10)) }
@@ -43,8 +48,11 @@ import Testing
         await until { saved() == "separate" && SidebarSurfaceSetting.effective(in: settings.snapshot) == .separate }
         #expect(saved() == "separate")
         #expect(services.registry.perform("palette.toggleMatchTerminalBackground", invocation: ActionInvocation()))
-        await until { saved() == "same" }
-        #expect(saved() == "same")
+        // "same" is the default: the write removes the key (#38119), so cmux.json keeps no copy.
+        await until { fileParses() && saved() == nil && SidebarSurfaceSetting.effective(in: settings.snapshot) == .same }
+        #expect(fileParses(), "cmux.json is missing or does not parse")
+        #expect(saved() == nil, "the default leaves cmux.json")
+        #expect(SidebarSurfaceSetting.effective(in: settings.snapshot) == .same)
     }
 
     /// The palette row reads the state its run asked for at once, while cmux.json is still being

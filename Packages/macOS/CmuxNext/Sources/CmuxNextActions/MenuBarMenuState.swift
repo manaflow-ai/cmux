@@ -1,6 +1,6 @@
 /// What the menu bar menu shows besides its fixed rows, read each time it opens: Computer Use,
-/// the Unread and Running chats, who is signed in, how many agents work or wait, and whether a
-/// downloaded update waits.
+/// the Unread and Running chats, who is signed in, whether cmux keeps the Mac awake, how many
+/// agents work or wait, and whether a downloaded update waits.
 ///
 /// The App fills it from Cloud auth, the daemon store and the updater (`MenuBarExtraHost`); tests
 /// build one by hand.
@@ -86,8 +86,24 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
         }
     }
 
+    /// cmux holds off idle sleep (`KeepAwakeService`): the line that says so and why.
+    public struct KeepingAwake: Sendable, Hashable {
+        /// Terminal commands that keep it awake (`sessions.keepAwakeForCommands`); 0 hides their line.
+        public var commands: Int
+        /// The setting behind the hold (`sessions.keepAwake`, `phone.keepAwake`), which the line
+        /// opens; nil (the Keep Mac Awake action alone) leaves it a plain line.
+        public var setting: String?
+
+        public init(commands: Int = 0, setting: String? = nil) {
+            self.commands = commands
+            self.setting = setting
+        }
+    }
+
     /// Computer Use, nil when it is off or not set up: the menu then has no Computer Use row.
     public var computerUse: ComputerUse?
+    /// cmux keeps the Mac awake, nil when it does not: no line.
+    public var keepingAwake: KeepingAwake?
     /// The agent chats with a result nobody has read, newest first.
     public var unread: Chats
     /// The agent chats running a turn, newest first.
@@ -112,10 +128,12 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
     ///   - computerUse: Computer Use's row, nil for none.
     ///   - unread: The Unread list; empty hides the section.
     ///   - running: The Running list; empty hides the section.
+    ///   - keepingAwake: cmux keeps the Mac awake; nil hides the line.
     public init(account: Account? = nil, agentsWorking: Int = 0, agentsNeedingInput: Int = 0,
                 updateReady: Bool = false, showsGlobalKey: Bool = false, computerUse: ComputerUse? = nil,
-                unread: Chats = Chats(), running: Chats = Chats()) {
+                unread: Chats = Chats(), running: Chats = Chats(), keepingAwake: KeepingAwake? = nil) {
         self.computerUse = computerUse
+        self.keepingAwake = keepingAwake
         self.unread = unread
         self.running = running
         self.account = account
