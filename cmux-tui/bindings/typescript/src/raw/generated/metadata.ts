@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 62625fc976e69a44b62563b404477f91207f431e3b472e3b79007ead92baffb6. */
+/* cmux-tui mux protocol 12, IR b3364f55329e5dc13123ef5f45a34f190b251c48bec2a31c411fbd9ecbbbe1e6. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "62625fc976e69a44b62563b404477f91207f431e3b472e3b79007ead92baffb6" as const;
+export const SDK_IR_SHA256 = "b3364f55329e5dc13123ef5f45a34f190b251c48bec2a31c411fbd9ecbbbe1e6" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3115,6 +3115,17 @@ export const COMMAND_METADATA = {
     "constraints": [
       "The keep flag is stored durably with the terminal and survives owner restarts.",
       "A terminal that is not kept is ended, as close-terminal does, once it has had no tab placement for the owner's reap grace period (default 30 seconds); a placement restored within the period cancels it."
+    ]
+  },
+  "set-terminal-tail-pin": {
+    "authority": "control",
+    "since": 12,
+    "capability": "terminal-tail-pin-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Pins live in the owner's memory: an owner restart unpins every terminal and removes their tail entries.",
+      "A pinned terminal publishes its last non-empty output line, without escapes, as the workspace status entry tail:<term id> at most twice a second; unpinning or the terminal's exit removes the entry."
     ]
   },
   "set-viewport-pane-width": {
@@ -11627,6 +11638,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "nullable": true,
         "presence": "optional",
         "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "SetTerminalTailPinResult": {
+    "additional_properties": false,
+    "fields": {
+      "pinned": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "terminal": {
+        "nullable": false,
+        "presence": "required",
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -27049,6 +27082,53 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "SetTerminalKeepResult"
+    }
+  },
+  "set-terminal-tail-pin": {
+    "request": {
+      "additional_properties": false,
+      "constraints": [
+        "Exactly one of surface or terminal is present."
+      ],
+      "fields": {
+        "pinned": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "surface": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "terminal": {
+          "constraints": [
+            {
+              "format": "public term_ resource id",
+              "pattern": "^term_[0-9a-f]{32}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "SetTerminalTailPinResult"
     }
   },
   "set-viewport-pane-width": {
