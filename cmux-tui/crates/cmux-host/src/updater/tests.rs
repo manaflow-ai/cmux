@@ -643,7 +643,7 @@ fn another_process_reads_the_pause_record_and_holds() {
     let file = paths.at(PAUSE_FILE);
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     let service = crate::agent::PauseWatch::new();
-    service.persist_to(file.clone());
+    service.persist_to(file);
     service.looked(B0, false);
 
     // The operator's check, in its own process: no watch of its own.
