@@ -42,7 +42,7 @@
 //! barrier says ready and no fill marker is left.
 //!
 //! A start-chat copy of a folder the machine has nothing of opens at its head too, when
-//! the machine serves `git-seed-hold-v1` ([`held`]): the machine holds the folder's sync
+//! the machine serves `git-seed-hold-v2` ([`held`]): the machine holds the folder's sync
 //! barrier, this Mac sends the head, the machine marks it, and a detached `cmux link seed
 //! copy-rest` sends the rest and ends the hold. Its record keeps the hold's job as
 //! `filling` the same way.
@@ -343,7 +343,7 @@ struct Machine<'a> {
     id: Option<String>,
     /// False when it is another build without `git-seed-v1`.
     seeds: bool,
-    /// It serves `git-seed-hold-v1` ([`held`]).
+    /// It serves `git-seed-hold-v2` ([`held`]).
     holds: bool,
 }
 

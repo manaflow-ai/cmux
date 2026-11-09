@@ -1,4 +1,4 @@
-//! `git-seed-hold-v1`: a copy this Mac streams in opens at its head under the machine's hold of
+//! `git-seed-hold-v2`: a copy this Mac streams in opens at its head under the machine's hold of
 //! the folder's sync barrier, while every tool waits for the whole folder; a copy that ends short
 //! or goes quiet leaves the folder failed, never ready.
 
@@ -216,4 +216,33 @@ fn the_hold_ops_are_framed_and_advertised_under_their_own_capability() {
     assert_eq!(denied["error_code"], "seed.permission_denied");
     assert_eq!(state(&folder), "syncing", "a denied end changes nothing");
     service.call("git.seed.hold.end", &json!({ "job": job, "ok": false })).unwrap();
+}
+
+#[test]
+fn a_write_that_names_its_hold_lands_only_while_the_hold_runs() {
+    let home = Home::new("hold-fenced-write");
+    let service = service(&home);
+    let folder = home.join("work/notes");
+    let job = hold(&service, &folder, json!({ "lease_ms": 100 })).unwrap();
+    let write_one = |name: &str| {
+        let request = json!({ "hold": job, "path": folder.join(name) });
+        let request = request.as_object().cloned().unwrap();
+        held_op(Some(&service), &json!(1), request, |request| {
+            assert!(!request.contains_key("hold"), "the op itself never sees the hold");
+            std::fs::write(folder.join(name), "x").unwrap();
+            Ok(json!({}))
+        })
+    };
+    assert_eq!(write_one("a.md")["ok"], true);
+    // The lease runs out; a write sent before it and read after lands nowhere.
+    assert_eq!(settles(&folder, "incomplete"), "incomplete");
+    let late = write_one("late.md");
+    assert_eq!(late["error_code"], "seed.unknown_job", "{late}");
+    assert!(!folder.join("late.md").exists());
+    // An op that names no hold runs as it is; one naming no running hold never runs.
+    let plain = held_op(Some(&service), &json!(2), Default::default(), |_| Ok(json!({})));
+    assert_eq!(plain["ok"], true);
+    let unknown = json!({ "hold": "nope" }).as_object().cloned().unwrap();
+    let refused = held_op(Some(&service), &json!(3), unknown, |_| panic!("never runs"));
+    assert_eq!(refused["error_code"], "seed.unknown_job");
 }

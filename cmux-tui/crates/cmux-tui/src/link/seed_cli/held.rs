@@ -1,4 +1,4 @@
-//! The held copy (`git-seed-hold-v1`): a start-chat copy of a folder outside git that the
+//! The held copy (`git-seed-hold-v2`): a start-chat copy of a folder outside git that the
 //! machine has nothing of opens the chat at its head, as a head-first seed does (cmuxterm-hq
 //! goals/cloud-no-network-wait.md, step 6).
 //!

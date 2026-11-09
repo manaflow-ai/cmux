@@ -1,4 +1,4 @@
-//! `git-seed-hold-v1`: the machine holds a folder's sync barrier for a copy this Mac streams
+//! `git-seed-hold-v2`: the machine holds a folder's sync barrier for a copy this Mac streams
 //! in itself (`cmux link sync push`: a folder with no GitHub remote, which no seed can clone),
 //! so the chat may open at the copy's head while every tool waits for the whole folder
 //! (cmuxterm-hq goals/cloud-no-network-wait.md, step 6).
@@ -87,6 +87,11 @@ pub(super) struct JobParams {
     pub ok: Option<bool>,
 }
 
+/// Whether the hold still runs: a copy's write ([`super::GitSeedService::under_hold`]) reads it
+/// for as long as it writes, and the owner thread sets it false before the barrier goes. So a
+/// write lands while the hold runs, or not at all.
+pub(super) type Alive = std::sync::Arc<std::sync::RwLock<bool>>;
+
 /// What the hold's owner thread is asked.
 pub(super) enum Op {
     /// Any op on the job: the lease starts again.
@@ -120,13 +125,14 @@ pub(super) fn spawn(
     head: HeadFirst,
     lease: Duration,
     barrier: Barrier,
+    alive: Alive,
     done: impl FnOnce() + Send + 'static,
 ) -> Result<mpsc::Sender<Op>, SeedRefusal> {
     let (send, ops) = mpsc::channel();
     std::thread::Builder::new()
         .name("cmux-git-seed-hold".into())
         .spawn(move || {
-            own(&job, &folder, &head, lease, barrier, &ops);
+            own(&job, &folder, &head, lease, barrier, &alive, &ops);
             done();
         })
         .map_err(|error| SeedRefusal::bad_request(format!("cannot start the hold: {error}")))?;
@@ -141,8 +147,11 @@ fn own(
     head: &HeadFirst,
     lease: Duration,
     mut barrier: Barrier,
+    alive: &Alive,
     ops: &mpsc::Receiver<Op>,
 ) {
+    // Waits out a write in flight; none lands after.
+    let stop_writes = || *alive.write().unwrap_or_else(std::sync::PoisonError::into_inner) = false;
     loop {
         match ops.recv_timeout(lease) {
             Ok(Op::Renew) => {}
@@ -163,6 +172,7 @@ fn own(
                 let _ = reply.send(marked);
             }
             Ok(Op::End(ok, reply)) => {
+                stop_writes();
                 let result = if ok {
                     barrier
                         .complete()
@@ -178,6 +188,7 @@ fn own(
                 return;
             }
             Err(mpsc::RecvTimeoutError::Timeout | mpsc::RecvTimeoutError::Disconnected) => {
+                stop_writes();
                 // Released first: a retry that reads the job failed may begin the folder again.
                 drop(barrier);
                 job.finish(Err(Failed {

@@ -42,7 +42,7 @@ fn write(path: &Path, text: &str) {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Serves {
     Seed,
-    /// `git-seed-v1` and the held copy's `git-seed-hold-v1`.
+    /// `git-seed-v1` and the held copy's `git-seed-hold-v2`.
     Hold,
     /// Another build without `git-seed-v1`.
     CopyOnly,
@@ -167,7 +167,7 @@ fn serve(socket: &Path, home: &Path, github: &Path, serves: Serves) -> &'static 
                     let reply = if cmd == "identify" {
                         let capabilities = match serves {
                             Serves::Seed => json!(["fs-v1", "git-seed-v1"]),
-                            Serves::Hold => json!(["fs-v1", "git-seed-v1", "git-seed-hold-v1"]),
+                            Serves::Hold => json!(["fs-v1", "git-seed-v1", "git-seed-hold-v2"]),
                             Serves::CopyOnly => json!(["fs-v1"]),
                         };
                         json!({"id": id, "ok": true, "data": {"capabilities": capabilities,
@@ -183,7 +183,11 @@ fn serve(socket: &Path, home: &Path, github: &Path, serves: Serves) -> &'static 
                         if cmd == "fs.write" {
                             writes.fetch_add(1, Ordering::SeqCst);
                         }
-                        stream::answer(&id, fs.call("local", &cmd, request))
+                        let request = request.as_object().cloned().unwrap_or_default();
+                        let seeds = (serves == Serves::Hold).then_some(seed);
+                        git_seed::held_op(seeds, &id, request, |request| {
+                            fs.call("local", &cmd, Value::Object(request))
+                        })
                     };
                     let mut text = reply.to_string();
                     text.push('\n');

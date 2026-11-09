@@ -58,6 +58,15 @@ pub(in crate::link) fn heard(job: &str, asked: Now, answer: &anyhow::Result<Valu
     }
 }
 
+/// The hold a write of `cmd` names (`"hold": JOB`): the machine applies it only while that hold
+/// runs (`git-seed-hold-v2`), which no check here can promise for a write already on its way.
+pub(super) fn hold_for(cmd: &str) -> Option<String> {
+    if !cmd.starts_with("fs.") || !WRITES.contains(&cmd) {
+        return None;
+    }
+    lock().as_ref().map(|held| held.job.clone())
+}
+
 /// Whether a write may go now ([`check`]): the machine says the hold runs.
 pub(in crate::link) fn confirm() -> anyhow::Result<()> {
     check("fs.write")

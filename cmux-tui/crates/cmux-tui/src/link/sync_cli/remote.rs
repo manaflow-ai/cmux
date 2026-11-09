@@ -173,6 +173,9 @@ impl Remote {
         progress: &mut dyn FnMut(),
     ) -> anyhow::Result<Value> {
         super::fence::check(cmd)?;
+        if let Some(job) = super::fence::hold_for(cmd) {
+            params.set("hold", json!(job));
+        }
         let id = self.next_id;
         self.next_id += 1;
         params.set("id", json!(id));
