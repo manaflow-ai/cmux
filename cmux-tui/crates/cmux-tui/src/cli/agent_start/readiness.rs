@@ -28,7 +28,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use super::super::command::RequestPlan;
-use super::super::mcp::Backend;
+use super::super::mcp::{Backend, CallFailure};
 use super::super::terminal_talk::send::Daemon;
 use super::Failure;
 
@@ -368,12 +368,42 @@ pub(in crate::cli) fn wake_on_event<B: Backend + ?Sized>(
     cursor: &mut Option<Value>,
     at_most: Duration,
 ) {
-    let started = Instant::now();
+    wake_after(
+        &mut |from, deadline, tick, on_wake| {
+            backend.session_events(None, from, deadline, tick, on_wake)
+        },
+        cursor,
+        at_most,
+        &Instant::now,
+        &mut std::thread::sleep,
+    );
+}
+
+/// The daemon's `session.events` stream from a cursor (`None`: from a snapshot), held open until
+/// a deadline and ticking with `None` ([`Backend::session_events`]).
+pub(super) type Events<'a> = dyn FnMut(
+        Option<&Value>,
+        Instant,
+        Duration,
+        &mut dyn FnMut(Option<&Value>) -> bool,
+    ) -> Result<(), CallFailure>
+    + 'a;
+
+/// [`wake_on_event`] with its seams: `events` opens the stream, `now` is the clock and `sleep`
+/// waits (tests pass a fake stream and advance a fake clock).
+pub(super) fn wake_after(
+    events: &mut Events<'_>,
+    cursor: &mut Option<Value>,
+    at_most: Duration,
+    now: &dyn Fn() -> Instant,
+    sleep: &mut dyn FnMut(Duration),
+) {
+    let started = now();
     let deadline = started + at_most;
     let from = cursor.clone();
     let mut latest = None;
     let mut changed = false;
-    let streamed = backend.session_events(None, from.as_ref(), deadline, EVENT_GAP, &mut |item| {
+    let streamed = events(from.as_ref(), deadline, EVENT_GAP, &mut |item| {
         if let Some(item) = item {
             if let Some(at) = item.get("cursor") {
                 latest = Some(at.clone());
@@ -382,7 +412,7 @@ pub(in crate::cli) fn wake_on_event<B: Backend + ?Sized>(
             changed |=
                 !(field("kind") == Some("snapshot") && field("reset_reason") == Some("initial"));
         }
-        changed && started.elapsed() >= EVENT_GAP
+        changed && now().saturating_duration_since(started) >= EVENT_GAP
     });
     if latest.is_some() {
         *cursor = latest;
@@ -393,5 +423,5 @@ pub(in crate::cli) fn wake_on_event<B: Backend + ?Sized>(
         *cursor = None;
     }
     let until = if changed { (started + EVENT_GAP).min(deadline) } else { deadline };
-    std::thread::sleep(until.saturating_duration_since(Instant::now()));
+    sleep(until.saturating_duration_since(now()));
 }
