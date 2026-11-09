@@ -182,9 +182,10 @@ the person's prompt. What the receiver gets depends on who you are to it:
   next Bash command or one of those MCP calls: a subagent that makes no such
   call any more does not get it. Once it has ended, the report goes to the
   lead, saying `This report is for your TYPE subagent ID`. If it ended with no
-  `SubagentStop` hook, its reports wait until no subagent of the lead runs. A
-  background task a subagent starts (`bg_start`) still sends its end message
-  to the lead's chat: a subagent passes `notify: false` and reads the task
+  `SubagentStop` hook, its reports wait until no subagent of the lead runs. The
+  end message of a background task it started (`bg_start`, `run_wait`) takes
+  the same rule. On a path that names no subagent (a cmux workflow script), a
+  subagent passes `notify: false` and reads the task
   with `bg_output`. The receiver reads `From another agent (LEAD's TYPE
   subagent ID)` and ends its turn with its answer; it does not send it to the
   lead.

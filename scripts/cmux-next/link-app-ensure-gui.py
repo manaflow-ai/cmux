@@ -95,11 +95,12 @@ def fingerprint(path):
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown
 
-TAG_ROOT = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")
+TAG_ROOT = os.path.expanduser(f"~/Library/Application Support/cmux-next/tags/{TAG}")
 # A fresh tag only: this script never moves or deletes a tag folder it did
-# not make.
-if os.path.lexists(TAG_ROOT):
-    sys.exit(f"refusing: {TAG_ROOT} already exists; use a new tag")
+# not make (nor an older build's in classic's cmux/tags, which the app adopts).
+for root in (TAG_ROOT, os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")):
+    if os.path.lexists(root):
+        sys.exit(f"refusing: {root} already exists; use a new tag")
 TUI = os.path.join(TAG_ROOT, "tui")
 LINK_STATE = os.path.join(TUI, "link")
 REGISTRATION = os.path.join(TUI, "link.json")

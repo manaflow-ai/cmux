@@ -238,6 +238,7 @@ mod stream;
 mod tags;
 mod tailnet_controller;
 mod tap;
+pub(crate) mod time_breakdown;
 mod titles;
 mod tool_paths;
 mod tool_read_images;
@@ -873,6 +874,8 @@ pub struct Hub {
     #[cfg(test)]
     pub(super) queue_approval_off: AtomicBool,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
+    /// The one check of every watched transcript (`watch_tick.rs`).
+    pub(super) watch_ticker: watch::WatchTicker,
     /// The settings file watched for start-mode changes (`settings_watch.rs`).
     pub(super) settings_watch: settings_watch::SettingsWatchState,
     /// The HEAD of each attached session's folder, watched for a checkout (`git_watch.rs`).
@@ -954,6 +957,9 @@ pub struct Hub {
     pub(crate) briefs: dispatch::Briefs,
     /// Every Claude workflow of this daemon's chats (`workflow_index.rs`).
     pub(crate) workflow_index: workflow_index::WorkflowIndex,
+    /// Which predicted next prompts reach the person (`suggestion_gate.rs`): this daemon's own
+    /// chats and the peers' chats it relays to its person.
+    pub(crate) suggestion_gate: StdMutex<crate::suggestion_gate::Gate>,
 }
 
 /// Serialized forms of one closed session. Each form has its own generation and tag-expiry
@@ -1031,6 +1037,7 @@ impl Hub {
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
         let peer_paths = Arc::new(crate::peer_last_good::LastGood::open(home.as_deref()));
+        let suggestion_gate = StdMutex::new(crate::suggestion_gate::Gate::open(home.as_deref()));
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
@@ -1182,6 +1189,7 @@ impl Hub {
             #[cfg(test)]
             refuse_seam: Default::default(),
             harness_watch: Default::default(),
+            watch_ticker: Default::default(),
             settings_watch: Default::default(),
             git_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
@@ -1190,6 +1198,7 @@ impl Hub {
             person: Default::default(),
             presence: Default::default(),
             workflow_index: Default::default(),
+            suggestion_gate,
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             watched_moves: Default::default(),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
@@ -1517,6 +1526,7 @@ impl Hub {
             harness_use: RwLock::new(()),
             idle_refusal_logged: AtomicU64::new(0),
             append_lock: StdMutex::new(()),
+            time_breakdown: StdMutex::new(Default::default()),
             meta_writer: Default::default(),
             message_ids: StdMutex::new(None),
             log_deferral: StdMutex::new(Default::default()),
@@ -2219,6 +2229,13 @@ impl Hub {
         };
         if stored {
             session.note_transfer_event(&record);
+            {
+                let mut breakdown =
+                    session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+                if breakdown.initialized {
+                    breakdown.record(&record);
+                }
+            }
             // The review queue's index and the audit trail: O(1), never blocking on a write.
             self.observe_for_review(session, &record);
         }

@@ -2055,6 +2055,7 @@ async fn dispatch_request_with_identity(
             // The person's answer to the suggestion the chat showed, if any (`suggestion_gate.rs`).
             if !agent_message && person_asks(conn) {
                 crate::suggestion_gate::note_prompt(
+                    &hub.suggestion_gate,
                     &s.id,
                     &sent_text,
                     crate::suggestion_gate::marked_taken(&params),
@@ -2062,7 +2063,7 @@ async fn dispatch_request_with_identity(
                 crate::memory_inbox::note_prompt(&s.id, &sent_text);
             } else {
                 // Another agent's message answers nothing the person was shown.
-                crate::suggestion_gate::withdraw(&s.id);
+                crate::suggestion_gate::withdraw(&hub.suggestion_gate, &s.id);
             }
             let answer = heap(|| hub.prompt_with(&s, blocks, &client, steer, opts)).await;
             // The turn ended (its read was decided) before the answer came back.
@@ -2293,8 +2294,9 @@ async fn dispatch_request_with_identity(
                 cfg.save()
                     .map_err(|e| RpcError::internal(format!("save permission policy: {e}")))?;
             }
-            // deny-all is a lockdown: every chat without a policy of its own follows it.
-            if policy == PermissionPolicy::DenyAll {
+            // deny-all and review are lockdowns: every chat without a policy of its own follows
+            // them (`hub/policy_mode.rs`).
+            if matches!(policy, PermissionPolicy::DenyAll | PermissionPolicy::Review) {
                 hub.follow_default_policy().await;
             } else if policy == PermissionPolicy::ApproveAll {
                 hub.approve_pending_default_tools().await;
