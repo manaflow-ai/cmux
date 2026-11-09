@@ -21,7 +21,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[path = "support/private_state.rs"]
 mod private_state;
@@ -60,9 +60,9 @@ const PERSON_SETTING: (&str, &str) = ("W5R_PERSON_SETTING", "kept");
 
 /// Claude Code reduced to what this test needs: SessionStart through the
 /// plugin folders cmux names in `CLAUDE_CODE_PLUGIN_DIRS`, then a record of
-/// its arguments and environment names, then it waits for `quit-<n>`.
+/// its arguments and environment names, then it runs until a line is typed.
 const FAKE_CLAUDE: &str = r#"#!/usr/bin/env python3
-import json, os, subprocess, sys, time
+import json, os, subprocess, sys
 
 records = "@RECORDS@"
 sentinel = "@SENTINEL@"
@@ -108,9 +108,8 @@ with open(out + ".tmp", "w") as f:
     json.dump(record, f)
 os.rename(out + ".tmp", out)
 print("stand-in claude run %d ready" % n, flush=True)
-deadline = time.time() + 300
-while time.time() < deadline and not os.path.exists(os.path.join(records, "quit-%d" % n)):
-    time.sleep(0.1)
+# Runs until a line arrives on its terminal (the test types one).
+sys.stdin.readline()
 "#;
 
 fn unique_root() -> PathBuf {
@@ -210,26 +209,43 @@ impl Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
-        for n in 1..=4 {
-            let _ = fs::write(self.root.join("records").join(format!("quit-{n}")), "");
-        }
         let _ = self.run(&["daemon", "stop", "--end-terminals"]);
         let _ = fs::remove_dir_all(&self.root);
     }
 }
 
-/// What the stand-in recorded on run `n`.
+/// Waits for `pattern` on `terminal`'s screen: the daemon's own screen
+/// wait, which answers when the output arrives.
+fn wait_screen(session: &Session, terminal: &str, pattern: &str, what: &str) {
+    let output = session.run(&[
+        "terminal",
+        terminal,
+        "screen",
+        "wait",
+        "--pattern",
+        pattern,
+        "--timeout-ms",
+        "90000",
+    ]);
+    assert!(
+        output.status.success(),
+        "{what}: {}\nstderr: {}\nscreen: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+        session.screen(terminal)
+    );
+}
+
+/// What the stand-in recorded on run `n`: it writes the record, then says
+/// that the run is ready.
 fn launch_record(session: &Session, n: u32, terminal: &str) -> serde_json::Value {
+    wait_screen(
+        session,
+        terminal,
+        &format!("stand-in claude run {n} ready"),
+        &format!("the agent never ran (run {n})"),
+    );
     let path = session.root.join("records").join(format!("run-{n}.json"));
-    let deadline = Instant::now() + Duration::from_secs(90);
-    while !path.exists() {
-        assert!(
-            Instant::now() < deadline,
-            "the agent never ran (run {n}): {}",
-            session.screen(terminal)
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
     serde_json::from_slice(&fs::read(&path).unwrap()).unwrap()
 }
 
@@ -303,6 +319,8 @@ fn w5r_agents_started_and_resumed_from_an_agent_caller_get_none_of_its_session_e
 
     let launcher = claude.display().to_string();
     let proj = root.join("proj").display().to_string();
+    // `agent start` waits until the agent itself reports idle: its
+    // SessionStart hook, which also names the session id resume needs.
     let started = session.json(&[
         "agent",
         "start",
@@ -312,37 +330,32 @@ fn w5r_agents_started_and_resumed_from_an_agent_caller_get_none_of_its_session_e
         "--cwd",
         &proj,
         "--no-focus",
-        "--no-wait",
+        "--timeout",
+        "90s",
     ]);
+    assert_eq!(started["state"], "ready", "agent start: {started}");
     let terminal = started["terminal_id"].as_str().unwrap_or_default().to_owned();
     assert!(terminal.starts_with("term_"), "agent start reported no terminal: {started}");
     let first = launch_record(&session, 1, &terminal);
     assert_person_env(&first, "agent start");
-
-    // The session id resume needs comes from the agent's SessionStart hook.
-    let deadline = Instant::now() + Duration::from_secs(60);
-    loop {
-        let agents = session.json(&["agent", "list", "--terminal", &terminal]);
-        let known = agents.as_array().into_iter().flatten().any(|row| {
-            row.pointer("/extra/agent_session_id").and_then(serde_json::Value::as_str)
-                == Some(SESSION)
-        });
-        if known {
-            break;
-        }
-        assert!(Instant::now() < deadline, "the hook never reported the session: {agents}");
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    fs::write(root.join("records").join("quit-1"), "").unwrap();
-    let deadline = Instant::now() + Duration::from_secs(60);
-    loop {
-        let shown = session.json(&["terminal", &terminal, "show"]);
-        if shown["lifecycle"] == "exited" {
-            break;
-        }
-        assert!(Instant::now() < deadline, "the agent never exited: {shown}");
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    let agents = session.json(&["agent", "list", "--terminal", &terminal]);
+    let known = agents.as_array().into_iter().flatten().any(|row| {
+        row.pointer("/extra/agent_session_id").and_then(serde_json::Value::as_str) == Some(SESSION)
+    });
+    assert!(known, "the hook did not report the session: {agents}");
+    session.json(&["terminal", &terminal, "write", "--text", "quit\n"]);
+    // The stand-in shows no prompt; the wait for one ends when its terminal
+    // exits (the daemon's event stream, terminal.exited).
+    let exited =
+        session.run(&["terminal", &terminal, "wait", "--until", "prompt", "--timeout", "60s"]);
+    let exited_json: serde_json::Value =
+        serde_json::from_slice(&exited.stdout).unwrap_or(serde_json::Value::Null);
+    assert_eq!(
+        exited_json.pointer("/error/code").and_then(serde_json::Value::as_str),
+        Some("terminal.exited"),
+        "the agent never exited: {exited_json} {}",
+        String::from_utf8_lossy(&exited.stderr)
+    );
 
     let resumed = session.json(&["agent", "resume", "w5rbot", "--no-focus", "--no-wait"]);
     let new_terminal = resumed["terminal_id"].as_str().unwrap_or_default().to_owned();

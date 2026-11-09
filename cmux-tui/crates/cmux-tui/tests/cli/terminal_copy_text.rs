@@ -20,17 +20,22 @@ fn w5r_terminal_copy_prints_plain_text_and_json_keeps_the_record() {
         &["terminal", &terminal, "write", "--text", "echo w5r-one; echo w5r-two\n"],
     );
     assert_success(&typed);
-    // The typed line also names both words; only the output has them alone.
-    let deadline = Instant::now() + Duration::from_secs(20);
-    loop {
-        let read = json_cli(&server, &["terminal", &terminal, "screen", "read"]);
-        assert_success(&read);
-        if line_shown(json_output(&read)["text"].as_str().unwrap_or_default(), "w5r-two") {
-            break;
-        }
-        assert!(Instant::now() < deadline, "the shell never printed w5r-two");
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    // The typed line also names both words; only the output has the second
+    // alone on its line. The daemon's screen wait answers when it arrives.
+    let shown = json_cli(
+        &server,
+        &[
+            "terminal",
+            &terminal,
+            "screen",
+            "wait",
+            "--pattern",
+            "^w5r-two\\s*$",
+            "--timeout-ms",
+            "20000",
+        ],
+    );
+    assert_success(&shown);
 
     for mode in ["scrollback", "screen"] {
         let copied = cli(&server, &["terminal", &terminal, "copy", "--mode", mode]);
