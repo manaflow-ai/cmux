@@ -6,11 +6,28 @@
 // a projection finds what changed), and one change at 20,000 sessions must read about what it reads
 // at 200. bench/update-one.bench.ts times the same paths in the real pane.
 import { expect, test } from "bun:test";
+import { homeLists } from "./homeListsModel";
+import { pillAsks } from "./needsYou/jumpPillModel";
+import { needsYouItems } from "./needsYou/model";
+import { promptSuggestion } from "./promptSuggestion";
+import { hatQuestions } from "./question/hatModel";
 import { folderFields, recentLocalFolders, sessionEntry, SessionsBy, type AcpmuxSessionEntry } from "./sessionList";
 import { SessionHoverStore } from "./started/sessionHover";
 import { SubsessionStore } from "./subagents/subsessions";
 
 let reads = 0;
+/// The first entries of any list hold what the home lists show: a few chats waiting on the person, a
+/// few open pull requests (one ready for review) and a few working, the same at every size, as
+/// bench/update-one.bench.ts lists them. Only the list's length grows.
+const shows = (index: number): Record<string, unknown> =>
+  index >= 150
+    ? {}
+    : {
+        ...(index % 50 === 7 ? { status: "waiting", indicator: "input" } : {}),
+        ...(index % 50 === 9 ? { pullRequest: { number: index, title: `PR ${index}`, state: "open", reviewReady: true } } : {}),
+        ...(index % 50 === 11 ? { pullRequest: { number: index, title: `PR ${index}`, state: "draft" } } : {}),
+        ...(index % 50 === 13 ? { indicator: "working" } : {}),
+      };
 /// Entry `index` of a large list, counting every read of a field but its id.
 function counted(index: number, fields: Record<string, unknown> = {}): AcpmuxSessionEntry {
   const entry = sessionEntry({
@@ -23,6 +40,7 @@ function counted(index: number, fields: Record<string, unknown> = {}): AcpmuxSes
     updatedAt: 1_000_000 + index,
     createdAt: 1_000_000 + index,
     ...(index % 7 === 3 ? { startedBy: `s${index - 1}` } : {}),
+    ...shows(index),
     ...fields,
   });
   return new Proxy(entry, {
@@ -112,4 +130,26 @@ test("a session added or removed is still seen", () => {
   expect(by.of(swapped)).toBe(swapped);
   const moved = [counted(9, { cwd: "/Users/me/code/elsewhere" }), swapped[1]!, swapped[2]!];
   expect(by.of(moved)).toBe(moved);
+});
+
+test("Waiting on you reads only the changed session", () => {
+  expect(growth(() => (sessions) => needsYouItems({ sessions, asks: [] }))).toBeLessThan(2);
+});
+
+test("a new chat's home lists read only the changed session", () => {
+  expect(growth(() => (sessions) => homeLists(sessions as AcpmuxSessionEntry[], "s1"))).toBeLessThan(2);
+});
+
+test("the composer's suggested pull request reads only the changed session", () => {
+  const here = { sessionId: "s1", cwd: "/Users/me/code/p9" };
+  expect(growth(() => (sessions) => promptSuggestion(sessions, here, 2_000_000))).toBeLessThan(2);
+});
+
+test("the pill and the hat read only the changed session", () => {
+  expect(
+    growth(() => (sessions) => {
+      pillAsks(needsYouItems({ sessions, asks: [] }), sessions, "s2");
+      hatQuestions({ sessionId: "s2", rows: [], sessions, asks: [] });
+    }),
+  ).toBeLessThan(2);
 });
