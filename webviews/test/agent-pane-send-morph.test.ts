@@ -255,6 +255,74 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
     }
   });
 
+  // The host's echo of the prompt can come inside the flight: it gives the screenshot its lasting id,
+  // and the thumbnail drawn under the old one is replaced. The copy follows the new thumbnail.
+  test("an echo inside the flight: the screenshot's copy still lands on its thumbnail", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 620 } });
+    try {
+      await openChat(page);
+      await page.evaluate(() => Object.assign(window, { cmuxAcpmuxMockSlowMs: 40 }));
+      await compose(page);
+      await watch(page);
+      // The echo's remount, as React draws it: a new thumbnail element where the old one was.
+      await page.evaluate(() => {
+        // raf-read: the remount comes a few frames into the flight, as an echo does.
+        let seenFrames = 0;
+        const swap = () => {
+          const preview = document.querySelector<HTMLElement>(".acpmux-row img.cv-user__image[data-send-key]");
+          if (preview && document.querySelector("[data-send-morph-ghost]") && (seenFrames += 1) === 3) {
+            const fresh = preview.cloneNode(true) as HTMLElement;
+            fresh.style.visibility = "";
+            fresh.dataset.sendKey = "durable-image-id";
+            preview.replaceWith(fresh);
+            return;
+          }
+          requestAnimationFrame(swap);
+        };
+        requestAnimationFrame(swap);
+      });
+      await page.keyboard.press("Enter");
+      const seen = await frames(page);
+      const mounted = seen.findIndex((frame) => frame.bubble);
+      const landed = seen.findIndex((frame, index) => index > mounted && frame.ghosts.length === 0);
+      expect(landed, "the copies never landed").toBeGreaterThan(mounted);
+      const last = seen[landed - 1]!;
+      near(ghost(last, "attachment"), last.preview, "the screenshot's copy lands on its thumbnail");
+      for (const frame of seen.slice(mounted, landed))
+        if (frame.preview)
+          expect(frame.preview.shown, `the thumbnail hides under its copy at ${frame.at} ms`).toBe(false);
+    } finally {
+      await page.close();
+    }
+  });
+
+  // A prompt sent while a turn runs is queued: no row comes for it (the queue draws it over the
+  // composer), so its copies fade where they are on the send's clock, never hold over the next
+  // draft for long (review of #38217, F3).
+  test("a prompt queued behind a running turn: its copies fade where they are", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 620 } });
+    try {
+      await openChat(page);
+      await page.locator(field).click();
+      await page.keyboard.type("a long task");
+      await page.keyboard.press("Enter");
+      await page.getByRole("button", { name: "Stop" }).waitFor();
+      await compose(page);
+      await watch(page, 900);
+      await page.keyboard.press("Enter");
+      const seen = await frames(page);
+      expect(
+        seen.some((frame) => frame.bubble),
+        "the queued prompt drew no row",
+      ).toBe(false);
+      const gone = seen.findIndex((frame) => frame.ghosts.length === 0);
+      expect(gone, "the copies never went").toBeGreaterThan(0);
+      expect(seen[gone]!.at - seen[0]!.at, "the copies go on the send's clock").toBeLessThan(265 + 120);
+    } finally {
+      await page.close();
+    }
+  });
+
   test("sent while scrolled up: nothing flies, the prompt fades in place", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 620 } });
     try {

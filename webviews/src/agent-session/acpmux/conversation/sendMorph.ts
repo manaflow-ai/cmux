@@ -38,8 +38,9 @@ type Origin = {
   at: number;
   /// The composer's card and its corner radius.
   card?: { rect: Rect; radius: number };
-  /// The words' box, a copy of them, whether they are one line, and their text.
-  words?: { rect: Rect; copy: HTMLElement; oneLine: boolean; text: string };
+  /// The words' box, a copy of them, whether they are one line, and their text; `clip`: how much of
+  /// the box's top and bottom the field's scroller hid (a long draft scrolled).
+  words?: { rect: Rect; copy: HTMLElement; oneLine: boolean; text: string; clip: { top: number; bottom: number } };
   /// Chips by attachment id, and by `path:` and a video's path (a sent video tile knows only that).
   chips: Map<string, Chip>;
 };
@@ -124,9 +125,11 @@ function copyText(source: Element, width: number): HTMLElement {
   return box;
 }
 function keepLook(source: Element, copy: Element): void {
-  if (copy instanceof HTMLElement || copy instanceof SVGElement) {
+  // An HTML or SVG element (each has a style); read off the node, not a global its page may lack.
+  if ("style" in copy && copy.style instanceof Object) {
     const look = getComputedStyle(source);
-    for (const property of ELEMENT_LOOK) copy.style.setProperty(property, look.getPropertyValue(property));
+    for (const property of ELEMENT_LOOK)
+      (copy as HTMLElement).style.setProperty(property, look.getPropertyValue(property));
   }
   for (let index = 0; index < source.children.length; index += 1) {
     const from = source.children[index]!;
@@ -156,7 +159,18 @@ export function noteSendOrigins(
       const copy = copyText(editor, rect.width);
       // A chip placed in the text moves on its own (below), not with the words.
       for (const chip of copy.querySelectorAll<HTMLElement>(".acpmux-md-inline-chip")) chip.style.visibility = "hidden";
-      origin.words = { rect, copy, oneLine: rect.height < lineHeight * 1.5, text };
+      // The field's scroller between the editor and the card clips a long draft: so does its copy.
+      let clip = { top: 0, bottom: 0 };
+      for (let at = editor.parentElement; at && at !== card; at = at.parentElement)
+        if (at.scrollHeight > at.clientHeight + 1 && getComputedStyle(at).overflowY !== "visible") {
+          const shown = rectOf(at);
+          clip = {
+            top: Math.max(0, shown.top - rect.top),
+            bottom: Math.max(0, rect.top + rect.height - (shown.top + shown.height)),
+          };
+          break;
+        }
+      origin.words = { rect, copy, oneLine: rect.height < lineHeight * 1.5, text, clip };
     }
   }
   for (const attachment of attachments) {
@@ -248,7 +262,15 @@ const mixRect = (from: Rect, to: Rect, progress: number): Rect => ({
 /// 0 before `from`, 1 after `to`, linear between.
 const span = (progress: number, from: number, to: number) => Math.min(1, Math.max(0, (progress - from) / (to - from)));
 
-type Piece = { ghost: HTMLElement; chip: Chip; target?: HTMLElement; radius: number; overlay?: HTMLElement };
+/// `place`: the target's place among the row's previews, where a remounted one is found again.
+type Piece = {
+  ghost: HTMLElement;
+  chip: Chip;
+  target?: HTMLElement;
+  place?: number;
+  radius: number;
+  overlay?: HTMLElement;
+};
 
 class Flight {
   readonly layer: HTMLElement;
@@ -268,6 +290,8 @@ class Flight {
   readonly copies: Piece[] = [];
   readonly hidden: HTMLElement[] = [];
   clock?: Animation;
+  /// The copies fading where they are: no sent row came (the prompt was queued behind a turn).
+  fade?: Animation;
   frame = 0;
   timer: ReturnType<typeof setTimeout>;
   ended = false;
@@ -302,6 +326,8 @@ class Flight {
     if (origin.words) {
       this.typed = this.piece("text");
       this.typed.appendChild(origin.words.copy);
+      const { top, bottom } = origin.words.clip;
+      if (top > 0 || bottom > 0) this.typed.style.clipPath = `inset(${top}px 0 ${bottom}px 0)`;
       this.move(this.typed, origin.words.rect.left, origin.words.rect.top);
     }
     // One copy per chip, found by either of its keys (a video's id and its path).
@@ -320,6 +346,21 @@ class Flight {
       this.pieces.set(key, piece);
     }
     this.timer = setTimeout(() => this.land(), ROW_MS);
+    // The sent row draws in the send's commit or the next: a prompt queued behind a running turn
+    // draws none (the queue shows it over the composer), so its copies fade where they are.
+    const view = doc.defaultView;
+    if (view)
+      this.frame = view.requestAnimationFrame(() => {
+        this.frame = view.requestAnimationFrame(() => {
+          if (this.row || this.done) return;
+          this.fade = this.layer.animate([{ opacity: 1 }, { opacity: 0 }], {
+            duration: this.duration,
+            easing: "ease-out",
+            fill: "forwards",
+          });
+          this.fade.onfinish = () => this.land();
+        });
+      });
   }
 
   piece(kind: string, className = ""): HTMLElement {
@@ -356,6 +397,12 @@ class Flight {
     if (!view || this.done) return false;
     this.row = row;
     clearTimeout(this.timer);
+    view.cancelAnimationFrame(this.frame);
+    if (this.fade) {
+      this.fade.onfinish = null;
+      this.fade.cancel();
+      this.fade = undefined;
+    }
     // Its entrance is this move: the row's fade and the bubble's opening do not also play.
     row.setAttribute("data-send-morphed", "");
     const bubble = row.querySelector<HTMLElement>(".cv-user__bubble") ?? undefined;
@@ -389,10 +436,11 @@ class Flight {
     }
     // Each preview's place first, then its copy (reads before writes: one layout).
     const landing: Piece[] = [];
-    for (const preview of row.querySelectorAll<HTMLElement>("[data-send-key]")) {
+    for (const [place, preview] of row.querySelectorAll<HTMLElement>("[data-send-key]").entries()) {
       const piece = this.pieces.get(preview.dataset.sendKey!);
       if (!piece || piece.target) continue;
       piece.target = preview;
+      piece.place = place;
       piece.radius = Number.parseFloat(getComputedStyle(preview).borderTopLeftRadius) || 0;
       landing.push(piece);
     }
@@ -421,11 +469,7 @@ class Flight {
       piece.overlay = overlay;
     }
     // Hidden under their copies until they land.
-    for (const element of [bubble, ...this.copies.map((piece) => piece.target)])
-      if (element && element.style.visibility !== "hidden") {
-        element.style.visibility = "hidden";
-        this.hidden.push(element);
-      }
+    for (const element of [bubble, ...this.copies.map((piece) => piece.target)]) if (element) this.hide(element);
     // The send motion's clock: the copies' progress each frame is its eased progress.
     const easing = getComputedStyle(this.scroller).getPropertyValue("--agent-ease-send").trim() || MOTION_EASE_SEND;
     this.clock = this.layer.animate([], { duration: this.duration, easing });
@@ -444,11 +488,37 @@ class Flight {
     return true;
   }
 
+  hide(element: HTMLElement): void {
+    if (element.style.visibility === "hidden") return;
+    element.style.visibility = "hidden";
+    this.hidden.push(element);
+  }
+
+  /// The row's bubble and previews now: the host's echo of the prompt can draw them again within the
+  /// flight (an image's lasting id replaces the composer's, which remounts its thumbnail), and the
+  /// copies follow the new ones, found at the same place in the row, hidden under them as well.
+  rebind(): void {
+    const row = this.row;
+    if (!row) return;
+    if (this.bubble && !this.bubble.isConnected) {
+      this.bubble = row.querySelector<HTMLElement>(".cv-user__bubble") ?? undefined;
+      if (this.bubble) this.hide(this.bubble);
+    }
+    let previews: NodeListOf<HTMLElement> | undefined;
+    for (const piece of this.copies) {
+      if (!piece.target || piece.target.isConnected || piece.place === undefined) continue;
+      previews ??= row.querySelectorAll<HTMLElement>("[data-send-key]");
+      piece.target = previews[piece.place];
+      if (piece.target) this.hide(piece.target);
+    }
+  }
+
   /// The copies `progress` (eased, 0 to 1) of the way, reading where the row is now.
   // perf-hot: one frame of the send motion (reads the bubble's and previews' rects, writes the copies) sendMorph.draw
   draw(progress: number): void {
     const words = this.origin.words;
     const card = this.origin.card;
+    this.rebind();
     // Where the row draws them now (it may be rising), all read before any copy moves.
     const to = this.bubble ? rectOf(this.bubble) : undefined;
     const slots = this.copies.map((piece) => (piece.target ? rectOf(piece.target) : undefined));
@@ -492,6 +562,7 @@ class Flight {
     clearTimeout(this.timer);
     this.layer.ownerDocument.defaultView?.cancelAnimationFrame(this.frame);
     if (this.clock) this.clock.oncancel = null;
+    if (this.fade) this.fade.onfinish = null;
     this.layer.remove();
     for (const element of this.hidden) element.style.visibility = "";
     if (flight === this) flight = undefined;

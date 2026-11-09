@@ -19,6 +19,7 @@ import { MOTION_SEND_MS } from "../../../motion/scale.generated";
 import { motionMode } from "../../../ui/motion/motionMode";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { cssTimeMs } from "./fold";
+import { INLINE_TOKEN } from "../attachments";
 
 /// How the copy goes (the gallery compares them through `data-send-tuck` on an ancestor,
 /// SendTuck.gallery.tsx): `arc` (the product's) rises on a short arc drifting toward the sent
@@ -246,7 +247,9 @@ function ghostOf(doc: Document, box: HTMLElement, text: string): HTMLElement | u
       ghost.appendChild(label);
     }
   }
-  const line = (shownText(box) || text).trim().split("\n", 1)[0]?.trim();
+  // The field's own words when it has one, even none (an image-only prompt); else the sent text
+  // without the places its attachments hold (attachments.ts INLINE_TOKEN).
+  const line = (shownText(box) ?? text.replace(INLINE_TOKEN, "")).trim().split("\n", 1)[0]?.trim();
   if (line) {
     const pill = doc.createElement("span");
     pill.className = "acpmux-send-tuck__pill";
@@ -258,9 +261,9 @@ function ghostOf(doc: Document, box: HTMLElement, text: string): HTMLElement | u
 
 /// The words the composer's field shows, without its chips: the sent text carries an attachment's
 /// place as its id, which the pill does not show.
-function shownText(box: HTMLElement): string {
+function shownText(box: HTMLElement): string | undefined {
   const field = box.querySelector(".acpmux-composer-prompt [contenteditable]");
-  if (!field) return "";
+  if (!field) return undefined;
   const copy = field.cloneNode(true) as Element;
   for (const chip of copy.querySelectorAll('[contenteditable="false"], .acpmux-md-inline-chip, .acpmux-attachment'))
     chip.remove();
