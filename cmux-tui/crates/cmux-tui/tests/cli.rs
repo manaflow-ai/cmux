@@ -4761,3 +4761,7 @@ fn wg_hub_refuses_a_readable_config_and_missing_options() {
     assert!(help.status.success());
     assert!(String::from_utf8(help.stdout).unwrap().starts_with("USAGE: cmux wg hub"));
 }
+
+#[cfg(unix)]
+#[path = "cli/tabless_terminals.rs"]
+mod tabless_terminals;
