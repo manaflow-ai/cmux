@@ -411,10 +411,12 @@ fn hold(
     // Ctrl-C shuts the stream down, which ends a wait without a timeout.
     wire::arm_signal_interrupt(events.get_ref().as_ref());
     let mut terminals: Option<Vec<String>> = None;
+    // What the last read showed, so a timeout says where each agent stood.
+    let mut last: Vec<Seen> = Vec::new();
     loop {
         let _ = reader.get_mut().set_read_timeout(Some(answer_wait(deadline)));
         let snapshot = resolve::read(reader, ResourceOperation::SessionSnapshot, params.clone())
-            .map_err(|failure| if past(deadline) { timed_out(request, &[]) } else { failure })?;
+            .map_err(|failure| if past(deadline) { timed_out(request, &last) } else { failure })?;
         // The names are resolved once, so a renamed tab keeps its place.
         if terminals.is_none() {
             terminals = Some(resolve_targets(&snapshot, &request.targets)?);
@@ -425,11 +427,12 @@ fn hold(
             Outcome::Impossible { ended } => return Err(agents_ended(request, &seen, &ended)),
             Outcome::Pending => {}
         }
+        last = seen;
         let remaining = match deadline {
             None => None,
             Some(deadline) => match deadline.checked_duration_since(Instant::now()) {
                 Some(remaining) if !remaining.is_zero() => Some(remaining),
-                _ => return Err(timed_out(request, &seen)),
+                _ => return Err(timed_out(request, &last)),
             },
         };
         if events.get_mut().set_read_timeout(remaining).is_err() {
