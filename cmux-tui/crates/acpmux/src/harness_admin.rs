@@ -734,6 +734,20 @@ pub struct Removed {
     pub id: String,
     /// The backup's name, for `restore`.
     pub backup: String,
+    /// With `forget`: why one of the endpoint's own Keychain items could not be deleted. The
+    /// profile is removed, but its key is still in the Keychain; the caller says so.
+    #[serde(rename = "keyError", skip_serializing_if = "Option::is_none")]
+    pub key_error: Option<String>,
+}
+
+impl Removed {
+    /// What a caller shows when the key stayed: "removed ID, but its key could not be deleted
+    /// from Keychain: <reason>".
+    pub fn key_warning(&self) -> Option<String> {
+        self.key_error.as_ref().map(|reason| {
+            format!("removed {}, but its key could not be deleted from Keychain: {reason}", self.id)
+        })
+    }
 }
 
 /// The folder backups go to.
@@ -800,13 +814,18 @@ pub fn remove(
     // Only on `forget`: the items in this id's own Keychain space (`cmux-harness/<id>/...`)
     // go too. Kept otherwise, for Undo; a later fresh add of this id never reads them (it names
     // no item unless given a key, which then replaces the item).
+    // An item already gone is fine (`forget` answers Ok); any other failure is reported
+    // (`key_error`), never taken for a deleted key.
+    let mut key_error = None;
     if let Some(forget) = forget {
         for key in endpoint_own_keys(&text, id) {
-            let _ =
-                forget(&crate::cli::harness_secret::delete_command(std::env::consts::OS, id, &key));
+            let cmd = crate::cli::harness_secret::delete_command(std::env::consts::OS, id, &key);
+            if let Err(e) = forget(&cmd) {
+                key_error.get_or_insert_with(|| format!("{e:#}"));
+            }
         }
     }
-    Ok(Removed { id: id.to_owned(), backup })
+    Ok(Removed { id: id.to_owned(), backup, key_error })
 }
 
 /// The env keys of endpoint profile `text` whose Keychain item is this id's own

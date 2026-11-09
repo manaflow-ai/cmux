@@ -224,7 +224,7 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
         }
         HarnessCmd::Remove { id, forget_key } => {
             let cfg = Config::load()?;
-            let forget: &dyn Fn(&_) -> _ = &super::harness_secret::run_store;
+            let forget: &dyn Fn(&_) -> _ = &super::harness_secret::run_delete;
             let removed = crate::harness_admin::remove(
                 &id,
                 &cfg,
@@ -234,12 +234,19 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
             )?;
             let reloaded = reload_daemon().await;
             if json_out {
-                println!(
-                    "{}",
-                    json!({"id": removed.id, "backup": removed.backup, "daemonReloaded": reloaded})
-                );
-            } else {
+                let answer = json!({
+                    "id": removed.id,
+                    "backup": removed.backup,
+                    "daemonReloaded": reloaded,
+                    "keyError": removed.key_error,
+                });
+                println!("{answer}");
+            } else if removed.key_error.is_none() {
                 println!("removed {id}; undo with `cmux harness restore {}`", removed.backup);
+            }
+            // The profile is gone but its key is not: say so and fail, never claim success.
+            if let Some(warning) = removed.key_warning() {
+                bail!("{warning}; undo with `cmux harness restore {}`", removed.backup);
             }
             Ok(())
         }

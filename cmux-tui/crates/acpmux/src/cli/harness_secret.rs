@@ -43,6 +43,13 @@ pub struct StoreCommand {
     pub stdin: Zeroizing<String>,
 }
 
+impl StoreCommand {
+    /// The program it runs (`argv[0]`), for messages.
+    fn program(&self) -> &str {
+        self.argv.first().map_or("", String::as_str)
+    }
+}
+
 impl std::fmt::Debug for StoreCommand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("StoreCommand").field("argv", &self.argv).field("stdin", &"***").finish()
@@ -56,7 +63,7 @@ pub fn store_command(os: &str, id: &str, key: &str, value: &str) -> Result<Store
 }
 
 /// The command that deletes harness `id`'s `key` item (`cmux-harness/<id>/<key>`): no value, so
-/// `stdin` is empty. Run it with [`run_store`].
+/// `stdin` is empty. Run it with [`run_delete`].
 pub fn delete_command(os: &str, id: &str, key: &str) -> StoreCommand {
     let account = format!("{id}/{key}");
     let argv: Vec<String> = if os == "macos" {
@@ -145,6 +152,35 @@ fn push_security_quoted(out: &mut String, text: &str) {
 
 /// Run the store command. Its output is discarded: `security` may echo.
 pub fn run_store(cmd: &StoreCommand) -> Result<()> {
+    match run_status(cmd, "nothing was stored")? {
+        status if status.success() => Ok(()),
+        status => bail!("{} failed ({status}); nothing was stored", cmd.argv[0]),
+    }
+}
+
+/// `security delete-generic-password`'s exit status for an item that is not there
+/// (errSecItemNotFound).
+const SECURITY_ITEM_NOT_FOUND: i32 = 44;
+
+/// Run a [`delete_command`]. An item already gone is fine (`security` exits 44;
+/// `secret-tool clear` exits 0 either way); any other failure is an error, which a
+/// remove reports instead of claiming the key is gone.
+pub fn run_delete(cmd: &StoreCommand) -> Result<()> {
+    match run_status(cmd, "the key may still be there")? {
+        status if status.success() => Ok(()),
+        status
+            if status.code() == Some(SECURITY_ITEM_NOT_FOUND)
+                && cmd.argv.first().is_some_and(|a| a.ends_with("/security")) =>
+        {
+            Ok(())
+        }
+        status => bail!("{} failed ({status})", cmd.program()),
+    }
+}
+
+/// Runs `cmd` (its stdin written, its output discarded) for at most 60 s; `left`
+/// says what a timeout leaves behind.
+fn run_status(cmd: &StoreCommand, left: &str) -> Result<std::process::ExitStatus> {
     use std::process::{Command, Stdio};
     use wait_timeout::ChildExt;
     let mut child = Command::new(&cmd.argv[0])
@@ -158,12 +194,11 @@ pub fn run_store(cmd: &StoreCommand) -> Result<()> {
         stdin.write_all(cmd.stdin.as_bytes())?;
     }
     match child.wait_timeout(std::time::Duration::from_secs(60))? {
-        Some(status) if status.success() => Ok(()),
-        Some(status) => bail!("{} failed ({status}); nothing was stored", cmd.argv[0]),
+        Some(status) => Ok(status),
         None => {
             let _ = child.kill();
             let _ = child.wait();
-            bail!("{} did not finish in 60 s; nothing was stored", cmd.argv[0])
+            bail!("{} did not finish in 60 s; {left}", cmd.program())
         }
     }
 }
