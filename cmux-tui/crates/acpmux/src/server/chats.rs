@@ -559,10 +559,10 @@ pub(super) fn push_activity(hub: &Hub, conn: &Conn, ev: &HubEvent) {
     }
     // A window shows the chat's activity too: its rows are recomputed when it may show this one.
     super::chat_windows::activity_changed(conn, &ev.session_id, &rec.kind, || {
-        hub.resolve(&ev.session_id)
-            .ok()
-            .and_then(|session| crate::chats::session_chat_key(&session))
-            .map(|key| crate::chats::key_text(&key))
+        let Ok(session) = hub.resolve(&ev.session_id) else { return (None, false) };
+        let chat = crate::chats::session_chat_key(&session).map(|key| crate::chats::key_text(&key));
+        let expiring = session.read_meta(|m| m.tags.values().any(|tag| tag.expires_at.is_some()));
+        (chat, expiring)
     });
     if !hub.chat_index().is_some_and(|service| service.watches(&conn.id)) {
         return;

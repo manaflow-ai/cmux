@@ -159,20 +159,21 @@ pub(super) fn close(conn: &Conn, params: &Value) -> Result<Value, RpcError> {
 
 /// A session record of `kind` changed a chat's activity (`chats::push_activity`): the
 /// connection's windows recompute when one of them may show the change
-/// (`WindowState::shows_activity_of`). `chat` reads the session's chat key, only when a window
-/// is open. A recompute under way may have read the activity before this record, so it is
-/// always followed by another; else the windows' last rows decide.
+/// (`WindowState::shows_activity_of`). `chat` reads the session's chat key and whether any of its
+/// tags expires, only when a window is open. A session whose chat changed since its last activity
+/// here, one with an expiring tag (its `archived` or `spawnedBy` can lapse with no `tags` record
+/// and fold or unfold another chat), and a `tags` or `purged` record recompute every window. A
+/// recompute under way may have read the activity before this record, so it is always followed
+/// by another; else the windows' last rows decide.
 pub(super) fn activity_changed(
     conn: &Conn,
     session: &str,
     kind: &str,
-    chat: impl FnOnce() -> Option<String>,
+    chat: impl FnOnce() -> (Option<String>, bool),
 ) {
-    let Ok(_none_running) = conn.chat_windows.refreshing.try_lock() else {
-        conn.chat_windows.wake.notify_one();
-        return;
-    };
     if lock(&conn.chat_windows.windows).by_name.is_empty() {
+        // Nothing is shown: what each session continued is learned again once a window opens.
+        lock(&conn.chat_windows.chat_of).clear();
         return;
     }
     // Any window may show these: no lookup (a purged session is not found by its id).
@@ -184,13 +185,17 @@ pub(super) fn activity_changed(
         return;
     }
     // Read with no windows lock held: it takes the hub's session and metadata locks.
-    let chat = chat();
+    let (chat, expiring) = chat();
     // A session first heard here, or one that moved to another chat: its earlier chat's row may
-    // change too, and only a recompute reads which that was.
+    // change too, and only a recompute reads which that was. Kept on every path, a recompute
+    // under way included, so the next record compares with what the session continues now.
     let moved = lock(&conn.chat_windows.chat_of)
         .insert(session.to_owned(), chat.clone())
         .is_none_or(|before| before != chat);
+    let running = conn.chat_windows.refreshing.try_lock().is_err();
     let shown = moved
+        || expiring
+        || running
         || lock(&conn.chat_windows.windows)
             .by_name
             .values()
