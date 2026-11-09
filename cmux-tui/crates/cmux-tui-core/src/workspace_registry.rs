@@ -5392,6 +5392,27 @@ mod session_owner_probe_tests {
         drop(owner);
         let _ = fs::remove_dir_all(&root);
     }
+
+    /// Windows: a held guard renamed away and replaced by another file at
+    /// its path no longer guards the session.
+    #[cfg(windows)]
+    #[test]
+    fn a_guard_replaced_while_held_no_longer_guards_on_windows() {
+        let root = std::env::temp_dir().join(format!("owner-probe-win-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        drop(start_session_guard_for_test(&root, "cmux-app-gone").unwrap());
+        let component = session_guard_component("cmux-app-gone");
+        let SessionOwnerProbe::Unowned(lease) = probe_session_owner(&root, &component) else {
+            panic!("a free guard was not taken");
+        };
+        assert!(lease.still_guards(), "the held guard does not guard");
+        let guard = lease.path.clone();
+        fs::rename(&guard, guard.with_extension("old")).unwrap();
+        fs::write(&guard, b"").unwrap();
+        assert!(!lease.still_guards(), "a replaced guard still counts as held");
+        drop(lease);
+        let _ = fs::remove_dir_all(&root);
+    }
 }
 
 fn prepare_session_guard_dir(root: &Path) -> anyhow::Result<PathBuf> {
