@@ -67,12 +67,14 @@ export function installPageHealth(client: HealthClient, doc: Document = document
   let restoring = true;
   const save = () => {
     if (restoring) return;
+    // Keyed by URL too: a route change at the same place still saves the new route.
+    const at = key();
     const state = JSON.stringify(captureState(doc));
-    if (state === lastSaved) return;
-    lastSaved = state;
+    if (at + "\n" + state === lastSaved) return;
+    lastSaved = at + "\n" + state;
     try {
-      if (state === "{}") view.sessionStorage.removeItem(key());
-      else view.sessionStorage.setItem(key(), state);
+      if (state === "{}") view.sessionStorage.removeItem(at);
+      else view.sessionStorage.setItem(at, state);
     } catch {
       // Storage may be full or off; the page keeps working, only the reload loses its place.
     }
@@ -95,13 +97,13 @@ export function installPageHealth(client: HealthClient, doc: Document = document
     });
   };
   const follow = () => {
-    if (refused) return;
+    // A hidden page saves its place even on an app that refused the beat.
     if (doc.visibilityState !== "visible") {
       stop();
       save();
       return;
     }
-    if (timer !== undefined) return;
+    if (refused || timer !== undefined) return;
     beat();
     timer = view.setInterval(beat, HEARTBEAT_MS);
   };
