@@ -223,6 +223,9 @@ impl SessionJournalReader {
     /// from one snapshot, so a seal that commits between the two reads
     /// cannot hide the records it moved (the registry's own read is atomic
     /// under the connection lock the seal also takes).
+    // The roster and the history feed read through `*_kinds_after`; the open
+    // roster replay PR (#39096) still calls this until it moves there too.
+    #[allow(dead_code, reason = "#39096 reads through it until it moves to the kind-scoped read")]
     pub(crate) fn without_output_after(
         &self,
         sequence: u64,
@@ -1231,6 +1234,9 @@ impl WorkspaceRegistry {
     /// fixed, so it can be neither an agent-hook nor an agent-plugin event.
     /// Replaying such a reducer through this read costs the other records,
     /// not the output history.
+    // The roster and the history feed read through `*_kinds_after`; the open
+    // roster replay PR (#39096) still calls this until it moves there too.
+    #[allow(dead_code, reason = "#39096 reads through it until it moves to the kind-scoped read")]
     pub(crate) fn session_journal_without_output_after(
         &self,
         sequence: u64,
@@ -2591,6 +2597,9 @@ mod tests;
 
 mod actors;
 mod digest_reader;
+pub(crate) mod kind_read;
+#[cfg(test)]
+pub(crate) mod kind_read_tests;
 use digest_reader::DigestReader;
 #[cfg(test)]
 mod actor_tests;
