@@ -68,7 +68,7 @@ impl AgentTexts {
             .into_iter()
             .filter_map(|(terminal, session, harness)| {
                 let terminal = TerminalPublicId::parse(&terminal).ok()?;
-                let session = super::published_agent_session_id(&terminal, &session)?;
+                let session = published_agent_session_id(&terminal, &session)?;
                 Some((terminal, (Arc::from(session.as_str()), harness.as_deref().map(Arc::from))))
             })
             .collect();
@@ -398,7 +398,7 @@ pub(crate) fn with_kept_session(
     let kept = agent.get("terminal_id").and_then(Value::as_str).and_then(|id| sessions.get(id));
     if let (Some((session, _)), Some(extra)) =
         (kept, agent.get_mut("extra").and_then(Value::as_object_mut))
-        && !extra.get("agent_session_id").is_some_and(|value| value.as_str().is_some())
+        && extra.get("agent_session_id").is_none_or(|value| value.as_str().is_none())
     {
         extra.insert("agent_session_id".into(), Value::String(session.clone()));
     }

@@ -340,11 +340,12 @@ fn holds(record: &Value, until: Until) -> Result<bool, Failure> {
 /// at or after the input. A `last_input` further ahead of this clock than
 /// the grace (another machine's clock) is ignored.
 fn unanswered_input_grace(record: &Value, seen_work: bool, now_ms: u64) -> Option<Duration> {
-    let extra = &record["extra"];
-    let ms = |value: &Value| value.as_str().and_then(|text| text.parse::<u64>().ok());
-    let input = ms(&extra["last_input"]["at_ms"])?;
+    let ms = |pointer: &str| {
+        record.pointer(pointer).and_then(Value::as_str).and_then(|text| text.parse::<u64>().ok())
+    };
+    let input = ms("/extra/last_input/at_ms")?;
     let answered = seen_work
-        || [ms(&extra["last_command"]["finished_at_ms"]), ms(&extra["prompt"]["since_ms"])]
+        || [ms("/extra/last_command/finished_at_ms"), ms("/extra/prompt/since_ms")]
             .into_iter()
             .flatten()
             .any(|at| at >= input);

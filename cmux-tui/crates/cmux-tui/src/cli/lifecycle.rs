@@ -525,9 +525,11 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             // state goes too. A plain stop keeps it (`agent resume` needs it).
             // The owner names its directory only when it ended every
             // terminal without keeping the layout.
-            if let (true, Some(session_dir), Some(fields)) =
-                (end_terminals, result["session_dir"].as_str(), stopped.as_object_mut())
-            {
+            if let (true, Some(session_dir), Some(fields)) = (
+                end_terminals,
+                result.get("session_dir").and_then(Value::as_str),
+                stopped.as_object_mut(),
+            ) {
                 fields.extend(super::command::remove_ended_session_state(
                     actual_session,
                     std::path::Path::new(session_dir),
