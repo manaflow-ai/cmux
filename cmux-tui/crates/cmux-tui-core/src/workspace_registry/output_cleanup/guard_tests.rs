@@ -249,6 +249,35 @@ mod followups {
     }
 
     #[test]
+    fn a_refusal_memo_does_not_cover_another_registry_at_the_same_path() {
+        // A refused registry is replaced (restored, rehomed) by a different
+        // one at the same path, its journal no larger: the memo of the old
+        // registry must not skip the new one.
+        let dir = temp_dir("refusal-memo-identity");
+        let db_path = registry(&dir, 100, 1);
+        STAGED_BYTES_LIMIT.with(|limit| limit.set(4096));
+        // SAFETY: as in the test above.
+        unsafe { std::env::set_var("CMUX_TUI_TEST_OUTPUT_CLEANUP_MARGIN_BYTES", "0") };
+        let first = stage_registry(&db_path, &control()).unwrap();
+        assert!(matches!(first, StageOutcome::Skipped(_)), "not refused: {first:?}");
+        assert!(refused_path(&db_path).is_file(), "the refusal is not recorded");
+
+        Connection::open(&db_path)
+            .unwrap()
+            .execute("UPDATE meta SET value = 'registry-replaced' WHERE key = 'registry_id'", [])
+            .unwrap();
+        let second = stage_registry(&db_path, &control()).unwrap();
+        let StageOutcome::Skipped(reason) = second else { panic!("not refused: {second:?}") };
+        assert!(
+            reason.contains("staging file") && !reason.contains("runs again"),
+            "the old registry's memo skipped the new registry: {reason}"
+        );
+        let memo = fs::read_to_string(refused_path(&db_path)).unwrap();
+        assert!(memo.contains("registry-replaced"), "the memo names no registry: {memo}");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn a_cleanup_whose_tail_sealed_after_staging_would_copy_too_much_is_abandoned() {
         // Phase A staged nothing; two million records were sealed after it.
         let dir = temp_dir("sealed-tail");
@@ -297,6 +326,73 @@ mod staged_size {
         let refusal = staged_bytes_over(&staging, limit).unwrap();
         assert!(refusal.is_some(), "1 MiB staged in the WAL passed a 512 KiB bound");
         drop(staging);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+/// The live put count after segments sealed past the archive end the live
+/// puts were read at.
+mod live_puts {
+    use super::session_puts::{SessionPuts, record_live_puts};
+    use super::*;
+
+    #[test]
+    fn live_puts_sealed_after_they_were_read_are_not_counted_live_again() {
+        // Ten live puts of one session (the first created it), then twenty
+        // live output rows. Two puts stay: the created one and the latest.
+        let dir = temp_dir("live-puts-sealed");
+        let db_path = registry(&dir, 0, 0);
+        let connection = Connection::open(&db_path).unwrap();
+        connection
+            .execute_batch(
+                "DELETE FROM session_journal;
+                 WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 30)
+                 INSERT INTO session_journal(sequence, kind, payload_json)
+                 SELECT i,
+                        CASE WHEN i <= 10 THEN 'personal.session.put' ELSE 'terminal.output' END,
+                        CASE WHEN i <= 10
+                             THEN json_object('session', json_object('session_id', 's'),
+                                              'created', json(CASE WHEN i = 1 THEN 'true'
+                                                                   ELSE 'false' END))
+                             ELSE '{}' END
+                 FROM n;",
+            )
+            .unwrap();
+        let staging = open_staging(&db_path, "registry-guard").unwrap();
+        record_live_puts(&connection, &staging).unwrap();
+        let puts = SessionPuts::load(&staging).unwrap();
+        assert_eq!(live_records(&connection, Some(&puts)).unwrap(), (2, 30));
+
+        // The owner seals sequences 1-5 (the created put among them): of the
+        // live puts, only the latest (10) is still live and kept.
+        connection
+            .execute_batch(
+                "INSERT INTO journal_segments VALUES ('first', 1, 5, 5);
+                 INSERT INTO journal_segment_kinds VALUES ('first', 'personal.session.put');
+                 DELETE FROM session_journal WHERE sequence <= 5;",
+            )
+            .unwrap();
+        assert_eq!(
+            live_records(&connection, Some(&puts)).unwrap(),
+            (1, 25),
+            "a sealed put is counted live again"
+        );
+
+        // Then the rest of the puts: none is live.
+        connection
+            .execute_batch(
+                "INSERT INTO journal_segments VALUES ('second', 6, 10, 5);
+                 INSERT INTO journal_segment_kinds VALUES ('second', 'personal.session.put');
+                 DELETE FROM session_journal WHERE sequence <= 10;",
+            )
+            .unwrap();
+        assert_eq!(
+            live_records(&connection, Some(&puts)).unwrap(),
+            (0, 20),
+            "sealed puts are counted live again"
+        );
+        drop(staging);
+        drop(connection);
         fs::remove_dir_all(&dir).unwrap();
     }
 }

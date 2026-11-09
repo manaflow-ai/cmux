@@ -63,6 +63,10 @@ finish() {
     fi
 }
 trap finish EXIT
+# A signal must reach finish as a failure: on a fatal SIGTERM or SIGINT bash runs the EXIT trap with $? of the last
+# command (0), and a hook stopped in the middle of a check printed "pre-push: passed" (review of #39787).
+trap 'exit 143' TERM
+trap 'exit 130' INT
 printf '%s\n' "$PUSHED_REFS" > "$REFS_FILE"
 
 # A delete-only push passes here (header). Each line is `<local ref> <local sha> <remote ref> <remote sha>`;

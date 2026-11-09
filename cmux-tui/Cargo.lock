@@ -2016,6 +2016,7 @@ dependencies = [
  "cmux-cloud-codex-holder",
  "cmux-cloud-config",
  "cmux-cloud-environment",
+ "cmux-cloud-start-core",
  "cmux-cloud-wire",
  "cmux-config",
  "cmux-conversation",
