@@ -288,12 +288,12 @@ test("an answer that comes after host glass stopped applying never marks the sur
   window.requestAnimationFrame = () => 0;
   doc.documentElement.setAttribute("data-reduce-transparency", "");
   await pastDeadline();
-  // The App answers the report sent while host glass applied.
-  answers[0]!();
-  await settled();
-  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).not.toBe("1");
   window.requestAnimationFrame = paint;
   await frames();
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
+  // The App answers the report sent while host glass applied: the page's glass stays.
+  answers[0]!();
+  await settled();
   expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
 });
 
