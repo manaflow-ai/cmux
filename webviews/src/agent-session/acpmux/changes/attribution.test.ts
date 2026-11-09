@@ -207,3 +207,31 @@ test("a want over the range cap asks the rest on the next want", () => {
   expect(store.want(target, scattered)).toBe(true);
   expect(asked[1]!.params.ranges).toHaveLength(6);
 });
+
+test("an answer counts only for the text it was asked with: an older diff's lines are asked again", async () => {
+  const { store, asked } = harness();
+  const newer = new Map([[5, "bar"]]);
+  store.want(target, [5], newer);
+  expect(asked[0]!.params.texts).toEqual([["bar"]]);
+  asked[0]!.answer({ attributions: [entry(5, 5, "b", 200)] });
+  await settle();
+  expect(store.writersOf(target, 5, "bar").map((each) => each.turnId)).toEqual(["b"]);
+  // An older turn's diff shows `foo` on that line: never the rewriter's answer.
+  const older = new Map([[5, "foo"]]);
+  expect(store.writersOf(target, 5, "foo")).toEqual([]);
+  store.want(target, [5], older);
+  expect(asked).toHaveLength(2);
+  expect(asked[1]!.params.texts).toEqual([["foo"]]);
+  asked[1]!.answer({ attributions: [] });
+  await settle();
+  expect(store.writersOf(target, 5, "foo")).toEqual([]);
+});
+
+test("a file's answers past the bound keep the newest", async () => {
+  const { store, asked } = harness();
+  store.want(target, [1]);
+  const many = Array.from({ length: 600 }, (_, index) => entry(1, 1, `t${index}`, 1000 - index));
+  asked[0]!.answer({ attributions: many });
+  await settle();
+  expect(store.writersOf(target, 1)[0]!.turnId).toBe("t0");
+});

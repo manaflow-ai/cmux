@@ -39,8 +39,10 @@ export type AttributionRepo = { root: string; head: string };
 /// Inclusive 1-based line ranges, as the request names them.
 export type LineRange = [number, number];
 
-/// The request's params (acpmux `_acpmux/attribution`).
-export type AttributionParams = AttributionTarget & { ranges: LineRange[] };
+/// The request's params (acpmux `_acpmux/attribution`). `texts`, beside `ranges`, are the lines the
+/// diff shows there: acpmux answers a range only while the file holds those lines, so an older
+/// turn's diff never names whoever rewrote its lines since.
+export type AttributionParams = AttributionTarget & { ranges: LineRange[]; texts?: string[][] };
 
 const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
 const line = (value: unknown) =>
@@ -103,6 +105,19 @@ export function addedLines(file: TurnFile): number[] {
   return [...lines].sort((a, b) => a - b);
 }
 
+/// The text each added line of `file`'s numbered edits shows, by new-file line number; a line two
+/// edits add keeps the later edit's text.
+export function addedTexts(file: TurnFile): Map<number, string> {
+  const texts = new Map<number, string>();
+  for (const edit of file.edits) {
+    if (!edit.numbered) continue;
+    for (const hunk of edit.hunks)
+      for (const each of hunk.lines)
+        if (each.type === "add" && each.newLine !== undefined) texts.set(each.newLine, each.text);
+  }
+  return texts;
+}
+
 /// `lines` (ascending) merged into ranges of consecutive lines, the first `cap` of them.
 export function lineRanges(lines: readonly number[], cap = MAX_ATTRIBUTION_RANGES): LineRange[] {
   const ranges: LineRange[] = [];
@@ -136,8 +151,14 @@ export function targetOf(
 /// The store's key of a file at one head.
 export const attributionKey = (target: AttributionTarget) => `${target.root}\0${target.head}\0${target.path}`;
 
-type FileAnswers = { asked: Set<number>; attributions: Attribution[] };
-type Job = { target: AttributionTarget; key: string; ranges: LineRange[] };
+/// Each asked line with the text it was asked with, and the answers.
+type FileAnswers = { asked: Map<number, string | undefined>; attributions: Attribution[] };
+type Job = {
+  target: AttributionTarget;
+  key: string;
+  ranges: LineRange[];
+  texts: ReadonlyMap<number, string> | undefined;
+};
 
 /// The answers per file at one head, and the requests that fill them: at most
 /// `MAX_ATTRIBUTION_IN_FLIGHT` out at once, and a newer want replaces the ones still queued.
@@ -163,10 +184,12 @@ export class AttributionStore {
 
   getVersion = () => this.version;
 
-  /// The turns that wrote `lineNumber` of `target`, newest first; none before its answer came.
-  writersOf(target: AttributionTarget, lineNumber: number): Attribution[] {
+  /// The turns that wrote `lineNumber` of `target` showing `text`, newest first; none before its
+  /// answer came, and none for a line last asked with other text.
+  writersOf(target: AttributionTarget, lineNumber: number, text?: string): Attribution[] {
     const file = this.files.get(attributionKey(target));
-    return file ? writersOf(file.attributions, lineNumber) : [];
+    if (!file?.asked.has(lineNumber) || file.asked.get(lineNumber) !== text) return [];
+    return writersOf(file.attributions, lineNumber);
   }
 
   /// Bumps when `forget` drops every answer.
@@ -174,15 +197,18 @@ export class AttributionStore {
     return this.generation;
   }
 
-  /// Asks for `lines` of `target` that were never asked at this head, the first
-  /// `MAX_ATTRIBUTION_RANGES` ranges of them. True when that left none unasked or queued.
-  want(target: AttributionTarget, lines: readonly number[]): boolean {
+  /// Asks for `lines` of `target` (showing `texts`) that were never asked at this head with that
+  /// text, the first `MAX_ATTRIBUTION_RANGES` ranges of them. True when that left none unasked or
+  /// queued.
+  want(target: AttributionTarget, lines: readonly number[], texts?: ReadonlyMap<number, string>): boolean {
     const key = attributionKey(target);
     const asked = this.files.get(key)?.asked;
-    const left = asked ? lines.filter((each) => !asked.has(each)) : lines;
+    const left = asked
+      ? lines.filter((each) => !asked.has(each) || asked.get(each) !== texts?.get(each))
+      : lines;
     const ranges = lineRanges(left);
     if (!ranges.length) return true;
-    const job = { target, key, ranges };
+    const job = { target, key, ranges, texts };
     // A queued want may yet be replaced by a newer one, so its lines count as unasked.
     if (this.inFlight >= this.maxInFlight) {
       this.queued = job;
@@ -208,7 +234,7 @@ export class AttributionStore {
       // The newest used file goes last, so the oldest is first out.
       this.files.delete(key);
     } else {
-      file = { asked: new Set(), attributions: [] };
+      file = { asked: new Map(), attributions: [] };
       while (this.files.size >= this.maxFiles) this.files.delete(this.files.keys().next().value!);
     }
     this.files.set(key, file);
@@ -217,7 +243,12 @@ export class AttributionStore {
 
   private send(job: Job): void {
     const file = this.file(job.key);
-    for (const [start, end] of job.ranges) for (let each = start; each <= end; each++) file.asked.add(each);
+    // A line asked again with other text: its earlier answers named the other text's writers.
+    const again = (start: number, end: number) =>
+      job.ranges.some(([from, to]) => from <= end && start <= to);
+    file.attributions = file.attributions.filter((entry) => !again(entry.start, entry.end));
+    for (const [start, end] of job.ranges)
+      for (let each = start; each <= end; each++) file.asked.set(each, job.texts?.get(each));
     const generation = this.generation;
     this.inFlight++;
     const done = (value: unknown) => {
@@ -225,17 +256,27 @@ export class AttributionStore {
       if (generation === this.generation && this.files.get(job.key) === file) {
         const answers = parseAttributions(value);
         if (answers.length) {
-          file.attributions = [...file.attributions, ...answers].slice(-MAX_FILE_ATTRIBUTIONS);
+          // The newest are kept: an answer comes newest first, and so is the merged list.
+          file.attributions = [...answers, ...file.attributions]
+            .sort((a, b) => b.at - a.at)
+            .slice(0, MAX_FILE_ATTRIBUTIONS);
           this.changed();
         }
       }
       const next = this.queued;
       this.queued = undefined;
-      if (next) this.want(next.target, rangeLines(next.ranges));
+      if (next) this.want(next.target, rangeLines(next.ranges), next.texts);
     };
     let asked: Promise<unknown>;
     try {
-      asked = this.ask({ ...job.target, ranges: job.ranges });
+      const texts = job.texts;
+      asked = this.ask({
+        ...job.target,
+        ranges: job.ranges,
+        ...(texts
+          ? { texts: job.ranges.map(([start, end]) => rangeLines([[start, end]]).map((each) => texts.get(each) ?? "")) }
+          : {}),
+      });
     } catch (error) {
       asked = Promise.reject(error);
     }

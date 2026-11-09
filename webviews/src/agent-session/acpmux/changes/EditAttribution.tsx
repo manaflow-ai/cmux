@@ -23,6 +23,7 @@ import { useT } from "../i18n";
 import { sessionLink } from "../links";
 import {
   addedLines,
+  addedTexts,
   attributionKey,
   targetOf,
   type Attribution,
@@ -85,15 +86,15 @@ export function useEditAttribution(file: TurnFile): EditAttribution {
   const enabled = Boolean(source && canonical && file.edits.some((edit) => edit.numbered && edit.hunks.length));
   const [target, setTarget] = useState<AttributionTarget | undefined>(undefined);
   const hovered = useMemo(() => new HoveredLine(), []);
-  const latest = useRef({ source, file, target });
-  latest.current = { source, file, target };
-  // The file and store epoch whose lines were all asked: a later hover asks nothing.
-  const asked = useRef<{ key: string; epoch: number } | undefined>(undefined);
+  // The text each added line shows: an answer counts only for the lines the file still holds.
+  const texts = useMemo(() => addedTexts(file), [file]);
+  const latest = useRef({ source, file, target, texts });
+  latest.current = { source, file, target, texts };
 
   const options = useMemo<EditAttribution["options"]>(() => {
     if (!enabled) return undefined;
     const ask = () => {
-      const { source: current, file: shown } = latest.current;
+      const { source: current, file: shown, texts: showing } = latest.current;
       if (!current) return;
       void current.repo().then((repo) => {
         const next = targetOf(shown.canonical, repo);
@@ -101,9 +102,8 @@ export function useEditAttribution(file: TurnFile): EditAttribution {
         const key = attributionKey(next);
         const known = latest.current.target;
         if (!known || attributionKey(known) !== key) setTarget(next);
-        const done = asked.current;
-        if (done?.key === key && done.epoch === current.store.epoch) return;
-        if (current.store.want(next, addedLines(shown))) asked.current = { key, epoch: current.store.epoch };
+        // The store skips what it holds, so a file it let go of is asked again.
+        current.store.want(next, addedLines(shown), showing);
       });
     };
     return {
@@ -164,7 +164,9 @@ export function useEditAttribution(file: TurnFile): EditAttribution {
   const renderGutterUtility = useMemo(
     () =>
       enabled && store
-        ? () => <AttributionMarker hovered={hovered} store={store} target={target} actions={marker} source={latest} />
+        ? () => (
+            <AttributionMarker hovered={hovered} store={store} target={target} actions={marker} source={latest} />
+          )
         : undefined,
     [enabled, store, target, hovered],
   );
@@ -212,12 +214,12 @@ function AttributionMarker({
   store: AttributionStore;
   target: AttributionTarget | undefined;
   actions: { current: MarkerActions };
-  source: { current: { source: AttributionSource | undefined } };
+  source: { current: { source: AttributionSource | undefined; texts: ReadonlyMap<number, string> } };
 }) {
   const t = useT();
   const line = useSyncExternalStore(hovered.subscribe, hovered.get, hovered.get);
   useSyncExternalStore(store.subscribe, store.getVersion, store.getVersion);
-  const writers = target && line !== undefined ? store.writersOf(target, line) : [];
+  const writers = target && line !== undefined ? store.writersOf(target, line, source.current.texts.get(line)) : [];
   const newest = writers[0];
   if (!newest) return null;
   const current = newest.sessionId === source.current.source?.sessionId;

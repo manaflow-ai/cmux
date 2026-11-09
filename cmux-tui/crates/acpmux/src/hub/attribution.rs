@@ -104,21 +104,25 @@ impl Hub {
             .ok_or_else(|| RpcError::invalid_params("head is required"))?;
         let path = attr::query_path(params.get("path")).map_err(RpcError::invalid_params)?;
         let ranges = attr::query_ranges(params.get("ranges")).map_err(RpcError::invalid_params)?;
+        let texts = attr::query_texts(params.get("texts"), &ranges).map_err(RpcError::invalid_params)?;
         let none = || Ok(json!({"attributions": []}));
         // The index keys a worktree by its canonical top folder (`touched_files::repo_of`).
         let Ok(root) = std::fs::canonicalize(root) else { return none() };
         let root_text = root.to_string_lossy().into_owned();
-        let candidates = {
-            let index = self.attribution_index.lock().unwrap_or_else(|e| e.into_inner());
-            if !index.knows(&root_text, &path) {
-                return none();
-            }
-            index.candidates(&root_text, head, &path, &ranges)
-        };
-        if candidates.is_empty() {
+        if !self.attribution_index.lock().unwrap_or_else(|e| e.into_inner()).knows(&root_text, &path) {
             return none();
         }
         let Some(text) = read_text(&root.join(&path)) else { return none() };
+        // Only the ranges whose shown lines the file still holds are answered.
+        let ranges = attr::shown_ranges(&text, &ranges, texts.as_deref());
+        if ranges.is_empty() {
+            return none();
+        }
+        let candidates = self
+            .attribution_index
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .candidates(&root_text, head, &path, &ranges);
         Ok(json!({"attributions": attr::verify(&text, candidates)}))
     }
 }

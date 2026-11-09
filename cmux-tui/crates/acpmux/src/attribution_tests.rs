@@ -197,3 +197,37 @@ fn a_query_names_relative_paths_and_bounded_ranges_only() {
     let many: Vec<Value> = (1..=MAX_QUERY_RANGES as u64 + 1).map(|i| json!([i, i])).collect();
     assert!(query_ranges(Some(&Value::Array(many))).is_err());
 }
+
+#[test]
+fn an_older_diff_whose_lines_were_rewritten_since_names_no_one() {
+    // Turn A wrote `foo` at line 2; turn B rewrote it to `bar`. A's diff still shows `foo` there.
+    let mut index = Index::default();
+    let mut turn = TurnEdits::default();
+    let v1 = "a\nfoo\nz\n";
+    turn.absorb(&edit("e1", Some("a\nz"), "a\nfoo\nz"), canon);
+    turn.absorb(&done("e1", "completed"), canon);
+    record_turn(&mut index, &mut turn, v1, &author("turn-a", "h1", 10));
+    let v2 = "a\nbar\nz\n";
+    turn.absorb(&edit("e2", Some("foo"), "bar"), canon);
+    turn.absorb(&done("e2", "completed"), canon);
+    record_turn(&mut index, &mut turn, v2, &author("turn-b", "h1", 20));
+
+    let shown_a = vec![vec!["foo".to_owned()]];
+    assert!(shown_ranges(v2, &[(2, 2)], Some(&shown_a)).is_empty());
+    let shown_b = vec![vec!["bar".to_owned()]];
+    let ranges = shown_ranges(v2, &[(2, 2)], Some(&shown_b));
+    let found = verify(v2, index.candidates("/repo", "h1", "src/a.rs", &ranges));
+    assert_eq!(turns_of(&found), ["turn-b"]);
+    // A query with no texts keeps every range.
+    assert_eq!(shown_ranges(v2, &[(2, 2)], None), vec![(2, 2)]);
+}
+
+#[test]
+fn shown_texts_have_one_list_a_range_and_one_line_a_line() {
+    let ranges = [(1, 2), (5, 5)];
+    assert_eq!(query_texts(None, &ranges).unwrap(), None);
+    assert!(query_texts(Some(&json!([["a", "b"], ["c"]])), &ranges).unwrap().is_some());
+    assert!(query_texts(Some(&json!([["a"], ["c"]])), &ranges).is_err());
+    assert!(query_texts(Some(&json!([["a", "b"]])), &ranges).is_err());
+    assert!(query_texts(Some(&json!([["a", 1], ["c"]])), &ranges).is_err());
+}

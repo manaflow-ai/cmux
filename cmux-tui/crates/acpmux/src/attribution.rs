@@ -34,6 +34,8 @@ pub const MAX_FILE_BYTES: u64 = 4 << 20;
 pub const MAX_CALLS_PER_TURN: usize = 256;
 /// The most ranges one query asks about.
 pub const MAX_QUERY_RANGES: usize = 64;
+/// The most bytes of shown text one query carries (`texts`).
+const MAX_QUERY_TEXT_BYTES: usize = 1 << 20;
 /// An edit's new text past this is not noted (a generated file written whole).
 const MAX_TEXT_BYTES: usize = 512 << 10;
 /// How long the prompt's first line may be in an answer.
@@ -350,7 +352,7 @@ impl Index {
             .filter(|e| ranges.iter().any(|&(s, t)| e.start <= t && s <= e.end))
             .cloned()
             .collect();
-        out.sort_by(|a, b| b.seq.cmp(&a.seq));
+        out.sort_by_key(|w| std::cmp::Reverse(w.seq));
         out
     }
 }
@@ -396,6 +398,49 @@ pub fn query_ranges(value: Option<&Value>) -> Result<Vec<(u32, u32)>, String> {
                 _ => Err("a range is [start, end], 1-based, start <= end".into()),
             }
         })
+        .collect()
+}
+
+/// A query's `texts`, beside its `ranges`: the lines the diff shows in each, one string a line.
+/// None when the query sends none.
+pub fn query_texts(value: Option<&Value>, ranges: &[(u32, u32)]) -> Result<Option<Vec<Vec<String>>>, String> {
+    let Some(value) = value.filter(|v| !v.is_null()) else { return Ok(None) };
+    let list = value.as_array().filter(|l| l.len() == ranges.len()).ok_or("texts has one list a range")?;
+    let mut bytes = 0;
+    let mut out = Vec::with_capacity(list.len());
+    for (lines, &(start, end)) in list.iter().zip(ranges) {
+        let lines = lines
+            .as_array()
+            .filter(|l| l.len() as u64 == u64::from(end - start) + 1)
+            .ok_or("texts has one string a line of its range")?;
+        let mut range = Vec::with_capacity(lines.len());
+        for line in lines {
+            let line = line.as_str().ok_or("a shown line is a string")?;
+            bytes += line.len();
+            if bytes > MAX_QUERY_TEXT_BYTES {
+                return Err("texts is too long".into());
+            }
+            range.push(line.to_owned());
+        }
+        out.push(range);
+    }
+    Ok(Some(out))
+}
+
+/// The `ranges` whose lines in `text` (the file now) are the ones the diff shows (`texts`): a diff
+/// of an older turn whose lines were rewritten since asks about lines the file no longer holds,
+/// and gets no answer for them rather than the rewriter's.
+pub fn shown_ranges(text: &str, ranges: &[(u32, u32)], texts: Option<&[Vec<String>]>) -> Vec<(u32, u32)> {
+    let Some(texts) = texts else { return ranges.to_vec() };
+    let lines = file_lines(text);
+    ranges
+        .iter()
+        .zip(texts)
+        .filter(|((start, end), shown)| {
+            let (from, to) = ((*start - 1) as usize, *end as usize);
+            to <= lines.len() && lines[from..to].iter().zip(shown.iter()).all(|(a, b)| *a == b.as_str())
+        })
+        .map(|(range, _)| *range)
         .collect()
 }
 
