@@ -101,6 +101,8 @@ pub struct NewRequest {
     /// The session's place under the session that started it (`hub/lineage.rs`),
     /// already checked by the caller; None for a root.
     pub lineage: Option<crate::store::Lineage>,
+    /// Who creates it (`hub/created_by.rs`), decided by the caller from the connection.
+    pub created_by: Option<crate::store::CreatedBy>,
     /// Claude Code built-in tools this chat never gets
     /// (`_meta.acpmux.disallowedTools`, checked by the caller): kept in its
     /// meta as `tool:<name>` rows that are off, so every start of its Claude
@@ -116,6 +118,12 @@ pub struct NewRequest {
     /// proved it is the person (`server/requests.rs` `person_asks`), never an agent's or a lane's
     /// create. Its start waits as long as its harness works on it (`lifecycle.rs`).
     pub person: bool,
+    /// The create asked to wait on its harness (`_meta.acpmux.waitStart`, `Session::wait_start`):
+    /// never honored from an agent's, a lane's or a remote connection (`server/requests.rs`).
+    pub wait_start: bool,
+    /// `_meta.acpmux.requireAsking` (`require_asking.rs`): the start runs only on a harness the
+    /// asking table lists, as it resolves it, and its policy fails the start where it is not kept.
+    pub require_asking: bool,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:

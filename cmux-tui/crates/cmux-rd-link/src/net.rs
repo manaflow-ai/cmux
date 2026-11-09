@@ -34,6 +34,10 @@ use std::time::Instant;
 /// STUN requests are retried this often until each server answers or gives up.
 const STUN_RETRY_US: u64 = 300_000;
 const STUN_ATTEMPTS: u32 = 5;
+/// Most STUN servers one link queries, late ones included.
+const MAX_STUN_SERVERS: usize = 8;
+/// How often the driver asks a [`Later`] list while it has not answered.
+const LATER_POLL_US: u64 = 50_000;
 /// Largest UDP payload read.
 const MAX_PACKET: usize = 65_535;
 /// How long `CandidatesDone` waits for TURN allocations.
@@ -107,6 +111,11 @@ pub struct NetConfig {
     /// TURN servers (from the hub ticket's relay list), for the relay
     /// candidate and the relayed paths. At most [`MAX_TURN_SERVERS`] are used.
     pub turn: Vec<TurnServer>,
+    /// Reach the peer only through this side's TURN allocations: no host or
+    /// reflexive candidate is gathered or sent, no direct path is opened, and a
+    /// packet from anywhere but a TURN server is dropped, so the peer never
+    /// learns this side's addresses. Without a TURN server nothing connects.
+    pub relay_only: bool,
 }
 
 /// A TURN server with long-term credentials (RFC 8656 over UDP).
@@ -144,8 +153,14 @@ pub enum NetEvent {
     Failed(String),
 }
 
+/// Servers still resolving when the link started: `None` until they are
+/// here. See [`Net::add_stun_later`] and [`Net::add_turn_later`].
+pub type Later<T> = Box<dyn FnMut() -> Option<Vec<T>> + Send>;
+
 enum Command {
     RemoteCandidate(Candidate),
+    StunLater(Later<SocketAddr>),
+    TurnLater(Later<TurnServer>),
     Datagram(Vec<u8>),
     Control(Vec<u8>),
     NetworkChange,
@@ -251,8 +266,9 @@ impl Net {
         let socket = UdpSocket::bind(config.bind).map_err(|e| LinkError::Io(e.to_string()))?;
         socket.set_nonblocking(true).map_err(|e| LinkError::Io(e.to_string()))?;
         let local_addr = socket.local_addr().map_err(|e| LinkError::Io(e.to_string()))?;
-        let endpoint =
+        let mut endpoint =
             Endpoint::new(config.role, &config.session, &config.local, config.expected_remote, 0)?;
+        endpoint.set_local_networks(cmux_transport::local_networks());
         let (command_tx, command_rx) = mpsc::channel();
         let (event_tx, event_rx) = mpsc::channel();
         let command_wake = Pipe::new().map_err(|e| LinkError::Io(e.to_string()))?;
@@ -264,8 +280,7 @@ impl Net {
             command_fd: command_wake.read,
             events: event_tx,
             event_fd: event_wake.write,
-            stun: config
-                .stun
+            stun: (if config.relay_only { &[][..] } else { &config.stun[..] })
                 .iter()
                 .enumerate()
                 .map(|(i, server)| StunQuery {
@@ -286,12 +301,15 @@ impl Net {
                     settled: false,
                 })
                 .collect(),
+            stun_later: None,
+            turn_later: None,
             remote: Vec::new(),
+            relay_only: config.relay_only,
             candidates_done: false,
             start: Instant::now(),
         };
         // Host candidates are known at once.
-        for ip in interface_addresses() {
+        for ip in interface_addresses().into_iter().filter(|_| !config.relay_only) {
             driver.emit(NetEvent::Candidate(Candidate {
                 kind: CandidateKind::Host,
                 addr: SocketAddr::new(ip, local_addr.port()),
@@ -339,6 +357,21 @@ impl Net {
     /// A candidate the peer offered through signaling.
     pub fn add_remote_candidate(&self, candidate: Candidate) {
         self.command(Command::RemoteCandidate(candidate));
+    }
+
+    /// STUN servers whose names were still resolving at [`Net::start`]. The
+    /// driver asks `later` until it answers, then queries what it found, so a
+    /// slow resolver still yields the reflexive candidate, trickled after the
+    /// others (cmuxterm-hq#7976). Ignored when relay only.
+    pub fn add_stun_later(&self, later: Later<SocketAddr>) {
+        self.command(Command::StunLater(later));
+    }
+
+    /// TURN servers whose names were still resolving at [`Net::start`], as
+    /// [`Net::add_stun_later`]: each allocates once here, and its relayed
+    /// paths go to every peer candidate known by then.
+    pub fn add_turn_later(&self, later: Later<TurnServer>) {
+        self.command(Command::TurnLater(later));
     }
 
     /// One rd datagram, sealed and sent on the current path (best effort).
@@ -410,9 +443,15 @@ struct Driver {
     events: mpsc::Sender<NetEvent>,
     event_fd: RawFd,
     stun: Vec<StunQuery>,
+    /// `Net::add_stun_later`'s servers, until they resolve.
+    stun_later: Option<Later<SocketAddr>>,
+    /// `Net::add_turn_later`'s servers, until they resolve.
+    turn_later: Option<Later<TurnServer>>,
     relays: Vec<Relay>,
     /// The peer's candidates, for the relayed paths of allocations that finish later.
     remote: Vec<Candidate>,
+    /// `NetConfig::relay_only`.
+    relay_only: bool,
     candidates_done: bool,
     start: Instant,
 }
@@ -448,6 +487,51 @@ impl Driver {
             self.emit(NetEvent::Endpoint(event));
         }
         Ok(())
+    }
+
+    /// Takes the late servers once they resolved; their queries and allocations start now.
+    fn later_tick(&mut self) {
+        if let Some(found) = self.stun_later.as_mut().and_then(|later| later()) {
+            self.stun_later = None;
+            for server in found {
+                self.add_stun(server);
+            }
+        }
+        if let Some(found) = self.turn_later.as_mut().and_then(|later| later()) {
+            self.turn_later = None;
+            for server in found {
+                self.add_turn(server);
+            }
+        }
+    }
+
+    fn add_turn(&mut self, server: TurnServer) {
+        if self.relays.len() >= MAX_TURN_SERVERS
+            || self.relays.iter().any(|r| r.server == server.addr)
+        {
+            return;
+        }
+        self.relays.push(Relay {
+            server: server.addr,
+            client: TurnClient::new(&server.username, &server.password, seed()),
+            settled: false,
+        });
+    }
+
+    fn add_stun(&mut self, server: SocketAddr) {
+        if self.relay_only
+            || self.stun.len() >= MAX_STUN_SERVERS
+            || self.stun.iter().any(|q| q.server == server)
+        {
+            return;
+        }
+        self.stun.push(StunQuery {
+            server,
+            transaction: transaction(self.stun.len()),
+            attempts: 0,
+            next_us: 0,
+            done: false,
+        });
     }
 
     fn stun_tick(&mut self, now: u64) {
@@ -486,8 +570,12 @@ impl Driver {
 
     fn turn_events(&mut self, now: u64) {
         for index in 0..self.relays.len() {
-            for event in self.relays[index].client.take_events() {
-                self.relays[index].settled = true;
+            let Some(relay) = self.relays.get_mut(index) else { continue };
+            let events = relay.client.take_events();
+            if !events.is_empty() {
+                relay.settled = true;
+            }
+            for event in events {
                 match event {
                     TurnEvent::Allocated { relayed, .. } => {
                         self.emit(NetEvent::Candidate(Candidate {
@@ -500,8 +588,9 @@ impl Driver {
                         }
                     }
                     TurnEvent::Failed(error) => {
-                        let server = self.relays[index].server;
-                        self.emit(NetEvent::RelayFailed { server, reason: error.to_string() });
+                        if let Some(server) = self.relays.get(index).map(|r| r.server) {
+                            self.emit(NetEvent::RelayFailed { server, reason: error.to_string() });
+                        }
                     }
                 }
             }
@@ -520,7 +609,9 @@ impl Driver {
     }
 
     fn on_remote_candidate(&mut self, c: Candidate, now: u64) {
-        self.endpoint.add_path(Route::Udp(c.addr), c.path_kind(), now);
+        if !self.relay_only {
+            self.endpoint.add_path(Route::Udp(c.addr), c.path_kind(), now);
+        }
         if self.remote.contains(&c) || self.remote.len() >= MAX_PATHS {
             return;
         }
@@ -561,9 +652,15 @@ impl Driver {
 
     fn deadline_ms(&self, now: u64) -> i32 {
         let stun = self.stun.iter().filter(|q| !q.done).map(|q| q.next_us).min();
+        let later =
+            (self.stun_later.is_some() || self.turn_later.is_some()).then_some(now + LATER_POLL_US);
         let turn = self.relays.iter().filter_map(|r| r.client.next_deadline_us()).min();
         let gather = (!self.candidates_done && now < RELAY_GATHER_US).then_some(RELAY_GATHER_US);
-        match [self.endpoint.next_deadline_us(), stun, turn, gather].into_iter().flatten().min() {
+        match [self.endpoint.next_deadline_us(), stun, later, turn, gather]
+            .into_iter()
+            .flatten()
+            .min()
+        {
             Some(at) => i32::try_from(at.saturating_sub(now).div_ceil(1000)).unwrap_or(i32::MAX),
             None => 1000,
         }
@@ -579,6 +676,7 @@ impl Driver {
         let mut buf = vec![0u8; MAX_PACKET];
         loop {
             let now = now_us(self.start);
+            self.later_tick();
             self.stun_tick(now);
             self.turn_tick(now);
             self.flush(now)?;
@@ -598,6 +696,10 @@ impl Driver {
             while let Ok(command) = self.commands.try_recv() {
                 match command {
                     Command::RemoteCandidate(c) => self.on_remote_candidate(c, now),
+                    Command::StunLater(later) => {
+                        self.stun_later = (!self.relay_only).then_some(later);
+                    }
+                    Command::TurnLater(later) => self.turn_later = Some(later),
                     Command::Datagram(d) => {
                         if self.endpoint.link().is_established() {
                             for t in self.endpoint.send_datagram(&d)? {
@@ -606,7 +708,10 @@ impl Driver {
                         }
                     }
                     Command::Control(r) => self.endpoint.send_control(r, now)?,
-                    Command::NetworkChange => self.endpoint.on_network_change(),
+                    Command::NetworkChange => {
+                        self.endpoint.set_local_networks(cmux_transport::local_networks());
+                        self.endpoint.on_network_change();
+                    }
                     Command::Close => {
                         if self.endpoint.link().is_established() {
                             for t in self.endpoint.close()? {
@@ -625,9 +730,11 @@ impl Driver {
             loop {
                 match self.socket.recv_from(&mut buf) {
                     Ok((n, from)) => {
-                        let packet = &buf[..n];
-                        if let Some(index) = self.relays.iter().position(|r| r.server == from) {
-                            match self.relays[index].client.on_packet(packet, now) {
+                        let packet = buf.get(..n).unwrap_or_default();
+                        if let Some((index, server)) =
+                            self.relays.iter_mut().enumerate().find(|(_, r)| r.server == from)
+                        {
+                            match server.client.on_packet(packet, now) {
                                 TurnReceive::Data { peer, payload } => {
                                     let relay = u16::try_from(index).unwrap_or(u16::MAX);
                                     if self.deliver(Route::Relay { relay, peer }, payload, now)? {
@@ -642,6 +749,10 @@ impl Driver {
                                 // A STUN binding answer from the same server, say.
                                 TurnReceive::Ignored => {}
                             }
+                        }
+                        // Relay only: nothing but the TURN servers may reach this side.
+                        if self.relay_only {
+                            continue;
                         }
                         if packet.first().is_some_and(|b| *b < 4) {
                             self.on_stun(packet);

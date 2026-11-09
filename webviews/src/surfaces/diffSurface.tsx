@@ -13,12 +13,15 @@ import { installDiffLanguageHostAPI } from "../diff-languages/host";
 import { diffPageClient } from "../diff/page";
 import { bootPageDiff } from "../diff/pageBoot";
 import { createWebviewsRouter } from "../router";
+import { appPopupHost } from "../pages/shared/pagePopupHost";
+import { UiProvider } from "../ui/UiProvider";
 import { applyDiffViewerStatusToDocument, initialDiffViewerStatus } from "../status";
 import diffViewerStyles from "../styles.css?inline";
 import gitStyles from "../agent-session/acpmux/changes/git.css?inline";
 import type { DiffViewerConfig } from "../types";
 import { sanitizeViewerPrefs } from "../viewer-prefs";
 import { installWebviewStyles } from "./installWebviewStyles";
+import { markDiffOpen } from "../diff-viewer/openTiming";
 
 /** The empty state's theme listener, stopped when the viewer renders. */
 let stopFollowingEmpty: (() => void) | undefined;
@@ -42,6 +45,7 @@ function readEmbeddedConfig(): DiffViewerConfig | null {
  * answers; the returned promise settles then.
  */
 export function mountDiffSurface(rootElement: HTMLElement): Promise<void> {
+  markDiffOpen("boot");
   const embedded = readEmbeddedConfig();
   if (embedded) {
     return renderDiffSurface(rootElement, embedded, embedded.payload?.languages);
@@ -78,6 +82,7 @@ export async function renderDiffSurface(
   config: DiffViewerConfig,
   languages: unknown,
 ): Promise<void> {
+  markDiffOpen("config");
   await loadDiffViewerLabels();
   installWebviewStyles("diff", diffViewerStyles);
   installWebviewStyles("git", gitStyles);
@@ -100,5 +105,10 @@ export async function renderDiffSurface(
   document.body.dataset.filesHidden = "false";
   applyDiffViewerStatusToDocument(initialStatus);
   const router = createWebviewsRouter(() => <App config={config} initialStatus={initialStatus} />);
-  createRoot(rootElement).render(<RouterProvider router={router} />);
+  markDiffOpen("render");
+  createRoot(rootElement).render(
+    <UiProvider container={rootElement} popupHost={appPopupHost(diffPageClient())}>
+      <RouterProvider router={router} />
+    </UiProvider>,
+  );
 }

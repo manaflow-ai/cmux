@@ -179,8 +179,8 @@ enum ScreenshotHandlers {
         guard byPerson else { return }
         // task-owner: shows a person's failed capture once; ends with the capture.
         Task { @MainActor in
-            if case .failure(let failure) = await task.value {
-                services.refusalHUD.show(failure.message, in: services.windows.active?.window)
+            if case .failure(let failure) = await task.value, let notice = failure.notice(title: nil) {
+                services.refusalHUD.show(notice, in: services.windows.active?.window)
             }
         }
     }

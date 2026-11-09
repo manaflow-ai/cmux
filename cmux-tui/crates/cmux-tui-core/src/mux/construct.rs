@@ -154,6 +154,7 @@ impl Mux {
         if let Some(database) = registry.session_journal_database_path() {
             crate::workspace_registry::terminal_end_prefetch::start_terminal_end_prefetch(database);
         }
+        test_restore_delay();
         let snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
         let session_shutdown = crate::session_shutdown::SessionShutdownClock::open(
@@ -177,6 +178,9 @@ impl Mux {
         let agent_roster_restore::RestoredAgentRoster {
             host: agent_roster,
             diagnostic: agent_roster_diagnostic,
+            replay: agent_roster_replay,
+            rebuild: agent_roster_rebuild,
+            unmarked_from: agent_roster_unmarked_from,
         } = agent_roster_restore::restore_agent_roster(&registry)?;
         let feed_local = Mutex::new(registry.open_feed_local()?);
         let presentation = registry.presentation_snapshot()?;
@@ -202,6 +206,11 @@ impl Mux {
         let launch_identity = crate::launch_credential::LaunchIdentity::load(
             registry.session_journal_database_path().as_deref().and_then(Path::parent),
         );
+        // One stage S1 switch for the mux (R-DAEMON-STATE): on, the values a person's key reads are published (the
+        // state's routes, the client registry's facts, the link peers, the host proxy authors) and the surface
+        // admission budget reserves with atomics.
+        let input_lane = crate::rds_switch::InputLaneSwitch::from_env();
+        let lane_on = input_lane.on();
         let mux = Arc::new(Mux {
             launch_identity,
             registry_connection: registry.connection.clone(),
@@ -213,7 +222,7 @@ impl Mux {
             registry_identity,
             resource_projection_stats,
             started_at: Instant::now(),
-            state: signaled_mutex::StateMutex::new(state),
+            state: signaled_mutex::StateMutex::new(state, lane_on),
             subscribers: MuxEventBroadcaster::default(),
             config_reload: Mutex::new(ConfigReloadState::default()),
             config_reload_changed: Condvar::new(),
@@ -227,10 +236,16 @@ impl Mux {
             workspace_lifecycles: Mutex::new(HashMap::new()),
             pending_workspace_surfaces: Mutex::new(HashMap::new()),
             client_sizing_lifecycle: Mutex::new(()),
-            client_sizing: Mutex::new(ClientSizingState::default()),
+            client_sizing: sizing_fast_path::SizingMutex::new(
+                ClientSizingState::default(),
+                lane_on,
+            ),
             client_focus_memory: Mutex::new(Vec::new()),
             last_reported_focus: Mutex::new(None),
-            conversations: Default::default(),
+            conversations: crate::conversation_store::ConversationHost {
+                remote: crate::remote_relay_state::RemoteRelayState::new(lane_on),
+                ..Default::default()
+            },
             chiefs: Default::default(),
             cloud: Default::default(),
             history_search: OnceLock::new(),
@@ -268,6 +283,8 @@ impl Mux {
             reserved_in_process_terminals: Mutex::new(HashMap::new()),
             #[cfg(test)]
             viewport_split_after_spawn: Mutex::new(None),
+            #[cfg(test)]
+            topology_effect_before_execute: Mutex::new(None),
             #[cfg(test)]
             resource_mutation_metrics: Mutex::new(None),
             #[cfg(test)]
@@ -330,16 +347,21 @@ impl Mux {
             agent_hook_projection: Mutex::new(()),
             agent_presence: Mutex::new(HashMap::new()),
             agent_hook_children: Mutex::new(HashMap::new()),
-            agent_prompts: Mutex::new(agent_prompts::AgentTexts::default()),
+            agent_prompts: Mutex::new(agent_prompts::AgentTexts::with_sessions(
+                agent_roster.roster.hook_sessions(),
+            )),
             agent_roster: Mutex::new(agent_roster),
-            agent_roster_fold: Mutex::default(),
+            agent_roster_worker: Default::default(),
             agent_message_pump: Default::default(),
             #[cfg(unix)]
             agent_chat_notices: Default::default(),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             terminal_command_history: AtomicBool::new(false),
+            terminal_last_command: AtomicBool::new(false),
             command_history_worker: Mutex::new(None),
+            terminal_publisher: Default::default(),
+            terminal_tail_pins: Default::default(),
             notification_ledger: Mutex::new(notification_ledger),
             notification_reads: Mutex::new(notification_reads),
             notification_read_prunes: Mutex::new(Vec::new()),
@@ -353,6 +375,7 @@ impl Mux {
             output_store,
             incognito_workspace_keys: Mutex::new(HashSet::new()),
             journal_maintenance: Mutex::new(None),
+            disk_usage: Mutex::default(),
             output_cleanup: Default::default(),
             journal_maintenance_control: Arc::default(),
             journal_hook_dispatcher_started: AtomicBool::new(false),
@@ -365,6 +388,7 @@ impl Mux {
             pending_diagnostics: Mutex::new(Vec::new()),
             #[cfg(test)]
             journal_segment_prepare_hook: Mutex::new(None),
+            journal_seal: Mutex::new(()),
             #[cfg(test)]
             screen_created_hook: Mutex::new(None),
             terminal_exit_waiters: TerminalExitWaiters::default(),
@@ -409,12 +433,12 @@ impl Mux {
             exit_settles: Arc::default(),
             terminal_respawns: terminal_respawn::TerminalRespawns::from_env(),
             daemon_shutdown_waker: Mutex::new(None),
-            control_clients: crate::server::ClientRegistry::new(),
+            control_clients: crate::server::ClientRegistry::new(input_lane),
             #[cfg(unix)]
             agent_transfers: Default::default(),
             #[cfg(unix)]
             access_requests: Default::default(),
-            activity: Default::default(),
+            activity: crate::server::activity::ActivityStream::new(lane_on),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             idle_close_waker: Mutex::new(None),
             pty_reclaim_forced: AtomicBool::new(false),
@@ -434,7 +458,7 @@ impl Mux {
             image_pastes: crate::image_paste::ImagePasteStore::default(),
             history: crate::history_ops::HistoryHost::default(),
             surface_operation_admission: Arc::new(
-                crate::server::ServerSurfaceOperationAdmission::default(),
+                crate::server::ServerSurfaceOperationAdmission::new(lane_on),
             ),
             pairing: PairingBroker::new(),
             #[cfg(test)]
@@ -442,6 +466,31 @@ impl Mux {
             session,
         });
         mux.exit_settles.bind(Arc::downgrade(&mux));
+        if let Some(from_version) = agent_roster_unmarked_from {
+            mux.agent_roster_worker.unmarked_from.store(from_version, Ordering::Release);
+        }
+        // The agent roster's one owner: every fold and snapshot save runs there.
+        mux.start_agent_roster_worker()?;
+        // A long tail (a lost snapshot, a start long after the last save)
+        // that the start's budget did not finish goes on in the owner while
+        // the daemon serves.
+        if let Some(replay) = agent_roster_replay {
+            #[cfg(test)]
+            {
+                *mux.agent_roster_worker
+                    .replay_gate
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner) =
+                    agent_roster_restore::REPLAY_GATE_FOR_TEST
+                        .with(|gate| gate.borrow_mut().take());
+            }
+            mux.continue_agent_roster_replay(replay);
+        }
+        // A stale roster (a reducer version bump) is served now and rebuilt
+        // from the whole journal in the owner while the daemon serves.
+        if agent_roster_rebuild {
+            mux.start_agent_roster_rebuild();
+        }
         mux.start_command_history_for_persistent_registry();
         let weak_mux = Arc::downgrade(&mux);
         mux.journal_plugin.set_exit_handler(Some(Arc::new(move |plugin_id, generation| {
@@ -580,4 +629,18 @@ fn copy_authority(
     authority: &ProviderWorkspaceAuthority,
 ) -> anyhow::Result<ProviderWorkspaceAuthority> {
     ProviderWorkspaceAuthority::new(String::from_utf8(authority.expose().to_vec())?)
+}
+
+/// Debug seam (`CMUX_TUI_TEST_RESTORE_DELAY_MS=N`, debug builds only): the
+/// restore waits N ms after the registry opened and before it reads the saved
+/// session, so a fault test can act on an owner that is still restoring.
+fn test_restore_delay() {
+    #[cfg(debug_assertions)]
+    if let Some(delay) = std::env::var("CMUX_TUI_TEST_RESTORE_DELAY_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|ms| *ms > 0)
+    {
+        std::thread::sleep(Duration::from_millis(delay));
+    }
 }

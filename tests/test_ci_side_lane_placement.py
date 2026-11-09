@@ -515,7 +515,7 @@ class Decide(unittest.TestCase):
                                    GITHUB_OUTPUT=str(output)))
             lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
             self.assertEqual(lines["owned_jobs"], " cmux-scheme-compile ")
-            bot.runners.assert_called_once_with()
+            bot.runners.assert_called_once_with(include_repository=False)
 
     def test_timeout_publishes_default_route_instead_of_hanging(self):
         with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
@@ -751,6 +751,88 @@ class FastRoute(unittest.TestCase):
                 self.assertIn(f"fast_runner={expected}\n", output.read_text())
 
 
+LIGHT_SIDE = "glaeda-side-light-xcode-26.6"
+
+
+def light_seen(pools=None, *, stale: bool = False, queued=None):
+    """A janitor snapshot reading: `pools` as the snapshot lists them, `queued` its owned queue counts."""
+    return placement.cascade.Seen(waits={}, snapshot={"pools": pools or {}}, stale=stale,
+                                  owned_queued=queued or {})
+
+
+class LightFastRoute(unittest.TestCase):
+    """Leo, 2026-11-08: "Ci it's fine to start stuff in parallel sometimes the light minis are largely idling
+    rn". With no fast runner idle, the fast tier takes an idle light side runner instead of the std side queue
+    (p90 34 min in the week to 11-08), never while a nightly job waits on the light minis."""
+
+    def values(self, **overrides):
+        return {"FAST_LABEL": FAST, "SIDE_LABEL": SIDE, "JOBS": "fast-tier " + " ".join(JOBS),
+                "GITHUB_RUN_ATTEMPT": "1", **overrides}
+
+    def test_the_light_side_label_narrows_only_the_class(self):
+        self.assertEqual(placement.light_side_label(SIDE), LIGHT_SIDE)
+        self.assertEqual(placement.light_side_label("glaeda-side-light-xcode-26.6"), "")
+        self.assertEqual(placement.light_side_label(STD), "")
+        self.assertEqual(placement.light_side_label("blacksmith-6vcpu-macos-26"), "")
+
+    def test_an_idle_light_side_runner_takes_the_fast_tier(self):
+        runners = [runner("cmux17-glaeda-1", labels=(LIGHT_SIDE,)), runner("cmux17-glaeda-3", busy=True, labels=(FAST,))]
+        self.assertEqual(placement.light_fast_route(self.values(), runners, light_seen()), LIGHT_SIDE)
+
+    def test_a_nightly_or_release_job_waiting_on_the_light_family_keeps_it_free(self):
+        runners = [runner("cmux17-glaeda-1", labels=(LIGHT_SIDE,))]
+        for name in ("glaeda-light-xcode-26.6", "glaeda-trusted-light-xcode-26.6", LIGHT_SIDE):
+            with self.subTest(name=name):
+                seen = light_seen({name: {"reserved_queued": 1}})
+                self.assertEqual(placement.light_fast_route(self.values(), runners, seen), "")
+        # A nightly job on the std family does not hold the light minis.
+        seen = light_seen({"glaeda-nightly-std-xcode-26.6": {"reserved_queued": 3}})
+        self.assertEqual(placement.light_fast_route(self.values(), runners, seen), LIGHT_SIDE)
+
+    def test_nothing_known_or_nothing_free_places_nothing(self):
+        idle = [runner("cmux17-glaeda-1", labels=(LIGHT_SIDE,))]
+        busy = [runner("cmux17-glaeda-1", busy=True, labels=(LIGHT_SIDE,)),
+                runner("cmux18-glaeda-1", status="offline", labels=(LIGHT_SIDE,))]
+        cases = {
+            "unread runners": (self.values(), None, light_seen()),
+            "no snapshot": (self.values(), idle, None),
+            "stale snapshot": (self.values(), idle, light_seen(stale=True)),
+            "busy or offline": (self.values(), busy, light_seen()),
+            "queued jobs take the idle runner first": (self.values(), idle, light_seen(queued={LIGHT_SIDE: 1})),
+            "a re-run": (self.values(GITHUB_RUN_ATTEMPT="2"), idle, light_seen()),
+            "no fast tier in the run": (self.values(JOBS=" ".join(JOBS)), idle, light_seen()),
+            "no fast lane configured": (self.values(FAST_LABEL=""), idle, light_seen()),
+            "not an owned side label": (self.values(SIDE_LABEL=FALLBACK), idle, light_seen()),
+        }
+        for why, (values, runners, seen) in cases.items():
+            with self.subTest(why=why):
+                self.assertEqual(placement.light_fast_route(values, runners, seen), "")
+
+    def test_main_sends_the_fast_tier_to_the_idle_light_side_runner(self):
+        busy_fast = runner("cmux17-glaeda-3", busy=True, labels=(FAST,))
+        idle_light = runner("cmux17-glaeda-1", labels=(LIGHT_SIDE,))
+        cases = (([busy_fast, idle_light], LIGHT_SIDE),
+                 ([runner("cmux17-glaeda-3", labels=(FAST,)), idle_light], FAST),
+                 ([busy_fast], ""))
+        for runners, expected in cases:
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "out"
+                values = env(JOBS="fast-tier " + " ".join(JOBS), FAST_LABEL=FAST, CASCADE_RUNS=" fast-tier ",
+                             GITHUB_OUTPUT=str(output), ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux")
+                with mock.patch.object(placement.pool, "GitHub") as github, \
+                        mock.patch.object(placement.cascade, "read", return_value=(None, None, light_seen())), \
+                        contextlib.redirect_stdout(io.StringIO()) as printed:
+                    github.return_value.runners.return_value = runners
+                    placement.main(values)
+                text = output.read_text()
+                self.assertIn(f"fast_runner={expected}\n", text)
+                owned = next(line for line in text.splitlines() if line.startswith("owned_jobs="))
+                if expected:
+                    self.assertNotIn(" fast-tier ", owned)
+                if expected == LIGHT_SIDE:
+                    self.assertIn(f"the fast tier takes idle light `{LIGHT_SIDE}`", printed.getvalue())
+
+
 FRESH = "glaeda-dev-std-xcode-26.6"
 
 
@@ -972,6 +1054,25 @@ class GatewayRoute(unittest.TestCase):
         self.assertIn("no idle runner left for fast-tier-fleet", dropped.why)
         self.assertIs(placement.fleet_gateway(self.fleet_placed(), values, one, LIGHT_SIDE).fleet_jobs, ())
 
+    def test_a_kept_fleet_job_leaves_its_blacksmith_label_and_a_dropped_one_keeps_it(self):
+        # next_macos_cascade.place() lists a job a Blacksmith macOS label took (cmux#38130: a cold 6 vCPU
+        # build ran out the fast tier's 20 minutes); it leaves that label only for an idle gateway runner.
+        small = placement.cascade.SMALL
+        placed = placement.cascade.Placement({placement.cascade.LARGE: (), small: ("fast-tier", "generated-files")},
+                                             "", "placed", fleet_jobs=("fast-tier",))
+        values = {"GATEWAY_LABEL": LIGHT_SIDE, "GATEWAY_JOBS": "swift-canary-fleet"}
+        kept = placement.fleet_gateway(placed, values, self.light(False, False), LIGHT_SIDE)
+        self.assertEqual((kept.fleet_jobs, kept.jobs[small]), (("fast-tier",), ("generated-files",)))
+        dropped = placement.fleet_gateway(placed, values, self.light(False, True), LIGHT_SIDE)
+        self.assertEqual((dropped.fleet_jobs, dropped.jobs[small]), ((), ("fast-tier", "generated-files")))
+        rerun = placement.fleet_gateway(placed, values, self.light(False, False), "")
+        self.assertEqual((rerun.fleet_jobs, rerun.jobs[small]), ((), ("fast-tier", "generated-files")))
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            placement.cascade.write(kept, {"GITHUB_OUTPUT": str(out)})
+            lines = dict(line.split("=", 1) for line in out.read_text().splitlines())
+            self.assertEqual((lines["blacksmith_6_jobs"], lines["fleet_jobs"]), (" generated-files ", " fast-tier "))
+
     def test_main_lists_a_fleet_job_only_with_a_gateway_runner_for_its_client(self):
         values = {"GATEWAY_LABEL": LIGHT_SIDE, "GATEWAY_JOBS": "swift-canary-fleet", "CASCADE_RUNS": ""}
         for runners, listed in ((self.light(False, False), " fast-tier "), (self.light(False, True), "")):
@@ -981,9 +1082,136 @@ class GatewayRoute(unittest.TestCase):
                 self.assertEqual(lines["gateway_runner"], LIGHT_SIDE)
                 self.assertEqual(lines["fleet_jobs"], listed)
 
+    def test_a_persons_rerun_places_the_fast_tier_on_an_idle_gateway(self):
+        # #38130 (run 42434830670): attempt 2, a person's re-run of failed jobs, carried attempt 1's placement,
+        # so the fast tier took Blacksmith 6 vCPU's cold build again and ran out its 20 minutes. The re-run's
+        # own placement reads the gateway now and lists the tier for its build-fleet client.
+        rerun = {"PLACEMENT": "rerun-fleet", "GITHUB_RUN_ATTEMPT": "2", "GITHUB_TRIGGERING_ACTOR": "someone",
+                 "FAST_TIER_STATUS": "queued", "GATEWAY_LABEL": LIGHT_SIDE}
+        lines = self.run_main(self.light(True, False), **rerun)
+        self.assertEqual((lines["fleet_jobs"], lines["gateway_runner"], lines["gateway_attempt"]),
+                         (" fast-tier ", LIGHT_SIDE, "2"))
+        # A busy light gateway spills to an idle std side runner, as gateway_route() does.
+        self.assertEqual(placement.rerun_fleet({**rerun, "GITHUB_RUN_ATTEMPT": "3"},
+                                               self.light(True) + self.std(False))[0], SIDE)
+        for why, values, runners in (
+                ("no idle gateway runner", rerun, self.light(True, True)),
+                ("runners unread", rerun, None),
+                ("the tier's earlier result is carried", {**rerun, "FAST_TIER_STATUS": "completed"}, self.light(False)),
+                ("the tier's status is unread", {**rerun, "FAST_TIER_STATUS": ""}, self.light(False)),
+                ("attempt 1", {**rerun, "GITHUB_RUN_ATTEMPT": "1"}, self.light(False)),
+                ("the rescue's re-run", {**rerun, "GITHUB_TRIGGERING_ACTOR": "github-actions[bot]"}, self.light(False)),
+                ("no gateway variable", {**rerun, "GATEWAY_LABEL": ""}, self.light(False))):
+            with self.subTest(why=why):
+                self.assertEqual(placement.rerun_fleet(values, runners)[0], "")
+        lines = self.run_main(self.light(True, True), **rerun)
+        self.assertEqual((lines["fleet_jobs"], lines["gateway_runner"], lines["gateway_attempt"]), ("", "", ""))
+
+    def test_the_pr_app_compile_takes_an_idle_gateway_before_the_quiet_period_ends(self):
+        # Leo, 2026-11-08: the Linux checks start at once and only the Mac jobs wait. cmux-next.yml's
+        # app-compile-placement judges the app compile's gateway at once; macos-placement places the Mac
+        # jobs after the PR quiet period from its own reading.
+        early = {"PLACEMENT": "app-compile", "GITHUB_RUN_ATTEMPT": "1", "GATEWAY_LABEL": LIGHT_SIDE,
+                 "GATEWAY_JOBS": "app-compile-fleet"}
+        lines = self.run_main(self.light(True, False), **early)
+        self.assertEqual(lines, {"gateway_runner": LIGHT_SIDE, "gateway_attempt": "1"})
+        # A busy light gateway spills to an idle std side runner, as gateway_route() does.
+        self.assertEqual(placement.app_compile_gateway(early, self.light(True) + self.std(False))[0], SIDE)
+        for why, values, runners in (
+                ("no idle gateway runner", early, self.light(True, True)),
+                ("runners unread", early, None),
+                ("a re-run", {**early, "GITHUB_RUN_ATTEMPT": "2"}, self.light(False)),
+                ("no gateway variable", {**early, "GATEWAY_LABEL": ""}, self.light(False))):
+            with self.subTest(why=why):
+                self.assertEqual(placement.app_compile_gateway(values, runners)[0], "")
+        self.assertEqual(self.run_main(self.light(True, True), **early), {"gateway_runner": "", "gateway_attempt": ""})
+
     def test_a_rerun_lists_no_fleet_job(self):
         self.assertEqual(placement.fleet_gateway(self.fleet_placed("fast-tier"), {}, self.light(False, False), "")
                          .fleet_jobs, ())
+
+
+class FastTierHandback(unittest.TestCase):
+    """The fast tier's queued hand-back (cmux-next.yml's fast-tier-handback-placement, cmux#38627): a fleet step
+    still queued after the client's wait hands the tier back, and it is placed again then, from a fresh
+    reading: its own idle label, an idle owned side runner, Blacksmith 6 vCPU unless that is excluded, else
+    the owned route. #38627's review: an unconditional Blacksmith 6 vCPU queued on a label under a declared
+    outage, with no verdict and its timeout not yet started."""
+
+    SMALL = "blacksmith-6vcpu-macos-26"
+    NOW = __import__("datetime").datetime(2026, 11, 8, 15, 0, tzinfo=__import__("datetime").timezone.utc)
+
+    def seen(self, outage: bool = False):
+        shot = {"generated_at": "2026-11-08T14:58:00Z",
+                "pools": {self.SMALL: {"queued": 3 if outage else 0, "running": 0, "oldest_queued_minutes": 0}}}
+        if outage:
+            shot["bs_health"] = {"label_outages": [{"pool": self.SMALL, "queued": 3, "last_start_s": 3600}]}
+        return placement.cascade.seen(shot, self.NOW)
+
+    def place(self, runners, outage: bool = False, read: bool = True, **values: str) -> tuple[str, str]:
+        live, waiting = ({self.SMALL: 0}, {self.SMALL: 3 if outage else 0}) if read else (None, None)
+        return placement.handback({"SIDE_LABEL": SIDE, "FAST_LABEL": FAST, **values}, runners, live, waiting,
+                                  self.seen(outage) if read else None)
+
+    def test_an_idle_owned_mac_wins_over_blacksmith(self):
+        self.assertEqual(self.place([runner("mini-f-glaeda-1", labels=(FAST,)), runner("mini-a-glaeda-1")])[0], FAST)
+        self.assertEqual(self.place([runner("mini-f-glaeda-1", busy=True, labels=(FAST,)),
+                                     runner("mini-a-glaeda-1")])[0], SIDE)
+
+    def test_no_idle_mini_takes_blacksmith_while_it_is_live(self):
+        busy = [runner("mini-a-glaeda-1", busy=True), runner("mini-b-glaeda-1", busy=True)]
+        self.assertEqual(self.place(busy)[0], self.SMALL)
+        # Unread runners vouch for no idle mini; an unread Blacksmith reading excludes nothing.
+        self.assertEqual(self.place(None)[0], self.SMALL)
+        self.assertEqual(self.place(busy, read=False)[0], self.SMALL)
+
+    def test_an_excluded_blacksmith_keeps_the_owned_route(self):
+        busy = [runner("mini-a-glaeda-1", busy=True), runner("mini-b-glaeda-1", busy=True)]
+        label, why = self.place(busy, outage=True)
+        self.assertEqual(label, SIDE)
+        self.assertIn("declared outage", why)
+        # Runners unread too: the side label itself, never the excluded Blacksmith.
+        self.assertEqual(self.place(None, outage=True)[0], SIDE)
+        # No owned side label to wait on (unset, or not an owned label): Blacksmith 6 vCPU, as before.
+        self.assertEqual(self.place(busy, outage=True, SIDE_LABEL="")[0], self.SMALL)
+        self.assertEqual(self.place(None, outage=True, SIDE_LABEL=self.SMALL)[0], self.SMALL)
+
+    def test_a_full_blacksmith_keeps_the_owned_route(self):
+        # #38646's review: the pool snapshot macos-placement reads carries only queued and running counts (no
+        # cap, capacity or bs_health), so label_full_or_dead() never calls 6 vCPU full there, and the hand-back
+        # queued behind a full pool. A full label or pool (no slot free now) keeps the owned route.
+        busy = [runner("mini-a-glaeda-1", busy=True), runner("mini-b-glaeda-1", busy=True)]
+        shot = {"generated_at": "2026-11-08T14:58:00Z",
+                "pools": {self.SMALL: {"queued": 0, "running": 10, "oldest_queued_minutes": 0}}}
+        seen = placement.cascade.seen(shot, self.NOW)
+        capacity = placement.cascade.CAPACITY[self.SMALL]
+        values = {"SIDE_LABEL": SIDE, "FAST_LABEL": FAST}
+        for live, waiting, expected in (
+                ({self.SMALL: capacity}, {self.SMALL: 0}, SIDE),           # every slot running
+                ({self.SMALL: capacity - 1}, {self.SMALL: 1}, SIDE),       # the last slot already promised
+                # The shared 60 vCPU pool full on 12 vCPU: no 6 vCPU slot either.
+                ({self.SMALL: 0, "blacksmith-12vcpu-macos-26": 5}, {self.SMALL: 0}, SIDE),
+                ({self.SMALL: capacity - 1}, {self.SMALL: 0}, self.SMALL)):  # one slot free
+            with self.subTest(live=live, waiting=waiting):
+                label, why = placement.handback(values, busy, live, waiting, seen)
+                self.assertEqual(label, expected, why)
+                if expected == SIDE:
+                    self.assertIn("full", why)
+
+    def test_main_writes_the_runner(self):
+        busy = [runner("mini-a-glaeda-1", busy=True)]
+        for outage, expected in ((False, self.SMALL), (True, SIDE)):
+            with self.subTest(outage=outage), tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "out"
+                values = {"PLACEMENT": "handback", "SIDE_LABEL": SIDE, "GITHUB_OUTPUT": str(output),
+                          "ROUTE_TOKEN": "t", "GITHUB_REPOSITORY": "manaflow-ai/cmux"}
+                read = ({self.SMALL: 0}, {self.SMALL: 3 if outage else 0}, self.seen(outage))
+                with mock.patch.object(placement.pool, "GitHub") as github, \
+                        mock.patch.object(placement.cascade, "read", return_value=read), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    github.return_value.runners.return_value = busy
+                    placement.main(values)
+                self.assertEqual(output.read_text(), f"runner={expected}\n")
 
 
 class SpillToCompatiblePool(unittest.TestCase):

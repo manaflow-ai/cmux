@@ -38,48 +38,26 @@ enum SidebarTopProjection: Equatable {
 struct SidebarWorkspaceItems {
     /// How each open workspace a layout item names draws; a ref with no
     /// entry is closed or another device's (drawn dimmed by the fallback).
-    static func workspaceInfos(_ layout: SidebarLayoutDocument, refs: WorkspaceLayoutRefs) -> [LayoutItemRef: SidebarItemInfo] {
-        var infos: [LayoutItemRef: SidebarItemInfo] = [:]
-        for item in layout.sections.lazy.flatMap(\.items) where item.ref.kind == LayoutItemRef.workspaceKind && infos[item.ref] == nil {
-            if let (workspace, daemon) = refs.workspace(for: item.ref) {
-                infos[item.ref] = workspaceInfo(workspace, machine: MachineID(daemon.machineID))
-            }
-        }
-        return infos
+    /// `pageFace` is the face the list's rows read (`AppServices.sidebarPageFace`): a site's item shows its favicon once it loads.
+    static func workspaceInfos(_ layout: SidebarLayoutDocument, refs: WorkspaceLayoutRefs, autoNames: Bool = true, pageFace: @escaping (WorkspaceModel, TabModel, TabModel?) -> SidebarMapping.PageFace = { _, _, _ in .init() },
+                               faces: SidebarFaceBatch? = nil) -> [LayoutItemRef: SidebarItemInfo] {
+        var seen = Set<LayoutItemRef>()
+        let items = layout.sections.flatMap(\.items).filter { $0.ref.kind == LayoutItemRef.workspaceKind && seen.insert($0.ref).inserted }
+            .compactMap { item in refs.workspace(for: item.ref).map { (ref: item.ref, workspace: $0.0, machine: MachineID($0.1.machineID)) } }
+        let infos = SidebarMapping.shared.tileInfos(items.map { ($0.workspace, $0.machine) }, pageFace: pageFace, homeShellTitle: homeShellTitle(autoNames), faces: faces)
+        return Dictionary(zip(items.map(\.ref), infos), uniquingKeysWith: { first, _ in first })
     }
 
-    /// A workspace's title and the glyph its row stands for (SidebarMapping.row, the one row
-    /// rule): the user's symbol (tinted) or emoji, else the user's stored image or the front
-    /// page's favicon, else none: text only, no kind glyph or agent brand
-    /// (WORKSPACE-ROWS-NO-DEFAULT-ICON), in the workspace's color, with the row's status.
-    /// The selection marks it active (SidebarModel.selectedItem).
-    static func workspaceInfo(_ workspace: WorkspaceModel, machine: MachineID) -> SidebarItemInfo {
-        let row = SidebarMapping.shared.row(workspace, machine: machine, showsUnread: false)
-        var info = glyphInfo(row, color: SidebarMapping.shared.color(workspace.color))
-        info.activity = row.activity
-        info.activityStyle = row.activityStyle
-        (info.workspace, info.workspaceRow) = (row.id, row) // the row's hover card reads `workspaceRow`
-        return info
+    /// A workspace's band item (`SidebarItemInfo(workspaceRow:color:)`) with the row's status; the selection marks it
+    /// active (SidebarModel.selectedItem).
+    static func workspaceInfo(_ workspace: WorkspaceModel, machine: MachineID, autoNames: Bool = true,
+                              pageFace: @escaping (WorkspaceModel, TabModel, TabModel?) -> SidebarMapping.PageFace = { _, _, _ in .init() }) -> SidebarItemInfo {
+        SidebarMapping.shared.tileInfos([(workspace, machine)], pageFace: pageFace, homeShellTitle: homeShellTitle(autoNames)).first
+            ?? SidebarItemInfo(workspaceRow: SidebarMapping.unmapped(workspace, machine: machine), color: nil)
     }
 
-    private static func glyphInfo(_ row: SidebarWorkspace, color: GroupColor?) -> SidebarItemInfo {
-        switch row.icon {
-        case .symbol(let name, let tint)?: return SidebarItemInfo(title: row.title, symbol: name, color: tint)
-        case .emoji(let text, let chip)?: return SidebarItemInfo(title: row.title, symbol: "face.smiling", color: chip, emoji: text)
-        case .favicon(let image)?:
-            var info = SidebarItemInfo(title: row.title, symbol: "globe", color: color)
-            info.favicon = image
-            return info
-        case .swatch?:
-            // The workspace's color as its list row draws it: a dot before the title (SidebarItemRowView).
-            var info = SidebarItemInfo(title: row.title, symbol: "textformat", color: color)
-            info.textOnly = true
-            return info
-        case nil:
-            // No icon and no color shown (none set, or Show Workspace Colors off): the title alone.
-            var info = SidebarItemInfo(title: row.title, symbol: "textformat", color: nil)
-            info.textOnly = true
-            return info
-        }
+    /// A Cloud machine's unnamed workspace whose shell idles at its home reads "Terminal" while workspaces auto-name.
+    private static func homeShellTitle(_ autoNames: Bool) -> (MachineID) -> String? {
+        { autoNames && MachineRegistry.isCloudMachineID($0.rawValue) ? Strings.untitledTerminal : nil }
     }
 }

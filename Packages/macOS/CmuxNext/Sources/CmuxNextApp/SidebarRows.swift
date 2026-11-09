@@ -18,6 +18,8 @@ final class SidebarRows {
     private let model: SidebarModel
     private let document: @MainActor () -> SidebarDocStore?
     private var live: [SidebarRowSection] = []
+    /// Where each row of `live` sits, found at the first patch after `live` was set (a patch or a fold moves no row).
+    private var livePlaces = SidebarRowSection.RowPlaces()
     /// The sidebar document's `shownChanges` `live` was built at (nil: not from its projection): the creates'
     /// rows that wait for the window's current row wait while `live` is a projection behind (`layoutCatchingUp`).
     private var liveShownAt: UInt64?
@@ -36,9 +38,7 @@ final class SidebarRows {
 
     #if DEBUG
     /// The rows `debug.sidebar_nested_fixture` shows instead of the live ones (nested-groups prototype captures).
-    var fixture: [CmuxNextSidebar.SidebarSection]? {
-        didSet { show() }
-    }
+    var fixture: [CmuxNextSidebar.SidebarSection]? { didSet { show() } }
     #endif
 
     /// `document`: the app's own sidebar document store (nil before it starts).
@@ -102,13 +102,13 @@ final class SidebarRows {
         if let elsewhere { self.elsewhere = elsewhere }
         let reprojected = live != nil && shownAt != liveShownAt && !(creating ?? self.creating).rows.isEmpty
         if live != nil { liveShownAt = shownAt }
-        if unlessShown, !reprojected, let live, let creating, live == self.live, creating == self.creating, sameElsewhere, sameVisibility { return }
-        if let live { self.live = live }
+        if unlessShown, !reprojected, model.arrangementIsCurrent, let live, let creating, live == self.live, creating == self.creating, sameElsewhere, sameVisibility { return }
+        if let live { (self.live, livePlaces) = (live, .init()) }
         if let creating { self.creating = creating }
         #if DEBUG
         if let fixture { return model.setSections(fixture) }
         #endif
-        var sections = PendingWorkspaceRows.adding(self.creating.rows, to: edits.applying(to: self.live), home: self.creating.home,
+        var sections = PendingWorkspaceRow.adding(self.creating.rows, to: edits.applying(to: self.live), home: self.creating.home,
                                                    catchingUp: layoutCatchingUp)
         edits.applyFolds(to: &sections)
         // Manual order only (Leo 2026-10-20): a row state shows as a badge; attention order is the Priority view's.
@@ -121,7 +121,7 @@ final class SidebarRows {
 
     /// Row content of listed workspaces changed (`SidebarRowFeed`): written in place, or shown again when it moves rows.
     func patch(_ changed: [SidebarWorkspace]) {
-        live = SidebarSection.patching(changed, in: live)
+        livePlaces.patch(changed, in: &live) // its rows only, in place: no walk and copy of every section per row change
         #if DEBUG
         if fixture != nil { return }
         #endif
@@ -129,19 +129,13 @@ final class SidebarRows {
     }
 
     /// Folds or opens `group` at once and keeps that look until `body`
-    /// replied and the home store holds it, or failed (then `failed`).
+    /// replied and the home store holds it; a slow reply is sent again
+    /// quietly, and only a refusal goes to `failed` (`SidebarRowEdits.saveFold`).
     func fold(_ group: GroupID, collapsed: Bool, on home: DaemonService, failed: @escaping @MainActor (ActionWorkFailure) -> Void,
               _ body: @escaping DaemonCommandBody) {
-        let settle = edits.fold(group, collapsed: collapsed)
         let transaction = ClientTransactionID.generate()
-        // task-owner: one personal fold command; settles its fold
-        Task {
-            if let failure = await home.failure("update-personal-group", body) {
-                settle()
-                return failed(failure)
-            }
-            home.whenApplied(transaction, settle)
-        }
+        edits.saveFold(group, collapsed: collapsed, save: { await home.failure("update-personal-group", body) },
+                       mayHaveApplied: { $0.mayHaveApplied }, refused: failed) { home.whenApplied(transaction, $0) }
     }
 
     /// Writes `group`'s fold into the live rows kept here (one group, no redraw).
@@ -173,9 +167,9 @@ final class SidebarRows {
         }
     }
 
-    /// Sends one personal-state command to `home` for `edit`.
-    func send(_ label: String, edit: SidebarPendingEdits.Token?, on home: DaemonService,
+    /// Sends one personal-state command to `home` for `edit`; `until`: sent again while unanswered, never undone.
+    func send(_ label: String, edit: SidebarPendingEdits.Token?, on home: DaemonService, until claim: PersonalWriteLedger.Claim? = nil,
               failed: @escaping @MainActor (ActionWorkFailure) -> Void, _ body: @escaping DaemonCommandBody) {
-        send(edit, [(label, home, body)], failed: failed)
+        if let claim { home.sendUntilAnswered(label, until: claim, edits.outcome(edit, failed: failed), body) } else { send(edit, [(label, home, body)], failed: failed) }
     }
 }

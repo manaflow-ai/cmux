@@ -31,6 +31,11 @@ pub fn breaks_params_rule(
     if params.keys().any(|k| !contains(&known.params, k)) {
         return true;
     }
+    if matches!(method, "acp.trust.get" | "acp.trust.set")
+        && params.get("peer").is_some_and(|peer| peer.as_str().is_none_or(str::is_empty))
+    {
+        return true;
+    }
     let setting = contains(&p.setting_methods, method);
     let empty = BTreeSet::new();
     let denied = if setting { &empty } else { mode_fields.unwrap_or(&empty) };
@@ -42,8 +47,10 @@ pub fn breaks_params_rule(
     if setting && meta.contains_key(&p.gesture_ticket_key) {
         return meta.keys().any(|k| *k != p.gesture_ticket_key);
     }
-    // A permission answer's `_meta` holds the pick's ticket and nothing else.
-    if method == "_acpmux/permission_respond" {
+    // A permission answer's `_meta` holds the pick's ticket and nothing else, as
+    // does a plan build's (it answers the plan approval).
+    if matches!(method, "_acpmux/permission_respond" | "_acpmux/plan/build" | "chat.fix_from_link")
+    {
         return meta.len() != 1 || !meta.contains_key(&p.gesture_ticket_key);
     }
     // A prompt held for the folder trust answer redeems its ticket beside its
@@ -234,7 +241,9 @@ pub fn session_refusal(
 ) -> Option<Refused> {
     let p = policy();
     let method = object.get("method").and_then(Value::as_str)?;
-    let named = object.get("params").and_then(Value::as_object).and_then(|p| p.get("sessionId"));
+    let primary = p.primary_session_params.get(method).map(String::as_str).unwrap_or("sessionId");
+    let named =
+        object.get("params").and_then(Value::as_object).and_then(|params| params.get(primary));
     let optional = contains(&p.optionally_session_scoped, method);
     // A frame that may name a session and names none is not session-scoped
     // (a JSON null names one that is not a string: refused).

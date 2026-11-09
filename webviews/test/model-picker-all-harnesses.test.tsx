@@ -101,7 +101,7 @@ const pi = { id: "pi", name: "Pi", models: [], pickable: false, notInstalled: tr
 
 describe("harnesses this machine does not have", () => {
   test("the picker's face stays on an installed harness", async () => {
-    const { pickerFaceHarness } = await import("../src/agent-session/acpmux/ModelPicker");
+    const { pickerFaceHarness } = await import("../src/agent-session/acpmux/modelPickerModel");
     expect(pickerFaceHarness([gemini, pi, claude])).toBe("claude");
     expect(pickerFaceHarness([gemini, pi])).toBeUndefined();
   });
@@ -125,6 +125,54 @@ describe("harnesses this machine does not have", () => {
       ["claude", true, undefined],
       ["pi", false, true],
     ]);
+  });
+
+  test("the full picker lists uninstalled catalog models as disabled beside Install…", async () => {
+    const { createRoot } = await import("react-dom/client");
+    const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
+    const picked: string[] = [];
+    let added = 0;
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(
+        <ModelPicker
+          catalog={[gemini, claude, pi]}
+          harness="claude"
+          model="opus"
+          label="Opus 5.5"
+          efforts={[]}
+          recents={[]}
+          onLand={(id) => picked.push(id)}
+          onCombo={(combo) => picked.push(combo.model)}
+          onHarness={(id) => picked.push(id)}
+          onEffort={() => {}}
+          onAddAgent={() => added++}
+        />,
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-picker-button")!.click());
+    await settle();
+    const doc = dom.window.document;
+    const geminiTab = [...doc.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].find(
+      (tab) => tab.textContent?.trim() === "Gemini CLI",
+    )!;
+    expect(geminiTab).not.toBeUndefined();
+    await act(async () => geminiTab.click());
+    await settle();
+    const row = [...doc.querySelectorAll<HTMLButtonElement>('.acpmux-mp-models [role="option"]')].find((item) =>
+      item.textContent?.includes("Gemini 3.1 Pro"),
+    )!;
+    expect(row).not.toBeUndefined();
+    expect(row.disabled).toBe(true);
+    expect(row.getAttribute("aria-disabled")).toBe("true");
+    await act(async () => row.click());
+    expect(picked).toEqual([]);
+    const install = [...doc.querySelectorAll<HTMLButtonElement>(".acpmux-mp-models button")].find(
+      (item) => item.textContent?.trim() === "Install…",
+    )!;
+    expect(install).not.toBeUndefined();
+    await act(async () => install.click());
+    expect(added).toBe(1);
   });
 
   test("the compact menu lists them with their models and an Install… row", async () => {
@@ -154,22 +202,29 @@ describe("harnesses this machine does not have", () => {
     await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
     await settle();
     const doc = dom.window.document;
-    const tabs = [...doc.querySelectorAll<HTMLButtonElement>(".acpmux-quick-rail-tab")].map((tab) => tab.title);
-    // Installed first, then the rest in catalog order.
-    expect(tabs).toEqual(["Claude Code", "Gemini CLI · Not installed", "Pi · Not installed", "Add harness…"]);
-    const geminiTab = doc.querySelector<HTMLButtonElement>('.acpmux-quick-rail-tab[aria-label="Gemini CLI"]')!;
+    const tabs = [...doc.querySelectorAll<HTMLElement>(".acpmux-cols-tab")].map((tab) => tab.title);
+    // Starred always first, installed next, then the rest in catalog order.
+    expect(tabs).toEqual([
+      "Starred",
+      "Claude Code",
+      "Gemini CLI · Not installed",
+      "Pi · Not installed",
+      "Add harness…",
+    ]);
+    const geminiTab = doc.querySelector<HTMLElement>('.acpmux-cols-tab[role="tab"][aria-label="Gemini CLI"]')!;
     await act(async () => geminiTab.click());
     await settle();
-    const menu = doc.querySelector(".acpmux-quick-menu")!;
+    expect(geminiTab.getAttribute("aria-selected")).toBe("true");
+    const menu = doc.querySelector('.acpmux-cols [role="listbox"]')!;
     expect(menu.textContent).toContain("Gemini 3.1 Pro");
-    expect(menu.textContent).toContain("Not installed");
-    const row = [...menu.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((item) =>
+    expect(menu.querySelector(".acpmux-cols-note")?.textContent).toBe("Not installed");
+    const row = [...menu.querySelectorAll<HTMLElement>('[role="option"]')].find((item) =>
       item.textContent?.includes("Gemini 3.1 Pro"),
     )!;
     expect(row.getAttribute("aria-disabled")).toBe("true");
     await act(async () => row.click());
     expect(picked).toEqual([]);
-    const install = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    const install = [...menu.querySelectorAll<HTMLElement>('[role="button"]')].find(
       (item) => item.textContent === "Install…",
     )!;
     await act(async () => install.click());

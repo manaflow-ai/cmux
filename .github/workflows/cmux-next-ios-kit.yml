@@ -30,6 +30,7 @@ on:
       - "Packages/Shared/CMUXAuthCore/**"
       - "Packages/Shared/CMUXMobileCore/**"
       - "Packages/Shared/CmuxAgentBrands/**"
+      - "Packages/Shared/CmuxSpinner/**"
       - "Packages/Shared/CmuxChiefVoiceCore/**"
       - "Packages/iOS/CmuxTabsKit/**"
       - "Packages/iOS/CmuxConversation/**"
@@ -37,6 +38,7 @@ on:
       - "vendor/stack-auth-swift-sdk-prerelease/**"
       # The toolchains it uses.
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/actions/runner-cargo-home/**"
       - "cmux-tui/rust-toolchain.toml"
       - "scripts/select-ci-xcode.sh"
       - "scripts/ci/xcode-pins.txt"
@@ -53,6 +55,7 @@ on:
       - "Packages/Shared/CMUXAuthCore/**"
       - "Packages/Shared/CMUXMobileCore/**"
       - "Packages/Shared/CmuxAgentBrands/**"
+      - "Packages/Shared/CmuxSpinner/**"
       - "Packages/Shared/CmuxChiefVoiceCore/**"
       - "Packages/iOS/CmuxTabsKit/**"
       - "Packages/iOS/CmuxConversation/**"
@@ -60,6 +63,7 @@ on:
       - "vendor/stack-auth-swift-sdk-prerelease/**"
       # The toolchains it uses.
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/actions/runner-cargo-home/**"
       - "cmux-tui/rust-toolchain.toml"
       - "scripts/select-ci-xcode.sh"
       - "scripts/ci/xcode-pins.txt"
@@ -74,6 +78,10 @@ concurrency:
   group: cmux-next-ios-kit-${{ github.ref }}
   # A new push to a pull request cancels its previous run; feat-cmux-next pushes never cancel.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 jobs:
   # Pick an idle owned Mac with an iOS simulator, then fall back to Blacksmith

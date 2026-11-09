@@ -180,7 +180,10 @@ def build_newtabs(app, count, limit=60):
         focused = [p for p in surface_panes(report) if p.get("focused") and p.get("pane")]
         if len(focused) != 1:
             raise NewTabSetupError("no unique focused pane for the covering terminal", report)
-        action("newSurface", target=f"pane:{focused[0]['pane']}")
+        selected = focused[0].get("selected_tab")
+        if not isinstance(selected, str) or not selected.startswith("tab_"):
+            raise NewTabSetupError("focused pane has no stable tab for the covering terminal", report)
+        action("newSurface", target=f"tab:{selected}")
     deadline = time.monotonic() + limit
     while time.monotonic() < deadline:
         report = read_rpc(app, "debug.surfaces")
@@ -612,9 +615,11 @@ def fresh_session(app):
     if app.teardown:
         app.teardown.end()
         app.teardown.done = False
-    state = os.path.join(os.path.expanduser("~"), "Library/Application Support/cmux/tags", app.tag, "tui")
-    existed = os.path.isdir(state)
-    shutil.rmtree(state, ignore_errors=True)
+    existed = False
+    for parent in ("cmux-next", "cmux"):  # NEXT's own folder and an older build's (a new build adopts that one)
+        state = os.path.join(os.path.expanduser("~"), "Library/Application Support", parent, "tags", app.tag, "tui")
+        existed = existed or os.path.isdir(state)
+        shutil.rmtree(state, ignore_errors=True)
     return {"tui_state_removed": existed}
 
 

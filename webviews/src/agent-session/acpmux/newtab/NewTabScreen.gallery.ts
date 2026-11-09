@@ -78,6 +78,17 @@ const openMachineList = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover.acpmux-env-machines [role="option"]'));
 };
 
+/// New Project (newProject.ts): the folder menu's New project row, then its name field in the strip.
+const chooseNewProject = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+  await ctx.click({ selector: '.nt-location [aria-label="Folder"]' });
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-location-menu [role="option"]'));
+  await ctx.click({ role: "option", name: /^New project$/ });
+  await ctx.waitFor(() => ctx.document.querySelector(".nt-project-name__field"));
+};
+const projectNameValue = (ctx: PlayContext) =>
+  ctx.document.querySelector<HTMLInputElement>(".nt-project-name__field")?.value;
+
 /// What plays, as the host pushes it (`nowPlaying`): Spotify's track with its art.
 const nowPlayingTrack = (playing: boolean) => ({
   title: "Weightless",
@@ -379,6 +390,8 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/StageCards.tsx",
     "agent-session/acpmux/DictationMic.tsx#DictationMic",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
+    "agent-session/acpmux/newtab/NewProjectName.tsx#NewProjectName",
+    "agent-session/acpmux/newtab/NewProjectName.tsx#NewProjectFailure",
     "ui/HideableChrome.tsx#HideableChrome",
     "ui/HideableChrome.tsx#ChromeArea",
     "ui/VirtualList.tsx#VirtualList",
@@ -423,6 +436,67 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-cards[aria-busy=true]") !== null);
       },
     },
+    // New Project (Leo, 2026-11-08): the folder menu's New project row makes a new folder with an
+    // empty git repository for the chat; the strip names it, from the prompt until the person types one.
+    "new-project-chosen": {
+      note: "New project just chosen, prompt empty: the strip reads New project / project (the placeholder name until a prompt names one).",
+      ready: newTab({ template: "minimal", pageWidgets: [] }),
+      snapshot: noChat([], { listedSessions: true }),
+      play: async (ctx) => {
+        await chooseNewProject(ctx);
+        if (projectNameValue(ctx) !== "project") throw new Error("an empty prompt's project is not named project");
+        if (!ctx.document.querySelector(".nt-location")?.textContent?.includes("New project"))
+          throw new Error("the strip does not read New project");
+      },
+    },
+    "new-project-derived": {
+      note: 'New project with a prompt typed: "a habit tracker web app" names the folder habit-tracker in the strip, the kind words dropped.',
+      ready: newTab({ template: "minimal", pageWidgets: [] }),
+      snapshot: noChat([], { listedSessions: true }),
+      play: async (ctx) => {
+        await chooseNewProject(ctx);
+        await typePrompt(ctx, "a habit tracker web app");
+        await ctx.waitFor(() => projectNameValue(ctx) === "habit-tracker");
+      },
+    },
+    "new-project-long-name-narrow": {
+      note: "New project in a 300 px pane with a long name the person typed: the name field gives up width before the folder control and ends in an ellipsis; nothing leaves the strip.",
+      ready: newTab({ template: "minimal", pageWidgets: [] }),
+      snapshot: noChat([], { listedSessions: true }),
+      play: async (ctx) => {
+        await chooseNewProject(ctx);
+        ctx.document.body.style.maxWidth = "300px";
+        await typePrompt(ctx, "Build me a recipe box that imports recipes from photos");
+        await ctx.waitFor(() => projectNameValue(ctx) === "recipe-box");
+        await ctx.focus({ selector: ".nt-project-name__field" });
+        ctx.document.querySelector<HTMLInputElement>(".nt-project-name__field")?.select();
+        await ctx.type("Family Recipe Box With Photo Import And Weekly Meal Plans");
+        await ctx.waitFor(() => projectNameValue(ctx) === "family-recipe-box-with-photo-import-and-weekly-meal-plans");
+        // Return hands the keyboard back to the prompt, so the capture shows the name at rest.
+        await ctx.press("Enter");
+        const strip = ctx.document.querySelector(".acpmux-composer-context")?.getBoundingClientRect();
+        const name = ctx.document.querySelector(".nt-project-name__field")?.getBoundingClientRect();
+        if (!strip || !name || name.width <= 0) throw new Error("the project name field is not drawn");
+        if (name.right > strip.right + 0.5) throw new Error("the project name runs out of the strip");
+      },
+    },
+    "new-project-refused": {
+      note: "New project refused: acpmux made no folder, so the reason shows above the card with Dismiss, no chat starts and the prompt stays.",
+      ready: newTab({ template: "minimal", pageWidgets: [] }),
+      snapshot: noChat([], { listedSessions: true }),
+      play: async (ctx) => {
+        await chooseNewProject(ctx);
+        await typePrompt(ctx, "a habit tracker web app");
+        await ctx.waitFor(() => projectNameValue(ctx) === "habit-tracker");
+        // The gallery's acpmux has no `_acpmux/project_new`, so the pane refuses as an older one does.
+        await ctx.press("Enter");
+        await ctx.waitFor(
+          () => !!ctx.document.querySelector('[role="alert"]')?.textContent?.includes("Couldn’t make the project"),
+        );
+        if (galleryNativeCalls(ctx.document).some((call) => call.method === "chat.new"))
+          throw new Error("a refused New project started a chat");
+      },
+    },
     "inherited-project": {
       note: "A fresh workspace inherits its last project: the machine/project controls keep their established slots and the inherited project stays selected without requiring a new pick.",
       ready: newTab({ template: "minimal", cwd: "/Users/you", startedProject: CWD, projects: [CWD] }),
@@ -444,9 +518,9 @@ export default agentPaneEntry({
           throw new Error("the inherited location slot moved after input");
       },
     },
-    // The model button opens its one menu (Leo 2026-10-20), whole: the card does not clip it
-    // (Lawrence 2026-10-13). Points near its top and bottom edges hit the menu, not the page. On New
-    // Tab More models shows its models in place, under its row (newTabComposer.ts), then Add harness….
+    // The model button opens its columns menu, whole: the card does not clip it (Lawrence
+    // 2026-10-13). Points near its top and bottom edges hit the menu, not the page. The models
+    // column ends on its Legacy models; Add harness… ends the rail.
     "computer-first-setup": {
       note: "Fresh home with Labs off and only Studio Mac: the machine menu lists This Mac and Cloud (signed out, with Sign in for Cloud); Add Machine… and New Cloud Machine… are its right-click menu.",
       ready: { ...newTab(), machineName: "Studio Mac" },
@@ -469,48 +543,46 @@ export default agentPaneEntry({
       },
     },
     "model-picker-open": {
-      note: "The New Tab model button's menu, open down: the harness rail and the models, never cut by the card; More models opens in place and ends on Add harness….",
+      note: "The New Tab model button's columns, open down: the harness rail and the models, never cut by the card; Legacy models follow the top ones, and the rail ends on Add harness….",
       ready: newTab(),
       snapshot: noChat([], { listedSessions: true }),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
         await ctx.click({ role: "button", name: "Model" });
         await ctx.waitFor(() => {
-          const menu = ctx.document.querySelector<HTMLElement>(".acpmux-quick-menu");
-          if (!menu || !menu.querySelector('[role="menuitemradio"]')) return false;
+          const menu = ctx.document.querySelector<HTMLElement>(".acpmux-cols");
+          if (!menu || !menu.querySelector('[role="listbox"] [role="option"]')) return false;
           const box = menu.getBoundingClientRect();
           if (box.height < 120) return false;
           const x = box.left + box.width / 2;
           return [box.top + 6, box.bottom - 6].every((y) => menu.contains(ctx.document.elementFromPoint(x, y)));
         });
-        // The row itself, by role: the menu's hidden width probe (QuickMenuSpacer) repeats its text
-        // later in the document, and a text target takes the last match.
-        // The symbols row (the default) names it Legacy models, with its count.
-        await ctx.click({ role: "menuitem", name: /^(Legacy|More) models/ });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-list > .acpmux-quick-more-list"));
-        const more = ctx.document.querySelector(".acpmux-quick-list > .acpmux-quick-more-list")!;
-        if (more.querySelector('[aria-label="Add harness…"]'))
-          throw new Error("More models must contain models only; Add harness belongs in the rail");
-        if (!ctx.document.querySelector('.acpmux-quick-rail-add[aria-label="Add harness…"]'))
+        const models = ctx.find({ selector: '.acpmux-cols [role="listbox"]' });
+        if (![...models.querySelectorAll(".acpmux-cols-caption")].some((node) => node.textContent === "Legacy models"))
+          throw new Error("the models column must list its Legacy models under their caption");
+        if (models.querySelector('[aria-label="Add harness…"]'))
+          throw new Error("the models column must contain models only; Add harness belongs in the rail");
+        const rail = ctx.find({ selector: '.acpmux-cols [role="tablist"]' });
+        if (rail.lastElementChild?.getAttribute("aria-label") !== "Add harness…")
           throw new Error("the model menu's harness rail must end on Add harness…");
       },
     },
     // The effort is part of the one model button (Leo 2026-10-20: "Opus 5.5  Medium"), and its
-    // levels are the menu's Effort submenu (P0 #8: a live pick, never a picture): acpmux starts
+    // levels are the menu's Effort column (P0 #8: a live pick, never a picture): acpmux starts
     // Claude Code on Medium, so the button names it before any chat exists.
     "reasoning-chip": {
-      note: "Before any chat: the model button names the model and the level acpmux starts Claude Code on (Medium); its menu's Effort row opens the levels. No separate Reasoning chip.",
+      note: "Before any chat: the model button names the model and the level acpmux starts Claude Code on (Medium); its menu's Effort column lists the levels. No separate Reasoning chip.",
       ready: newTab(),
       snapshot: reasoningChat(),
     },
     "catalog-fast-menu": {
-      note: "Before a session reports config options: the New Tab model menu offers the model's catalog Fast mode beside Effort, as a started chat does.",
+      note: "Before a session reports config options: the New Tab model menu offers the model's catalog Fast mode under Effort, as a started chat does.",
       ready: newTab(),
       snapshot: reasoningChat(),
       play: async (ctx: PlayContext) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-picker-button") !== null);
         await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-fast") !== null);
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-cols-tune [role="switch"]') !== null);
       },
     },
     "reasoning-chip-stage": {
@@ -537,6 +609,53 @@ export default agentPaneEntry({
         // The three dots only (newtab/tabDots.ts, Leo 2026-10-23), not the other styles.
         const dots = ctx.document.querySelectorAll(".nt-style input[type=radio]").length;
         if (dots !== 3) throw new Error(`the minimal page shows ${dots} dots, not the three`);
+      },
+    },
+    "fix-from-link": {
+      note: "A lone GitHub issue URL leaves the normal composer intact and offers the explicit Fix in a new worktree action beneath it.",
+      ready: newTab({
+        template: "minimal",
+        location: "https://github.com/manaflow-ai/cmux/issues/38426",
+        projects: [CWD],
+      }),
+      snapshot: noChat(manySessions(3), { listedSessions: true }),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-fix-chip") !== null);
+        if (ctx.document.querySelector(".nt-fix-error")) throw new Error("the idle fix action shows an error");
+      },
+    },
+    "fix-from-link-stage": {
+      note: "The same explicit issue action in the optional stage layout; the default minimal layout keeps the focus on the pasted report.",
+      ready: newTab({
+        template: "default",
+        location: "https://github.com/manaflow-ai/cmux/issues/38426",
+        projects: [CWD],
+      }),
+      snapshot: noChat(manySessions(3), { listedSessions: true }),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-fix-chip") !== null);
+      },
+    },
+    "fix-from-link-error": {
+      note: "When checkout discovery fails, the Fix in a new worktree action stays in place and reports the host error inline beside the composer.",
+      ready: newTab({
+        template: "minimal",
+        location: "https://github.com/manaflow-ai/cmux/issues/38426",
+        projects: [CWD],
+      }),
+      snapshot: noChat(manySessions(3), { listedSessions: true }),
+      native: {
+        "chat.fix_from_link": {
+          nativeError: {
+            code: "fix.checkout_missing",
+            userMessage: "No local checkout found; choose its folder or clone it first.",
+          },
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector<HTMLButtonElement>(".nt-fix-chip") !== null);
+        await ctx.click({ selector: ".nt-fix-chip" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-fix-error[role=alert]") !== null);
       },
     },
     "widgets-all-off": {
@@ -631,6 +750,29 @@ export default agentPaneEntry({
         if (!field || !row || row.top < field.bottom) throw new Error("the ambient row is not under the field");
         if (ctx.document.querySelectorAll(".nt-ambient-machine[data-online]").length !== 2)
           throw new Error("this Mac and the SSH peer should be online, the Cloud host offline");
+      },
+    },
+    "minimal-ambient-paused": {
+      note: "Machines on, the old Cloud host is a Cloud machine the account says is paused (`cloudMachine.list`): it keeps the quiet ring and its tooltip says Paused, never offline (Cloud machines pause on their own when idle; its first use resumes it).",
+      ready: newTab({ template: "minimal", pageWidgets: ["greeting", "machines"] }),
+      // cloud-dev is listed by acpmux too, its link lost while it sleeps.
+      snapshot: {
+        ...ambientSnapshot(),
+        peers: ["build-box", "cloud-dev"],
+        peerKinds: { "build-box": "ssh" as const, "cloud-dev": "cloud" as const },
+        peerStates: { "build-box": "connected", "cloud-dev": "reconnecting" },
+      },
+      native: {
+        "cloudMachine.list": {
+          signedIn: true,
+          loaded: true,
+          machines: [{ id: "vm-dev", name: "cloud-dev", stage: "paused" }],
+        },
+      },
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-ambient-machine[data-paused]") !== null);
+        if (ctx.document.querySelectorAll(".nt-ambient-machine[data-online]").length !== 2)
+          throw new Error("this Mac and the SSH peer should stay online");
       },
     },
     "minimal-ambient-offline": {

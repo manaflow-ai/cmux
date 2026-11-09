@@ -103,6 +103,9 @@ class FleetCacheTests(unittest.TestCase):
         (scripts / "nightly-steps").mkdir(exist_ok=True)
         shutil.copyfile(ROOT / "scripts/ci/nightly-steps/app-host-build-root.sh",
                         scripts / "nightly-steps/app-host-build-root.sh")
+        # Writes the job summary after a build; the real one, so its cache label is checked too.
+        shutil.copyfile(ROOT / "scripts/ci/nightly-steps/release-build-summary.sh",
+                        scripts / "nightly-steps/release-build-summary.sh")
         (scripts / "run-with-helper-prebuild.py").write_text(
             "import os,sys\na=sys.argv[sys.argv.index('--')+1:]\nos.execvp(a[0],a)\n")
         wrapper = scripts / "run-xcodebuild-with-diagnostics.sh"
@@ -138,7 +141,7 @@ class FleetCacheTests(unittest.TestCase):
         command = "\n".join(line[10:] for line in command.splitlines() if line.startswith("          "))
         return warm_cache(step, command)
 
-    def _run_nightly_release_stub(self, diagnostic):
+    def _run_nightly_release_stub(self, diagnostic, **extra_env):
         scripts = self.root / "scripts/ci"
         scripts.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(SETTINGS, scripts / SETTINGS.name)
@@ -150,6 +153,9 @@ class FleetCacheTests(unittest.TestCase):
         (scripts / "nightly-steps").mkdir(exist_ok=True)
         shutil.copyfile(ROOT / "scripts/ci/nightly-steps/app-host-build-root.sh",
                         scripts / "nightly-steps/app-host-build-root.sh")
+        # Writes the job summary after a build; the real one, so its cache label is checked too.
+        shutil.copyfile(ROOT / "scripts/ci/nightly-steps/release-build-summary.sh",
+                        scripts / "nightly-steps/release-build-summary.sh")
         (scripts / "run-with-helper-prebuild.py").write_text(
             "import os,sys\na=sys.argv[sys.argv.index('--')+1:]\nos.execvp(a[0],a)\n")
         wrapper = scripts / "run-xcodebuild-with-diagnostics.sh"
@@ -164,11 +170,11 @@ class FleetCacheTests(unittest.TestCase):
             "#!/bin/bash\n"
             f"count=0; [[ -f '{count}' ]] && count=$(cat '{count}'); count=$((count + 1)); echo $count > '{count}'\n"
             f"printf '%s\\n' --- >> '{args_log}'; printf '%s\\n' \"$@\" >> '{args_log}'\n"
-            f"if [[ $count -eq 1 ]]; then echo {diagnostic!r}; exit 65; fi\n"
+            f"if [[ $count -eq 1 || -n \"${{STUB_FAIL_EVERY_BUILD:-}}\" ]]; then echo {diagnostic!r}; exit 65; fi\n"
         )
         xcode.chmod(0o755)
         env = {**self.env, "PATH": str(self.root) + os.pathsep + self.env["PATH"],
-               "RUNNER_TEMP": str(self.root), "CHANNEL_ICON_NAME": "AppIcon-Nightly"}
+               "RUNNER_TEMP": str(self.root), "CHANNEL_ICON_NAME": "AppIcon-Nightly", **extra_env}
         command = self._nightly_release_command()
         result = subprocess.run(
             ["bash", "-euc", 'archs=arm64; only_active=YES; notary_test_flags=(build)\n' + command],
@@ -196,9 +202,113 @@ class FleetCacheTests(unittest.TestCase):
             self.assertNotIn("COMPILATION_CACHE_ENABLE_PLUGIN=YES", attempts[1])
             self.assertNotIn("COMPILATION_CACHE_REMOTE_SERVICE_PATH=", attempts[1])
 
-        result, count, _ = self._run_nightly_release_stub("error: use of unresolved identifier 'cas'")
+        # Without the fleet cache (a cold-cache run), a code error is not a cache failure: one build, red.
+        result, count, _ = self._run_nightly_release_stub("error: use of unresolved identifier 'cas'",
+                                                          DECIDE_COLD_CACHE_DISABLE="1")
         self.assertEqual(result.returncode, 65)
         self.assertEqual(count.read_text().strip(), "1")
+
+    def test_a_fleet_cache_build_retries_once_whatever_the_error_says(self):
+        """The fleet cache's failures keep changing form, so a fleet-cache build that fails for any reason
+        retries once with the local cache; a real error fails the retry too, and there is no third build."""
+        for diagnostic in ("error: use of unresolved identifier 'cas'",
+                           "<unknown>:0: error: fatal error encountered during compilation; please submit a bug report",
+                           "error: some failure no one has seen yet"):
+            result, count, args_log = self._run_nightly_release_stub(diagnostic)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(count.read_text().strip(), "2")
+            attempts = args_log.read_text().split("---\n")[1:]
+            self.assertIn("COMPILATION_CACHE_CAS_PATH=", attempts[0])
+            self.assertNotIn("COMPILATION_CACHE_CAS_PATH=", attempts[1])
+            self.assertIn("failed on the managed fleet compilation cache", result.stdout + result.stderr)
+        result, count, _ = self._run_nightly_release_stub("error: use of unresolved identifier 'cas'",
+                                                          STUB_FAIL_EVERY_BUILD="1")
+        self.assertEqual(result.returncode, 65)
+        self.assertEqual(count.read_text().strip(), "2")
+
+    def test_the_job_summary_names_the_retry_s_cache_from_the_first_build(self):
+        """Only a retry of a fleet-cache build is "after the fleet cache failed"; a cold-cache first build
+        that hits the same diagnostic retries with the same local cache and says so."""
+        summary = self.root / "summary.md"
+        for cold, said in (("", "local cache after the fleet cache failed"), ("1", "local cache (a cold-cache run)")):
+            summary.write_text("")
+            result, count, _ = self._run_nightly_release_stub(
+                "error: CAS error encountered during compilation",
+                GITHUB_STEP_SUMMARY=str(summary), DECIDE_COLD_CACHE_DISABLE=cold)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(count.read_text().strip(), "2")
+            self.assertIn(f"- cache: {said}\n", summary.read_text())
+
+    def test_fleet_cache_off_keeps_mapping_without_the_fleet(self):
+        self.env["CMUX_CI_FLEET_CACHE_OFF"] = "1"
+        self.assert_local()
+
+    def _fallback(self, fail_every_build, fleet=True):
+        """Run lib/fleet-cache-fallback.sh's build under set -e with a stub build that records the settings
+        fleet-compilation-cache.sh gave it, failing the first build (or every build)."""
+        if not fleet:
+            self.env["CMUX_FLEET_CAS_SOCKET"] = str(self.root / "absent.sock")
+        seen = self.root / "seen"
+        seen.unlink(missing_ok=True)
+        script = (
+            f"source '{ROOT}/scripts/ci/lib/fleet-cache-fallback.sh'\n"
+            # The build runs inside a pipeline (a subshell), so its count lives in the file it appends to.
+            f"b() {{ bash '{SETTINGS}' | tr '\\n' ' ' >> '{seen}'; echo >> '{seen}'; "
+            f"[[ $(wc -l < '{seen}') -gt 1 && -z '{'1' if fail_every_build else ''}' ]] || {{ echo 'error: any failure'; return 65; }}; }}\n"
+            f"cmux_fleet_cache_build '{ROOT}/scripts/ci' '{self.root}/build.log' b\n"
+            "echo after-build\n"
+        )
+        result = subprocess.run(["bash", "-euo", "pipefail", "-c", script], env=self.env, text=True, capture_output=True)
+        return result, seen.read_text().splitlines()
+
+    def test_every_fleet_cache_build_retries_once_on_the_local_cache(self):
+        """The PR Release build and the cache warmer share the nightly's rule: a fleet-cache build that fails
+        for any reason runs once more on the local cache, even under set -e."""
+        result, builds = self._fallback(fail_every_build=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("after-build", result.stdout)
+        self.assertEqual(len(builds), 2)
+        self.assertIn("COMPILATION_CACHE_REMOTE_SERVICE_PATH=", builds[0])
+        self.assertNotIn("COMPILATION_CACHE_REMOTE_SERVICE_PATH=", builds[1])
+        self.assertIn("SWIFT_ENABLE_PREFIX_MAPPING=YES", builds[1])
+        self.assertIn("retrying it once with the local cache", result.stdout)
+        result, builds = self._fallback(fail_every_build=True)
+        self.assertEqual(result.returncode, 65)
+        self.assertEqual(len(builds), 2)
+
+    def test_a_build_without_the_fleet_cache_is_not_retried(self):
+        result, builds = self._fallback(fail_every_build=True, fleet=False)
+        self.assertEqual(result.returncode, 65)
+        self.assertEqual(len(builds), 1)
+
+    def test_every_fleet_cache_build_uses_the_fallback(self):
+        nightly = nightly_expand((ROOT / ".github/workflows/nightly.yml").read_text())
+        ci_macos = (ROOT / ".github/workflows/ci-macos.yml").read_text()
+        warmer = nightly.split("      - name: Refresh universal nightly compilation cache\n", 1)[1].split("      - name:", 1)[0]
+        release = ci_macos.split("      - name: Build app (Release)\n", 1)[1].split("      - name:", 1)[0]
+        for step in (warmer, release):
+            self.assertIn("cmux_fleet_cache_build scripts/ci ", step)
+        admission = ci_macos.split("          compile_once() {\n", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("cmux_next_runtime_cas_failed \"$compile_log\"", admission)
+        self.assertIn("export CMUX_CI_FLEET_CACHE_OFF=1", admission)
+
+    def test_admission_retries_when_the_fleet_socket_dies_during_the_compile(self):
+        """Review F1 on #39233: admission reads the first compile's cache before it runs, so a fleet socket that
+        is gone by the time the compile fails still gets its local-cache retry."""
+        ci_macos = (ROOT / ".github/workflows/ci-macos.yml").read_text()
+        step = ci_macos.split("          : > \"$compile_log\"\n", 1)[1]
+        before = step.split("          compile_once() {\n", 1)[0]
+        decide = step.split("          retry_compile=0\n", 1)[1].split("            # An adopted DerivedData tree", 1)[0]
+        decide = decide.rsplit("          if [ \"$retry_compile\" -eq 1 ]; then\n", 1)[0]
+        unindent = lambda text: "\n".join(line[10:] for line in text.splitlines())
+        log = self.root / "compile.log"
+        log.write_text("error: remote service unavailable\n")
+        body = (f"cd '{ROOT}'\ncompile_log='{log}'\n" + unindent(before)
+                + f"\nrm -f '{self.cache / 'fleet-cas.sock'}'\nstatus=65\nretry_compile=0\n" + unindent(decide)
+                + "\necho \"retry=$retry_compile off=${CMUX_CI_FLEET_CACHE_OFF:-}\"\n")
+        result = subprocess.run(["bash", "-uo", "pipefail", "-c", body], env=self.env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("retry=1 off=1", result.stdout)
 
     def test_nightly_release_retries_local_cache_after_runtime_cas_failure(self):
         workflow = nightly_expand((ROOT / ".github/workflows/nightly.yml").read_text())
@@ -206,12 +316,13 @@ class FleetCacheTests(unittest.TestCase):
         self.assertIn("run_release_build()", step)
         self.assertIn("release_status=${PIPESTATUS[0]}", step)
         self.assertIn("cmux_next_runtime_cas_failed \"$RUNNER_TEMP/nightly-release-build.log\"", step)
+        self.assertIn('"$release_status" -ne 0 && "$build_cache" == fleet', step)
         self.assertIn("local_cache_settings=()", step)
         self.assertIn("local_cache_settings+=(\"$setting\")", step)
         self.assertIn('settings=("${local_cache_settings[@]}")', step)
         self.assertIn('${settings[@]+"${settings[@]}"}', step)
         self.assertIn('run_release_build 1', step)
-        self.assertIn("retrying the Release build with the local cache", step)
+        self.assertIn("retrying the Release build once with the local cache", step)
         self.assertIn('exit "$release_status"', step)
 
 

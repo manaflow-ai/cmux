@@ -155,6 +155,7 @@ impl Hub {
                     prompt,
                     Some(run.cwd.clone()),
                     Some(&task_id),
+                    run.caller_subagent.clone(),
                     None,
                     false,
                     false,
@@ -280,6 +281,11 @@ impl Hub {
                                     )),
                                     cwd: Some(run.cwd.clone()),
                                     starter: Some(run.owner_session_id.clone()),
+                                    // The workflow's owning agent (`created_by.rs`).
+                                    created_by: Some(super::created_by::owner(
+                                        self,
+                                        &run.owner_session_id,
+                                    )),
                                     env,
                                     ..Default::default()
                                 },
@@ -425,7 +431,7 @@ impl Hub {
                                 admission_open=false;
                                 if value.is_err() {continue;}
                                 admitted=true; drop(gate.take());
-                                waiting = session.status() == SessionStatus::Waiting || session.meta().usage_limits.is_some();
+                                waiting = session.status() == SessionStatus::Waiting || crate::claude_stdio::usage_limit_reached(session.meta().usage_limits.as_ref(), (super::now_ms() / 1000) as i64);
                                 if automatic && recovery.waiting.is_some() {
                                     let admission_gate = self.workflow_runs.gate(&run.id).lock_owned().await;
                                     self.workflow_runs.store().authorize(&run.id,generation,&run.owner_session_id).map_err(workflow_error)?;
@@ -442,7 +448,7 @@ impl Hub {
                             event = events.recv() => {
                                 match event {
                                     Ok(event) if event.session_id == session.id => {
-                                        waiting = session.status() == SessionStatus::Waiting || session.meta().usage_limits.is_some();
+                                        waiting = session.status() == SessionStatus::Waiting || crate::claude_stdio::usage_limit_reached(session.meta().usage_limits.as_ref(), (super::now_ms() / 1000) as i64);
                                         if admitted && !waiting && !nudge_reconciled && let Some(nudge) = &state.nudge {nudge_reconciled=self.workflow_nudge(run,generation,nudge).await?;}
                                         deadline.as_mut().reset(tokio::time::Instant::now()+stall);
                                     }
@@ -451,7 +457,7 @@ impl Hub {
                                 }
                             }
                             _ = &mut deadline, if admitted && !waiting => {
-                                if session.status() == SessionStatus::Waiting || session.meta().usage_limits.is_some() {
+                                if session.status() == SessionStatus::Waiting || crate::claude_stdio::usage_limit_reached(session.meta().usage_limits.as_ref(), (super::now_ms() / 1000) as i64) {
                                     waiting = true;
                                     continue;
                                 }
@@ -722,7 +728,12 @@ impl Hub {
             return Ok(true);
         }
         let session = self.resolve(&intent.session_id)?;
-        if session.status() == SessionStatus::Waiting || session.meta().usage_limits.is_some() {
+        if session.status() == SessionStatus::Waiting
+            || crate::claude_stdio::usage_limit_reached(
+                session.meta().usage_limits.as_ref(),
+                (super::now_ms() / 1000) as i64,
+            )
+        {
             return Ok(false);
         }
         let known = self.knows_prompt(&session, &intent.prompt_id, true);
@@ -1011,6 +1022,7 @@ mod tests {
                 activities: Default::default(),
                 outcome: None,
                 local_principal: false,
+                caller_subagent: None,
             })
             .unwrap();
         let child = ActivityRecord {
@@ -1101,6 +1113,13 @@ mod tests {
         };
         let (a, b) = (name(&first), name(&second));
         assert!(a.starts_with("Shared title · ") && b.starts_with("Shared title · "));
+        // Each is its owning agent's (`created_by.rs`).
+        let Child::Agent { session_id, .. } = &first.child else { unreachable!() };
+        let by = hub.resolve(session_id).unwrap().meta().created_by;
+        assert_eq!(
+            by.map(|b| (b.kind, b.session)),
+            Some((crate::store::CreatorKind::Agent, Some("owner".to_owned())))
+        );
         assert_ne!(a, b);
         cleanup(hub, run).await;
     }

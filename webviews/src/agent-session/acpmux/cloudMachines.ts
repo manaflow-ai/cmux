@@ -6,18 +6,57 @@
 // Leo, 2026-10-26: "the dropdown should show the states of stuff when you've done the acp things
 // or any kind of connectivity."
 import { useSyncExternalStore } from "react";
-import type { Environment } from "./environments";
+import { environmentReady, type Environment } from "./environments";
 import { postNative } from "./native";
 
 /// One machine of the account: its id, name and `CloudMachineStage` name (`ready`, `paused`,
-/// `requesting`, `creating`, `booting`, `connecting`, `failed`).
-export type CloudMachine = { id: string; name: string; stage: string };
+/// `requesting`, `creating`, `booting`, `connecting`, `failed`). `evictAt` (epoch ms) is when a
+/// machine left paused for 30 days is deleted unless it resumes; absent when the server does not say.
+export type CloudMachine = { id: string; name: string; stage: string; evictAt?: number };
 /// A Cloud machine as a row of the machine list: a Cloud environment carrying its machine.
 export type CloudMachineRow = Environment & { cloudMachine: CloudMachine };
 
 /// Whether the app's Cloud account is signed in. `undefined` means the app did not provide an
-/// explicit account state (for example, a fresh home where Cloud is not available yet); the
-/// picker treats that the same as signed out until a reply says `true`.
+/// explicit account state (for example, a fresh home where Cloud is not available yet). The
+/// picker's Cloud row reads Sign in for Cloud only on an explicit `false` (EnvironmentPicker).
+///
+/// Whether the last answer said signed in is kept in this origin's localStorage (every agent page
+/// shares one website data store, newtab/settledCache.ts) and read when the page loads, so a menu
+/// opened before this page's own `cloudMachine.list` reply draws its settled Cloud row on its first
+/// frame. Leo, 2026-11-07, of "Sign in for Cloud" showing and then vanishing as the machine menu
+/// opened: "ideally this never happens ... The thing becomes just one state instead of rapidly
+/// switching to another." Only the yes or no is kept, never the account's machines (names or ids):
+/// a page after an account switch must never show or act on the previous account's machines, which
+/// come from this page's own reply alone. A reply replaces it; a refused read clears it.
+const ACCOUNT_KEY = "cmux.acpmux.cloud.signedIn";
+
+function accountStorage(): Storage | undefined {
+  try {
+    return globalThis.localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+function readKeptSignedIn(): boolean | undefined {
+  try {
+    const raw = accountStorage()?.getItem(ACCOUNT_KEY);
+    return raw === "true" ? true : raw === "false" ? false : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function keepSignedIn(signedIn: boolean | undefined): void {
+  try {
+    const store = accountStorage();
+    if (signedIn === undefined) store?.removeItem(ACCOUNT_KEY);
+    else store?.setItem(ACCOUNT_KEY, String(signedIn));
+  } catch {
+    // A blocked or full store only leaves the next page to wait for its own reply.
+  }
+}
+
 let accountSignedIn: boolean | undefined;
 
 type Call = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -32,9 +71,13 @@ export function cloudMachinesFromReply(reply: unknown): CloudMachine[] {
   if (value?.signedIn !== true || value.loaded !== true || !Array.isArray(value.machines)) return [];
   const machines: CloudMachine[] = [];
   for (const raw of value.machines.slice(0, MAX_ROWS)) {
-    const { id, name, stage } = (raw ?? {}) as Record<string, unknown>;
+    const { id, name, stage, evictAt } = (raw ?? {}) as Record<string, unknown>;
     if (typeof id !== "string" || !id || typeof name !== "string" || !name || typeof stage !== "string") continue;
-    machines.push({ id, name, stage });
+    machines.push(
+      typeof evictAt === "number" && Number.isFinite(evictAt) && evictAt > 0
+        ? { id, name, stage, evictAt }
+        : { id, name, stage },
+    );
   }
   return machines;
 }
@@ -95,6 +138,49 @@ export function withCloudMachines<T extends Pick<Environment, "id" | "label" | "
   return [...kept, ...rows];
 }
 
+/// `CloudMachineStage` names of a machine on its way up (Swift CloudMachineStage: `resuming` while
+/// the server takes a resume, then `booting` and `connecting`; a page's own Resume reads `requesting`).
+const STARTING_STAGES = new Set(["requesting", "resuming", "creating", "booting", "connecting"]);
+
+/// The account's one machine named `name` (any case, as the app matches a peer to a Cloud machine by
+/// its title). Two of that name give none: a Resume must never start the other one.
+export function uniqueCloudMachine(machines: readonly CloudMachine[], name: string): CloudMachine | undefined {
+  const named = machines.filter((machine) => lower(machine.name) === lower(name));
+  return named.length === 1 ? named[0] : undefined;
+}
+
+/// What a Cloud machine acpmux lists but has no link to is, when the account says it sleeps: its
+/// link state reads `paused` or `resuming` in place of acpmux's `reconnecting` or `offline`, so the
+/// composer and the picker show a calm pause, never a broken link. With `pickable` (a new chat's
+/// list), a paused one also carries its machine, so a pick resumes it and the chat moves there once
+/// acpmux links it (ComposerContext `pickCloudMachine`); a resuming one stays greyed until then.
+/// Cloud machines are about to pause on their own when idle, and between tool calls (cmux-platform
+/// docs/agent-turn-sleep.md), so a pause has to read as an ordinary state.
+/// Whether the account's machine named `name` is paused or on its way up (a resume): a Cloud
+/// machine that sleeps, never one that is gone. Reads the page's copy of the app's list as it is.
+export function cloudMachineAsleep(name: string | undefined, list: readonly CloudMachine[] = machines): boolean {
+  if (!name) return false;
+  const machine = uniqueCloudMachine(list, name);
+  return machine !== undefined && (machine.stage === "paused" || STARTING_STAGES.has(machine.stage));
+}
+
+export function withCloudSleep<T extends Environment>(
+  listed: readonly T[],
+  machines: readonly CloudMachine[],
+  pickable: boolean,
+): (T | (T & CloudMachineRow))[] {
+  if (machines.length === 0) return [...listed];
+  return listed.map((environment) => {
+    if (environment.kind !== "cloud" || environmentReady(environment) || isCloudMachineRow(environment))
+      return environment;
+    const machine = uniqueCloudMachine(machines, environment.label);
+    if (machine?.stage === "paused")
+      return { ...environment, state: "paused", ...(pickable ? { cloudMachine: machine } : {}) };
+    if (machine && STARTING_STAGES.has(machine.stage)) return { ...environment, state: "resuming" };
+    return environment;
+  });
+}
+
 export function isCloudMachineRow(environment: Environment): environment is CloudMachineRow {
   return (environment as Partial<CloudMachineRow>).cloudMachine !== undefined;
 }
@@ -108,6 +194,8 @@ export function cloudMachineAction(machine: CloudMachine): "resume" | "open" {
 // The page's copy of the app's list: every composer reads it, and an open machine list reads it
 // again (useMachineRefresh), one request at a time.
 let machines: readonly CloudMachine[] = [];
+// The page starts from the last signed-in answer kept, never from nothing; its machines are its own.
+accountSignedIn = readKeptSignedIn();
 const listeners = new Set<() => void>();
 let inFlight: Promise<void> | undefined;
 /// Bumped by a reset: a reply to a read asked before it is dropped.
@@ -133,13 +221,17 @@ export function refreshCloudMachines(call: Call = postNative): Promise<void> {
   inFlight ??= call("cloudMachine.list", {})
     .then((reply) => {
       if (asked === generation) {
-        publishAccount(cloudSignedInFromReply(reply));
-        publish(cloudMachinesFromReply(reply));
+        const signedIn = cloudSignedInFromReply(reply);
+        const list = cloudMachinesFromReply(reply);
+        keepSignedIn(signedIn);
+        publishAccount(signedIn);
+        publish(list);
       }
     })
     .catch((error: unknown) => {
       if ((error as { code?: unknown } | null)?.code === "native.not_connected") return;
       if (asked === generation) {
+        keepSignedIn(undefined);
         publishAccount(undefined);
         publish([]);
       }
@@ -223,6 +315,7 @@ const snapshot = () => machines;
 export function setCloudMachinesForTest(next: readonly CloudMachine[]): void {
   generation += 1;
   inFlight = undefined;
+  keepSignedIn(undefined);
   publishAccount(undefined);
   publish(next);
 }
@@ -233,3 +326,11 @@ export function setCloudMachinesForTestAccount(next: boolean | undefined): void 
 }
 
 const accountSnapshot = () => accountSignedIn;
+
+/// Tests: the page loading again, starting from what localStorage kept (as at module load).
+export function reloadKeptCloudAccountForTest(): void {
+  generation += 1;
+  inFlight = undefined;
+  publishAccount(readKeptSignedIn());
+  publish([]);
+}

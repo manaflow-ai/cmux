@@ -12,11 +12,16 @@
 //! chunks of [`CHUNK_BYTES`]. A file sent that way has no size cap (Leo, 2026-10-26: "I ALREADY SAID WE NEED
 //! ARBITARRILY LARGE FILES OF ANY TYPE"), only the disk it is written to.
 //!
+//! A finished file's bytes are stored once by their SHA-256 however often they are uploaded, and
+//! the path above is another name of them ([`store`]); each upload keeps a record of its name,
+//! source app, time and hash.
+//!
 //! A chat's files go when the chat is deleted (`_acpmux/kill` with purge, [`remove_session`]; not
 //! when Bring Back replaces its closed copy under the same id, `transfer_in.rs`), and
 //! any file goes once it is older than `uploadsMaxAgeDays` (default 30; 0 keeps them), read from
-//! the UUIDv7 name of its folder ([`sweep`], at the daemon's start and every day after). A folder
-//! the daemon did not name that way is never deleted.
+//! the UUIDv7 name of its folder ([`sweep`], at the daemon's start and every day after), unless
+//! its chat is kept (pinned or starred, `_acpmux/uploads_keep`). Stored bytes go once no upload
+//! names them. A folder the daemon did not name that way is never deleted.
 
 use crate::rpc::RpcError;
 use cmux_json::JsonSet as _;
@@ -29,6 +34,7 @@ use std::time::Duration;
 /// The `initialize` feature of a daemon that takes `_acpmux/file_put`.
 pub const FEATURE: &str = "filePut";
 
+pub(crate) mod store;
 pub(crate) mod web;
 /// The resumable upload feature advertised by current daemons.
 pub const CHUNKS_FEATURE: &str = "filePutChunks";
@@ -50,15 +56,46 @@ pub(crate) fn session_dir(id: &str) -> Option<PathBuf> {
     plain.then(|| root().join(id))
 }
 
+/// Whether `file`, opened at `path` below the resolved folder `dir` and with more than one name,
+/// is one of that chat's uploads whose other names are the store's (`store`): `dir` is a chat's
+/// own uploads folder (a direct child of the uploads root), and the record of the file's folder
+/// names stored bytes that are this very file. A reader that refuses a file with another name
+/// (`media_read.rs`) accepts this one; a link anywhere else (a chat's folder, `/tmp`, home), or
+/// one whose record names other bytes, stays refused.
+#[cfg(unix)]
+pub(crate) fn is_stored_upload(dir: &Path, path: &Path, file: &std::fs::File) -> bool {
+    let root = root();
+    let real = std::fs::canonicalize(&root).unwrap_or_else(|_| root.clone());
+    dir.parent() == Some(real.as_path())
+        && path.starts_with(dir)
+        && store::is_stored_link(&root, path, file)
+}
+
+/// No store links off unix: every file with another name stays refused.
+#[cfg(not(unix))]
+pub(crate) fn is_stored_upload(_: &Path, _: &Path, _: &std::fs::File) -> bool {
+    false
+}
+
 /// Deletes session `id`'s uploads: the chat was deleted. Blocking: run it off the runtime.
 pub(crate) fn remove_session(id: &str) {
     let Some(dir) = session_dir(id) else { return };
+    // Read before they go, so only those stored bytes are checked after.
+    let hashes = store::hashes_under(&dir);
     // Never follows a symlink: `remove_dir_all` removes the link, not what it names.
     match std::fs::remove_dir_all(&dir) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => tracing::warn!(session = id, "uploads not deleted: {e}"),
     }
+    store::release(&root(), &hashes);
+}
+
+/// Marks session `id`'s uploads kept (its chat is pinned or starred) or not: the age sweep passes
+/// a kept chat over, so its files stay until the chat is deleted. Blocking.
+pub(crate) fn set_kept(id: &str, kept: bool) -> anyhow::Result<()> {
+    let dir = session_dir(id).ok_or_else(|| anyhow::anyhow!("no such chat"))?;
+    store::set_kept(&dir, kept)
 }
 
 /// When the folder `name` was made, in Unix ms: the time a UUIDv7 name holds ([`put`] names each
@@ -106,8 +143,9 @@ fn used_at(dir: &Path) -> u64 {
 }
 
 /// Deletes each upload under `root` older than `max_age` at `now_ms`, and a session folder it
-/// leaves empty; answers how many uploads went. Only real folders with a UUIDv7 name are read as
-/// uploads: a symlink, a file or another name is kept. Blocking: run it off the runtime.
+/// leaves empty, then the stored bytes no upload names any more; answers how many uploads went.
+/// Only real folders with a UUIDv7 name are read as uploads: a symlink, a file or another name is
+/// kept, and so is every upload of a kept chat ([`set_kept`]). Blocking: run it off the runtime.
 pub(crate) fn sweep(root: &Path, now_ms: u64, max_age: Duration) -> usize {
     let cutoff = now_ms.saturating_sub(u64::try_from(max_age.as_millis()).unwrap_or(u64::MAX));
     let real_dirs =
@@ -117,7 +155,11 @@ pub(crate) fn sweep(root: &Path, now_ms: u64, max_age: Duration) -> usize {
             })
         };
     let mut removed = 0;
-    for session in real_dirs(root) {
+    // Not the store (a dot name, never a chat's), and not a kept chat.
+    let chats = real_dirs(root).filter(|chat| {
+        !chat.file_name().to_string_lossy().starts_with('.') && !store::is_kept(&chat.path())
+    });
+    for session in chats {
         for upload in real_dirs(&session.path()) {
             // Made and last used before the cutoff (`used_at`), decided and deleted under `IN_USE`
             // and the upload's own lock, so no write, status, finish or cancel on it runs between.
@@ -132,6 +174,7 @@ pub(crate) fn sweep(root: &Path, now_ms: u64, max_age: Duration) -> usize {
         // Only an empty folder goes (`remove_dir` refuses any other).
         let _ = std::fs::remove_dir(session.path());
     }
+    store::collect(root);
     removed
 }
 
@@ -258,7 +301,8 @@ pub(crate) fn open_finished(path: &Path) -> std::io::Result<std::fs::File> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        if file.metadata()?.nlink() != 1 {
+        // Its one other name may be the store's own (`store`), and nothing else's.
+        if file.metadata()?.nlink() != 1 && !store::is_stored_link(&root(), path, &file) {
             return Err(std::io::Error::other(format!("{} has another name", path.display())));
         }
     }
@@ -294,8 +338,14 @@ fn begin(session: &str, params: &Value) -> Result<Value, RpcError> {
         .map_err(|e| failed_anyhow("cannot start upload", &path, &e, None))?;
     let meta =
         meta_path(session, &id).ok_or_else(|| RpcError::invalid_params("invalid uploadId"))?;
-    let metadata = serde_json::to_vec(&json!({"fileName": name, "size": size}))
-        .map_err(|e| RpcError::internal(format!("cannot encode upload metadata: {e}")))?;
+    // The app the file came from, when the sender says: kept in the upload's record (`store`).
+    let source = params
+        .get("source")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty() && s.len() <= 256 && !s.chars().any(char::is_control));
+    let metadata =
+        serde_json::to_vec(&json!({"fileName": name, "size": size, "source": source}))
+            .map_err(|e| RpcError::internal(format!("cannot encode upload metadata: {e}")))?;
     crate::agent_tools::write_private(&meta, &metadata)
         .map_err(|e| failed_anyhow("cannot record upload", &meta, &e, None))?;
     let mut answer = json!({"uploadId": id, "fileName": name, "size": size});
@@ -472,22 +522,7 @@ fn status(session: &str, params: &Value) -> Result<Value, RpcError> {
     Err(unknown(upload))
 }
 
-/// Lowercase hex SHA-256 of the file at `path`, read 1 MiB at a time.
-fn sha256_of(path: &Path) -> std::io::Result<String> {
-    use sha2::Digest;
-    use std::io::Read;
-    let mut file = crate::config::private_state_file(path).map_err(std::io::Error::other)?;
-    let mut hash = sha2::Sha256::new();
-    let mut buf = vec![0u8; 1 << 20];
-    loop {
-        let n = file.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        hash.update(buf.get(..n).unwrap_or_default());
-    }
-    Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
-}
+use store::sha256_of;
 
 /// Whether `e` says the disk (or the owner's quota) is full.
 pub(crate) fn is_disk_full(e: &std::io::Error) -> bool {
@@ -614,6 +649,7 @@ fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
         ))
         .with_data(json!({"reason": "upload.incomplete", "offset": current})));
     }
+    let mut hash = None;
     if let Some(want) = want {
         let got = sha256_of(&part).map_err(|e| failed("cannot read upload", &part, &e, None))?;
         if got != want {
@@ -623,9 +659,20 @@ fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
             return Err(RpcError::invalid_params("the upload's sha256 does not match")
                 .with_data(json!({"reason": "upload.corrupt", "sha256": got})));
         }
+        hash = Some(got);
     }
+    let source = std::fs::read(&meta)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .and_then(|m| m.get("source").and_then(Value::as_str).map(str::to_owned));
     std::fs::rename(&part, &path).map_err(|e| failed("cannot finish upload", &path, &e, None))?;
     let _ = std::fs::remove_file(meta);
+    // Stored once by its bytes (`store`). The upload is finished either way: one that cannot be
+    // stored (a full disk while writing its record) keeps its own copy and path.
+    let now = crate::store::now_ms();
+    if let Err(e) = store::adopt(&root(), &path, hash.as_deref(), source.as_deref(), now) {
+        tracing::warn!("upload {upload} kept as its own copy: {e}");
+    }
     Ok(finished(&path, size, upload))
 }
 
@@ -740,6 +787,23 @@ pub async fn handle_status(hub: &super::Hub, params: Value) -> Result<Value, Rpc
     answer
 }
 
+/// `_acpmux/uploads_keep {sessionId, keep}` for one of this daemon's chats: its uploads stay past
+/// the age cap while `keep` (the chat is pinned or starred), and age out again once not.
+pub async fn handle_keep(hub: &super::Hub, params: Value) -> Result<Value, RpcError> {
+    let session = hub.resolve(crate::server::session_key(&params)?)?;
+    let keep = params
+        .get("keep")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| RpcError::invalid_params("keep (a boolean) is required"))?;
+    let id = session.id.clone();
+    tokio::task::spawn_blocking(move || set_kept(&id, keep))
+        .await
+        .map_err(|e| RpcError::internal(e.to_string()))?
+        .map_err(|e| RpcError::internal(format!("cannot mark the chat's uploads kept: {e}")))?;
+    reject_purged(&session).await?;
+    Ok(json!({"sessionId": session.id, "keep": keep}))
+}
+
 /// One binary data frame's bytes for this daemon's chat `session` (`server/upload_frames.rs`).
 pub async fn handle_data(
     session: Arc<super::Session>,
@@ -790,7 +854,9 @@ pub fn cancel(id: &str, params: &Value) -> Result<Value, RpcError> {
         dir.join(".part").exists()
     };
     if goes {
+        let hashes = store::hashes_under(&dir);
         let _ = std::fs::remove_dir_all(&dir);
+        store::release(&root(), &hashes);
     }
     Ok(json!({}))
 }
@@ -801,10 +867,13 @@ pub fn cancel(id: &str, params: &Value) -> Result<Value, RpcError> {
 /// Blocking.
 pub(crate) fn remove_uploads(dirs: &[PathBuf]) {
     let _in_use = IN_USE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut hashes = Vec::new();
     for dir in dirs {
         let _held = dir.file_name().and_then(|n| n.to_str()).map(hold);
+        hashes.extend(store::hashes_under(dir));
         let _ = std::fs::remove_dir_all(dir);
     }
+    store::release(&root(), &hashes);
 }
 
 /// The folder of upload `upload` of session `session`; None for an id that is not a UUIDv7.
@@ -922,7 +991,7 @@ pub(crate) async fn forward_put(
 /// takes no uploads.
 pub fn peer_unsupported(peer: &crate::peer::Peer) -> RpcError {
     RpcError::method_not_found(&format!(
-        "{} (peer {} runs acpmux build {}; run `acpmux host update {}`)",
+        "{} (peer {} runs acpmux build {}; run `acpmux machine update {}`)",
         crate::rpc::method::MUX_FILE_PUT,
         peer.name,
         peer.remote_build().unwrap_or_else(|| "unknown".into()),
@@ -1048,6 +1117,49 @@ mod tests {
         assert_eq!(sweep(&root, now, Duration::from_millis(30 * day)), 0);
         std::fs::remove_dir_all(&root).unwrap();
         std::fs::remove_dir_all(&outside).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn the_sweep_keeps_a_kept_chats_uploads_and_drops_bytes_once_nothing_names_them() {
+        let root = std::env::temp_dir().join(format!("acpmux-sweep-{}", uuid::Uuid::now_v7()));
+        let day = 24 * 60 * 60 * 1000;
+        let now = crate::store::now_ms();
+        let named = |ms: u64| {
+            let at = uuid::Timestamp::from_unix(uuid::NoContext, ms / 1000, 0);
+            uuid::Uuid::new_v7(at).to_string()
+        };
+        let put = |chat: &str, at: u64, bytes: &[u8]| {
+            let file = root.join(chat).join(named(at)).join("image.png");
+            crate::agent_tools::write_private(&file, bytes).unwrap();
+            store::adopt(&root, &file, None, None, at).unwrap();
+            file
+        };
+        // One screenshot, old in a pinned chat and in an unpinned one, new in a third; another
+        // old one only in the unpinned chat.
+        let pinned = put("chat-pinned", now - 40 * day, b"shot");
+        let old = put("chat-old", now - 40 * day, b"shot");
+        let fresh = put("chat-new", now - day, b"shot");
+        let lone = put("chat-old", now - 40 * day, b"lone");
+        store::set_kept(&root.join("chat-pinned"), true).unwrap();
+        let shot = store::sha256_of(&pinned).unwrap();
+        let lone_hash = store::sha256_of(&lone).unwrap();
+        assert_eq!(store::references(&root, &shot), 3);
+        assert_eq!(sweep(&root, now, Duration::from_millis(30 * day)), 2);
+        // The pinned chat keeps its file however old; the new one keeps its own.
+        assert!(pinned.exists() && fresh.exists() && !old.exists() && !lone.exists());
+        assert_eq!(store::references(&root, &shot), 2);
+        // Bytes no chat names any more are gone; the shared ones stay.
+        assert!(store::stored_path(&root, &shot).unwrap().exists());
+        assert!(!store::stored_path(&root, &lone_hash).unwrap().exists());
+        // The store's own folder is never read as a chat's.
+        assert!(root.join(store::STORE).exists());
+        // Unpinned, the chat's file ages out too, and the bytes go with the last name.
+        store::set_kept(&root.join("chat-pinned"), false).unwrap();
+        std::fs::remove_dir_all(root.join("chat-new")).unwrap();
+        assert_eq!(sweep(&root, now, Duration::from_millis(30 * day)), 1);
+        assert!(!store::stored_path(&root, &shot).unwrap().exists());
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

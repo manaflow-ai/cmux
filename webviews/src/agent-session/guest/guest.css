@@ -14,22 +14,65 @@
 .guest-join__button{flex:none;height:32px;padding:0 16px;border:0;border-radius:8px;background:var(--agent-accent);color:var(--agent-on-accent, var(--agent-page-bg));font:inherit;font-weight:500}
 .guest-join__button:disabled{opacity:0.45}
 .guest-join__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+/* A signed-in visitor's Join: one full-width button, their picture, then "Join as <name>" cut at the end. */
+.guest-join__as{flex:1;min-width:0;display:inline-flex;align-items:center;justify-content:center;gap:var(--ds-space-2, 8px)}
+.guest-join__as-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.guest-join__face{flex:none;display:inline-flex;align-items:center}
+/* Edit name is a quiet text link under the button, never a second filled control. */
+.guest-join__edit{align-self:center;padding:0;border:0;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
+.guest-join__edit:hover{color:var(--agent-text);text-decoration:underline}
+.guest-join__edit:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+/* Open in cmux (OpenInApp.tsx): a banner floating over the guest page, which is already there beneath it,
+   so it takes no space and nothing moves when it goes. It is centred by its margins (left:50% would halve the
+   width it may take), and on a narrow screen its controls wrap under the text instead of running past its edge. The app link reads as a link, the browser as a quiet button. */
+.guest-app{position:fixed;z-index:var(--layer-toast);top:var(--ds-space-3, 12px);left:0;right:0;margin-inline:auto;width:max-content;box-sizing:border-box;max-width:calc(100% - 2 * var(--ds-space-3, 12px));display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:var(--ds-space-1, 4px) var(--ds-space-3, 12px);padding:var(--ds-space-1, 4px) var(--ds-space-1, 4px) var(--ds-space-1, 4px) var(--ds-space-3, 12px);border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-bg, Canvas);color:var(--agent-text);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
+.guest-app__title{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.guest-app__open{flex:none;color:var(--agent-text);font-weight:600;text-decoration:none}
+.guest-app__open:hover{text-decoration:underline}
+.guest-app__open:focus-visible,.guest-app__browser:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+.guest-app__browser{flex:none;height:28px;padding:0 var(--ds-space-2, 8px);border:1px solid var(--agent-border);border-radius:6px;background:transparent;color:var(--agent-text);font:inherit}
 /* The transcript's column: 760px wide, 16px from the edges on a phone. */
 .guest-live{--guest-inset:max(16px, calc((100% - 760px) / 2));height:100%;display:flex;flex-direction:column}
 .guest-live__header{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--guest-inset);border-bottom:1px solid var(--agent-border)}
 [data-borders="none"] .guest-live__header{border-bottom:0}
 .guest-live__titles{flex:1;min-width:0}
-.guest-live__title{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-body);line-height:var(--text-body--line-height);font-weight:600}
-.guest-live__owner{margin:0;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
-.guest-live__notice,.guest-live__ask{display:block;flex:none;margin:0;padding:8px var(--guest-inset);color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
-.guest-live__ask{display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--agent-border);color:var(--agent-text)}
+.guest-live__title{height:var(--text-body--line-height);margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-body);line-height:var(--text-body--line-height);font-weight:600}
+.guest-live__owner{height:var(--text-detail--line-height);margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
+/* Connecting floats at the top of the transcript's area: it comes and goes without moving a row. */
+.guest-live__notice{position:absolute;top:0;left:0;right:0;margin:0;padding:8px var(--guest-inset);color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);text-align:center;background:var(--agent-page-bg);pointer-events:none}
+.guest-live__notice--failed{color:var(--agent-text);pointer-events:auto}
+.guest-live__retry{padding:0;border:0;background:none;color:inherit;font:inherit;text-decoration:underline}
+.guest-live__retry:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+.guest-live__ask{display:flex;flex-direction:column;gap:4px;flex:none;margin:0;padding:8px var(--guest-inset);border-top:1px solid var(--agent-border);color:var(--agent-text);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 .guest-live__ask-title{color:var(--agent-muted);font-family:var(--font-mono);overflow-wrap:anywhere}
-.guest-live__transcript{flex:1;min-height:0;display:flex;flex-direction:column}
+/* Drawn from the first frame, empty until the room's snapshot; the transcript fades in where it stays
+   (opacity only, so it runs under Reduce Motion too). */
+.guest-live__transcript{position:relative;flex:1;min-height:0;display:flex;flex-direction:column}
+.guest-live__transcript > :not(.guest-live__notice){animation:guest-fade-in var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both}
+@keyframes guest-fade-in{from{opacity:0}to{opacity:1}}
 /* The dock under the chat: the guest's own messages, then its composer (GuestComposer.tsx). */
 .guest-live__dock{flex:none;display:flex;flex-direction:column;gap:8px;padding:8px var(--guest-inset) 12px;border-top:1px solid var(--agent-border)}
 [data-borders="none"] .guest-live__dock{border-top:0}
 .guest-mine{display:flex;flex-direction:column;gap:8px;max-height:40vh;overflow-y:auto}
 .guest-mine__held{gap:4px}
+/* A held message's bubble on the first frame (#38197 F1): the pane's prompt bubble (conversation.css
+   .cv-user and .cv-user__bubble, with its :root type and colour) loads beside the transcript, after a
+   reload has already drawn the guest's held messages. These are the same values, scoped to the dock,
+   so the bubble is its final size and look before that sheet arrives and the dock never resizes.
+   test/guest-page-first-frame-browser.test.ts holds the bubble's box across the sheet's arrival. */
+/* The type comes from the content scale (desktop.css --text-content), resolved at the root: the pane's
+   14 on 22.75 before its sheet, and whatever the root's --cv-font-size is after. */
+.guest-mine{--cv-text:var(--agent-text);--cv-fg:var(--agent-text);--cv-font:var(--font-ui);--cv-font-size:var(--text-content);--cv-line-height:var(--text-content--line-height)}
+.guest-mine .cv-user{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-end}
+.guest-mine .cv-user__bubble{--cv-bubble-pad-block:max(var(--grid-base), (11 * var(--grid-base) - var(--cv-line-height)) / 2);--cv-bubble-pad-inline:calc(4 * var(--grid-base));position:relative;box-sizing:border-box;max-width:70%;padding:var(--cv-bubble-pad-block) var(--cv-bubble-pad-inline);border-radius:var(--grid-cards-radius);font-family:var(--cv-font);font-size:var(--cv-font-size);line-height:var(--cv-line-height);letter-spacing:var(--cv-tracking, 0px);color:var(--cv-text);white-space:pre-wrap;overflow-wrap:break-word;-webkit-font-smoothing:antialiased}
+.guest-mine .cv-user__bubble{
+  --glass-tint:color-mix(in srgb, var(--cv-fg) 10%, transparent);
+  /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
+  --glass-opaque:color-mix(in srgb, var(--cv-fg) 10%, var(--glass-surface));
+  --glass-edge:transparent;
+  --glass-rim:0;
+  --glass-backdrop:none;
+}
 .guest-mine__label,.guest-mine__decided,.guest-composer__note{margin:0;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 .guest-mine__decided{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .guest-composer{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}

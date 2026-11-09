@@ -13,12 +13,9 @@ import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { ContextCardBody } from "../src/agent-session/acpmux/ContextCard";
-import {
-  WorkingCountsContext,
-  WorkingFor,
-  workingTokens,
-  type WorkingCounts,
-} from "../src/agent-session/acpmux/conversation/WorkingFor";
+import { WorkingFor } from "../src/agent-session/acpmux/conversation/WorkingFor";
+import { WorkingCountsContext, type WorkingCounts } from "../src/agent-session/acpmux/conversation/workingForModel";
+import { workingTokens } from "../src/agent-session/acpmux/conversation/turnTokensModel";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000e7";
 const START = Date.UTC(2026, 9, 20, 9, 0, 0);
@@ -98,6 +95,8 @@ function fakeDaemon(
   let socket: any;
   let liveOnAttach: Recorded[] = [];
   let gapFails = false;
+  let holdIndex = false;
+  let indexReply: (() => void) | undefined;
   const session = {
     sessionId: CHAT,
     cwd: "/Users/dev/app",
@@ -150,8 +149,8 @@ function fakeDaemon(
           liveOnAttach = [];
           push(live);
         }
-        if (message.id !== undefined)
-          queueMicrotask(() => {
+        if (message.id !== undefined) {
+          const reply = () => {
             let reply: Record<string, unknown>;
             try {
               reply = { result: answer(message.method, message.params) };
@@ -161,7 +160,10 @@ function fakeDaemon(
             socket.onmessage?.({
               data: JSON.stringify({ jsonrpc: "2.0", id: message.id, ...reply }),
             });
-          });
+          };
+          if (holdIndex && message.params?.promptIndex === true) indexReply = reply;
+          else queueMicrotask(reply);
+        }
       },
       close() {},
     };
@@ -187,11 +189,29 @@ function fakeDaemon(
   const onAttach = (events: Recorded[]) => (liveOnAttach = events);
   /// Whether the reconnect's gap read fails.
   const failGap = (fails: boolean) => (gapFails = fails);
-  return { open, push, notify, drop, pageFrom, onAttach, failGap };
+  return {
+    open,
+    push,
+    notify,
+    drop,
+    pageFrom,
+    onAttach,
+    failGap,
+    holdIndex: () => {
+      holdIndex = true;
+    },
+    indexWaiting: () => indexReply !== undefined,
+    releaseIndex: () => {
+      holdIndex = false;
+      indexReply?.();
+      indexReply = undefined;
+    },
+  };
 }
 
 async function connect(daemon: ReturnType<typeof fakeDaemon>) {
   let snapshot: any;
+  let resynced: any;
   let snapshots = 0;
   // `connection` names why the client emitted, not the link: a local open drawn from its attach
   // emits "connected", then "session changed" as soon as the list behind it settles
@@ -208,6 +228,7 @@ async function connect(daemon: ReturnType<typeof fakeDaemon>) {
     (next: any) => {
       snapshot = next;
       snapshots += 1;
+      if (next.connection === "resynced") resynced = next;
       if (next.connection === "connected") attached = true;
       else if (next.connection === "disconnected" || next.connection === "failed") attached = false;
     },
@@ -215,7 +236,13 @@ async function connect(daemon: ReturnType<typeof fakeDaemon>) {
     daemon.open,
   );
   await until(() => attached, "the attach");
-  return { client, snapshot: () => snapshot, snapshots: () => snapshots, attached: () => attached };
+  return {
+    client,
+    snapshot: () => snapshot,
+    snapshots: () => snapshots,
+    attached: () => attached,
+    resynced: () => resynced,
+  };
 }
 /// Yields until `ready()` holds; fails after 2 s with what it waited for.
 async function until(ready: () => boolean, what: string) {
@@ -391,7 +418,8 @@ test("once older pages bring a mid-turn attach's start, every rebuild keeps its 
   // the held events (a lag resync, a Debug toggle, a reconnect's attach) must not count it either.
   const history = record([prompt("fix the build"), started, call(41_200), call(43_800), call(46_000), call(9_000)]);
   const daemon = fakeDaemon(history, { attachFrom: 5 });
-  const { client, snapshot, attached } = await connect(daemon);
+  daemon.holdIndex();
+  const { client, snapshot, snapshots, attached, resynced } = await connect(daemon);
   const scope = globalThis as { window?: unknown };
   const hadWindow = "window" in scope;
   // The client schedules its reconnect on `window`; this test has no DOM.
@@ -406,7 +434,17 @@ test("once older pages bring a mid-turn attach's start, every rebuild keeps its 
 
     daemon.notify("_acpmux/lagged", { dropped: 1 });
     expect(snapshot().connection).toBe("resyncing");
-    await until(() => snapshot().connection === "resynced", "the resync");
+    // A deferred prompt-index reply may emit again before the next task. Observe the resync
+    // itself, not whether it happens to remain the most recent snapshot when this test polls.
+    await until(() => resynced() !== undefined, "the resync");
+    expect(resynced().turnTokens).toBeUndefined();
+    expect(snapshot().turnTokens).toBeUndefined();
+
+    // Release the deferred read only after the resync, then check its own emission as well.
+    await until(daemon.indexWaiting, "the deferred prompt-index request");
+    const beforeIndexReply = snapshots();
+    daemon.releaseIndex();
+    await until(() => snapshots() > beforeIndexReply, "the prompt-index emission");
     expect(snapshot().turnTokens).toBeUndefined();
 
     // The rebuild and its snapshot are synchronous.
@@ -629,6 +667,65 @@ test("usage carries acpmux's cache expiry to the card, and a finished compaction
     daemon.push(record([["in", "compaction", update({ sessionUpdate: "compaction", state: "completed" })]], 4));
     await until(() => snapshot().summary.usage.cacheExpiresAt === undefined, "the compaction");
     expect(snapshot().summary.usage).toEqual({ used: 300_000, size: 400_000 });
+  } finally {
+    client.close();
+  }
+});
+
+// A Codex turn an older acpmux recorded: its input whole, the cache's reads in it, and no
+// `inputExcludesCache` mark. The summary row reads it by the chat's harness (tokenSplit.ts), so its
+// hover says 314.9K uncached, not 3.3M; the same turn recorded now, marked, reads the same.
+test("a Codex chat's older and marked turn_results count their cached input once", async () => {
+  const turn = (seq: number, result: Record<string, unknown>) =>
+    record(
+      [
+        prompt("fix the build"),
+        started,
+        ["mux", "turn_result", { status: "completed", outputTokens: 4_017, cacheReadTokens: 3_021_696, ...result }],
+      ],
+      seq,
+    );
+  const daemon = fakeDaemon(
+    [...turn(1, { inputTokens: 3_336_595 }), ...turn(4, { inputTokens: 314_899, inputExcludesCache: true })],
+    { harness: "codex", family: "codex" },
+  );
+  const { client, snapshot } = await connect(daemon);
+  try {
+    const summaries = () => snapshot().rows.filter((row: AcpmuxRow) => row.kind === "turnSummary");
+    await until(() => summaries().length === 2, "both turns' ends");
+    const split = { output: 4_017, input: 314_899, cacheRead: 3_021_696, cacheWrite: 0 };
+    expect(summaries().map((row: AcpmuxRow) => row.tokens)).toEqual([split, split]);
+  } finally {
+    client.close();
+  }
+});
+
+// Claude Code behind the built-in `cmux` router profile (claude-stdio, family `claude`): an older
+// acpmux's unmarked record had its fresh input alone, as every Claude Code record did.
+test("a cmux router chat's older turn_result keeps its fresh input", async () => {
+  const daemon = fakeDaemon(
+    record([
+      prompt("fix the build"),
+      started,
+      [
+        "mux",
+        "turn_result",
+        {
+          status: "completed",
+          outputTokens: 23_702,
+          inputTokens: 112,
+          cacheReadTokens: 4_530_027,
+          cacheWriteTokens: 124_616,
+        },
+      ],
+    ]),
+    { harness: "cmux", family: "claude" },
+  );
+  const { client, snapshot } = await connect(daemon);
+  try {
+    const summary = () => snapshot().rows.find((row: AcpmuxRow) => row.kind === "turnSummary");
+    await until(() => summary() !== undefined, "the turn's end");
+    expect(summary()?.tokens).toEqual({ output: 23_702, input: 112, cacheRead: 4_530_027, cacheWrite: 124_616 });
   } finally {
     client.close();
   }

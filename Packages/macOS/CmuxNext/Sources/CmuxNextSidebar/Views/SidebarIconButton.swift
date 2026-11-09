@@ -43,6 +43,9 @@ final class SidebarIconButton: ClickableButton {
     /// The label point size the icon sits beside, read at layout time so density changes apply live.
     private let pointSize: () -> CGFloat
     private var renderedSize: CGFloat = 0
+    /// Draws the add buttons' one + (`NSImage.addGlyph`, the tab row's New Tab size) instead of the
+    /// pack's `action.add`: the sidebar's New Workspace.
+    var drawsAddGlyph = false { didSet { if drawsAddGlyph != oldValue { renderedSize = 0; renderIcon() } } }
     /// An SF Symbol drawn through the pack (`NSImage.icon(symbol:)`) for a glyph
     /// the pack has no name for, such as the group editor's emoji button.
     private var symbol: String?
@@ -140,7 +143,8 @@ final class SidebarIconButton: ClickableButton {
         guard size != renderedSize else { return }
         renderedSize = size
         let side = CGFloat.iconRowSize(forLabelPointSize: size)
-        let image = symbol.map { NSImage.icon(symbol: $0, size: side) } ?? NSImage.icon(icon, size: side)
+        let image = drawsAddGlyph ? NSImage.addGlyph(side: side)
+            : symbol.map { NSImage.icon(symbol: $0, size: side) } ?? NSImage.icon(icon, size: side)
         image.accessibilityDescription = label
         self.image = image
     }
@@ -194,8 +198,13 @@ final class SidebarIconButton: ClickableButton {
         if takesKeyFocus { keyRepaint.track() }
     }
 
+    /// Draws its hover, pressed and focus fills as a circle instead of the rounded square.
+    var isRound = false {
+        didSet { needsDisplay = true }
+    }
+
     override func updateLayer() {
-        layer?.cornerRadius = Metrics.itemCornerRadius
+        layer?.cornerRadius = isRound ? min(bounds.width, bounds.height) / 2 : Metrics.itemCornerRadius
         performWithTheme {
             contentTintColor = tintOverride ?? (hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary)
         }
@@ -215,8 +224,24 @@ final class SidebarIconButton: ClickableButton {
     override func otherMouseDown(with event: NSEvent) { nextResponder?.otherMouseDown(with: event) }
     override func otherMouseUp(with event: NSEvent) { nextResponder?.otherMouseUp(with: event) }
 
+    /// A pointer press before this moment (`NSEvent.timestamp`, seconds since boot) is ignored: the
+    /// button just showed under the pointer (``ignorePointer(for:now:)``). Keys and VoiceOver are
+    /// never ignored. A stored deadline, no timer, as ``SidebarUpdateButton`` keeps it.
+    private var ignoresPointerUntil: TimeInterval = 0
+
+    /// Ignores pointer presses for `duration` from now: the button just showed where the pointer
+    /// may already be clicking, so a click meant for what was there must not land on this.
+    func ignorePointer(for duration: TimeInterval = SidebarUpdateButton.appearGuard,
+                       now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        ignoresPointerUntil = now + duration
+    }
+
+    /// Whether a pointer press at `timestamp` (an `NSEvent.timestamp`) is ignored.
+    func ignoresPointer(at timestamp: TimeInterval) -> Bool { timestamp < ignoresPointerUntil }
+
     /// NSButton tracks the click inside `super.mouseDown` and returns on release.
     override func mouseDown(with event: NSEvent) {
+        if ignoresPointer(at: event.timestamp) { return }
         guard isEnabled else { return super.mouseDown(with: event) }
         changeHover { $0.pressed = true }
         super.mouseDown(with: event)

@@ -224,12 +224,12 @@ test("an agent's waiting message: its line, no Read after this turn, a message's
   const entry = agent(1);
   await card(entry, calls);
   expect(host.querySelector(".cv-received__from")?.textContent).toBe("lane-1");
-  expect(host.querySelector(".cv-disclosure__below")?.textContent).toContain("CI is green on #24001");
+  expect(host.querySelector(".cv-received__preview")?.textContent).toContain("CI is green on #24001");
   expect(host.querySelector(".cv-received__queued-head, .cv-received__queued")).toBeNull();
   expect(host.textContent).not.toContain("Read after this turn");
   expect(host.querySelector(".acpmux-queued, .cv-spinner, [data-spinner]")).toBeNull();
   expect(host.querySelector(".cv-received__text")).toBeNull();
-  await act(async () => host.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!.click());
+  await act(async () => host.querySelector<HTMLButtonElement>("button.cv-agentmsg__toggle")!.click());
   expect(host.querySelector(".cv-received__text")?.textContent).toContain("CI is green on #24001");
   // The sender's name opens its chat.
   await act(async () => host.querySelector<HTMLButtonElement>("button.cv-received__from")!.click());

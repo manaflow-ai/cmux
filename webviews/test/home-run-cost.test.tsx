@@ -6,7 +6,7 @@ import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import * as agentRows from "../src/agent-session/acpmux/conversation/AgentMessageRow";
+import * as agentRows from "../src/agent-session/acpmux/conversation/agentMessageRowModel";
 import { RunCard } from "../src/pages/home-channels/RunCard";
 import { RunSheet } from "../src/pages/home-channels/RunSheet";
 import table from "../src/pages/home-channels/generated/strings.json";

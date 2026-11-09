@@ -28,12 +28,11 @@ impl State {
     /// The catalog owner indexed under host id `terminal_id`, if the index
     /// names one that still carries that host identity.
     pub(super) fn indexed_catalog_terminal(&self, terminal_id: &str) -> Option<&Arc<Surface>> {
-        let public_id = self.terminal_catalog_by_host.get(terminal_id)?;
-        self.terminal_catalog.get(public_id).filter(|surface| {
-            surface
-                .terminal_host_identity()
-                .is_some_and(|identity| identity.terminal_id == terminal_id)
-        })
+        crate::route_table::indexed_owner(
+            &self.terminal_catalog,
+            &self.terminal_catalog_by_host,
+            terminal_id,
+        )
     }
 
     /// Insert a catalog owner and index its host id. A different runtime
@@ -72,6 +71,15 @@ impl State {
 }
 
 impl Mux {
+    /// The runtime id of the in-process terminal whose host id is `host`
+    /// (W5-P: a terminal selector takes a host id, and the host index holds
+    /// hosted terminals only).
+    pub(crate) fn in_process_terminal_by_host(&self, host: &str) -> Option<SurfaceId> {
+        let reserved =
+            self.reserved_in_process_terminals.lock().unwrap_or_else(PoisonError::into_inner);
+        reserved.iter().find(|(_, identity)| identity.terminal_id == host).map(|(id, _)| *id)
+    }
+
     /// The catalog owner of host terminal `terminal_id`; two owners with that
     /// identity are `duplicate_terminal_id`.
     pub(super) fn catalog_terminal_by_host(

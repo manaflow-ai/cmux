@@ -97,6 +97,10 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
 
       # Before any token exists: the tip must be a feat-cmux-next commit.
       - name: Check the tip is on feat-cmux-next
@@ -182,7 +186,9 @@ jobs:
     continue-on-error: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # The routing App's key, as nightly.yml's pick-nightly-build-runner reads it.
-    environment: ci-routing-agent
+    environment:
+      name: ci-routing-agent
+      deployment: false
     timeout-minutes: 5
     permissions:
       # The queue janitor's pool snapshot (an artifact).

@@ -64,7 +64,12 @@ pub const FAMILIES: &[&str] = &[
     // The Agent Memory app's search (`memory.search`), answered on the Mac
     // from the agent memory index (`optchat-chief agent-memory`).
     "memory",
+    // The agent chats the Mac app's sidebar shows (`agent_chat.list`), for
+    // a customize section's own thread list; read from the app's acpmux lanes.
+    "agent_chat",
     "credential",
+    // `toast.show` (`cmux.toast`), shown by the Mac app's toast presenter.
+    "toast",
 ];
 
 /// Ops that wait for the user (a file panel) get the long deadline.
@@ -511,6 +516,8 @@ mod tests {
         assert_eq!(family_of("app.settings.set"), "app.settings");
         assert_eq!(family_of("fs.pick"), "fs");
         assert!(FAMILIES.contains(&family_of("agent_cli.list")));
+        assert!(FAMILIES.contains(&family_of("agent_chat.list")));
+        assert!(!FAMILIES.contains(&family_of("agent.list")), "the daemon owns agent.*");
         let mut params = json!({ "provider": "github" });
         normalize_method(&mut params);
         assert_eq!(params["method"], "GET");

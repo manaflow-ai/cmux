@@ -104,13 +104,12 @@ extension CloudHandlers {
             "owner": .string(owner),
             "created_by": session.machine.createdBy.map(ActionResultValue.string) ?? .null,
             "created_at": session.machine.createdAt.map { .string($0.formatted(.iso8601)) } ?? .null,
+            "error": session.machine.lastChangeFailure.map { .object(["code": .string($0.code), "message": .string($0.message)]) } ?? .null,
         ])
     }
 
     /// The machine's status: the record's (``CloudMachineSession/effectiveStatus``),
     /// never the progress stage, which calls a paused machine `failed` (it
     /// shows "paused, click to resume" as a stopped stage).
-    static func listedStatus(_ session: CloudMachineSession) -> String {
-        session.effectiveStatus.rawValue
-    }
+    static func listedStatus(_ session: CloudMachineSession) -> String { session.effectiveStatus.rawValue }
 }

@@ -50,8 +50,8 @@
   },
   "apt": {
     "ubuntu": {
-      "uri": "https://snapshot.ubuntu.com/ubuntu/20261022T000000Z/",
-      "snapshot": "20261022T000000Z",
+      "uri": "https://snapshot.ubuntu.com/ubuntu/20261104T000000Z/",
+      "snapshot": "20261104T000000Z",
       "suites": ["noble", "noble-updates", "noble-backports", "noble-security"],
       "components": ["main", "restricted", "universe", "multiverse"],
       "signedBy": "/usr/share/keyrings/ubuntu-archive-keyring.gpg",
@@ -60,9 +60,9 @@
         "arping": "2.24-1build2",
         "at-spi2-common": "2.52.0-1build1",
         "at-spi2-core": "2.52.0-1build1",
-        "bind9-dnsutils": "1:9.18.39-0ubuntu0.24.04.8",
-        "bind9-host": "1:9.18.39-0ubuntu0.24.04.8",
-        "bind9-libs": "1:9.18.39-0ubuntu0.24.04.8",
+        "bind9-dnsutils": "1:9.18.39-0ubuntu0.24.04.9",
+        "bind9-host": "1:9.18.39-0ubuntu0.24.04.9",
+        "bind9-libs": "1:9.18.39-0ubuntu0.24.04.9",
         "bubblewrap": "0.9.0-1ubuntu0.3",
         "ca-certificates": "20260816ubuntu0.24.04.1",
         "curl": "8.5.0-2ubuntu10.16",
@@ -383,27 +383,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "af078d6c714ce5420706865bf98e42c8ed2bce82",
-      "url": "https://files.cmux.com/cmux-tui/af078d6c714ce5420706865bf98e42c8ed2bce82/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "d719632c45a474be9bf15645f435c5376e4a5cb03b8107b5abb9af09cf5a9d2c",
-      "size": 151526032,
+      "version": "3747293ebbc36d47a51a5375df9073e4cd4b57b6",
+      "url": "https://files.cmux.com/cmux-tui/3747293ebbc36d47a51a5375df9073e4cd4b57b6/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "e04b56a37fd4ce170f2776967b1452ea52539a83fe8b85f643e0a511b06246fe",
+      "size": 179508384,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "acpmux": "cmux-tui", "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/af078d6c714ce5420706865bf98e42c8ed2bce82/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/41666017028; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/3747293ebbc36d47a51a5375df9073e4cd4b57b6/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/42704468125; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "af078d6c714ce5420706865bf98e42c8ed2bce82",
-      "url": "https://files.cmux.com/cmux-tui/af078d6c714ce5420706865bf98e42c8ed2bce82/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "443618d2328d4cf1ca22c6566bcbdea8d992decb4c49a5819a457d86e2b7048b",
-      "size": 4251072,
+      "version": "3747293ebbc36d47a51a5375df9073e4cd4b57b6",
+      "url": "https://files.cmux.com/cmux-tui/3747293ebbc36d47a51a5375df9073e4cd4b57b6/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "a46f9ef63f38a89ba387bc77fafc642510ca6977bdef073f5f4f3c011c0de7f0",
+      "size": 4957312,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/af078d6c714ce5420706865bf98e42c8ed2bce82/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/41666017028; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/3747293ebbc36d47a51a5375df9073e4cd4b57b6/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/42704468125; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "coderouter",
@@ -573,6 +573,28 @@
         }
       },
       "source": "vercel-labs/agent-desktop release v1.0.2 (2026-10-30, Apache-2.0; docs/install.md: a native archive with its platform helper kept beside the executable). Computer use through the AT-SPI accessibility tree (at-spi2-core is in the base set; X11 input needs libxtst6, display role). Archive: agent-desktop and agent-desktop-linux-clipboard-owner (its helper, found beside the binary through the store link), linked only against libc and libgcc_s. sha256 and size from the release asset digests and checksums.txt; gh attestation verify --repo vercel-labs/agent-desktop passed on the x86_64 archive."
+    },
+    {
+      "name": "cmux-rd",
+      "version": "0.2.3",
+      "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.3/cmux-rd-0.2.3-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "06549da6bf9a54d991e01c4d6489517718676a2575d1cb7bdcbfaa5d2d4357b8",
+      "size": 7186170,
+      "format": "tar.gz",
+      "bin": {
+        "cmux-rd": "bin/cmux-rd"
+      },
+      "versionArgs": [],
+      "checksumsUrl": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.3/checksums.txt",
+      "checksumsName": "cmux-rd-0.2.3-x86_64-unknown-linux-gnu.tar.gz",
+      "roles": [
+        "desktop"
+      ],
+      "notices": [
+        "LICENSE",
+        "THIRD_PARTY_LICENSES.md"
+      ],
+      "source": "manaflow-ai/cmux release cmux-rd-v0.2.3 (2026-11-09; tag on fd8a53265837, feat-cmux-next after #39099 and #39159; release run 42567226980). The cmux.rd/1 Linux host (cmux-tui/crates/cmux-rd-host, scripts/release.py), with the UDP datagram link (cap link.udp, --link-stun). sha256 and size from checksums.txt, the release asset digest and the download. Archive: LICENSE (GPL-3.0-or-later), THIRD_PARTY_LICENSES.md, bin/cmux-rd. OpenH264 is not in it: cmux-rd openh264-install fetches Cisco's binary on the machine."
     }
   ],
   "roles": {

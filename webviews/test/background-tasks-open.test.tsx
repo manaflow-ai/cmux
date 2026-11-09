@@ -53,8 +53,8 @@ const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { trayItems } = await import("../src/agent-session/acpmux/subagents/runningTray");
 const { SubagentTray } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
 const { resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
-const { BackgroundTasksPanel, panelSections } =
-  await import("../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel");
+const { BackgroundTasksPanel } = await import("../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel");
+const { panelSections } = await import("../src/agent-session/acpmux/backgroundTasks/backgroundTasksPanelModel");
 type BackgroundGroup = import("../src/agent-session/acpmux/backgroundTasks/backgroundTasks").BackgroundGroup;
 type AcpmuxRow = import("../src/agent-session/acpmux/model").AcpmuxRow;
 type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
@@ -250,18 +250,19 @@ describe("the Background tasks panel", () => {
       expect(heads).toEqual(["Running1", "Finished2"]);
       const live = view.host.querySelector('[data-group="agent:live"]')!;
       expect(live.querySelector(".acpmux-bg__fold")?.textContent).toBe("3 tasks, 1 failed");
+      // A heading folds its agents: Finished starts folded, as Claude Desktop's panel opens.
+      expect(
+        view.host.querySelector('[data-section="finished"] .acpmux-bg__section-head')?.getAttribute("aria-expanded"),
+      ).toBe("false");
+      expect(view.host.querySelector('[data-group="agent:review"]')).toBeNull();
+      await view.click(view.host.querySelector('[data-section="finished"] .acpmux-bg__section-head'));
+      expect(view.host.querySelector('[data-group="agent:review"]')).not.toBeNull();
       const review = view.host.querySelector('[data-group="agent:review"]')!;
       expect(review.querySelector(".acpmux-bg__agent .acpmux-bg__time")?.textContent).toBe("50s");
       const broken = view.host.querySelector('[data-group="agent:broken"]')!;
       const state = broken.querySelector(".acpmux-bg__agent .acpmux-bg__time");
       expect(state?.textContent).toBe("Failed");
       expect(state?.classList.contains("acpmux-bg__failed")).toBe(true);
-      // A heading folds its agents.
-      await view.click(view.host.querySelector('[data-section="finished"] .acpmux-bg__section-head'));
-      expect(view.host.querySelector('[data-group="agent:review"]')).toBeNull();
-      expect(
-        view.host.querySelector('[data-section="finished"] .acpmux-bg__section-head')?.getAttribute("aria-expanded"),
-      ).toBe("false");
     } finally {
       await view.done();
     }
@@ -270,7 +271,8 @@ describe("the Background tasks panel", () => {
   test("an agent's row and each of its tasks open that agent's transcript, and Back returns", async () => {
     const view = await panel();
     try {
-      // A finished agent, from the Finished heading.
+      // A finished agent, from the Finished heading (folded at first).
+      await view.click(view.host.querySelector('[data-section="finished"] .acpmux-bg__section-head'));
       await view.click(view.host.querySelector('[data-group="agent:review"] .acpmux-bg__name'));
       expect(view.title()).toBe("Review asks sort change");
       expect(view.listHidden()).toBe(true);
@@ -289,5 +291,43 @@ describe("the Background tasks panel", () => {
     } finally {
       await view.done();
     }
+  });
+});
+
+// Leo, 2026-11-03: "it should be opening up on the right pane as a tab instead of this". The panel
+// opens as a tab in the chat's right column through the subagent pane path, under a reserved id.
+describe("Background tasks opens as a tab in the right column", () => {
+  test("it asks the app for the chat's right-column tab, named Background tasks", async () => {
+    const { BACKGROUND_PANE, isBackgroundPane, openBackgroundPane } =
+      await import("../src/agent-session/acpmux/backgroundTasks/backgroundPane");
+    const { revealedSubagent } = await import("../src/agent-session/acpmux/subagents/subagentPanes");
+    const calls: [string, Record<string, unknown>][] = [];
+    const opened = await openBackgroundPane(async (method, params) => {
+      calls.push([method, params]);
+      return { opened: true };
+    }, "Background tasks");
+    expect(opened).toBe(true);
+    expect(calls).toEqual([
+      ["chat.subagentPane", { subagent: BACKGROUND_PANE, focus: true, title: "Background tasks" }],
+    ]);
+    // The tab's page reads the app's `subagent:<id>` reveal as this panel, never as a subagent.
+    expect(isBackgroundPane(revealedSubagent(`subagent:${BACKGROUND_PANE}`))).toBe(true);
+    expect(isBackgroundPane(revealedSubagent("subagent:toolu_01"))).toBe(false);
+    // A host that opens no tab answers false (or throws), and the chat's own column takes the panel.
+    expect(await openBackgroundPane(async () => ({ opened: false }), "Background tasks")).toBe(false);
+    expect(await openBackgroundPane(async () => Promise.reject(new Error("no host")), "Background tasks")).toBe(false);
+  });
+
+  test("in its own tab the header keeps Clear finished, without Expand or Close", async () => {
+    const host = dom.window.document.getElementById("root")!;
+    const root = createRoot(host);
+    await act(async () =>
+      root.render(createElement(BackgroundTasksPanel, { groups: GROUPS, views: VIEWS, onClearFinished: () => {} })),
+    );
+    const labels = [...host.querySelectorAll(".acpmux-bg__head button")].map((b) => b.getAttribute("aria-label"));
+    expect(labels).not.toContain("Expand");
+    expect(labels).not.toContain("Close");
+    expect(host.querySelector(".acpmux-bg__title")?.textContent).toBe("Background tasks");
+    await act(async () => root.unmount());
   });
 });

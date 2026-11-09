@@ -7,6 +7,12 @@
 // cards show here as they change. The arms are the opened group's looks
 // (`data-tool-steps-look`, conversation.css `.cv-steps`): shared (the transcript's default, no step
 // icons and no guide, Leo 2026-11-03), guide (the replaced cmux#32363 look), card, tree and zebra.
+// The opened lead thought's label has its own looks (`data-lead-thought-look`): "Thought for 6s" with
+// the chevron right after it (shared, shipped), the chevron alone at the row's far edge (lead-edge,
+// cmux#27896, replaced) and the chevron alone at the text column (lead-bare). step-hover shows an
+// inner step under the pointer: its chevron shows and its words light, never its glyph (Codex parity).
+// ios-sheet is the compact grouped sheet Leo asked for on 2026-11-04: a kind icon, a concise
+// step title and a chevron into useful detail, on a card surface.
 import answeredCollapsed from "../../../../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/answered-collapsed.json";
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
@@ -14,6 +20,7 @@ import type { Play } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxPlanEntry } from "../model";
 import type { AgentQuestion } from "../question/model";
 import { QUESTION_RECORD } from "../question/record";
+import { mixedToolTurnFixture } from "./mixedToolRunFixture";
 
 const MINUTE = 60_000;
 const at = (minutes: number) => Date.UTC(2026, 9, 29, 9, 0, 0) + minutes * MINUTE;
@@ -108,12 +115,49 @@ const openRun: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-steps"), { capMs: 10_000 });
 };
 
-const variant = (look: "shared" | "guide" | "card" | "tree" | "zebra", note: string): AgentPaneVariant => ({
+/// Opens the run, then points at its second step. A command step reads as its command, never as
+/// Claude's Bash description (Codex parity), so it is "rg -l fetchWithRetry src".
+const hoverStep: Play = async (ctx) => {
+  await openRun(ctx);
+  await ctx.hover({ role: "button", name: /Searched for “fetchWithRetry”/ });
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-steps > .cv-step > .cv-tool:hover"), { capMs: 10_000 });
+};
+
+const variant = (
+  look: "shared" | "guide" | "card" | "tree" | "zebra" | "ios-sheet",
+  note: string,
+  { lead, play = openRun }: { lead?: "edge" | "bare"; play?: Play } = {},
+): AgentPaneVariant => ({
   note,
   snapshot: chat(turn(), { title: "Stop retrying client errors" }),
-  documentAttributes: { "tool-steps-look": look },
-  play: openRun,
+  documentAttributes: { "tool-steps-look": look, ...(lead ? { "lead-thought-look": lead } : {}) },
+  play,
 });
+
+function mixedVariant(harness: "claude" | "codex", working: boolean): AgentPaneVariant {
+  return {
+    note: `${harness}, ${working ? "live" : "finished"}: raw turn rows project through the app into mixed steps, with discovery noise omitted.`,
+    snapshot: chat(mixedToolTurnFixture(working), {
+      title: "Mixed tool steps",
+      harness,
+      model: harness === "codex" ? "gpt-6-astra" : "claude-opus-5-5",
+      isWorking: working,
+    }),
+    play: async (ctx) => {
+      // A running turn keeps its steps in sight, with no line to open (cmux#38339).
+      if (working) {
+        await ctx.waitFor(() => ctx.document.querySelector("[data-tool-id]"), { capMs: 10_000 });
+        return;
+      }
+      await ctx.waitFor(() => ctx.document.querySelector(".cv-worked, .cv-tool.is-run"), { capMs: 10_000 });
+      const worked = ctx.document.querySelector(".cv-worked");
+      if (worked?.getAttribute("aria-expanded") === "false") await ctx.click({ selector: ".cv-worked" });
+      await ctx.waitFor(() => ctx.document.querySelector(".cv-tool.is-run"), { capMs: 10_000 });
+      await ctx.click({ selector: ".cv-tool.is-run" });
+      await ctx.waitFor(() => ctx.document.querySelector("[data-mixed-tool-steps]"), { capMs: 10_000 });
+    },
+  };
+}
 
 export default agentPaneEntry({
   id: "agent-pane.claude-desktop-organization",
@@ -127,9 +171,17 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/toolGroups.ts",
   ],
   variants: {
+    "mixed-claude": mixedVariant("claude", false),
+    "mixed-codex": mixedVariant("codex", false),
+    "mixed-claude-live": mixedVariant("claude", true),
+    "mixed-codex-live": mixedVariant("codex", true),
+    "ios-sheet": variant(
+      "ios-sheet",
+      "Alternative (Leo, 2026-11-04): a compact grouped sheet with a kind icon, concise step title and chevron into command/output, diff or capture detail.",
+    ),
     shared: variant(
       "shared",
-      "Chosen default, as Claude Code desktop lists a run: the steps under the run's line with no icons and no guide, their words on its text column; the thought's text flush under its label.",
+      'Chosen default, as Claude Code desktop lists a run: the steps under the run\'s line with no icons and no guide, their words on its text column; the opened lead thought reads "Thought for 6s" with its chevron right after the words, its text flush under them.',
     ),
     guide: variant(
       "guide",
@@ -141,5 +193,20 @@ export default agentPaneEntry({
     ),
     tree: variant("tree", "Alternative: the earlier tree guide with the glyphs back, hairlines between steps."),
     zebra: variant("zebra", "Alternative: no ring or hairlines; every other step on the cards' fill."),
+    "lead-edge": variant(
+      "shared",
+      "Replaced (cmux#27896): the opened lead thought has no label; its chevron sits alone at the top of the row's far edge, beside the text.",
+      { lead: "edge" },
+    ),
+    "lead-bare": variant(
+      "shared",
+      "Alternative: the opened lead thought has no label; its chevron sits alone at the text column over the text.",
+      { lead: "bare" },
+    ),
+    "step-hover": variant(
+      "shared",
+      "An inner step under the pointer: its chevron shows after its words, and its words light to the text tone while its glyph keeps its own (Codex parity).",
+      { play: hoverStep },
+    ),
   },
 });

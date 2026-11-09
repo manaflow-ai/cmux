@@ -8,6 +8,12 @@
 // An invite (a person the owner invited by account) is `/i/<share_id>`: no secret at all. The room
 // signs the visitor in with their cmux account before it serves the page, and Join POSTs `accept`
 // with only the attempt id; the room takes the account and the name from that sign-in.
+//
+// A link guest who is signed in to cmux on the room's site joins as that account (Leo,
+// 2026-11-07: "if you imagine the Google Docs sharing flow, you just come in with your Gmail
+// account and that's it"): the page asks the room `whoami` first and shows "Join as <name>". The
+// redeem body stays `{attempt_id, secret, name}`; the room adds the account from its own verified
+// sign-in, never from anything this page sends.
 import { displayName } from "../acpmux/multiplayer/participants";
 
 /** A share or secret id as the daemon makes them: 128-bit, URL-safe. */
@@ -18,6 +24,9 @@ export type GuestLink = { shareId: string; secret?: string; invite?: true };
 
 /** An invitee's role: `view` watches only, `talk` may also send messages (each held for the owner). */
 export type GuestRole = "view" | "talk";
+
+/** How a tab joined: by the link's secret (an anonymous guest) or by an invite's accept (the account). */
+export type JoinedVia = "link" | "invite";
 
 /** Errors the room answers a redeem with; anything else is `failed`. */
 export type RedeemError =
@@ -38,6 +47,22 @@ export type Redeem = (shareId: string, request: RedeemRequest) => Promise<Redeem
 export type AcceptRequest = { attempt_id: string };
 export type Accept = (shareId: string, request: AcceptRequest) => Promise<RedeemResult>;
 
+/** Who the room's own sign-in says this visitor is (`POST /whoami`); never their account or email. */
+export type WhoAmI = { signedIn: false } | { signedIn: true; name: string; avatarUrl?: string };
+export type WhoAmIFetch = (shareId: string) => Promise<WhoAmI>;
+
+const ANONYMOUS: WhoAmI = { signedIn: false };
+
+/** A profile picture the page may load: an https URL of at most 1024 bytes, as the daemon bounds it. */
+export function avatarUrl(value: unknown): string | undefined {
+  if (typeof value !== "string" || new TextEncoder().encode(value).length > 1024) return undefined;
+  try {
+    return new URL(value).protocol === "https:" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 const KNOWN: ReadonlySet<string> = new Set([
   "share.expired",
   "share.revoked",
@@ -51,7 +76,7 @@ const KNOWN: ReadonlySet<string> = new Set([
   "share.unverified",
 ]);
 
-const key = (shareId: string, what: "secret" | "attempt" | "joined" | "name" | "role") =>
+const key = (shareId: string, what: "secret" | "attempt" | "joined" | "name" | "role" | "via") =>
   `cmux.guest.${shareId}.${what}`;
 const role = (value: unknown): GuestRole | undefined => (value === "view" || value === "talk" ? value : undefined);
 
@@ -87,15 +112,43 @@ export function attemptId(
   return made;
 }
 
-/** The guest id this tab joined the share as (its cookie is set), so a reload goes straight to the chat. */
-export const joinedAs = (shareId: string, storage: Storage) => storage.getItem(key(shareId, "joined")) ?? undefined;
+/**
+ * How this tab joined. A join kept before the kind was recorded was an invite exactly when it has a
+ * role (the room names one only for an invitee).
+ */
+const joinedVia = (shareId: string, storage: Storage): JoinedVia => {
+  const via = storage.getItem(key(shareId, "via"));
+  if (via === "link" || via === "invite") return via;
+  return storage.getItem(key(shareId, "role")) === null ? "link" : "invite";
+};
+
+/**
+ * The guest id this tab joined the share as (its cookie is set), so a reload goes straight to the
+ * chat. On an invite page (`invite`) only an invite's join counts: a tab that joined by the link is
+ * an anonymous guest, so it accepts again as the account (and gets the invite's role).
+ */
+export const joinedAs = (shareId: string, storage: Storage, invite = false) => {
+  if (invite && joinedVia(shareId, storage) !== "invite") return undefined;
+  return storage.getItem(key(shareId, "joined")) ?? undefined;
+};
 
 /** The redeem worked: the secret and the attempt are spent, and the tab remembers it joined. */
 /** The name this tab joined the share with. */
 export const joinedName = (shareId: string, storage: Storage) => storage.getItem(key(shareId, "name")) ?? undefined;
 
-/** The role this tab's invitee joined with, when the room named one. */
-export const joinedRole = (shareId: string, storage: Storage) => role(storage.getItem(key(shareId, "role")));
+/**
+ * The role this tab joined with (on an invite page, an invite's only). A tab that joined by the
+ * link watches only, unless its redeem named `talk` (it joined as a signed-in account).
+ */
+export const joinedRole = (shareId: string, storage: Storage, invite = false): GuestRole | undefined => {
+  const via = joinedVia(shareId, storage);
+  if (invite && via !== "invite") return undefined;
+  const kept = role(storage.getItem(key(shareId, "role")));
+  // A link guest watches unless the redeem named `talk` (a signed-in account on a talk link); the
+  // daemon refuses an anonymous guest's messages whatever this tab kept.
+  if (via === "link" && storage.getItem(key(shareId, "joined")) !== null) return kept ?? "view";
+  return kept;
+};
 
 export function rememberJoined(
   shareId: string,
@@ -103,10 +156,12 @@ export function rememberJoined(
   storage: Storage,
   name?: string,
   joinedAs?: GuestRole,
+  via: JoinedVia = "link",
 ): void {
   storage.removeItem(key(shareId, "secret"));
   storage.removeItem(key(shareId, "attempt"));
   storage.setItem(key(shareId, "joined"), guestId);
+  storage.setItem(key(shareId, "via"), via);
   if (name) storage.setItem(key(shareId, "name"), name);
   if (joinedAs) storage.setItem(key(shareId, "role"), joinedAs);
   else storage.removeItem(key(shareId, "role"));
@@ -154,3 +209,30 @@ export const redeemOverFetch = (
 export const acceptOverFetch = (
   fetcher: (url: string, init: RequestInit) => Promise<Response> = (url, init) => fetch(url, init),
 ): Accept => join(fetcher, "accept");
+
+/**
+ * The room's `whoami`, over fetch: same origin, the sign-in cookie sent, no body. Anything but a
+ * signed-in answer (anonymous, a room without the route, a failure) is anonymous, so the page
+ * falls back to the name prompt.
+ */
+export const whoamiOverFetch =
+  (fetcher: (url: string, init: RequestInit) => Promise<Response> = (url, init) => fetch(url, init)): WhoAmIFetch =>
+  async (shareId) => {
+    try {
+      const response = await fetcher(`/v1/chat-shares/${encodeURIComponent(shareId)}/whoami`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      if (!response.ok) return ANONYMOUS;
+      const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      // The account's name as the daemon takes one (hidden characters dropped, one line, 64 at most).
+      const name = joinName(displayName(body.name) ?? "");
+      if (body.signed_in !== true || !name) return ANONYMOUS;
+      const avatar = avatarUrl(body.avatar_url);
+      return { signedIn: true, name, ...(avatar ? { avatarUrl: avatar } : {}) };
+    } catch {
+      return ANONYMOUS;
+    }
+  };

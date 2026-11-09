@@ -23,7 +23,7 @@ fn workspace(id: u64, key: &str, name: &str) -> RegistryWorkspace {
     }
 }
 
-fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
+pub(super) fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
     let revision = registry.snapshot().unwrap().revision;
     registry
         .commit(
@@ -6151,7 +6151,11 @@ fn schema_preflight_failures_defer_to_authoritative_open() {
     fs::remove_dir_all(root).unwrap();
 }
 
-fn reserve_terminal(registry: &mut WorkspaceRegistry, terminal_id: &str, expected_revision: u64) {
+pub(super) fn reserve_terminal(
+    registry: &mut WorkspaceRegistry,
+    terminal_id: &str,
+    expected_revision: u64,
+) {
     registry
         .commit_terminal(
             &WorkspaceMutation::daemon(format!("reserve-{terminal_id}"), "test").unwrap(),

@@ -70,7 +70,9 @@ impl Mux {
                 return None;
             }
             match registry.terminal_exit_snapshot(public_id) {
-                Ok(Some(snapshot)) if snapshot.generation == plan.old_incarnation => {
+                Ok(Some(snapshot))
+                    if plan.old_incarnation.as_deref() == Some(snapshot.generation.as_str()) =>
+                {
                     return Some(TerminalReplay {
                         cols: snapshot.cols,
                         rows: snapshot.rows,
@@ -139,8 +141,15 @@ impl Mux {
         );
         options.command = Some(integrated.command);
         options.extra_env = integrated.env;
-        // What it ran: an agent's resume command, else the command line.
-        let ran = self.respawn_ran(&plan.terminal_id, record);
+        // What it ran: an agent's resume command, else the command line,
+        // else a freed shell's last command.
+        let ran = self.respawn_ran(&plan.terminal_id, record).or_else(|| {
+            let last = plan.kept.iter().find_map(|kept| kept.last_command.as_ref())?;
+            Some(prefill::RanText::Last {
+                command: last.command.clone(),
+                exit_code: last.exit_code,
+            })
+        });
         let marker = crate::terminal_respawn_text::marker(ran.as_ref().map(|ran| ran.as_ran()));
         // An agent's live input frame is not replayed.
         let frame = previous

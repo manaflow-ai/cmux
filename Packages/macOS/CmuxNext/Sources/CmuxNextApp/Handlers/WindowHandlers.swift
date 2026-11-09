@@ -27,6 +27,7 @@ enum WindowHandlers {
             context.services.actionLatencyHUD.toggle(over: context.services.windows.active?.window)
             return .done
         })
+        ActionTargetTitles.setPaletteState("debug.actionLatencyHUD", in: registry) { context.services.actionLatencyHUD.isShown }
         // DEV and NIGHTLY (`isDebugOnly`): Debug menu > Main-Thread Blocking (N) > Reset Counts. Enabled only
         // in a build that has the detector (Debug, `CMUX_BLOCKING_CHECKS`): elsewhere reset does nothing.
         let blocking = context.services.blocking
@@ -48,9 +49,9 @@ enum WindowHandlers {
                 showMainWindow(context)
             }
         })
-        registry.bind("minimizeWindow", run: { _ in
-            // Show Main Window (showMainWindow) restores it.
-            context.activeWindow?.window?.miniaturize(nil)
+        registry.bind("minimizeWindow", run: { invocation in
+            // The window the target names (an agent's `window:<id>`), else the active one; Show Main Window restores it.
+            try context.window(invocation).window?.miniaturize(nil)
         })
         registry.bind("closeAllWindows", run: { _ in
             // Each window's own close check (an incognito window asks), then close.

@@ -1,7 +1,7 @@
 //! The model probes leave no chats behind (Lawrence 2026-10-11, "opening chat doesnt work").
 //!
 //! At daemon start acpmux asks every ACP harness for its models with one `session/new` in its own
-//! `<acpmux home>/unattended` folder (`hub::lifecycle` `probe_one`). Claude Code and Codex write a
+//! `<acpmux home>/unattended` folder (`hub::model_probe` `probe_one`). Claude Code and Codex write a
 //! transcript for that session, which showed up in All chats as "New chat · unattended". No
 //! person works in that folder, so every transcript recorded there is a probe's: this removes
 //! them after each probe and once at start (probes of earlier runs).

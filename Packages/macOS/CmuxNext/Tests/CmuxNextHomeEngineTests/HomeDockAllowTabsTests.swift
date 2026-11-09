@@ -1,5 +1,6 @@
 @testable import CmuxNextDaemon
 @testable import CmuxNextHomeEngine
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -56,7 +57,7 @@ struct HomeDockAllowTabsTests {
         store.noteHandshake(DaemonIdentity(capabilities: [DaemonCapability.pinnedDock.rawValue], generation: "home-dock-allow-tabs"))
         store.apply(snapshot: Self.tree(identified: false))
         let suite = "home-dock-allow-tabs-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         let workspace: @MainActor @Sendable () -> WorkspaceModel? = { store.workspaces.first { $0.resourceID == Self.workspaceResource } }
         return (store, HomeDock(defaults: defaults), defaults, { defaults.removePersistentDomain(forName: suite) }, workspace)
     }

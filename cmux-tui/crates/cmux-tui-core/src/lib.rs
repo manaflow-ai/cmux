@@ -12,6 +12,8 @@ mod agent_hook_question;
 mod agent_hooks;
 pub mod agent_launch;
 pub mod agent_message_prompt;
+pub mod agent_start_launch;
+mod agent_status;
 pub mod agent_view;
 mod apps;
 pub mod route_table;
@@ -24,6 +26,7 @@ mod browser_provider;
 /// Where the daemon finds the first-party app packages (cx-0uo1, cx-e0cs).
 pub mod first_party_dir;
 mod lock_rank;
+pub mod remote_host;
 /// The cloud conversations proxy; its own crate, re-exported at the old path.
 pub use cmux_tui_cloud_conversations as cloud_conversations;
 pub mod chief_brains;
@@ -34,6 +37,8 @@ mod conversation_search;
 mod conversation_store;
 pub mod daemon_env;
 use cmux_tui_util::debug_spans;
+#[cfg(unix)]
+pub mod blob_fetch;
 mod browser_profile_ops;
 mod browser_site_engines;
 pub mod diagnostics;
@@ -70,9 +75,13 @@ pub mod provider_management;
 mod pty_input_room;
 #[cfg(unix)]
 mod pty_write;
+/// A mutex-guarded value whose readers load a published projection without the lock (R-DAEMON-STATE).
+use cmux_tui_util::published;
 mod terminal_title;
 use cmux_tui_remote_access::remote_relay_state;
 mod login_shell;
+/// The R-DAEMON-STATE stage switches (one per stage, deleted when the stage passes).
+mod rds_switch;
 pub mod release;
 mod request_origin;
 pub mod resource;
@@ -94,10 +103,14 @@ mod sidebar_resource;
 pub mod sizing_policy;
 mod state;
 pub mod store_schemas;
+pub mod wait_pattern;
 use cmux_tui_util::stream_interrupt;
 #[cfg(unix)]
 mod holder_runtime;
+#[cfg(feature = "hotpatch")]
+pub mod hotpatch;
 mod surface;
+mod tasks_link;
 mod terminal_activity;
 #[cfg(unix)]
 mod terminal_backend;
@@ -107,8 +120,11 @@ mod terminal_loss_cause;
 #[cfg(any(unix, windows))]
 mod terminal_loss_log;
 mod terminal_metadata;
+mod terminal_tail;
 pub use cmux_tui_util::terminal_respawn_text;
 mod workspace_registry;
+/// A synthetic registry of a long-lived owner's shape (startup measurements).
+pub use workspace_registry::synth as synth_registry;
 
 /// The executable terminal hosts run from (the cmux-tui-platform crate).
 #[cfg(unix)]
@@ -124,6 +140,8 @@ pub mod session_state_import;
 pub mod terminal_host;
 pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+pub mod test_owner;
 #[cfg(unix)]
 pub use cmux_tui_platform::unix_process_scope;
 pub use cmux_tui_util::user_settings;
@@ -131,9 +149,11 @@ pub use cmux_tui_util::user_settings;
 pub use agent_hook_question::agent_hook_live_question;
 pub use agent_hooks::{
     AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, LIVE_MESSAGE_CHARS, LIVE_PROMPT_CHARS,
-    agent_hook_journal_ingress, agent_hook_live_fields, agent_hook_live_prompt,
-    agent_hook_live_reply, stamp_agent_hook_observed_now,
+    agent_hook_event_starts_session, agent_hook_event_starts_turn, agent_hook_journal_ingress,
+    agent_hook_live_fields, agent_hook_live_prompt, agent_hook_live_reply,
+    stamp_agent_hook_observed_now,
 };
+pub use agent_status::AgentStatus;
 pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 /// The owner raises its open-file soft limit at start; terminal hosts and
 /// PTY children get the original back (`cmux_pty::open_files`).
@@ -196,14 +216,15 @@ pub use surface::{
 };
 pub use surface::{apply_terminal_color_overrides, default_child_term};
 pub use workspace_registry::{
-    Actor, FrontendProjection, JournalAppendCommit, JournalAuthority, JournalCheckpoint,
-    JournalClass, JournalContentRef, JournalEventSchema, JournalHookDeliveryPolicy,
-    JournalHookExec, JournalHookFilter, JournalHookManifest, JournalHookRegex, JournalHookRetry,
-    JournalIngress, JournalProducer, JournalProducerManifest, JournalReplayPolicy, JournalSegment,
-    JournalSensitivity, JournalSubject, PersistentSessionStateReset,
-    PersistentSessionStateResetPreview, PersistentSessionStateResetter, ProjectionCommit,
-    RegistryCommit, RegistryCompactError, RegistryCompaction, RegistryEvent, RegistryQuarantined,
-    RegistrySnapshot, RegistryWorkspace, SessionJournalPage, SessionJournalRecord,
+    Actor, EndedTerminalState, FrontendProjection, JournalAppendCommit, JournalAuthority,
+    JournalCheckpoint, JournalClass, JournalContentRef, JournalEventSchema,
+    JournalHookDeliveryPolicy, JournalHookExec, JournalHookFilter, JournalHookManifest,
+    JournalHookRegex, JournalHookRetry, JournalIngress, JournalProducer, JournalProducerManifest,
+    JournalReplayPolicy, JournalSegment, JournalSensitivity, JournalSubject,
+    PersistentSessionStateReset, PersistentSessionStateResetPreview,
+    PersistentSessionStateResetter, ProjectionCommit, RegistryCommit, RegistryCompactError,
+    RegistryCompaction, RegistryEvent, RegistryQuarantined, RegistrySnapshot, RegistryWorkspace,
+    SessionJournalPage, SessionJournalRecord, TabAttentionRecord,
     UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry, compact_registry,
 };
 

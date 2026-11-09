@@ -63,7 +63,7 @@ final class SandboxRunNotices {
     }
 
     /// Whether `view`'s tab is incognito, read as its send is issued, before the line drains (#31109). No tab: taken as one.
-    func sendIsIncognito(_ view: AgentPaneView) -> Bool { services?.agentTabs.views.first { $0.value === view }.map { incognito(tab: $0.key) } ?? true }
+    func sendIsIncognito(_ view: AgentPaneView) -> Bool { services?.agentTabs.views.first { $0.value === view }.map { incognito(tab: $0.key.key) } ?? true }
 
     func ended(_ end: SandboxRunEnd) {
         let snapshot = (try? JSONSerialization.jsonObject(with: end.snapshot)) as? [String: Any] ?? [:]
@@ -168,6 +168,6 @@ final class SandboxRunNotices {
 
     /// The agent tab whose page holds the send of attempt `key`.
     private func tab(holding key: String) -> String? {
-        services?.agentTabs.views.first { $0.value.model.sandboxRuns.holds(key: key) }?.key
+        services?.agentTabs.views.first { $0.value.model.sandboxRuns.holds(key: key) }?.key.key
     }
 }

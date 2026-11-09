@@ -39,10 +39,54 @@ const EXECUTE = /(^terminal\.input\.(write|keys|mouse)$|\.run$|^terminal\.(attac
 // settings.set/reset/reset_all (cx-9ce.10): the settings file is the person's; an app may read settings only.
 // layout.bulk (cx-gzh.5) closes tabs, panes, screens and workspaces, like every .close op.
 // workspace.open_url (cx-ebm.59.3) navigates the person's browser tabs; Home and the person's tools only.
-const NEVER = /(^settings\.(set|reset|reset_all)$|^layout\.bulk$|^keybindings\.(set|remove|reset)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^workspace\.open_url$|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|release|send|unsend)$)/
+// conductor_import.plan/record read Conductor's database and worktrees and keep the import ledger: the app's
+// own Import from Conductor only.
+// classic_import.plan/record read classic cmux's session files and keep the migration ledger: the app's own
+// move from classic cmux only.
+// palette.rank ranks rows for a cmux page's own palette (the Channels page); apps have `cmux.palette`, the
+// app palette, so the op family would collide with it.
+const NEVER = /(^settings\.(set|reset|reset_all)$|^layout\.bulk$|^keybindings\.(set|remove|reset)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^workspace\.open_url$|^conductor_import\.|^classic_import\.|^palette\.rank$|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|release|send|unsend)$)/
+
+/** The daemon's Cloud API calls carry the person's own access token in their params; the app's own Cloud code only. */
+const CLOUD_API_CALLS = [
+  "cloud.machine.io",
+  "cloud.owner.acpmux_keyed_start",
+  "cloud.owner.acpmux_person_holds",
+  "cloud.owner.fork_run",
+  "cloud.owner.github_app",
+  "cloud.owner.handoff_begin_turn",
+  "cloud.owner.handoff_open",
+  "cloud.owner.handoff_wait",
+  "cloud.owner.handoffs",
+  "cloud.owner.harness_login_copy",
+  "cloud.previews.create_link",
+  "cloud.previews.refresh",
+  "cloud.previews.revoke_link",
+  "cloud.runs.cancel",
+  "cloud.runs.create",
+  "cloud.runs.sandbox",
+  "cloud.runs.start",
+  "cloud.runs.wait",
+  "cloud.vm.domains",
+  "cloud.vm.firewall_create",
+  "cloud.vm.firewall_delete",
+  "cloud.vm.firewall_get",
+  "cloud.vm.firewall_list",
+  "cloud.vm.networks",
+  "cloud.vm.provision_api",
+  "cloud.vm.publication_api_keys",
+  "cloud.vm.publications",
+  "cloud.vm.revoke_publication_api_key",
+  "cloud.vm.scp_endpoint",
+  "cloud.vm.tunnel_attach",
+  "cloud.vm.tunnel_detach",
+  "cloud.vm.tunnel_enroll",
+  "cloud.vm.tunnel_revoke",
+  "cloud.vm.tunnel_rotate_key",
+]
 
 /** Ops no app may call, whatever their risk (cloud.machine.link_token mints dial tokens). */
-export const NEVER_OPS = new Set(["cloud.machine.link_token"])
+export const NEVER_OPS = new Set(["cloud.machine.link_token", ...CLOUD_API_CALLS])
 
 const readJSON = (p: string) => JSON.parse(readFileSync(join(repo, p), "utf8"))
 
@@ -145,6 +189,9 @@ export function generate(): Record<string, string> {
     "app.storage.keys": { scope: "storage:local", class: "read" },
     "net.fetch": { scope: "net:<host>", class: "runtime" },
     "clipboard.write": { scope: "clipboard:write", class: "mutation" },
+    // A notice in the app's own toast presenter, one slot per app (ToastAppOps in CmuxNextApps). Local and
+    // non-network, so no grant: scope `none` is always held.
+    "toast.show": { scope: "none", class: "mutation" },
     "integration.request": { scope: "integration:<provider>", class: "runtime" },
     // Mac-side app ops (AppHostCapabilities in CmuxNextApp, served over the provider channel).
     "coderouter.status": { scope: "coderouter:read", class: "read" },
@@ -153,7 +200,9 @@ export function generate(): Record<string, string> {
     "coderouter.accounts.list": { scope: "coderouter:read", class: "read" },
     "coderouter.usage.get": { scope: "coderouter:read", class: "read" },
     // The Agent Memory app's search, from the agent memory index (optchat-chief agent-memory).
-    "memory.search": { scope: "memory:read", class: "read" }
+    "memory.search": { scope: "memory:read", class: "read" },
+    // The agent chats the sidebar shows (AgentChatAppOps in CmuxNextApps), for a customize section's thread list.
+    "agent_chat.list": { scope: "agent_chat:read", class: "read" }
   }
   Object.assign(scopes, hostOps)
 
@@ -224,11 +273,21 @@ ${render(root, "  ")}
   gesture(): string | null
   /** The app's string for key in the user's locale, else fallback; {name} placeholders. */
   t(key: string, fallbackOrParams?: string | Record<string, unknown>, params?: Record<string, unknown>): string
+  /** The tone names color props accept (\`tint\`, \`tone\`, \`color\`, \`fill\`): drawn with the current theme, live. Never hard-code a color. */
+  readonly theme: CmuxTheme
+  /** A short notice from the app's own toast presenter; one slot per app (a new toast replaces the last). A string is the title. */
+  toast(options: { title: string; message?: string; tone?: "success" | "warning" | "danger" } | string): Promise<null>
   palette: CmuxPalette
   act: typeof act
   log(...parts: unknown[]): void
 }
 declare const cmux: CmuxGlobal
+interface CmuxTheme {
+  readonly accent: "accent"
+  readonly text: { readonly primary: "primary"; readonly secondary: "secondary"; readonly tertiary: "tertiary" }
+  readonly success: "success"; readonly warning: "warning"; readonly danger: "danger"
+  readonly separator: "separator"; readonly hover: "hover"; readonly selected: "selected"
+}
 
 // Palette scopes (contributes.paletteScopes). Items are plain data: at most 2 KiB each, 10000 per snapshot, 200 per batch, no functions.
 /** A typed reference to a catalog action or op, or an app command \`app:<id>#<command>\`. */
@@ -302,6 +361,12 @@ declare function RoundedRectangle(props?: Record<string, unknown>): CmuxView
 declare function ProgressView(value?: Bindable<number | null>): CmuxView
 declare function TextField(value: Bindable<string>, options?: { placeholder?: string; autofocus?: boolean; onSubmit?: (t: string) => unknown; onEdit?: (t: string) => unknown; onCancel?: () => unknown }): CmuxView
 declare function Row(props: { title: Bindable<string>; subtitle?: Bindable<string | null>; symbol?: Bindable<string | null>; badge?: Bindable<string | number | null>; unread?: Bindable<boolean>; selected?: Bindable<boolean>; tint?: Bindable<string | null>; accessory?: Bindable<string | null> }): CmuxView
+/** A native switch, two-way bound: \`value\` is the state, \`onChange\` gets the new one. With a \`label\`, a settings row (label leading, switch trailing). */
+declare function Toggle(value: Bindable<boolean>, options?: { label?: Bindable<string>; disabled?: Bindable<boolean>; onChange?: (on: boolean) => unknown }): CmuxView
+/** A native slider over \`min...max\` (default 0...1), snapped to \`step\` (default a hundredth of the range). */
+declare function Slider(value: Bindable<number>, options?: { min?: number; max?: number; step?: number; disabled?: Bindable<boolean>; onChange?: (v: number) => unknown }): CmuxView
+/** The app's card surface with its padding and radius: \`glass\` (default, the sidebar cards' glass) or \`card\` (opaque), with an optional title. */
+declare function Panel(propsOrChildren?: { title?: Bindable<string>; style?: "glass" | "card"; spacing?: number } | CmuxChildren, children?: CmuxChildren): CmuxView
 declare function Badge(text: Bindable<string | number>, tone?: Bindable<string>): CmuxView
 declare function EmptyState(props: { title: Bindable<string>; message?: Bindable<string>; symbol?: Bindable<string> }): CmuxView
 declare function ForEach<T>(spec: CmuxListSpec<T>, template: (item: CmuxSignal<T>, key: string) => CmuxView): CmuxView

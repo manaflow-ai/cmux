@@ -13,29 +13,17 @@ import CmuxNextWakeups
 /// Opening the new tab page in any window adopts it in the same main-actor
 /// turn (no load, no React mount on the open path); the next spare starts
 /// ``openSettle`` after a handout (else once input is quiet for ``idleInput``),
-/// so making a web view never lands in an open's frames (nor, when idle, in typing). The spare waits at the size of the pane
-/// content Cmd-T fills (the target window's focused pane), refitted when a
-/// pane there changes size or focus, so the adoption changes no size: WebKit
-/// shows it at once at its final layout (hqacp-v2: a page parked at the
-/// window's width showed for ~40 ms at that width after Cmd-T). Memory pressure drops the spare. A spare
+/// so making a web view never lands in an open's frames (nor, when idle, in typing). The spare is parked at the size of the
+/// pane content Cmd-T fills (the target window's focused pane) and follows it in one fit once the layout is still, never in
+/// a motion's frames (RESIZE MAIN BUDGET: in a key resize's spring that fit cost a frame); a Cmd-T during a motion puts
+/// it in its pane, whose layout sizes it (`debug.new_tab` records that as `Opening.refit`). Memory pressure drops the spare. A spare
 /// exists while the new tab page is likely: a person's Cmd-T always opens it.
 @MainActor
 final class NewTabSparePool {
-    /// One adoption, for `debug.new_tab` (timing test, section 2.3).
-    struct Opening {
-        var spare: Bool
-        /// The spare was parked in another window than the one it opened in.
-        var crossWindow: Bool
-        /// Main-thread time from the open action to the page in its pane.
-        var milliseconds: Double
-        /// The spare waited at another size than its pane's: the adoption resized it, and WebKit
-        /// showed it at the old size until it laid it out again (the hqacp-v2 flash).
-        var refit = false
-    }
+    typealias Opening = AgentPaneSpareOpening
 
     static let idleInput: Duration = .milliseconds(750)
-    /// A pane resize or focus change settles this long before the parked spare follows
-    /// (a live window resize lays the hidden page out once, at the end).
+    /// A focus or selected-tab change settles this long before the parked spare draws the context a Cmd-T there gives.
     static let fitSettle: Duration = .milliseconds(120)
     static let maximumOpenings = 64
 
@@ -58,7 +46,6 @@ final class NewTabSparePool {
     /// The main window the spare parks in (the key one, or the last key one).
     private(set) weak var target: NSWindow?
     private let warmTimer = DemandTimer(owner: "NewTabSparePool.warm")
-    private let fitTimer = DemandTimer(owner: "NewTabSparePool.fit")
     private var inputMonitor: Any?
     /// The app's memory pressure events; a warning or critical level drops the spare.
     private let memoryPressure: MemoryPressureEvents
@@ -69,7 +56,7 @@ final class NewTabSparePool {
     /// Main-thread time of the last move of the parked spare to another window.
     private(set) var lastRetargetMilliseconds: Double?
 
-    /// The native New Tab page's spare (`tabs.nativeNewTabPage`): one SwiftUI page, made and laid out
+    /// The native New Tab page's spare (`tabs.nativeNewTabPage`): one AppKit page, made and laid out
     /// in the parking view at the target pane's size at a quiet moment, so Cmd-T shows it with no
     /// build or layout (cmux19-perf: a cold native page showed on the 4th frame, 51 ms p50).
     private(set) var nativeSpare: NativeNewTabHostingView?
@@ -130,11 +117,11 @@ final class NewTabSparePool {
         services.agentTabs.recycle = { [weak self] view in self?.recycle(view) ?? false }
         // The first page of a new workspace (Cmd-N, an empty window's New Tab page) adopts the
         // spare too, so a cold Cmd-N shows a page that already loaded (cx-ec99).
-        services.agentTabs.takeSpare = { [weak self] in
+        services.agentTabs.takeSpare = { [weak self] refill in
             guard let self, let window = self.services.keyWindowSource().flatMap(self.mainWindow) ?? self.target else { return nil }
             let start = ContinuousClock.now
-            let spare = self.take(for: window, size: nil)
-            self.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true, milliseconds: Self.milliseconds(since: start)))
+            let spare = self.take(for: window, size: nil, refill: refill)
+            if refill != .idle { self.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true, milliseconds: Self.milliseconds(since: start))) } // idle work opens nothing
             return spare?.view
         }
         // A tab opening an existing chat of this Mac adopts it only once its client is connected
@@ -199,8 +186,8 @@ final class NewTabSparePool {
         scheduleWarm()
     }
 
-    /// Parks the parking view in `content`, at the target pane's size. It does not follow the
-    /// window's size: ``fitParked()`` follows the pane's.
+    /// Parks the parking view in `content`, at the target pane's size (``fitParked()``). It follows neither the window's
+    /// size nor the pane's while hidden.
     private func park(in content: NSView) {
         if parking.superview !== content {
             parking.autoresizingMask = []
@@ -256,8 +243,7 @@ final class NewTabSparePool {
         return NSSize(width: pane.view.bounds.width, height: max(0, pane.view.bounds.height - strip))
     }
 
-    /// Sizes the parking view and the spare in it to the target pane now, laid out, so the
-    /// page commits at that size long before an adoption.
+    /// Sizes the parking view and the spare in it to the target pane now, laid out, when it is parked in a window.
     private func fitParked() {
         guard let content = parking.superview else { return }
         let size = targetPaneSize ?? content.bounds.size
@@ -267,14 +253,14 @@ final class NewTabSparePool {
         if !refills.isOpening { slot.all.forEach(snapshotParked) }
     }
 
-    /// A pane of `window` changed size, or its focus or selected tab moved: the parked spare follows
-    /// the target pane once that settles (``fitSettle``). Nothing is scheduled while it fits.
+    /// A pane of `window` changed size, or its focus or tab moved: the spare draws the context Cmd-T there gives and takes the
+    /// pane's size in one background fit once the sizes settled (``fitSettle``) and the layout is still (`whenSettled`).
     func paneLayoutDidChange(in window: NSWindow?) {
-        guard let window, window === target, let content = parking.superview else { return }
-        let size = targetPaneSize ?? content.bounds.size
-        guard targetIdentity != preparedFor || parking.frame != PageOffscreenParking.frame(in: content.bounds, size: size) else { return }
-        fitTimer.schedule(after: Self.fitSettle) { @MainActor [weak self] in self?.fitParked() }
+        guard let window, window === target, parking.superview != nil else { return }
+        if targetIdentity != preparedFor { schedulePrepare() }
+        services.windows.controllers.first { $0.window === window }?.content?.layoutView.whenSettled("NewTabSparePool.fit", after: Self.fitSettle, on: fits) { [weak self] in self?.fitParked() }
     }
+    private lazy var fits = FrameBatchQueue(owner: "NewTabSparePool.fit", budgeted: .background, on: services.mainWork)
 
     /// The spare for a new tab page in `window`, or nil (the page loads cold).
     /// A spare parked in another window is adopted all the same (a reparent).
@@ -282,7 +268,7 @@ final class NewTabSparePool {
     /// `refit` is true when the spare waited at another size than `size`, the one it shows at
     /// (nil: not known yet, Cmd-N): its adoption resizes it.
     func take(for window: NSWindow?, size: NSSize?, refill: AgentPaneSpareRefill = .now, still: AgentPaneSpareRefiller.Still? = nil) -> (view: AgentPaneView, crossWindow: Bool, refit: Bool)? {
-        usedThisSession = true
+        if refill != .idle { usedThisSession = true } // idle work (Cmd-N's reservation) served no open: a launch keeps one page
         observeWindows()
         if target == nil, let window { retarget(window) }
         guard let view = slot.take() else { return nil }
@@ -290,7 +276,7 @@ final class NewTabSparePool {
         // as the backstop. The next spare already has its own cover: the key's turn captures nothing.
         defer {
             scheduleWarm()
-            if refill == .now { refills.afterOpen(shown: view, still: still) }
+            if refill != .whenQuiet { refills.afterOpen(shown: refill == .now ? view : nil, still: still) } // .idle: its page draws no frame yet
         }
         covers.forget(view)
         view.isHidden = false
@@ -359,10 +345,7 @@ final class NewTabSparePool {
         }
     }
 
-    static func milliseconds(since start: ContinuousClock.Instant) -> Double {
-        let (seconds, attoseconds) = (ContinuousClock.now - start).components
-        return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
-    }
+    static func milliseconds(since start: ContinuousClock.Instant) -> Double { AgentPaneSpareOpening.milliseconds(since: start) }
 
     // MARK: Warming
 
@@ -388,11 +371,13 @@ final class NewTabSparePool {
     /// Whether this run has warmed a spare yet: the first one starts at once, before the person
     /// types (a cold launch's first Cmd-N then finds a page that is loading or loaded, cx-ec99).
     private var warmedOnce = false
+    let shownChats = AgentPaneShownChatsWait()
 
     private func armWarmTimer() {
         // Only the launch warm comes early, after the first frame: a `take()` that found nothing
         // (it set `usedThisSession`) must not make a web view in the person's keystroke.
         let launch = !warmedOnce && !usedThisSession
+        if launch, shownChats.holds({ AgentPaneShownChatsWait.loading(services.agentTabs.views.values) }, then: { [weak self] in self?.armWarmTimer() }) { return }
         warmedOnce = warmedOnce || launch
         warmTimer.schedule(after: launch ? Self.openSettle : Self.idleInput) { @MainActor [weak self] in self?.warmNow() }
     }

@@ -3,15 +3,19 @@ import CmuxHomeCore
 @testable import CmuxNextApp
 @testable import CmuxNextFeed
 @testable import CmuxNextHome
+import CmuxNextSettings
 import CmuxNextTestSupport
 import Foundation
+import Observation
 import Testing
 
 /// Chief Home's pinned Needs you section (Leo, via his Chief: "a pinned Needs you view in Chief
 /// Home, Feed and iPhone listing items waiting on Leo"): it lists exactly the Feed's open
 /// requests, in the order the Feed pins them, from the Feed's own model (no second store); it
 /// shows only in a Chief's conversation and only while something waits; it sits under the header
-/// over the transcript, so showing or hiding it moves no message.
+/// over the transcript, so showing or hiding it moves no message. It is opt-in (Leo 2026-11-03: "I just
+/// wanted to see permission things, period, not a pinned thing by default. Toggle-on, yes"): off by
+/// default (`feed.needsYouInChief`), nothing is pinned and the Feed still lists the requests.
 @MainActor @Suite(.serialized, .closesItsWindows) struct HomeNeedsYouTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
@@ -84,9 +88,35 @@ import Testing
     }
 
     @Test func onlyAChiefsConversationShowsItAndOnlyWhileSomethingWaits() {
-        #expect(FeedNeedsYouPin.shows(isChief: true, waiting: 1))
-        #expect(!FeedNeedsYouPin.shows(isChief: true, waiting: 0))
-        #expect(!FeedNeedsYouPin.shows(isChief: false, waiting: 3))
+        #expect(FeedNeedsYouPin.shows(isChief: true, enabled: true, waiting: 1))
+        #expect(!FeedNeedsYouPin.shows(isChief: true, enabled: true, waiting: 0))
+        #expect(!FeedNeedsYouPin.shows(isChief: false, enabled: true, waiting: 3))
+        #expect(!FeedNeedsYouPin.shows(isChief: true, enabled: false, waiting: 3), "off: nothing pinned")
+    }
+
+    @Test func itIsOffByDefaultAndTheSettingTurnsItOn() throws {
+        #expect(HomeNeedsYouSetting.fallback == false)
+        let unset = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
+        #expect(unset.homeNeedsYouInChief == false, "unset cmux.json: no pinned card")
+        let on = CmuxConfigSnapshot.parse(try JSONValue.parse(Data(#"{"feed":{"needsYouInChief":true}}"#.utf8)),
+                                          validDensities: [], validMetrics: [])
+        #expect(on.homeNeedsYouInChief == true)
+        let row = try #require(SettingsSchema.descriptor(for: HomeNeedsYouSetting.configPath))
+        #expect(row.defaultValue == .bool(false), "Settings shows it off by default")
+    }
+
+    @Test func offPinsNothingAndOnPinsTheFeedsRequestsLive() async {
+        let (model, _) = feed([request("a", ago: 1)])
+        let host = PinHost(), toggle = PinToggle()
+        let pin = FeedNeedsYouPin(model: model, isEnabled: { toggle.on }, prepare: {}, reveal: { _ in false }, showFeed: {})
+        let watch = pin.watch(host: host)
+        defer { watch.cancel() }
+        await until { host.updates > 0 }
+        #expect(host.pinnedSection == nil, "off by default: nothing pinned while a request waits")
+        #expect(model.needsYou.map(\.id) == ["a"], "the Feed still lists the request")
+        toggle.on = true // the app's setting is observable the same way, so turning it on pins at once
+        await until { host.pinnedSection != nil }
+        #expect((host.pinnedSection as? FeedNeedsYouView)?.shownIDs == ["a"])
     }
 
     @Test func thePinnedSectionSitsUnderTheHeaderAndMovesNoMessage() async throws {
@@ -127,4 +157,55 @@ import Testing
         #expect(view.transcript.rowsTopClearance == 0)
         #expect(view.transcript.frame == transcriptFrame)
     }
+
+    @Test func theSetupCardFitsAShortPaneAndIsNeverHidden() async throws {
+        let source = EmptyChiefSource()
+        let id = ConversationID("conv_chief")
+        let inbox = try await source.inbox()
+        let store = HomeStore(source: source)
+        store.start()
+        let view = HomeNativeTranscriptView(store: store, conversation: id, me: inbox.me.id)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 420), styleMask: [.titled],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { view.stop(); store.stop(); window.close() }
+        view.frame = NSRect(x: 0, y: 0, width: 600, height: 420)
+        window.contentView = view
+        await view.binding.opened()
+        let card = NSView()
+
+        view.setSetupCard(card, height: 0)
+        view.layoutSubtreeIfNeeded()
+        #expect(!card.isHidden && card.frame.height == 1, "unsized, the page stays in the window to measure: \(card.frame)")
+
+        // Taller than the pane: the slot stops above the message box and the page scrolls inside it.
+        view.setSetupCard(card, height: 2000)
+        view.layoutSubtreeIfNeeded()
+        #expect(card.frame.height > 1 && card.frame.height < 2000, "\(card.frame)")
+        #expect(card.frame.maxY < view.transcript.fieldTop, "above the message box")
+
+        // Needs you rows taller than the pane: the pinned section gives way, and the card keeps a usable height.
+        let pinned = TallSection()
+        view.setPinnedSection(pinned)
+        view.layoutSubtreeIfNeeded()
+        #expect(card.frame.height >= 120, "the card keeps its title and a row: \(card.frame)")
+        #expect(pinned.frame.maxY < card.frame.minY && card.frame.maxY < view.transcript.fieldTop, "\(pinned.frame) \(card.frame)")
+        view.setPinnedSection(nil)
+    }
+}
+
+/// Needs you rows taller than any pane.
+private final class TallSection: NSView {
+    override var fittingSize: NSSize { NSSize(width: 400, height: 2000) }
+}
+
+/// A stand-in for `feed.needsYouInChief` (the app reads it from the observable settings snapshot).
+@MainActor @Observable private final class PinToggle { var on = false }
+
+/// A stand-in for Chief Home's transcript: records what the pin puts under its header.
+@MainActor private final class PinHost: FeedPinnedSectionHost {
+    private(set) var pinnedSection: NSView?
+    private(set) var updates = 0
+    func setPinnedSection(_ view: NSView?) { pinnedSection = view; updates += 1 }
+    func pinnedSectionDidResize() {}
 }

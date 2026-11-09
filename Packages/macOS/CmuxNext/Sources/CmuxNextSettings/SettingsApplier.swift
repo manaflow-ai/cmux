@@ -29,8 +29,9 @@ public final class SettingsApplier {
     @discardableResult
     public func apply(_ snapshot: CmuxConfigSnapshot) -> [SettingsDiagnostic] {
         var diagnostics = snapshot.diagnostics
-        if diagnostics.contains(where: { $0.kind == .unreadableFile }) {
-            // Keep the last good state rather than resetting everything.
+        if diagnostics.contains(where: { $0.kind == .unreadableFile && $0.file == nil }) {
+            // Keep the last good state rather than resetting everything. A theme file that does not
+            // parse holds nothing back: its last good text (or none) is already in the snapshot.
             return diagnostics
         }
 
@@ -53,9 +54,8 @@ public final class SettingsApplier {
         if design.disabledAnimationCategories != snapshot.motionCategories.disabled {
             design.disabledAnimationCategories = snapshot.motionCategories.disabled
         }
-        if design.classicHome != snapshot.classicHome { design.classicHome = snapshot.classicHome }
         if design.homeChannelsEnabled != snapshot.homeChannelsEnabled { design.homeChannelsEnabled = snapshot.homeChannelsEnabled }
-        let chiefBubblesThemed = snapshot.homeChiefBubbleStyle == HomeChiefBubbleStyleSetting.theme
+        let chiefBubblesThemed = snapshot.homeChiefBubbleStyle == HomeChiefBubbleStyle.theme.rawValue
         if design.homeChiefBubblesThemed != chiefBubblesThemed { design.homeChiefBubblesThemed = chiefBubblesThemed }
         if design.homeBubbleColors != snapshot.homeBubbleColors { design.homeBubbleColors = snapshot.homeBubbleColors }
         if design.homeChiefPetEnabled != snapshot.homeChiefPetEnabled { design.homeChiefPetEnabled = snapshot.homeChiefPetEnabled }
@@ -63,14 +63,18 @@ public final class SettingsApplier {
         if design.tabOverflow != snapshot.tabOverflow { design.tabOverflow = snapshot.tabOverflow }
         if design.verticalTabs != snapshot.verticalTabs { design.verticalTabs = snapshot.verticalTabs }
         if design.verticalTabsExpandOnHover != snapshot.verticalTabsExpandOnHover { design.verticalTabsExpandOnHover = snapshot.verticalTabsExpandOnHover }
+        if design.hideLoneChatTab != snapshot.hideLoneChatTab { design.hideLoneChatTab = snapshot.hideLoneChatTab }
         if design.stripScrollbar != snapshot.stripScrollbar { design.stripScrollbar = snapshot.stripScrollbar }
         if design.sidebarSections != snapshot.sidebarSections { design.sidebarSections = snapshot.sidebarSections }
         if design.hoverCardsEnabled != snapshot.hoverCards.enabled { design.hoverCardsEnabled = snapshot.hoverCards.enabled }
+        let pageDeveloperTools = AppPageDevToolsSetting().value(in: snapshot.root)
+        if design.pageDeveloperTools != pageDeveloperTools { design.pageDeveloperTools = pageDeveloperTools }
         if design.colorTransition != snapshot.colorTransition.transition { design.colorTransition = snapshot.colorTransition.transition }
         if design.inactiveWindowDim != snapshot.inactiveWindowDim { design.inactiveWindowDim = snapshot.inactiveWindowDim }
         if design.wallpaperTint != snapshot.wallpaperTint { design.wallpaperTint = snapshot.wallpaperTint }
         let hoverCardDelay = Duration.milliseconds(Int(snapshot.hoverCards.delayMilliseconds.rounded()))
         if design.hoverCardDelay != hoverCardDelay { design.hoverCardDelay = hoverCardDelay }
+        if design.hoverCardDelayIsSet != snapshot.hoverCards.delayIsSet { design.hoverCardDelayIsSet = snapshot.hoverCards.delayIsSet }
         let workspaceHoverCard = snapshot.hoverCards.workspaceCardOptions
         if design.workspaceHoverCard != workspaceHoverCard { design.workspaceHoverCard = workspaceHoverCard }
         let groupHoverCard = snapshot.hoverCards.groupCardOptions

@@ -1,9 +1,11 @@
 import { isDefaultChoice } from "./defaultChoice";
+import { FEED_PROVIDERS } from "./feedHarnesses";
 import { isModelRouterKind } from "./routerKinds";
 import bundledCatalog from "../../../../web/data/model-catalog/snapshot.json";
 import currentFamilies from "../../../../web/data/model-catalog/current-families.json";
 import { agentName } from "./agents";
 import type { AcpmuxSnapshot } from "./model";
+import { replacedFrom } from "./sessionIndex";
 import { agentKey } from "../shared/agentKey";
 import { agentBrand } from "../shared/agentBrands.generated";
 
@@ -276,16 +278,54 @@ export type PickerInputs = {
   provisional?: boolean;
 };
 
+type Worked = { harness?: string; updatedAt?: number; worked?: boolean };
+/// Each profile's newest chat whose last turn completed: its time and place in the list.
+type WorkedBest = ReadonlyMap<string, { time: number; at: number }>;
+/// What `workedProfiles` found per list it read, which a list made from one in place (sessionIndex.ts
+/// `noteReplaced`) updates at the replaced entries.
+const workedOf = new WeakMap<readonly Worked[], WorkedBest>();
+
 /** The profiles of the chats whose last turn completed, most recently updated first, each once. */
-export function workedProfiles(sessions: readonly { harness?: string; updatedAt?: number; worked?: boolean }[]) {
-  return [
-    ...new Set(
-      sessions
-        .filter((session) => session.worked && session.harness)
-        .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
-        .map((session) => session.harness!),
-    ),
-  ];
+export function workedProfiles(sessions: readonly Worked[]) {
+  // A stable sort of the completed chats, newest first, and each profile's first: each profile at
+  // its newest chat (the first in the list of those as new), ordered by that chat's time, then its
+  // place. Kept per profile, so one chat's change costs that chat, not a sort of every listed chat.
+  let best = workedOf.get(sessions);
+  if (!best) workedOf.set(sessions, (best = workedBest(sessions)));
+  return [...best].sort(([, a], [, b]) => b.time - a.time || a.at - b.at).map(([harness]) => harness);
+}
+
+function workedBest(sessions: readonly Worked[]): WorkedBest {
+  const made = replacedFrom(sessions, (list) => list !== sessions && workedOf.has(list));
+  if (made) {
+    const best = new Map(workedOf.get(made.from)!);
+    let whole = false;
+    for (const at of made.at) {
+      const before = made.from[at];
+      const was = before?.worked && before.harness ? best.get(before.harness) : undefined;
+      const entry = sessions[at]!;
+      const time = entry.updatedAt ?? 0;
+      if (was?.at === at) {
+        // A profile's newest chat changed: it stays so only while still newest (same profile, completed, no older).
+        if (entry.worked && entry.harness === before!.harness && time >= was.time)
+          best.set(entry.harness!, { time, at });
+        else whole = true;
+        continue;
+      }
+      if (!entry.worked || !entry.harness) continue;
+      const now = best.get(entry.harness);
+      if (!now || time > now.time || (time === now.time && at < now.at)) best.set(entry.harness, { time, at });
+    }
+    if (!whole) return best;
+  }
+  const best = new Map<string, { time: number; at: number }>();
+  sessions.forEach((entry, at) => {
+    if (!entry.worked || !entry.harness) return;
+    const time = entry.updatedAt ?? 0;
+    const now = best.get(entry.harness);
+    if (!now || time > now.time) best.set(entry.harness, { time, at });
+  });
+  return best;
 }
 
 /** Joins the catalog with what acpmux reports (CONTRACT section 3, join rules 1-6). */
@@ -405,7 +445,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
       .find((entry) => entry !== undefined) ??
     members.find((entry) => entry.id === harness.id) ??
     members[0];
-  const probed = chosen?.models ?? [];
+  const probed = chosen?.models ?? (harness.modelSource === "probe" ? feedModels(harness.id, join.catalog) : []);
   const live = session?.harness !== undefined && chosen?.id === session.harness ? session.configOptions : undefined;
   const runs = chosen?.id === session?.harness ? runningModel(session, live) : undefined;
   const listed =
@@ -447,6 +487,20 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
     topModels: menuModels(chosen?.topModels, live, offered, reported, join),
     models: live ? offered.map((model) => withLiveOptions(model, live)) : offered,
   };
+}
+
+/**
+ * What a probe harness this Mac does not have runs, from the model feed, so the picker's search
+ * finds its models before its probe can name them (Lawrence 2026-11-07: "search for any model ...
+ * download the relevant harness"). Deprecated models stay out; once acpmux lists the harness, its
+ * own probe replaces these.
+ */
+function feedModels(harnessId: string, catalog: ModelCatalog): AcpmuxModel[] {
+  const providers = FEED_PROVIDERS[harnessId];
+  if (!providers) return [];
+  return Object.entries(catalog.models)
+    .filter(([id, info]) => providers.includes(id.slice(0, id.indexOf("/"))) && info.status !== "deprecated")
+    .map(([id, info]) => ({ id, name: info.name }));
 }
 
 function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
@@ -598,7 +652,16 @@ function foldAliases(
   for (const model of models) {
     if (releaseIds.has(model.id)) continue;
     const name = reported.get(model.id) ?? model.name;
-    const release = releases.find((candidate) => !takenBy.has(candidate.id) && namesRelease(name, candidate, join));
+    const release = releases.find(
+      (candidate) =>
+        !takenBy.has(candidate.id) &&
+        (namesRelease(name, candidate, join) ||
+          // A 1M option for a release whose normal context is already 1M (Fable 5.1) is the
+          // same model. Keep the harness's launch ID and use the release's plain name.
+          (model.id.endsWith("[1m]") &&
+            model.id.slice(0, -4) === candidate.id &&
+            candidate.contextWindow === 1_000_000)),
+    );
     if (release) takenBy.set(release.id, model);
   }
   const aliasFor = new Map([...takenBy].map(([release, alias]) => [alias.id, release]));

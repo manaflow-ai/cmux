@@ -14,28 +14,12 @@ import { SenderMark } from "./IncomingMessageCard";
 import type { IncomingMessage } from "./incomingMessage";
 import { useInboxNoticeLook } from "./inboxNoticeLook";
 import { useMessageLineLook } from "./messageLineLook";
+import { Tooltip } from "../../../ui/Tooltip";
+import { MessageGroupHover, type GroupHoverList } from "./MessageGroupHover";
 import "./AgentMessageRow.css";
 import "./MessageGroupHead.css";
 
 const ROW_ICON = rowIconSize(12);
-
-/// The one sender of a group's messages, the one that best names its session and harness, or
-/// nothing when two or more sessions sent (the head then draws the messages glyph). A sender is its
-/// session when one is known, else its name, as pendingMessages.ts `bySender` groups them; two
-/// sessions that share a name are two senders, and so are two harnesses (cmux#30821).
-export function groupSender(messages: readonly (IncomingMessage | undefined)[]): IncomingMessage | undefined {
-  const known = messages.filter((message): message is IncomingMessage => Boolean(message));
-  const senders = new Set(
-    known.map((message) => (message.sessionId ? `session:${message.sessionId}` : `name:${message.name}`)),
-  );
-  if (senders.size !== 1) return undefined;
-  if (new Set(known.flatMap((message) => (message.harness ? [message.harness] : []))).size > 1) return undefined;
-  return (
-    [...known].reverse().find((message) => message.harness) ??
-    [...known].reverse().find((message) => message.sessionId) ??
-    known.at(-1)
-  );
-}
 
 export function MessageGroupHead({
   sender,
@@ -49,6 +33,7 @@ export function MessageGroupHead({
   iconClassName,
   ariaLabel,
   mark,
+  messages,
 }: {
   /// The group's one sender; none when several sessions sent.
   sender?: IncomingMessage;
@@ -66,41 +51,59 @@ export function MessageGroupHead({
   /// The glyph in place of the sender's: a fold of tools' notices shows its strongest severity's
   /// (LaneNoticeBatch.tsx), so a fire is never folded out of sight.
   mark?: ReactNode;
+  /// The group's messages, newest first, and how many it holds: its hover lists them (MessageGroupHover.tsx) in place of
+  /// the senders' names (Leo, 2026-11-07: "the hover preview when you receive a lot of messages,
+  /// this is not useful").
+  messages?: GroupHoverList;
 }) {
   const look = useInboxNoticeLook();
-  // Stacked (the default, messageLineLook.ts): the senders on their own line under the count, cut
+  // Single (the default, messageLineLook.ts): the senders after the count on its line. Stacked (a
+  // gallery version): the senders on their own line under the count, cut
   // there, as a message row's first line is; `quiet` keeps them in the tooltip only.
   const lineLook = useMessageLineLook();
   const below = lineLook === "stacked" && look !== "group-count" && !open ? senders : undefined;
   const inline = lineLook === "single" ? senders : undefined;
+  const hover = messages?.messages.length ? <MessageGroupHover list={messages} /> : undefined;
+  const head = (
+    <button
+      type="button"
+      className={`cv-tool cv-message-group__head${className ? ` ${className}` : ""}`}
+      data-look={look}
+      data-find-skip=""
+      aria-expanded={open}
+      aria-controls={open ? bodyId : undefined}
+      aria-label={ariaLabel}
+      // tooltip-allow: the senders the head's count stands for, not its own words
+      title={hover ? undefined : hint || senders || undefined}
+      // The row is as wide as the pane (a tool row): its hover shows at its words, as a tool row's
+      // label tooltip does, never under the row's middle (Leo, 2026-11-03: "this hover preview is in
+      // the wrong place!").
+      data-tooltip-anchor=".cv-tool__text"
+      onClick={onToggle}
+    >
+      <span className={`cv-tool__icon${iconClassName ? ` ${iconClassName}` : ""}`} aria-hidden="true">
+        {mark ?? (sender ? <SenderMark message={sender} /> : <Icon name="agent.chat" size={ROW_ICON} row />)}
+      </span>
+      <span className="cv-tool__text">
+        <span className="cv-message-group__count">{count}</span>
+        {inline && <span className="cv-message-group__senders">{inline}</span>}
+      </span>
+      <span className="cv-tool__chevron" aria-hidden="true">
+        <ChevronRight size={14} className={`cv-rotor${open ? " is-open" : ""}`} />
+      </span>
+    </button>
+  );
   return (
     <>
-      <button
-        type="button"
-        className={`cv-tool cv-message-group__head${className ? ` ${className}` : ""}`}
-        data-look={look}
-        data-find-skip=""
-        aria-expanded={open}
-        aria-controls={open ? bodyId : undefined}
-        aria-label={ariaLabel}
-        title={hint || senders || undefined}
-        // The row is as wide as the pane (a tool row): its hover shows at its words, as a tool row's
-        // label tooltip does, never under the row's middle (Leo, 2026-11-03: "this hover preview is in
-        // the wrong place!").
-        data-tooltip-anchor=".cv-tool__text"
-        onClick={onToggle}
-      >
-        <span className={`cv-tool__icon${iconClassName ? ` ${iconClassName}` : ""}`} aria-hidden="true">
-          {mark ?? (sender ? <SenderMark message={sender} /> : <Icon name="agent.chat" size={ROW_ICON} row />)}
-        </span>
-        <span className="cv-tool__text">
-          <span className="cv-message-group__count">{count}</span>
-          {inline && <span className="cv-message-group__senders">{inline}</span>}
-        </span>
-        <span className="cv-tool__chevron" aria-hidden="true">
-          <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
-        </span>
-      </button>
+      {hover ? (
+        // At the row's words, as its title tooltip was (Leo, 2026-11-03: "this hover preview is in
+        // the wrong place!"); the whole row, its mark too, opens it.
+        <Tooltip label={hover} side="top" className="ui-card cv-group-hover__popup" anchor=".cv-tool__text">
+          {head}
+        </Tooltip>
+      ) : (
+        head
+      )}
       {below && (
         // The head's tooltip and label already name them; this line is for the eye and the pointer.
         // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions

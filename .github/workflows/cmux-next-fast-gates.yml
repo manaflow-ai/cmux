@@ -54,11 +54,55 @@ concurrency:
   group: fast-gates-${{ github.event.pull_request.number || inputs.pr }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
+  # Secretless placement bootstrap: it reads the fresh runner-state publication and
+  # fails open to the existing hosted/Blacksmith route when state is stale.
+  portable-placement:
+    name: portable light placement
+    if: ${{ vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    timeout-minutes: 4
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      linux_runner: ${{ steps.place.outputs.linux_runner }}
+      linux_jobs: ${{ steps.place.outputs.linux_jobs }}
+      mini_runner: ${{ steps.place.outputs.mini_runner }}
+      mini_jobs: ${{ steps.place.outputs.mini_jobs }}
+      placed_attempt: ${{ github.run_attempt }}
+    steps:
+      - name: Check out the trusted placement script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+      - name: Place the portable light jobs
+        id: place
+        continue-on-error: true
+        env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          JOBS: resolve post
+          # Only the owned-pool rescue bot's third attempt may re-place these
+          # light jobs. Other workflows and manual retries stay fail-closed.
+          PORTABLE_ATTEMPT3_RESCUE: '1'
+          FLEET_LINUX: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER }}
+          REQUIRE_LIVE_CAPACITY: '1'
+          SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/portable_job_placement.py
+
   resolve:
     name: resolve head and base
+    needs: portable-placement
     # A draft is gated when it is marked ready; a dispatch always runs.
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    if: ${{ always() && !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     # Fork pull requests use the same ephemeral Blacksmith lane as other
     # Linux work; this job has read-only contents permission and no secrets.
     # The reconciled pool admits fleet first, records a three-minute no-start
@@ -68,7 +112,7 @@ jobs:
     # A declared light job (.github/runners.json hosted_light_jobs): hosted Ubuntu on attempt 1, the
     # reconciled Linux pool on a re-run (it holds no secret). On 2026-11-02 this queued on RUNNER_POOLS.linux's
     # saturated blacksmith-4vcpu-ubuntu-2404 (hundreds of jobs deep) for a few seconds of work.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' resolve ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' resolve ') && needs.portable-placement.outputs.mini_runner || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -184,7 +228,11 @@ jobs:
     outputs:
       ratchet: ${{ steps.prepare.outputs.ratchet }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || contains(fromJSON('["cmux-fleet-linux-x64","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || fromJSON(vars.RUNNER_POOLS).linux }}
-    timeout-minutes: 10
+    # Dispatches took 2.5 to 7.1 min on 11-08 and 11-09; cmux#38640's web lint alone took 302 s and its webviews
+    # checks ran past 10 min twice, each a stopped run with no verdict. The gates get --budget-seconds 1260 (21 min)
+    # below, more than the 15 minutes the whole job had before, so a slow runner never turns a passing run red; the
+    # 4 minutes left cover checkout, setup and the cache save.
+    timeout-minutes: 25
     # The pull request's code runs here: no write permission of any kind.
     permissions:
       contents: read
@@ -265,9 +313,19 @@ jobs:
         id: gates
         env:
           BASE: ${{ needs.resolve.outputs.base }}
+          # The lint tools' release-assets API fallback (prepush-gate.py fetch) authenticates with it; unauthenticated,
+          # the shared runner IPs' 60 calls an hour answer 403. The job's token is read-only (contents: read).
+          GH_TOKEN: ${{ github.token }}
           WEB: ${{ steps.prepare.outputs.web }}
           CHECKS: ${{ steps.prepare.outputs.checks }}
-        run: python3 scripts/ci/cmux_next_fast_gates.py run --base "$BASE" --web "$WEB" --checks "$CHECKS" --summary "$GITHUB_STEP_SUMMARY"
+          # Bun waits on a registry connection that stops answering with no limit of its own (2026-11-09: the web
+          # lint's install sat silent on the hosted runners until this job's limit cancelled it). A connection idle
+          # this long is dropped and the request retried, as scripts/ci/bun-install.sh does for the other web jobs.
+          BUN_CONFIG_HTTP_IDLE_TIMEOUT: "30"
+          BUN_CONFIG_HTTP_RETRY_COUNT: "5"
+        # --budget-seconds: a gate still running 21 min in is stopped and named as stalled, so the job ends with that
+        # reason inside its 25-minute limit instead of being cancelled with none.
+        run: python3 scripts/ci/cmux_next_fast_gates.py run --base "$BASE" --web "$WEB" --checks "$CHECKS" --budget-seconds 1260 --summary "$GITHUB_STEP_SUMMARY"
 
   # Only on a dispatch whose prepare found a lowered panic-ratchet row the PR
   # changes (cmux_next_fast_gates.py ratchet_needed). The clippy setup is
@@ -329,12 +387,12 @@ jobs:
   # panic-ratchet (nothing to rejudge) does not fail it.
   post:
     name: post cmux-next/fast-gates
-    needs: [resolve, fast-gates, panic-ratchet]
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' }}
+    needs: [resolve, fast-gates, panic-ratchet, portable-placement]
+    if: ${{ always() && !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' }}
     # A declared light job (.github/runners.json hosted_light_jobs): hosted Ubuntu on attempt 1, the
     # reconciled Linux pool on a re-run (it holds no secret). On 2026-11-02 this queued on RUNNER_POOLS.linux's
     # saturated blacksmith-4vcpu-ubuntu-2404 (hundreds of jobs deep) for a few seconds of work.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' post ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' post ') && needs.portable-placement.outputs.mini_runner || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
       statuses: write
@@ -353,12 +411,30 @@ jobs:
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ && "$BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no head or base sha to report"; exit 1; }
           state=failure
           if [[ "$GATES" == success && ( "$RATCHET" == success || "$RATCHET" == skipped ) ]]; then state=success; fi
+          description="base $BASE"
+          # Only success and failure are verdicts. A gates job that ended any other way (cancelled or timed
+          # out, skipped, abandoned because its placed runner never reported, empty, or a result this step
+          # does not know) judged nothing, and so did a ratchet that ended any way but success, skipped
+          # (nothing to rejudge) or failure. That posts pending with "stopped", never failure: on 2026-11-09
+          # two of cmux#38640's dispatches timed out and posted failure at a fresh base, and cmux#39743's
+          # abandoned gates posted failure, and every merger read each as the pull request's own red. A
+          # merger sees no verdict and dispatches again. A gates failure stays a failure whatever the
+          # ratchet did.
+          stopped=false
+          [[ "$GATES" == success || "$GATES" == failure ]] || stopped=true
+          if [[ "$GATES" == success && "$RATCHET" != success && "$RATCHET" != skipped && "$RATCHET" != failure ]]; then
+            stopped=true
+          fi
+          if [[ "$stopped" == true ]]; then
+            state=pending
+            description="base $BASE; stopped (gates ${GATES:-none}, ratchet ${RATCHET:-none}), no verdict"
+          fi
           # A rate-limit refusal is status-posting infrastructure, not a gate verdict. Keep the
           # run green with a named warning; a missing status is never treated as a pass by the
           # merger, which dispatches a fresh gate when it needs one. Other API failures stay red.
           response=""
           if ! response="$(gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
-            -f state="$state" -f context="$CONTEXT" -f target_url="$TARGET_URL" -f description="base $BASE" 2>&1)"; then
+            -f state="$state" -f context="$CONTEXT" -f target_url="$TARGET_URL" -f description="$description" 2>&1)"; then
             if grep -qiE 'rate limit exceeded|secondary rate limit|too many requests|HTTP 429' <<<"$response"; then
               echo "::warning title=GitHub API budget::cmux-next/fast-gates status could not be posted because the installation API budget is exhausted; the run remains advisory."
               echo "- cmux-next/fast-gates status could not be posted because the GitHub installation API budget is exhausted; a missing status is not a pass." >> "$GITHUB_STEP_SUMMARY"

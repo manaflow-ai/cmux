@@ -38,7 +38,7 @@ impl Needle {
 
     /// The character index in `text` where the first of the words starts, when `text` holds
     /// them all; None otherwise.
-    fn find(&self, text: &str) -> Option<usize> {
+    pub(crate) fn find(&self, text: &str) -> Option<usize> {
         let folded = Folded::new(text);
         let mut first: Option<usize> = None;
         for word in &self.words {
@@ -46,6 +46,27 @@ impl Needle {
             first = Some(first.map_or(at, |f| f.min(at)));
         }
         first
+    }
+
+    /// The query's words, lowercased.
+    pub(crate) fn words(&self) -> &[String] {
+        &self.words
+    }
+
+    /// The character indexes in `text` of every character that is part of one of the words, in
+    /// order: what a row draws emphasized (the palette's highlight positions count characters).
+    pub fn highlights(&self, text: &str) -> Vec<usize> {
+        let folded = Folded::new(text);
+        let mut at = Vec::new();
+        for word in &self.words {
+            for (start, matched) in folded.text.match_indices(word.as_str()) {
+                let bytes = folded.origin.get(start..start + matched.len()).unwrap_or_default();
+                at.extend_from_slice(bytes);
+            }
+        }
+        at.sort_unstable();
+        at.dedup();
+        at
     }
 }
 
@@ -126,19 +147,25 @@ pub fn find(needle: &Needle, turns: &[Turn]) -> Option<Hit> {
 }
 
 /// `text` with every run of whitespace one space.
-fn flatten(text: &str) -> String {
+pub(crate) fn flatten(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// At most [`SNIPPET`] characters of `text` around character `at`, with an ellipsis on a side
 /// where text was left out.
-fn snippet(text: &str, at: usize) -> String {
+pub(crate) fn snippet(text: &str, at: usize) -> String {
+    snippet_around(text, at, BEFORE, SNIPPET)
+}
+
+/// At most `size` characters of `text` around character `at`, `before` of them before it when
+/// the text has them, with an ellipsis on a side where text was left out.
+pub(crate) fn snippet_around(text: &str, at: usize, before: usize, size: usize) -> String {
     let chars: Vec<char> = text.chars().collect();
     let len = chars.len();
-    let mut start = at.saturating_sub(BEFORE);
-    let end = len.min(start.saturating_add(SNIPPET));
+    let mut start = at.saturating_sub(before);
+    let end = len.min(start.saturating_add(size));
     // Near the end, the snippet holds more of what comes before.
-    start = start.min(end.saturating_sub(SNIPPET));
+    start = start.min(end.saturating_sub(size));
     let mut out = String::new();
     if start > 0 {
         out.push('…');
@@ -206,6 +233,18 @@ mod tests {
         let hit = find(&Needle::parse("needle").expect("words"), &[turn(&text, "")]).expect("hit");
         assert!(hit.snippet.starts_with('…') && hit.snippet.ends_with("needle"), "{}", hit.snippet);
         assert_eq!(hit.snippet.chars().count(), SNIPPET + 1);
+    }
+
+    #[test]
+    fn highlights_are_the_characters_of_every_word_in_any_case() {
+        let needle = Needle::parse("row nan").expect("words");
+        assert_eq!(
+            needle.highlights("The Row is NaN, row."),
+            vec![4, 5, 6, 11, 12, 13, 16, 17, 18]
+        );
+        // 'İ' lowercases to two characters: the positions still count the text's characters.
+        assert_eq!(Needle::parse("x").expect("words").highlights("İx"), vec![1]);
+        assert!(needle.highlights("nothing here").is_empty());
     }
 
     #[test]

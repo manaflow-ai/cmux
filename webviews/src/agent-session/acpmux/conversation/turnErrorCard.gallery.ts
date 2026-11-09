@@ -4,7 +4,8 @@
 // erros for acpmux"): the cause in one human line, the way out first, the agent's own words under
 // Details with Copy. Compare arms shows the three surfaces of the `turn-error-card` experiment.
 import { agentPaneEntry } from "../../../gallery/format";
-import { assistant, CATALOG, chat, summary, user } from "../../../gallery/fixtures/acpmux";
+import { assistant, CATALOG, chat, row, summary, user } from "../../../gallery/fixtures/acpmux";
+import { TURN_RETRY } from "../model";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 
 const prompt = "Run the sidebar tests and fix what fails";
@@ -51,7 +52,17 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 300,
   covers: ["agent-session/acpmux/conversation/TurnRows.tsx#TurnFooter", "agent-session/acpmux/failureCopy.ts"],
-  keywords: ["error", "failure", "disk full", "tailscale", "agent process closed", "context window", "compact"],
+  keywords: [
+    "error",
+    "failure",
+    "unreachable",
+    "retry",
+    "disk full",
+    "tailscale",
+    "agent process closed",
+    "context window",
+    "compact",
+  ],
   variants: {
     "cloud-missing": {
       note: "Owner VM without a Claude login: explains the missing credential and offers confirmed setup. Compare the three existing surfaces; keep the glass card.",
@@ -78,6 +89,13 @@ export default agentPaneEntry({
         "agent process closed\nstderr: Error: ENOSPC: no space left on device, write '/Users/me/.claude/projects/x.jsonl'",
       ),
     },
+    "codex-config": {
+      note: 'Lucas\'s fresh Codex chat: "failed to load workspace requirements" names the settings to check, with the raw words under Details.',
+      snapshot: failed("failed to load workspace requirements: invalid input parameter", undefined, {
+        harness: "codex",
+        model: "gpt-6-astra",
+      }),
+    },
     tailscale: {
       note: "A chat on another machine that the tailnet no longer reaches.",
       snapshot: failed("peer build-box unreachable: dial tcp build-box.tail0e5a.ts.net:4717: i/o timeout"),
@@ -99,6 +117,66 @@ export default agentPaneEntry({
       snapshot: chat([
         user(prompt, 6),
         summary(5.9, { status: "failed", durationMs: 4_000, error: "API Error: 529 overloaded_error" }),
+      ]),
+    },
+    // Leo 2026-11-03, on a card that led with Switch model when the server could not be reached: "this
+    // ui is pretty awkward looking". Retry leads a connection failure; Switch model only follows it.
+    "server-unreachable": {
+      note: "The model's server could not be reached before anything ran: Retry leads (filled) and runs acpmux's turn retry, Switch model follows it outlined.",
+      snapshot: chat([
+        user(prompt, 6),
+        summary(5.9, { status: "failed", durationMs: 4_000, error: "API Error: Connection error." }),
+      ]),
+    },
+    "server-unreachable-retrying": {
+      note: "The Retry went and its attempt cannot reach the model either: the live line says Can't reach the model · retrying (2 of 10) (cmux#34306), and the earlier card keeps Switch model outlined, never filled.",
+      snapshot: chat(
+        [
+          user(prompt, 6),
+          summary(5.9, { status: "failed", durationMs: 4_000, error: "API Error: Connection error." }),
+          row("typing", 0.5, {
+            id: TURN_RETRY,
+            retry: { attempt: 2, maxRetries: 10, errorStatus: 503, error: "server_error" },
+          }),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "no-credit": {
+      note: "The account behind the chat's own API key is out of credit (a 400 that says so): the card says to add credit to that account; Switch model leads, Retry after it for once credit is added.",
+      snapshot: failed(
+        'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the API. Please go to Plans & Billing to upgrade or purchase credits."}}',
+      ),
+    },
+    "no-credit-quota": {
+      note: "The same out-of-credit answer as a 429 that names a quota (`insufficient_quota`): no-credit, not rate limited, since waiting does not help.",
+      snapshot: failed(
+        'unexpected status 429 Too Many Requests: {"error":{"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota"}}',
+        undefined,
+        { harness: "codex", model: "gpt-6-astra" },
+      ),
+    },
+    "cloud-sign-in-aws": {
+      note: "A chat on a cloud provider whose SSO sign-in expired, its profile unknown: the card says to run `aws sso login --profile` with the profile this agent uses, then Retry.",
+      snapshot: failed(
+        "Error loading SSO Token: The SSO session associated with this profile has expired or is otherwise invalid.",
+      ),
+    },
+    "cloud-credentials": {
+      note: "The same provider refused credentials that name no SSO (static keys, ExpiredTokenException): the card says to sign in again or update the keys, with no command it cannot be sure of.",
+      snapshot: failed("API Error: 403 ExpiredTokenException: The security token included in the request is expired"),
+    },
+    "cloud-sign-in-google": {
+      note: "The same when application default credentials need reauthentication: the card names `gcloud auth application-default login`.",
+      snapshot: failed(
+        "Reauthentication is needed. Please run `gcloud auth application-default login` to reauthenticate.",
+      ),
+    },
+    "model-error": {
+      note: "A failure about the model's route (its API key was refused): Switch model leads, filled, Retry after it.",
+      snapshot: chat([
+        user(prompt, 6),
+        summary(5.9, { status: "failed", durationMs: 4_000, error: "invalid x-api-key" }),
       ]),
     },
     "context-full": {

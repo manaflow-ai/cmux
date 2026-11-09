@@ -209,6 +209,9 @@ await requireBrowserLane("settings-columns-browser.test.ts", async () => {
     return page.evaluate((name) => {
       const ink = (window as unknown as { __ink: (el: Element | null) => number | null }).__ink;
       const visible = (el: Element) => {
+        // Base UI switches render a clipped form input beside the visible button. Its 1px
+        // box is not a painted control and must not extend the measured control union.
+        if (el.matches('input[aria-hidden="true"]')) return false;
         const r = el.getBoundingClientRect();
         const style = getComputedStyle(el);
         return r.width > 0 && r.height > 0 && style.visibility !== "hidden" && Number(style.opacity) > 0;

@@ -15,24 +15,21 @@ import { chatColumnOf, useChatSizing } from "../chatWidth";
 import type { RowsChange } from "../threadMinimap/model";
 import { stopScroll } from "../threadMinimap/scrollMotion";
 import { THREAD_PADDING_TOP } from "../threadMinimap/model";
-import { experimentArm } from "../../../experiments/experiment";
-import { chatMinimapPlaceholder } from "./placeholder.experiment";
+
 import {
   firstChangedRow,
   MINIMAP_BOTTOM,
   MINIMAP_EDGE,
   MINIMAP_TOP,
-  MINIMAP_WIDTH,
   minimapScale,
   minimapView,
+  minimapWidth,
   paintMinimap,
   streamingRow,
   type MinimapColors,
 } from "./paint";
 import "./chatMinimap.css";
-
-/// While the rows keep changing, the picture follows at most this often.
-export const REDRAW_MS = 250;
+import { REDRAW_MS, placeholderLook } from "./chatMinimapModel";
 /// A scroll rests this long before rows measured while it moved draw (at most SCROLL_MAX_WAIT_MS late).
 const SCROLL_REST_MS = 150;
 const SCROLL_MAX_WAIT_MS = 1000;
@@ -55,15 +52,14 @@ type Props = {
   foot: number;
   /// The pane's width, for the right gutter.
   width: number;
+  /// The room the column keeps at its right (VirtualTranscript's endReserve): the minimap's own while it
+  /// is on (paint.ts MINIMAP_RESERVE), or the computer use preview's.
+  endReserve?: number;
   scrolls: boolean;
   /// Where these rows first differ from the last render's (App.tsx rowsChange), if the transcript knows.
   change?: RowsChange;
 };
 type Source = { rows: readonly AcpmuxRow[]; layout: TranscriptLayout };
-
-/// The placeholder's look: the shimmer, except in the gallery, which compares the others. Only the
-/// gallery sets an arm in globalThis.cmuxExperiments; a stored cmux.experiments override is ignored.
-export const placeholderLook = () => experimentArm(chatMinimapPlaceholder, { stored: {} });
 
 /// Draws nothing, and reads no row, unless the setting is on; the rows are tracked only then.
 export function ChatMinimap(props: Props) {
@@ -75,8 +71,8 @@ function ChatMinimapOn(props: Props) {
   const track = Math.floor(props.foot - MINIMAP_TOP - MINIMAP_BOTTOM);
   // The right gutter of the column the chat really draws (Text Width, Full Width): none, no minimap.
   const sizing = useChatSizing();
-  const column = chatColumnOf(sizing.width, useChatDisplay(), sizing.scale);
-  const room = transcriptColumn(props.width, column).inset >= MINIMAP_WIDTH + 2 * MINIMAP_EDGE;
+  const column = chatColumnOf(useChatDisplay(), sizing.scale);
+  const width = minimapWidth(transcriptColumn(props.width, column, props.endReserve).insetEnd);
   // The rows reach the map through a ref: a token renders nothing in it.
   const source = useRef<Source>({ rows: props.rows, layout: props.layout });
   source.current = { rows: props.rows, layout: props.layout };
@@ -86,7 +82,7 @@ function ChatMinimapOn(props: Props) {
   const found = useRef<{ rows: readonly AcpmuxRow[]; index: number } | undefined>(undefined);
   const streaming = streamingRow(rows, found.current, props.change);
   found.current = { rows, index: streaming };
-  if (!room || !props.scrolls || track < MIN_TRACK) return null;
+  if (!width || !props.scrolls || track < MIN_TRACK) return null;
   return (
     <Minimap
       source={source}
@@ -95,6 +91,7 @@ function ChatMinimapOn(props: Props) {
       scroller={props.scroller}
       viewportHeight={props.viewportHeight}
       track={track}
+      width={width}
     />
   );
 }
@@ -112,6 +109,7 @@ const Minimap = memo(function Minimap({
   scroller,
   viewportHeight,
   track,
+  width,
 }: {
   source: React.RefObject<Source>;
   changed: React.RefObject<(() => void) | undefined>;
@@ -119,6 +117,8 @@ const Minimap = memo(function Minimap({
   scroller: React.RefObject<HTMLElement | null>;
   viewportHeight: number;
   track: number;
+  /// The strip's width in CSS px (paint.ts minimapWidth).
+  width: number;
 }) {
   const t = useT();
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -143,8 +143,8 @@ const Minimap = memo(function Minimap({
   /// The placeholder over the streaming reply: its place on the map, set once per stream.
   const [look] = useState(placeholderLook);
   const [hold, setHold] = useState<{ top: number; height: number } | undefined>(undefined);
-  const live = useRef({ viewportHeight, track, streaming });
-  live.current = { viewportHeight, track, streaming };
+  const live = useRef({ viewportHeight, track, streaming, width });
+  live.current = { viewportHeight, track, streaming, width };
   // What is drawn; `atLatest`: while a reply streams, whether the view box was last put at the end.
   // prettier-ignore
   const drawn = useRef({
@@ -200,9 +200,9 @@ const Minimap = memo(function Minimap({
     }
     let whole = state.sized || !record.colors || !record.painted;
     state.sized = false;
-    const height = live.current.track;
+    const { track: height, width } = live.current;
     const dpr = window.devicePixelRatio || 1;
-    const pixelWidth = Math.round(MINIMAP_WIDTH * dpr);
+    const pixelWidth = Math.round(width * dpr);
     const pixelHeight = Math.round(height * dpr);
     // Resizing the backing store clears it: only when the size or the screen's scale changed.
     if (node.width !== pixelWidth || node.height !== pixelHeight) {
@@ -226,7 +226,7 @@ const Minimap = memo(function Minimap({
     const ctx = node.getContext("2d");
     if (ctx)
       paintMinimap(ctx, all, placed, {
-        width: MINIMAP_WIDTH,
+        width,
         height,
         dpr,
         scale,
@@ -279,7 +279,7 @@ const Minimap = memo(function Minimap({
   useLayoutEffect(() => {
     placeView();
     schedule(false);
-  }, [track, viewportHeight, placeView, schedule]);
+  }, [track, viewportHeight, width, placeView, schedule]);
   // A reply starts streaming: everything above it (the prompt that started it too) draws once as it
   // stands, and the reply's place on the map is the placeholder, sized now. It ends: one draw.
   useLayoutEffect(() => {
@@ -394,7 +394,7 @@ const Minimap = memo(function Minimap({
         style={{
           top: MINIMAP_TOP,
           right: MINIMAP_EDGE,
-          width: MINIMAP_WIDTH,
+          width,
           height: track,
         }}
         onPointerDown={(event) => {
@@ -442,12 +442,7 @@ const Minimap = memo(function Minimap({
           node.scrollTop = Math.max(0, node.scrollTop + delta);
         }}
       >
-        <canvas
-          ref={canvas}
-          className="acpmux-chat-minimap__canvas"
-          style={{ width: MINIMAP_WIDTH, height: track }}
-          aria-hidden
-        />
+        <canvas ref={canvas} className="acpmux-chat-minimap__canvas" style={{ width, height: track }} aria-hidden />
         {hold && (
           <div
             className="acpmux-chat-minimap__placeholder"

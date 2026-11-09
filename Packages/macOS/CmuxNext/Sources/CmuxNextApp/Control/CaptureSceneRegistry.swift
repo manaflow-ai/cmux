@@ -9,6 +9,7 @@ import CmuxNextDesign
 import CmuxNextSidebar
 import CmuxNextWorkspaceNaming
 import CmuxNextSettings
+import CmuxNextControl
 
 /// Describes the named DEBUG scenes available to the deterministic capture route.
 struct CaptureSceneDefinition: Sendable {
@@ -269,7 +270,7 @@ final class CaptureSceneRegistry {
         CaptureSceneDefinition(name: "sidebar-tiles", description: "Showcase rail and workspace tiles."),
         CaptureSceneDefinition(name: "settings", description: "Showcase window with the settings destination available."),
         CaptureSceneDefinition(name: "history-narrow", description: "Narrow history destination fixture."),
-        CaptureSceneDefinition(name: sessionInfoNativeScene,
+        CaptureSceneDefinition(name: "session-info-native", // literal: cmux-ci capture greps for it
                                description: "Native Session Info open on a dense agent chat, full length below the header."),
         CaptureSceneDefinition(name: "cloud-start-session-ask", description: "An agent's cmux cloud start-session ask card in its chat."),
         CaptureSceneDefinition(name: "cloud-agent-machines",
@@ -446,14 +447,13 @@ extension CaptureSceneRegistry {
     /// The three running, connected machines, each with one workspace: the person's my-project, and
     /// the image's own workspace-1 on each machine an agent made.
     func addAgentCloudMachines() {
-        let api = services.cloud.api, binary = URL(fileURLWithPath: "/usr/bin/false")
-        let paths = CloudPaths(root: FileManager.default.temporaryDirectory.appendingPathComponent("cn-capture-cloud-machines"))
-        let hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: "capture")
         for (id, name, workspace) in [(Self.openedMachineID, "my-vm", "my-project"), (Self.agentMachineIDs[0], "lane-vm-1", "workspace-1"),
                                       (Self.agentMachineIDs[1], "test-vm-2", "workspace-1")] {
-            let link = CloudMachineLink(machineID: id, api: api, hub: hub, paths: paths, binary: binary, deviceName: "capture")
-            let session = CloudMachineSession(machine: CloudMachine(id: id, status: .running, displayName: name), link: link,
-                                              mainWork: services.mainWork)
+            // Never connected: the scene sets the tree itself, and no connect runs its op.
+            let resolver = CloudEndedLinkResolver(error: .unsupported)
+            let session = CloudMachineSession(machine: CloudMachine(id: id, status: .running, displayName: name),
+                                              appLink: CloudLinkSession(key: CloudLinkKey(machine: id), resolver: resolver),
+                                              localIdentity: { nil }, mainWork: services.mainWork)
             services.machines.add(session)
             // Connected, as the account's list leaves a running machine: a connecting one draws no rows.
             _ = session.daemon.store.apply(.connected(DaemonIdentity(registryID: "s-\(id)", generation: "capture"),
@@ -718,9 +718,9 @@ extension CaptureSceneRegistry {
 extension CaptureSceneRegistry {
     static let cloudMachineDisconnectedScene = "cloud-machine-disconnected"
     /// The machine whose link dropped, then the one whose connect the provider refused, with each one's connect error.
-    static let endedLinkMachines: [(id: String, name: String, code: String, message: String)] = [
-        ("capture-vm-dropped", "dropped-link-vm", "cmux.cloud.link_down", "the machine's link went down"),
-        ("capture-vm-refused", "refused-vm", "vm_start_failed", "the provider could not start this machine"),
+    static let endedLinkMachines: [(id: String, name: String, error: CloudLinkError)] = [
+        ("capture-vm-dropped", "dropped-link-vm", .disconnected(reason: "the machine's link went down")),
+        ("capture-vm-refused", "refused-vm", .failed(code: "vm_start_failed", message: "the provider could not start this machine")),
     ]
 
     /// Shows the settled showcase window's sidebar, adds both machines with a header per computer
@@ -747,8 +747,7 @@ extension CaptureSceneRegistry {
         // Machine headers draw only with a section per computer.
         DesignSettings.shared.sidebarSections.groupsByComputer = true
         for machine in Self.endedLinkMachines {
-            let (code, message) = (machine.code, machine.message)
-            let resolver = CloudConnectOpResolver(run: { _, _, _, _ in throw CloudAppOpError(code: code, message: message) })
+            let resolver = CloudEndedLinkResolver(error: machine.error)
             let session = CloudMachineSession(machine: CloudMachine(id: machine.id, status: .running, displayName: machine.name),
                                               appLink: CloudLinkSession(key: CloudLinkKey(machine: machine.id), resolver: resolver),
                                               localIdentity: { nil }, mainWork: services.mainWork)
@@ -759,7 +758,7 @@ extension CaptureSceneRegistry {
             session.daemon.store.apply(snapshot: DaemonTree(registryID: "s-\(machine.id)", workspaces: [
                 WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "ws-\(machine.id)"), name: "workspace-1"),
             ]))
-            // A click's connect: its `cloud.machine.connect` fails, and the link ends.
+            // A click's connect fails, and the link ends.
             session.connect(origin: .user)
         }
         services.windows.reconcileMembership()

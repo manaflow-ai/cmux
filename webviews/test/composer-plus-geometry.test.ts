@@ -13,8 +13,8 @@
 // 3. Centered controls: +, the mic and Send are one size (`--acpmux-composer-control`), each glyph
 //    sits at its button's center, and every button stands the same inset off the box's edges on
 //    every side it meets (left, top and bottom for +; right, top and bottom for the last trailing
-//    control). The three centers are the prompt's first line's center (a one-line prompt), in both
-//    looks: Codex's lays the buttons out as Claude's (cmux #28901's row under the prompt, replaced).
+//    control). Claude's three centers are the prompt's first line's center; Codex's chat look puts
+//    them together on a lower row, below a full-width prompt (Leo 2026-11-04's ChatGPT reference).
 // 4. Room around the text (Claude's look; Leo, 2026-11-01: "this is all still not aligned there's not
 //    enough of a space at the bottom"): the caret's center is +'s center, the first line has as much
 //    room under it as over it, and at least MIN_ROOM under its text, so it never sits on the edge.
@@ -45,6 +45,9 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
   const GAP = 8;
   /** Subpixel rounding. */
   const TOLERANCE = 0.5;
+  /** Codex's chat look: the prompt-to-row gap and the room under the row (composerLook.css). */
+  const CODEX_PROMPT_GAP = 16;
+  const CODEX_ROW_BOTTOM = 12;
   /** The least room under a one-line prompt's text, to the box's bottom (10 px block inset). */
   const MIN_ROOM = 12;
 
@@ -61,6 +64,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     expect?: Row[];
     /** Trailing controls the layout must draw. */
     trailing?: ("mic" | "send")[];
+    /** The mic-to-Send gap in px: the chat composer's 4px token unless the surface ships its own. */
+    actionsGap?: number;
   };
   const LAYOUTS: Layout[] = [
     {
@@ -113,6 +118,7 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       look: "claude",
       expect: ["pills", "foot"],
       trailing: ["mic", "send"],
+      actionsGap: 2, // New Tab ships the tight arm of new-tab-composer-trailing-gap (Leo's pick)
     },
     {
       name: "new-tab-suggestions",
@@ -122,6 +128,7 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       look: "claude",
       expect: ["suggestions"],
       trailing: ["mic", "send"],
+      actionsGap: 2, // New Tab ships the tight arm of new-tab-composer-trailing-gap (Leo's pick)
     },
     {
       name: "new-tab-narrow",
@@ -138,7 +145,6 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       width: 760,
       look: "codex",
       type: "helo",
-      expect: ["foot"],
       trailing: ["mic", "send"],
     },
     {
@@ -160,6 +166,7 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       // The tray, as home-codex; the quiet row stands on +'s column.
       expect: ["foot"],
       trailing: ["mic", "send"],
+      actionsGap: 2, // New Tab ships the tight arm of new-tab-composer-trailing-gap (Leo's pick)
     },
   ];
 
@@ -293,20 +300,10 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
         };
       };
       const card = document.querySelector(".nt-box") ?? document.querySelector(".acpmux-composer-box");
-      // Codex's look draws the quiet row inside the chat's box, under the prompt (composerLook.css):
-      // +, the prompt, the mic and Send keep Claude's grid over it, so they are measured against the
-      // box down to that row's top.
+      // Codex's look has one lower controls row inside the box, under the full-width prompt.
       const innerFoot = shown(card?.querySelector(":scope > .acpmux-chrome-area > .acpmux-composer-foot"));
       const cardRect = shown(card);
-      const box =
-        cardRect && innerFoot
-          ? DOMRect.fromRect({
-              x: cardRect.left,
-              y: cardRect.top,
-              width: cardRect.width,
-              height: innerFoot.top - cardRect.top,
-            })
-          : cardRect;
+      const box = cardRect;
       const control = (selector: string): Control | null => {
         const buttons = [...(card?.querySelectorAll(selector) ?? [])].filter((element) => shown(element));
         const button = buttons[0];
@@ -323,7 +320,7 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       const barElement = card
         ?.querySelector(".acpmux-composer-plus")
         ?.closest(".acpmux-composer-bar:not(.acpmux-composer-inner), .nt-box > .acpmux-chrome-area > .nt-pickers");
-      const bar = barElement ? shown(barElement) : null;
+      const bar = innerFoot ?? (barElement ? shown(barElement) : null);
       const plus = control(".acpmux-composer-plus .acpmux-picker-button");
       const mic = control(".acpmux-mic");
       const send = control(".acpmux-send");
@@ -511,10 +508,17 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     if (!m.plus) return ["the + button is not drawn in the box"];
     const plus = m.plus.button;
     const inset = plus.left - m.box.left;
-    // Both looks put + beside the text (composerLook.ts; Leo 2026-11-01: "we already have a good
-    // version"): no layout draws + in a row of its own under the prompt (cmux #28901's, replaced).
-    if (m.bar) out.push("+ sits in a controls row under the prompt, not beside the text");
-    if (!m.bar) {
+    if (m.bar) {
+      // ChatGPT's two-row spacing in Codex's look (Leo 2026-11-04): the prompt starts over the
+      // lower row, with one 16px gap before the controls (24px before Leo 2026-11-08: "we need to
+      // not have our thing be so tall"). It never reserves +'s blank column.
+      if (m.text === null || Math.abs(m.text - m.box.left - 16) > TOLERANCE)
+        out.push(
+          `the full-width prompt starts ${m.text === null ? "nowhere" : f(m.text - m.box.left)} px into the box, not 16`,
+        );
+      if (!m.line || plus.top - m.line.bottom < CODEX_PROMPT_GAP - TOLERANCE)
+        out.push("the lower controls crowd the prompt's first line");
+    } else {
       if (m.text === null) return ["the text's start is not drawn"];
       const gap = m.text - plus.right;
       if (Math.abs(gap - GAP) > TOLERANCE)
@@ -535,6 +539,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       }
     }
     for (const row of layout.expect ?? []) {
+      // Codex's quiet controls now share +'s lower row, so its first glyph follows + horizontally.
+      if (row === "foot" && m.bar) continue;
       const at = m.rows[row];
       if (at === null || at === undefined) {
         out.push(`the ${row} row is not drawn`);
@@ -578,8 +584,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     }
     if (layout.trailing?.includes("mic") && layout.trailing.includes("send")) {
       if (m.actionsGap === null) out.push("the trailing controls' gap is not measurable");
-      else if (Math.abs(m.actionsGap - 4) > TOLERANCE)
-        out.push(`the trailing controls' gap is ${f(m.actionsGap)} px, not 4`);
+      else if (Math.abs(m.actionsGap - (layout.actionsGap ?? 4)) > TOLERANCE)
+        out.push(`the trailing controls' gap is ${f(m.actionsGap)} px, not ${layout.actionsGap ?? 4}`);
     }
     // One center line: the prompt's first line in Claude's look, the controls' row in Codex's.
     const target =
@@ -588,11 +594,12 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       const dy = centerY(control.button) - target.y;
       if (Math.abs(dy) > TOLERANCE) out.push(`${name}'s center sits ${f(dy)} px off ${target.what}'s center`);
     }
-    // Equal insets. In Codex's look + stands as far off the box's left as off its row's bottom (the
-    // look's dots sit under it in the box), and the last control as far off its right. In Claude's,
+    // Equal insets. In Codex's look + and the last control stand the control inset off the box's
+    // sides, and the row CODEX_ROW_BOTTOM over its bottom (Leo 2026-11-08: "have more padding on the
+    // bottom"; it was the 8px side inset before). In Claude's,
     // + stands as far under the box's top as over its bottom (one line), and as far off its left as
     // the last control off its right.
-    const floor = m.bar ? m.bar.bottom : m.box.bottom;
+    const floor = m.box.bottom;
     const oneLine = !m.bar && !m.rows.chips && !m.inline;
     // The last control is the rightmost one shown (the mic stands after Send in some layouts).
     const last = [m.send, m.mic]
@@ -603,8 +610,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       const left = b.left - m.box.left;
       const bottom = floor - b.bottom;
       if (m.bar) {
-        if (Math.abs(left - bottom) > TOLERANCE)
-          out.push(`+ stands ${f(left)} px off the box's left, ${f(bottom)} off its bottom`);
+        if (Math.abs(bottom - CODEX_ROW_BOTTOM) > TOLERANCE)
+          out.push(`+ stands ${f(left)} px off the box's left, ${f(bottom)} off its bottom, not ${CODEX_ROW_BOTTOM}`);
       } else {
         const top = b.top - m.box.top;
         // Over the attachments' band or beside an inline attachment the prompt is taller than one
@@ -621,7 +628,11 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     if (last) {
       const right = m.box.right - last.button.right;
       const bottom = floor - last.button.bottom;
-      if (m.bar && Math.abs(right - bottom) > TOLERANCE)
+      if (
+        m.bar &&
+        (Math.abs(bottom - CODEX_ROW_BOTTOM) > TOLERANCE ||
+          (m.plus && Math.abs(right - (m.plus.button.left - m.box.left)) > TOLERANCE))
+      )
         out.push(`the last control stands ${f(right)} px off the box's right, ${f(bottom)} off its bottom`);
       if (!m.bar && m.plus && Math.abs(bottom - (floor - m.plus.button.bottom)) > TOLERANCE)
         out.push(`the last control stands ${f(bottom)} px over the box's bottom, + ${f(floor - m.plus.button.bottom)}`);

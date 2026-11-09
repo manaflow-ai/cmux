@@ -99,7 +99,8 @@ extension LiveCoordinator {
         session.acpmux.onWatchEvent = { [weak session] event in
             guard let session else { return }
             session.feed.handle(event, sessions: session.acpmux.sessions)
-            session.workspaces.setPending(session.acpmux.sessions.mapValues { $0.pendingPermissions > 0 }, waitingFor: session.feed.waitingFor)
+            session.workspaces.setPending(session.acpmux.sessions.mapValues { $0.pendingPermissions > 0 }, waitingFor: session.feed.waitingFor,
+                                          chatTitles: session.acpmux.sessions.compactMapValues(\.title))
         }
         session.creation.capabilities = { [weak self] mac in self?.store.macCapabilities[mac] }
         observe(session)
@@ -147,6 +148,10 @@ extension LiveCoordinator {
         session.currentLink = link
         session.servedLink = nil
         session.pairingGate = nil
+        // A new link pairs from the start: the old link's retry ends, the backoff starts over.
+        session.pairingRetry?.cancel()
+        session.pairingRetry = nil
+        session.pairingRetries = 0
         session.acpmux.approver = nil
         session.chatsError = nil
         session.daemonError = nil
@@ -458,20 +463,41 @@ extension LiveCoordinator {
             switch outcome {
             case .paired(let macDevice):
                 self.setPairing(.paired, for: session)
+                session.pairingRetries = 0
                 // Allowed already: a code for this Mac has nothing left to approve.
                 pairing.invites.drop(mac: macID)
-                session.acpmux.approver = AcpmuxHub.Approver(phoneID: pairing.phoneID, macDevice: macDevice) { reason in
-                    try await keys.authorizeApproval(reason: reason)
+                session.acpmux.approver = AcpmuxHub.Approver(phoneID: pairing.phoneID, macDevice: macDevice) { _ in
+                    try keys.approvalSigner()
                 }
                 return true
             case .legacy:
                 self.setPairing(.idle, for: session)
+                session.pairingRetries = 0
                 return true
             case .refused(let error):
                 log.error("pairing refused: \(error.code, privacy: .public) \(error.message, privacy: .public)")
                 self.setPairing(error.code == "denied" ? .denied(mac: name) : .failed(LinkPairing.refusalText(error)), for: session)
+                self.schedulePairingRetry(session, link, after: error.code)
                 return false
             }
+        }
+    }
+
+    /// Asks the Mac again on `link` by itself after a refusal, so a Mac that becomes ready (or
+    /// a prompt answered late) lets the phone in without the person tapping Retry or relaunching
+    /// the Mac app. Runs while `link` stays this Mac's current, unserved link.
+    func schedulePairingRetry(_ session: MacSession, _ link: any MacLink, after code: String) {
+        session.pairingRetry?.cancel()
+        guard let delay = LinkPairing.retryDelay(after: code, attempt: session.pairingRetries) else { return }
+        session.pairingRetries += 1
+        let macID = session.macID
+        // task-owner: stored in `session.pairingRetry`; a newer refusal or retry cancels it
+        session.pairingRetry = Task { [weak self, weak session, clock] in
+            do { try await clock.sleep(for: delay) } catch { return }
+            guard let self, let session, self.sessions[macID] === session, session.currentLink === link,
+                  session.servedLink == nil else { return }
+            log.info("pairing: asking the Mac again (attempt \(session.pairingRetries, privacy: .public))")
+            self.retry(macID: macID)
         }
     }
 
@@ -759,7 +785,7 @@ extension LiveCoordinator {
                 return
             }
             session.status = nil
-            // Answers to Chief's questions sign with this phone's key after Face ID.
+            // Answers to Chief's questions sign with this phone's approval key.
             session.answerSigner = { [weak self] in self?.chiefAnswerSigner() }
             session.use(ChiefDaemonBackend(client: client))
             chiefLive = true

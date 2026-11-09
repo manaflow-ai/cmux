@@ -1,5 +1,5 @@
 //! `acpmux secret-mcp`: the agent's `request_secret` and `run_with_secret`
-//! tools (cx-ncc.42) and `connect_mcp_server` (`hub/mcp_connect.rs`): every
+//! tools (cx-ncc.42), `request_elevation` (one sudo command, `hub/elevation.rs`) and `connect_mcp_server` (`hub/mcp_connect.rs`): every
 //! tool here waits on a card only the person answers, an MCP stdio server for one agent session that
 //! `agent_tools.rs` registers. Each call is one daemon request
 //! (`hub/secrets.rs`) for the session in [`SESSION_ENV`]; the value never
@@ -39,12 +39,17 @@ pub fn protocol_version(params: &Value) -> &'static str {
 /// do not see the tool by default.
 pub const MCP_CONNECT_PREVIEW_ENV: &str = "CMUX_MCP_CONNECT_PREVIEW";
 
+/// `value[key]` without an index: `Null` for a missing key or a value that is not an object.
+fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
+    value.get(key).unwrap_or(&Value::Null)
+}
+
 fn tools() -> Value {
     let mut all = all_tools();
     if std::env::var(MCP_CONNECT_PREVIEW_ENV).as_deref() != Ok("1")
         && let Some(list) = all.as_array_mut()
     {
-        list.retain(|t| t["name"] != "connect_mcp_server");
+        list.retain(|t| *field(t, "name") != "connect_mcp_server");
     }
     all
 }
@@ -74,6 +79,20 @@ fn all_tools() -> Value {
                     "argv": {"type": "array", "items": {"type": "string"}, "description": "The command and its arguments, e.g. [\"sh\", \"-c\", \"curl -u \\\"$STRIPE_API_KEY:\\\" https://api.stripe.com/v1/balance\"]."}
                 },
                 "required": ["secretRef", "env", "argv"]
+            }
+        },
+        {
+            "name": "request_elevation",
+            "description": "Ask the user to run one command as root (sudo) on this machine. cmux shows them a card with the exact argv, this chat and your reason, and they type their password there; you never see it and must never ask for it in chat. On Approve cmux runs `sudo -- argv` itself (no shell: pass argv, not a command line), leaves no cached sudo login behind, and returns exitCode, stdout and stderr (512 KiB each at most); a run past timeoutSecs is stopped and timedOut is true. outcome is approved, denied or cancelled. A deny is final: do not ask again for the same thing unless the user asks you to. Use it only for what needs root: a read-only diagnostic (fs_usage, dtruss, powermetrics, a protected log) or a fix the user asked for. The call waits for the user (10 minutes at most, or until your turn ends).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "argv": {"type": "array", "items": {"type": "string"}, "description": "The command and its arguments, run by sudo as is, e.g. [\"fs_usage\", \"-w\", \"-f\", \"filesys\", \"-t\", \"10\"]. Bound a command that never ends on its own (fs_usage -t SECONDS)."},
+                    "reason": {"type": "string", "description": "One sentence the card shows: why this needs root and what you will do with the output."},
+                    "host": {"type": "string", "description": "The machine it runs on; must be this chat's own machine. Leave it out for this machine."},
+                    "timeoutSecs": {"type": "integer", "minimum": 1, "maximum": 600, "description": "Stop the command after this many seconds (default 60)."}
+                },
+                "required": ["argv", "reason"]
             }
         },
         {
@@ -116,6 +135,34 @@ where
     Fut: Future<Output = Value> + Send + 'static,
 {
     let session = std::env::var(session_env).map_err(|_| anyhow!("{session_env} is not set"))?;
+    // Each call connects anew, so a restarted daemon serves the next one.
+    serve_as(name, session, tools, instructions, move |session, params| {
+        let call = call.clone();
+        async move {
+            match crate::daemon::connect(false).await {
+                Ok(daemon) => call(daemon, session, params).await,
+                Err(e) => error_result(format!("{e:#}")),
+            }
+        }
+    })
+    .await
+}
+
+/// [`serve`] for a session (or bridge address, `acpmux_mcp_bridge.rs`) given, not read from the
+/// env. `call(session, params)` connects to the daemon itself, only if it needs it.
+pub(crate) async fn serve_as<F, Fut>(
+    name: &'static str,
+    session: String,
+    tools: Value,
+    instructions: Option<String>,
+    call: F,
+) -> Result<()>
+where
+    F: Fn(String, Value) -> Fut + Clone + Send + 'static,
+    Fut: Future<Output = Value> + Send + 'static,
+{
+    // Stdin may stay open after the agent died (`parent_watch.rs`).
+    crate::parent_watch::exit_with_parent();
     let (tx, mut rx) = mpsc::channel::<Value>(64);
     let writer = tokio::spawn(async move {
         let mut out = tokio::io::stdout();
@@ -134,6 +181,7 @@ where
         let verb = message["method"].as_str().unwrap_or_default().to_owned();
         let reply = match verb.as_str() {
             "initialize" => {
+                crate::sender_harness::note_mcp_client(&message["params"]);
                 let mut reply = json!({
                     "protocolVersion": protocol_version(&message["params"]),
                     "capabilities": {"tools": {}},
@@ -147,15 +195,11 @@ where
             "ping" => json!({}),
             "tools/list" => json!({"tools": tools}),
             "tools/call" => {
-                // A card waits on the person: the next request is read meanwhile. Each call
-                // connects anew, so a restarted daemon serves the next one.
+                // A card waits on the person: the next request is read meanwhile.
                 let (tx, session, params, call) =
                     (tx.clone(), session.clone(), message["params"].clone(), call.clone());
                 tokio::spawn(async move {
-                    let result = match crate::daemon::connect(false).await {
-                        Ok(daemon) => call(daemon, session, params).await,
-                        Err(e) => error_result(format!("{e:#}")),
-                    };
+                    let result = call(session, params).await;
                     let _ = tx.send(response(&id, result)).await;
                 });
                 continue;
@@ -193,6 +237,13 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
                 "name": arguments["name"], "reason": arguments["reason"],
             }),
         ),
+        Some("request_elevation") => (
+            method::MUX_ELEVATION_REQUEST,
+            json!({
+                "argv": field(&arguments, "argv"), "reason": field(&arguments, "reason"),
+                "host": field(&arguments, "host"), "timeoutSecs": field(&arguments, "timeoutSecs"),
+            }),
+        ),
         Some("connect_mcp_server")
             if std::env::var(MCP_CONNECT_PREVIEW_ENV).as_deref() != Ok("1") =>
         {
@@ -205,7 +256,8 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
         Some("connect_mcp_server") => (
             method::MUX_MCP_CONNECT_REQUEST,
             json!({
-                "server": arguments["server"], "scope": arguments["scope"], "reason": arguments["reason"],
+                "server": field(&arguments, "server"), "scope": field(&arguments, "scope"),
+                "reason": field(&arguments, "reason"),
             }),
         ),
         Some("run_with_secret") => (
@@ -225,27 +277,29 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
     request.set("sessionId", Value::String(session.to_owned()));
     match daemon.request(m, request).await {
         Ok(result) => {
-            let text = if result["outcome"] == "cancelled" {
+            let text = if *field(&result, "outcome") == "denied" {
+                "The user denied this command. The deny is final: do not ask again for it unless they ask you to.".to_owned()
+            } else if *field(&result, "outcome") == "cancelled" {
                 "The card closed before the user answered (the turn stopped, or a newer ask replaced it).".to_owned()
-            } else if result["status"] == "cancelled" {
+            } else if *field(&result, "status") == "cancelled" {
                 "The connect card closed before the user answered (the turn stopped, or a newer ask replaced it).".to_owned()
-            } else if result["status"] == "declined" {
+            } else if *field(&result, "status") == "declined" {
                 "The user declined to connect this server.".to_owned()
             } else if result["declined"] == true {
                 "The user declined to give this secret.".to_owned()
-            } else if result["connect"] == "signInNeeded" {
+            } else if *field(&result, "connect") == "signInNeeded" {
                 format!(
                     "The user approved {} (scope {}). The server needs a sign-in before it lists tools: \
                      ask the user to sign in on the card. The sign-in happens on the user's side; no \
                      token or code comes to you, so never ask for one.",
-                    result["name"].as_str().unwrap_or("the server"),
-                    result["scope"].as_str().unwrap_or("chat"),
+                    field(&result, "name").as_str().unwrap_or("the server"),
+                    field(&result, "scope").as_str().unwrap_or("chat"),
                 )
-            } else if result["connect"] == "keyNeeded" {
+            } else if *field(&result, "connect") == "keyNeeded" {
                 format!(
                     "The user approved {}. It needs a key, which the user types only into the card's \
                      secure field; never ask for it in the chat.",
-                    result["name"].as_str().unwrap_or("the server"),
+                    field(&result, "name").as_str().unwrap_or("the server"),
                 )
             } else {
                 result.to_string()

@@ -25,6 +25,8 @@ cmux-rd-proto = { path = "../../cmux-tui/crates/cmux-rd-proto", features = ["ser
 cmux-rd-core = { path = "../../cmux-tui/crates/cmux-rd-core" }
 cmux-rd-engine = { path = "../../cmux-tui/crates/cmux-rd-engine" }
 cmux-rd-ffi = { path = "../../cmux-tui/crates/cmux-rd-ffi" }
+# Predictive local echo, the engine the Mac app asks over cmux-app-ffi.
+cmux-terminal-prediction = { path = "../../cmux-tui/crates/cmux-terminal-prediction" }
 anyhow = "1"
 base64 = "0.22"
 bytes = "1"
@@ -44,6 +46,11 @@ uuid = { version = "1", features = ["v4", "serde"] }
 webrtc = "0.17"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 zeroize = "1"
+
+[patch.crates-io]
+# The phone link's tunnel TCP gets the same RFC 6928 initial window as cmux-tui
+# (cmux-tui/vendor/smoltcp/CMUX_PATCH.md); Cargo applies only this workspace's patches here.
+smoltcp = { path = "../../cmux-tui/vendor/smoltcp" }
 
 [profile.release]
 lto = "off"

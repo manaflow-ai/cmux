@@ -10,7 +10,7 @@ import Testing
 
 /// FRAME OWNER REFACTOR S3a (D1), the release of a spring's held content: a pane whose content keeps the larger of its
 /// start and final size through a split, close or zoom spring (the provider's `holdsContentInMotion`, true for agent
-/// panes; `motion.pane.holdContent` for a host made without a provider). A landing frame that only moves the host (its
+/// panes; the host's injected rule for a host made without a provider). A landing frame that only moves the host (its
 /// size came to rest a frame before its origin) sets the held content to its rest size in that frame, and nothing laid
 /// the content out before it heard the spring land (`PaneHostView.releaseHeldContent`): a terminal in it let its
 /// surface hold go from its stale host, took its start size again and sent its start grid, and the next layout pass
@@ -78,14 +78,18 @@ struct PaneHeldContentLandingTests {
         host.isOnLayoutSpring = true
         host.announceRest()
         let atStart = await grids()
-        // Its near edge moves, its far edge stays: the content keeps its start size, pinned to that edge.
+        // Its near edge moves, its far edge stays: the content holds its rest size from the first frame (Leo
+        // 2026-11-05: "the main pane waits for the right pane to shift before it shifts. Like, why are you waiting?"),
+        // pinned to that edge.
         for x in [20.0, 50, 80] as [CGFloat] {
             Self.present(host, at: CGRect(x: x, y: 0, width: 600 - x, height: 800), rest: rest)
+            try #require(host.content.frame.size.width <= rest.width,
+                         "the content waits at its start size on a spring frame (\(host.content.frame.size), rest \(rest.size))")
         }
         // Its size comes to rest a frame before its origin does...
         Self.present(host, at: rest.offsetBy(dx: -1, dy: 0), rest: rest)
-        try #require(host.content.frame.size != host.contentRect.size,
-                     "the content is not held before the landing (\(host.content.frame.size) in \(host.contentRect.size))")
+        try #require(host.content.frame.size == host.contentRect.size,
+                     "the content is not at its rest size before the landing (\(host.content.frame.size) in \(host.contentRect.size))")
         // ...and the frame it lands at only moves it.
         Self.present(host, at: rest, rest: rest)
         host.isOnLayoutSpring = false

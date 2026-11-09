@@ -60,8 +60,9 @@ import Testing
         #expect(try Self.placed(.bottom, home: false) == nil)
     }
 
-    /// The fallback Leo named: with no setting a new workspace goes to the top.
-    @Test func theDefaultIsTop() {
-        #expect(CmuxConfigSnapshot.newWorkspacePlacementFallback == .top)
+    /// The fallback Leo named (2026-11-06: "you should just have it right next to it"): with no setting a new
+    /// workspace goes right after the current one.
+    @Test func theDefaultIsAfterCurrent() {
+        #expect(CmuxConfigSnapshot.newWorkspacePlacementDefault == .afterCurrent)
     }
 }

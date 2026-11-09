@@ -453,9 +453,10 @@ class Verdicts(unittest.TestCase):
         self.assertEqual(train.last_good(feed, fetch, "https://x/verdicts")["build"], "100")
         self.assertIsNone(train.last_good(feed, lambda url: None, "https://x/verdicts"))
 
-    def test_the_verdicts_sit_next_to_the_next_feed(self) -> None:
-        self.assertEqual(train.FEED, "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml")
-        self.assertEqual(train.VERDICTS, train.FEED.rsplit("/", 1)[0] + "/verdicts")
+    def test_the_train_reads_the_one_feed_and_the_verdicts_where_the_app_does(self) -> None:
+        # The track's one feed is cmux NIGHTLY's (hq#7156); the verdicts stay in next/ (UpdaterService.channelFolder).
+        self.assertEqual(train.FEED, "https://files-next.cmux.com/nightly-next/appcast-arm64.xml")
+        self.assertEqual(train.VERDICTS, "https://files-next.cmux.com/nightly-next/next/verdicts")
 
 
 class OwnedRefusal(unittest.TestCase):
@@ -538,7 +539,7 @@ class OwnedRefusal(unittest.TestCase):
         import yaml
         jobs = yaml.safe_load((ROOT / ".github/workflows/nightly-next-train.yml").read_text(encoding="utf-8"))["jobs"]
         pick = jobs["pick-train-runner"]
-        self.assertEqual(pick["environment"], "ci-routing-agent")
+        self.assertEqual(pick["environment"], {"name": "ci-routing-agent", "deployment": False})
         self.assertIn("nightly_build_runner.py", pick["steps"][-1]["run"])
         self.assertNotIn("DEDICATED_LABEL", pick["steps"][-1]["env"])
         # vars.NIGHTLY_NEXT_TRAIN_RUNNER reaches only OWNED_LABELS, and the picker offers no hosted Mac from it.

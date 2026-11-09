@@ -4,6 +4,9 @@
 // split (half) or a sidebar (a narrow column). Below NARROW of the page's own width the second
 // view stacks under the first.
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { Button } from "../../ui/Button";
+import { SplitEdge } from "../../ui/SplitEdge";
+import { Switch } from "../../ui/Switch";
 import type { Strings } from "../shared/i18n";
 import { ViewGlyph } from "./parts";
 import { CHIEF_VIEWS, viewById, type ChiefViewManifest } from "./registry";
@@ -73,19 +76,19 @@ export function ChiefViewsPage({
         </div>
         <div className="cv-actions">
           {needs.some((need) => need !== "agents") && (
-            <button type="button" className="cv-button" onClick={() => store.refresh(needs)}>
+            <Button size="sm" className="cv-button" onClick={() => store.refresh(needs)}>
               {t("chiefViews.refresh")}
-            </button>
+            </Button>
           )}
-          <button
-            type="button"
+          <Button
+            size="sm"
             className="cv-button"
             aria-expanded={data.catalog}
             aria-controls="cv-gallery"
             onClick={() => store.setCatalog(!data.catalog)}
           >
             {t("chiefViews.gallery.button")}
-          </button>
+          </Button>
         </div>
       </header>
       {data.catalog && <Gallery store={store} strings={strings} enabled={layout.enabled} main={layout.main} />}
@@ -113,6 +116,16 @@ export function ChiefViewsPage({
                 </button>
               </div>
               <side.component {...props} placement={layout.side.placement} />
+              {/* Its line is the split's divider and drags as one (ui/SplitEdge.tsx); each placement
+                  keeps its own width. */}
+              <SplitEdge
+                side="start"
+                property="--chief-views-side-width"
+                storageKey={`cmux.chiefViews.side.${layout.side.placement}.width`}
+                min={200}
+                max={layout.side.placement === "split" ? 1200 : 480}
+                on="parent"
+              />
             </section>
           )}
         </div>
@@ -181,19 +194,10 @@ function ViewCard({
     <li className="cv-card" data-view={view.id} data-on={on ? "" : undefined}>
       <div className="cv-card-head">
         <span className="cv-card-glyph">
-          <ViewGlyph glyph={view.glyph} size={18} />
+          <ViewGlyph glyph={view.glyph} size={16} />
         </span>
         <h3 className="cv-card-title">{t(view.title)}</h3>
-        <button
-          type="button"
-          role="switch"
-          className="cv-switch"
-          aria-checked={on}
-          aria-label={t(view.title)}
-          onClick={onToggle}
-        >
-          <span className="cv-switch-knob" />
-        </button>
+        <Switch size="sm" checked={on} aria-label={t(view.title)} onCheckedChange={onToggle} />
       </div>
       <p className="cv-card-description">{t(view.description)}</p>
       <div className="cv-card-place">

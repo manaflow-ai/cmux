@@ -1,4 +1,4 @@
-name: fleet test-compile
+name: fleet test-compile (advisory)
 
 # Advisory: compile the Swift test targets a pull request can break, on a
 # fleet Mac, and fail this check when one does not compile.
@@ -12,7 +12,9 @@ name: fleet test-compile
 #
 # It gates nothing: fleet/compile-check, the landing gate and the Release
 # compile neither wait for it nor read it. A red here is a test
-# target that does not compile at the PR's merge commit.
+# target that does not compile at the PR's merge commit. The workflow's name
+# says "(advisory)" like its job's, so a reader that judges a whole check suite
+# (cmuxterm-hq now_pr_verdict.py, the head's verdict time) skips it as well.
 #
 # It runs on its own gateway label, vars.CI_TEST_COMPILE_GATEWAY, never the
 # required compile's CI_COMPILE_CHECK_GATEWAY: each gateway job holds a fleet
@@ -24,17 +26,17 @@ name: fleet test-compile
 # The plan (scripts/ci/compile_test_plan.py, over the merge commit's diff from
 # its base) is the macOS package lane's packages whose sources or path
 # dependencies changed. An empty plan passes on a Linux runner in seconds and
-# queues no Mac; a plan runs `package-test-lane.sh compile-tests BASE
-# --skip-package=Packages/macOS/CmuxNext` as a light fleet step.
+# queues no Mac; a plan runs `package-test-lane.sh compile-tests BASE` as a
+# light fleet step.
 #
-# CmuxNext is skipped here (SKIP below): cmux-next.yml's swift test job runs
-# `swift build --build-tests` on every same-repository pull request whose
-# change reaches a CmuxNext test target, from the same route, so this check
-# compiled those targets a second time. Over 24 hours to 2026-10-30 that was
-# 650 fleet compile-tests steps (about 55 Mac worker hours) and about 65 hours
-# of gateway runner time, for PRs whose plan was CmuxNext alone. The tip
-# compile (cmux-next-tip-test-compile.yml) keeps CmuxNext: push CI skips
-# swift test.
+# CmuxNext is compiled here again. From 2026-10-30 it was skipped, because
+# cmux-next.yml's swift test job ran `swift build --build-tests` on every
+# same-repository pull request (650 duplicate fleet compile-tests steps, about
+# 55 Mac worker hours, in 24 hours). Since 2026-11-05 that job runs on a pull
+# request only with full-ci: run on every PR push it was cancelled by a merge,
+# a newer push or a re-run before it finished (37 of 78 check runs cancelled,
+# none passed). So this check is again what compiles a PR's CmuxNext test
+# targets.
 
 on:
   pull_request:
@@ -49,8 +51,8 @@ on:
 permissions: {}
 
 env:
-  # The package the swift test job of cmux-next.yml already compiles the tests of.
-  SKIP: Packages/macOS/CmuxNext
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 concurrency:
   group: fleet-test-compile-${{ github.event.pull_request.number }}
@@ -83,7 +85,7 @@ jobs:
           set -euo pipefail
           base="$(git rev-parse HEAD^1)"
           git diff --no-renames --name-only "$base" HEAD > "$RUNNER_TEMP/changed.txt"
-          python3 scripts/ci/compile_test_plan.py --changed-files "$RUNNER_TEMP/changed.txt" --skip-package "$SKIP" > "$RUNNER_TEMP/plan.txt"
+          python3 scripts/ci/compile_test_plan.py --changed-files "$RUNNER_TEMP/changed.txt" > "$RUNNER_TEMP/plan.txt"
           {
             echo "### fleet test-compile plan"
             echo
@@ -96,8 +98,6 @@ jobs:
             else
               echo "The change reaches no test target: nothing to compile, no Mac queued."
             fi
-            echo
-            echo "\`$SKIP\` is left out: cmux-next.yml's swift test job builds its test targets."
           } >> "$GITHUB_STEP_SUMMARY"
           cat "$RUNNER_TEMP/plan.txt"
           echo "base=$base" >> "$GITHUB_OUTPUT"
@@ -140,7 +140,7 @@ jobs:
           log="$RUNNER_TEMP/test-compile.log"
           status=0
           "$client" run --class light --script scripts/ci/package-test-lane.sh --ref "$REF" \
-            --arg=compile-tests --arg="$BASE" --arg="--skip-package=$SKIP" \
+            --arg=compile-tests --arg="$BASE" \
             --timeout 1500 --queue-timeout 1200 2>&1 | tee "$log" || status=$?
           if [[ "$status" -eq 0 ]]; then
             echo "Every planned test target compiled."

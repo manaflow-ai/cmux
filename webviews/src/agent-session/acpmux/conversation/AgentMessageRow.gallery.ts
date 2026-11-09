@@ -305,7 +305,7 @@ export default agentPaneEntry({
   variants: {
     "unicode-boundary": {
       note: "The first line puts an emoji across the 240-code-unit preview boundary in both directions. At wide width the cutoff is visible; narrow width retains the normal CSS ellipsis.",
-      theme: { chatWidth: "wide" },
+      display: { "agentPane.display.width": 960 },
       snapshot: chat([
         activity([sendMessage("Jo", `${"i".repeat(239)}🦊 later`)], 3),
         received("Jo", `${"i".repeat(239)}🦊 later`, 2),
@@ -320,11 +320,11 @@ export default agentPaneEntry({
       snapshot: lanes(),
     },
     "sent-subagents": {
-      note: "Messages to subagents read by the subagent's description (the Agent call's), never its agentId; an id no Agent call in the loaded transcript names reads as a short id. Each chip's tooltip holds the full id.",
+      note: "Messages to subagents read by the subagent's description (the Agent call's), never its agentId; an id no Agent call in the loaded transcript names reads as a short id. Three in a row fold into one closed \"Sent 3 messages\" line (cmux#34865); opened, each chip's tooltip holds the full id.",
       snapshot: subagentSends(),
     },
     "sent-hover": {
-      note: "Pointed at, a send shows Copy at the line's end, after its status word, clear of the line's words.",
+      note: "Pointed at, a send lights its line; it shows no Copy (cmux#34865).",
       snapshot: sends(),
       play: async (ctx) => {
         await ctx.hover({ selector: ".cv-message" });
@@ -334,7 +334,10 @@ export default agentPaneEntry({
       note: "Opened, the message grows in place under its line, with no box, and nothing else draws: no status block, no result JSON.",
       snapshot: sends(),
       play: async (ctx) => {
-        await ctx.click({ selector: ".cv-agentmsg__toggle" });
+        // One line (#34464), the message's first line sits on the row after the recipient, inside the
+        // row's toggle: the person clicks those words, which open the row. The recipient's chip
+        // before them is its own button (it opens the subagent), so the click aims at the words.
+        await ctx.click({ selector: ".cv-agentmsg .cv-agentmsg__toggle > .cv-agentmsg__preview" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-agentmsg__card"));
       },
     },
@@ -342,7 +345,7 @@ export default agentPaneEntry({
       note: "A long message opens capped near eight lines, the rest a scroll away under a fade.",
       snapshot: long(),
       play: async (ctx) => {
-        await ctx.click({ selector: ".cv-agentmsg__toggle" });
+        await ctx.click({ selector: ".cv-agentmsg .cv-agentmsg__toggle > .cv-agentmsg__preview" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-message__text"));
       },
     },
@@ -364,7 +367,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-agentmsg__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-agentmsg__card"));
-        await ctx.click({ selector: ".cv-received .cv-disclosure__toggle" });
+        await ctx.click({ selector: ".cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-received__text"));
       },
     },
@@ -386,8 +389,12 @@ export default agentPaneEntry({
         if (ctx.document.querySelector(head)?.getAttribute("aria-expanded") === "false")
           await ctx.click({ selector: head });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received").length >= 4);
-        for (const toggle of ctx.document.querySelectorAll<HTMLButtonElement>(".cv-received .cv-disclosure__toggle"))
-          toggle.click();
+        // Each line opens with its own measured click, as a reader opens them, so the stage knows
+        // which line opened and the rows its fold pushes down are that fold's, not a shift. Clicked
+        // all at once outside a step, the four folds played in the wait below, which has no target.
+        const closed = ".cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)[aria-expanded='false']";
+        for (let line = 0; line < 4 && ctx.document.querySelector(closed); line++)
+          await ctx.click({ selector: closed });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__text").length >= 4);
       },
     },

@@ -287,8 +287,19 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
         for (const name of stage.chips) {
           const page = await open(engine, stage, 760);
           await clickChip(page, name);
-          const rows = await page.evaluate(() =>
-            [...document.querySelectorAll('[role^="menuitem"], [role="option"]')].map((row) => {
+          const selector =
+            '[role^="menuitem"], [role="option"], .acpmux-cols-tune [role="radio"], .acpmux-cols-tune [role="switch"]';
+          const rows = page.locator(selector);
+          expect(await rows.count()).toBeGreaterThan(0);
+          // Keep the menu open while probing real pointer targets at every row edge.
+          await page.evaluate(() =>
+            document.addEventListener("click", (event) => event.stopImmediatePropagation(), true),
+          );
+          for (const target of await rows.all()) {
+            // The columns scroll independently; bring each row into its own viewport before
+            // probing its edges, including legacy models below the initial visible rows.
+            if (await target.evaluate((row) => !!row.closest(".acpmux-cols"))) await target.scrollIntoViewIfNeeded();
+            const row = await target.evaluate((row) => {
               const box = row.getBoundingClientRect();
               return {
                 text: row.textContent?.trim().slice(0, 24) ?? "",
@@ -297,23 +308,34 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
                 w: box.width,
                 h: box.height,
               };
-            }),
-          );
-          for (const row of rows) {
+            });
             const probes = [
               [row.x + 1, row.y + row.h / 2],
               [row.x + row.w - 1, row.y + row.h / 2],
               [row.x + row.w / 2, row.y + 1],
               [row.x + row.w / 2, row.y + row.h - 1],
             ];
-            const hits = await page.evaluate(
-              (points) =>
-                points.map(
-                  ([x, y]) => !!document.elementFromPoint(x, y)?.closest('[role^="menuitem"], [role="option"]'),
-                ),
-              probes,
-            );
-            if (hits.includes(false)) misses.push(`${name} "${row.text}": ${hits.join(",")}`);
+            const hits: boolean[] = [];
+            const targets: (string | null)[] = [];
+            for (const [x, y] of probes) {
+              await target.evaluate((row) => {
+                row.removeAttribute("data-press-hit");
+                row.removeAttribute("data-press-target");
+                document.addEventListener(
+                  "pointerdown",
+                  (event) => {
+                    row.setAttribute("data-press-hit", String(row.contains(event.target as Node)));
+                    row.setAttribute("data-press-target", (event.target as Element).outerHTML.slice(0, 200));
+                  },
+                  { capture: true, once: true },
+                );
+              });
+              await page.mouse.click(x!, y!);
+              hits.push((await target.getAttribute("data-press-hit")) === "true");
+              targets.push(await target.getAttribute("data-press-target"));
+            }
+            if (hits.includes(false))
+              misses.push(`${name} "${row.text}": ${hits.join(",")} ${JSON.stringify({ row, targets })}`);
           }
           await page.close();
         }

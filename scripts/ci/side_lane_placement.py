@@ -85,7 +85,9 @@ contains(' <key> ') matches whole keys only:
   overflow route.
 - `fast_runner`: FAST_LABEL (vars.CI_FAST_LANE_RUNNER, the fast tier's
   reserved glaeda-fast-* runner) while an online runner carrying it is idle
-  now, else empty (fast_route()). Only then does the fast tier leave JOBS and
+  now; with none idle, the light minis' side label (SIDE_LABEL on the light class) while
+  one of its runners is idle and no nightly or release job waits on the light family
+  (light_fast_route()); else empty (fast_route()). Only then does the fast tier leave JOBS and
   CASCADE_RUNS; otherwise it is placed like any other job, so a busy or shrunken
   fast pool never holds it in a queue no overflow reaches.
 - `fresh_runner` and `fresh_jobs`: FRESH_LABEL (the DEV compile slot,
@@ -105,6 +107,10 @@ contains(' <key> ') matches whole keys only:
   their Mac fallbacks run, and GATEWAY_CASCADE (the Mac fallback of the PR's
   app compile, release-compile) joins CASCADE_RUNS, so it takes a free
   Blacksmith slot instead of the minis' queue.
+
+PLACEMENT=app-compile judges only the PR app compile's gateway, before the PR
+quiet period ends (app_compile_gateway()); macos-placement then places the Mac
+jobs after the quiet period from its own reading.
 
 PROMOTE_LABEL, set on attempt 1 of a feat-cmux-next push, is the promotion
 mini's label. When the dedicated nightly labels are supplied, its idle state
@@ -501,6 +507,69 @@ def fast_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
     return label if pool.live_owned_free(runners, [label])[label] > 0 else ""
 
 
+def light_side_label(label: str) -> str:
+    """The light class's side label for an owned side label (glaeda-side-std-xcode-26.6 ->
+    glaeda-side-light-xcode-26.6), or "" when `label` is no owned side label or is light already."""
+    if not label.startswith(pool.SIDE_PREFIX) or not pool.persistent(label):
+        return ""
+    own = pool.owned_class(label)
+    if not own or own == pool.LIGHT_CLASS:
+        return ""
+    parts = label.split("-")
+    return "-".join(pool.LIGHT_CLASS if part == own else part for part in parts)
+
+
+def _family(label: str) -> str:
+    """`<class>-xcode-<version>` for any glaeda label naming a class, whatever its role or namespace
+    (side, fast, trusted, nightly, promote, signing, aws), else "". Wider than
+    portable_job_placement.family(), which reads only pool.OWNED_LABEL: the nightly builder's pool
+    (glaeda-trusted-light-xcode-26.6, cmux22) is a light mini, and its queue must hold the light minis too."""
+    parts = (label or "").split("-")
+    if not parts or parts[0] != "glaeda":
+        return ""
+    own = next((index for index, part in enumerate(parts) if part in (*pool.RUN_CLASSES, "xl")), None)
+    if own is None or own + 2 >= len(parts) or parts[own + 1] != "xcode":
+        return ""
+    return "-".join(parts[own:own + 3])
+
+
+def light_fast_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None, seen: Any) -> str:
+    """The light minis' side label for the fast tier while one of its runners is idle, else "".
+
+    Leo, 2026-11-08, on the PR verdict taking p50 31 minutes against 10: "Ci it's fine to start stuff in
+    parallel sometimes the light minis are largely idling rn". Over the 7 days to 2026-11-08 the light
+    minis (cmux17 to cmux23, 16 GB, glaeda class light) averaged 16 to 28% CPU and held 0.1 to 0.3 of their
+    12 capacity units, while the std minis averaged 63 to 80% and glaeda-side-std-xcode-26.6 queued its
+    jobs p50 4.7 min and p90 34 min (ci-dash speed.json). On the fast lane the light minis already run
+    the fast tier (1,371 runs in 4 days, p50 8.8 min against 10.1 min on the std minis), but only on
+    their one fast runner each (FAST_LABEL); a busy fast runner sent the tier to the std side queue while
+    the same minis' side runners sat idle, because compatible_labels() never narrows a class.
+
+    So the fast tier alone, which needs no GUI or session runner, takes an idle light side runner when
+    no fast runner is idle. Only an idle runner (beyond the jobs already queued on the label), on attempt
+    1 of a run decide() places, and never while a nightly or release job waits on the light family (the
+    janitor snapshot's reserved_queued: nightly first). An unread or stale snapshot places nothing.
+    """
+    if not (env.get("FAST_LABEL") or "").strip() or runners is None:
+        return ""
+    if (env.get("GITHUB_RUN_ATTEMPT") or "").strip() not in ("", "1"):
+        return ""
+    label = light_side_label((env.get("SIDE_LABEL") or "").strip())
+    if not label or FAST_JOB not in (env.get("JOBS") or "").split():
+        return ""
+    snapshot = getattr(seen, "snapshot", None) if seen is not None else None
+    if not isinstance(snapshot, Mapping) or getattr(seen, "stale", True):
+        return ""
+    pools = snapshot.get("pools") or {}
+    own = _family(label)
+    if not isinstance(pools, Mapping) or any(
+            _family(str(name)) == own and int((entry or {}).get("reserved_queued") or 0) > 0
+            for name, entry in pools.items() if isinstance(entry, Mapping)):
+        return ""
+    queued = int((getattr(seen, "owned_queued", None) or {}).get(label, 0) or 0)
+    return label if pool.live_owned_free(runners, [label])[label] - queued > 0 else ""
+
+
 def fresh_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> tuple[str, tuple[str, ...]]:
     """(FRESH_LABEL, the FRESH_JOBS it takes) while its online runners are idle for them, else ("", ()).
 
@@ -619,6 +688,9 @@ def fleet_gateway(placed: Any, env: Mapping[str, str], runners: Sequence[Mapping
     until its timeout and report no verdict, so placement lists nothing and the job keeps its route
     (it waits on the owned label as before). No gateway (none idle, unread runners, a re-run) lists
     nothing either.
+
+    A kept job that a Blacksmith macOS label also took (next_macos_cascade.place() lists it so the fleet
+    builds it warm) leaves that label; a dropped one keeps it.
     """
     if not placed.fleet_jobs:
         return placed
@@ -626,7 +698,9 @@ def fleet_gateway(placed: Any, env: Mapping[str, str], runners: Sequence[Mapping
     room = (pool.live_owned_free(runners, [gateway])[gateway] - (taken or {}).get(gateway, 0)
             if gateway and runners is not None else 0)
     if room >= want:
-        return placed
+        fleet = set(placed.fleet_jobs)
+        return dataclasses.replace(placed, jobs={label: tuple(job for job in names if job not in fleet)
+                                                 for label, names in placed.jobs.items()})
     clients = ", ".join(f"{job}-fleet" for job in placed.fleet_jobs)
     where = f"`{gateway}`" if gateway else "the gateway"
     return dataclasses.replace(placed, fleet_jobs=(), why=(
@@ -730,7 +804,8 @@ def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
     return 0
 
 
-def _main(env: Mapping[str, str] = os.environ) -> int:
+def read_runners(env: Mapping[str, str]) -> list[dict[str, Any]] | None:
+    """The org's runners, read live, or None when no token could read them."""
     runners = None
     repo = env.get("GITHUB_REPOSITORY", "")
     # The routing App first, then cmux-bot (ROUTE_TOKEN_FALLBACK) when the first read is refused.
@@ -743,13 +818,184 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
         if not (token and repo):
             continue
         try:
-            runners = pool.GitHub(token, repo, retry_cap=SIDE_RETRY_CAP_SECONDS, retries=retries).runners()
+            client = pool.GitHub(token, repo, retry_cap=SIDE_RETRY_CAP_SECONDS, retries=retries)
+            # The fallback mint grants org runner read only. Its approved org
+            # groups remain readable when repository registrations are not.
+            runners = (client.runners(include_repository=False) if name == "ROUTE_TOKEN_FALLBACK"
+                       else client.runners())
             break
         except Exception as error:  # noqa: BLE001 - fail open: keep today's route
             print(f"::warning title=side-lane placement::could not list runners with {name} ({error})")
+    return runners
+
+
+def rerun_fleet(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> tuple[str, str]:
+    """(the gateway label the fast tier's build-fleet client takes on a person's re-run, why), or ("", why).
+
+    A person's re-run carries attempt 1's macos-placement and its outputs (a successful job is not
+    re-run), so the fast tier took vars.MACOS_RUNNER_26, Blacksmith 6 vCPU, and fast-tier-fleet skipped
+    the stale gateway reading. On #38130 (run 42434830670) attempt 2 then ran out its 20 minutes on the
+    same cold build as attempt 1. cmux-next.yml's fast-tier-rerun-placement is skipped on attempt 1, so
+    a re-run evaluates it again and it reads the runners now: the client takes GATEWAY_LABEL (or a wider
+    class of it) while a runner there is idle for it, as attempt 1's fleet_gateway() requires, and the
+    tier only reports its verdict. The other gateway jobs skip on a re-run (their reading is attempt
+    1's), so the client needs one idle runner.
+
+    Nothing is listed on attempt 1 or the rescue's re-run (macos-placement places those), when the fast
+    tier does not run again in this attempt (FAST_TIER_STATUS, its status in this attempt, is
+    `completed`: its earlier result is carried), when that status is unread, or with no idle runner:
+    the tier keeps its re-run route.
+    """
+    attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
+    if attempt == "1" or cascade.bot_rerun(env):
+        return "", f"attempt {attempt} is placed by macos-placement"
+    status = (env.get("FAST_TIER_STATUS") or "").strip()
+    if not status:
+        return "", "the fast tier's status in this attempt is unread, so it keeps its re-run route"
+    if status == "completed":
+        return "", "the fast tier does not run again in this attempt (its earlier result is carried)"
+    label = (env.get("GATEWAY_LABEL") or "").strip()
+    gateway = gateway_route({"GATEWAY_LABEL": label, "GATEWAY_JOBS": f"{FAST_JOB}-fleet"}, runners)
+    if not gateway:
+        why = "owned runners unread" if runners is None else f"no idle `{label or 'gateway'}` runner (or a wider class's)"
+        return "", f"{why}, so the fast tier keeps its re-run route"
+    return gateway, (f"{FAST_JOB}-fleet takes idle `{gateway}` (a warm owned build before a cold Blacksmith "
+                     "macOS one); the fast tier reports its verdict")
+
+
+def rerun_fleet_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> int:
+    """Write rerun_fleet()'s reading in macos-placement's names: fleet_jobs, gateway_runner, gateway_attempt."""
+    gateway, why = rerun_fleet(env, runners)
+    attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
+    print(f"fast tier re-run placement: {why}")
+    output = env.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(f"fleet_jobs={delimited((FAST_JOB,) if gateway else ())}\ngateway_runner={gateway}\n"
+                         f"gateway_attempt={attempt if gateway else ''}\n")
+    summary = env.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as handle:
+            handle.write(f"### Fast tier re-run placement\n\n{why}\n")
+    return 0
+
+
+def app_compile_gateway(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> tuple[str, str]:
+    """(the gateway label a pull request's app-compile-fleet takes now, why), or ("", why).
+
+    cmux-next.yml's app-compile-placement runs this before the PR quiet period ends (Leo, 2026-11-08,
+    option A: the Linux checks start at once and only the Mac jobs wait). app-compile-fleet's runner only
+    hands the commit to the build fleet, so it starts at once too, on GATEWAY_LABEL (or a wider class of
+    it) while a runner there is idle for each of GATEWAY_JOBS, as gateway_route() judges it for
+    macos-placement. macos-placement reads the runners again once the quiet period ends, so the Mac jobs
+    are placed from that fresh reading and see this job's runner as busy. Attempt 1 only: a re-run's
+    gateway jobs skip (rerun_main() writes no gateway either), and their Mac fallback cascades.
+    """
+    attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
+    if attempt != "1":
+        return "", f"attempt {attempt} takes no gateway (a re-run's build-fleet compile skips)"
+    label = (env.get("GATEWAY_LABEL") or "").strip()
+    gateway = gateway_route(env, runners)
+    if gateway:
+        return gateway, f"app-compile-fleet takes idle `{gateway}`"
+    why = ("no gateway label" if not label else "owned runners unread" if runners is None
+           else f"no idle `{label}` runner (or a wider class's)")
+    return "", f"{why}, so app-compile-fleet skips and the Mac Release compile takes the cascade"
+
+
+def app_compile_gateway_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> int:
+    """Write app_compile_gateway()'s reading in macos-placement's names: gateway_runner, gateway_attempt."""
+    gateway, why = app_compile_gateway(env, runners)
+    attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
+    print(f"app compile placement: {why}")
+    output = env.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(f"gateway_runner={gateway}\ngateway_attempt={attempt if gateway else ''}\n")
+    summary = env.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as handle:
+            handle.write(f"### App compile placement\n\n{why}\n")
+    return 0
+
+
+def handback(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
+             live: Mapping[str, int] | None, waiting: Mapping[str, int] | None, seen: Any) -> tuple[str, str]:
+    """(the label the fast tier takes when its build-fleet client hands it back, why).
+
+    cmux-next.yml's fast-tier-fleet hands the tier back (verdict `queued`) when a fleet step is still
+    queued after the client's 20-minute wait, and the tier then runs its Swift suites itself. macos-placement's
+    reading is from the start of the run, so fast-tier-handback-placement reads the runners and Blacksmith's
+    health again here, after that wait: the fast tier's own label while a runner there is idle, else an idle
+    owned side runner (a warm build), else Blacksmith 6 vCPU, the cascade's last resort, unless it has no free
+    slot now, is full, under a declared outage, dead or stalled (cmux#38627's review: the hand-back then queued
+    on an excluded label with no verdict). Then the owned route: the tier waits for a mini, as macos-placement's deferred_runner
+    does. Unread runners vouch for no idle mini; an unread Blacksmith reading excludes nothing.
+    """
+    fast = fast_route(env, runners)
+    if fast:
+        return fast, f"the fast tier takes idle `{fast}`, its own label"
+    label = (env.get("SIDE_LABEL") or "").strip()
+    side = side_route(label, runners, 1)
+    if side and runners is not None and pool.live_owned_free(runners, [side])[side] > 0:
+        return side, f"idle `{side}` takes the fast tier (a warm owned build before a cold Blacksmith one)"
+    small = cascade.SMALL
+    out = ""
+    # The pool snapshot carries only queued and running counts (no cap or health), so label_full_or_dead()
+    # never calls the label full from it: count its free slots here, as the cascade's retry label does.
+    slots = (min(cascade.CAPACITY[small] - live.get(small, 0) - waiting.get(small, 0),
+                 cascade.pool_room(live, waiting) // cascade.vcpus(small))
+             if live is not None and waiting is not None else 1)
+    if slots <= 0:
+        out = (f"full ({live.get(small, 0)} in flight + {waiting.get(small, 0)} queued of "
+               f"{cascade.CAPACITY[small]}, {max(cascade.pool_room(live, waiting), 0)} of the pool's "
+               f"{cascade.POOL_VCPU} vCPU free)")
+    elif seen is not None and cascade.label_full_or_dead(small, seen.snapshot, live=(live or {}).get(small, 0),
+                                                       queued=(waiting or {}).get(small, 0), now=seen.observed_at):
+        out = "full or under a declared outage"
+    elif small in cascade.seen_dead(seen):
+        out = "dead (nothing running, no job started in an hour)"
+    elif (seen is not None and live is not None and waiting is not None
+          and small in cascade.stalled(live, waiting, seen.waits, seen.age)):
+        out = f"stalled (oldest queued job {seen.waits.get(small, 0.0):.0f} min)"
+    owned = route_label(label, runners, 1) or label
+    if not out or not owned.startswith("glaeda-"):
+        return small, f"no idle owned Mac, so the fast tier takes `{small}`"
+    return owned, f"no idle owned Mac and `{small}` is {out}, so the fast tier waits on the owned route `{owned}`"
+
+
+def handback_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> int:
+    """Write handback()'s label as `runner`."""
+    live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
+    label, why = handback(env, runners, live, waiting, seen)
+    print(f"fast tier hand-back placement: {why}")
+    output = env.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(f"runner={label}\n")
+    summary = env.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as handle:
+            handle.write(f"### Fast tier hand-back placement\n\n{why}\n")
+    return 0
+
+
+def _main(env: Mapping[str, str] = os.environ) -> int:
+    runners = read_runners(env)
+    if (env.get("PLACEMENT") or "").strip() == "rerun-fleet":
+        return rerun_fleet_main(env, runners)
+    if (env.get("PLACEMENT") or "").strip() == "handback":
+        return handback_main(env, runners)
+    if (env.get("PLACEMENT") or "").strip() == "app-compile":
+        return app_compile_gateway_main(env, runners)
     if cascade.bot_rerun(env):
         return rerun_main(env, runners)
+    # The pool snapshot and Blacksmith's queues, read once: the light fast route and the GUI routes are
+    # weighed against them here and the cascade places with them below.
+    live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
     fast = fast_route(env, runners)
+    light_fast = "" if fast else light_fast_route(env, runners, seen)
+    fast = fast or light_fast
     if fast:
         env = without_fast(env)
     fresh, fresh_jobs = fresh_route(env, runners)
@@ -758,9 +1004,6 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
     owned, fallback, why = decide(env, runners)
     label = (env.get("SIDE_LABEL") or "").strip()
     route = route_label(label, runners, len((env.get("JOBS") or "").split()))
-    # The pool snapshot and Blacksmith's queues, read once: the GUI routes are weighed against them here and
-    # the cascade places with them below.
-    live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
     live_gui = gui_route_label(label, runners)
     gui_route = healthy_role_label(live_gui, runners, seen, waiting)
     session_route = healthy_role_label(session_route_label(label, runners), runners, seen, waiting)
@@ -774,7 +1017,8 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
         why += (f"; `{route}` has more live room than `{label}`, routing jobs there"
                 if route.startswith(pool.SIDE_PREFIX) else f"; no online side runner, routing jobs on `{route}`")
     if (env.get("FAST_LABEL") or "").strip():
-        why += (f"; the fast tier takes idle `{fast}`" if fast
+        why += (f"; no idle `{env['FAST_LABEL'].strip()}` runner, so the fast tier takes idle light `{fast}`"
+                if light_fast else f"; the fast tier takes idle `{fast}`" if fast
                 else f"; no idle `{env['FAST_LABEL'].strip()}` runner, so the fast tier is placed like the other jobs")
     if (env.get("FRESH_LABEL") or "").strip() and (env.get("FRESH_JOBS") or "").strip() or fresh_jobs:
         why += (f"; {', '.join(fresh_jobs)} take idle `{fresh}`, the freshness slot" if fresh_jobs

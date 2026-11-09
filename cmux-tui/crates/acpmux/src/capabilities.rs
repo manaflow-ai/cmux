@@ -91,8 +91,16 @@ pub const CAPABILITIES: &[Capability] = &[
     // list's pace (the app's dialog list). Older daemons would answer the whole list.
     Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
-    // `acpmux machine vault pull|status|forget` (crate::vault): CLI-only, no wire method.
-    Capability { id: crate::vault::CAPABILITY, wire: &[] },
+    // `acpmux machine vault pull|status|forget` (crate::vault): the CLI, which
+    // asks the daemon to pull or forget when the values live only in its memory.
+    Capability {
+        id: crate::vault::CAPABILITY,
+        wire: &[method::MUX_VAULT_PULL, method::MUX_VAULT_FORGET, method::MUX_VAULT_STATUS],
+    },
+    // Proxy-delivered vault entries reach agents as `cmux-secret://NAME`,
+    // filled in by the daemon's egress proxy for their allowed hosts only;
+    // `machine vault status` names each entry's delivery and hosts.
+    Capability { id: crate::vault::EGRESS_CAPABILITY, wire: &[method::MUX_VAULT_STATUS] },
     Capability {
         id: "machine-consent-v1",
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
@@ -109,6 +117,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // Inline `/btw` answers: the pane may send `inline: true` and receive `{text}`;
     // older daemons treat that field as legacy side-session input, so this id gates the shape.
     Capability { id: "btw-inline-v1", wire: &[method::MUX_BTW] },
+    // A guest from another harness: `_acpmux/btw` with `targetHarness` answers from that
+    // harness, gated on its own folder trust. Older daemons ignore the field and ask the chat's own.
+    Capability { id: "btw-guest-v1", wire: &[method::MUX_BTW] },
     // Owner-VM Codex app-server bridge: access-only external tokens are read
     // from the private broker file and never exposed through ACP frames.
     Capability {
@@ -118,6 +129,11 @@ pub const CAPABILITIES: &[Capability] = &[
     // Metadata-only paths for a focused chat's config and state files. The
     // daemon serves this surface on its local Unix socket only.
     Capability { id: "session-files-v1", wire: &[method::MUX_SESSION_FILES] },
+    // Who else works on these files, topic, branch or folder, here and on peers
+    // (`hub/touched.rs`).
+    Capability { id: "who-else-v1", wire: &[method::MUX_WHO_ELSE] },
+    // What turns cost, indexed by day and session (`hub/ledger`).
+    Capability { id: "cost-ledger-v1", wire: &[method::MUX_LEDGER] },
     // Who has a shared chat open and who types in it (`hub/presence.rs`); the attach reply's
     // `presence` comes with it.
     Capability { id: "chat-presence-v1", wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },
@@ -180,6 +196,13 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "agent-hold-v1", wire: &[method::MUX_AGENT_HOLD] },
     // Retry a chat's failed last turn now: the Retry button (`hub/auto_resume/retry_turn.rs`).
     Capability { id: "turn-retry-v1", wire: &[method::MUX_RETRY] },
+    // The sudo card (`hub/elevation.rs`): `elevation_request` / `elevation_decision` records, and
+    // an approver-signed `secret_submit` that answers one. A phone asks for those kinds only
+    // under this id, since an older peer refuses an attach with more than 8 kinds.
+    Capability {
+        id: "elevation-cards-v1",
+        wire: &[method::MUX_ELEVATION_REQUEST, method::MUX_SECRET_SUBMIT],
+    },
     // `_acpmux/retry` with `subagentId`: resume a failed subagent now
     // (`hub/subagent_retry_manual.rs`). A daemon without this id does not
     // retry a subagent, so the pane shows a subagent's Retry button only
@@ -235,6 +258,8 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "agent-session-turn-rewind-v1",
         wire: &[method::AGENT_SESSION_TURN_PREPARE, method::AGENT_SESSION_TURN_ABANDON],
     },
+    // The person's Accept or Dismiss on what a chat learned (`server/memory_inbox.rs`).
+    Capability { id: "memory-inbox-v1", wire: &[method::MUX_MEMORY_RESOLVE] },
     // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).
     Capability {
         id: "agent-login-v1",
@@ -314,8 +339,7 @@ mod tests {
             crate::protocol::registry().iter().map(|decl| decl.name).collect();
         for capability in CAPABILITIES {
             // Machine onboarding is CLI-only and has no daemon wire method.
-            if capability.id == "machine.join.stdin.v1" || capability.id == crate::vault::CAPABILITY
-            {
+            if capability.id == "machine.join.stdin.v1" {
                 assert!(capability.wire.is_empty());
                 continue;
             }

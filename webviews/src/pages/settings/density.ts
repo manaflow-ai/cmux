@@ -6,8 +6,12 @@
 export const DENSITY_KEY = "appearance.density";
 export const CUSTOM_DENSITY_KEY = "appearance.customDensity";
 export const CUSTOM_DENSITIES_KEY = "appearance.customDensities";
+/** Text Size: the chrome body size in points, over any density's. The density card draws its row. */
+export const TEXT_SIZE_KEY = "appearance.metrics.chromeFontSize";
 /** The rows the density card draws, left out of their group. */
 export const DENSITY_ROWS: ReadonlySet<string> = new Set([DENSITY_KEY, CUSTOM_DENSITY_KEY, CUSTOM_DENSITIES_KEY]);
+/** Every row the density card holds: DENSITY_ROWS, and Text Size as a normal row inside it. */
+export const DENSITY_CARD_ROWS: ReadonlySet<string> = new Set([...DENSITY_ROWS, TEXT_SIZE_KEY]);
 
 export type Density = {
   id: string;
@@ -23,14 +27,20 @@ export const LEVEL_RANGE = { min: -1, max: 2.5 } as const;
 export const SPACING_RANGE = { min: 0.5, max: 2 } as const;
 export const FONT_RANGE = { min: 9, max: 20 } as const;
 
-/** The built-ins, densest first; `name` is the catalog key of the localized name. */
+/** Default's chrome body text in points: the ChatGPT and Codex desktop apps' size. */
+const DEFAULT_BODY_POINTS = 13;
+
+/** The built-ins, densest first (Swift `DensityPreset`); `name` is the catalog key of the
+ * localized name. Default keeps the id `cozy` so saved files still name it. */
 export const PRESETS: ReadonlyArray<Density & { nameKey: string }> = [
   { id: "ultraCompact", name: "Ultra-compact", nameKey: "settings.choice.ultraCompact", level: -0.5, spacing: 0.75 },
   { id: "compact", name: "Compact", nameKey: "settings.choice.compact", level: 0 },
-  { id: "cozy", name: "Cozy", nameKey: "settings.choice.cozy", level: 0.5 },
-  { id: "comfortable", name: "Comfortable", nameKey: "settings.choice.comfortable", level: 1 },
-  { id: "spacious", name: "Spacious", nameKey: "settings.choice.spacious", level: 1.75, spacing: 1.25 },
+  { id: "cozy", name: "Default", nameKey: "settings.choice.default", level: 0.5, fontSize: DEFAULT_BODY_POINTS },
+  { id: "comfortable", name: "Comfortable", nameKey: "settings.choice.comfortable", level: 1.25, spacing: 1.1 },
+  { id: "spacious", name: "Spacious", nameKey: "settings.choice.spacious", level: 2.25, spacing: 1.35 },
 ];
+/** The density when appearance.density is unset (Swift `DensitySetting.fallback`). */
+export const DEFAULT_DENSITY = "cozy";
 
 /** The metrics a preview draws and the editor's exact sizes: [compact, comfortable] in points. */
 export const PAIRS = {
@@ -44,6 +54,17 @@ const BODY = [12, 13] as const;
 const CAPTION = [10.5, 11] as const;
 
 const half = (value: number) => Math.round(value * 2) / 2;
+/** The icon scale glyph boxes sit on (Swift `DensityTokens.iconScale`, design/grid.md). */
+export const ICON_SCALE = [12, 14, 16, 20, 24] as const;
+/** Swift `resolveGlyph`: the level's point on the nearest icon-scale step; a tie goes down below
+ * level 0.5 and up from it, so no density draws a 13, 15 or 18 px glyph. */
+const glyph = (pair: readonly [number, number], level: number) => {
+  const value = at(pair, level, Math.round);
+  return ICON_SCALE.reduce((best, step) => {
+    const d = Math.abs(step - value) - Math.abs(best - value);
+    return d < 0 || (d === 0 && (level < 0.5 ? step < best : step > best)) ? step : best;
+  });
+};
 const at = (pair: readonly [number, number], level: number, round: (value: number) => number) =>
   level === 0 ? pair[0] : level === 1 ? pair[1] : round(pair[0] + (pair[1] - pair[0]) * level);
 
@@ -73,7 +94,7 @@ export function resolve(density: Density): Resolved {
     tabHeight: metric("tabHeight"),
     tabStripHeight: metric("tabStripHeight"),
     itemCornerRadius: metric("itemCornerRadius"),
-    iconSize: metric("iconSize"),
+    iconSize: density.tokens?.iconSize ?? glyph(PAIRS.iconSize, level),
     body: density.fontSize ?? levelBody,
     caption: text(CAPTION),
     inset: spacing === 1 ? 6 : half(6 * spacing),

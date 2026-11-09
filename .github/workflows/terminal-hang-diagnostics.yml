@@ -26,6 +26,10 @@ concurrency:
   group: terminal-hang-diagnostics-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   release-gate:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
@@ -48,7 +52,7 @@ jobs:
       - name: Verify phase ingress and serialization
         run: swift test --package-path Packages/Shared/CMUXMobileCore --filter TerminalWorkIntervalTests
       - name: Verify attribution and privacy with the package SDK pin
-        run: swift test --package-path Packages/Shared/CmuxSentryTelemetry --force-resolved-versions --filter 'TerminalWorkSentryContextTests|SentryEventScrubberTests|TransportSentryReporterTests'
+        run: swift test --package-path Packages/Shared/CmuxSentryTelemetry --force-resolved-versions --filter 'TerminalWorkSentryContextTests|SentryEventScrubberTests|SeededSecretTests|TransportSentryReporterTests'
       - name: Resolve the shipping SDK pin
         run: |
           python3 - <<'PY'
@@ -61,4 +65,4 @@ jobs:
           path.write_text(json.dumps(package, indent=2) + "\n")
           PY
       - name: Verify attribution and privacy with the shipping SDK pin
-        run: swift test --package-path Packages/Shared/CmuxSentryTelemetry --force-resolved-versions --filter 'TerminalWorkSentryContextTests|SentryEventScrubberTests|TransportSentryReporterTests'
+        run: swift test --package-path Packages/Shared/CmuxSentryTelemetry --force-resolved-versions --filter 'TerminalWorkSentryContextTests|SentryEventScrubberTests|SeededSecretTests|TransportSentryReporterTests'

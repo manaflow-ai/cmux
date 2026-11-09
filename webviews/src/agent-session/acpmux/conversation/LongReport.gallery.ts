@@ -137,12 +137,12 @@ const leadRows = (finished: boolean) => [
     : []),
 ];
 
-const lead = (finished: boolean) => {
+const lead = (finished: boolean, task = finished ? DONE : RUNNING) => {
   const snapshot = chat(leadRows(finished), {
     title: "How did October go?",
     isWorking: !finished,
   });
-  return { ...snapshot, sessions: [...snapshot.sessions, finished ? DONE : RUNNING] };
+  return { ...snapshot, sessions: [...snapshot.sessions, task] };
 };
 
 /// The review's own chat: its brief, the reads it ran, and the report as its last reply.
@@ -187,9 +187,18 @@ export default agentPaneEntry({
       note: "The lead chat, narrow: it starts a Codex review as a sub-session and posts progress replies while it runs.",
       snapshot: lead(false),
     },
+    "lead-running-hover": {
+      note: "The sub-session's line under the pointer: its name lights all the way through, as a tool row's words do (Leo, 2026-11-09).",
+      snapshot: lead(false),
+      play: async (ctx) => ctx.hover({ selector: "button.cv-disclosure__open .cv-disclosure__label" }),
+    },
     "lead-finished": {
       note: "The lead chat once the review finished: its work folds, and the review stays in sight as one line that opens its report.",
       snapshot: lead(true),
+    },
+    "lead-finished-working": {
+      note: "The lead chat's turn finished while the review still works: its line keeps the harness mark at rest, no spinner, and its title shimmers as a running tool row's words do.",
+      snapshot: lead(true, RUNNING),
     },
     report: {
       note: "The review's own chat, wide: the long report with bold lead sentences, PR links, inline code and typed artifact links.",

@@ -29,7 +29,33 @@ fn same_device(run: Option<&str>, editor: Option<&str>) -> Option<String> {
     run.filter(|d| editor == Some(*d)).map(str::to_owned)
 }
 
-/// The stricter of two controls: an edit never runs a prompt under looser rules than either
+/// Whether the waiting prompt `prompt_id` is one of the agent's own slash commands: its first
+/// words name a command of the agent's newest `available_commands_update` (`/compact`, a skill),
+/// never a path or a word the agent does not list.
+fn queued_agent_command(session: &Session, prompt_id: &str) -> bool {
+    let name = {
+        let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(q) = queue.iter().find(|q| q.prompt_id == prompt_id) else { return false };
+        match super::forum::slash_command(&q.run.blocks) {
+            Some(name) => name.to_owned(),
+            None => return false,
+        }
+    };
+    lists_command(session.meta().available_commands.as_ref(), &name)
+}
+
+/// Whether an `available_commands_update` lists the command `name` (case aside).
+fn lists_command(update: Option<&Value>, name: &str) -> bool {
+    update.and_then(|u| u.get("availableCommands")).and_then(Value::as_array).is_some_and(
+        |commands| {
+            commands.iter().any(|c| {
+                c.get("name").and_then(Value::as_str).is_some_and(|n| n.eq_ignore_ascii_case(name))
+            })
+        },
+    )
+}
+
+/// The stricter of two controls:an edit never runs a prompt under looser rules than either
 /// the prompt's sender's or the editor's.
 fn stricter(a: Control, b: Control) -> Control {
     match (a, b) {
@@ -189,6 +215,59 @@ fn checked_display_parts(parts: Option<&Value>, blocks: &[Value]) -> (Option<Val
     ((!valid.is_empty()).then_some(Value::Array(valid)), refused)
 }
 
+/// The fields of another sender's provenance its card is drawn from (`prompt_sender.rs`, the
+/// apps' `incomingMessage.ts` and `AgentIncoming.swift`): who sent it and how sure acpmux is.
+const SENDER_FIELDS: [&str; 14] = [
+    "from",
+    "fromName",
+    "fromShortName",
+    "fromRole",
+    "fromModel",
+    "fromEffort",
+    crate::prompt_provenance::FROM_CHIEF,
+    crate::prompt_provenance::FROM_SESSION_ID,
+    crate::prompt_provenance::FROM_HARNESS,
+    crate::prompt_provenance::DECLARED_LABEL,
+    crate::prompt_provenance::CLAIMED,
+    crate::prompt_provenance::VERIFIED,
+    crate::prompt_provenance::TRANSPORT,
+    crate::prompt_provenance::FORWARDED_BY,
+];
+
+/// What a person's edit keeps of a waiting prompt's provenance. Its author's own edit keeps it
+/// whole, still theirs under the same rules, and names its editor. Another session's message keeps
+/// who sent it and names its editor (`prompt_provenance::edited_by`), and nothing else: no kind or
+/// field that acts on a queued prompt (a restart's or a cleanup's skip of a notice, a retry, an
+/// announcement or a trigger, a family or lane report's gate, a delegator's first work, a goal's
+/// mark, a digest's members) reaches the person's words. Any other prompt is the editor's own.
+fn edited_provenance(
+    provenance: Option<&Value>,
+    editor: crate::author::Editor<'_>,
+) -> Option<Value> {
+    let p = provenance?;
+    if crate::author::of_provenance(Some(p)).is_some_and(|id| editor == Some(Some(id))) {
+        return Some(crate::prompt_provenance::edited_by(p.clone(), editor));
+    }
+    let kind = p.get("kind").and_then(Value::as_str)?;
+    // Each draws as a session's message (`incomingMessage.ts`); `agent_message` as its own.
+    let kind = match kind {
+        "agent_message" => "agent_message",
+        "session_message" | "task_result" => "session_message",
+        k if k == super::subsessions::PROVENANCE_KIND || k == super::lane_reports::KIND => {
+            "session_message"
+        }
+        _ => return None,
+    };
+    let mut kept = serde_json::Map::new();
+    kept.insert("kind".to_owned(), json!(kind));
+    for field in SENDER_FIELDS {
+        if let Some(value) = p.get(field) {
+            kept.insert(field.to_owned(), value.clone());
+        }
+    }
+    Some(crate::prompt_provenance::edited_by(Value::Object(kept), editor))
+}
+
 impl Hub {
     /// `_acpmux/queue_edit {sessionId, promptId, op, prompt?|text?, images?, index?}`, where
     /// `resume` needs no `promptId`. Answers `{sessionId, promptId, op, ok}`, and `send_now` and `interrupt` also how it was sent
@@ -239,11 +318,18 @@ impl Hub {
                 json!(self.move_queued(session, prompt_id, index as usize, editor)?)
             }
             "send_now" => {
-                let sent =
+                // One of the agent's own commands (`/compact`) runs only as a turn of its own:
+                // steered in, Claude Code reads it as words and thinks about them instead (Leo,
+                // 2026-11-03: "this should have just started compacting"). Send now on one stops
+                // the running turn and runs it next, as `interrupt` does.
+                let sent = if session.turn().is_some() && queued_agent_command(session, prompt_id) {
+                    self.interrupt_for_queued(session, prompt_id, editor).await?
+                } else {
                     match self.send_queued_now(session, prompt_id, control, device, editor)? {
                         Some(sent) => Some(sent),
                         None => self.step_now(session, prompt_id, control, device, editor).await?,
-                    };
+                    }
+                };
                 reply.set("sent", json!(sent));
                 json!(sent.is_some())
             }
@@ -325,11 +411,14 @@ impl Hub {
                 control: stricter(q.run.control, control),
                 cloud_mobile: q.run.cloud_mobile,
                 trust_gate: q.run.trust_gate || trust_gate,
-                // The person rewrote it: it is no longer the sender's message, unless the sender
-                // is that person.
-                provenance: q.run.provenance.clone().filter(|p| {
-                    crate::author::of_provenance(Some(p)).is_some_and(|id| editor == Some(Some(id)))
-                }),
+                // The person rewrote it: it keeps who sent it and says who edited it, and nothing
+                // of what its provenance did (`edited_provenance`). Its ask (`class`) was the
+                // sender's words' and goes.
+                provenance: edited_provenance(q.run.provenance.as_ref(), editor),
+                // What it does is the person's now, apart from who it names: no agent's message to
+                // clear with an agents-only removal, hold for a stop or fold into a digest
+                // (`queue.rs` `remove_queued_by`, `digest.rs`), as a restart reads the same edit
+                // (`queue_updated` drops `fromAgent`). Its sender stays in `provenance` only.
                 agent: None,
                 class: None,
                 supersede: None,
@@ -337,7 +426,7 @@ impl Hub {
                 message_id: None,
                 message_sender: None,
             });
-            q.preview = short_text(&text, 200);
+            q.preview = short_text(super::inbox::relay_body(&text), 200);
             // Its author's edit of a prompt that waits for the owner is a new revision: an
             // approval names the words the owner saw (`queue_approve.rs`).
             if again {
@@ -366,8 +455,8 @@ impl Hub {
         if let Some(display_parts) = &run.display_parts {
             msg.set("displayParts", display_parts.clone());
         }
+        let mut msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
         super::session::mark_pasted(&mut msg, &run.blocks);
-        let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
         self.append(session, "mux", "queue_updated", msg);
         drop(queue);
         Ok(true)

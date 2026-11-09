@@ -103,6 +103,7 @@ impl Mux {
                 machine_name: None,
                 session_id: &self.session_public_id,
                 session_name: &self.session,
+                in_process_host: Some(&|host: &str| self.in_process_terminal_by_host(host)),
             },
             target,
             selectors,
@@ -125,6 +126,15 @@ impl Mux {
             fingerprint,
             expected_revision,
         )
+    }
+
+    /// Write registry metadata under its lock ([`WorkspaceRegistry::write_meta`]).
+    #[track_caller]
+    pub(crate) fn write_registry_meta<T>(
+        &self,
+        write: impl FnOnce(&Transaction<'_>) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        self.workspace_registry.lock().unwrap().write_meta(write)
     }
 
     /// Read the registry under its lock.

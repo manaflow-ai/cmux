@@ -5,6 +5,7 @@ import CmuxNextActions
 import CmuxHomeCore
 @testable import CmuxNextHome
 @testable import CmuxNextImportCards
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -42,7 +43,7 @@ import Testing
         let descriptor = try #require(registry.descriptor(for: "import.open"))
         #expect(descriptor.surfaces.contains(.palette))
         let suite = "ImportSuggestionRemovedTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let ledger = FileManager.default.temporaryDirectory.appending(path: "import-jobs-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: ledger) }
@@ -51,7 +52,7 @@ import Testing
         center.bind(into: registry, host: ImportCardsHost(runImport: { _, _, _ in throw CancellationError() },
                                                            importedProfiles: { [] },
                                                            openSettings: { routes.append($0) },
-                                                           importClassic: { _ in nil }))
+                                                           importClassic: { _ in nil }, importConductor: { _ in nil }))
         #expect(registry.isBound("import.open"))
         #expect(registry.perform("import.open", invocation: ActionInvocation(origin: .user)))
         #expect(routes == ["#/settings/import"])

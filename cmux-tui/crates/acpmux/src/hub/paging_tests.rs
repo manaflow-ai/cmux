@@ -1,7 +1,8 @@
 //! Pages of a chat whose tool calls re-send their whole output (`store/superseded.rs`).
 
 use super::*;
-use crate::store::{EventRecord, LocalStore, SessionMeta, Store};
+use crate::store::{EventRecord, LocalStore, PARSED_LINES, SessionMeta, Store};
+use std::io::Write;
 
 /// The app's open page (webviews `direct.ts`: `limit` 400, `OPEN_PAGE_BYTES` 128 KiB).
 const OPEN_LIMIT: usize = 400;
@@ -524,6 +525,53 @@ fn the_prompt_index_holds_every_prompt_cut_short_oldest_first() {
     assert_eq!(older.last().unwrap().seq, all[9].seq);
 }
 
+/// The prompt index reads the log's copies of its prompts (`store/kind_index.rs`), not the log: a
+/// long chat's tool output is most of its bytes, and reading all of them held the rail's every
+/// pending tick blank for 10 s on a 566 MB log, past a peer's 30 s read deadline on longer ones
+/// (Leo, 2026-11-03: "the hover previews ... aren't loading past the first bits"). Each segment's
+/// bytes are blanked once its copy is made: the same file and length, so only the copies still
+/// hold the prompts.
+#[test]
+fn the_prompt_index_reads_the_logs_copies_of_its_prompts() {
+    let root =
+        std::env::temp_dir().join(format!("acpmux-prompt-index-copies-{}", uuid::Uuid::now_v7()));
+    let store = LocalStore::new(root.clone(), 16 << 10).unwrap();
+    store.save(&meta("c")).unwrap();
+    for rec in codex_chat(40, 6, 400, false) {
+        store.append("c", &rec).unwrap();
+    }
+    store.flush().unwrap();
+    let hub = hub(Box::new(store));
+    let all = hub.prompt_index("c", None).unwrap();
+    assert_eq!(all.len(), 40);
+    // A daemon's log load makes the copies (`hub/log_load.rs`); this scan stands for it.
+    hub.store.scan_kinds("c", &["user_message"], &mut |_| true).unwrap();
+    let events = root.join("c").join("events");
+    let segments: Vec<_> = std::fs::read_dir(&events).unwrap().map(|e| e.unwrap().path()).collect();
+    assert!(segments.len() > 3, "{} segments", segments.len());
+    for path in &segments {
+        let len = std::fs::metadata(path).unwrap().len() as usize;
+        let mut blank = " ".repeat(len - 1);
+        blank.push('\n');
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .write_all(blank.as_bytes())
+            .unwrap();
+    }
+    let read = hub.prompt_index("c", None).unwrap();
+    assert_eq!(
+        read.iter().map(|r| r.seq).collect::<Vec<_>>(),
+        all.iter().map(|r| r.seq).collect::<Vec<_>>()
+    );
+    assert_eq!(read[0].msg, json!({"text": "prompt 0"}));
+    // `before` still bounds it.
+    let older = hub.prompt_index("c", Some(all[10].seq)).unwrap();
+    assert_eq!(older.len(), 10);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// How long the rail waits for a long chat's every prompt: paging the transcript back (the pane's
 /// `loadOlder`, 400 records a page) against one prompt index read.
 #[test]
@@ -571,4 +619,118 @@ fn prompt_index_perf() {
         best(&indexed)
     );
     std::fs::remove_dir_all(&root).ok();
+}
+
+/// An update of the chat's own (`sub` None) or of subagent `sub` (`_meta.acpmux.subagent`, as
+/// `subagents.rs` tags it).
+fn update_of(seq: u64, sub: Option<&str>, text: &str) -> EventRecord {
+    let mut rec = agent(
+        seq,
+        "agent_message_chunk",
+        json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}),
+    );
+    if let Some(sub) = sub {
+        rec.msg["params"]["_meta"] = json!({"acpmux": {"subagent": sub}});
+    }
+    rec
+}
+
+/// A subagent pane's read of an old subagent's own records (webviews `readSubagentLog`, a forward
+/// page from the start with `subagent`) parses that subagent's lines, not the chat's whole log
+/// after them: opening a finished subagent of a long chat cost a parse of every later line, on
+/// every page of its read (Leo, 2026-11-05: "things just don't open up fast enough on the right.
+/// / links. subagents. all").
+#[test]
+fn a_subagent_page_parses_only_its_subagents_lines() {
+    let root = std::env::temp_dir().join(format!("acpmux-subagent-page-{}", uuid::Uuid::now_v7()));
+    let sessions = root.join("sessions");
+    let mut seq = 0;
+    let mut next = || {
+        seq += 1;
+        seq
+    };
+    let mut log = Vec::new();
+    // The subagent ran early on: 20 updates among the chat's first ones.
+    for n in 0..20 {
+        log.push(update_of(next(), None, &format!("chat {n}")));
+        log.push(update_of(next(), Some("sub-old"), &format!("sub-old {n}")));
+    }
+    // Then a long chat after it, with another subagent, whose words name the old one.
+    for n in 0..5000 {
+        let sub = (n % 7 == 0).then_some("sub-new");
+        log.push(update_of(next(), sub, &format!("later {n}: \"sub-old\" is done")));
+    }
+    {
+        let writer = LocalStore::new(sessions.clone(), 8 << 20).unwrap();
+        writer.save(&meta("c")).unwrap();
+        for rec in &log {
+            writer.append("c", rec).unwrap();
+        }
+    }
+    let hub = hub(Box::new(LocalStore::new(sessions.clone(), 8 << 20).unwrap()));
+    let filter = transcript(true).of_subagent(Some("sub-old"));
+    let parsed_before = PARSED_LINES.with(std::cell::Cell::get);
+    let page = hub.events_page("c", 0, None, OPEN_LIMIT, Some(256 * 1024), false, &filter).unwrap();
+    let parsed = PARSED_LINES.with(std::cell::Cell::get) - parsed_before;
+    let want: Vec<u64> = log
+        .iter()
+        .filter(|r| r.msg.pointer("/params/_meta/acpmux/subagent") == Some(&json!("sub-old")))
+        .map(|r| r.seq)
+        .collect();
+    assert_eq!(page.events.iter().map(|r| r.seq).collect::<Vec<_>>(), want);
+    assert!(!page.has_more);
+    // Its own 20 lines, never the chat's other 5,020.
+    assert!(parsed <= 20, "the page parsed {parsed} of {} lines", log.len());
+    // A page past its first records reads on from there, as the pane's next page does.
+    let rest =
+        hub.events_page("c", want[9], None, OPEN_LIMIT, Some(256 * 1024), false, &filter).unwrap();
+    assert_eq!(rest.events.iter().map(|r| r.seq).collect::<Vec<_>>(), want[10..].to_vec());
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// A subagent pane's read of an old subagent as the chat grows (the PR's Performance table): run
+/// with `cargo test -p acpmux --release --lib -- --ignored --nocapture subagent_page_perf`.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn subagent_page_perf() {
+    for later in [2_000usize, 20_000, 100_000] {
+        let root =
+            std::env::temp_dir().join(format!("acpmux-subagent-perf-{}", uuid::Uuid::now_v7()));
+        let sessions = root.join("sessions");
+        let mut seq = 0;
+        {
+            let writer = LocalStore::new(sessions.clone(), 8 << 20).unwrap();
+            writer.save(&meta("c")).unwrap();
+            for n in 0..40 {
+                seq += 1;
+                writer
+                    .append("c", &update_of(seq, (n % 2 == 1).then_some("sub-old"), "early"))
+                    .unwrap();
+            }
+            // About 1 KB a line, as a busy chat's updates are.
+            let text = "x".repeat(900);
+            for n in 0..later {
+                seq += 1;
+                let sub = (n % 7 == 0).then_some("sub-new");
+                writer.append("c", &update_of(seq, sub, &text)).unwrap();
+            }
+        }
+        let hub = hub(Box::new(LocalStore::new(sessions.clone(), 8 << 20).unwrap()));
+        let filter = transcript(true).of_subagent(Some("sub-old"));
+        let mut runs = Vec::new();
+        for _ in 0..5 {
+            let started = std::time::Instant::now();
+            let page = hub
+                .events_page("c", 0, None, OPEN_LIMIT, Some(256 * 1024), false, &filter)
+                .unwrap();
+            runs.push(started.elapsed().as_secs_f64() * 1000.0);
+            assert_eq!(page.events.len(), 20);
+        }
+        runs.sort_by(f64::total_cmp);
+        println!(
+            "subagent page after {later} later lines: median {:.1} ms (min {:.1})",
+            runs[2], runs[0]
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
 }

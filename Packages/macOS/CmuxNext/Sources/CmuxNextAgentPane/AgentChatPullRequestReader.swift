@@ -11,6 +11,11 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     var timeout: Duration = .seconds(30)
     /// The App's environment, from which gh gets the user's GitHub settings (``githubVariables``).
     var environment: [String: String] = ProcessInfo.processInfo.environment
+    /// Runs gh in place of the process, for tests: its arguments and folder in, its output out
+    /// (nil for no answer). Nil runs the real gh.
+    var runner: Runner?
+    /// Counts every call to GitHub this reader makes (``Calls``); nil counts nothing.
+    var calls: Calls?
 
     public init(gh: String? = nil, timeout: Duration = .seconds(30), environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.gh = gh
@@ -35,7 +40,7 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     }()
 
     public func read(in folder: String) async -> AgentPanePullRequest? {
-        await read(arguments: ["pr", "view", "--json", AgentPanePullRequest.fields], in: folder)
+        await read(arguments: ["pr", "view", "--json", AgentPanePullRequest.fields], in: folder, kind: .view)
     }
 
     /// The pull request at `url`, a link ``AgentPaneReplyRequest/pullRequestURL(_:)`` rebuilt, so
@@ -47,7 +52,16 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     /// the two that can see the base branch's checks.
     public func read(url: URL) async -> AgentPanePullRequest? {
         await read(arguments: ["pr", "view", url.absoluteString, "--json", AgentPanePullRequest.fields],
-                   in: home)
+                   in: home, kind: .view)
+    }
+
+    /// The unified diff of the pull request at `url` (`gh pr diff <url>`), for the GitHub page's
+    /// diff tab; nil when gh is missing, fails or times out, or the diff is over `limit` bytes. The
+    /// same queue, deadline and environment as every other read here.
+    public func diff(url: URL, limit: Int = 16 * 1024 * 1024) async -> String? {
+        guard let data = await run(["pr", "diff", url.absoluteString, "--color", "never"], in: home, anyExit: false, kind: .diff),
+              data.count <= limit else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     /// Where a read with no repository runs: gh needs none when the pull request is named by URL.
@@ -59,28 +73,38 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     /// for has its pull request, or nil when it has none (gone, or not visible); a URL whose read
     /// failed (offline, timed out, rate limited) is left out, so its last answer stands.
     public func read(urls: [String]) async -> [String: AgentPanePullRequest?] {
+        await readBatch(urls: urls).answers
+    }
+
+    /// ``read(urls:)``'s answers, with the rate limit the last GraphQL read reported.
+    func readBatch(urls: [String]) async -> Batch {
         var targets: [Target] = []
         var others: [String] = []
         for url in urls {
             if let target = Target(url: url) { targets.append(target) } else if url.hasPrefix("https://") { others.append(url) }
         }
         var answers: [String: AgentPanePullRequest?] = [:]
+        var rate: RateLimit?
         for start in stride(from: 0, to: targets.count, by: Self.batchSize) {
+            // GitHub's points left are under the floor: the next batch would spend what the user's
+            // own gh needs (review of #37571 at 664acfbe). The links it held count as tried.
+            if let rate, rate.remaining < AgentReplyPullRequests.Budget.hardFloor { break }
             let batch = Array(targets[start..<min(start + Self.batchSize, targets.count)])
             // A missing pull request fails the read but leaves the others' data: read it anyway.
             // github.com explicitly: a GH_HOST the App passes on names the user's Enterprise host.
             let arguments = ["api", "graphql", "--hostname", "github.com", "-f", "query=" + Self.query(batch)]
-            guard let data = await run(arguments, in: nil, anyExit: true) else { continue }
+            guard let data = await run(arguments, in: nil, anyExit: true, kind: .read) else { continue }
             answers.merge(Self.pullRequests(fromGraphQL: data, batch)) { $1 }
+            rate = Self.rateLimit(fromGraphQL: data) ?? rate
         }
         // In the home folder, like ``read(url:)``: a link on another host names its pull request,
         // so this needs no repository, and the App's own working folder is nobody's repository.
         for url in others {
-            if let pullRequest = await read(arguments: ["pr", "view", url, "--json", AgentPanePullRequest.fields], in: home) {
+            if let pullRequest = await read(arguments: ["pr", "view", url, "--json", AgentPanePullRequest.fields], in: home, kind: .view) {
                 answers[url] = pullRequest
             }
         }
-        return answers
+        return Batch(answers: answers, rate: rate)
     }
 
     /// The most pull requests one GraphQL read asks for.
@@ -93,12 +117,14 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
         var name: String
         var number: Int
 
-        /// Nil unless `url` is `https://github.com/<owner>/<repo>/pull/<n>` with plain names.
+        /// Nil unless `url` is `https://github.com/<owner>/<repo>/pull/<n>` (or `/issues/<n>`) with
+        /// plain names. Both are read as `issueOrPullRequest`: GitHub numbers them in one series,
+        /// and a reference written as either may name the other.
         init?(url: String) {
             let parts = url.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
             let plain = { (s: String) in !s.isEmpty && s.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "-_.".contains($0)) } }
             guard parts.count == 7, parts[0] == "https:", parts[1].isEmpty, parts[2] == "github.com", plain(parts[3]), plain(parts[4]),
-                  parts[5] == "pull", let number = Int(parts[6]), number > 0, String(number) == parts[6] else { return nil }
+                  parts[5] == "pull" || parts[5] == "issues", let number = Int(parts[6]), number > 0, String(number) == parts[6] else { return nil }
             self.url = url
             owner = parts[3]
             name = parts[4]
@@ -107,7 +133,8 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     }
 
     /// The query for `targets`: `p<i>` is the i-th one's pull request, with the fields `gh pr view`
-    /// reads (``AgentPanePullRequest/fields``) and its last commit's check rollup.
+    /// reads (``AgentPanePullRequest/fields``) and its last commit's check rollup, and the rate
+    /// limit the read leaves (``rateLimitField``).
     static func query(_ targets: [Target]) -> String {
         // Every field ``AgentPanePullRequest/fields`` reads, so a pull request from here is the
         // same pull request a `gh pr view` of it would be: a card drawn from a batched read must
@@ -128,17 +155,44 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
             checkSuite { workflowRun { databaseId event workflow { databaseId name } } } } \
             ... on StatusContext { context state targetUrl } } }
             """
+        // Beyond what `gh pr view` reads, the card's extras come in the same call, at no extra
+        // cost: each label's color, the author's avatar link (48 px, fetched by
+        // ``AgentReplyAvatars``), and the head rollup's own sum, which the probe compares.
         let fields = """
             url number title state isDraft reviewDecision mergeable createdAt updatedAt mergedAt additions deletions totalCommentsCount \
-            changedFiles baseRefName headRefName author { login } labels(first: \(AgentPanePullRequest.maximumLabels)) \
-            { nodes { name } } files(first: 100) { nodes { path additions deletions } } \
-            commits(last: 1) { nodes { commit { statusCheckRollup { \(contexts) } } } } \
-            baseRef { target { ... on Commit { statusCheckRollup { \(contexts) } } } }
+            changedFiles baseRefName headRefName baseRefOid headRefOid author { login avatarUrl(size: 48) } \
+            labels(first: \(AgentPanePullRequest.maximumLabels)) { nodes { name color } } \
+            files(first: 100) { nodes { path additions deletions } } \
+            commits(last: 1) { nodes { commit { statusCheckRollup { state \(Self.rollupCounts) \(contexts) } } } } \
+            baseRef { target { ... on Commit { statusCheckRollup { state \(Self.rollupCounts) \(contexts) } } } }
             """
         let aliases = targets.enumerated().map { index, target in
-            "p\(index): repository(owner: \"\(target.owner)\", name: \"\(target.name)\") { pullRequest(number: \(target.number)) { ...f } }"
+            "p\(index): repository(owner: \"\(target.owner)\", name: \"\(target.name)\") "
+                + "{ issueOrPullRequest(number: \(target.number)) { __typename ...f ...i } }"
         }
-        return "query { \(aliases.joined(separator: " ")) } fragment f on PullRequest { \(fields) }"
+        return "query { \(rateLimitField) \(aliases.joined(separator: " ")) } fragment f on PullRequest { \(fields) } "
+            + "fragment i on Issue { \(Self.issueFields) }"
+    }
+
+    /// What a card shows of an issue: its title, state (and why it closed), author, labels and
+    /// comment count. An issue has no branches, checks or files.
+    static let issueFields = "url number title state stateReason createdAt updatedAt closedAt author { login avatarUrl(size: 48) } "
+        + "labels(first: \(AgentPanePullRequest.maximumLabels)) { nodes { name color } } comments { totalCount }"
+
+    /// An issue's node as ``AgentPanePullRequest/init(ghView:)`` reads it: `kind` `issue`, and a
+    /// closed one that was not planned under its own state (GitHub draws it grey, not purple).
+    static func issueView(_ node: [String: Any]) -> [String: Any] {
+        var view = node
+        view["kind"] = "issue"
+        if (node["state"] as? String)?.uppercased() == "CLOSED", (node["stateReason"] as? String)?.uppercased() == "NOT_PLANNED" {
+            view["state"] = "NOT_PLANNED"
+        }
+        view["totalCommentsCount"] = (node["comments"] as? [String: Any])?["totalCount"] as? Int
+        view["comments"] = nil
+        // GraphQL wraps a connection's rows in `nodes`; gh prints them as a plain array.
+        view["labels"] = (node["labels"] as? [String: Any])?["nodes"] as? [[String: Any]] ?? []
+        view["__typename"] = nil
+        return view
     }
 
     /// Each target's pull request in a GraphQL answer, reshaped as `gh pr view` prints it (the
@@ -156,20 +210,32 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
         var result: [String: AgentPanePullRequest?] = [:]
         for (index, target) in targets.enumerated() {
             guard let alias = answers["p\(index)"] else { continue }
-            guard var view = (alias as? [String: Any])?["pullRequest"] as? [String: Any] else {
+            guard var view = (alias as? [String: Any])?["issueOrPullRequest"] as? [String: Any] else {
                 if !unanswered.contains("p\(index)") { result[target.url] = .some(nil) }
                 continue
             }
+            if view["__typename"] as? String == "Issue" {
+                guard let data = try? JSONSerialization.data(withJSONObject: Self.issueView(view)),
+                      let issue = AgentPanePullRequest(ghView: data) else { continue }
+                result[target.url] = .some(issue)
+                continue
+            }
             let commit = ((view["commits"] as? [String: Any])?["nodes"] as? [[String: Any]])?.last?["commit"] as? [String: Any]
-            let contexts = (commit?["statusCheckRollup"] as? [String: Any])?["contexts"] as? [String: Any]
+            let rollup = commit?["statusCheckRollup"] as? [String: Any]
+            let contexts = rollup?["contexts"] as? [String: Any]
             view["statusCheckRollup"] = contexts?["nodes"] as? [[String: Any]] ?? []
+            // The rollup's sum and counts, which the cheap probe compares (``probeQuery(_:)``).
+            view["rollupState"] = Self.rollupFingerprint(rollup)
             view["commits"] = nil
             // The base branch's tip, under the name `AgentPanePullRequest` reads it by. The tip is
             // what "also red on base" means: the merge rules measure a base red there, not at this
             // pull request's merge base.
             let baseTarget = (view["baseRef"] as? [String: Any])?["target"] as? [String: Any]
-            let baseContexts = (baseTarget?["statusCheckRollup"] as? [String: Any])?["contexts"] as? [String: Any]
+            let baseRollup = baseTarget?["statusCheckRollup"] as? [String: Any]
+            let baseContexts = baseRollup?["contexts"] as? [String: Any]
             view["baseStatusCheckRollup"] = baseContexts?["nodes"] as? [[String: Any]] ?? []
+            // What "already red on base" was read from, which the probe compares too.
+            view["baseRollupState"] = Self.rollupFingerprint(baseRollup)
             view["baseRef"] = nil
             // GraphQL wraps a connection's rows in `nodes`; gh prints them as a plain array.
             for key in ["labels", "files"] {
@@ -182,14 +248,19 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
         return result
     }
 
-    private func read(arguments: [String], in folder: String?) async -> AgentPanePullRequest? {
-        await run(arguments, in: folder, anyExit: false).flatMap(AgentPanePullRequest.init(ghView:))
+    private func read(arguments: [String], in folder: String?, kind: Calls.Kind) async -> AgentPanePullRequest? {
+        await run(arguments, in: folder, anyExit: false, kind: kind).flatMap(AgentPanePullRequest.init(ghView:))
     }
 
     /// gh's output for `arguments`, on the queue; nil when gh is missing, fails (unless `anyExit`)
-    /// or does not answer in time.
-    private func run(_ arguments: [String], in folder: String?, anyExit: Bool) async -> Data? {
+    /// or does not answer in time. Counted as a `kind` call to GitHub once gh runs.
+    func run(_ arguments: [String], in folder: String?, anyExit: Bool, kind: Calls.Kind) async -> Data? {
+        if let runner {
+            calls?.count(kind)
+            return await runner(arguments, folder)
+        }
         guard let gh = gh ?? Self.findGitHubCLI(environment) else { return nil }
+        calls?.count(kind)
         let timeout = timeout, environment = Self.environment(environment)
         return await withCheckedContinuation { continuation in
             Self.queue.addOperation {
@@ -245,167 +316,5 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
         // A deadline kill is never an answer.
         guard process.terminationStatus == 0 || (anyExit && process.terminationReason == .exit) else { return nil }
         return try? Data(contentsOf: file)
-    }
-}
-
-/// The pull requests reply links and the pull request bars point at, for their cards: each read
-/// with gh once, and again only after `freshness`, so the same link is never read twice in a
-/// minute and two readers of one link share one read.
-///
-/// A card reads the cache (``answer(_:)``) and never waits for gh, so hovering a link is never a
-/// call to GitHub; the links a page shows are registered when it inspects them
-/// (``register(_:)``), which is once per host request — the page gathers every reply's links
-/// into one — not once per reply and never once per hover. A read that fails — no gh, no
-/// network, a rate limit — leaves the last good answer and its age in place, and is not tried
-/// again for `retry`, so a rate-limited GitHub never replaces the pull request with an error.
-@MainActor
-public final class AgentReplyPullRequests {
-    private struct Entry {
-        /// The last answer gh gave; nil until it gives one.
-        var pullRequest: AgentPanePullRequest?
-        /// When it gave that answer.
-        var at: Date?
-        /// When the read that gave that answer began.
-        var readFrom: Date?
-        /// The last read of this link, good or not; nil until one finishes.
-        var tried: ContinuousClock.Instant?
-        /// The newest of `at` and `tried`, for dropping the stalest link.
-        var touched: ContinuousClock.Instant
-    }
-
-    /// The App's one cache: every chat's cards read through it.
-    public static let shared = AgentReplyPullRequests()
-    /// The most links kept; the stalest goes first.
-    static let maximumKept = 200
-    /// The most links one ``register(_:)`` prefetches, so a transcript full of pull requests cannot
-    /// start a hundred reads at once.
-    ///
-    /// It is a whole host request, because that is what the page sends: it gathers its chips' links
-    /// across every reply and asks for them in one `link.inspect`
-    /// (``AgentPaneReplyRequest/maximumInspect``). A smaller number was a bound on the page rather
-    /// than on the reply — the links past it were read when a card opened them, one read each,
-    /// which is the per-card call this cache exists to avoid. Covering the request instead costs
-    /// one more batched read (64 links at ``AgentChatPullRequestReader/batchSize`` 50 is two): two
-    /// calls to GitHub for a page full of pull requests, against up to forty-eight.
-    static let maximumRegistered = AgentPaneReplyRequest.maximumInspect
-
-    private let reader: AgentChatPullRequestReader
-    private let freshness: Duration
-    private let retry: Duration
-    private var entries: [URL: Entry] = [:]
-    private var inflight: [URL: Task<Void, Never>] = [:]
-
-    public init(reader: AgentChatPullRequestReader = AgentChatPullRequestReader(),
-                freshness: Duration = .seconds(60), retry: Duration = .seconds(300)) {
-        self.reader = reader
-        self.freshness = freshness
-        self.retry = retry
-    }
-
-    /// What the cache has for `url`, and a background read when that is stale unless `read` is
-    /// false (a page asking for many links it registered, whose reads the registration batches).
-    /// Never waits.
-    public func answer(_ url: URL, read: Bool = true) -> AgentPanePullRequestAnswer {
-        if read { _ = startRead(url) }
-        let entry = entries[url]
-        return AgentPanePullRequestAnswer(pullRequest: entry?.pullRequest,
-                                          fetchedAt: entry?.at?.timeIntervalSince1970,
-                                          readFrom: entry?.readFrom?.timeIntervalSince1970,
-                                          reading: inflight[url] != nil)
-    }
-
-    /// Keeps the pull requests a reply links fresh, so a card has them before the pointer arrives:
-    /// batched reads for the whole request (``AgentChatPullRequestReader/read(urls:)``, one
-    /// `gh api graphql` per ``AgentChatPullRequestReader/batchSize``), never one read per link. A
-    /// page that mentions fifty pull requests is one call to GitHub, which is the point: the card
-    /// Leo saw said "GitHub rate limit" because every link cost its own.
-    public func register(_ urls: [URL]) {
-        var wanted: [URL] = []
-        for url in urls.prefix(Self.maximumRegistered) where inflight[url] == nil && stale(url) && !wanted.contains(url) {
-            wanted.append(url)
-        }
-        guard !wanted.isEmpty else { return }
-        let reader = reader
-        let addresses = wanted.map(\.absoluteString)
-        let began = Date()
-        // task-owner: one read for every link of a reply; a card opened meanwhile shares it.
-        let task = Task { [weak self] in
-            let answers = await reader.read(urls: addresses)
-            self?.absorb(answers, for: wanted, began: began)
-        }
-        for url in wanted { inflight[url] = task }
-    }
-
-    /// Reads `url`, waiting for a read already running or starting one. No card takes this path —
-    /// every one of them draws from ``answer(_:)`` and never waits — so this is what a caller that
-    /// does need the answer in hand (and the tests below) uses.
-    public func read(_ url: URL) async -> AgentPanePullRequest? {
-        if let task = startRead(url) { await task.value }
-        return entries[url]?.pullRequest
-    }
-
-    /// Whether `url` is worth reading: never read, or its last read is old enough. A link that
-    /// answered is re-read after `freshness`; one that has never answered waits `retry`, so a
-    /// rate limit is not met with another call a minute later.
-    private func stale(_ url: URL) -> Bool {
-        guard let entry = entries[url], let tried = entry.tried else { return true }
-        return ContinuousClock.now - tried >= (entry.pullRequest == nil ? retry : freshness)
-    }
-
-    /// The read running for `url`, a new one when it is stale, else nil.
-    private func startRead(_ url: URL) -> Task<Void, Never>? {
-        if let task = inflight[url] { return task }
-        guard stale(url) else { return nil }
-        // task-owner: one gh read per stale link; everyone waiting on it shares this task.
-        let task = Task { await self.perform(url) }
-        inflight[url] = task
-        return task
-    }
-
-    /// Reads one link the same way ``register(_:)`` reads a reply's: the batched GraphQL read with
-    /// a batch of one, not `gh pr view <url>`. It is the same single call to GitHub, and it is the
-    /// only one of the two that reads the base branch's checks — a card refreshed through
-    /// `gh pr view` would quietly lose "also red on base" sixty seconds after it gained it. A link
-    /// on another host (GitHub Enterprise) still falls back to `gh pr view` inside that read.
-    private func perform(_ url: URL) async {
-        let began = Date()
-        let answers = await reader.read(urls: [url.absoluteString])
-        absorb(answers, for: [url], began: began)
-    }
-
-    /// What a batched read answered. A URL GitHub did not answer for (offline, timed out, rate
-    /// limited) keeps its last answer, and every URL of the batch counts as tried, so a failed
-    /// batch is not asked again at once.
-    private func absorb(_ answers: [String: AgentPanePullRequest?], for urls: [URL], began: Date) {
-        for url in urls { record(answers[url.absoluteString] ?? nil, for: url, began: began) }
-        trim()
-    }
-
-    /// Writes one read's outcome. A read that failed leaves the last good answer and its age
-    /// alone: a rate-limited GitHub must not replace the pull request the card is showing.
-    private func record(_ pullRequest: AgentPanePullRequest?, for url: URL, began: Date) {
-        var entry = entries[url] ?? Entry(touched: .now)
-        entry.tried = .now
-        entry.touched = .now
-        if let pullRequest {
-            entry.pullRequest = pullRequest
-            entry.at = Date()
-            entry.readFrom = began
-        }
-        entries[url] = entry
-        inflight[url] = nil
-    }
-
-    /// How many links the cache holds, for the test of its bound.
-    var kept: Int { entries.count }
-
-    /// Drops the stalest links until at most ``maximumKept`` are kept; one being read stays. Every
-    /// one over the bound, not one per call: a batched read records up to ``maximumRegistered`` at
-    /// once, so dropping a single link left the cache longer with every such request.
-    private func trim() {
-        while entries.count > Self.maximumKept,
-              let stalest = entries.filter({ inflight[$0.key] == nil }).min(by: { $0.value.touched < $1.value.touched })?.key {
-            entries[stalest] = nil
-        }
     }
 }

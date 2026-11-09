@@ -110,8 +110,13 @@ pub(super) fn local_reservation(row: &Value) -> bool {
         && row.get("dispatchLocal").and_then(Value::as_bool) == Some(true)
 }
 
+/// `value[key]` without an index: `Null` for a missing key or a value that is not an object.
+fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
+    value.get(key).unwrap_or(&Value::Null)
+}
+
 pub(super) fn pending(params: &Value, id: &str, identity: &Identity, host: &str) -> Value {
-    json!({"briefId":id,"brief":params["brief"],"title":params["title"],"host":host,
+    json!({"briefId":id,"brief":field(params, "brief"),"title":field(params, "title"),"host":host,
         "status":"starting","sessionId":identity.session_id,"promptId":identity.prompt_id,
         "dispatchFingerprint":identity.fingerprint,"durable":true})
 }
@@ -343,8 +348,8 @@ pub(super) async fn local(
     row.set("status", json!("running"));
     row.set("harness", json!(session.meta().harness));
     row = hub.briefs.put_durable(row).map_err(|e| RpcError::internal(e.to_string()))?;
-    let mut prompt = json!({"sessionId":session.id,"text":row["brief"],
-        "_meta":{"acpmux":{"briefId":id,"fromAgent":row["from"]}}});
+    let mut prompt = json!({"sessionId":session.id,"text":field(&row, "brief"),
+        "_meta":{"acpmux":{"briefId":id,"fromAgent":field(&row, "from")}}});
     if let Some(via) = params.pointer("/_meta/acpmux/via").cloned() {
         prompt.set_path(&["_meta", "acpmux", "via"], via);
     }
@@ -360,7 +365,7 @@ pub(super) async fn local(
     let task_flight = flight.clone();
     tokio::spawn(async move {
         let hub = task_hub;
-        let id = task_row["briefId"].as_str().unwrap_or_default().to_owned();
+        let id = field(&task_row, "briefId").as_str().unwrap_or_default().to_owned();
         let gate = task_flight.gate.lock().await;
         if hub
             .briefs
@@ -375,7 +380,7 @@ pub(super) async fn local(
         let label = conn.label();
         let future = hub.prompt_with(
             &session,
-            vec![json!({"type":"text","text":task_row["brief"]})],
+            vec![json!({"type":"text","text":field(&task_row, "brief")})],
             &label,
             false,
             crate::hub::PromptOptions {
@@ -386,7 +391,7 @@ pub(super) async fn local(
                 })),
                 control,
                 trust_gate,
-                agent: task_row["from"].as_str().map(str::to_owned),
+                agent: field(&task_row, "from").as_str().map(str::to_owned),
                 full_access_device: device,
                 ..Default::default()
             },

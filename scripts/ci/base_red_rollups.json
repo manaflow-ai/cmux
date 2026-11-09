@@ -94,6 +94,12 @@
           ],
           "prefixes": []
         },
+        "portable-placement": {
+          "exact": [
+            "portable light placement"
+          ],
+          "prefixes": []
+        },
         "remote-daemon": {
           "exact": [],
           "prefixes": [
@@ -114,6 +120,101 @@
         }
       },
       "workflow": "ci.yml"
+    },
+    "web / Web status": {
+      "job": "web-status",
+      "under": {
+        "diff-sidecar-check": {
+          "exact": [
+            "web / diff-sidecar-check"
+          ],
+          "prefixes": []
+        },
+        "react-apps-base-check": {
+          "exact": [
+            "web / react-apps-base-check (1)",
+            "web / react-apps-base-check (2)",
+            "web / react-apps-base-check (3)",
+            "web / react-apps-base-check (4)",
+            "web / react-apps-base-check (5)",
+            "web / react-apps-base-check (6)",
+            "web / react-apps-base-check (7)",
+            "web / react-apps-base-check (8)"
+          ],
+          "prefixes": []
+        },
+        "react-apps-check": {
+          "exact": [
+            "web / react-apps-check"
+          ],
+          "prefixes": []
+        },
+        "react-apps-check-shard": {
+          "exact": [
+            "web / react-apps-check (1)",
+            "web / react-apps-check (2)",
+            "web / react-apps-check (3)",
+            "web / react-apps-check (4)",
+            "web / react-apps-check (5)",
+            "web / react-apps-check (6)",
+            "web / react-apps-check (7)",
+            "web / react-apps-check (8)"
+          ],
+          "prefixes": []
+        },
+        "react-doctor": {
+          "exact": [
+            "web / react-doctor"
+          ],
+          "prefixes": []
+        },
+        "runners": {
+          "exact": [],
+          "prefixes": [
+            "web / runners / "
+          ]
+        },
+        "web-db-migrations": {
+          "exact": [
+            "web / web-db-migrations"
+          ],
+          "prefixes": []
+        },
+        "web-instant-navigation": {
+          "exact": [
+            "web / web-instant-navigation"
+          ],
+          "prefixes": []
+        },
+        "web-production-build": {
+          "exact": [
+            "web / web-production-build"
+          ],
+          "prefixes": []
+        },
+        "web-subarea-scope": {
+          "exact": [
+            "web / web-subarea-scope"
+          ],
+          "prefixes": []
+        },
+        "web-tests": {
+          "exact": [
+            "web / Web tests (1/4)",
+            "web / Web tests (2/4)",
+            "web / Web tests (3/4)",
+            "web / Web tests (4/4)"
+          ],
+          "prefixes": []
+        },
+        "web-typecheck": {
+          "exact": [
+            "web / web-typecheck"
+          ],
+          "prefixes": []
+        }
+      },
+      "workflow": "ci-web.yml"
     }
   }
 }

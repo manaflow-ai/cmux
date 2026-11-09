@@ -1,8 +1,9 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextPages
 
 /// The Add Device card's panel: the same floating glass card as Add Server and Add Machine
-/// (``AddServerCardPanel``), near the top center of the cmux window, on every Space and over full
+/// (``WebCardPanel``), near the top center of the cmux window, on every Space and over full
 /// screen, never activating the app. Escape runs the card's Cancel.
 @MainActor
 final class AddDeviceCardPanel: NSPanel {
@@ -13,7 +14,7 @@ final class AddDeviceCardPanel: NSPanel {
     init(model: AddDeviceModel) {
         self.model = model
         content = AddDeviceView(model: model)
-        glass = Glass.makePanel(content: content, style: .regular, cornerRadius: 14)
+        glass = Glass.makePanel(content: content, style: .regular, cornerRadius: Metrics.surfaceCornerRadius)
         super.init(contentRect: NSRect(origin: .zero, size: NSSize(width: AddDeviceView.width, height: 240)),
                    styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView], backing: .buffered, defer: true)
         ThemeScope.app.adopt(self)
@@ -52,7 +53,7 @@ final class AddDeviceCardPanel: NSPanel {
         let size = content.fittingSize
         let screen = window?.screen ?? NSScreen.main
         let visible = screen?.visibleFrame ?? NSRect(origin: .zero, size: size)
-        setFrame(AddServerCardPanel.placement(size: size, over: window?.frame, in: visible), display: false)
+        setFrame(WebCardPanel.placement(size: size, over: window?.frame, in: visible), display: false)
         WindowActivation.show(self, .raise)
     }
 

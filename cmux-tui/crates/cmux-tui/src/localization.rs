@@ -6,6 +6,7 @@ mod agent_wrapper;
 mod agents_doctor;
 mod app_control;
 mod attach;
+mod attention;
 mod auth_token;
 mod automation;
 mod billing;
@@ -13,14 +14,17 @@ mod browser;
 mod cli_connection;
 mod coderouter;
 mod config;
+mod copy_mode;
 mod foreign_viewport;
 mod graphics;
 mod host_share;
 mod layout;
+mod live_code;
 mod local_server;
 mod machine_agent;
 mod menu;
 mod pairing;
+mod pane_cli;
 mod remote;
 mod remote_client;
 mod runtime;
@@ -41,6 +45,7 @@ pub(crate) use agent_wrapper::AgentWrapperMessages;
 pub(crate) use agents_doctor::AgentsDoctorMessages;
 pub(crate) use app_control::{AppControlMessages, NightlyMessages, VersionLabels};
 pub(crate) use attach::AttachMessages;
+pub(crate) use attention::AttentionMessages;
 pub(crate) use auth_token::AuthTokenMessages;
 pub(crate) use automation::AutomationMessages;
 pub(crate) use billing::BillingMessages;
@@ -48,13 +53,16 @@ pub(crate) use browser::BrowserMessages;
 pub(crate) use cli_connection::CliConnectionMessages;
 pub(crate) use coderouter::CodeRouterMessages;
 pub(crate) use config::ConfigMessages;
+pub(crate) use copy_mode::CopyModeMessages;
 pub(crate) use foreign_viewport::ForeignViewportMessages;
 pub(crate) use graphics::GraphicsMessages;
 pub(crate) use layout::LayoutMessages;
+pub(crate) use live_code::LiveCodeMessages;
 pub(crate) use local_server::LocalServerMessages;
 pub(crate) use machine_agent::MachineAgentMessages;
 pub(crate) use menu::MenuMessages;
 pub(crate) use pairing::PairingMessages;
+pub(crate) use pane_cli::PaneCliMessages;
 pub(crate) use remote::RemoteMessages;
 pub(crate) use remote_client::RemoteClientMessages;
 pub(crate) use runtime::RuntimeMessages;
@@ -137,6 +145,7 @@ pub(crate) struct Catalog {
     pub skew: SkewMessages,
     pub terminal_input: TerminalInputMessages,
     pub pairing: PairingMessages,
+    pub pane_cli: PaneCliMessages,
     pub foreign_viewport: ForeignViewportMessages,
     pub graphics: GraphicsMessages,
     pub terminal: TerminalMessages,
@@ -145,6 +154,7 @@ pub(crate) struct Catalog {
     pub machine_agent: MachineAgentMessages,
     pub menu: MenuMessages,
     pub shortcuts: ShortcutMessages,
+    pub copy_mode: CopyModeMessages,
     pub browser: BrowserMessages,
     pub layout: LayoutMessages,
     pub runtime: RuntimeMessages,
@@ -152,6 +162,7 @@ pub(crate) struct Catalog {
     pub remote: RemoteMessages,
     pub config: ConfigMessages,
     pub attach: AttachMessages,
+    pub attention: AttentionMessages,
     pub cli_connection: CliConnectionMessages,
     pub sidebar: SidebarMessages,
     pub agent_wrapper: AgentWrapperMessages,
@@ -162,6 +173,7 @@ pub(crate) struct Catalog {
     pub automation: AutomationMessages,
     pub billing: BillingMessages,
     pub auth_token: AuthTokenMessages,
+    pub live_code: LiveCodeMessages,
     pub sandbox_run: SandboxRunMessages,
     pub update_notice: UpdateNoticeMessages,
 }
@@ -184,6 +196,7 @@ static ENGLISH: Catalog = Catalog {
     automation: automation::ENGLISH,
     billing: billing::ENGLISH,
     auth_token: auth_token::ENGLISH,
+    live_code: live_code::ENGLISH,
     sandbox_run: sandbox_run::ENGLISH,
     update_notice: update_notice::ENGLISH,
     app_control: app_control::ENGLISH,
@@ -195,6 +208,7 @@ static ENGLISH: Catalog = Catalog {
     local_server: local_server::ENGLISH,
     skew: skew::ENGLISH,
     pairing: pairing::ENGLISH,
+    pane_cli: pane_cli::ENGLISH,
     foreign_viewport: foreign_viewport::ENGLISH,
     graphics: graphics::ENGLISH,
     terminal: terminal::ENGLISH,
@@ -203,6 +217,7 @@ static ENGLISH: Catalog = Catalog {
     machine_agent: machine_agent::ENGLISH,
     menu: menu::ENGLISH,
     shortcuts: shortcuts::ENGLISH,
+    copy_mode: copy_mode::ENGLISH,
     browser: browser::ENGLISH,
     layout: layout::ENGLISH,
     runtime: runtime::ENGLISH,
@@ -210,6 +225,7 @@ static ENGLISH: Catalog = Catalog {
     remote: remote::ENGLISH,
     config: config::ENGLISH,
     attach: attach::ENGLISH,
+    attention: attention::ENGLISH,
     cli_connection: cli_connection::ENGLISH,
     sidebar: sidebar::ENGLISH,
 };
@@ -220,6 +236,7 @@ static JAPANESE: Catalog = Catalog {
     automation: automation::JAPANESE,
     billing: billing::JAPANESE,
     auth_token: auth_token::JAPANESE,
+    live_code: live_code::JAPANESE,
     sandbox_run: sandbox_run::JAPANESE,
     update_notice: update_notice::JAPANESE,
     app_control: app_control::JAPANESE,
@@ -231,6 +248,7 @@ static JAPANESE: Catalog = Catalog {
     local_server: local_server::JAPANESE,
     skew: skew::JAPANESE,
     pairing: pairing::JAPANESE,
+    pane_cli: pane_cli::JAPANESE,
     foreign_viewport: foreign_viewport::JAPANESE,
     graphics: graphics::JAPANESE,
     terminal: terminal::JAPANESE,
@@ -239,6 +257,7 @@ static JAPANESE: Catalog = Catalog {
     machine_agent: machine_agent::JAPANESE,
     menu: menu::JAPANESE,
     shortcuts: shortcuts::JAPANESE,
+    copy_mode: copy_mode::JAPANESE,
     browser: browser::JAPANESE,
     layout: layout::JAPANESE,
     runtime: runtime::JAPANESE,
@@ -246,6 +265,7 @@ static JAPANESE: Catalog = Catalog {
     remote: remote::JAPANESE,
     config: config::JAPANESE,
     attach: attach::JAPANESE,
+    attention: attention::JAPANESE,
     cli_connection: cli_connection::JAPANESE,
     sidebar: sidebar::JAPANESE,
 };

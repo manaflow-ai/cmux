@@ -16,11 +16,14 @@ on:
     paths:
       - workers/cmux-vm/openapi.json
       - workers/cmux-vm/cli/**
+      # The agent-key mint's rules the CLI shares with the cmux app.
+      - cmux-tui/crates/cmux-cloud-config/**
       - workers/cmux-vm/sdk/**
       # The cli tests run every command in this agent guide (tests/agent_doc.rs).
       - skills/cmux-cloud-vm/references/headless.md
       - cmux-tui/rust-toolchain.toml
       - .github/actions/setup-cmux-tui-rust/**
+      - .github/actions/runner-cargo-home/**
       - .github/workflows/cmux-vm-clients.yml
   push:
     # feat-cmux-next too: cmux VM lands there first, and without this run an
@@ -29,11 +32,14 @@ on:
     paths:
       - workers/cmux-vm/openapi.json
       - workers/cmux-vm/cli/**
+      # The agent-key mint's rules the CLI shares with the cmux app.
+      - cmux-tui/crates/cmux-cloud-config/**
       - workers/cmux-vm/sdk/**
       # The cli tests run every command in this agent guide (tests/agent_doc.rs).
       - skills/cmux-cloud-vm/references/headless.md
       - cmux-tui/rust-toolchain.toml
       - .github/actions/setup-cmux-tui-rust/**
+      - .github/actions/runner-cargo-home/**
       - .github/workflows/cmux-vm-clients.yml
 
 concurrency:
@@ -42,6 +48,10 @@ concurrency:
 
 permissions:
   contents: read
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 jobs:
   rust:
