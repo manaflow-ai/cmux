@@ -447,7 +447,7 @@ fn text(record: &Value, key: &str) -> Option<String> {
 fn running_terminals(snapshot: &Value) -> impl Iterator<Item = (String, Vec<String>)> + '_ {
     records(snapshot, "terminals")
         .iter()
-        .filter(|terminal| text(terminal, "lifecycle").as_deref() != Some("exited"))
+        .filter(|terminal| super::terminal_lifecycle::is_live(terminal))
         .filter_map(|terminal| {
             let tabs = match terminal.get("tab_ids").and_then(Value::as_array) {
                 Some(all) => all.iter().filter_map(Value::as_str).map(str::to_owned).collect(),
