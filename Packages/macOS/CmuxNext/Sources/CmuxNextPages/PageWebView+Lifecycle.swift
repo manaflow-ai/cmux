@@ -14,6 +14,7 @@ extension PageWebView {
         resumeLoadWaiters()
         webView.stopLoading()
         WebViewRetirement.retire(webView)
+        Self.healthFeed?.pageClosed(self)
     }
 
     /// Waits for the current document to finish loading or fail, and for a pending claim to be
@@ -34,11 +35,22 @@ extension PageWebView {
     // crash-allow: WebKit delegate signature uses nullable navigation handles.
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: any Error) {
         resumeLoadWaiters()
+        noteLoadFailed(error)
     }
 
     // crash-allow: WebKit delegate signature uses nullable navigation handles.
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: any Error) {
         resumeLoadWaiters()
+        noteLoadFailed(error)
+    }
+
+    /// A failed main-frame load tells app health (the page host's `loadFailed`), unless it was only
+    /// cancelled (a newer navigation replaced it) or a policy change interrupted it.
+    private func noteLoadFailed(_ error: any Error) {
+        let error = error as NSError
+        if error.domain == NSURLErrorDomain, error.code == NSURLErrorCancelled { return }
+        if error.domain == "WebKitErrorDomain", error.code == 102 { return } // frame load interrupted by a policy change
+        Self.healthFeed?.pageLoadFailed(self)
     }
 
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -72,6 +84,7 @@ extension PageWebView {
     func contentProcessTerminated() {
         loaded = false
         router.reset()
+        Self.healthFeed?.pageCrashed(self)
         guard reloadsAfterCrash else {
             // A renderer that crashed before the page reached the host leaves the Chromium start
             // deadline armed: its fallback would load the page in WebKit by itself.

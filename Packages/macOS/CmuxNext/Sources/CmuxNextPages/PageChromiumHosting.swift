@@ -50,6 +50,8 @@ public protocol PageChromiumHosting: AnyObject {
 extension PageChromiumPage {
     /// No clip: the page shows as a plain rectangle.
     public var windowClip: CGPath? { nil }
+
+    public func restartRenderer() { reload() }
 }
 
 extension PageChromiumHosting {
@@ -104,6 +106,9 @@ public protocol PageChromiumPage: AnyObject {
     func load(_ url: URL)
     /// Reloads the document.
     func reload()
+    /// App health's `restartRenderer`: ends a renderer that stopped answering and brings the page
+    /// back in a new one (the default: a plain reload).
+    func restartRenderer()
     /// Sets the page zoom (1 is 100%).
     func setZoom(_ zoom: Double)
     /// Gives or takes the keyboard focus.
@@ -134,6 +139,9 @@ public nonisolated enum PageChromiumEvent: Sendable, Equatable {
     case finished
     /// The page's render process ended.
     case crashed
+    /// Chromium's hang monitor says the page's renderer stopped answering (true) or answers again
+    /// (false): app health's renderer events.
+    case rendererUnresponsive(Bool)
     /// The Chromium browser itself went away (not closed by the host): the page cannot come back
     /// in Chromium.
     case ended

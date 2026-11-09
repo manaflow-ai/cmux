@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
@@ -67,7 +68,7 @@ extension PageFactory {
     /// profile and engine routes, the composers' edits, the docked view switch (in the dock only),
     /// then `extra`, with the selected-text menu of the Channels page.
     func homeWebPage(_ descriptor: PageDescriptor, dock: HomeDockView?, extra: [PageRoute] = []) -> PageWebView? {
-        let provider = DaemonCredentialPageProvider(daemon: services.daemon, chief: services.home.chief)
+        let provider = DaemonCredentialPageProvider(daemon: services.daemon, chief: services.home.chief, health: services.health)
         let (editRoute, edits) = Self.homeChannelsEditRoute()
         var routes = [PageRoute(prefix: "cmux.host.credential.", provider: provider),
                       PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
@@ -127,10 +128,13 @@ final class PageEditProvider: PageProvider {
 final class DaemonCredentialPageProvider: PageProvider {
     private weak var daemon: DaemonService?
     private weak var chief: ChiefConversationOwner?
+    /// App health's page host part: a missing listener file and a credential read that worked.
+    private let health: AppHealth?
 
-    init(daemon: DaemonService, chief: ChiefConversationOwner?) {
+    init(daemon: DaemonService, chief: ChiefConversationOwner?, health: AppHealth? = nil) {
         self.daemon = daemon
         self.chief = chief
+        self.health = health
     }
 
     func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
@@ -177,8 +181,10 @@ final class DaemonCredentialPageProvider: PageProvider {
     private func fileCredential(_ daemon: DaemonService, path: String) async throws -> CmuxNextSettings.JSONValue {
         // task-owner: one small file read off the main actor per call; ends with the read.
         if let file = try? await Task.detached(priority: .userInitiated, operation: { try Self.read(path) }).value {
+            health?.event(AppHealth.pageHostID, .loaded)
             return file
         }
+        health?.event(AppHealth.pageHostID, .listenerMissing)
         let outcome: DaemonService.PageListenerOutcome
         do {
             outcome = try await daemon.ensurePageListener()
@@ -196,7 +202,9 @@ final class DaemonCredentialPageProvider: PageProvider {
         switch outcome {
         case .ready:
             // task-owner: one small file read off the main actor; ends with the read.
-            return try await Task.detached(priority: .userInitiated) { try Self.read(path) }.value
+            let file = try await Task.detached(priority: .userInitiated) { try Self.read(path) }.value
+            health?.event(AppHealth.pageHostID, .loaded)
+            return file
         case .restarting:
             // The page retries with backoff; the bundled build's owner starts with the listener.
             throw PageError.unavailable(Self.restarting)

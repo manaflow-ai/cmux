@@ -221,7 +221,12 @@ public actor DaemonConnection {
             response = try await Self.perform(request, on: ready.transport, timeout: timeout)
         } catch let refused as PaneNotReady {
             throw reported(refused)
+        } catch {
+            // App health: a request the daemon left unanswered (a terminal start's own deadline is not the daemon's health).
+            if case DaemonError.timedOut = error, !(R.self is any TerminalSpawningRequest.Type) { Self.noteRequest(timedOut: true) }
+            throw error
         }
+        Self.noteRequest(timedOut: false)
         DaemonCommandScope.noteCreated(by: request, response: response)
         return response
     }

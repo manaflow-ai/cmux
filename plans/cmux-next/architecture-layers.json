@@ -102,6 +102,7 @@
     "CmuxNextSettingsWindow": {"layer": "ui"},
     "CmuxNextOnboarding": {"layer": "ui"},
     "CmuxNextServer": {"layer": "ui"},
+    "CmuxNextAppHealth": {"layer": "ui"},
     "CmuxNextRemoteView": {"layer": "ui"},
     "CmuxNextRemoteBrowser": {"layer": "ui"},
     "CmuxNextRemoteViewSessions": {"layer": "ui", "mixes": ["service"]},

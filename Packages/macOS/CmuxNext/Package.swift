@@ -29,7 +29,8 @@ import PackageDescription
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
 //   CmuxNextSettingsWindow -> Settings, Design, Icons, Actions, Wakeups (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
-//   CmuxNextControl -> Actions, Settings, Daemon (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui)
+//   CmuxNextControl -> Actions, Settings, Daemon, CCmuxAppFFI (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui;
+//     Diagnostics/AppHealth asks the Rust health model, cmux-health-core)
 //   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime, CCmuxAppFFI (Stack auth, /api/vm REST, the Cloud start's Rust decisions,
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
 //   CmuxNextRemote -> CmuxNextCloud (SSH machines: ssh argv, probe, install, relay policy; no UI, no daemon)
@@ -66,6 +67,8 @@ import PackageDescription
 //     Stashed Tabs page's restore and delete; the App answers StashHost)
 //   CmuxNextHistoryPages -> BrowserAutomation, DaemonService, Design, Pages, Settings, Stash, Wakeups (the React
 //     History and Stashed Tabs pages' native ops: Cookie Backups, stash restore and delete with Undo)
+//   CmuxNextAppHealth -> Compat, Control, Daemon, DaemonService, Pages, Server, Settings, Wakeups (app health's
+//     feeds and repairs around Control's AppHealth, and its popover card; the App makes and starts it)
 //   CmuxNextPages -> Design, Settings (the one host for React pages: PageWebView, cmux-page://<id>/
 //     scheme, engine-neutral bridge, PageRouter + PageProvider; no daemon; the App supplies providers;
 //     plans/cmux-next/react-pages.md)
@@ -275,6 +278,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAgentQuestion",
                 "CmuxNextAgentUpdates",
                 "CmuxNextAppCore",
+                "CmuxNextAppHealth",
                 "CmuxNextApps",
                 "CmuxNextBookmarks",
                 "CmuxNextBridge",
@@ -1789,6 +1793,24 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // Web updates in the app (plans/cmux-next/web-ota.md): serves a signed web update from
         // a safe point and answers `updates.web.*`.
+        // App health's feeds (the shared health contract): pages, renderers, the session daemon, its
+        // connection and the page host tell AppHealth (Control) what they see and run the repairs
+        // its Rust model asks for; the popover's card on the server cards page. The App makes it.
+        .target(
+            name: "CmuxNextAppHealth",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                "CmuxNextControl",
+                "CmuxNextDaemon",
+                "CmuxNextDaemonService",
+                "CmuxNextPages",
+                "CmuxNextServer",
+                "CmuxNextSettings",
+                "CmuxNextWakeups",
+            ],
+            resources: [.process("Resources")],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextWebUpdates",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
@@ -2424,6 +2446,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextControl",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",

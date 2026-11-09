@@ -348,7 +348,10 @@ public struct DaemonLauncher: Sendable {
         // one-shot launcher marker.
         let environment = await ensureEnvironment()
         if environment["CMUX_NEXT_CLOUD_LAUNCHER"] != "1",
-           let running = await runningOwner() { return running }
+           let running = await runningOwner() {
+            Self.noteHealth(.ready(pid: running.pid))
+            return running
+        }
         async let reapGrace = supportsReapGrace()
         // The bundled binary reports restore progress (`--restore-progress`): the app
         // then waits while the owner restores and gives up only when the
@@ -358,16 +361,25 @@ public struct DaemonLauncher: Sendable {
         let arguments = Self.ensureArguments(configuration, reapGrace: await reapGrace, progress: progress)
         DaemonLaunchTimings.shared.mark("daemon.ensure_start")
         defer { DaemonLaunchTimings.shared.mark("daemon.ensure_end") }
-        let result = try await ProcessRunner.run(
-            executable: configuration.binary,
-            arguments: arguments,
-            environment: environment,
-            stdin: configuration.installKey?.payload,
-            timeout: progress ? Self.ensureRestoreCap : max(ensureTimeout, Self.ensureRestoreCap),
-            progressIdle: progress ? ensureTimeout : nil,
-            clock: clock
-        )
-        return try Self.parseEnsure(result)
+        // App health reads each ensure (read-only; nothing here changes what the launcher does).
+        Self.noteHealth(.started)
+        do {
+            let result = try await ProcessRunner.run(
+                executable: configuration.binary,
+                arguments: arguments,
+                environment: environment,
+                stdin: configuration.installKey?.payload,
+                timeout: progress ? Self.ensureRestoreCap : max(ensureTimeout, Self.ensureRestoreCap),
+                progressIdle: progress ? ensureTimeout : nil,
+                clock: clock
+            )
+            let ensured = try Self.parseEnsure(result)
+            Self.noteHealth(.ready(pid: ensured.pid))
+            return ensured
+        } catch {
+            Self.noteHealth(.exited)
+            throw error
+        }
     }
 
     /// The `server ensure` command line for `configuration`. `reapGrace`

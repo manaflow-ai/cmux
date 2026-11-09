@@ -298,6 +298,8 @@ extension PageWebView {
             chromiumSession.questionKeys?.invalidate()
             lastTermination = PageTermination(reason: .crash)
             contentProcessTerminated()
+        case .rendererUnresponsive(let unresponsive):
+            Self.healthFeed?.pageRenderer(self, unresponsive: unresponsive)
         case .ended:
             chromiumSession.questionKeys?.invalidate()
             fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended", ended: true)

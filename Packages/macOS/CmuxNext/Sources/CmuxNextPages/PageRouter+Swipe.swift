@@ -13,15 +13,25 @@ public extension PageNativeOp {
     static let historyNavigate = "cmux.app.history.navigate"
     /// Built in for every page: `{g}`, the page is done with forwarded gesture `g`.
     static let swipeRelease = "cmux.app.swipe.release"
+    /// Built in for every page (app health, webviews/src/pages/shared/pageHealth.ts): `{handled}`, the
+    /// page is alive and has handled that many key and pointer presses; answers null.
+    static let pageHeartbeat = "cmux.page.heartbeat"
+    /// Host to page, `{}` → `{saved}`: the page saves its scroll and draft now; the host reloads it next.
+    static let pageSaveState = "cmux.page.save_state"
     /// The streams the router serves itself, for every page.
     static let builtInStreams: Set<String> = [pageCommand, pageConnection, pagePopup, pageSwipe]
 }
 
 extension PageRouter {
-    /// Answers the ops the router serves itself with no descriptor entry: the title bar double-click
-    /// and the swipe's two. Nil for every other op.
+    /// Answers the ops the router serves itself with no descriptor entry: the title bar double-click,
+    /// the swipe's two and the app health heartbeat. Nil for every other op.
     func hostCall(_ op: String, params: JSONValue) throws -> JSONValue? {
         switch op {
+        case PageNativeOp.pageHeartbeat:
+            guard !closed else { throw PageError.closed }
+            let handled = params["handled"]?.doubleValue.flatMap { $0.isFinite && $0 >= 0 ? UInt64(min($0, 9_007_199_254_740_991)) : nil } ?? 0
+            heartbeat?(handled)
+            return .null
         case PageNativeOp.titleBarDoubleClick:
             guard !closed else { throw PageError.closed }
             titleBarDoubleClick?()

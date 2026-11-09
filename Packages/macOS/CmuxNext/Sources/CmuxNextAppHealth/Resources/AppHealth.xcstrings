@@ -1,0 +1,39 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "appHealth.part.acpmux": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection to the session service"
+          }
+        }
+      }
+    },
+    "appHealth.part.pageHost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Page server"
+          }
+        }
+      }
+    },
+    "appHealth.part.sessionDaemon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session service"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

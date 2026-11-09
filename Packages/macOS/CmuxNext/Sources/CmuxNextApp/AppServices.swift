@@ -5,6 +5,7 @@ import CmuxNextAgentLanes
 import CmuxNextOnboarding
 import CmuxNextApps
 import CmuxNextAgentPane
+import CmuxNextAppHealth
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
@@ -550,6 +551,12 @@ final class AppServices {
     /// (plans/cmux-next/hovercards.md).
     let hoverCards = HoverCardCoordinator()
     let overlayProcess = PageOverlayProcess() // the overlay pages' one web content process, handed to each page's owner
+    /// App health (the shared health contract, AppServices+Health): what is slow or stuck, and its repair.
+    let health = AppHealth()
+    /// App health's feeds and repairs (CmuxNextAppHealth), started before the daemon (AppDelegate).
+    private(set) lazy var healthFeeds = AppHealthFeeds(health: health, daemon: daemon, stateDirectory: environment.daemonStateDirectory, work: work)
+    /// App health's popover; a trigger (the restore lane's sidebar card) calls `healthPopover.open(over:)`.
+    private(set) lazy var healthPopover = AppHealthPopover(health: health, overlayProcess: overlayProcess)
     let dialogs: OverlayDialogDrawing // the shared center's dialogs draw on the overlay page
     let toasts: CmuxToastWebHost // the shared center's toasts draw on the overlay page
     /// Refusal messages for keyboard and menu runs.
