@@ -18,7 +18,7 @@ fn begin(path: Path, facts: Facts, now: u64) -> (State, Vec<Effect>) {
 }
 
 fn done(state: &mut State, step: Step, now: u64) -> Vec<Effect> {
-    feed(state, Event::Done { step, idle: None }, now)
+    feed(state, Event::Done { step, idle: None, still: None }, now)
 }
 
 fn runs(effects: &[Effect]) -> Vec<Step> {
@@ -73,7 +73,11 @@ fn the_anchor_waits_for_both_the_login_and_the_approvals() {
     let (mut state, _) = begin(Path::Session, keyless(), 0);
     done(&mut state, Step::Connect, 10);
     assert!(runs(&done(&mut state, Step::Login, 20)).is_empty(), "approvals still running");
-    let effects = feed(&mut state, Event::Done { step: Step::DaemonStatus, idle: Some(false) }, 30);
+    let effects = feed(
+        &mut state,
+        Event::Done { step: Step::DaemonStatus, idle: Some(false), still: Some(true) },
+        30,
+    );
     assert_eq!(runs(&effects), [Step::Anchor]);
     assert_eq!(runs(&done(&mut state, Step::Anchor, 40)), [Step::Tab]);
     assert_eq!(runs(&done(&mut state, Step::Tab, 50)), [Step::Start]);
@@ -88,8 +92,12 @@ fn a_composer_start_copies_logs_in_and_turns_approvals_on_at_once_then_opens() {
     assert_eq!(runs(&effects), [Step::Copy, Step::Login, Step::DaemonStatus]);
     assert!(runs(&done(&mut state, Step::Copy, 5)).is_empty());
     assert!(
-        runs(&feed(&mut state, Event::Done { step: Step::DaemonStatus, idle: Some(false) }, 6))
-            .is_empty()
+        runs(&feed(
+            &mut state,
+            Event::Done { step: Step::DaemonStatus, idle: Some(false), still: Some(true) },
+            6
+        ))
+        .is_empty()
     );
     assert_eq!(runs(&done(&mut state, Step::Login, 7)), [Step::Open]);
     assert_eq!(finished(&done(&mut state, Step::Open, 9)), Some(false));
@@ -172,7 +180,11 @@ fn the_approvals_restart_only_an_idle_daemon_that_lacks_the_key() {
 #[test]
 fn an_idle_daemon_without_the_key_restarts_with_it() {
     let (mut state, _) = begin(Path::Home, keyless(), 0);
-    let effects = feed(&mut state, Event::Done { step: Step::DaemonStatus, idle: Some(true) }, 3);
+    let effects = feed(
+        &mut state,
+        Event::Done { step: Step::DaemonStatus, idle: Some(true), still: Some(true) },
+        3,
+    );
     assert_eq!(runs(&effects), [Step::KeyedRestart]);
     done(&mut state, Step::Login, 4);
     assert_eq!(runs(&done(&mut state, Step::KeyedRestart, 6)), [Step::Open]);
@@ -183,7 +195,8 @@ fn a_busy_or_unread_daemon_is_never_restarted() {
     for idle in [Some(false), None] {
         let (mut state, _) = begin(Path::Home, keyless(), 0);
         done(&mut state, Step::Login, 1);
-        let effects = feed(&mut state, Event::Done { step: Step::DaemonStatus, idle }, 2);
+        let effects =
+            feed(&mut state, Event::Done { step: Step::DaemonStatus, idle, still: Some(true) }, 2);
         assert_eq!(runs(&effects), [Step::Open], "idle: {idle:?}");
     }
 }
@@ -208,15 +221,15 @@ fn a_line_is_whole_milliseconds_and_names_only_the_step() {
 fn the_step_times_add_up_to_the_span_from_the_first_step_to_the_chats_start() {
     let (mut state, mut all) = begin(Path::Session, keyless(), 500);
     for (event, now) in [
-        (Event::Done { step: Step::Connect, idle: None }, 2_700),
+        (Event::Done { step: Step::Connect, idle: None, still: None }, 2_700),
         (Event::Mark { step: Step::Login, name: "login.gate".to_owned() }, 2_900),
-        (Event::Done { step: Step::DaemonStatus, idle: Some(true) }, 3_100),
+        (Event::Done { step: Step::DaemonStatus, idle: Some(true), still: Some(true) }, 3_100),
         (Event::Mark { step: Step::Login, name: "login.machine".to_owned() }, 4_000),
-        (Event::Done { step: Step::Login, idle: None }, 6_200),
-        (Event::Done { step: Step::KeyedRestart, idle: None }, 7_050),
-        (Event::Done { step: Step::Anchor, idle: None }, 7_400),
-        (Event::Done { step: Step::Tab, idle: None }, 7_900),
-        (Event::Done { step: Step::Start, idle: None }, 9_000),
+        (Event::Done { step: Step::Login, idle: None, still: None }, 6_200),
+        (Event::Done { step: Step::KeyedRestart, idle: None, still: None }, 7_050),
+        (Event::Done { step: Step::Anchor, idle: None, still: None }, 7_400),
+        (Event::Done { step: Step::Tab, idle: None, still: None }, 7_900),
+        (Event::Done { step: Step::Start, idle: None, still: None }, 9_000),
     ] {
         all.extend(feed(&mut state, event, now));
     }
@@ -256,19 +269,120 @@ fn the_machine_reads_log_nothing_of_their_own() {
 // MARK: Failures and stray events
 
 #[test]
-fn a_failed_step_cancels_the_steps_still_running_and_starts_nothing_more() {
+fn a_failed_step_cancels_the_steps_still_running_and_ends_once_they_ended() {
     let (mut state, _) = begin(Path::Composer, keyless(), 0);
     let effects = feed(&mut state, Event::Failed { step: Step::Copy }, 5);
     assert_eq!(
         effects,
-        [
-            Effect::Cancel { step: Step::Login },
-            Effect::Cancel { step: Step::DaemonStatus },
-            Effect::Finish { failed: true }
-        ]
+        [Effect::Cancel { step: Step::Login }, Effect::Cancel { step: Step::DaemonStatus }]
     );
-    // A late end of a cancelled step changes nothing.
+    // The start is not over while a step it began still runs: the app releases its gate only at the finish.
     assert!(done(&mut state, Step::Login, 9).is_empty());
+    let effects = feed(
+        &mut state,
+        Event::Done { step: Step::DaemonStatus, idle: Some(true), still: Some(true) },
+        11,
+    );
+    assert_eq!(effects, [Effect::Finish { failed: true }]);
+}
+
+/// #39069's review: an account change during the login threw before the approvals prep was awaited, so the start's gate
+/// was released while the prep could still restart the daemon. The sequencer owns the prep through every exit.
+#[test]
+fn an_account_change_mid_login_ends_the_start_with_no_restart_after_it() {
+    for path in [Path::Session, Path::Composer, Path::Home] {
+        let (mut state, _) = begin(path, keyless(), 0);
+        if path == Path::Session {
+            done(&mut state, Step::Connect, 1);
+        }
+        // The login's account check throws: the start fails, and the approvals' status read is cancelled.
+        let effects = feed(&mut state, Event::Failed { step: Step::Login }, 2);
+        assert!(
+            effects.contains(&Effect::Cancel { step: Step::DaemonStatus }),
+            "{path:?}: {effects:?}"
+        );
+        assert!(finished(&effects).is_none(), "{path:?}: the prep still runs");
+        // The other steps it cancelled end first (a composer start's copy).
+        for cancelled in effects.iter().filter_map(|effect| match effect {
+            Effect::Cancel { step } if *step != Step::DaemonStatus => Some(*step),
+            _ => None,
+        }) {
+            assert!(done(&mut state, cancelled, 3).is_empty(), "{path:?}: the prep still runs");
+        }
+        // The status read answers idle anyway: nothing restarts, and the start ends only now.
+        let effects = feed(
+            &mut state,
+            Event::Done { step: Step::DaemonStatus, idle: Some(true), still: Some(true) },
+            3,
+        );
+        assert_eq!(effects, [Effect::Finish { failed: true }], "{path:?}");
+        assert!(
+            feed(&mut state, Event::Done { step: Step::KeyedRestart, idle: None, still: None }, 4)
+                .is_empty()
+        );
+    }
+}
+
+#[test]
+fn a_cancel_mid_login_cancels_the_prep_and_awaits_it_with_no_restart() {
+    let (mut state, _) = begin(Path::Session, keyless(), 0);
+    done(&mut state, Step::Connect, 1);
+    let effects = feed(&mut state, Event::Stop, 2);
+    assert_eq!(
+        effects,
+        [Effect::Cancel { step: Step::Login }, Effect::Cancel { step: Step::DaemonStatus }]
+    );
+    assert!(
+        feed(
+            &mut state,
+            Event::Done { step: Step::DaemonStatus, idle: Some(true), still: Some(true) },
+            3
+        )
+        .is_empty()
+    );
+    assert_eq!(done(&mut state, Step::Login, 4), [Effect::Finish { failed: true }]);
+}
+
+#[test]
+fn a_cancel_while_the_restart_runs_awaits_it_before_the_end() {
+    let (mut state, _) = begin(Path::Home, keyless(), 0);
+    feed(
+        &mut state,
+        Event::Done { step: Step::DaemonStatus, idle: Some(true), still: Some(true) },
+        1,
+    );
+    let effects = feed(&mut state, Event::Stop, 2);
+    assert_eq!(
+        effects,
+        [Effect::Cancel { step: Step::Login }, Effect::Cancel { step: Step::KeyedRestart }]
+    );
+    assert!(done(&mut state, Step::Login, 3).is_empty());
+    assert_eq!(done(&mut state, Step::KeyedRestart, 4), [Effect::Finish { failed: true }]);
+}
+
+#[test]
+fn the_restart_begins_only_on_a_fresh_account_and_cancellation_check() {
+    // The app checks the account that asked and the start's cancellation as it tells the status read's end.
+    let (mut state, _) = begin(Path::Home, keyless(), 0);
+    let effects = feed(
+        &mut state,
+        Event::Done { step: Step::DaemonStatus, idle: Some(true), still: None },
+        1,
+    );
+    assert!(runs(&effects).is_empty(), "no check told: no restart");
+    // A check that failed ends the start: the login is cancelled, and the end waits for it.
+    let (mut state, _) = begin(Path::Home, keyless(), 0);
+    let effects = feed(
+        &mut state,
+        Event::Done { step: Step::DaemonStatus, idle: Some(true), still: Some(false) },
+        1,
+    );
+    assert_eq!(effects, [Effect::Cancel { step: Step::Login }]);
+    assert_eq!(done(&mut state, Step::Login, 2), [Effect::Finish { failed: true }]);
+    // A start stopped with nothing running ends at once.
+    let (mut state, _) = begin(Path::MachineReads, Facts { reads_machine: true, ..keyless() }, 0);
+    done(&mut state, Step::Guest, 1);
+    assert!(feed(&mut state, Event::Stop, 2).is_empty(), "already ended");
 }
 
 #[test]
@@ -302,8 +416,12 @@ fn the_app_speaks_camel_case_json() {
         }
     );
     let event: Event =
-        serde_json::from_str(r#"{"on":"done","step":"daemon-status","idle":true}"#).unwrap();
-    assert_eq!(event, Event::Done { step: Step::DaemonStatus, idle: Some(true) });
+        serde_json::from_str(r#"{"on":"done","step":"daemon-status","idle":true,"still":true}"#)
+            .unwrap();
+    assert_eq!(
+        event,
+        Event::Done { step: Step::DaemonStatus, idle: Some(true), still: Some(true) }
+    );
     let event: Event =
         serde_json::from_str(r#"{"on":"mark","step":"login","name":"transfer.guest"}"#).unwrap();
     assert_eq!(event, Event::Mark { step: Step::Login, name: "transfer.guest".to_owned() });

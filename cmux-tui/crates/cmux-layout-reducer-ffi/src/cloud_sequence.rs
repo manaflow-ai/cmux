@@ -20,7 +20,7 @@ fn read<'a, T: Deserialize<'a>>(request: &'a [u8]) -> Result<T, i32> {
 #[derive(Deserialize)]
 struct Step {
     #[serde(default)]
-    state: State,
+    state: Option<State>,
     event: Event,
     now: u64,
 }
@@ -46,8 +46,12 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         // One event: the next state and the effects to run, in order.
         b"cloud_sequence_step" => {
             let step: Step = read(request)?;
-            serde_json::to_value(sequence::step(step.state, step.event, step.now))
-                .map_err(|_| ERR_INVALID)?
+            serde_json::to_value(sequence::step(
+                step.state.unwrap_or_default(),
+                step.event,
+                step.now,
+            ))
+            .map_err(|_| ERR_INVALID)?
         }
         // Whether the credential transfer checks the guest again before it writes.
         b"cloud_sequence_recheck_guest" => {

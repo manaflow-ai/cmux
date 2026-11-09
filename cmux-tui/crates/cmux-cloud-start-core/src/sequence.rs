@@ -143,6 +143,8 @@ pub enum Event {
         step: Step,
         #[serde(default)]
         idle: Option<bool>,
+        #[serde(default)]
+        still: Option<bool>,
     },
     Mark {
         step: Step,
@@ -151,6 +153,7 @@ pub enum Event {
     Failed {
         step: Step,
     },
+    Stop,
 }
 
 /// What the app does next.
