@@ -255,6 +255,8 @@ export const PAGES = {
         file: `${sources}/CmuxNextServer/Resources/Localizable.xcstrings`,
         keys: (all) => all.filter((key) => !key.startsWith("refusal.")),
       },
+      // App health's popover (`#/app-health`, webviews/src/app-health), hosted as Health is.
+      { file: "webviews/src/app-health/Localizable.xcstrings" },
     ],
   },
   // The right sidebar's Machines section (cmux-page://cmux.machines/) shares the Swift card's table:
