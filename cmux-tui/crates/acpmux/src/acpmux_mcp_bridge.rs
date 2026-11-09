@@ -78,7 +78,8 @@ pub async fn run(app: &str) -> Result<()> {
         me.address.to_owned(),
         tools,
         steer,
-        move |daemon, _, params| async move {
+        // send and inbox are mailbox files: only ls and last need the daemon.
+        move |_, params| async move {
             if in_session {
                 return error_result(
                     "this chat is a cmux session: use the acpmux tools".to_owned(),
@@ -88,7 +89,10 @@ pub async fn run(app: &str) -> Result<()> {
             match params.get("name").and_then(Value::as_str).unwrap_or_default() {
                 "send" => send(me, &args).await,
                 "inbox" => inbox(me, &args),
-                "ls" | "last" => call_as(&daemon, &params, None).await,
+                "ls" | "last" => match crate::daemon::connect(false).await {
+                    Ok(daemon) => call_as(&daemon, &params, None).await,
+                    Err(e) => error_result(format!("{e:#}")),
+                },
                 name => error_result(crate::mcp_hint::unknown_tool(
                     name,
                     ["send", "inbox", "ls", "last"],
