@@ -36,8 +36,8 @@ public final class CloudDesktopFrames {
         self.transport = transport
         let (decoded, sink) = AsyncStream.makeStream(of: RemoteDecodedFrame.self, bufferingPolicy: .bufferingNewest(1))
         let pipeline = RemoteDecodePipeline(source: transport, deliver: { sink.yield($0) })
-        // task-owner: the session's decode loop; ends with the transport's stream or stop()
-        let decode = Task.detached(priority: .userInitiated) {
+        // task-owner: the session's decode loop (on the pipeline actor, off main); ends with the transport's stream or stop()
+        let decode = Task {
             await pipeline.run()
             sink.finish()
         }
