@@ -1453,6 +1453,8 @@ async fn dispatch_request_with_identity(
                 let mut p = params.clone();
                 super::peer_forward::strip_new_meta(&mut p);
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
+                // An approved no-prompt preset's chat runs unattended there (`unattended_presets.rs`).
+                hub.forward_unattended_preset(conn.caller(), &peer.name, &mut p).await?;
                 // A full-access starter's chat runs in full access there too.
                 hub.forward_starter_policy(conn.caller(), &mut p);
                 crate::hub::merge_mux_meta(&mut p, created_by_stamp(hub, conn, &params));

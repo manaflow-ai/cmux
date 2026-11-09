@@ -146,7 +146,18 @@ impl Hub {
         // the chat starts at the person's configured default, as a start with no starter does
         // (user 2026-11-03: an agent in Manual left the chats it opened in Manual).
         let held = self.config.read().await.hold_agent_starts_to_starter;
+        // A no-prompt preset the person approved for the contents this start resolved
+        // (`unattended_presets.rs`): its policy holds whatever the starter's, but in a sub-session.
+        let approved_preset = match preset_name.as_deref() {
+            Some(n) => self.config.read().await.presets.get(n).is_some_and(|p| {
+                p.policy_approved()
+                    && p.approval_digest() == preset_digest
+                    && p.policy == defaults.policy
+            }),
+            None => false,
+        };
         let limits_from = match starter.as_deref() {
+            Some(_) if held && approved_preset && subsession.is_none() => None,
             Some(id) if !held && subsession.is_none() => {
                 let full = self.resolve(id).ok().is_some_and(|s| {
                     self.caller_access(&s.meta()) == super::subsession_guard::Access::Full

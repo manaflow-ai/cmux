@@ -4,7 +4,9 @@
 use super::*;
 
 /// Read or change presets: {name?, set?: {harness, model, effort, policy, env, args, mode}, clear?: bool,
-/// approveMode?: bool} (`approveMode: true` is the person's own, `hub/person.rs` (b)).
+/// approveMode?: bool, approveDigest?, sessionId?} (`approveMode: true` is the person's own,
+/// `hub/person.rs` (b); `approveDigest` and `sessionId` answer a chat's approval card,
+/// `hub/unattended_presets.rs`).
 pub(super) async fn handle(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -196,12 +198,30 @@ pub(super) async fn handle(
                 }
                 None => {}
             }
+            // An answer to a chat's approval card (`hub/unattended_presets.rs`) counts only for
+            // the contents the card showed.
+            if let Some(shown) = str_param(params, "approveDigest")
+                && p.approval_digest().as_deref() != Some(shown)
+            {
+                return Err(RpcError::invalid_params(format!(
+                    "preset {name:?} changed since this card was shown; nothing was approved"
+                )));
+            }
             // The person's approval binds these contents (`hub/person.rs` (b)).
             p.apply_mode_approval(approve).map_err(RpcError::invalid_params)?;
             cfg.presets.insert(name.clone(), p);
         }
         if let Err(e) = cfg.save() {
             return Err(RpcError::internal(format!("save config: {e}")));
+        }
+        drop(cfg);
+        // Only the person's answer closes a card: an approval passed the person check, and an
+        // agent's `approveMode: false` narrows but must not hide the card from the person.
+        let persons = conn.is_person() || !hub.person.has_key();
+        if let Some(approve) = approve
+            && (approve || persons)
+        {
+            hub.close_preset_card(params, &name, approve);
         }
     }
     let cfg = hub.config.read().await;
@@ -210,7 +230,7 @@ pub(super) async fn handle(
             Ok(x) => (Some(x), None),
             Err(e) => (None, Some(e)),
         };
-        json!({"name": n, "harness": p.harness, "profile": profile, "error": error, "model": p.model, "effort": p.effort, "policy": p.policy, "env": p.env, "args": p.args, "systemPromptSha256": p.system_prompt_sha256, "description": p.description, "mode": p.mode, "modeApproved": p.mode_approved()})
+        json!({"name": n, "harness": p.harness, "profile": profile, "error": error, "model": p.model, "effort": p.effort, "policy": p.policy, "env": p.env, "args": p.args, "systemPromptSha256": p.system_prompt_sha256, "description": p.description, "mode": p.mode, "modeApproved": p.mode_approved(), "policyApproved": p.policy_approved()})
     };
     match name {
         Some(n) if !clear => cfg

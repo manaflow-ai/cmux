@@ -97,6 +97,7 @@ mod held_asks;
 pub(super) mod idle;
 mod idle_census;
 mod person_prompt_at;
+pub(crate) mod unattended_presets;
 pub(crate) use idle::SessionAtWork;
 mod tool_start;
 pub(crate) use idle_census::LaunchServers;
