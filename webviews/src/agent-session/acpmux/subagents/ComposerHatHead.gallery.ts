@@ -54,7 +54,11 @@ export const composerHatHeadScript = [
       await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__more")?.textContent === "+2 more");
       // Its "+" sits on the figures' centre, and the time keeps one width as it ticks (Typography.tsx).
       await ctx.waitFor(() => Boolean(ctx.document.querySelector(".acpmux-running-tray__more .ui-sign")));
-      await ctx.waitFor(() => Boolean(ctx.document.querySelector(".acpmux-running-tray__time > .ui-clock")));
+      await ctx.waitFor(() =>
+        Boolean(
+          ctx.document.querySelector(".acpmux-running-tray__time.ui-clock, .acpmux-running-tray__time > .ui-clock"),
+        ),
+      );
     },
   },
 ];

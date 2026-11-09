@@ -735,10 +735,14 @@ export const SubagentTray = memo(function SubagentTray({
                 </>
               )}
             </span>
+          ) : // The clock is the time element itself, so a range over it holds only its text.
+          starts.length > 0 ? (
+            <Clock
+              className="acpmux-summary-meta acpmux-running-tray__time"
+              text={formatDuration(Math.max(0, now - Math.min(...starts)))}
+            />
           ) : (
-            <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
-              {starts.length > 0 ? <Clock text={formatDuration(Math.max(0, now - Math.min(...starts)))} /> : undefined}
-            </span>
+            <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden />
           )}
           {/* The panel button's room, in the lines' Stop column: the button lies over it, outside the
               header's own button (a button holds no button). */}
