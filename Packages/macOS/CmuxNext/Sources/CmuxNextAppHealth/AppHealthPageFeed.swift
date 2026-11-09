@@ -146,8 +146,7 @@ final class AppHealthPageFeed: PageHealthFeed {
         guard !page.holdsUnsavedEdits() else { return false }
         switch action.action {
         case .reloadPage:
-            await page.reloadKeepingState()
-            return true
+            return await page.reloadKeepingState()
         case .restartRenderer:
             // A renderer can be shared (Chromium keeps one per site): ending it reloads every page in it.
             guard !PageRegistry.pages().contains(where: { $0.holdsUnsavedEdits() }) else { return false }
