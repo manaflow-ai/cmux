@@ -3584,7 +3584,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     },
     "tab_id": {
      "type": {
@@ -3593,7 +3594,8 @@
      },
      "presence": "optional",
      "nullable": true,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     },
     "pane_id": {
      "type": {
@@ -3602,7 +3604,8 @@
      },
      "presence": "optional",
      "nullable": true,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     },
     "screen_id": {
      "type": {
@@ -3611,7 +3614,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     },
     "workspace_id": {
      "type": {
@@ -3620,7 +3624,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     }
    },
    "additional_properties": false
@@ -3691,7 +3696,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     },
     "screen_id": {
      "type": {
@@ -3700,7 +3706,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     },
     "workspace_id": {
      "type": {
@@ -3709,7 +3716,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     }
    },
    "additional_properties": false
@@ -4061,7 +4069,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     },
     "pane_id": {
      "type": {
@@ -4070,7 +4079,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     },
     "screen_id": {
      "type": {
@@ -4079,7 +4089,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     },
     "workspace_id": {
      "type": {
@@ -4088,7 +4099,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     }
    },
    "additional_properties": false
@@ -4579,7 +4591,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     },
     "tab_id": {
      "type": {
@@ -4588,7 +4601,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     },
     "pane_id": {
      "type": {
@@ -4597,7 +4611,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     },
     "screen_id": {
      "type": {
@@ -4606,7 +4621,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     },
     "workspace_id": {
      "type": {
@@ -4615,7 +4631,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     }
    },
    "additional_properties": false
@@ -4850,7 +4867,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     },
     "tab_id": {
      "type": {
@@ -4859,7 +4877,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     },
     "pane_id": {
      "type": {
@@ -4868,7 +4887,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     },
     "screen_id": {
      "type": {
@@ -4877,7 +4897,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     },
     "workspace_id": {
      "type": {
@@ -4886,7 +4907,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     }
    },
    "additional_properties": false
@@ -5307,7 +5329,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     },
     "tab_id": {
      "type": {
@@ -5316,7 +5339,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     },
     "pane_id": {
      "type": {
@@ -5325,7 +5349,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     },
     "screen_id": {
      "type": {
@@ -5334,7 +5359,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     },
     "workspace_id": {
      "type": {
@@ -5343,7 +5369,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     }
    },
    "additional_properties": false
@@ -7909,7 +7936,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     },
     "screen_id": {
      "type": {
@@ -7918,7 +7946,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     },
     "workspace_id": {
      "type": {
@@ -7927,7 +7956,8 @@
      },
      "presence": "optional",
      "nullable": false,
-     "since": 12
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     }
    },
    "kind": "object"
