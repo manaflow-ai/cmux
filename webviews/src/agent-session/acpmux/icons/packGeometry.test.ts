@@ -22,6 +22,7 @@ const OFF_CENTER: Record<string, string> = {
   "agent.bot": "drawn before this check: antenna above the head",
   "composer.steer": "drawn before this check",
   "message.delivered": "drawn before this check: the double check's tail",
+  "status.progress": "drawn before this check: 0.504 left, at the rasteriser's rounding edge",
 };
 
 const vendored = new Set(
