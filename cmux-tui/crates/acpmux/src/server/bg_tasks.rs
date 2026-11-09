@@ -10,7 +10,7 @@
 use super::{Conn, str_param};
 use crate::hub::Hub;
 use crate::rpc::{RpcError, method};
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::sync::Arc;
 
 /// The reply to a background-task method, or None for any other method.
@@ -73,7 +73,7 @@ async fn handle(hub: &Arc<Hub>, conn: &Conn, m: &str, params: &Value) -> Result<
                         .and_then(Value::as_str)
                         .filter(|w| crate::cli::sender::subagent_word(w))
                 };
-                Some(format!("{}:{}", word("type")?, word("id")?))
+                Some(json!({"id": word("id")?, "type": word("type")?}))
             });
             hub.bg_start(&session, command, cwd, description, notify, result_line, subagent).await
         }

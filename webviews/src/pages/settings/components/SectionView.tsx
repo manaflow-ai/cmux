@@ -1,4 +1,5 @@
 import { CloudEnvironmentsCard } from "./CloudEnvironmentsCard";
+import { WorktreeSetupCard } from "./WorktreeSetupCard";
 import type { ReactNode } from "react";
 import { categoryById, type CategoryCard } from "../categories";
 import { sections } from "../schema";
@@ -20,7 +21,7 @@ import { MobileCard } from "./MobileCard";
 import { NoticesCard } from "./NoticesCard";
 import { ImportSuggestionsCard } from "./ImportSuggestionsCard";
 import { AdvancedInfo, BACKDROP_ROWS, Backdrops, TerminalInfo, useBackdropsShown } from "./HostCards";
-import { DENSITY_ROWS } from "../density";
+import { DENSITY_CARD_ROWS } from "../density";
 import { DensityCard } from "./DensityCard";
 import { BrowserProfiles, MACHINE_COLORS_KEY, MachinesSection, SpacesSection } from "./HostSections";
 import { PersonalizationCard } from "./PersonalizationCard";
@@ -68,7 +69,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   mobile: () => <MobileCard />,
   devices: () => <DevicesCard />,
   chiefPet: (focus) => <ChiefPetCard focus={focus} />,
-  density: () => <DensityCard />,
+  density: (focus) => <DensityCard focus={focus} />,
   importSuggestions: () => <ImportSuggestionsCard />,
   channels: (focus) => <ChannelsCard focus={focus} />,
   appUpdate: () => <AppUpdateCard />,
@@ -79,6 +80,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   cloudEnvironments: () => <CloudEnvironmentsCard />,
   sharedLinks: (_focus, _workspace, reveal) => <SharedLinksCard reveal={reveal} />,
   tailnet: () => <TailnetCard />,
+  worktreeSetup: () => <WorktreeSetupCard />,
   contextMenus: (focus) => <ContextMenusCard focus={focus} />,
   personalization: (focus, workspace) => <PersonalizationCard focus={focus} workspace={workspace} />,
 };
@@ -110,7 +112,7 @@ export function SectionView({
   const pet = category.lead.includes("chiefPet");
   // The Chiefs card draws its Engine row (home.chiefEngine).
   const chiefsCard = [...category.lead, ...category.trail].includes("chiefs");
-  // The density card draws appearance.density and the custom density keys.
+  // The density card draws appearance.density, the custom density keys and Text Size.
   const densityCard = [...category.lead, ...category.trail].includes("density");
   // The Computer Use card draws computerUse.enabled, .driver and .livePreview beside its setup.
   const computerUseCard = [...category.lead, ...category.trail].includes("computerUse");
@@ -131,7 +133,7 @@ export function SectionView({
           !(chiefsCard && CHIEFS_ROWS.has(row.key)) &&
           !(machinesCard && row.key === MACHINE_COLORS_KEY) &&
           !(computerUseCard && COMPUTER_USE_ROWS.has(row.key)) &&
-          !(densityCard && DENSITY_ROWS.has(row.key)),
+          !(densityCard && DENSITY_CARD_ROWS.has(row.key)),
       ),
     }))
     .filter((group) => group.rows.length > 0);

@@ -71,9 +71,10 @@ final class TerminalSurfacePrediction {
         if engine.presentedFrame(nowUs: Self.now()) || !overlay.isHidden { refresh() }
     }
 
-    /// The grid or the font changed under the glyphs: start over.
+    /// The grid or the font changed under the glyphs: what is drawn goes. No
+    /// output was lost, so what the engine knows of the screen stays.
     func gridChanged() {
-        _ = engine.missedOutput(nowUs: Self.now())
+        _ = engine.layoutChanged(nowUs: Self.now())
         refresh()
     }
 

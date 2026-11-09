@@ -178,11 +178,13 @@ impl VisitStore {
     }
 
     /// Sets the title of `url`'s newest visit (titles arrive after the load).
-    /// Returns the number of visits changed (0 or 1).
+    /// Returns the number of visits changed (0 or 1): a page that announces the title it already
+    /// has changes none and writes nothing.
     pub fn update_title(&self, url: &str, title: &str) -> Result<usize, HistoryError> {
         Ok(self.connection.execute(
             "UPDATE visits SET title = ?1, search = ?3 WHERE id = \
-             (SELECT id FROM visits WHERE url = ?2 ORDER BY visit_time_ms DESC, id DESC LIMIT 1)",
+             (SELECT id FROM visits WHERE url = ?2 ORDER BY visit_time_ms DESC, id DESC LIMIT 1) \
+             AND title IS NOT ?1",
             params![title, url, search_text(url, Some(title))],
         )?)
     }

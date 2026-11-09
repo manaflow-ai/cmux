@@ -29,6 +29,7 @@ use crate::hub::review_queue::{DEFAULT_LIMIT, MAX_LIMIT, sort_items};
 use crate::rpc::{RpcError, method};
 
 /// How long the peers together may take to answer a queue read.
+// timeout: a peer that misses it is named in peersOmitted; the local queue still answers.
 const PEERS_BUDGET: Duration = Duration::from_secs(5);
 
 /// The reply field naming the peers whose items are not in it.
@@ -224,6 +225,7 @@ async fn verdict(
 
 /// How long a verdict's reply waits for its comment's prompt to be accepted; past it the reply
 /// says not delivered, and the page opens the chat.
+// timeout: the verdict is recorded either way; past it the reply says the comment was not delivered.
 const ACCEPT_WAIT: Duration = Duration::from_secs(10);
 
 /// The most bytes a Request changes comment may have.

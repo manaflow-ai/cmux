@@ -4499,7 +4499,13 @@ exit 65
                 fixture.write_text(content)
                 fixture.chmod(0o755)
             (root / "cmux-compile-admission.txt").write_text("unable to open dependencies file\n")
+            # The step sources the fleet-cache retry and the CAS classifier; no fleet socket here, so local cache.
+            for relative in ("scripts/ci/lib/fleet-cache-fallback.sh", "scripts/ci/fleet-compilation-cache.sh",
+                             "scripts/cmux-next/lib/compilation-cache.sh"):
+                (root / relative).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / relative, root / relative)
             env = dict(os.environ, PATH=f"{root / 'bin'}:{os.environ['PATH']}",
+                       CMUX_FLEET_CAS_SOCKET=str(root / "absent.sock"),
                        RUNNER_TEMP=str(root), GITHUB_OUTPUT=str(root / "outputs"),
                        CMUX_COMPILE_ADMISSION_DERIVED_DATA=str(root / "dd"),
                        CMUX_COMPILE_ADMISSION_CAS=str(root / "cas"),
@@ -4876,6 +4882,14 @@ def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
             actual.unit_tests,
         ) == expected, (paths, actual)
 
+
+
+def test_docs_reference_inputs_run_web_unit_tests() -> None:
+    # web/tests/next-docs.test.ts reads these outside web/; a change to them that
+    # skipped Web tests left the generated palette reference stale on base (#38631).
+    for path in ("plans/cmux-next/action-surfaces.json", "schemas/settings/settings-schema.json"):
+        assert web_subareas.classify_paths([path]).unit_tests, path
+        assert module.is_web_change(path), path
 
 def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
     result = run_web_status(

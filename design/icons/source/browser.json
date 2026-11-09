@@ -118,15 +118,24 @@
    "note": "Approved browser reference glyph, verbatim (= link.web, tool.web).",
    "replaces": [
     "globe"
+   ],
+   "overrides": [
+    "globe",
+    "globe.badge.chevron.backward"
    ]
   },
   {
    "name": "tab.browser",
    "meaning": "Browser tab without a favicon, at tab size",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.415'/><path d='M3.585 12h16.83M12 3.585C9.2 6.2 8.25 9 8.25 12C8.25 15 9.2 17.8 12 20.415'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-tab-browser' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M2.65 12h18.7M12 2.884C9.2 5.8 8.25 8.8 8.25 12C8.25 15.2 9.2 18.2 12 21.116'/></g></mask></defs><g mask='url(#cmxs-tab-browser)'><circle cx='12' cy='12' r='9.116' fill='currentColor'/></g></svg>",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.415'/><ellipse cx='12' cy='12' rx='3.506' ry='8.415'/><path d='M3.585 12h16.83'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-tab-browser' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><ellipse cx='12' cy='12' rx='3.506' ry='8.883'/><path d='M2.65 12h18.7'/></g></mask></defs><g mask='url(#cmxs-tab-browser)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='9.116' stroke='none'/></g></g></svg>",
    "cat": null,
    "alts": [
+    {
+     "label": "ring, equator and one meridian curve (2026-11-07 to 11-09: at tab size it read as a globe that did not finish drawing)",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.415'/><path d='M3.585 12h16.83M12 3.585C9.2 6.2 8.25 9 8.25 12C8.25 15 9.2 17.8 12 20.415'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-tab-browser' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M2.65 12h18.7M12 2.884C9.2 5.8 8.25 8.8 8.25 12C8.25 15.2 9.2 18.2 12 21.116'/></g></mask></defs><g mask='url(#cmxs-tab-browser)'><circle cx='12' cy='12' r='9.116' fill='currentColor'/></g></svg>"
+    },
     {
      "label": "ring and one meridian lens, no equator",
      "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.415'/><ellipse cx='12' cy='12' rx='3.506' ry='8.415'/></svg>"
@@ -140,7 +149,7 @@
      "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.415'/><path d='M12 3.585C8.4 7 8.4 17 12 20.415'/></svg>"
     }
    ],
-   "note": "The browser globe with fewer lines for tab size: the ring, the equator and one meridian curve instead of the two-sided lens (Leo 2026-11-07: the browser icon should be much less lined and detailed, the circle with fewer lines). Same ring as browser (r 8.415), so its optical size does not change.",
+   "note": "The same drawing as browser: the ring, the equator and one meridian lens, an outlined ball. Leo 2026-11-09, on the one-curve globe this replaced: \"this icon didnt get drawn or smth\", then \"just draw that basketball\". Kept as its own name so the tab size can diverge again without moving every other globe.",
    "sf": "globe",
    "replaces": []
   },
@@ -188,9 +197,9 @@
   {
    "name": "extension",
    "meaning": "Browser extension",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 10.75A2.5 2.5 0 0 1 5.5 8.25H8a2.6 2.6 0 1 1 3.5 0h2.25a2.5 2.5 0 0 1 2.5 2.5v2.5a2.6 2.6 0 1 1 0 3.5v1.75A2.5 2.5 0 0 1 13.75 21H5.5A2.5 2.5 0 0 1 3 18.5Z'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 10.75A2.5 2.5 0 0 1 5.5 8.25H8a2.6 2.6 0 1 1 3.5 0h2.25a2.5 2.5 0 0 1 2.5 2.5v2.5a2.6 2.6 0 1 1 0 3.5v1.75A2.5 2.5 0 0 1 13.75 21H5.5A2.5 2.5 0 0 1 3 18.5Z'/></g></svg>",
-   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 10.75A2.5 2.5 0 0 1 5.5 8.25h8.25a2.5 2.5 0 0 1 2.5 2.5v2.5a2.6 2.6 0 1 1 0 3.5v1.75A2.5 2.5 0 0 1 13.75 21H5.5A2.5 2.5 0 0 1 3 18.5Z'/><path class='accent' stroke='var(--accent)' d='M5.5 8.25V4.75l2.75 2.5M13.75 8.25V4.75L11 7.25'/></svg>",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.003 10.546A2.25 2.25 0 0 1 6.253 8.296H8.503a2.34 2.34 0 1 1 3.15 0h2.025a2.25 2.25 0 0 1 2.25 2.25v2.25a2.34 2.34 0 1 1 0 3.15v1.575A2.25 2.25 0 0 1 13.678 19.772H6.253A2.25 2.25 0 0 1 4.003 17.522Z'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.003 10.546A2.25 2.25 0 0 1 6.253 8.296H8.503a2.34 2.34 0 1 1 3.15 0h2.025a2.25 2.25 0 0 1 2.25 2.25v2.25a2.34 2.34 0 1 1 0 3.15v1.575A2.25 2.25 0 0 1 13.678 19.772H6.253A2.25 2.25 0 0 1 4.003 17.522Z'/></g></svg>",
+   "cat": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.003 10.546A2.25 2.25 0 0 1 6.253 8.296h7.425a2.25 2.25 0 0 1 2.25 2.25v2.25a2.34 2.34 0 1 1 0 3.15v1.575A2.25 2.25 0 0 1 13.678 19.772H6.253A2.25 2.25 0 0 1 4.003 17.522Z'/><path class='accent' stroke='var(--accent)' d='M6.253 8.296V5.146l2.475 2.25M13.678 8.296V5.146L11.204 7.396'/></svg>",
    "alts": [],
    "note": "Puzzle piece, knobs top and right. Cat: the top knob becomes ears.",
    "replaces": [
@@ -200,8 +209,8 @@
   {
    "name": "extension.crashed",
    "meaning": "Extension crashed",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-extension-crashed' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><path d='M10.5 8l-1.75 4.5 3 2.25L9.5 21.5' fill='none' stroke-width='2.75'/></g></mask></defs><g mask='url(#cmxl-extension-crashed)'><path d='M3 10.75A2.5 2.5 0 0 1 5.5 8.25H8a2.6 2.6 0 1 1 3.5 0h2.25a2.5 2.5 0 0 1 2.5 2.5v2.5a2.6 2.6 0 1 1 0 3.5v1.75A2.5 2.5 0 0 1 13.75 21H5.5A2.5 2.5 0 0 1 3 18.5Z'/></g></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-extension-crashed' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'></g><path d='M10.5 8l-1.75 4.5 3 2.25L9.5 21.5' fill='none' stroke='#000' stroke-width='2.75' stroke-linecap='round' stroke-linejoin='round'/></mask></defs><g mask='url(#cmxs-extension-crashed)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 10.75A2.5 2.5 0 0 1 5.5 8.25H8a2.6 2.6 0 1 1 3.5 0h2.25a2.5 2.5 0 0 1 2.5 2.5v2.5a2.6 2.6 0 1 1 0 3.5v1.75A2.5 2.5 0 0 1 13.75 21H5.5A2.5 2.5 0 0 1 3 18.5Z'/></g></g></svg>",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><defs><mask id='cmxl-extension-crashed' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff' stroke='none'/><g fill='#000' stroke='#000'><path d='M10.754 8.072l-1.575 4.05 2.7 2.025L9.854 20.221' fill='none' stroke-width='2.75'/></g></mask></defs><g mask='url(#cmxl-extension-crashed)'><path d='M4.003 10.546A2.25 2.25 0 0 1 6.253 8.296H8.503a2.34 2.34 0 1 1 3.15 0h2.025a2.25 2.25 0 0 1 2.25 2.25v2.25a2.34 2.34 0 1 1 0 3.15v1.575A2.25 2.25 0 0 1 13.678 19.772H6.253A2.25 2.25 0 0 1 4.003 17.522Z'/></g></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-extension-crashed' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'></g><path d='M10.754 8.072l-1.575 4.05 2.7 2.025L9.854 20.221' fill='none' stroke='#000' stroke-width='2.75' stroke-linecap='round' stroke-linejoin='round'/></mask></defs><g mask='url(#cmxs-extension-crashed)'><g fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4.003 10.546A2.25 2.25 0 0 1 6.253 8.296H8.503a2.34 2.34 0 1 1 3.15 0h2.025a2.25 2.25 0 0 1 2.25 2.25v2.25a2.34 2.34 0 1 1 0 3.15v1.575A2.25 2.25 0 0 1 13.678 19.772H6.253A2.25 2.25 0 0 1 4.003 17.522Z'/></g></g></svg>",
    "alts": [
     {
      "label": "puzzle + bang badge",

@@ -311,7 +311,8 @@ struct ComposerPage: View {
                 }
                 .pickerStyle(.menu)
             } footer: {
-                Text("Queue waits for the current turn; Steer interrupts it.")
+                // The Mac's Toggle Prompt Queueing: Send steers either way, as the Mac's Return does.
+                Text("Send steers the running turn. With Queue, a long press on Send can queue a message for after the turn; with Steer, that steers too.")
             }
         }
         .settingsPage("Composer")

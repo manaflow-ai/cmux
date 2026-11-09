@@ -89,31 +89,28 @@ extension CEFTabContentView {
     }
 }
 
-/// A split's, close's or zoom's spring resizes the pane in every frame, as a key resize does (Leo 2026-11-07, softened: a
-/// close beside a page "first shifts over to the left ... And then after the shift, then it expands. It's not, like,
-/// expanding as it goes"). Only drags and key resizes took the page window out of the motion's way, so in a split or a
-/// close each frame moved and resized an attached child window through the WindowServer, Chromium's frames at the new
-/// sizes came after the pane had moved, and the page's last frame slid with the pane's edge until they did. The spring's
-/// start (`PaneHostView.announceRest`, once per start or retarget) begins the key resize's motion here: the page follows
-/// its pane's page area at each frame's size with its window detached (``paneMotion(active:)``), and the landing
-/// (``paneMotionDidSettle()``) lays it out at the final size and brings the window back once. The main thread never waits
-/// for a page frame (the page sync's deadline stays 0).
+/// A split's, close's or zoom's spring resizes the pane in every frame, as a key resize does: the spring's start
+/// (`PaneHostView.announceRest`, once per start or retarget) begins the key resize's page sync, so the page follows its
+/// pane's page area at each frame's size, and the landing (``paneMotionDidSettle()``) lays it out at the final size. The
+/// page window stays attached, as in a key resize (RESIZE P0 5). Detached for the spring (#37754), a page in a pane that
+/// grew upward showed at its old place, clipped or blank, until a one-frame snap at the landing (Leo 2026-11-08,
+/// ask-1cbd6386ac, softened: "the upwards thing ... shit doesn't look right, shit is not smooth, shit lags"; the same
+/// 25-frame stale page RESIZE P0 5 filmed for detached key resizes). The main thread never waits for a page frame (the
+/// page sync's deadline stays 0).
 extension CEFTabContentView: PaneMotionTargeting {
     func paneMotionWillRest(sizeChange: CGSize) -> PaneMotionAnchor {
         // A drag (its release spring included) and a key resize run their own motion, begun before the spring's rest.
         guard window != nil, pageSyncReasons.isDisjoint(with: [.drag, .keyResize]), pageMotionHold == nil else { return .top }
-        paneMotion(active: true)
         beginPageSync(.paneSpring)
         return .top
     }
 
-    /// The spring landed: the page lays out at the final size, then its window comes back, once. A drag or key resize that
-    /// caught the spring ends the motion itself.
+    /// The spring landed: the page lays out at the final size, once. A drag or key resize that caught the spring ends the
+    /// motion itself.
     func endPaneSpring() {
         guard pageSyncReasons.contains(.paneSpring) else { return }
         endPageSync(.paneSpring)
         guard pageSyncReasons.isEmpty, pageMotionHold == nil else { return }
         layoutContent()
-        paneMotion(active: false)
     }
 }

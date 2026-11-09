@@ -213,6 +213,9 @@ package final class ChildProcess: Sendable {
         return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// The tasks waiting in ``waitForExit()`` now.
+    package var exitWaiterCount: Int { state.withLock { $0.exitWaiters.count } }
+
     package func waitForExit() async -> Int32 {
         await withCheckedContinuation { waiter in
             let done = state.withLock { state -> Int32? in

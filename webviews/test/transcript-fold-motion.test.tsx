@@ -173,6 +173,32 @@ function render(node: ReactNode) {
 const toggle = () => container.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
 const click = () => act(() => toggle().click());
 
+/// A pointer's press on the toggle, then its click released `moved` px to the right.
+function dragClick(moved: number) {
+  const line = toggle();
+  const view = line.ownerDocument.defaultView!;
+  const at = { clientX: 10, clientY: 10, button: 0, bubbles: true, cancelable: true };
+  const Pointer = (view as unknown as { PointerEvent?: typeof MouseEvent }).PointerEvent ?? view.MouseEvent;
+  act(() => {
+    line.dispatchEvent(new Pointer("pointerdown", at));
+    line.dispatchEvent(new view.MouseEvent("click", { ...at, clientX: 10 + moved, detail: 1 }));
+  });
+}
+
+// Leo, 2026-11-06: "way too jittery/sensitive". Every line's own click handler, the wrappers that note
+// the click (a group's, a received message's) included, hands the click to the toggle.
+for (const { name, node, body } of collapsibles) {
+  test(`${name}: a 12 px drag across its line opens nothing; a click in place does`, () => {
+    render(node());
+    dragClick(12);
+    expect(toggle().getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector(body)).toBeNull();
+    expect(animations.length).toBe(0);
+    dragClick(2);
+    expect(toggle().getAttribute("aria-expanded")).toBe("true");
+  });
+}
+
 for (const { name, node, body } of collapsibles) {
   test(`${name} opens and closes with the fold's height and opacity, over the shared token`, () => {
     render(node());
@@ -380,7 +406,7 @@ test("the fold token is the settle (one curve for every web fold), and the chevr
     "utf8",
   );
   expect(FOLD_DURATION_VAR).toBe("--cv-fold-duration");
-  expect(css).toMatch(/--cv-fold-duration:\s*var\(--cmux-motion-settle,\s*265ms\)/);
+  expect(css).toMatch(/--cv-fold-duration:\s*var\(--cmux-motion-settle,\s*180ms\)/);
   expect(css).toMatch(/--cv-fold-ease:\s*var\(--cmux-ease-settle,\s*cubic-bezier\(0\.16, 1, 0\.3, 1\)\)/);
   expect(css).toMatch(/\.cv-rotor\s*\{\s*transition:\s*transform var\(--cv-fold-duration\) var\(--cv-fold-ease/);
   // The chevron snaps under Reduce Motion: its transition is only under no-preference.

@@ -276,7 +276,9 @@ pub(super) fn default_dir() -> Option<PathBuf> {
 pub(super) fn socket_path_for(dir: &Path) -> PathBuf {
     use sha2::{Digest as _, Sha256};
     let canonical = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
-    let digest = Sha256::digest(canonical.as_os_str().as_encoded_bytes());
+    // The name from before NEXT's folder move, so a link an older daemon started keeps its socket.
+    let identity = cmux_agent_pane_policy::build_identity::path_identity(&canonical);
+    let digest = Sha256::digest(identity.as_os_str().as_encoded_bytes());
     let hex: String = digest.iter().take(6).map(|byte| format!("{byte:02x}")).collect();
     let leaf = format!("link-{hex}.sock");
     let preferred = cmux_tui_core::platform::runtime_dir().join(&leaf);

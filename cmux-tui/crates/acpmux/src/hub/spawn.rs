@@ -168,17 +168,19 @@ impl Hub {
     /// read here goes with the profile, and only a cold start records it
     /// (`Hub::ensure_child`, `hub/start_gate/preset_bind.rs`): a request that
     /// finds the agent running spawns nothing and records nothing.
+    /// `launch_digest`: the launch of the entry `profile` comes from, as the entry is written
+    /// (`Resolved::launch_digest`; `profile.launch_digest()` when `profile` is the entry itself).
     pub(super) async fn spawn_profile(
         &self,
         session: &Session,
         profile: &HarnessProfile,
+        launch_digest: String,
         defaults_env: &std::collections::BTreeMap<String, String>,
     ) -> Result<Spawn, RpcError> {
         // A fork resumes its parent's conversation: it runs in the parent's folder.
         let forking = session.fork_from.lock().unwrap_or_else(|e| e.into_inner()).is_some();
         let meta = session.meta();
         let opencode = super::policy_mode::is_opencode(&meta, profile);
-        let launch_digest = profile.launch_digest();
         let (profile, preset_digest, account_home) =
             self.spawn_profile_read(&meta, forking, profile, defaults_env).await?;
         Ok(Spawn { profile, preset_digest, account_home, opencode, launch_digest })
@@ -326,6 +328,17 @@ impl Hub {
         if let Some(file) = prompt_file {
             p.argv.push("--system-prompt-file".into());
             p.argv.push(file.to_string_lossy().into_owned());
+        }
+        // cmux's rules as the chat captured them, on the harness's own system-level channel
+        // (Claude's appended system prompt, Codex's developer instructions), at every spawn: the
+        // prefix every chat shares, never a hidden addition after the person's first prompt.
+        // A remote-origin chat captures none, and a chat moved under a guard takes its rules in
+        // its next message instead (`turns.rs`, `append_owed_rules`), as does one whose
+        // transcript already has them.
+        if !meta.remote_origin && !meta.cmux_rules_in_transcript {
+            let rules =
+                crate::context_inventory::launch_args(meta.cmux_context.as_deref(), &p, &meta.cwd);
+            p.argv.extend(rules);
         }
         // Claude Code defers MCP tools behind its tool search, which it turns
         // off by itself behind a router; the cmux server lists every tool

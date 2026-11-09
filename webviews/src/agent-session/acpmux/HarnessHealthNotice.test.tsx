@@ -107,6 +107,12 @@ async function answer(call: Call | undefined, value: unknown, failed = false) {
 }
 
 const notice = (container: HTMLElement) => container.querySelector<HTMLElement>("[data-harness-notice]");
+/// The notice's one sentence, without its Details.
+const line = (container: HTMLElement) =>
+  notice(container)?.querySelector(".acpmux-host-error-message")?.textContent?.trim() ?? "";
+/// The raw words under Details.
+const detail = (container: HTMLElement) =>
+  notice(container)?.querySelector("[data-error-detail]")?.textContent?.trim() ?? "";
 async function press(container: HTMLElement, action: string) {
   // The offer's Update and Skip This Version live on the model chip.
   if (action === "update" || action === "skip") {
@@ -229,7 +235,9 @@ test("a restart that failed says so and keeps Restart Chat", async () => {
   await answer(calls[0], { ok: true, version: "0.4.0" });
   await press(container, "restart");
   await answer(calls[1], { restarted: 0, after_turn: 0, failed: 1, error: "the agent did not start" });
-  expect(text(container)).toContain("Couldn't restart the chat: the agent did not start");
+  // The line says what happened; the host's own words are under Details.
+  expect(line(container)).toBe("Couldn't restart the chat.");
+  expect(detail(container)).toBe("the agent did not start");
   expect(button(container, "restart")?.disabled).toBe(false);
 });
 
@@ -264,21 +272,26 @@ test("a chat mid-turn restarts when the turn ends; the card says so, then goes a
   expect(rechecks).toBe(1);
 });
 
-test("a failed update says why inline, and Try Again runs it again", async () => {
+test("a failed update says so in one plain line, the updater's words under Details, and Try Again runs it again", async () => {
   const container = installDom();
   const { calls, native } = host();
-  await render(container, outdated, [], "codex", native);
+  const opened = await render(container, outdated, [], "codex", native);
   await press(container, "update");
   await answer(calls[0], { ok: false, error: "npm exited with status 1" });
-  expect(text(container)).toContain("Couldn't update Codex: npm exited with status 1");
+  expect(line(container)).toBe("Couldn't update Codex.");
+  expect(detail(container)).toBe("npm exited with status 1");
+  // Update in Terminal runs the same command where its output shows.
+  await press(container, "terminal");
+  expect(opened).toEqual([{ kind: "terminal", text: "npm install -g @openai/codex@latest", cwd: "/work", run: true }]);
   await press(container, "retry");
   expect(calls[1]?.method).toBe("harness.update");
   expect(text(container)).toContain("Updating Codex…");
-  // A refused call (an old host) says what it can.
+  // A refused call with no words (an old host): the line, and no empty Details.
   await answer(calls[1], new Error(""), true);
-  expect(text(container)).toContain("Couldn't update Codex: The update didn't finish.");
+  expect(line(container)).toBe("Couldn't update Codex.");
+  expect(notice(container)?.querySelector("details")).toBeNull();
   await press(container, "retry");
   await answer(calls[2], new Error("Not supported here."), true);
-  expect(text(container)).toContain("Couldn't update Codex: Not supported here.");
+  expect(detail(container)).toBe("Not supported here.");
   expect(button(container, "dismiss")).not.toBeNull();
 });

@@ -229,6 +229,7 @@ export function useSessionInfo({
   onOpenChanges,
   onSaveEnvironment,
   onShowCall,
+  onShowTurn,
   subagent,
   split = false,
   covered = false,
@@ -310,6 +311,7 @@ export function useSessionInfo({
   onSaveEnvironment?: () => Promise<unknown>;
   /// Shows the Bash call that started a background command in the transcript (App.tsx `showToolRow`).
   onShowCall?: (toolCallId: string) => boolean;
+  onShowTurn?: (turnId: string) => void;
   /// The subagent whose own view the pane shows: Session Info lists its things, not the chat's.
   subagent?: SubagentScope;
   /// The pane was opened beside another chat (a subagent's pane, a chat its agent started): its
@@ -432,6 +434,7 @@ export function useSessionInfo({
   const stableOnOpenChat = useStableCallback(onOpenChat);
   const stableOnShowUsage = useStableCallback(onShowUsage);
   const stableOnShowCall = useStableCallback(onShowCall);
+  const stableOnShowTurn = useStableCallback(onShowTurn);
   const stableOnStopProcess = useStableCallback(onStopProcess);
   const openOutput = useMemo(
     () =>
@@ -562,6 +565,7 @@ export function useSessionInfo({
         onRender={onRender}
         onOpenDocument={stableOnOpenDocument}
         onShowCall={stableOnShowCall}
+        onShowTurn={stableOnShowTurn}
         scope={subagent}
       />
     ),
@@ -841,6 +845,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onRender,
   onOpenDocument,
   onShowCall,
+  onShowTurn,
   scope,
 }: {
   /// The chat whose width and folds it draws (sessionInfoState.ts `useSessionInfoState`).
@@ -912,6 +917,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onRender?: () => void;
   onOpenDocument?: (artifact: Artifact) => void;
   onShowCall?: (toolCallId: string) => boolean;
+  onShowTurn?: (turnId: string) => void;
   /// The subagent it lists, while the pane shows one's own view.
   scope?: SubagentScope;
 }) {
@@ -1342,6 +1348,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           onViewPrompt={scope ? undefined : onViewPrompt}
           onOpenFolder={openFolder}
           onShowCall={onShowCall}
+          onShowTurn={onShowTurn}
           revealed={revealed}
           onRevealed={onRevealed}
         />
@@ -1436,6 +1443,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         onViewPrompt={scope ? undefined : onViewPrompt}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
+        onShowTurn={onShowTurn}
       />
     </MemoSessionInfoPanel>
   );

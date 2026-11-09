@@ -61,6 +61,11 @@ export const L = {
   envInvalidValue: "environment.invalidValue",
   envSecretRetype: "environment.secretRetype",
   envRouteDropped: "environment.routeDropped",
+  envVaultDown: "environment.vaultDown",
+  envVaultPublicSuffix: "environment.vaultPublicSuffix",
+  envVaultNotPlainText: "environment.vaultNotPlainText",
+  envVaultUnreadable: "environment.vaultUnreadable",
+  envVaultRefused: "environment.vaultRefused",
 
   title: "page.title",
   disconnected: "page.disconnected",
