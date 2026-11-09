@@ -10,6 +10,12 @@
 -- for 10 minutes (a create that died) may be taken again, and the stale
 -- create's commit then matches nothing.
 --
+-- The revoke's authorization is in its own write: it changes the row only for
+-- the claimant (created_by) or a tenant admin carrying the row's labels. A
+-- refused create whose tunnel delete failed records the tunnel in
+-- cleanup_tunnel_cmux_id (its ownership rows stay live), and a revoke retries
+-- the delete until it succeeds.
+--
 -- Apply through the versioned migration runner before deploying code; grant
 -- the Worker SELECT, INSERT and UPDATE on cmux_vm.mesh_device_intents through
 -- the operator role workflow. Roll back code first.
@@ -20,9 +26,12 @@ CREATE TABLE IF NOT EXISTS cmux_vm.mesh_device_intents (
   -- The device the current claim creates; NULL for a released claim or a tombstone written before any enroll.
   device_cmux_id text        NULL CHECK (device_cmux_id IS NULL OR device_cmux_id ~ '^dev_[0-9a-hjkmnp-tv-z]{26}$'),
   created_by     text        NOT NULL CHECK (char_length(created_by) BETWEEN 1 AND 160),
+  -- The claimant's required labels: its device and tunnel rows carry them, and a revoker must.
+  labels         jsonb       NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(labels) = 'object' AND octet_length(labels::text) <= 4096),
   created_at     timestamptz NOT NULL,
   committed_at   timestamptz NULL,
   revoked_at     timestamptz NULL,
+  cleanup_tunnel_cmux_id text NULL CHECK (cleanup_tunnel_cmux_id IS NULL OR cleanup_tunnel_cmux_id ~ '^tun_[0-9a-hjkmnp-tv-z]{26}$'),
   PRIMARY KEY (tenant_id, mesh_cmux_id, intent_id)
 );
 

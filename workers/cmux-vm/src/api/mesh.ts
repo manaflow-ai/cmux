@@ -507,11 +507,12 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
       .addError(NotFound)
       .addError(QuotaExceeded)
       .addError(Conflict)
+      .addError(ServiceUnavailable)
       .annotateContext(
         describe(
           "Revoke an enroll intent",
           "mesh:join",
-          `Writes a tombstone for the intentId and deletes the device it made, with its tunnel. Idempotent. An enroll still in flight with this intentId refuses with 409 mesh.device.intent_revoked and removes what it created, so nothing it starts stays live. The tombstone lasts 7 days. Only the principal that used the intent or a tenant admin may revoke it; anyone else gets 404. ${EXPERIMENT}`,
+          `Writes a tombstone for the intentId and deletes the device it made, with its tunnel. Idempotent. An enroll with this intentId that has not committed refuses with 409 mesh.device.intent_revoked and removes what it created. A 200 is final: nothing of the intent is live. A 503 (an enroll still finishing, or a tunnel delete that failed) means retry the revoke until it answers 200. The tombstone lasts 7 days. Only the principal that used the intent or a tenant admin carrying its labels may revoke it; anyone else gets 404 and nothing is written. ${EXPERIMENT}`,
         ),
       ),
   )

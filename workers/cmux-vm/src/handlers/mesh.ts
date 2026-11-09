@@ -16,7 +16,7 @@ import { Acl, AclApplied, Device, DeviceAddress, DeviceEnrollment, DeviceIntentI
 import { MembershipCache } from "../auth/membership-cache.ts";
 import { TeamAdmin } from "../auth/team-admin.ts";
 import { MeshStore, type MeshDeviceRow } from "../db/mesh.ts";
-import { intentState } from "../db/mesh-intents.ts";
+import { intentState, revokedState } from "../db/mesh-intents.ts";
 import type { OverlayServerRow } from "../db/overlay-servers.ts";
 import { AuditStore, OwnershipStore } from "../db/stores.ts";
 import { actorRef, carriesRequiredLabels, CurrentPrincipal, type Principal } from "../domain/principal.ts";
@@ -29,7 +29,7 @@ import {
   NotFound,
   PaymentRequired,
   QuotaExceeded,
-  type ServiceUnavailable,
+  ServiceUnavailable,
   unavailable,
   vmNotFound,
 } from "../errors.ts";
@@ -781,7 +781,13 @@ const createDevice = <C, M>(
             // An intent is claimed before the provider tunnel exists; its commit (below) is the device row's insert.
             if (intentId !== undefined) {
               const claimed = yield* store
-                .claimDeviceIntent(principal.tenantId, mesh.value, intentId, device.value, actorRef(principal.actor), yield* now)
+                .claimDeviceIntent(
+                  principal.tenantId,
+                  mesh.value,
+                  intentId,
+                  { deviceId: device.value, createdBy: actorRef(principal.actor), labels: principal.requiredLabels ?? {} },
+                  yield* now,
+                )
                 .pipe(Effect.catchAll(dependencyDown("mesh.claimDeviceIntent")));
               if (!claimed) return yield* Effect.fail(yield* intentRefusal(principal.tenantId, mesh.value, intentId));
             }
@@ -804,7 +810,9 @@ const createDevice = <C, M>(
               createdBy,
               createdAt,
             };
-            const base = { tenantId: principal.tenantId, upstreamId: created.upstreamId, createdBy, createdAt, labels: {} };
+            // A service key (cx-b4h.13) reaches only rows carrying its required labels: record them on the device and its
+            // tunnel so the key that enrolled the device can rotate it, read its tunnel and delete it.
+            const base = { tenantId: principal.tenantId, upstreamId: created.upstreamId, createdBy, createdAt, labels: principal.requiredLabels ?? {} };
             const undo = (event: string) =>
               Effect.gen(function* () {
                 yield* upstream.discardCreatedTunnel(created).pipe(Effect.catchAll(() => logEvent("mesh_tunnel_discard_failed", { deviceId: device.value })));
@@ -830,7 +838,20 @@ const createDevice = <C, M>(
                 Effect.mapError(unavailable),
               );
               if (!committed) {
-                yield* undo("mesh_device_intent_refused");
+                // Revoked (or taken over) before the commit. Delete the tunnel; only once that worked are the ownership
+                // rows marked deleted and the intent settled. If it failed, the rows stay live and the intent names the
+                // tunnel, so a revoke retries the delete (and answers 503 until it succeeds) instead of losing it.
+                const discarded = yield* Effect.either(upstream.discardCreatedTunnel(created));
+                if (Either.isRight(discarded)) {
+                  const at = yield* now;
+                  yield* ownership.markDeleted(principal.tenantId, "device", device.value, at).pipe(Effect.ignore);
+                  yield* ownership.markDeleted(principal.tenantId, "tunnel", tunnelId, at).pipe(Effect.ignore);
+                  yield* store.settleDeviceIntent(principal.tenantId, mesh.value, intentId, device.value).pipe(Effect.ignore);
+                } else {
+                  yield* store.markDeviceIntentCleanup(principal.tenantId, mesh.value, intentId, device.value, tunnelId).pipe(Effect.ignore);
+                  yield* logEvent("mesh_device_intent_cleanup_pending", { deviceId: device.value });
+                }
+                yield* logEvent("mesh_device_intent_refused", { deviceId: device.value });
                 return yield* Effect.fail(yield* intentRefusal(principal.tenantId, mesh.value, intentId));
               }
             }
@@ -849,23 +870,6 @@ const createDevice = <C, M>(
       ),
     );
   }));
-
-/** Whether `deviceId` is a live device this caller may act on ("live"), live but out of its reach ("hidden"), or null when gone. */
-const liveDeviceOf = <C>(caller: Named<C, Principal>, deviceId: string) =>
-  Effect.gen(function* () {
-    const parsed = parseDeviceId(deviceId);
-    if (Option.isNone(parsed)) return null;
-    return yield* name(parsed.value, (device) =>
-      Effect.gen(function* () {
-        const row = yield* (yield* MeshStore).getDevice(caller.value.tenantId, device.value).pipe(Effect.catchAll(dependencyDown("mesh.getDevice")));
-        if (Option.isNone(row)) return null;
-        const owns = yield* tenantOwnsDevice(caller, device).pipe(Effect.catchAll(dependencyDown("ownership.find")));
-        if (owns === null) return "hidden" as const;
-        const acts = yield* callerActsOnDevice(caller, device, owns, row.value).pipe(Effect.mapError(unavailable));
-        return acts === null ? ("hidden" as const) : ("live" as const);
-      }),
-    );
-  });
 
 /** Why an intent could not be claimed or committed: its tombstone, or another create holding it. */
 const intentRefusal = (tenantId: Principal["tenantId"], meshId: string, intentId: string) =>
@@ -1236,28 +1240,49 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
             if (Option.isNone(intentId)) return yield* Effect.fail(intentNotFound());
             const store = yield* MeshStore;
             const at = yield* now;
-            // The device delete rules: an intent someone else used is the tenant admin's alone, and its device must be
-            // one this caller reaches (labels and owner). Anyone else gets 404 and writes nothing.
-            const found = yield* store.findDeviceIntent(principal.tenantId, mesh.value, intentId.value).pipe(Effect.catchAll(dependencyDown("mesh.findDeviceIntent")));
-            if (Option.isSome(found) && found.value.createdBy !== actorRef(principal.actor) && !(yield* isTenantAdmin(principal).pipe(Effect.mapError(unavailable)))) {
-              return yield* Effect.fail(intentNotFound());
-            }
-            const committedDevice = Option.isSome(found) && found.value.committedAt !== null ? found.value.deviceId : null;
-            if (committedDevice !== null && (yield* liveDeviceOf(caller, committedDevice)) === "hidden") {
-              return yield* Effect.fail(intentNotFound());
-            }
-            // The tombstone first: from here no create with this intent commits a device.
-            const revoked = yield* store.revokeDeviceIntent(principal.tenantId, mesh.value, intentId.value, actorRef(principal.actor), at).pipe(
-              Effect.catchAll(dependencyDown("mesh.revokeDeviceIntent")),
-            );
-            // A create that committed before the tombstone made a device: delete it. One still in flight deletes its own.
-            if (revoked.committedAt === null || revoked.deviceId === null) return new DeviceIntentRevocation({ deleted: false });
-            const parsed = parseDeviceId(revoked.deviceId);
+            const admin = yield* isTenantAdmin(principal).pipe(Effect.mapError(unavailable));
+            // The device delete rules are part of the tombstone's own write: it changes the row only for its claimant or
+            // a tenant admin, carrying the row's labels. Anyone else gets 404 and writes nothing, also when a claim lands
+            // between this caller's check and its write. An unused intent is tombstoned with this caller as its owner.
+            const revoked = yield* store
+              .revokeDeviceIntent(principal.tenantId, mesh.value, intentId.value, { ref: actorRef(principal.actor), labels: principal.requiredLabels ?? {}, admin }, at)
+              .pipe(Effect.catchAll(dependencyDown("mesh.revokeDeviceIntent")));
+            if (Option.isNone(revoked)) return yield* Effect.fail(intentNotFound());
+            const state = revokedState(revoked.value, at);
+            // Nothing of the intent can be live: the answer is final.
+            if (state._tag === "settled") return new DeviceIntentRevocation({ deleted: false });
+            // A create between its claim and its commit: it will refuse and delete its tunnel; retry for the final answer.
+            if (state._tag === "in_flight") return yield* Effect.fail(new ServiceUnavailable({ message: "An enroll with this intentId is still finishing; retry the revoke" }));
+            const parsed = parseDeviceId(state.deviceId);
             if (Option.isNone(parsed)) return new DeviceIntentRevocation({ deleted: false });
             return yield* name(parsed.value, (device) =>
               Effect.gen(function* () {
                 const scope = proofs.scope;
                 const owns = yield* tenantOwnsDevice(caller, device).pipe(Effect.catchAll(dependencyDown("ownership.find")));
+                if (state._tag === "cleanup") {
+                  // A refused create's tunnel whose delete failed: its ownership rows are still live. Delete it now; until
+                  // that works the revoke answers 503 and a repeat retries.
+                  if (owns === null) return yield* Effect.fail(intentNotFound());
+                  const pendingRow: MeshDeviceRow = {
+                    deviceId: device.value, meshId: mesh.value, tunnelId: state.tunnelId, name: "", wgPublicKey: "", installPublicKey: null,
+                    createdBy: revoked.value.createdBy, createdAt: revoked.value.createdAt,
+                  };
+                  const acts = yield* callerActsOnDevice(caller, device, owns, pendingRow).pipe(Effect.mapError(unavailable));
+                  if (acts === null) return yield* Effect.fail(intentNotFound());
+                  yield* (yield* UpstreamMesh).deleteDeviceTunnel(device, { owns, scope, acts }).pipe(
+                    Effect.catchIf((error) => error.status === 404, () => Effect.void),
+                    Effect.mapError(unavailable),
+                  );
+                  const ownership = yield* OwnershipStore;
+                  yield* Effect.all([
+                    ownership.markDeleted(principal.tenantId, "device", device.value, at),
+                    ownership.markDeleted(principal.tenantId, "tunnel", state.tunnelId, at),
+                    store.settleDeviceIntent(principal.tenantId, mesh.value, intentId.value, device.value),
+                  ]).pipe(Effect.catchAll(dependencyDown("mesh.settleDeviceIntent")));
+                  return new DeviceIntentRevocation({ deleted: true });
+                }
+                // A create that committed before the tombstone made a device: delete it like DELETE /v1/devices does (a
+                // failed tunnel delete leaves it live and answers 503, so a repeat retries).
                 const row = yield* store.getDevice(principal.tenantId, device.value).pipe(Effect.catchAll(dependencyDown("mesh.getDevice")));
                 if (Option.isNone(row)) return new DeviceIntentRevocation({ deleted: false });
                 if (owns === null) return yield* Effect.fail(intentNotFound());

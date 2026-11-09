@@ -35,6 +35,8 @@ export function makeMemoryMeshStore() {
     releaseDeviceIntent: intents.releaseDeviceIntent,
     revokeDeviceIntent: intents.revokeDeviceIntent,
     revokeIntentOfDevice: intents.revokeIntentOfDevice,
+    settleDeviceIntent: intents.settleDeviceIntent,
+    markDeviceIntentCleanup: intents.markDeviceIntentCleanup,
     insertOverlayServerCode: (row) => Effect.sync(() => { serverCodes.push({ ...row }); }),
     findOverlayServerCode: (hash) => Effect.sync(() => Option.fromNullable(serverCodes.find((row) => row.codeSha256 === hash))),
     recentOverlayServerCodes: (tenant, mesh, since) => Effect.sync(() => serverCodes.filter((row) => row.tenantId === tenant && row.meshId === mesh && row.createdAt > since)),
