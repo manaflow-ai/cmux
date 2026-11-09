@@ -215,6 +215,12 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
             "required": ["script"],
         },
         "annotations": {"destructiveHint": true, "openWorldHint": false},
+        // Claude Code defers MCP tools behind its tool search unless a tool says it always
+        // loads. Every NEXT chat that used cmux_exec first spent a round trip on
+        // `ToolSearch select:mcp__cmux__cmux_exec` (5 of 5 guided chats, 64 searches in 172
+        // transcripts, 2026-11-09 audit), and its description is the guide to cmux's tools.
+        // Other harnesses ignore the key.
+        "_meta": {"anthropic/alwaysLoad": true},
     })]
 }
 
