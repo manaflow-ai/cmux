@@ -116,8 +116,10 @@ class WorkflowShape(unittest.TestCase):
                 self.assertNotIn("vars.LINUX_RUNNER", str(each["runs-on"]))
         for key, each in doc["jobs"].items():
             with self.subTest(job=key):
-                # The panic ratchet builds cmux-tui twice, as cmux-tui-spec.yml's clippy job (40) does once.
-                self.assertLessEqual(int(each["timeout-minutes"]), 40 if key == "panic-ratchet" else 15)
+                # The panic ratchet builds cmux-tui twice, as cmux-tui-spec.yml's clippy job (40) does once. The gates
+                # job's own budget (--budget-seconds) ends a stalled gate with its reason well inside its 25.
+                limit = {"panic-ratchet": 40, "fast-gates": 25}.get(key, 15)
+                self.assertLessEqual(int(each["timeout-minutes"]), limit)
                 self.assertNotIn("macos", str(each["runs-on"]).lower())
 
     def test_triggers_have_no_paths_filter(self):
