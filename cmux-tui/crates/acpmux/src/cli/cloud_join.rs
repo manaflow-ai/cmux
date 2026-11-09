@@ -311,17 +311,24 @@ pub(crate) fn settle_clone_at(home: &std::path::Path, current: Option<&str>) -> 
     }
 }
 
+/// Whether `relay` is the one a join to `hub` writes ([`configure_mesh_relay_at`]): the join's
+/// credential, no `tokenCommand`, and `hub`'s origin. The one rule both sides use: a sign-in's
+/// join leaves any other relay as it is ([`own_relay_at`]), and a leave (`leave::remove_local`)
+/// removes only this one, so a relay the person set up survives a sign-out.
+fn join_relay_for(relay: &crate::mesh_http::MeshRelayConfig, hub: &str) -> bool {
+    let Ok(hub) = origin(Some(hub.to_owned())) else { return false };
+    relay.credential.as_deref() == Some("join")
+        && relay.token_command.is_empty()
+        && origin(Some(relay.url.clone())).ok().as_deref() == Some(hub.as_str())
+}
+
 /// Whether config.json at `config_path` holds a `meshRelay` no join to `hub` wrote: one the
 /// person set up (a `tokenCommand`, a credential of its own) or a join's for another hub. A
 /// sign-in's join never replaces it (`enroll.rs`, `recovery::complete`), so the join's relay is
 /// only ever one the sign-in wrote, and a sign-out (`leave::remove_local`) removes only that.
 fn own_relay_at(config_path: &std::path::Path, hub: &str) -> Result<bool> {
     let config = crate::config::Config::load_from(config_path)?;
-    Ok(config.mesh_relay.as_ref().is_some_and(|relay| {
-        relay.credential.as_deref() != Some("join")
-            || !relay.token_command.is_empty()
-            || origin(Some(relay.url.clone())).ok().as_deref() != Some(hub)
-    }))
+    Ok(config.mesh_relay.as_ref().is_some_and(|relay| !join_relay_for(relay, hub)))
 }
 
 /// Writes the join's `meshRelay` for a join to `hub` just committed: a sign-in's join

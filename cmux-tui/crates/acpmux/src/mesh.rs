@@ -430,6 +430,33 @@ pub trait MeshHub: Send + Sync {
     }
 }
 
+/// The team hub client sends go through (`Hub::mesh`): set when a mesh relay starts, cleared
+/// when a sign-out's leave stops it, and replaced when a later enroll starts one again, perhaps
+/// against another hub. Each read takes the client then in use; the lock is never held across
+/// a call.
+#[derive(Default)]
+pub struct MeshSlot(std::sync::RwLock<Option<Arc<dyn MeshHub>>>);
+
+impl MeshSlot {
+    /// The client in use, if a relay runs.
+    pub fn get(&self) -> Option<Arc<dyn MeshHub>> {
+        use crate::no_panic::RwLockExt;
+        self.0.read_or_recover().clone()
+    }
+
+    /// Make `client` the one in use; the one it replaced, if any.
+    pub fn set(&self, client: Arc<dyn MeshHub>) -> Option<Arc<dyn MeshHub>> {
+        use crate::no_panic::RwLockExt;
+        self.0.write_or_recover().replace(client)
+    }
+
+    /// No client: the relay stopped. The one it removed, if any.
+    pub fn clear(&self) -> Option<Arc<dyn MeshHub>> {
+        use crate::no_panic::RwLockExt;
+        self.0.write_or_recover().take()
+    }
+}
+
 #[cfg(test)]
 mod wire_tests {
     use super::*;

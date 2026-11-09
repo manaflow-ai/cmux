@@ -1430,6 +1430,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_join_credential_relay_for_another_hub_survives_a_sign_out_of_the_automatic_join() {
+        let other = json!({"url": "https://other.example", "credential": "join"});
+        let home = tempfile::tempdir().unwrap();
+        std::fs::write(home.path().join("config.json"), json!({"meshRelay": other}).to_string())
+            .unwrap();
+        joined(home.path(), signed_in);
+        // The enroll's rule reads it as the person's own, and so does the leave's.
+        assert!(own_relay_at(&home.path().join("config.json"), HUB).unwrap());
+        let left = sign_out(home.path(), leave::HubAnswer::Revoked).await;
+        assert!(left.left, "{left:?}");
+        assert!(load_at(home.path()).unwrap().is_none());
+        assert_eq!(relay_config(home.path()), Some(other.clone()));
+
+        // A leave cut short after marking the record revoked, finished at the next start: the
+        // same rule, so that relay still stays.
+        let home = tempfile::tempdir().unwrap();
+        std::fs::write(home.path().join("config.json"), json!({"meshRelay": other}).to_string())
+            .unwrap();
+        joined(home.path(), signed_in);
+        mark_leave_removing(home.path()).unwrap();
+        leave::remove_local(home.path(), false).unwrap();
+        assert_eq!(relay_config(home.path()), Some(other));
+
+        // The relay this join wrote, for the record's hub, is the one a sign-out removes.
+        let home = tempfile::tempdir().unwrap();
+        configure_mesh_relay_at(&home.path().join("config.json"), HUB).unwrap();
+        joined(home.path(), signed_in);
+        assert!(!own_relay_at(&home.path().join("config.json"), HUB).unwrap());
+        assert!(sign_out(home.path(), leave::HubAnswer::Revoked).await.left);
+        assert_eq!(relay_config(home.path()), None);
+    }
+
+    #[tokio::test]
     async fn a_node_key_from_before_sign_in_survives_sign_out_and_a_restart() {
         let key = |home: &Path| std::fs::read(home.join("node.wg.key")).ok();
         let home = tempfile::tempdir().unwrap();

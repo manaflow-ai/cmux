@@ -82,7 +82,7 @@ pub(super) async fn handle(
     // validation before posting them.
     if target.starts_with('@') {
         if let Some(mesh) = hub.mesh.get() {
-            return super::mesh_send::send(hub, conn, mesh, &request, &target).await;
+            return super::mesh_send::send(hub, conn, &mesh, &request, &target).await;
         }
         return Err(RpcError::invalid_params("team messaging requires a configured mesh relay")
             .with_data(json!({"reason": "team_messaging_unavailable", "address": target})));
@@ -100,7 +100,7 @@ pub(super) async fn handle(
         if let Some(mesh) = hub.mesh.get()
             && hub.mesh_may_route(&target)
         {
-            return super::mesh_send::send(hub, conn, mesh, &request, &target).await;
+            return super::mesh_send::send(hub, conn, &mesh, &request, &target).await;
         }
         // The machine is reachable and has no such session: refused now, never queued, with the
         // closest names there so the sender can pick one (`hub/no_session.rs`).
@@ -445,7 +445,7 @@ async fn status(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
     if id.starts_with(super::mesh_send::PREFIX)
         && let Some(mesh) = hub.mesh.get()
     {
-        return super::mesh_send::status(hub, conn, mesh, id).await;
+        return super::mesh_send::status(hub, conn, &mesh, id).await;
     }
     let status = outbox_status(hub, id, params).await?;
     match hub.outbox.get(id) {
@@ -489,7 +489,7 @@ async fn relayed_status(
     let (Some(relay), Some(mesh)) = (relayed.and_then(Value::as_str), hub.mesh.get()) else {
         return own;
     };
-    match super::mesh_send::status(hub, conn, mesh, relay).await {
+    match super::mesh_send::status(hub, conn, &mesh, relay).await {
         Ok(mut status) => {
             // What `acpmux send` reads of an acceptance: whether it steered, and the session.
             if let (Some(accepted), Some(kept)) = (
