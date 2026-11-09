@@ -2290,6 +2290,23 @@ pub fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
+thread_local! {
+    /// Durable syncs [`atomic_write`] made on this thread (a file or its folder each).
+    static DURABLE_SYNCS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// The durable syncs [`atomic_write`] made on this thread so far: a test reads it around a
+/// write path to tell a durable write from a replaceable one.
+#[doc(hidden)]
+pub fn durable_syncs_on_this_thread() -> u64 {
+    DURABLE_SYNCS.with(std::cell::Cell::get)
+}
+
+fn durable_sync(file: &fs::File) -> std::io::Result<()> {
+    DURABLE_SYNCS.with(|syncs| syncs.set(syncs.get() + 1));
+    file.sync_all()
+}
+
 /// Replaces `path` through a synced temporary file and rename, with an optional Unix mode.
 pub fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Result<()> {
     ensure_replaceable_target(path)?;
@@ -2311,7 +2328,7 @@ pub fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Res
         let mut file =
             options.open(&temporary).with_context(|| format!("create {}", temporary.display()))?;
         file.write_all(bytes)?;
-        file.sync_all()?;
+        durable_sync(&file)?;
         drop(file);
         #[cfg(unix)]
         if let Some(mode) = mode {
@@ -2320,7 +2337,7 @@ pub fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Res
         }
         fs::rename(&temporary, path).with_context(|| format!("replace {}", path.display()))?;
         fs::File::open(parent)
-            .and_then(|directory| directory.sync_all())
+            .and_then(|directory| durable_sync(&directory))
             .with_context(|| format!("sync {}", parent.display()))?;
         Ok(())
     })();

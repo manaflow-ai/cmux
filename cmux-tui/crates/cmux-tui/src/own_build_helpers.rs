@@ -61,7 +61,13 @@ fn hook_helper(executable: &Path) -> Option<PathBuf> {
     if agent_hook_install::is_executable_file(&sibling) {
         return Some(sibling);
     }
-    let launcher = build_dir(executable)?.join("bin").join(HOOK_HELPER);
+    hook_launcher(&build_dir(executable)?, executable)
+}
+
+/// Writes (when its content changed) and returns the launcher of this
+/// build's hook helper in its build folder `build`.
+fn hook_launcher(build: &Path, executable: &Path) -> Option<PathBuf> {
+    let launcher = build.join("bin").join(HOOK_HELPER);
     let script = format!(
         "#!/bin/sh\nexec {} {} \"$@\"\n",
         agent_hook_install::shell_quote(executable.to_str()?),
@@ -222,6 +228,41 @@ mod tests {
         assert_eq!(build_dir(a), Some(dir_a.clone()));
         assert_eq!(dir_a.file_name().unwrap().len(), 16);
         assert_eq!(dir_a.parent().unwrap().file_name().unwrap(), "builds");
+    }
+
+    /// The build's helpers (its hook launcher, `claude` and `codex` shims and
+    /// Claude plugin) are written before the owner binds its socket, and a
+    /// start rewrites any that differ, so they are written without durable
+    /// syncs: on macOS each is a full fsync of the drive, and one of them
+    /// took 2.2 s of a 2.3 s first start on a fleet Mac (2026-11-09).
+    #[test]
+    fn own_build_helpers_are_written_without_durable_syncs() {
+        let root = tempfile::tempdir().unwrap();
+        let build = root.path().join("builds/0123456789abcdef");
+        let executable = root.path().join("cmux-tui");
+        fs::write(&executable, b"").unwrap();
+        let before = agent_hook_install::durable_syncs_on_this_thread();
+        let helper = hook_launcher(&build, &executable).unwrap();
+        crate::claude_plugin::install(
+            &build.join(crate::claude_plugin::PLUGIN_FOLDER),
+            &executable,
+            &helper,
+        )
+        .unwrap();
+        let shims = build.join("shims");
+        crate::claude_wrapper::install_shim(&shims, &executable).unwrap();
+        crate::codex_wrapper::install_shim(&shims, &executable).unwrap();
+        let synced = agent_hook_install::durable_syncs_on_this_thread() - before;
+        assert_eq!(synced, 0, "the build's helpers made {synced} durable syncs");
+        for path in [helper, shims.join("claude"), shims.join("codex")] {
+            assert!(agent_hook_install::is_executable_file(&path), "{}", path.display());
+        }
+        assert!(
+            build
+                .join(crate::claude_plugin::PLUGIN_FOLDER)
+                .join(".claude-plugin/plugin.json")
+                .is_file()
+        );
     }
 
     #[test]
