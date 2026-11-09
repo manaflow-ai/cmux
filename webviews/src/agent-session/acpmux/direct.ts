@@ -2058,10 +2058,6 @@ export class AcpmuxDirectClient {
   // daemon-backed method that cheap and refuses `_acpmux/peers` as `remote.unsupported`) keeps the
   // older bound: its socket is given up only after this long with no frame while a request waits.
   private static readonly DAEMON_LIVENESS_GRACE_MS = 120_000;
-  /// The longest wait between this client's own reconnects while it tries often, how many tries
-  /// that lasts, and the wait after (`scheduleReconnect`).
-  private static readonly RECONNECT_DELAY_MAX_MS = 5_000;
-  private static readonly RECONNECT_FAST_TRIES = 60;
   /// Coalesces the snapshots of acpmux events that land within one display frame: a fast stream
   /// sends several deltas per frame, and each snapshot re-renders the transcript. The page that
   /// draws the transcript sets it (main.tsx: ``nextFrame``); unset, each event snapshots at once.
@@ -2623,8 +2619,6 @@ export class AcpmuxDirectClient {
   private peerStatus: Record<string, PeerStatus> = {};
   private reconnectTimer?: number;
   private reconnectDelay = 250;
-  /// This client's reconnects since it last connected (`scheduleReconnect`).
-  private reconnectTries = 0;
   /// A reconnect the page skipped while hidden: it runs when the page is shown.
   private reconnectOwed = false;
   /// When the shown chat's last record reached this page (or the connection opened), for the quiet
@@ -3307,7 +3301,6 @@ export class AcpmuxDirectClient {
         throw new Error(translate("error.interrupted"));
       this.hasConnected = true;
       this.reconnectDelay = 250;
-      this.reconnectTries = 0;
       // A fresh connection carries the chat's records again: the quiet watch starts over.
       this.chatEventAt = Date.now();
       this.quietChecks = 0;
@@ -4061,15 +4054,10 @@ export class AcpmuxDirectClient {
     }
     const delay = this.reconnectDelay;
     // Keep retrying forever while the daemon is unavailable, the pane's waiting snapshot visible
-    // instead of a terminal failure. The wait doubles up to RECONNECT_DELAY_MAX_MS for the first
-    // RECONNECT_FAST_TRIES tries (about five minutes), then stays at `RECONNECT_MAX_MS`: doubling
-    // without a bound reached hours after a night of failed tries (a laptop asleep), so a chat came
-    // back long after the machine had (Leo, 2026-11-08: "it fixes itself").
-    this.reconnectTries += 1;
-    this.reconnectDelay =
-      this.reconnectTries >= AcpmuxDirectClient.RECONNECT_FAST_TRIES
-        ? RECONNECT_MAX_MS
-        : Math.min(delay * 2, AcpmuxDirectClient.RECONNECT_DELAY_MAX_MS);
+    // instead of a terminal failure. The wait doubles up to `RECONNECT_MAX_MS`: doubling without a
+    // bound reached hours after a night of failed tries (a laptop asleep), so a chat came back long
+    // after the machine had.
+    this.reconnectDelay = Math.min(delay * 2, RECONNECT_MAX_MS);
     this.wire.lifecycle("reconnect scheduled", { delayMs: delay });
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = undefined;
@@ -4741,16 +4729,14 @@ export class AcpmuxDirectClient {
   private wake(): void {
     const now = Date.now();
     if (this.socket?.readyState !== WebSocket.OPEN || this.endedSocket === this.socket) {
-      // A reconnect that is waiting runs now (`reconnectNow`), its tries counted from here.
+      // A reconnect that is waiting runs now (`reconnectNow`).
       if (this.reconnectTimer !== undefined) {
         this.reconnectOwed = false;
-        this.reconnectTries = 0;
         return this.reconnectNow();
       }
       if (!this.hasConnected || this.opening) return;
       this.reconnectOwed = false;
       this.reconnectDelay = 250;
-      this.reconnectTries = 0;
       if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = undefined;
       this.scheduleReconnect();
