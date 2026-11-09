@@ -490,7 +490,8 @@ impl GitSeedService {
 fn hold_ended() -> SeedRefusal {
     SeedRefusal {
         code: "seed.unknown_job",
-        message: "no running hold with that job on this machine (it ended or its lease ran out)".into(),
+        message: "no running hold with that job on this machine (it ended or its lease ran out)"
+            .into(),
     }
 }
 
