@@ -2558,7 +2558,7 @@ describe("recordCheckoutCompletion", () => {
     // concurrent writer has landed 3 by the time the lease is held. Deciding
     // "nothing to write" from the unleased read would leave 3 in place.
     const leasedReads: boolean[] = [];
-    const updateTeam = mock(async (_update: unknown) => undefined);
+    const updateTeam = mock(async () => undefined);
     const getTeam = mock(async () => {
       const leased = accountMutationOperationId !== null;
       leasedReads.push(leased);

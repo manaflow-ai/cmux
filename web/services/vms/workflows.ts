@@ -5136,6 +5136,7 @@ function fileVm<A>(input: VmFileInput, run: (provider: VmProviderGatewayShape, v
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "user", {
       maxActiveVms: input.maxActiveVms,
       entitlementOverride: input.entitlementOverride,
+      callerPlanId: input.callerPlanId,
     });
     return yield* run(providers, vm);
   });
