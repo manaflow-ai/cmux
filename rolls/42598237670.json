@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42598237670",
+  "recorded_at": "2026-11-09T10:14:48Z",
+  "reason": "cmux-tui 97a2acb3a364 changes the image's cmux-tui (pinned 2cac39b5c097)",
+  "dry_run": false,
+  "cmux_tui": "97a2acb3a364e599f2e6b355baf3362e3b706990",
+  "fixes": [
+    {
+      "sha": "97a2acb3a364e599f2e6b355baf3362e3b706990",
+      "mergedAt": "2026-11-09T01:49:07-08:00",
+      "subject": "ghostty-vt-sys: build libghostty-vt with the Zig the tree pins (#39389)"
+    },
+    {
+      "sha": "bff070d0c6f4c2118e66acd3779aa9dab0efb1c5",
+      "mergedAt": "2026-11-09T01:47:57-08:00",
+      "subject": "cmux-tui: a stale layout undo whose revision read fails no longer deadlocks the registry (#39304)"
+    },
+    {
+      "sha": "0c15c15fed3ea6493a246fe8908781092737b723",
+      "mergedAt": "2026-11-09T01:45:55-08:00",
+      "subject": "fix(tui): termination of a host that already closed its link reports its exit (macOS EINVAL) (#39451)"
+    },
+    {
+      "sha": "adbd95ae9c0425ea30857683959fbe382d8d4761",
+      "mergedAt": "2026-11-09T09:44:14Z",
+      "subject": "notices: package-notices license_tree names the ghostty-next pin b3a5ebfdf (#39472)"
+    },
+    {
+      "sha": "c39d3e48a22cd389dbf5edf1b5cf7d6eb9253c41",
+      "mergedAt": "2026-11-09T01:42:18-08:00",
+      "subject": "feat: show where chat time went (#38677)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T10:14:48Z",
+    "snapshot_id": "sh-c962bea25b0041a09af9536df628f9e1",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42598237670): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "11b8a8073281b5f2a96d7f5fad2829114b1bbcb7",
+    "image": "cloud-native-auto-97a2acb3-42598237670-1",
+    "revision": "ci-42598237670-1",
+    "at": "2026-11-09T10:14:48Z"
+  },
+  "rolled_back": false
+}
