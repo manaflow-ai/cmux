@@ -215,16 +215,16 @@ pub use surface::{
 };
 pub use surface::{apply_terminal_color_overrides, default_child_term};
 pub use workspace_registry::{
-    Actor, FrontendProjection, JournalAppendCommit, JournalAuthority, JournalCheckpoint,
-    JournalClass, JournalContentRef, JournalEventSchema, JournalHookDeliveryPolicy,
-    JournalHookExec, JournalHookFilter, JournalHookManifest, JournalHookRegex, JournalHookRetry,
-    JournalIngress, JournalProducer, JournalProducerManifest, JournalReplayPolicy, JournalSegment,
-    JournalSensitivity, JournalSubject, PersistentSessionStateReset,
-    PersistentSessionStateResetPreview, PersistentSessionStateResetter, ProjectionCommit,
-    RegistryCommit, RegistryCompactError, RegistryCompaction, RegistryEvent, RegistryQuarantined,
-    RegistrySnapshot, RegistryWorkspace, SessionJournalPage, SessionJournalRecord,
-    TabAttentionRecord, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
-    compact_registry,
+    Actor, EndedTerminalState, FrontendProjection, JournalAppendCommit, JournalAuthority,
+    JournalCheckpoint, JournalClass, JournalContentRef, JournalEventSchema,
+    JournalHookDeliveryPolicy, JournalHookExec, JournalHookFilter, JournalHookManifest,
+    JournalHookRegex, JournalHookRetry, JournalIngress, JournalProducer, JournalProducerManifest,
+    JournalReplayPolicy, JournalSegment, JournalSensitivity, JournalSubject,
+    PersistentSessionStateReset, PersistentSessionStateResetPreview,
+    PersistentSessionStateResetter, ProjectionCommit, RegistryCommit, RegistryCompactError,
+    RegistryCompaction, RegistryEvent, RegistryQuarantined, RegistrySnapshot, RegistryWorkspace,
+    SessionJournalPage, SessionJournalRecord, TabAttentionRecord,
+    UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry, compact_registry,
 };
 
 pub use cmux_remote_protocol::{REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_MESSAGE_MAX_BYTES};

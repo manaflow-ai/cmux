@@ -521,16 +521,17 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                     crate::localization::catalog().local_server.stopped
                 },
             });
-            // Every terminal ended, so nothing is left to resume: the saved
-            // state goes too. A plain stop keeps it (`agent resume` needs it).
-            // The owner names its directory only when it ended every
-            // terminal without keeping the layout.
+            // Every terminal ended, so nothing is left to resume: the
+            // terminal and resume state goes too, and every other store of
+            // the session stays. A plain stop keeps it (`agent resume`
+            // needs it). The owner names its directory only when it ended
+            // every terminal without keeping the layout.
             if let (true, Some(session_dir), Some(fields)) = (
                 end_terminals,
                 result.get("session_dir").and_then(Value::as_str),
                 stopped.as_object_mut(),
             ) {
-                fields.extend(super::command::remove_ended_session_state(
+                fields.extend(super::command::end_stopped_terminal_state(
                     actual_session,
                     std::path::Path::new(session_dir),
                     Instant::now() + Duration::from_secs(10),
@@ -1213,8 +1214,9 @@ fn wait_for_exit(pid: u32, deadline: Instant) -> Result<(), String> {
 /// the socket's start lock (`<socket>.spawn-lock`, cmux-tui-core
 /// `remove_socket_start_lock`). The session's saved state stays after a
 /// plain stop (`cmux session <name> reset-state` removes it); a stop with
-/// `--end-terminals` removes it (`remove_ended_session_state`). Returns the removed path,
-/// or none when there is no lock file or a start holds it for 500 ms.
+/// `--end-terminals` removes its terminal and resume state only
+/// (`end_stopped_terminal_state`). Returns the removed path, or none when
+/// there is no lock file or a start holds it for 500 ms.
 fn remove_start_lock(socket: &std::path::Path) -> Vec<String> {
     let lock = cmux_tui_core::server::socket_start_lock_path(socket);
     let deadline = Instant::now() + Duration::from_millis(500);

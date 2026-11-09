@@ -134,20 +134,22 @@ pub(in crate::cli) fn run_session_reset_state(
     }
 }
 
-/// After `daemon stop --end-terminals` (W5-R, bench round 4 item 10): removes
-/// the stopped owner's saved state, `session_dir` as the owner reported it.
-/// Nothing is left to resume. The reset takes the session's lease, so it
-/// waits (until `deadline`) for the stopping owner to exit and release it,
-/// and it never removes the state of an owner that runs. Returns the fields
-/// for the stop result: `removed_session_state`, and on failure
-/// `session_state_error` (a `session.reset_state.*` code).
-pub(in crate::cli) fn remove_ended_session_state(
+/// After `daemon stop --end-terminals` (W5-R, bench round 4 item 10):
+/// removes the stopped owner's terminal and resume state (its launch
+/// snapshot and terminal-host records) under `session_dir`, as the owner
+/// reported it. The Chief store, conversations, git checkpoints, diff
+/// comments and session settings stay. The removal waits (until `deadline`)
+/// for the stopping owner to release its session locks, and never touches
+/// the state of an owner that runs. Returns the fields for the stop result:
+/// `removed_terminal_state` (true once none is left), and on failure
+/// `terminal_state_error` (a `session.reset_state.*` code).
+pub(in crate::cli) fn end_stopped_terminal_state(
     session: &str,
     session_dir: &std::path::Path,
     deadline: std::time::Instant,
 ) -> serde_json::Map<String, serde_json::Value> {
     let mut fields = serde_json::Map::new();
-    let removed = session_dir
+    let ended = session_dir
         .parent()
         .map(|root| cmux_tui_core::PersistentSessionStateResetter::new(root.to_path_buf()))
         .filter(|resetter| {
@@ -155,44 +157,16 @@ pub(in crate::cli) fn remove_ended_session_state(
                 == cmux_tui_core::platform::normalize_filesystem_path(session_dir.to_path_buf())
         })
         .ok_or("session.reset_state.invalid_state_path")
-        .and_then(|resetter| reset_when_released(&resetter, session, deadline));
-    fields.insert("removed_session_state".to_owned(), json!(removed == Ok(true)));
-    if let Err(code) = removed {
-        fields.insert("session_state_error".to_owned(), json!(code));
+        .and_then(|resetter| {
+            resetter
+                .end_terminal_state(session, deadline)
+                .map_err(|error| reset_failure_advice(&error).code)
+        });
+    fields.insert("removed_terminal_state".to_owned(), json!(ended.is_ok()));
+    if let Err(code) = ended {
+        fields.insert("terminal_state_error".to_owned(), json!(code));
     }
     fields
-}
-
-/// Resets `session` once its stopped owner released the session lease. A
-/// lease still held, hosts still ending, or state the exiting owner still
-/// writes (its launch snapshot) is retried until `deadline`.
-fn reset_when_released(
-    resetter: &cmux_tui_core::PersistentSessionStateResetter,
-    session: &str,
-    deadline: std::time::Instant,
-) -> Result<bool, &'static str> {
-    loop {
-        let attempt = resetter
-            .preview(session)
-            .and_then(|preview| resetter.reset(session, Some(preview.confirm_reset.as_str())));
-        let error = match attempt {
-            Ok(reset) => return Ok(reset.removed_session_state || reset.removed_terminal_hosts),
-            Err(error) => reset_failure_advice(&error).code,
-        };
-        let releasing = matches!(
-            error,
-            "session.reset_state.session_running"
-                | "session.reset_state.terminal_hosts_live"
-                | "session.reset_state.state_changed"
-                | "session.reset_state.confirmation_required"
-        );
-        if !releasing || std::time::Instant::now() >= deadline {
-            return Err(error);
-        }
-        // The lease is an advisory file lock the owner drops when it exits;
-        // no event announces that, so a held lease is tried again shortly.
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
 }
 
 struct ResetFailureAdvice {
