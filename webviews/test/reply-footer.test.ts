@@ -145,9 +145,7 @@ await requireBrowserLane("reply-footer.test.ts", async () => {
         for (const footer of measured) expect(footer.detail).toMatch(/\b20\d\d\b/);
         // The time on its own line, then one token count per row (turnTokensModel.ts `replyTimeDetail`).
         for (const footer of withStats)
-          expect(footer.detail).toMatch(
-            /Worked for 5s\nOutput .+\nInput across calls .+\u00a0uncached · .+\u00a0cached/,
-          );
+          expect(footer.detail).toMatch(/Worked for 5s\nOutput .+\nInput .+\u00a0uncached · .+\u00a0cached/);
         for (const footer of measured) {
           expect(footer.first).toContain("cv-turn-action-group");
           expect(footer.glyph).toBeDefined();

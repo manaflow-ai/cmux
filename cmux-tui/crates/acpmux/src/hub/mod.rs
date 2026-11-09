@@ -955,6 +955,9 @@ pub struct Hub {
     pub(crate) briefs: dispatch::Briefs,
     /// Every Claude workflow of this daemon's chats (`workflow_index.rs`).
     pub(crate) workflow_index: workflow_index::WorkflowIndex,
+    /// Which predicted next prompts reach the person (`suggestion_gate.rs`): this daemon's own
+    /// chats and the peers' chats it relays to its person.
+    pub(crate) suggestion_gate: StdMutex<crate::suggestion_gate::Gate>,
 }
 
 /// Serialized forms of one closed session. Each form has its own generation and tag-expiry
@@ -1032,6 +1035,7 @@ impl Hub {
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
         let peer_paths = Arc::new(crate::peer_last_good::LastGood::open(home.as_deref()));
+        let suggestion_gate = StdMutex::new(crate::suggestion_gate::Gate::open(home.as_deref()));
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
@@ -1191,6 +1195,7 @@ impl Hub {
             person: Default::default(),
             presence: Default::default(),
             workflow_index: Default::default(),
+            suggestion_gate,
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             watched_moves: Default::default(),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
