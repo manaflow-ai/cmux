@@ -415,6 +415,17 @@ pub(crate) fn output_heavy_sealed_registry(
     segments: u64,
     output_bytes: usize,
 ) -> (WorkspaceRegistry, Vec<u64>) {
+    let per_segment = u64::try_from(journal_extensions::JOURNAL_SEGMENT_RECORD_LIMIT).unwrap();
+    sealed_registry_of(segments, per_segment, output_bytes)
+}
+
+/// [`output_heavy_sealed_registry`] with `per_segment` records a segment:
+/// a few makes the sparse segments output cleanup leaves behind.
+pub(crate) fn sealed_registry_of(
+    segments: u64,
+    per_segment: u64,
+    output_bytes: usize,
+) -> (WorkspaceRegistry, Vec<u64>) {
     use std::io::Write as _;
     let registry = WorkspaceRegistry::in_memory("journal-output-heavy").unwrap();
     registry
@@ -428,7 +439,6 @@ pub(crate) fn output_heavy_sealed_registry(
              BEGIN SELECT RAISE(ABORT, 'session journal is append-only'); END;",
         )
         .unwrap();
-    let per_segment = u64::try_from(journal_extensions::JOURNAL_SEGMENT_RECORD_LIMIT).unwrap();
     let mut state = 0x2545_f491_u64;
     let mut expected = Vec::new();
     for segment in 0..segments {
@@ -733,6 +743,73 @@ fn a_kind_read_runs_a_bounded_slice_of_an_unfinished_kind_backfill() {
     );
     assert_eq!(seen, expected, "the full-decode path returns the same records");
     assert_eq!(mapped(&registry), i64::try_from(segments).unwrap(), "the backfill finished");
+}
+
+/// router-review on #39096 at 498cf0f: while the kind backfill was
+/// unfinished, a kind read met an unmapped segment and fell back to the
+/// legacy read of up to `limit` records of every kind, terminal output
+/// included. Over sparse segments (output cleanup leaves a few records in
+/// each) that decoded up to `limit` whole segments in one call, and a kind
+/// read over mapped segments decoded every segment holding a match until it
+/// had `limit` records, all before the replay's next deadline check.
+/// A read now decodes the segments of one slice (one batch at least, one
+/// unmapped segment at most) and returns the cursor it reached; later reads
+/// return the rest.
+#[test]
+fn a_kind_read_over_many_sparse_sealed_segments_decodes_one_slice() {
+    let (segments, per_segment) = (64_u64, 12_u64);
+    let (registry, expected) = sealed_registry_of(segments, per_segment, 64);
+    let head = registry.session_journal_head().unwrap();
+    registry
+        .connection
+        .get()
+        .execute_batch(
+            "DELETE FROM journal_segment_kinds;
+             DELETE FROM meta WHERE key LIKE 'journal_segment_kinds_backfill%';",
+        )
+        .unwrap();
+    let kinds: kind_read::JournalKinds = |kind| kind == "agent.test.noop";
+    let read_all = |registry: &WorkspaceRegistry, first_bound: u64| {
+        let (first, mut cursor) =
+            registry.session_journal_kinds_after(0, head, kinds, 512).unwrap();
+        assert!(
+            cursor <= first_bound,
+            "the first read decodes one slice: it reached {cursor}, past {first_bound}"
+        );
+        let mut seen = first.iter().map(|record| record.sequence).collect::<Vec<_>>();
+        while cursor < head {
+            let (records, reached) =
+                registry.session_journal_kinds_after(cursor, head, kinds, 512).unwrap();
+            assert!(reached > cursor, "each read makes progress");
+            seen.extend(records.iter().map(|record| record.sequence));
+            cursor = reached;
+        }
+        assert_eq!(seen, expected, "the reads return every record of the kinds, once");
+    };
+    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(Some(std::time::Duration::ZERO)));
+    kind_read::SEGMENT_DECODE_WORKERS.with(|workers| workers.set(Some(2)));
+    // Unmapped: each call's backfill maps one segment, and the read decodes
+    // at most that one and the first unmapped segment after it.
+    read_all(&registry, 2 * per_segment);
+    // A full slice maps the rest (64 small segments).
+    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(None));
+    registry.session_journal_kinds_after(0, head, kinds, 1).unwrap();
+    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(Some(std::time::Duration::ZERO)));
+    let unmapped: i64 = registry
+        .connection
+        .get()
+        .query_row(
+            "SELECT COUNT(*) FROM journal_segments WHERE segment_id NOT IN
+               (SELECT segment_id FROM journal_segment_kinds)",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(unmapped, 0, "the backfill finished");
+    // Mapped: one batch of two segments.
+    read_all(&registry, 2 * per_segment);
+    kind_read::SEGMENT_DECODE_WORKERS.with(|workers| workers.set(None));
+    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(None));
 }
 
 /// The same on a synthetic registry of a long-lived owner's shape
