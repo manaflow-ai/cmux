@@ -69,41 +69,6 @@ public nonisolated struct CloudMoveFolder: Sendable, Equatable, Decodable {
         self = found
     }
 
-    /// ``init(chat:)`` read off the main thread (it looks for `.git` above the folder).
-    @concurrent nonisolated public static func read(chat folder: String) async -> CloudMoveFolder? {
-        CloudMoveFolder(chat: folder)
-    }
-
-    /// `path` with its `.` and `..` parts resolved and no trailing slash, as written otherwise (standardizing
-    /// would also turn /private/tmp into /tmp): nil for a relative path or one whose `..` parts climb above
-    /// the disk's root. The same rule as Rust's `moves::folder::normalized`, which ``init(chat:)`` applies;
-    /// `cmux cloud start-session --from-folder` checks its words with it before any machine is touched.
-    public static func normalized(_ path: String) -> String? {
-        guard path.hasPrefix("/") else { return nil }
-        var parts: [Substring] = []
-        for part in path.split(separator: "/") {
-            switch part {
-            case ".": continue
-            case "..": if parts.popLast() == nil { return nil }
-            default: parts.append(part)
-            }
-        }
-        return "/" + parts.joined(separator: "/")
-    }
-
-    /// A start's copy key (`cmux link start-chat copy` takes a UUID's spelling) made of `machine` and `folder` (canonical):
-    /// the same start again on the same machine is the same copy, which its ledger reuses (`cmux cloud start-session
-    /// --from-folder`).
-    public static func copyKey(machine: String, folder: String) -> String {
-        let digest = SHA256.hash(data: Data("cmux cloud start-session --from-folder\u{0}\(machine)\u{0}\(folder)".utf8))
-        var key = ""
-        for (offset, character) in digest.prefix(16).map({ String(format: "%02x", $0) }).joined().enumerated() {
-            if [8, 12, 16, 20].contains(offset) { key.append("-") }
-            key.append(character)
-        }
-        return key
-    }
-
     /// The home folder or the disk's root: never copied to a machine (Rust's `start::too_broad`, with both
     /// paths as Foundation standardizes them).
     public var isTooBroad: Bool {
