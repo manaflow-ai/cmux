@@ -132,7 +132,13 @@ pub(super) fn machine_id_for_this_host(
 /// daemon's resource API. Records other stores hold under the copied id (the
 /// app's, other machines') are no longer written by this machine; their
 /// owners age them out as they do for a machine that went away.
-pub(super) fn rehome_registry(connection: &Connection) -> anyhow::Result<()> {
+/// `timings` gets a step per table it rewrote (`registry.migrations.rehome.
+/// <table>`, with the rows changed) when the table changed rows or its scan
+/// took 1 ms or more.
+pub(super) fn rehome_registry(
+    connection: &Connection,
+    timings: &mut crate::startup_timings::StartupTimings,
+) -> anyhow::Result<()> {
     let Some(current) = current_host_stamp() else {
         return Ok(());
     };
@@ -143,7 +149,7 @@ pub(super) fn rehome_registry(connection: &Connection) -> anyhow::Result<()> {
     let tx = connection.unchecked_transaction()?;
     if stored.is_some() {
         let copied = required_meta(&tx, "registry_id")?;
-        rewrite_text_everywhere(&tx, &copied, &try_new_uuid_v4()?)?;
+        rewrite_text_everywhere(&tx, &copied, &try_new_uuid_v4()?, timings)?;
         // After the rewrite, which would move the id in this list too.
         let mut former = StoredIds::load(&tx)?.former;
         former.push(copied);
@@ -326,10 +332,17 @@ fn rehomed(text: &str, old: &str, new: &str) -> Option<String> {
 /// Rows that key on the id and rows that refer to them change in one
 /// transaction, so foreign keys are checked at its commit, not after each
 /// statement.
-fn rewrite_text_everywhere(tx: &Transaction<'_>, old: &str, new: &str) -> anyhow::Result<()> {
+fn rewrite_text_everywhere(
+    tx: &Transaction<'_>,
+    old: &str,
+    new: &str,
+    timings: &mut crate::startup_timings::StartupTimings,
+) -> anyhow::Result<()> {
     tx.execute_batch("PRAGMA defer_foreign_keys=ON;")?;
-    for (table, columns) in mutable_columns(tx)? {
-        let table = quote_identifier(&table);
+    for (name, columns) in mutable_columns(tx)? {
+        let started = std::time::Instant::now();
+        let mut changed = 0_u64;
+        let table = quote_identifier(&name);
         for column in columns {
             let column = quote_identifier(&column);
             let texts: Vec<String> = tx
@@ -343,12 +356,17 @@ fn rewrite_text_everywhere(tx: &Transaction<'_>, old: &str, new: &str) -> anyhow
                 let replacement =
                     rehomed(&text, old, new).or_else(|| rehomed_json(&text, old, new));
                 if let Some(replacement) = replacement {
-                    tx.execute(
+                    let rows = tx.execute(
                         &format!("UPDATE {table} SET {column} = ?2 WHERE {column} = ?1"),
                         params![text, replacement],
                     )?;
+                    changed += rows as u64;
                 }
             }
+        }
+        let took = started.elapsed();
+        if changed > 0 || took >= std::time::Duration::from_millis(1) {
+            timings.record_rows(format!("registry.migrations.rehome.{name}"), took, changed);
         }
     }
     Ok(())
@@ -796,7 +814,7 @@ mod tests {
                 }),
             )
             .unwrap();
-        rehome_registry(&connection).unwrap();
+        rehome_registry(&connection, &mut crate::startup_timings::StartupTimings::start()).unwrap();
         connection.progress_handler(0, None::<fn() -> bool>).unwrap();
         assert_ne!(required_meta(&connection, "registry_id").unwrap(), copied, "rehomed");
         drop(connection);
@@ -913,6 +931,38 @@ mod tests {
         .unwrap()
         .unwrap();
         expected(&terminal.result);
+        drop(registry);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// The open's startup laps name each table the rehome rewrote and the
+    /// rows it changed (`registry.migrations.rehome.<table>`), so a slow
+    /// first start on another machine names the table that cost it: the
+    /// rehome still took 1.7 s of a 3.9 s first start of a 58.7 GB registry
+    /// after the journal and receipts left its scan (2026-11-09).
+    #[test]
+    fn the_rehome_laps_name_the_tables_it_rewrote() {
+        let root = temp_root("rehome-laps");
+        as_machine(Some("0123456789abcdef0123456789abcdef"));
+        let copied = ids(&root).0;
+        plant(&root, &copied);
+        as_machine(Some("fedcba9876543210fedcba9876543210"));
+        let mut registry = WorkspaceRegistry::open(&root, SESSION).unwrap();
+        let line = registry.take_open_timings().to_line(1, 1);
+        let steps = line["steps"].as_array().unwrap();
+        let lap = |name: &str| steps.iter().find(|step| step["step"] == name).cloned();
+        let planted = lap("registry.migrations.rehome.user_text")
+            .unwrap_or_else(|| panic!("no lap for the planted table in {steps:?}"));
+        assert_eq!(planted["rows"], 1, "{planted}");
+        let sessions = lap("registry.migrations.rehome.sessions")
+            .unwrap_or_else(|| panic!("no lap for the session rows in {steps:?}"));
+        assert!(sessions["rows"].as_u64().unwrap() >= 1, "{sessions}");
+        assert!(lap("registry.migrations.rehome").is_some(), "the rest keeps its lap: {steps:?}");
+        let names: Vec<_> = steps.iter().filter_map(|step| step["step"].as_str()).collect();
+        assert!(
+            !names.iter().any(|name| name.starts_with("registry.migrations.rehome.journal_")),
+            "skipped tables have no lap: {names:?}"
+        );
         drop(registry);
         fs::remove_dir_all(root).unwrap();
     }
