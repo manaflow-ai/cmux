@@ -1,8 +1,11 @@
 # Deploys the cmux-next-ios mobile Worker (cmux-next-ios/backend) to its dev environment,
 # `cmux-mobile-api-dev` (https://cmux-mobile-api-dev.debussy.workers.dev).
 #
-# Manual runs only, from feat-cmux-next. The env is fixed to `dev`: this workflow has no
-# input that picks one and no production target. `cmux-mobile-api-prod` stays a hand deploy
+# Manual runs from feat-cmux-next. The push trigger (this file only) registers the workflow,
+# since a dispatch needs it on the default branch or already known (as in
+# pair-machine-join-check.yml), and deploys dev once when this file lands or changes. The env is
+# fixed to `dev`: this workflow has no input that picks one and no production target.
+# `cmux-mobile-api-prod` stays a hand deploy
 # (cmux-next-ios/backend/README.md, "Test and deploy").
 #
 # The job runs the README's gates first (frozen install, typecheck, the vitest suite on
@@ -31,6 +34,9 @@
 name: Mobile Worker dev deploy
 
 on:
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/mobile-worker-dev-deploy.yml]
   workflow_dispatch:
 
 permissions:
