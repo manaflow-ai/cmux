@@ -337,8 +337,9 @@ fn a_request_that_is_not_a_call_runs_nothing_and_echoes_nothing() {
     assert_eq!(code, "validation.invalid");
     assert!(!format!("{message} {details}").contains("%%%%"));
 
-    let (code, _, _) =
-        daemon.send("cloud.vm.firewall_delete", params(&origin, "stack", json!({})), None).unwrap_err();
+    let (code, _, _) = daemon
+        .send("cloud.vm.firewall_delete", params(&origin, "stack", json!({})), None)
+        .unwrap_err();
     assert_eq!(code, "validation.invalid", "a mutation needs its idempotency key");
     assert!(seen.lock().unwrap().is_empty());
 }

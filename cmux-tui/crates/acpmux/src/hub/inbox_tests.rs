@@ -838,3 +838,33 @@ mod agent_messaging {
         );
     }
 }
+
+/// An inbox notice past `WHOLE_BYTES` opens its thread with `_acpmux/inbox_thread` (review of
+/// #37652, F2): the transcript draws each message's `fromName`, the name alone, as a notice's parts
+/// do. `from` stays the agent's words (`inbox_read`, `acpmux session inbox`, the team read), and
+/// `sender` keeps the whole record, its verification included.
+#[tokio::test]
+async fn an_opened_thread_names_its_senders_plainly_for_the_transcript() {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let meta = json!({"schema": crate::store::META_SCHEMA, "id": "inbox-open",
+        "name": "inbox-open", "harness": "claude", "cwd": "/tmp", "status": "idle",
+        "createdAt": 1, "updatedAt": 2});
+    store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+    let hub = Hub::new(cfg, store);
+    hub.begin_startup(false);
+    let session = hub.resolve("inbox-open").unwrap();
+    let declared = crate::prompt_provenance::named_sender("dot", "inbox-open");
+    let mut message = item("p1", "declared:dot", "dot", PromptClass::Result, 1, "hello");
+    message.sender = crate::prompt_provenance::sender_record(Some(&declared), None, None);
+    session.inbox.lock().unwrap().items.push(message);
+    let thread = hub.inbox_thread(&session, "declared:dot", false);
+    let m = &thread["messages"][0];
+    assert_eq!(m["fromName"], "dot", "{thread}");
+    assert_eq!(m["from"], "dot (self-declared, unauthenticated)", "{thread}");
+    assert_eq!(
+        (&m["sender"]["verification"], &m["sender"]["label"]),
+        (&json!("declared"), &json!("dot"))
+    );
+}

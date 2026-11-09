@@ -167102,127 +167102,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Inter (default)"
+            "value": "cmux Inter"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (افتراضي)"
+            "value": "cmux Inter"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Zadano)"
+            "value": "cmux Inter"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Standard)"
+            "value": "cmux Inter"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Standard)"
+            "value": "cmux Inter"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Predeterminado)"
+            "value": "cmux Inter"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Par défaut)"
+            "value": "cmux Inter"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Predefinito)"
+            "value": "cmux Inter"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (デフォルト)"
+            "value": "cmux Inter"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (លំនាំដើម)"
+            "value": "cmux Inter"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (기본값)"
+            "value": "cmux Inter"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Standard)"
+            "value": "cmux Inter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Domyślne)"
+            "value": "cmux Inter"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Padrão)"
+            "value": "cmux Inter"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (По умолчанию)"
+            "value": "cmux Inter"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (ค่าเริ่มต้น)"
+            "value": "cmux Inter"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Varsayılan)"
+            "value": "cmux Inter"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Типово)"
+            "value": "cmux Inter"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (Mặc định)"
+            "value": "cmux Inter"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (默认)"
+            "value": "cmux Inter"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux Inter (預設)"
+            "value": "cmux Inter"
           }
         }
       }
@@ -168422,127 +168422,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "System"
+            "value": "System (default)"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "النظام"
+            "value": "النظام (افتراضي)"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistemski"
+            "value": "Sistemski (Zadano)"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "System"
+            "value": "System (Standard)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "System"
+            "value": "System (Standard)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistema"
+            "value": "Sistema (Predeterminado)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Système"
+            "value": "Système (Par défaut)"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistema"
+            "value": "Sistema (Predefinito)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "システム"
+            "value": "システム (デフォルト)"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ប្រព័ន្ធ"
+            "value": "ប្រព័ន្ធ (លំនាំដើម)"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "시스템"
+            "value": "시스템 (기본값)"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "System"
+            "value": "System (Standard)"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Systemowa"
+            "value": "Systemowa (domyślna)"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistema"
+            "value": "Sistema (Padrão)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Системный"
+            "value": "Системный (По умолчанию)"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ระบบ"
+            "value": "ระบบ (ค่าเริ่มต้น)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sistem"
+            "value": "Sistem (Varsayılan)"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Системний"
+            "value": "Системний (Типово)"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hệ thống"
+            "value": "Hệ thống (Mặc định)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "系统"
+            "value": "系统 (默认)"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "系統"
+            "value": "系統 (預設)"
           }
         }
       }
@@ -185109,6 +185109,268 @@
           "stringUnit": {
             "state": "translated",
             "value": "代理程式可以建議後續任務，你可以在目前聊天旁把它們當成子聊天開始。變更後啟動的代理程式生效。"
+          }
+        }
+      }
+    },
+    "settings.agents.promptSuggestions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggest Next Prompt"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اقتراح الطلب التالي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predlaži sljedeći upit"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foreslå næste prompt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nächsten Prompt vorschlagen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sugerir la siguiente instrucción"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggérer la prochaine instruction"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggerisci il prossimo prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のプロンプトを提案"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ណែនាំសំណើបន្ទាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 프롬프트 제안"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foreslå neste ledetekst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proponuj następny prompt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sugerir o próximo prompt"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предлагать следующий запрос"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แนะนำพรอมต์ถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonraki istemi öner"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пропонувати наступний запит"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gợi ý lời nhắc tiếp theo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建议下一条提示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建議下一則提示"
+          }
+        }
+      }
+    },
+    "settings.agents.promptSuggestions.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بعد كل دور، يقترح Claude أو Codex طلبك التالي كنص رمادي في محرر فارغ؛ يقبله Tab أو السهم الأيمن. كل اقتراح هو استدعاء إضافي للنموذج يُحتسب ضمن الاستخدام. ينطبق على المحادثات التي تبدأ أو يُعاد تشغيلها بعد التغيير."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nakon poteza, Claude ili Codex predlaže vaš sljedeći upit kao sivi tekst u praznom polju za pisanje; Tab ili strelica desno ga prihvata. Svaki prijedlog je jedan dodatni poziv modela koji se računa u potrošnju. Važi za razgovore pokrenute ili ponovo pokrenute nakon promjene."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efter en tur foreslår Claude eller Codex din næste prompt som grå tekst i et tomt skrivefelt; Tab eller højre pil tager den. Hvert forslag er ét ekstra modelkald, der tæller med i forbruget. Gælder for chats, der startes eller genstartes efter ændringen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach einem Zug schlägt Claude oder Codex deinen nächsten Prompt als graue Schrift in einem leeren Eingabefeld vor; Tab oder Pfeil nach rechts übernimmt ihn. Jeder Vorschlag ist ein zusätzlicher Modellaufruf, der zur Nutzung zählt. Gilt für Chats, die nach der Änderung gestartet oder neu gestartet werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tras cada turno, Claude o Codex sugiere tu siguiente instrucción como texto gris en un editor vacío; Tab o la flecha derecha la acepta. Cada sugerencia es una llamada adicional al modelo que cuenta para el uso. Se aplica a los chats iniciados o reiniciados después del cambio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Après chaque tour, Claude ou Codex suggère votre prochaine instruction en texte gris dans un champ de saisie vide ; Tab ou la flèche droite l’accepte. Chaque suggestion est un appel supplémentaire au modèle, compté dans l’utilisation. S’applique aux chats lancés ou relancés après le changement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo un turno, Claude o Codex suggerisce il tuo prossimo prompt come testo grigio in un compositore vuoto; Tab o la freccia destra lo accetta. Ogni suggerimento è una chiamata in più al modello che conta nell’utilizzo. Vale per le chat avviate o riavviate dopo la modifica."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターンの後、Claude または Codex が次のプロンプトを空の入力欄にグレーの文字で提案します。Tab または右矢印キーで採用できます。提案ごとにモデル呼び出しが 1 回追加され、使用量に含まれます。変更後に開始または再起動したチャットに適用されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ទាប់ពីវេនមួយ Claude ឬ Codex ណែនាំសំណើបន្ទាប់របស់អ្នកជាអក្សរពណ៌ប្រផេះក្នុងប្រអប់សរសេរទទេ ហើយ Tab ឬព្រួញស្ដាំទទួលយកវា។ ការណែនាំនីមួយៗគឺជាការហៅម៉ូដែលបន្ថែមមួយដងដែលរាប់ក្នុងការប្រើប្រាស់។ អនុវត្តចំពោះការជជែកដែលចាប់ផ្ដើម ឬចាប់ផ្ដើមឡើងវិញក្រោយការផ្លាស់ប្ដូរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "턴이 끝나면 Claude 또는 Codex가 빈 입력창에 다음 프롬프트를 회색 텍스트로 제안합니다. Tab 또는 오른쪽 화살표로 받아들일 수 있습니다. 제안마다 모델 호출이 한 번 더 발생하며 사용량에 포함됩니다. 변경 후 시작하거나 다시 시작한 채팅에 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etter en tur foreslår Claude eller Codex din neste ledetekst som grå tekst i et tomt skrivefelt; Tab eller høyre pil tar den. Hvert forslag er ett ekstra modellkall som teller mot forbruket. Gjelder chatter som startes eller startes på nytt etter endringen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po każdej turze Claude lub Codex proponuje Twój następny prompt jako szary tekst w pustym polu edycji; Tab lub strzałka w prawo go przyjmuje. Każda propozycja to jedno dodatkowe wywołanie modelu, które wlicza się do użycia. Dotyczy czatów uruchomionych lub uruchomionych ponownie po zmianie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Após cada turno, o Claude ou o Codex sugere seu próximo prompt como texto cinza no editor vazio; Tab ou a seta para a direita o aceita. Cada sugestão é uma chamada extra ao modelo que conta no uso. Vale para chats iniciados ou reiniciados depois da mudança."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "После хода Claude или Codex предлагает ваш следующий запрос серым текстом в пустом поле ввода; Tab или стрелка вправо принимает его. Каждое предложение — это ещё один вызов модели, который учитывается в использовании. Действует для чатов, запущенных или перезапущенных после изменения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หลังจบแต่ละรอบ Claude หรือ Codex จะแนะนำพรอมต์ถัดไปของคุณเป็นข้อความสีเทาในช่องเขียนที่ว่างอยู่ กด Tab หรือลูกศรขวาเพื่อใช้ การแนะนำแต่ละครั้งคือการเรียกโมเดลเพิ่มหนึ่งครั้งที่นับรวมในการใช้งาน มีผลกับแชทที่เริ่มหรือเริ่มใหม่หลังการเปลี่ยนแปลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her turdan sonra Claude veya Codex, boş yazma alanında bir sonraki isteminizi gri metin olarak önerir; Tab veya sağ ok tuşu onu alır. Her öneri, kullanıma sayılan fazladan bir model çağrısıdır. Değişiklikten sonra başlatılan veya yeniden başlatılan sohbetler için geçerlidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Після ходу Claude або Codex пропонує ваш наступний запит сірим текстом у порожньому полі введення; Tab або стрілка праворуч приймає його. Кожна пропозиція — це ще один виклик моделі, що враховується у використанні. Діє для чатів, запущених або перезапущених після зміни."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sau mỗi lượt, Claude hoặc Codex gợi ý lời nhắc tiếp theo của bạn dưới dạng chữ xám trong ô soạn thảo trống; nhấn Tab hoặc mũi tên phải để dùng. Mỗi gợi ý là một lần gọi mô hình thêm và được tính vào mức sử dụng. Áp dụng cho các cuộc trò chuyện bắt đầu hoặc khởi động lại sau thay đổi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每轮结束后，Claude 或 Codex 会在空白输入框中以灰色文字建议你的下一条提示；按 Tab 或右箭头即可采用。每条建议都是一次额外的模型调用，会计入用量。适用于更改后开始或重新开始的聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每輪結束後，Claude 或 Codex 會在空白輸入框中以灰色文字建議你的下一則提示；按 Tab 或向右鍵即可採用。每則建議都是一次額外的模型呼叫，會計入用量。適用於變更後開始或重新開始的聊天。"
           }
         }
       }
@@ -216303,6 +216565,84 @@
         }
       }
     },
+    "settings.remote.ultraMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "وضع الاتصال الفائق"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Ultra način veze"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Ultra-forbindelsestilstand"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Ultra-Verbindungsmodus"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Ultra Connection Mode"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Modo de conexión ultra"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Mode de connexion ultra"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Modalità connessione ultra"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ウルトラ接続モード"}},
+        "km": {"stringUnit": {"state": "translated", "value": "របៀបតភ្ជាប់អ៊ុលត្រា"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "울트라 연결 모드"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Ultra-tilkoblingsmodus"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Tryb połączenia ultra"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Modo de conexão ultra"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Режим ультрасоединения"}},
+        "th": {"stringUnit": {"state": "translated", "value": "โหมดการเชื่อมต่ออัลตร้า"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Ultra bağlantı modu"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Режим ультраз’єднання"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Chế độ kết nối Ultra"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "超强连接模式"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "超強連線模式"}}
+      }
+    },
+    "settings.remote.ultraMode.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "يرسل بيانات إصلاح مع كل اتصال بـ Cloud وأجهزتك الأخرى، فتبقى الشبكة التي تفقد الحزم سريعة. يستهلك نحو ضعفين إلى ثلاثة أضعاف البيانات. يُطبَّق على الاتصال التالي."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Šalje podatke za popravak uz svaku vezu prema Cloudu i vašim drugim računarima, pa mreža koja gubi pakete ostaje brza. Troši oko 2 do 3 puta više podataka. Primjenjuje se na sljedeću vezu."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Sender reparationsdata med hver forbindelse til Cloud og dine andre maskiner, så et netværk, der taber pakker, forbliver hurtigt. Bruger cirka 2 til 3 gange så meget data. Gælder for den næste forbindelse."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Sendet bei jeder Verbindung zu Cloud und deinen anderen Rechnern Reparaturdaten mit, damit ein Netz, das Pakete verliert, schnell bleibt. Verbraucht etwa das 2- bis 3-Fache an Daten. Gilt ab der nächsten Verbindung."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Envía datos de reparación con cada conexión a Cloud y a tus otras máquinas, para que una red que pierde paquetes siga siendo rápida. Usa entre 2 y 3 veces más datos. Se aplica a la siguiente conexión."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Envoie des données de réparation avec chaque connexion à Cloud et à vos autres machines, pour qu’un réseau qui perd des paquets reste rapide. Utilise environ 2 à 3 fois plus de données. S’applique à la prochaine connexion."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Invia dati di riparazione con ogni connessione a Cloud e alle tue altre macchine, così una rete che perde pacchetti resta veloce. Usa circa da 2 a 3 volte i dati. Si applica alla connessione successiva."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud や他のマシンへの各接続で修復データを送り、パケットが失われるネットワークでも速さを保ちます。データ量は約 2〜3 倍になります。次の接続から適用されます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ផ្ញើទិន្នន័យជួសជុលជាមួយការតភ្ជាប់នីមួយៗទៅ Cloud និងម៉ាស៊ីនផ្សេងទៀតរបស់អ្នក ដូច្នេះបណ្ដាញដែលបាត់កញ្ចប់ព័ត៌មាននៅតែលឿន។ ប្រើទិន្នន័យប្រហែល 2 ទៅ 3 ដង។ អនុវត្តចំពោះការតភ្ជាប់បន្ទាប់។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Cloud와 다른 기기로의 모든 연결에 복구 데이터를 함께 보내, 패킷이 손실되는 네트워크에서도 빠르게 유지합니다. 데이터를 약 2~3배 사용합니다. 다음 연결부터 적용됩니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Sender reparasjonsdata med hver tilkobling til Cloud og de andre maskinene dine, slik at et nettverk som mister pakker, forblir raskt. Bruker omtrent 2 til 3 ganger så mye data. Gjelder fra neste tilkobling."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wysyła dane naprawcze z każdym połączeniem z Cloud i Twoimi innymi maszynami, więc sieć gubiąca pakiety pozostaje szybka. Zużywa około 2–3 razy więcej danych. Działa od następnego połączenia."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Envia dados de reparo em cada conexão com o Cloud e suas outras máquinas, para que uma rede que perde pacotes continue rápida. Usa cerca de 2 a 3 vezes mais dados. Vale a partir da próxima conexão."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Отправляет данные для восстановления с каждым подключением к Cloud и другим вашим машинам, чтобы сеть с потерей пакетов оставалась быстрой. Расходует примерно в 2–3 раза больше данных. Действует со следующего подключения."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ส่งข้อมูลกู้คืนไปกับทุกการเชื่อมต่อไปยัง Cloud และเครื่องอื่นของคุณ เพื่อให้เครือข่ายที่ทำแพ็กเก็ตหายยังคงเร็ว ใช้ข้อมูลประมาณ 2 ถึง 3 เท่า มีผลกับการเชื่อมต่อครั้งถัดไป"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Cloud’a ve diğer makinelerinize yapılan her bağlantıyla onarım verisi gönderir; böylece paket kaybeden bir ağ hızlı kalır. Yaklaşık 2 ila 3 kat veri kullanır. Bir sonraki bağlantıda geçerli olur."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Надсилає дані для відновлення з кожним з’єднанням із Cloud та іншими вашими машинами, щоб мережа із втратою пакетів залишалася швидкою. Використовує приблизно у 2–3 рази більше даних. Діє з наступного з’єднання."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Gửi dữ liệu sửa lỗi kèm mỗi kết nối tới Cloud và các máy khác của bạn, để mạng bị mất gói vẫn nhanh. Dùng khoảng 2 đến 3 lần dữ liệu. Áp dụng cho kết nối tiếp theo."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在每个连接到 Cloud 和你其他机器的连接中附带修复数据，让丢包的网络依然快速。数据用量约为 2 到 3 倍。从下一次连接开始生效。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在每個連到 Cloud 和你其他機器的連線中附帶修復資料，讓會掉封包的網路依然快速。資料用量約為 2 到 3 倍。從下一次連線開始生效。"}}
+      }
+    },
+    "settings.remote.ultraMode.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "يستهلك بيانات أكثر ليبقى سريعًا على الشبكات غير المستقرة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Troši više podataka da ostane brz na mrežama s gubicima"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Bruger mere data for at forblive hurtig på ustabile netværk"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Verbraucht mehr Daten, um in verlustreichen Netzen schnell zu bleiben"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Uses more data to stay fast on lossy networks"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Usa más datos para seguir rápido en redes con pérdidas"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Utilise plus de données pour rester rapide sur les réseaux instables"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Usa più dati per restare veloce sulle reti con perdite"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "データを多く使い、不安定なネットワークでも速さを保ちます"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប្រើទិន្នន័យច្រើនជាងមុន ដើម្បីនៅតែលឿននៅលើបណ្ដាញដែលបាត់កញ្ចប់"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "데이터를 더 사용해 손실이 많은 네트워크에서도 빠르게 유지"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Bruker mer data for å holde seg rask på ustabile nettverk"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Zużywa więcej danych, by działać szybko w sieciach z utratą pakietów"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Usa mais dados para continuar rápido em redes instáveis"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Расходует больше данных, чтобы оставаться быстрым в сетях с потерями"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ใช้ข้อมูลมากขึ้นเพื่อให้ยังเร็วบนเครือข่ายที่สัญญาณไม่เสถียร"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Kayıplı ağlarda hızlı kalmak için daha fazla veri kullanır"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Використовує більше даних, щоб лишатися швидким у мережах із втратами"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Dùng nhiều dữ liệu hơn để vẫn nhanh trên mạng chập chờn"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "使用更多数据，在丢包的网络上保持快速"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "使用更多資料，在會掉封包的網路上保持快速"}}
+      }
+    },
     "settings.agentPane.display.statusVerbs": {
       "extractionState": "manual",
       "localizations": {
@@ -219064,6 +219404,399 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "左上"
+          }
+        }
+      }
+    },
+    "settings.group.developerTools": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدوات المطور"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razvojni alati"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udviklerværktøjer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entwicklerwerkzeuge"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Developer Tools"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herramientas de desarrollo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outils de développement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strumenti per sviluppatori"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デベロッパツール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឧបករណ៍អ្នកអភិវឌ្ឍន៍"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "개발자 도구"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utviklerverktøy"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Narzędzia deweloperskie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ferramentas do Desenvolvedor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Инструменты разработчика"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องมือนักพัฒนา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geliştirici Araçları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інструменти розробника"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Công cụ nhà phát triển"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开发者工具"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開發者工具"
+          }
+        }
+      }
+    },
+    "settings.developerTools.appPages": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدوات المطور لصفحات cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razvojni alati za cmux stranice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udviklerværktøjer til cmux-sider"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entwicklerwerkzeuge für cmux-Seiten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Developer Tools for cmux Pages"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herramientas de desarrollo para páginas de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outils de développement pour les pages cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strumenti per sviluppatori per le pagine di cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ページのデベロッパツール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឧបករណ៍អ្នកអភិវឌ្ឍន៍សម្រាប់ទំព័រ cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 페이지용 개발자 도구"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utviklerverktøy for cmux-sider"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Narzędzia deweloperskie dla stron cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ferramentas do Desenvolvedor para páginas do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Инструменты разработчика для страниц cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องมือนักพัฒนาสำหรับหน้า cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Sayfaları için Geliştirici Araçları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інструменти розробника для сторінок cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Công cụ nhà phát triển cho các trang cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 页面的开发者工具"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 頁面的開發者工具"
+          }
+        }
+      }
+    },
+    "settings.developerTools.appPages.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل «فحص العنصر» في قائمة النقر بزر الماوس الأيمن و«تبديل أدوات المطور» (⌥⌘I) في محادثات الوكلاء والصفحة الرئيسية وMarkdown والإعدادات. علامات تبويب المتصفح تتضمنها دائمًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pregledaj element u meniju desnog klika i Prebaci razvojne alate (⌥⌘I) rade u chatovima s agentima, na Početnoj, u Markdownu i Postavkama. Kartice preglednika ih uvijek imaju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undersøg element i højrekliksmenuen og Slå udviklerværktøjer til/fra (⌥⌘I) virker i agentchats, Hjem, Markdown og Indstillinger. Browserfaner har dem altid."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Element untersuchen“ im Kontextmenü und „Entwicklerwerkzeuge ein-/ausblenden“ (⌥⌘I) funktionieren in Agent-Chats, Home, Markdown und Einstellungen. Browser-Tabs haben sie immer."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspect Element in the right-click menu and Toggle Developer Tools (⌥⌘I) work in agent chats, Home, Markdown and Settings. Browser tabs always have them."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspeccionar elemento en el menú contextual y Alternar herramientas de desarrollo (⌥⌘I) funcionan en los chats de agentes, Inicio, Markdown y Ajustes. Las pestañas del navegador siempre los tienen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspecter l’élément dans le menu contextuel et Afficher/masquer les outils de développement (⌥⌘I) fonctionnent dans les discussions d’agents, l’Accueil, Markdown et les Réglages. Les onglets du navigateur les ont toujours."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ispeziona elemento nel menu contestuale e Attiva/Disattiva Strumenti sviluppatore (⌥⌘I) funzionano nelle chat degli agenti, in Home, Markdown e Impostazioni. I pannelli del browser li hanno sempre."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右クリックメニューの「要素を検証」と「デベロッパツールを切り替え」(⌥⌘I) が、エージェントチャット、ホーム、Markdown、設定で使えます。ブラウザタブでは常に使えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពិនិត្យធាតុ នៅក្នុងម៉ឺនុយចុចស្ដាំ និង បិទ/បើកឧបករណ៍អ្នកអភិវឌ្ឍន៍ (⌥⌘I) ដំណើរការក្នុងការជជែកជាមួយភ្នាក់ងារ ទំព័រដើម Markdown និងការកំណត់។ ផ្ទាំងកម្មវិធីរុករកតែងតែមានវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 클릭 메뉴의 요소 검사와 개발자 도구 전환(⌥⌘I)을 에이전트 채팅, 홈, Markdown, 설정에서 사용할 수 있습니다. 브라우저 탭에는 항상 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspiser element i høyreklikkmenyen og Slå utviklerverktøy av/på (⌥⌘I) virker i agentchatter, Hjem, Markdown og Innstillinger. Nettleserfaner har dem alltid."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zbadaj element w menu prawego przycisku i Przełącz narzędzia deweloperskie (⌥⌘I) działają w czatach z agentami, na stronie głównej, w Markdownie i Ustawieniach. Karty przeglądarki mają je zawsze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inspecionar elemento no menu de contexto e Alternar Ferramentas do Desenvolvedor (⌥⌘I) funcionam em chats de agentes, Início, Markdown e Ajustes. As abas do navegador sempre os têm."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Просмотреть элемент» в контекстном меню и «Инструменты разработчика» (⌥⌘I) работают в чатах с агентами, на главной, в Markdown и в настройках. Во вкладках браузера они есть всегда."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรวจสอบองค์ประกอบในเมนูคลิกขวา และสลับเครื่องมือนักพัฒนา (⌥⌘I) ใช้ได้ในแชทเอเจนต์ หน้าหลัก Markdown และการตั้งค่า แท็บเบราว์เซอร์มีเสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sağ tık menüsündeki Öğeyi incele ve Geliştirici Araçlarını Aç/Kapat (⌥⌘I), ajan sohbetlerinde, Ana Sayfa'da, Markdown'da ve Ayarlar'da çalışır. Tarayıcı sekmelerinde her zaman vardır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Переглянути елемент» у контекстному меню та «Перемкнути інструменти розробника» (⌥⌘I) працюють у чатах з агентами, на головній, у Markdown і в налаштуваннях. Вкладки браузера мають їх завжди."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiểm tra phần tử trong menu chuột phải và Bật/tắt công cụ nhà phát triển (⌥⌘I) hoạt động trong chat với tác tử, Trang chủ, Markdown và Cài đặt. Tab trình duyệt luôn có chúng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右键菜单中的“检查元素”和“切换开发者工具”(⌥⌘I) 可在智能体聊天、主页、Markdown 和设置中使用。浏览器标签页始终可用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右鍵選單中的「檢查元素」和「切換開發者工具」(⌥⌘I) 可在代理聊天、首頁、Markdown 和設定中使用。瀏覽器分頁一律可用。"
           }
         }
       }

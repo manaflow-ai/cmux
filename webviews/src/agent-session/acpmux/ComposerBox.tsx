@@ -13,6 +13,7 @@ import { MarkdownField, type MarkdownFieldHandle, type MarkdownFieldProps } from
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
 import { ComposerListAnchor } from "./backdropLayer";
+import { remember } from "./composer/pasteMarks";
 
 /// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
 /// and dialogs the card opens, and attachments.
@@ -29,6 +30,8 @@ export type ComposerBoxHandle = {
   sent(ids: Iterable<string>): void;
   /// The pastes that went into the draft as text, newest last (composer/pasteMarks.ts).
   pastes(): readonly string[];
+  /// Remembers `texts` as pastes in the draft (a prompt put back with its pastes as text).
+  rememberPastes(texts: readonly string[]): void;
 };
 
 export type ComposerBoxProps = {
@@ -218,6 +221,9 @@ export function ComposerBox({
         pastedChips.pastes.current = [];
       },
       pastes: () => pastedChips.pastes.current,
+      rememberPastes: (texts) => {
+        for (const text of texts) pastedChips.pastes.current = remember(pastedChips.pastes.current, text);
+      },
     }),
     [inline, pastedChips.pastes],
   );

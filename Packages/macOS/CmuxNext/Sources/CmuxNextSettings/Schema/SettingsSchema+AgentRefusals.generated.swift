@@ -97,6 +97,8 @@ extension SettingsSchema {
         "labs.machineJoin": .network,
         // On, a live code build loads Swift patches into the running app: only the person turns that on.
         "labs.liveCode": .userOnly,
+        // Whether cmux's own pages open developer tools, which read and change their live content: the person's call.
+        "developerTools.appPages": .userOnly,
         // On, a key is taken from every other app system-wide.
         "app.globalHotKey": .userOnly, "app.startAgentGlobalHotKey": .userOnly,
         // Off, a close ends running programs and agents without asking.
@@ -131,6 +133,8 @@ extension SettingsSchema {
         "sessions.allowFullAccess": .destructive,
         // On, every agent gets tools that start child chats: the person turns that on.
         "sessions.promptSuggestions": .userOnly,
+        // Claude's and Codex's next-prompt suggestions make an extra model call per turn that counts toward the person's usage: their call, as `agents.autoRetry.enabled` is.
+        "agents.promptSuggestions": .userOnly,
         // How many agent sessions an agent may start, and how deep, is the person's call: an agent must not raise its own limits.
         "agents.subsessions.enabled": .userOnly, "agents.subsessions.maxChildren": .userOnly,
         "agents.subsessions.maxRunning": .userOnly, "agents.subsessions.maxDepth": .userOnly,
@@ -161,6 +165,8 @@ extension SettingsSchema {
         "macScreen.systemShortcuts": .userOnly,
         // cmux Remote: the person's call.
         "remote.endSharingOnQuit": .userOnly,
+        // Spends about 2 to 3 times the data on every remote connection; only the person turns it on.
+        "remote.ultraMode": .userOnly,
         // Changes how this Mac's Mac Screen streams leave the network; only the person sets it.
         "macScreen.debug.relayOnly": .userOnly,
         // Chooses the server this Mac registers its device keys with; only the person sets it.

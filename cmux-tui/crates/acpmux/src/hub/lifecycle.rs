@@ -8,13 +8,10 @@ use super::new_request::{claude_resume_refusal, unique_name_among};
 // `turns.rs` names it here.
 pub(super) use super::new_request::profile_takes_model_at_spawn;
 use super::resolve::{Draft, Resolved, draft_meta};
+use super::start_watch::{StartWatch, start_deadline_exceeded, start_hung};
 
 /// How often the person's agent start that is still under way says so (`person_start`).
 const START_PROGRESS: std::time::Duration = std::time::Duration::from_secs(10);
-/// How long a start that waits on its harness (`Session::wait_start`) lets the harness use no CPU
-/// with no thread ready before it ends the start: minutes, since a harness on a loaded host waits
-/// on its disk, but one that truly works moves its CPU time within them.
-const START_HUNG: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 
 /// Owns a session while a creation future is still configuring it. If that future is cancelled
 /// after publication, the guard purges the exact session rather than guessing from its name.
@@ -169,6 +166,11 @@ impl Hub {
             }
             (None, None) => defaults.policy,
         };
+        // Deny-all or review, asked for (or a preset's or profile's), promises protection with no
+        // person to ask: a harness that cannot keep it fails the creation (`policy_mode.rs`
+        // `require_enforced`).
+        let must_hold = !inherits_policy
+            && matches!(policy, Some(PermissionPolicy::DenyAll | PermissionPolicy::Review));
         // `${model}` in argv or env: the model is a spawn parameter, not a set_model call.
         let spawn_model = profile_takes_model_at_spawn(&profile)
             || defaults.env.values().any(|v| v.contains("${model}"));
@@ -504,6 +506,9 @@ impl Hub {
                 .await?;
             // Every chat, eligible or not: a preset's or a pinned profile's policy holds too.
             let default = self.config.read().await.permission_policy;
+            if must_hold {
+                super::policy_mode::require_enforced(&session.meta(), default)?;
+            }
             self.note_unenforced_policy(&session, default);
             Ok(())
         })
@@ -558,32 +563,6 @@ impl Hub {
             "session/new refused: the session that started this one kept changing its permissions while it started; start it again".into(),
             json!({"starter": starter}),
         ))
-    }
-
-    /// Every model id a profile can run: declared in config, then reported
-    /// (Claude's static list for the stdio backend).
-    pub async fn catalog_ids(&self, profile: &str) -> Vec<String> {
-        let cfg = self.config.read().await;
-        let Some(p) = cfg.harnesses.get(profile) else { return vec![] };
-        let mut ids: Vec<String> = p.models.iter().map(|m| m.id().to_owned()).collect();
-        match p.kind {
-            crate::config::HarnessKind::ClaudeStdio => {
-                ids.extend(crate::claude_stdio::models().iter().map(|(id, _)| id.to_string()))
-            }
-            crate::config::HarnessKind::Acp => ids.extend(
-                self.known_models
-                    .lock()
-                    .unwrap()
-                    .get(profile)
-                    .into_iter()
-                    .flatten()
-                    .map(|(id, _)| id.clone()),
-            ),
-            crate::config::HarnessKind::Terminal => {}
-        }
-        ids.extend(super::models_view::curated_ids(&self.catalog, profile, p));
-        ids.dedup();
-        ids
     }
 
     pub(super) fn unique_name(&self, agent: &str) -> String {
@@ -1611,224 +1590,6 @@ impl Hub {
         self.append(session, "mux", "config", json!({"replayed": true}));
     }
 
-    /// Remember the models an agent lists so the picker can show them for
-    /// harnesses without a live session.
-    pub(super) fn remember_models(&self, agent: &str, meta: &SessionMeta) {
-        self.remember_models_from(agent, meta.config_options.as_deref(), meta.models.as_ref());
-    }
-
-    fn remember_models_from(
-        &self,
-        agent: &str,
-        config_options: Option<&Value>,
-        models: Option<&Value>,
-    ) {
-        let mut list: Vec<(String, String)> = Vec::new();
-        if let Some(opts) = config_options.and_then(Value::as_array)
-            && let Some(o) =
-                opts.iter().find(|o| o.get("id").and_then(Value::as_str) == Some("model"))
-        {
-            list.extend(crate::model_catalog::choices(o));
-        }
-        if list.is_empty()
-            && let Some(models) =
-                models.and_then(|m| m.get("availableModels")).and_then(Value::as_array)
-        {
-            for m in models {
-                let v = m.get("modelId").and_then(Value::as_str).unwrap_or("").to_owned();
-                let n = m.get("name").and_then(Value::as_str).unwrap_or(&v).to_owned();
-                list.push((v, n));
-            }
-        }
-        if !list.is_empty() {
-            self.recheck_live_models(agent, &list);
-            self.known_models.lock().unwrap().insert(agent.to_owned(), list);
-        }
-    }
-
-    /// Ask every ACP harness for its model list once, without creating an
-    /// acpmux session: spawn, `initialize`, `session/new`, read the models,
-    /// kill. Codex, OpenCode and Gemini only reveal models this way. Runs in
-    /// the background at daemon start so the picker is full before the first
-    /// session exists.
-    pub async fn probe_models(self: &Arc<Self>) {
-        self.probe_models_with(false, false, None).await;
-    }
-
-    /// `daemon models --refresh`: forget every reported catalog, probe every
-    /// ACP harness again, and wait for the answers (bounded).
-    pub async fn refresh_models(self: &Arc<Self>) {
-        self.known_models.lock().unwrap().clear();
-        self.probe_models_with(true, true, None).await;
-    }
-
-    /// `only`: probe these harnesses alone (`allow_probes`); None: every
-    /// harness the probe list allows.
-    pub(super) async fn probe_models_with(
-        self: &Arc<Self>,
-        force: bool,
-        wait: bool,
-        only: Option<std::collections::BTreeSet<String>>,
-    ) {
-        // A probe starts the agent: none while launches are off (cx-9ettq).
-        if crate::launch_policy::agent_launch_disabled() {
-            tracing::info!("agent launch is disabled; model probes skipped");
-            return;
-        }
-        let picked = |n: &str| only.as_ref().is_none_or(|o| o.contains(n));
-        let agents: Vec<(String, HarnessProfile)> = {
-            let cfg = self.config.read().await;
-            let known = self.known_models.lock().unwrap();
-            cfg.harnesses
-                .iter()
-                .filter(|(n, p)| {
-                    p.kind == crate::config::HarnessKind::Acp
-                        && (force || !known.contains_key(*n))
-                        && self.probes(n)
-                        && picked(n)
-                })
-                .map(|(n, p)| (n.clone(), p.clone()))
-                .collect()
-        };
-        // Claude Code's and Codex's own lists, beside the ACP probes.
-        let live = {
-            let hub = self.clone();
-            let only = only.clone();
-            tokio::spawn(async move { hub.probe_live_models(wait, only).await })
-        };
-        let mut handles = vec![live];
-        for (name, profile) in agents {
-            let hub = self.clone();
-            handles.push(tokio::spawn(async move {
-                // Probes spawn agents: wait for the login environment.
-                hub.wait_startup().await;
-                // Resolved here, once, so neither this probe nor a later
-                // session spawn launches through npx.
-                hub.resolve_launcher(&profile.argv).await;
-                match tokio::time::timeout(
-                    std::time::Duration::from_secs(60),
-                    hub.probe_one(&name, &profile),
-                )
-                .await
-                {
-                    Ok(Ok(n)) => {
-                        tracing::info!(agent = %name, models = n, "model probe done");
-                        hub.probe_errors.lock().unwrap().remove(&name);
-                    }
-                    Ok(Err(e)) => {
-                        tracing::warn!(agent = %name, error = %e, "model probe failed");
-                        hub.probe_errors.lock().unwrap().insert(name, format!("{e:#}"));
-                    }
-                    Err(_) => {
-                        tracing::warn!(agent = %name, "model probe timed out");
-                        hub.probe_errors
-                            .lock()
-                            .unwrap()
-                            .insert(name, "the model probe timed out after 60 s".into());
-                    }
-                }
-            }));
-        }
-        if wait {
-            for h in handles {
-                let _ = h.await;
-            }
-        }
-    }
-
-    async fn probe_one(
-        self: &Arc<Self>,
-        name: &str,
-        profile: &HarnessProfile,
-    ) -> anyhow::Result<usize> {
-        // MDM's off as the probe starts: its one read, taken first (review 120). An off that holds
-        // or begins while it runs ends it once its harness reported full access, an unset after it
-        // too (reviews 71 and 73 of #23322).
-        let latch = self.off_latch();
-        let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-        // What the harness reports while its session starts (`StartReports`, reviews 41 and 46 of
-        // #23322). The tap sees each line before its answer is handed back, so none sent before
-        // that answer is missed.
-        let reports =
-            Arc::new(std::sync::Mutex::new(super::full_access_bound::StartReports::default()));
-        // Notified on each report of full access: a probe ends on one under MDM's off (review 71).
-        let reported = Arc::new(tokio::sync::Notify::new());
-        let (seen, notify) = (reports.clone(), reported.clone());
-        let tap: crate::agent::Tap = Arc::new(move |dir, msg, _| {
-            if let (Direction::In, Message::Notification { method: m, params: Some(params) }) =
-                (dir, msg)
-                && m == method::SESSION_UPDATE
-            {
-                seen.lock().unwrap_or_else(|e| e.into_inner()).note(params);
-                if super::full_access_bound::StartReports::reports_full_access(params) {
-                    notify.notify_one();
-                }
-            }
-            true
-        });
-        // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).
-        let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
-            .await
-            .unwrap_or_else(|_| std::env::temp_dir());
-        // MDM forces full access off (#23322): a profile pinning it is never started to probe,
-        // and a probe that runs when the off lands ends then (`probe_bound`).
-        let mut bound =
-            self.probe_bound(&latch, &profile.argv).map_err(|e| anyhow::anyhow!("{name}: {e}"))?;
-        let mut resolved = profile.clone();
-        resolved.argv = self.resolved_launcher_argv(resolved.argv);
-        let child = crate::agent::ChildAgent::spawn(name, &resolved, &cwd, tx, tap).await?;
-        // Drain anything the agent sends so its writer never blocks.
-        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
-        let listed = tokio::time::timeout(std::time::Duration::from_secs(50), async {
-            child
-                .request(method::INITIALIZE, json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux", "version": env!("CARGO_PKG_VERSION")}}))
-                .await
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-            let res = child
-                .request(method::SESSION_NEW, json!({"cwd": cwd, "mcpServers": []}))
-                .await
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-            // MDM forces full access off (#23322, review 32): a session that came up in it (its
-            // mode or a config option, a profile that pins nothing included) keeps nothing. Read
-            // once it answered, so an off that landed during the handshake counts.
-            let mut view =
-                super::full_access_bound::FullAccessView::of_session_new(&profile.argv, Some(&res));
-            view.reported = reports.lock().unwrap_or_else(|e| e.into_inner()).of_answer(Some(&res));
-            if latch.off() && super::full_access_bound::runs_full_access(&view).is_some() {
-                anyhow::bail!("{name}: its session came up in full access, which MDM forces off");
-            }
-            let cfg = self.config.read().await;
-            if cfg.harnesses.get(name) == Some(profile) {
-                self.remember_models_from(
-                    name,
-                    res.get("configOptions").filter(|v| !v.is_null()),
-                    res.get("models").filter(|v| !v.is_null()),
-                );
-            }
-            Ok(self.known_models.lock().unwrap().get(name).map(|l| l.len()).unwrap_or(0))
-        });
-        let result = tokio::select! {
-            listed = listed => listed,
-            () = super::full_access_bound::full_access_forced_off(bound.as_mut()) => {
-                Ok(Err(anyhow::anyhow!("{name}: MDM forced full access off, which its profile pins")))
-            }
-            () = latch.reported_under_off(&reported, || {
-                reports.lock().unwrap_or_else(|e| e.into_inner()).of(None)
-            }) => {
-                Ok(Err(anyhow::anyhow!("{name}: its harness reported full access, which MDM forces off")))
-            }
-        };
-        child.kill().await;
-        drain.abort();
-        // The probe's session leaves no transcript behind (it listed as an empty chat).
-        let folder = cwd.clone();
-        let _ = tokio::task::spawn_blocking(move || {
-            crate::probe_cleanup::remove_probe_transcripts(&folder)
-        })
-        .await;
-        result.map_err(|_| anyhow::anyhow!("model probe timed out"))?
-    }
-
     pub(super) fn absorb_session_response(&self, session: &Session, v: &Value) {
         let present = |k: &str| v.get(k).filter(|x| !x.is_null()).cloned();
         let mut writes = Vec::new();
@@ -1956,179 +1717,8 @@ fn refuse_stored_fixed_id(store: &dyn crate::store::Store, id: &str) -> Result<(
 }
 
 #[cfg(test)]
-mod fixed_id_tests {
-    use super::*;
-
-    fn test_hub(root: Option<&std::path::Path>) -> Arc<Hub> {
-        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let mut cfg: crate::config::Config = serde_json::from_value(json!({
-            "harnesses": {"fake": {"argv": ["python3", fake]}},
-            "defaultHarness": "fake",
-        }))
-        .unwrap();
-        cfg.store.mode = if root.is_some() {
-            crate::config::StoreMode::Local
-        } else {
-            crate::config::StoreMode::Memory
-        };
-        let store =
-            crate::store::open(&cfg.store, root.unwrap_or(std::path::Path::new("/nonexistent")))
-                .unwrap();
-        Hub::new(cfg, store)
-    }
-
-    fn request() -> NewRequest {
-        NewRequest { cwd: Some(std::env::temp_dir()), ..Default::default() }
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn concurrent_fixed_id_creations_publish_exactly_one_session() {
-        let hub = test_hub(None);
-        let id = uuid::Uuid::now_v7().to_string();
-        let (a, b) = tokio::join!(
-            hub.new_session_with_id(request(), Some(id.clone())),
-            hub.new_session_with_id(request(), Some(id.clone())),
-        );
-        assert_ne!(a.is_ok(), b.is_ok(), "exactly one creation must win");
-        let winner = a.ok().or_else(|| b.ok()).unwrap();
-        assert_eq!(winner.id, id);
-        assert!(Arc::ptr_eq(&hub.resolve(&id).unwrap(), &winner));
-        assert_eq!(hub.sessions.lock().unwrap().len(), 1);
-        hub.shutdown_all().await;
-    }
-
-    #[tokio::test]
-    async fn fixed_id_refuses_persisted_chat_after_restart() {
-        let dir = cmux_unix_socket::short_test_dir("acpmux-fixed");
-        let hub = test_hub(Some(dir.path()));
-        let id = uuid::Uuid::now_v7().to_string();
-        let original = hub.new_session_with_id(request(), Some(id.clone())).await.unwrap();
-        hub.shutdown_all().await;
-        drop(hub);
-        let restarted = test_hub(Some(dir.path()));
-        let before = restarted.store.load(&id).unwrap().unwrap();
-        assert!(restarted.new_session_with_id(request(), Some(id.clone())).await.is_err());
-        let after = restarted.store.load(&id).unwrap().unwrap();
-        assert_eq!(after.created_at, before.created_at);
-        assert_eq!(after.agent_session_id, original.meta().agent_session_id);
-        restarted.shutdown_all().await;
-    }
-
-    #[tokio::test]
-    async fn fixed_id_refuses_partial_or_corrupt_durable_chat() {
-        let dir = cmux_unix_socket::short_test_dir("acpmux-fixed-corrupt");
-        let hub = test_hub(Some(dir.path()));
-        let id = uuid::Uuid::now_v7().to_string();
-        let path = hub.store.session_dir(&id).unwrap();
-        std::fs::create_dir_all(&path).unwrap();
-        assert!(hub.new_session_with_id(request(), Some(id.clone())).await.is_err());
-        std::fs::write(path.join("session.json"), "unreadable metadata").unwrap();
-        assert!(hub.new_session_with_id(request(), Some(id)).await.is_err());
-        assert_eq!(
-            std::fs::read_to_string(path.join("session.json")).unwrap(),
-            "unreadable metadata"
-        );
-        hub.shutdown_all().await;
-    }
-
-    #[tokio::test]
-    async fn fixed_id_cannot_take_an_import_reservation() {
-        let hub = test_hub(None);
-        let id = uuid::Uuid::now_v7().to_string();
-        hub.importing.lock().unwrap().insert(id.clone());
-        assert!(hub.new_session_with_id(request(), Some(id.clone())).await.is_err());
-        assert!(hub.sessions.lock().unwrap().is_empty());
-        assert!(hub.store.load(&id).unwrap().is_none());
-        hub.importing.lock().unwrap().remove(&id);
-        hub.shutdown_all().await;
-    }
-
-    #[tokio::test]
-    async fn fixed_id_cannot_adopt_a_different_chat() {
-        let hub = test_hub(None);
-        let mut req = request();
-        req.adopt = crate::adopt::AdoptRequest::from_meta(Some(&json!({
-            "adopt": {"agentSessionId": "another-chat"}
-        })))
-        .unwrap();
-        let result = hub.new_session_with_id(req, Some("fixed-chat".into())).await;
-        assert!(result.err().unwrap().message.contains("cannot adopt"));
-        assert!(hub.sessions.lock().unwrap().is_empty());
-        hub.shutdown_all().await;
-    }
-
-    #[tokio::test]
-    async fn failed_creation_cleanup_leaves_replacement_incarnation_intact() {
-        let hub = test_hub(None);
-        let id = uuid::Uuid::now_v7().to_string();
-        let original = hub.new_session_with_id(request(), Some(id.clone())).await.unwrap();
-        hub.kill(&original, false).await.unwrap();
-        let replacement = hub.make_session(original.meta());
-        hub.sessions.lock().unwrap().insert(id.clone(), replacement.clone());
-        hub.write_meta(&replacement).unwrap();
-        let before = hub.events(&id, 0, 10000).unwrap().len();
-        hub.discard_failed_creation_owned(&original, original.stops.load(Ordering::SeqCst), None)
-            .await;
-        assert!(Arc::ptr_eq(&hub.resolve(&id).unwrap(), &replacement));
-        assert!(hub.store.load(&id).unwrap().is_some());
-        assert_eq!(hub.events(&id, 0, 10000).unwrap().len(), before);
-        assert!(!replacement.purged.load(Ordering::SeqCst));
-        hub.shutdown_all().await;
-    }
-
-    #[test]
-    fn fixed_id_accepts_bare_session_ids_only() {
-        assert!(crate::adopt::is_bare_id("0192f7f4-8f53-7c10-8f1c-2f950f3e2d9a"));
-        assert!(crate::adopt::is_bare_id("codex_session_1"));
-        assert!(!crate::adopt::is_bare_id("../escape"));
-        assert!(!crate::adopt::is_bare_id(""));
-        assert!(!crate::adopt::is_bare_id(&"x".repeat(129)));
-    }
-}
-
-/// Whether a start's harness still works (`HarnessState::worked_since`, over its whole process
-/// tree): a thread on a CPU, CPU time, a page read in or a process started since the last read. A
-/// loaded host or short memory slows that down, it does not stop it. A harness not spawned yet,
-/// or one whose state cannot be read (not macOS), is never called hung here: its creator's own
-/// wait bounds that.
-#[derive(Default)]
-struct StartWatch {
-    /// The read the next is judged against, and when it was taken. Kept until a later read
-    /// shows work or a [`WORK_WINDOW`](crate::cpu_class::WORK_WINDOW) has passed, so a short tick
-    /// sums a launcher's runtime ticks over a whole window instead of judging each alone.
-    last: Option<(crate::cpu_class::HarnessState, std::time::Duration)>,
-    idle_since: Option<std::time::Duration>,
-}
-
-impl StartWatch {
-    /// `seen` at `waited` into the start: whether its harness has not worked for `START_HUNG`.
-    fn hung(&mut self, seen: &crate::cpu_class::HarnessSeen, waited: std::time::Duration) -> bool {
-        let crate::cpu_class::HarnessSeen::Running(state) = seen else {
-            self.last = None;
-            self.idle_since = None;
-            return false;
-        };
-        let (worked, window_passed) = match &self.last {
-            None => (true, true),
-            Some((last, at)) => {
-                let between = waited.saturating_sub(*at);
-                (state.worked_since(last, between), between >= crate::cpu_class::WORK_WINDOW)
-            }
-        };
-        if worked || window_passed {
-            self.last = Some((state.clone(), waited));
-        }
-        if worked {
-            self.idle_since = None;
-            return false;
-        }
-        waited.saturating_sub(*self.idle_since.get_or_insert(waited)) >= START_HUNG
-    }
-}
-
-#[cfg(test)]
-#[path = "start_watch_tests.rs"]
-mod start_watch_tests;
+#[path = "fixed_id_tests.rs"]
+mod fixed_id_tests;
 
 #[cfg(test)]
 #[path = "stop_fence_tests.rs"]
@@ -2165,39 +1755,4 @@ impl<'a> ReplayHold<'a> {
             self.session.end_replay(self.agent.generation);
         }
     }
-}
-
-/// The error of a start whose harness did no work for `START_HUNG` (`StartWatch`): it waits on
-/// something no wait cures (input, a lock, a sign-in prompt). Not retryable on this harness (it
-/// is ended), and worded apart from a deadline so its creator does not wait on it again: Chief
-/// tries a fresh harness through its reply ledger and, if none starts, says so (#36028).
-fn start_hung(harness: &crate::cpu_class::HarnessSeen) -> RpcError {
-    let mut e = RpcError::new(
-        -32000,
-        format!("agent_start: its agent did no work for {} s", START_HUNG.as_secs()),
-    )
-    .with_data(json!({"reason": "harness_hung", "retryable": false}));
-    e.message.push_str(&harness.detail());
-    if let (crate::cpu_class::HarnessSeen::Running(state), Some(data)) =
-        (harness, e.data.as_mut().and_then(Value::as_object_mut))
-    {
-        data.insert("harness".into(), json!(state));
-    }
-    e
-}
-
-/// `agent_start`'s deadline error, with what its harness was doing (`cpu_class.rs`, item 4).
-/// Its `data.harness` carries the same fields when they were read.
-fn start_deadline_exceeded(
-    budget: std::time::Duration,
-    harness: &crate::cpu_class::HarnessSeen,
-) -> RpcError {
-    let mut e = RpcError::deadline_exceeded("agent_start", budget);
-    e.message.push_str(&harness.detail());
-    if let (crate::cpu_class::HarnessSeen::Running(state), Some(data)) =
-        (harness, e.data.as_mut().and_then(Value::as_object_mut))
-    {
-        data.insert("harness".into(), json!(state));
-    }
-    e
 }

@@ -45,11 +45,11 @@ struct ChiefQuestionBar: View {
                     // Room first, then the bar fades in.
                     resized()
                     fading(false, Self.fadeDuration)
-                    withAnimation(.easeOut(duration: Self.fadeDuration)) { visible = true }
+                    withAnimation(.easeOut(duration: Self.fadeDuration).unlessReduceMotion) { visible = true }
                 } else if shown != nil {
                     // The bar fades out first; then the room closes.
                     fading(true, Self.fadeDuration)
-                    withAnimation(.easeIn(duration: Self.fadeDuration)) {
+                    withAnimation(.easeIn(duration: Self.fadeDuration).unlessReduceMotion) {
                         visible = false
                     } completion: {
                         shown = nil

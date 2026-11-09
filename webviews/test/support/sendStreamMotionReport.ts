@@ -26,7 +26,11 @@ export function analyze(samples: Sample[], frameMs: number[], dropped: number, t
     const slots = Math.max(1, Math.round((sample.t - before.t) / FRAME_MS));
     const atOnce = Math.abs(sample.lag - before.lag) < 0.01;
     const px = atOnce ? moved : moved / slots;
-    return { phase: sample.phase, px, atOnce: atOnce && moved > 0.5 };
+    // A frame of a catch-up: the trail is past its bound in this frame or the one before (the block
+    // that put it there landing, or the chase bringing it back at up to a line a frame).
+    const past = (lag: number) => Math.abs(lag) > trailPx + 0.5;
+    const catchUp = past(before.lag) || past(sample.lag);
+    return { phase: sample.phase, px, atOnce: atOnce && moved > 0.5, catchUp };
   });
   // Each stretch the thread was drawn past the trail bound: from the first frame past it to the
   // first frame back within it (ms).
@@ -55,7 +59,10 @@ export function analyze(samples: Sample[], frameMs: number[], dropped: number, t
     }
   }
   const all = moves.map((move) => move.px);
-  const streamed = moves.filter((move) => move.phase === "stream" || move.phase === "segment").map((move) => move.px);
+  const streamMoves = moves.filter((move) => move.phase === "stream" || move.phase === "segment");
+  const streamed = streamMoves.map((move) => move.px);
+  /// The stream's frames outside a catch-up: how it moves while it follows within the trail bound.
+  const calm = streamMoves.filter((move) => !move.catchUp).map((move) => move.px);
   // The stream's last growth, then the first frame from which the view rests at its end for good.
   let grew = 0;
   for (let index = 1; index < samples.length; index += 1)
@@ -84,6 +91,17 @@ export function analyze(samples: Sample[], frameMs: number[], dropped: number, t
           0.95,
         ),
       ),
+      /// The 95th percentile of the stream's moving frames outside a catch-up (`streamP95` counts
+      /// those too: how many blocks land past the bound, up to a line a frame each, more than how
+      /// the stream moves between them).
+      streamCalmP95: r2(
+        pct(
+          calm.filter((px) => px > 0.01),
+          0.95,
+        ),
+      ),
+      /// The stream's frames in a catch-up, of all its moving frames.
+      catchUpFrames: streamMoves.filter((move) => move.catchUp && move.px > 0.01).length,
       after: r2(Math.max(0, ...of("after"))),
       max: r2(Math.max(0, ...all)),
     },

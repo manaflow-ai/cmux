@@ -8,6 +8,45 @@ export type GithubReference = {
   bare?: number;
 };
 
+/** A lone GitHub issue URL that can seed a new fix worktree. */
+export type GithubIssueLink = {
+  url: string;
+  owner: string;
+  repository: string;
+  number: number;
+};
+
+/** Parses the exact GitHub issue URL form accepted by the New Tab fix action. */
+export function githubIssueLink(text: string): GithubIssueLink | undefined {
+  const value = text.trim();
+  if (!value || /\s/.test(value)) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return undefined;
+  }
+  if (parsed.protocol !== "https:" || !["github.com", "www.github.com"].includes(parsed.hostname.toLowerCase()))
+    return undefined;
+  const parts = parsed.pathname.split("/").filter(Boolean);
+  if (parts.length !== 4 || parts[2] !== "issues" || !/^[1-9][0-9]{0,9}$/.test(parts[3]!)) {
+    return undefined;
+  }
+  const [owner, repository] = parts;
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(owner!) || !/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(repository!)) {
+    return undefined;
+  }
+  parsed.pathname = `/` + parts.slice(0, 3).concat(parts[3]!).join("/");
+  parsed.search = "";
+  parsed.hash = "";
+  return {
+    url: parsed.toString(),
+    owner: owner!,
+    repository: repository!,
+    number: Number(parts[3]),
+  };
+}
+
 // Not after a word, a path or URL (`x.com/#12`) or an HTML entity (`&#123;`). GitHub numbers
 // start at 1 and have at most ten digits (the pull request card's rule), so `#0`, `#012` and
 // `#12345678901` are not references.

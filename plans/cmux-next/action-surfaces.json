@@ -6686,6 +6686,19 @@
         {
           "keys" : [
             {
+              "key" : "",
+              "modifiers" : [
+                "ctrl",
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "!codeEditorFocused"
+        },
+        {
+          "keys" : [
+            {
               "key" : "]",
               "modifiers" : [
                 "opt",
@@ -6698,7 +6711,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "",
+        "key" : "l",
         "modifiers" : [
           "ctrl",
           "opt",
@@ -6735,6 +6748,19 @@
         {
           "keys" : [
             {
+              "key" : "",
+              "modifiers" : [
+                "ctrl",
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "!codeEditorFocused"
+        },
+        {
+          "keys" : [
+            {
               "key" : "[",
               "modifiers" : [
                 "opt",
@@ -6747,7 +6773,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "",
+        "key" : "h",
         "modifiers" : [
           "ctrl",
           "opt",
@@ -14048,7 +14074,7 @@
       "id" : "home.archiveChief",
       "main_menu" : null,
       "mcp" : "offered",
-      "palette" : "noTargetSurface",
+      "palette" : "offered",
       "palette_section" : {
         "id" : "category.window",
         "order" : 100,
@@ -14083,7 +14109,7 @@
       "id" : "home.setPrimaryChief",
       "main_menu" : null,
       "mcp" : "offered",
-      "palette" : "noTargetSurface",
+      "palette" : "offered",
       "palette_section" : {
         "id" : "category.window",
         "order" : 100,
@@ -14123,7 +14149,7 @@
       "id" : "home.deleteChief",
       "main_menu" : null,
       "mcp" : "offered",
-      "palette" : "noTargetSurface",
+      "palette" : "offered",
       "palette_section" : {
         "id" : "category.window",
         "order" : 100,
@@ -15071,6 +15097,46 @@
       "title" : "Stop All Agents",
       "title_key" : "action.home.stopAllAgents",
       "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "agent",
+          "required" : true
+        },
+        {
+          "kind" : "string",
+          "name" : "conversation",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "home start-agent",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.startQueuedAgent",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Start Queued Agent Now",
+      "title_key" : "action.home.startQueuedAgent",
+      "title_table" : "HomeActions"
     },
     {
       "args" : [
@@ -42387,6 +42453,43 @@
       "args" : [
 
       ],
+      "cli" : "familyMember",
+      "cli_name" : "action home-show-hide-chief-from-any-app",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : " ",
+        "modifiers" : [
+          "opt",
+          "shift"
+        ]
+      },
+      "id" : "home.showHideChiefFromAnyApp",
+      "main_menu" : null,
+      "mcp" : "familyMember",
+      "palette" : "familyMember",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show\/Hide Chief from Any App",
+      "title_key" : "action.home.showHideChiefFromAnyApp",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "args" : [
+
+      ],
       "cli" : "offered",
       "cli_name" : "pane move-to-dock",
       "context_menu" : "pointerMenuTrim",
@@ -47110,6 +47213,37 @@
       "palette_suggested" : null,
       "title" : "Show Hidden App…",
       "title_key" : "action.app.unhide",
+      "title_table" : "AppStoreActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "apps reload",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "app.reloadCustomViews",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Reload Custom Views",
+      "title_key" : "action.app.reloadCustomViews",
       "title_table" : "AppStoreActions"
     },
     {
