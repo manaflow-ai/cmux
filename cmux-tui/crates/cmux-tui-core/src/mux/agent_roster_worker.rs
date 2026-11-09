@@ -453,7 +453,8 @@ impl Mux {
     }
 
     /// A direct report of `terminal_id` committed (under the hook projector's
-    /// lock): its echo is not in the journal until [`Self::report_echo_appended`].
+    /// lock): its echo is not in the journal until [`Self::write_report_echo`]
+    /// wrote it.
     pub(in crate::mux) fn note_report_echo(&self, terminal_id: &TerminalPublicId) -> u64 {
         let mut echoes = self.report_echoes();
         echoes.numbered += 1;
@@ -644,10 +645,7 @@ mod replay_for_test {
 
         /// Fails the next `echoes` journal appends of direct reports' echoes.
         pub(crate) fn fail_agent_report_echoes_for_test(&self, echoes: u32) {
-            crate::mux::agent_roster_fold::rebuild_faults::fail_report_echoes(
-                &self.session,
-                echoes,
-            );
+            rebuild_faults::fail_report_echoes(&self.session, echoes);
         }
 
         /// Starts a roster replay from zero in this running daemon, as a start

@@ -5,7 +5,7 @@ use super::*;
 // The roster's one owner thread: every fold and snapshot save runs there.
 #[path = "agent_roster_worker.rs"]
 mod agent_roster_worker;
-pub(super) use agent_roster_worker::AgentRosterWorker;
+pub(super) use agent_roster_worker::{AgentRosterWorker, ReportEcho};
 // A stale roster's background rebuild, on that owner.
 #[path = "agent_roster_rebuild.rs"]
 mod agent_roster_rebuild;
@@ -1037,9 +1037,8 @@ impl Mux {
     /// adapter, and the fold recognizes that adapter as an echo whose
     /// projection commit already happened.
     /// Whether the echo is in the journal.
-    pub(super) fn append_agent_report_echo(&self, echo: &agent_roster_worker::ReportEcho) -> bool {
-        let agent_roster_worker::ReportEcho { terminal_id, state, source, session, updated_at_ms } =
-            echo;
+    pub(super) fn append_agent_report_echo(&self, echo: &ReportEcho) -> bool {
+        let ReportEcho { terminal_id, state, source, session, updated_at_ms } = echo;
         use crate::journal_reducers::{SOCKET_REPORT_ADAPTER, SOCKET_REPORT_NATIVE_EVENT};
         let ingress = crate::JournalIngress {
             producer_id: crate::agent_hooks::AGENT_HOOK_PRODUCER_ID.into(),
