@@ -964,6 +964,13 @@ pub struct Hub {
     /// The running mesh relay's loops: the one the daemon started, or one a sign-in enroll
     /// started live (`server/machine_enroll.rs`). Stopped at shutdown.
     pub mesh_relay: tokio::sync::Mutex<Option<crate::server::mesh_relay::MeshRelay>>,
+    /// Held across every change of this daemon's join (`server/machine_enroll.rs`): the daemon
+    /// start's leave and relay start, a sign-in's enroll, a sign-out's leave, and shutdown. Each
+    /// reads the join's state on disk once it holds it, so none acts on what another changed.
+    pub join_transition: Arc<tokio::sync::Mutex<()>>,
+    /// The daemon start's join task (a leave the last run did not finish, then the relay), while
+    /// it may run: shutdown ends it before it stops the relay.
+    pub join_start: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
     pub(crate) watches: watches::Watches,
     pub(crate) peer_accepts: outbox::PeerAccepts,
     /// A peer's live asks for sessions it has not listed yet (`held_asks.rs`).
@@ -1251,6 +1258,8 @@ impl Hub {
             outbox: Default::default(),
             mesh: Default::default(),
             mesh_relay: Default::default(),
+            join_transition: Default::default(),
+            join_start: Default::default(),
             watches: Default::default(),
             peer_accepts: Default::default(),
             held_peer_asks: Default::default(),

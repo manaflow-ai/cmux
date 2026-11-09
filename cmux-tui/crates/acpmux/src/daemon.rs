@@ -954,11 +954,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // another daemon's now (`config::mark_home_lost` refuses its writes there).
     startup.abort();
     let _ = startup.await;
-    // Its last heartbeat empties this daemon's rows in the hub's address book.
-    let mesh_relay = hub.mesh_relay.lock().await.take();
-    if let Some(relay) = mesh_relay {
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
-    }
+    // Its last heartbeat empties this daemon's rows in the hub's address book. The start's
+    // join task ends first, so nothing starts a relay after this stops it.
+    crate::server::machine_enroll::stop_at_shutdown(&hub).await;
     // SIGTERM handoff and explicit updates/restarts use 1012. Explicit ordinary RPC
     // shutdown and interactive interrupt use a normal WebSocket close.
     let restarting = hub.restart_requested.load(std::sync::atomic::Ordering::SeqCst);
