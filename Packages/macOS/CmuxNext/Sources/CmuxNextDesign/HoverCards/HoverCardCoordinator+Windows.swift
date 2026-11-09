@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 // Which window is on top under the pointer, and whether the pointer is between a source's
 // targets there (`HoverCardCoordinator`'s hit tests).
