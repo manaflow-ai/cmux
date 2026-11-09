@@ -58,7 +58,8 @@ class OwnedMiniCaches(unittest.TestCase):
         save_if = squash((step.get("with") or {}).get("save-if", ""))
         self.assertEqual(
             save_if,
-            "${{ !" + OWNED + " || github.ref == 'refs/heads/feat-cmux-next' }}",
+            # A --commit run (another commit on feat-cmux-next) never saves into feat-cmux-next's scope.
+            "${{ github.sha == inputs.commit && (!" + OWNED + " || github.ref == 'refs/heads/feat-cmux-next') }}",
             f"rust-cache save-if is {save_if!r}",
         )
 

@@ -24,6 +24,11 @@ on:
         description: "Unique caller token used to find this run"
         required: true
         type: string
+      source_branch:
+        description: "Branch of this repository that contains commit; needed only when commit is not the dispatched ref's head (verify-cmux-tui-hosted.sh --commit)"
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   # Every caller waits for one exact commit. A newer request must not cancel it.
@@ -50,13 +55,23 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     steps:
+      # The default request tests the dispatched ref's head. A request for another
+      # commit (verify-cmux-tui-hosted.sh --commit: the red commit of a fix, which is
+      # not its branch's head) runs only from an integration branch, so that branch's
+      # workflow file runs, never the tested commit's. The commit must be on a branch
+      # of this repository: GitHub also serves a fork's commit by sha in this
+      # repository, and a dispatch must not test that.
       - name: Validate dispatch inputs
         env:
           EXACT_COMMIT: ${{ inputs.commit }}
           WORKFLOW_COMMIT: ${{ github.sha }}
+          WORKFLOW_REF: ${{ github.ref }}
+          SOURCE_BRANCH: ${{ inputs.source_branch }}
           MODE: ${{ inputs.mode }}
           TEST_FILTER: ${{ inputs.test_filter }}
           REQUEST_ID: ${{ inputs.request_id }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           if [[ ! "$EXACT_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
@@ -64,8 +79,35 @@ jobs:
             exit 1
           fi
           if [[ "$WORKFLOW_COMMIT" != "$EXACT_COMMIT" ]]; then
-            echo "::error::workflow revision $WORKFLOW_COMMIT does not match requested commit $EXACT_COMMIT" >&2
-            exit 1
+            case "$WORKFLOW_REF" in
+              refs/heads/feat-cmux-next|refs/heads/main) ;;
+              *)
+                echo "::error::workflow revision $WORKFLOW_COMMIT does not match requested commit $EXACT_COMMIT; another commit is tested only from feat-cmux-next or main, not $WORKFLOW_REF" >&2
+                exit 1
+                ;;
+            esac
+            if [[ ! "$SOURCE_BRANCH" =~ ^[A-Za-z0-9_][A-Za-z0-9._/-]{0,199}$ || "$SOURCE_BRANCH" == *..* ]]; then
+              echo "::error::commit $EXACT_COMMIT is not the head of $WORKFLOW_REF, so source_branch must name a branch of this repository that contains it (got '$SOURCE_BRANCH')" >&2
+              exit 1
+            fi
+            if ! source_head="$(gh api "repos/$REPO/git/ref/heads/$SOURCE_BRANCH" --jq .object.sha)" || \
+                [[ ! "$source_head" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::could not read branch $SOURCE_BRANCH of $REPO" >&2
+              exit 1
+            fi
+            # base...head: "ahead" or "identical" with behind_by 0 means the branch head contains the commit.
+            if ! comparison="$(gh api "repos/$REPO/compare/$EXACT_COMMIT...$source_head?per_page=1" --jq '"\(.status) \(.behind_by)"')"; then
+              echo "::error::could not compare $EXACT_COMMIT with branch $SOURCE_BRANCH ($source_head)" >&2
+              exit 1
+            fi
+            case "$comparison" in
+              "ahead 0"|"identical 0") ;;
+              *)
+                echo "::error::branch $SOURCE_BRANCH ($source_head) of $REPO does not contain $EXACT_COMMIT (compare: $comparison)" >&2
+                exit 1
+                ;;
+            esac
+            echo "Testing $EXACT_COMMIT from branch $SOURCE_BRANCH ($source_head) with the workflow of $WORKFLOW_REF at $WORKFLOW_COMMIT"
           fi
           if [[ ! "$REQUEST_ID" =~ ^[A-Za-z0-9._-]{1,100}$ ]]; then
             echo "::error::request_id contains unsupported characters" >&2
@@ -128,7 +170,7 @@ jobs:
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
         with:
-          save-on-dispatch: "true"
+          save-on-dispatch: ${{ github.sha == inputs.commit }}
 
       - name: Install Rust 1.91
         run: rustup toolchain install 1.91.0 --profile minimal
@@ -147,7 +189,7 @@ jobs:
           cache-bin: false
           # Only feat-cmux-next dispatches save: a dispatch on another branch never restores
           # its own save, so it would only push useful entries out of the cache store.
-          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
+          save-if: ${{ github.sha == inputs.commit && github.ref == 'refs/heads/feat-cmux-next' }}
           workspaces: cmux-tui -> target
           key: rust-1.91.0
 
@@ -343,7 +385,7 @@ jobs:
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
         with:
-          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
+          save-on-dispatch: ${{ github.sha == inputs.commit && contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -360,6 +402,8 @@ jobs:
           workspaces: cmux-tui -> target
           # One Linux key lets lint and test reuse each other's compiled crates.
           shared-key: cmux-tui-${{ matrix.os }}
+          # A --commit run (another commit, on an integration branch) never writes that branch's cache.
+          save-if: ${{ github.sha == inputs.commit }}
 
       - name: Report cargo cache hit rate
         if: always()
@@ -520,7 +564,7 @@ jobs:
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
         with:
-          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
+          save-on-dispatch: ${{ github.sha == inputs.commit && contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -534,6 +578,8 @@ jobs:
         with:
           cache-bin: false
           workspaces: cmux-tui -> target
+          # A --commit run (another commit, on an integration branch) never writes that branch's cache.
+          save-if: ${{ github.sha == inputs.commit }}
 
       - name: Build test binaries
         working-directory: cmux-tui
@@ -753,7 +799,7 @@ jobs:
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
         with:
-          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
+          save-on-dispatch: ${{ github.sha == inputs.commit && contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -799,7 +845,7 @@ jobs:
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-macos
-          save-if: ${{ !contains(runner.name, '-glaeda') || github.ref == 'refs/heads/feat-cmux-next' }}
+          save-if: ${{ github.sha == inputs.commit && (!contains(runner.name, '-glaeda') || github.ref == 'refs/heads/feat-cmux-next') }}
 
       - name: Report cargo cache hit rate
         if: always()
@@ -955,7 +1001,7 @@ jobs:
           cache-bin: false
           # Only feat-cmux-next dispatches save: a dispatch on another branch never restores
           # its own save, so it would only push useful entries out of the cache store.
-          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
+          save-if: ${{ github.sha == inputs.commit && github.ref == 'refs/heads/feat-cmux-next' }}
           workspaces: |
             cmux-tui -> target
             Native/OptChat/chief-turn -> target
@@ -995,7 +1041,7 @@ jobs:
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
         with:
-          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
+          save-on-dispatch: ${{ github.sha == inputs.commit && contains(runner.name, '-glaeda') }}
 
       - name: Build the cmux-tui daemon and CLI
         working-directory: cmux-tui
@@ -1081,7 +1127,7 @@ jobs:
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
         with:
-          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
+          save-on-dispatch: ${{ github.sha == inputs.commit && contains(runner.name, '-glaeda') }}
 
       - name: Ghostty VT cursor replay checks
         if: inputs.mode == 'full'
@@ -1107,6 +1153,8 @@ jobs:
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-${{ matrix.os }}
+          # A --commit run (another commit, on an integration branch) never writes that branch's cache.
+          save-if: ${{ github.sha == inputs.commit }}
 
       - name: Report cargo cache hit rate
         if: always()
@@ -1298,7 +1346,7 @@ jobs:
           cache-bin: false
           # Only feat-cmux-next dispatches save: a dispatch on another branch never restores
           # its own save, so it would only push useful entries out of the cache store.
-          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
+          save-if: ${{ github.sha == inputs.commit && github.ref == 'refs/heads/feat-cmux-next' }}
           workspaces: cmux-tui -> target
 
       - name: Verify LLVM GNU linker
@@ -1505,7 +1553,7 @@ jobs:
           cache-bin: false
           # Only feat-cmux-next dispatches save: a dispatch on another branch never restores
           # its own save, so it would only push useful entries out of the cache store.
-          save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
+          save-if: ${{ github.sha == inputs.commit && github.ref == 'refs/heads/feat-cmux-next' }}
           workspaces: cmux-tui -> target
 
       - name: Run configured Chrome CDP smoke
@@ -1589,7 +1637,7 @@ jobs:
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
         with:
-          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
+          save-on-dispatch: ${{ github.sha == inputs.commit && contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust

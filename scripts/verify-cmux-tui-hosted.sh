@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# Verify the exact pushed HEAD on hosted runners and download its macOS arm64 TUI.
+# Verify the exact pushed HEAD (or, with --commit, a pushed commit of this
+# branch) on hosted runners and download its macOS arm64 TUI.
 set -euo pipefail
 
 REPO="manaflow-ai/cmux"
 WORKFLOW="cmux-tui.yml"
+# The integration branch whose cmux-tui.yml runs a --commit verification. This
+# copy of the script lives on feat-cmux-next; main's copy names main.
+TRUSTED_REF="feat-cmux-next"
 
 usage() {
   cat <<'EOF'
@@ -12,6 +16,7 @@ Usage:
   ./scripts/verify-cmux-tui-hosted.sh --filter chatmux_relay
   ./scripts/verify-cmux-tui-hosted.sh --full
   ./scripts/verify-cmux-tui-hosted.sh [--cancel-on-timeout] --filter <name> | --full
+  ./scripts/verify-cmux-tui-hosted.sh --commit <40-char-sha> --filter <name> | --full
 
 --filter runs matching Rust tests on hosted Linux and macOS.
 The reserved `chatmux_relay` filter runs the complete `chatmux-relay` package;
@@ -32,20 +37,48 @@ The wait ends after CMUX_TUI_HOSTED_TIMEOUT_SECONDS (default 7200). The hosted
 run is not cancelled then: the script prints the run URL and how to keep
 waiting, and exits with status 3. Ctrl-C cancels the hosted run.
 --cancel-on-timeout also cancels the hosted run when the wait ends (exit 1).
+
+--commit <sha> verifies a pushed commit that is not the branch head, for
+example the red (test-only) commit of a two-commit fix, with no extra branch.
+The sha must be on this branch's pushed head (an ancestor of it, or the head).
+The run is dispatched on feat-cmux-next, so feat-cmux-next's cmux-tui.yml
+runs, and it checks out and tests exactly <sha>; the steps' scripts and local
+actions come from <sha>'s tree. The workflow refuses a sha that no branch of
+this repository contains. Without --commit, the script verifies the local
+HEAD, and refuses unless it is the pushed branch head.
 EOF
 }
 
 mode=""
 test_filter=""
 cancel_on_timeout=false
+requested_commit=""
+commit_mode=false
 args=()
-for arg in "$@"; do
-  if [[ "$arg" == "--cancel-on-timeout" ]]; then
-    cancel_on_timeout=true
-  else
-    args+=("$arg")
-  fi
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --cancel-on-timeout)
+      cancel_on_timeout=true
+      ;;
+    --commit)
+      if [[ $# -lt 2 || "$commit_mode" == true ]]; then
+        usage >&2
+        exit 2
+      fi
+      commit_mode=true
+      requested_commit="$2"
+      shift
+      ;;
+    *)
+      args+=("$1")
+      ;;
+  esac
+  shift
 done
+if [[ "$commit_mode" == true && ! "$requested_commit" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "error: --commit needs the full 40-character lowercase commit SHA, got '$requested_commit'" >&2
+  exit 2
+fi
 set -- ${args[@]+"${args[@]}"}
 case "${1:-}" in
   --filter)
@@ -106,7 +139,8 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(git -C "$script_dir" rev-parse --show-toplevel)"
 cd "$repo_root"
 
-if [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
+# --commit tests a pushed commit, not this tree, so local edits do not matter there.
+if [[ "$commit_mode" != true && -n "$(git status --porcelain --untracked-files=normal)" ]]; then
   echo "error: commit all changes before hosted verification" >&2
   git status --short >&2
   exit 1
@@ -146,7 +180,11 @@ if [[ "$remote_matches_repo" != true ]]; then
   exit 1
 fi
 
-commit="$(git rev-parse HEAD)"
+if [[ "$commit_mode" == true ]]; then
+  commit="$requested_commit"
+else
+  commit="$(git rev-parse HEAD)"
+fi
 if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
   echo "error: could not resolve an exact commit SHA" >&2
   exit 1
@@ -157,10 +195,30 @@ if [[ -z "$remote_commit" ]]; then
   echo "error: $remote_ref does not exist; push this branch first" >&2
   exit 1
 fi
-if [[ "$remote_commit" != "$commit" ]]; then
+if [[ "$commit_mode" == true ]]; then
+  # The pushed branch must contain the commit: then it is on origin, pushed
+  # through the hooks, and the workflow's own check (a branch of this
+  # repository contains inputs.commit) passes with source_branch.
+  if ! git cat-file -e "$remote_commit^{commit}" 2>/dev/null; then
+    echo "error: $remote_ref is $remote_commit, which this clone does not have; run git fetch $remote $remote_branch first" >&2
+    exit 1
+  fi
+  if ! git cat-file -e "$commit^{commit}" 2>/dev/null || \
+      ! git merge-base --is-ancestor "$commit" "$remote_commit"; then
+    echo "error: $commit is not on $remote_ref (head $remote_commit)" >&2
+    echo "push a branch that contains it, and run this script from that branch" >&2
+    exit 1
+  fi
+  # The run is dispatched on the trusted branch: its workflow file runs, and
+  # inputs.commit is what every job checks out.
+  dispatch_ref="$TRUSTED_REF"
+elif [[ "$remote_commit" != "$commit" ]]; then
   echo "error: $remote_ref is $remote_commit, but local HEAD is $commit" >&2
   echo "push the exact local HEAD before hosted verification" >&2
+  echo "to verify a pushed commit that is not the branch head: --commit <sha>" >&2
   exit 1
+else
+  dispatch_ref="$remote_branch"
 fi
 
 temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-tui-hosted.XXXXXX")"
@@ -259,13 +317,23 @@ request_id="${commit:0:12}-f${filter_hash}-$(date +%s)-$$"
 # not attached to here: it belongs to the caller that dispatched it, and this
 # script cancels its own run on Ctrl-C and --cancel-on-timeout. A failed lookup
 # only warns, so a run-list outage cannot block verification.
-open_run_lookup="$(gh run list --repo "$REPO" --workflow "$WORKFLOW" --commit "$commit" \
-  --event workflow_dispatch --limit 50 --json databaseId,status,displayTitle,url \
-  --jq '.[] | [.databaseId, .status, .displayTitle, .url] | @tsv' 2>"$temp_dir/open-run.err")" || {
-  printf 'warning: could not look for an open cmux-tui run of this commit, dispatching anyway: %s\n' \
-    "$(cat "$temp_dir/open-run.err")" >&2
-  open_run_lookup=""
-}
+#
+# Two lists, in both modes: runs whose head is the commit (dispatched on its
+# own branch), and runs on the trusted branch (a --commit dispatch, whose head
+# is that branch's, so only the title names the commit).
+open_run_lookup=""
+for open_selector in "--commit=$commit" "--branch=$TRUSTED_REF"; do
+  open_runs="$(gh run list --repo "$REPO" --workflow "$WORKFLOW" "${open_selector%%=*}" "${open_selector#*=}" \
+    --event workflow_dispatch --limit 100 --json databaseId,status,displayTitle,url \
+    --jq '.[] | [.databaseId, .status, .displayTitle, .url] | @tsv' 2>"$temp_dir/open-run.err")" || {
+    printf 'warning: could not look for an open cmux-tui run of this commit (%s), dispatching anyway: %s\n' \
+      "${open_selector%%=*} ${open_selector#*=}" "$(cat "$temp_dir/open-run.err")" >&2
+    open_runs=""
+  }
+  if [[ -n "$open_runs" ]]; then
+    open_run_lookup+="$open_runs"$'\n'
+  fi
+done
 while IFS=$'\t' read -r open_id open_status open_title open_url; do
   [[ -n "$open_id" && "$open_status" != "completed" ]] || continue
   [[ "$open_title" == "cmux-tui $mode "*" @ $commit" ]] || continue
@@ -284,39 +352,54 @@ while IFS=$'\t' read -r open_id open_status open_title open_url; do
   exit 4
 done <<< "$open_run_lookup"
 
-echo "Dispatching $mode verification for $commit"
+# The default dispatch sends exactly the inputs it always sent: a branch whose
+# cmux-tui.yml predates source_branch would refuse an unknown input.
+dispatch_inputs=(
+  -f "ref=$dispatch_ref"
+  -f "inputs[commit]=$commit"
+  -f "inputs[mode]=$mode"
+  -f "inputs[test_filter]=$test_filter"
+  -f "inputs[request_id]=$request_id"
+)
+if [[ "$commit_mode" == true ]]; then
+  dispatch_inputs+=(-f "inputs[source_branch]=$remote_branch")
+  # Only for the run lookup after a failed dispatch: a run on the trusted
+  # branch has that branch's head, not the commit.
+  run_head="$(git ls-remote --heads "$remote" "refs/heads/$TRUSTED_REF" 2>/dev/null | awk 'NR == 1 { print $1 }' || true)"
+  echo "Dispatching $mode verification for $commit (on $remote_ref) with $TRUSTED_REF's workflow"
+else
+  run_head="$commit"
+  echo "Dispatching $mode verification for $commit"
+fi
 # return_run_details makes the dispatch answer with the run it created, so
 # there is no run list to poll for it.
 dispatch() {
   gh api -X POST "repos/$REPO/actions/workflows/$WORKFLOW/dispatches" \
-    -f "ref=$remote_branch" \
-    -f "inputs[commit]=$commit" \
-    -f "inputs[mode]=$mode" \
-    -f "inputs[test_filter]=$test_filter" \
-    -f "inputs[request_id]=$request_id" \
+    "${dispatch_inputs[@]}" \
     -F return_run_details=true \
     --jq '.workflow_run_id // ""' 2>"$temp_dir/dispatch.err"
 }
 # A 5xx or a lost connection can come after GitHub created the run. Its
 # run-name holds request_id, so look for it before a new try instead of
 # dispatching a second run. GitHub renders the run-name a moment after the run
-# starts, so a run of this commit created since the first try and still titled
-# only "cmux-tui" counts too, when it is the only one.
+# starts, so a run with the expected head (the commit; the trusted branch's
+# head for --commit) created since the first try and still titled only
+# "cmux-tui" counts too, when it is the only one.
 dispatch_since="$(date -u -v-2M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '2 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
 dispatched_run() {
-  # shellcheck disable=SC2016 # $runs is a jq variable; COMMIT, SINCE and REQUEST are replaced below
-  local filter='[.[] | select(.headSha == "COMMIT" and .createdAt >= "SINCE")] as $runs
+  # shellcheck disable=SC2016 # $runs is a jq variable; HEAD, SINCE and REQUEST are replaced below
+  local filter='[.[] | select(.createdAt >= "SINCE")] as $runs
     | ([$runs[] | select(.displayTitle | contains("REQUEST"))] | .[0].databaseId)
-      // ([$runs[] | select(.displayTitle == "cmux-tui")] | if length == 1 then .[0].databaseId else null end)
+      // ([$runs[] | select(.headSha == "HEAD" and .displayTitle == "cmux-tui")] | if length == 1 then .[0].databaseId else null end)
       // empty'
-  filter="${filter//COMMIT/$commit}"
+  filter="${filter//HEAD/$run_head}"
   filter="${filter//SINCE/$dispatch_since}"
   filter="${filter//REQUEST/$request_id}"
-  gh run list --repo "$REPO" --workflow "$WORKFLOW" --branch "$remote_branch" \
+  gh run list --repo "$REPO" --workflow "$WORKFLOW" --branch "$dispatch_ref" \
     --event workflow_dispatch --limit 30 --json databaseId,displayTitle,headSha,createdAt \
     --jq "$filter" 2>"$temp_dir/lookup.err"
 }
-check_runs_hint="gh run list --repo $REPO --workflow $WORKFLOW --branch $remote_branch --event workflow_dispatch"
+check_runs_hint="gh run list --repo $REPO --workflow $WORKFLOW --branch $dispatch_ref --event workflow_dispatch"
 dispatch_tries=3
 for ((try = 1; ; try++)); do
   dispatch_status=0
@@ -363,16 +446,25 @@ cancel_on_interrupt=true
 # watch a run for a different revision. The dispatch named this run, so its
 # title (run-name, with request_id) is not checked: GitHub renders it a moment
 # after the dispatch, and a run read sooner is titled only "cmux-tui".
+# A --commit run's head is the trusted branch's at dispatch time (that branch
+# can move meanwhile); the run checks out inputs.commit, which its title names.
 run_identity="$(gh run view --repo "$REPO" "$run_id" \
   --json headSha,headBranch,event \
   --jq '[.headSha, .headBranch, .event] | @tsv')"
 IFS=$'\t' read -r run_head_sha run_head_branch run_event <<< "$run_identity"
-if [[ "$run_head_sha" != "$commit" || "$run_head_branch" != "$remote_branch" || \
+expected_head_sha="$commit"
+if [[ "$commit_mode" == true ]]; then
+  expected_head_sha="$run_head_sha"  # any: see above
+fi
+if [[ "$run_head_sha" != "$expected_head_sha" || "$run_head_branch" != "$dispatch_ref" || \
       "$run_event" != "workflow_dispatch" ]]; then
   echo "error: dispatched workflow run $run_id is not this revision; refusing it" >&2
-  printf 'expected: sha=%s branch=%s event=workflow_dispatch\n' "$commit" "$remote_branch" >&2
+  printf 'expected: sha=%s branch=%s event=workflow_dispatch\n' "$expected_head_sha" "$dispatch_ref" >&2
   printf 'actual:   sha=%s branch=%s event=%s\n' "$run_head_sha" "$run_head_branch" "$run_event" >&2
   exit 1
+fi
+if [[ "$commit_mode" == true ]]; then
+  echo "Run workflow: $TRUSTED_REF at $run_head_sha; tested commit: $commit"
 fi
 
 echo "Run: $run_url"
