@@ -369,29 +369,62 @@ it("accepts the platform's resend of the same signed body and intent after the p
   expect(Schema.decodeUnknownSync(Enrolled)(await again.json()).device).toEqual(Schema.decodeUnknownSync(Enrolled)(await retried.json()).device);
 });
 
-it("never lets a paused reconcile touch the attempt a later retry claimed and committed", async () => {
+it("holds an intent for the reconcile that fenced it: another retry answers 503 until it ends", async () => {
   const { admin, mesh } = await setup();
   const owner = await h.addKey(A, ["mesh:read", "mesh:join"]);
   h.mesh.loseTunnelReplies(1);
   // The owner's first create made a tunnel and lost its reply: one open attempt, its claim held.
   expect((await enroll(owner, mesh, "fenced-intent")).status).toBe(503);
   expect(liveTunnels()).toBe(1);
-  // Retry A ends that claim (fencing the open attempt) and pauses right after.
+  // Retry A takes the reconcile token (fencing the open attempt) and pauses right after.
   const pause = h.mesh.holdNextReconcile();
   const retryA = enroll(owner, mesh, "fenced-intent");
   await pause.reached;
-  // Admin retry B settles the old attempt, claims the intent and commits its own device.
-  const retryB = await enroll(admin, mesh, "fenced-intent", KEY_2);
+  // Admin retry B cannot claim or reconcile while A's lease runs: 503, and nothing of A's attempt changes.
+  expect((await enroll(admin, mesh, "fenced-intent", KEY_2)).status).toBe(503);
+  expect(liveTunnels()).toBe(1);
+  pause.release();
+  // A settles its fenced attempt, ends the reconcile and enrolls.
+  const made = await retryA;
+  expect(made.status).toBe(201);
+  const { device } = Schema.decodeUnknownSync(Enrolled)(await made.json());
+  expect(liveTunnels()).toBe(1);
+  expect(await listed(admin, mesh)).toEqual([{ id: device.id }]);
+});
+
+it("never lets a reconcile whose lease lapsed touch the attempt a later retry claimed and committed", async () => {
+  const { admin, mesh } = await setup();
+  const owner = await h.addKey(A, ["mesh:read", "mesh:join"]);
+  h.mesh.loseTunnelReplies(1);
+  expect((await enroll(owner, mesh, "lapsed-intent")).status).toBe(503);
+  // Retry A fences and pauses; its lease then lapses (a crashed or stalled reconciler).
+  const pause = h.mesh.holdNextReconcile();
+  const retryA = enroll(owner, mesh, "lapsed-intent");
+  await pause.reached;
+  const row = h.mesh.store.deviceIntents().find((intent) => intent.intentId === "lapsed-intent");
+  if (row === undefined) throw new Error("no intent row");
+  row.reconcileExpiresAt = new Date(Date.now() - 1);
+  // Admin retry B takes the row over, settles the old attempt, claims the intent and commits its own device.
+  const retryB = await enroll(admin, mesh, "lapsed-intent", KEY_2);
   expect(retryB.status).toBe(201);
   const made = Schema.decodeUnknownSync(Enrolled)(await retryB.json());
   expect(liveTunnels()).toBe(1);
-  // A resumes: it may act only on the attempt it fenced, which B already settled. B's device and tunnel survive.
+  // A resumes: its token no longer holds the row, so it writes and deletes nothing. B's device and tunnel survive.
   pause.release();
-  expect((await retryA).status).toBe(409);
+  expect((await retryA).status).toBe(503);
   expect(liveTunnels()).toBe(1);
   expect(await listed(admin, mesh)).toEqual([{ id: made.device.id }]);
   expect((await h.request(`/v1/devices/${made.device.id}`, bearer(admin))).status).toBe(200);
   expect(h.isDeleted(made.device.id)).toBe(false);
+});
+
+it("releases a deleted device's commit, so the intent stays revoked but no longer committed", async () => {
+  const { admin, mesh } = await setup();
+  const { device } = Schema.decodeUnknownSync(Enrolled)(await (await enroll(admin, mesh, "released-intent")).json());
+  expect((await h.request(`/v1/devices/${device.id}`, bearer(admin), { method: "DELETE" })).status).toBe(204);
+  const row = h.mesh.store.deviceIntents().find((intent) => intent.intentId === "released-intent");
+  expect([row?.committedAt, row?.deviceId, row?.revokedAt === null]).toEqual([null, null, false]);
+  expect(h.mesh.store.deviceIntentAttempts().filter((attempt) => attempt.intentId === "released-intent" && attempt.resolvedAt === null)).toHaveLength(0);
 });
 
 it("refuses a malformed intentId", async () => {

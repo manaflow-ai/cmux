@@ -9,6 +9,9 @@
 -- the row's labels, and for a caller confined to resources only when every attempt's device (attempt_device_ids) is
 -- in its allowlist. The same predicate gates every other write a caller makes to an existing row: a new claim, and
 -- ending a finished or stale claim to reconcile its attempts. A tombstone (revoked_at) lasts 7 days.
+-- Reconciling is a claim too: it writes a reconcile token, the highest attempt seq it fences and a 2-minute lease
+-- (renewed per step), and every cleanup write requires that token and seq <= fence, so a reconciler never reaches an
+-- attempt claimed after it began, and no claim is taken while the lease runs.
 --
 -- mesh_device_intent_attempts keeps one row per create attempt, never overwritten by a later one. An attempt is
 -- resolved (resolved_at) only once nothing it made can be live: it never sent its provider create, the provider
@@ -29,12 +32,19 @@ CREATE TABLE IF NOT EXISTS cmux_vm.mesh_device_intents (
   device_cmux_id text        NULL CHECK (device_cmux_id IS NULL OR device_cmux_id ~ '^dev_[0-9a-hjkmnp-tv-z]{26}$'),
   -- The device of every attempt ever made under the intent, for the revoke's resource allowlist check.
   attempt_device_ids text[]  NOT NULL DEFAULT '{}'::text[] CHECK (cardinality(attempt_device_ids) <= 1000),
+  -- The seq of the intent's latest attempt (0 before any).
+  attempt_seq    integer     NOT NULL DEFAULT 0 CHECK (attempt_seq BETWEEN 0 AND 1000),
   created_by     text        NOT NULL CHECK (char_length(created_by) BETWEEN 1 AND 160),
   -- The claimant's required labels: its device and tunnel rows carry them, and a revoker must.
   labels         jsonb       NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(labels) = 'object' AND octet_length(labels::text) <= 4096),
   created_at     timestamptz NOT NULL,
   committed_at   timestamptz NULL,
   revoked_at     timestamptz NULL,
+  -- A reconcile in progress: its token, the highest attempt seq it may act on, and its lease. No claim is taken while
+  -- the lease runs; a lapsed lease may be taken over (the old token's writes then match nothing).
+  reconcile_token      text        NULL CHECK (reconcile_token IS NULL OR char_length(reconcile_token) BETWEEN 1 AND 64),
+  reconcile_fence      integer     NULL,
+  reconcile_expires_at timestamptz NULL,
   PRIMARY KEY (tenant_id, mesh_cmux_id, intent_id)
 );
 
@@ -42,6 +52,7 @@ CREATE TABLE IF NOT EXISTS cmux_vm.mesh_device_intent_attempts (
   tenant_id      text        NOT NULL CHECK (char_length(tenant_id) BETWEEN 1 AND 128),
   mesh_cmux_id   text        NOT NULL CHECK (mesh_cmux_id ~ '^mesh_[0-9a-hjkmnp-tv-z]{26}$'),
   intent_id      text        NOT NULL CHECK (intent_id ~ '^[A-Za-z0-9._:~-]{1,128}$'),
+  seq            integer     NOT NULL CHECK (seq BETWEEN 1 AND 1000),
   device_cmux_id text        NOT NULL CHECK (device_cmux_id ~ '^dev_[0-9a-hjkmnp-tv-z]{26}$'),
   tunnel_cmux_id text        NOT NULL CHECK (tunnel_cmux_id ~ '^tun_[0-9a-hjkmnp-tv-z]{26}$'),
   created_at     timestamptz NOT NULL,

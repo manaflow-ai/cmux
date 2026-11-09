@@ -2184,10 +2184,7 @@ export interface components {
         MeshList: {
             items: components["schemas"]["Mesh"][];
         };
-        /** @description Signed by the device's install key over the cmux-mesh-v1 message (workers/cmux-vm/src/mesh/signed-request.ts); a stale (more than 120 s off), forged or tampered request is 403, a replayed one 409. */
-        EnrollDeviceRequest: {
-            /** @description The caller's id for this enroll attempt (letters, digits and . _ : ~ -, at most 128 characters), unique per mesh. A repeat with the same intentId answers the device it made instead of 409. After POST /v1/meshes/{meshId}/device-intents/{intentId}/revoke (or the device's delete) the intent is revoked for 7 days: an enroll with it answers 409 with code mesh.device.intent_revoked and leaves nothing live. While an earlier enroll with it is running, or may have left a tunnel the provider has not confirmed deleted, an enroll with it answers 409 (retry). */
-            intentId?: string;
+        EnrollMeshDeviceRequest: {
             /** @description a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$ */
             name: string;
             /** @description The device's WireGuard public key, base64. The private key never leaves the device. */
@@ -2203,6 +2200,8 @@ export interface components {
             nonce: string;
             /** @description ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message. */
             signature: string;
+            /** @description The caller's id for this enroll attempt (letters, digits and . _ : ~ -, at most 128 characters), unique per mesh. A repeat with the same intentId answers the device it made instead of 409. After POST /v1/meshes/{meshId}/device-intents/{intentId}/revoke (or the device's delete) the intent is revoked for 7 days: an enroll with it answers 409 with code mesh.device.intent_revoked and leaves nothing live. While an earlier enroll with it is running, or may have left a tunnel the provider has not confirmed deleted, an enroll with it answers 409 (retry). */
+            intentId?: string;
         };
         DeviceEnrollment: {
             device: components["schemas"]["Device"];
@@ -2520,6 +2519,24 @@ export interface components {
             expiresAt: string;
             binding: components["schemas"]["OverlayServerBinding"];
         };
+        /** @description Signed by the device's install key over the cmux-mesh-v1 message (workers/cmux-vm/src/mesh/signed-request.ts); a stale (more than 120 s off), forged or tampered request is 403, a replayed one 409. */
+        EnrollDeviceRequest: {
+            /** @description a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$ */
+            name: string;
+            /** @description The device's WireGuard public key, base64. The private key never leaves the device. */
+            wgPublicKey: string;
+            /** @description The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device. */
+            installPublicKey: string;
+            /**
+             * positive
+             * @description When the device signed, in unix milliseconds; accepted within 120 s of the server's clock.
+             */
+            signedAt: components["schemas"]["Int"];
+            /** @description 16 random bytes, base64url without padding. */
+            nonce: string;
+            /** @description ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message. */
+            signature: string;
+        };
         /** @description A provider-free mesh server, excluded from source wildcards. Device-to-device initiation requires an explicit source-id grant. Enrollment does not enable a role, relay admission or execution. */
         OverlayServer: {
             /** @description a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
@@ -2562,8 +2579,6 @@ export interface components {
             tenantId: string;
         };
         CodeEnrollOverlayServerRequest: {
-            /** @description The caller's id for this enroll attempt (letters, digits and . _ : ~ -, at most 128 characters), unique per mesh. A repeat with the same intentId answers the device it made instead of 409. After POST /v1/meshes/{meshId}/device-intents/{intentId}/revoke (or the device's delete) the intent is revoked for 7 days: an enroll with it answers 409 with code mesh.device.intent_revoked and leaves nothing live. While an earlier enroll with it is running, or may have left a tunnel the provider has not confirmed deleted, an enroll with it answers 409 (retry). */
-            intentId?: string;
             /** @description a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$ */
             name: string;
             /** @description The device's WireGuard public key, base64. The private key never leaves the device. */
@@ -7164,7 +7179,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["EnrollDeviceRequest"];
+                "application/json": components["schemas"]["EnrollMeshDeviceRequest"];
             };
         };
         responses: {

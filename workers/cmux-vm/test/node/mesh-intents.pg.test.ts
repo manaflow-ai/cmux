@@ -13,7 +13,7 @@ import mesh from "../../migrations/0004_cmux_vm_mesh.sql?raw";
 import meshM2 from "../../migrations/0005_cmux_vm_mesh_m2.sql?raw";
 import meshM3 from "../../migrations/0006_cmux_vm_mesh_m3.sql?raw";
 import deviceIntents from "../../migrations/0018_cmux_vm_mesh_device_intents.sql?raw";
-import { INTENT_STALE_CLAIM_MS, INTENT_TOMBSTONE_MS, absenceIsFinal, intentState, sqlDeviceIntents, type DeviceIntentStore } from "../../src/db/mesh-intents.ts";
+import { INTENT_STALE_CLAIM_MS, INTENT_TOMBSTONE_MS, RECONCILE_LEASE_MS, absenceIsFinal, intentState, sqlDeviceIntents, type DeviceIntentStore } from "../../src/db/mesh-intents.ts";
 import { MeshStore, sqlMeshStoreLayer, type MeshDeviceRow } from "../../src/db/mesh.ts";
 import { SqlClient, StoreError } from "../../src/db/sql.ts";
 import { newDeviceId, newMeshId, newTunnelId, TenantId } from "../../src/lib/ids.ts";
@@ -117,20 +117,63 @@ describe("mesh device intents", () => {
     await run(store.finishAttempt(keyOf(meshId, "i-4", first), later(2)));
     // A reconcile ends its claim without resolving it (its tunnel delete failed): no new claim starts while it is open.
     // It returns, from its own statement, exactly the attempts open when it ended the claim.
-    const ended = await run(store.beginReconcile(A, meshId, "i-4", owner, later(3)));
-    expect(Option.map(ended, (value) => value.fenced.map((attempt) => [attempt.deviceId, attempt.upstreamId, attempt.sentAt?.getTime()]))).toEqual(
-      Option.some([[first, "tun-upstream-1", later(1).getTime()]]),
+    const ended = await run(store.beginReconcile(A, meshId, "i-4", owner, { token: "t-1", mode: "enroll" }, later(3)));
+    expect(Option.map(ended, (value) => value.fenced.map((attempt) => [attempt.seq, attempt.deviceId, attempt.upstreamId, attempt.sentAt?.getTime()]))).toEqual(
+      Option.some([[1, first, "tun-upstream-1", later(1).getTime()]]),
     );
+    expect(Option.map(ended, (value) => value.intent.reconcileToken)).toEqual(Option.some("t-1"));
     expect(await run(store.commitDeviceIntent(A, "i-4", deviceRow(meshId, first), later(4)))).toBe(false);
     const second = newDeviceId();
     expect(await claim(meshId, "i-4", second, later(5))).toBe(false);
     const kept = await run(store.findAttempt(keyOf(meshId, "i-4", first)));
     expect(Option.map(kept, (attempt) => [attempt.upstreamId, attempt.resolvedAt])).toEqual(Option.some(["tun-upstream-1", null]));
-    // Once its tunnel is confirmed gone, the next claim adds its own row beside it.
-    await run(store.resolveAttempt(keyOf(meshId, "i-4", first), later(6)));
+    // Only the token holding the row may resolve it, and while its token is live no claim is taken.
+    expect(await run(store.resolveFencedAttempt(keyOf(meshId, "i-4", first), "t-other", false, later(6)))).toBe(false);
+    expect(await run(store.resolveFencedAttempt(keyOf(meshId, "i-4", first), "t-1", false, later(6)))).toBe(true);
+    expect(await claim(meshId, "i-4", second, later(7))).toBe(false);
+    await run(store.endReconcile(A, meshId, "i-4", "t-1"));
+    // Once its tunnel is confirmed gone and the reconcile ended, the next claim adds its own row beside it.
     expect(await claim(meshId, "i-4", second, later(7))).toBe(true);
     expect(await openOf(meshId, "i-4")).toEqual([second]);
+    expect(Option.map(await run(store.findAttempt(keyOf(meshId, "i-4", second))), (attempt) => attempt.seq)).toEqual(Option.some(2));
     expect((await revokeAs(meshId, "i-4", later(8))).attemptDeviceIds).toEqual([first, second]);
+  });
+
+  it("fences a reconcile: its writes need its token and seq <= fence, and a lapsed lease is taken over", async () => {
+    const meshId = newMeshId();
+    const first = newDeviceId();
+    await claim(meshId, "i-14", first, at);
+    await run(store.finishAttempt(keyOf(meshId, "i-14", first), later(1)));
+    expect(Option.isSome(await run(store.beginReconcile(A, meshId, "i-14", owner, { token: "t-a", mode: "enroll" }, later(2))))).toBe(true);
+    // A second reconcile waits while the lease runs.
+    expect(Option.isNone(await run(store.beginReconcile(A, meshId, "i-14", owner, { token: "t-b", mode: "enroll" }, later(3))))).toBe(true);
+    expect(await run(store.renewReconcile(A, meshId, "i-14", "t-a", later(RECONCILE_LEASE_MS)))).toBe(true);
+    // The lease lapses: B takes the row over, resolves the attempt and claims a new one.
+    const lapsed = later(2 * RECONCILE_LEASE_MS + 1);
+    expect(Option.isSome(await run(store.beginReconcile(A, meshId, "i-14", owner, { token: "t-b", mode: "enroll" }, lapsed)))).toBe(true);
+    expect(await run(store.renewReconcile(A, meshId, "i-14", "t-a", lapsed))).toBe(false);
+    expect(await run(store.resolveFencedAttempt(keyOf(meshId, "i-14", first), "t-b", true, lapsed))).toBe(true);
+    await run(store.endReconcile(A, meshId, "i-14", "t-a"));
+    expect((await run(store.findDeviceIntent(A, meshId, "i-14"))).pipe(Option.map((row) => row.reconcileToken))).toEqual(Option.some("t-b"));
+    await run(store.endReconcile(A, meshId, "i-14", "t-b"));
+    const second = newDeviceId();
+    expect(await claim(meshId, "i-14", second, lapsed)).toBe(true);
+    // A's late write reaches nothing: not its token, and the new attempt is past any fence.
+    expect(await run(store.resolveFencedAttempt(keyOf(meshId, "i-14", second), "t-a", false, lapsed))).toBe(false);
+    expect(await openOf(meshId, "i-14")).toEqual([second]);
+  });
+
+  it("releases a deleted device's commit, so its intent can be claimed again after the tombstone", async () => {
+    const meshId = newMeshId();
+    const device = newDeviceId();
+    await claim(meshId, "i-15", device, at);
+    await run(store.commitDeviceIntent(A, "i-15", deviceRow(meshId, device), at));
+    await run(store.revokeIntentOfDevice(A, device, later(1)));
+    await run(store.releaseCommitOfDevice(A, device, later(2)));
+    expect((await run(store.findDeviceIntent(A, meshId, "i-15"))).pipe(Option.map((row) => [row.committedAt, row.deviceId]))).toEqual(Option.some([null, null]));
+    expect(await openOf(meshId, "i-15")).toEqual([]);
+    expect(await claim(meshId, "i-15", newDeviceId(), later(INTENT_TOMBSTONE_MS))).toBe(false);
+    expect(await claim(meshId, "i-15", newDeviceId(), later(INTENT_TOMBSTONE_MS + 2))).toBe(true);
   });
 
   it("keeps a tombstone 7 days, written before any enroll or by a device's delete", async () => {
@@ -187,15 +230,16 @@ describe("mesh device intents", () => {
     const confined = { ref: "key:a", labels: {}, admin: true, allowlist: [meshId] };
     const claimant = { ref: "key:b", labels, admin: false, allowlist: null };
     // A live claim is never ended, not even by its claimant, until its create finished or the stale window passed.
-    expect(Option.isNone(await run(store.beginReconcile(A, meshId, "i-9", claimant, later(2))))).toBe(true);
+    expect(Option.isNone(await run(store.beginReconcile(A, meshId, "i-9", claimant, { token: "t", mode: "enroll" }, later(2))))).toBe(true);
     await run(store.finishAttempt(keyOf(meshId, "i-9", first), later(3)));
     // Once it may be ended: never by another principal or a key not allowed its device.
     for (const caller of [stranger, confined]) {
-      expect(Option.isNone(await run(store.beginReconcile(A, meshId, "i-9", caller, later(4))))).toBe(true);
+      expect(Option.isNone(await run(store.beginReconcile(A, meshId, "i-9", caller, { token: "t", mode: "enroll" }, later(4))))).toBe(true);
     }
     expect((await run(store.findDeviceIntent(A, meshId, "i-9"))).pipe(Option.map((row) => row.deviceId))).toEqual(Option.some(first));
-    expect(Option.isSome(await run(store.beginReconcile(A, meshId, "i-9", claimant, later(5))))).toBe(true);
+    expect(Option.isSome(await run(store.beginReconcile(A, meshId, "i-9", claimant, { token: "t", mode: "enroll" }, later(5))))).toBe(true);
     await run(store.resolveAttempt(keyOf(meshId, "i-9", first), later(6)));
+    await run(store.endReconcile(A, meshId, "i-9", "t"));
     // A free row is claimed only by an authorized caller.
     expect(await claim(meshId, "i-9", newDeviceId(), later(7), "key:a", labels)).toBe(false);
     expect(await claim(meshId, "i-9", newDeviceId(), later(7), "key:a", { role: "other" }, true)).toBe(false);
@@ -204,7 +248,7 @@ describe("mesh device intents", () => {
     const committed = newDeviceId();
     await claim(meshId, "i-10", committed, at);
     await run(store.commitDeviceIntent(A, "i-10", deviceRow(meshId, committed), later(1)));
-    expect(Option.isNone(await run(store.beginReconcile(A, meshId, "i-10", owner, later(INTENT_STALE_CLAIM_MS + 1))))).toBe(true);
+    expect(Option.isNone(await run(store.beginReconcile(A, meshId, "i-10", owner, { token: "t", mode: "enroll" }, later(INTENT_STALE_CLAIM_MS + 1))))).toBe(true);
   });
 
   it("calls an absent tunnel final only once the provider answered or the send grace passed", async () => {

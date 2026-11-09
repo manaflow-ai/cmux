@@ -53,7 +53,7 @@
         "0015_cmux_vm_overlay_server_codes.sql": "a0a7c6fcb425f8d64a319730ad2a523bf0b91b77ac0a956dc0966e90153ecb51",
         "0016_cmux_vm_agent_keys.sql": "558b159aafaf1c7f64d4436b646e239c28e7f3f482b2046f81a03d9b27f86360",
         "0017_cmux_vm_client_session_index.sql": "219a97ca929c141b59ffb9e820e76b4051ce0b72b45dc8e40a3f8eb06ad9c882",
-        "0018_cmux_vm_mesh_device_intents.sql": "71b3cd0a01c0fcd03076bea6f7195c2934791b92ee7e3f02c610acbc95453e23",
+        "0018_cmux_vm_mesh_device_intents.sql": "1cef2169b59579c6030a467d3c4da39f1b3ef68415faa18eebab76e0c10170ae",
         "0019_cmux_vm_mesh_device_intents_index.sql": "7b19ba73f9051afbff4a140ec09e6b9ec9a208d149bae85d209007e332ac3505"
       }
     },

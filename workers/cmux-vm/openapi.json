@@ -6742,7 +6742,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/EnrollDeviceRequest"
+                "$ref": "#/components/schemas/EnrollMeshDeviceRequest"
               }
             }
           },
@@ -12915,7 +12915,7 @@
         },
         "additionalProperties": false
       },
-      "EnrollDeviceRequest": {
+      "EnrollMeshDeviceRequest": {
         "type": "object",
         "required": [
           "name",
@@ -12926,11 +12926,6 @@
           "signature"
         ],
         "properties": {
-          "intentId": {
-            "type": "string",
-            "description": "The caller's id for this enroll attempt (letters, digits and . _ : ~ -, at most 128 characters), unique per mesh. A repeat with the same intentId answers the device it made instead of 409. After POST /v1/meshes/{meshId}/device-intents/{intentId}/revoke (or the device's delete) the intent is revoked for 7 days: an enroll with it answers 409 with code mesh.device.intent_revoked and leaves nothing live. While an earlier enroll with it is running, or may have left a tunnel the provider has not confirmed deleted, an enroll with it answers 409 (retry).",
-            "pattern": "^[A-Za-z0-9._:~-]{1,128}$"
-          },
           "name": {
             "type": "string",
             "description": "a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$",
@@ -12961,10 +12956,14 @@
             "type": "string",
             "description": "ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.",
             "pattern": "^[A-Za-z0-9+/]{86}==$"
+          },
+          "intentId": {
+            "type": "string",
+            "description": "The caller's id for this enroll attempt (letters, digits and . _ : ~ -, at most 128 characters), unique per mesh. A repeat with the same intentId answers the device it made instead of 409. After POST /v1/meshes/{meshId}/device-intents/{intentId}/revoke (or the device's delete) the intent is revoked for 7 days: an enroll with it answers 409 with code mesh.device.intent_revoked and leaves nothing live. While an earlier enroll with it is running, or may have left a tunnel the provider has not confirmed deleted, an enroll with it answers 409 (retry).",
+            "pattern": "^[A-Za-z0-9._:~-]{1,128}$"
           }
         },
-        "additionalProperties": false,
-        "description": "Signed by the device's install key over the cmux-mesh-v1 message (workers/cmux-vm/src/mesh/signed-request.ts); a stale (more than 120 s off), forged or tampered request is 403, a replayed one 409."
+        "additionalProperties": false
       },
       "DeviceEnrollment": {
         "type": "object",
@@ -13947,6 +13946,52 @@
         "additionalProperties": false,
         "description": "An approved server-only invitation, valid for 10 minutes. Only its hash is stored. The reserved device id supports signed policy recovery after a lost enrollment response."
       },
+      "EnrollDeviceRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "wgPublicKey",
+          "installPublicKey",
+          "signedAt",
+          "nonce",
+          "signature"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$"
+          },
+          "wgPublicKey": {
+            "type": "string",
+            "description": "The device's WireGuard public key, base64. The private key never leaves the device.",
+            "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$"
+          },
+          "installPublicKey": {
+            "type": "string",
+            "description": "The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device.",
+            "pattern": "^B[A-Za-z0-9+/]{86}=$"
+          },
+          "signedAt": {
+            "$ref": "#/components/schemas/Int",
+            "description": "When the device signed, in unix milliseconds; accepted within 120 s of the server's clock.",
+            "title": "positive",
+            "exclusiveMinimum": 0
+          },
+          "nonce": {
+            "type": "string",
+            "description": "16 random bytes, base64url without padding.",
+            "pattern": "^[A-Za-z0-9_-]{22}$"
+          },
+          "signature": {
+            "type": "string",
+            "description": "ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.",
+            "pattern": "^[A-Za-z0-9+/]{86}==$"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Signed by the device's install key over the cmux-mesh-v1 message (workers/cmux-vm/src/mesh/signed-request.ts); a stale (more than 120 s off), forged or tampered request is 403, a replayed one 409."
+      },
       "OverlayServer": {
         "type": "object",
         "required": [
@@ -14094,11 +14139,6 @@
           "code"
         ],
         "properties": {
-          "intentId": {
-            "type": "string",
-            "description": "The caller's id for this enroll attempt (letters, digits and . _ : ~ -, at most 128 characters), unique per mesh. A repeat with the same intentId answers the device it made instead of 409. After POST /v1/meshes/{meshId}/device-intents/{intentId}/revoke (or the device's delete) the intent is revoked for 7 days: an enroll with it answers 409 with code mesh.device.intent_revoked and leaves nothing live. While an earlier enroll with it is running, or may have left a tunnel the provider has not confirmed deleted, an enroll with it answers 409 (retry).",
-            "pattern": "^[A-Za-z0-9._:~-]{1,128}$"
-          },
           "name": {
             "type": "string",
             "description": "a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$",
