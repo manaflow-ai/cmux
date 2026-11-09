@@ -37,9 +37,8 @@
 //!   written) is finished, with nothing minted.
 //! - Every redeem says what this acpmux can do (`capabilities`, `vault.proxy.v1` when it runs
 //!   the vault's egress proxy, else an empty list). A join from before the hub took the list
-//!   rotates its credential once, at the next sign-in, to state it: the rotate route takes only a
-//!   person's own token (a machine credential is refused there), and a rotation by the person
-//!   who minted the join keeps the list.
+//!   keeps its credential: a sign-in never rotates it (a rotate the hub committed whose answer
+//!   was lost would leave this machine with a retired credential, read as revoked).
 //!
 //! Neither the access token nor the join token is put in argv, the environment, a file or a
 //! log: both stay in memory (zeroized when dropped) and go only into their own hub request.
@@ -135,20 +134,6 @@ pub(super) trait EnrollHub {
         &self,
         record: MachineCredential,
     ) -> impl Future<Output = leave::HubAnswer> + Send;
-    /// Rotates `record`'s credential as the signed-in person, sending `capabilities`.
-    fn rotate(
-        &self,
-        record: &MachineCredential,
-        capabilities: &[String],
-    ) -> impl Future<Output = Result<Rotated>> + Send;
-}
-
-/// A rotated credential.
-pub(super) struct Rotated {
-    pub credential: Zeroizing<String>,
-    pub generation: u64,
-    /// The person who minted the join, as the hub says.
-    pub user_id: Option<String>,
 }
 
 /// The machine's name: its host name, with a DEV build's tag after it.
@@ -385,9 +370,6 @@ pub(super) async fn enroll_at(
                 if let Err(e) = port.repair_relay() {
                     tracing::warn!("sign-in enroll: the relay config was not repaired: {e:#}");
                 }
-                if record.capabilities.is_none() {
-                    rotate_once(home, record, user_id, port).await;
-                }
                 return EnrollOutcome::AlreadyJoined;
             }
             // Unreachable says nothing against the join here: it stays as it is.
@@ -440,45 +422,6 @@ pub(super) async fn enroll_at(
             tracing::warn!("sign-in enroll: the redeem failed: {e:#}");
             EnrollOutcome::Unavailable
         }
-    }
-}
-
-/// A join from before the hub recorded capabilities states them once: its credential is rotated
-/// as the signed-in person, sending this acpmux's list, and the record keeps the new credential
-/// and the list, so it never rotates again. A failed rotate changes nothing here and is tried at
-/// the next sign-in. The caller holds the join lock.
-async fn rotate_once(
-    home: &Path,
-    record: MachineCredential,
-    person: Option<&str>,
-    port: &impl EnrollHub,
-) {
-    let sent = machine_capabilities();
-    let rotated = match port.rotate(&record, &sent).await {
-        Ok(rotated) => rotated,
-        Err(e) => {
-            tracing::warn!("sign-in enroll: the capability rotate failed: {e:#}");
-            return;
-        }
-    };
-    // The hub keeps the list only from the person who minted the join; from anyone else it
-    // records none.
-    let minter = rotated.user_id.clone().or_else(|| record.user_id.clone());
-    let kept = match (person, minter.as_deref()) {
-        (Some(person), Some(minter)) => person == minter,
-        _ => true,
-    };
-    let updated = MachineCredential {
-        credential: rotated.credential.as_str().to_owned(),
-        credential_generation: rotated.generation,
-        user_id: minter,
-        capabilities: Some(if kept { sent } else { Vec::new() }),
-        ..record
-    };
-    if let Err(e) = save_at(home, &updated) {
-        // The hub retired the old credential: the next sign-in finds it unknown and enrolls
-        // this machine again.
-        tracing::error!("sign-in enroll: the rotated credential was not saved: {e:#}");
     }
 }
 
@@ -604,36 +547,6 @@ impl EnrollHub for Platform {
 
     async fn revoke_own(&self, record: MachineCredential) -> leave::HubAnswer {
         revoke_self(record).await
-    }
-
-    async fn rotate(&self, record: &MachineCredential, capabilities: &[String]) -> Result<Rotated> {
-        let id = record.machine_id.parse().map_err(|_| anyhow!("malformed machine id"))?;
-        let body: cmux_cloud_client::types::MachineCredentialRotate =
-            serde_json::from_value(json!({"capabilities": capabilities}))?;
-        let answer = match self.person()?.machine_join_rotate(&id, &body).await {
-            Ok(body) => serde_json::to_value(body.into_inner())?,
-            Err(error) => return Err(refused(error).await),
-        };
-        anyhow::ensure!(
-            answer.get("machineId").and_then(Value::as_str) == Some(record.machine_id.as_str()),
-            "the hub rotated another machine"
-        );
-        let credential = answer
-            .get("credential")
-            .and_then(Value::as_str)
-            .filter(|c| c.starts_with("cmm_") && !c.chars().any(char::is_control))
-            .map(|c| Zeroizing::new(c.to_owned()))
-            .ok_or_else(|| anyhow!("the hub rotated with no credential"))?;
-        let user_id = answer.get("userId").and_then(Value::as_str).and_then(safe_id);
-        // The generation the hub now holds, read with the new credential; one up if unread.
-        let generation =
-            match hub_client(&self.hub, Some(&credential))?.machine_redeem_self().await {
-                Ok(body) => u64::try_from(body.into_inner().credential_generation).ok(),
-                Err(_) => None,
-            }
-            .filter(|n| *n > record.credential_generation)
-            .unwrap_or(record.credential_generation.saturating_add(1));
-        Ok(Rotated { credential, generation, user_id })
     }
 }
 
@@ -844,10 +757,6 @@ mod tests {
         resumes: AtomicUsize,
         /// The record a pending join completes into when resumed, if any.
         resumed: Mutex<Option<MachineCredential>>,
-        /// The capabilities each rotate sent.
-        rotations: Mutex<Vec<Vec<String>>>,
-        /// The person the hub names as the join's minter on a rotate.
-        minter: Option<String>,
         /// What the hub answers a revoke with the machine's own credential; Revoked when None.
         own_answer: Mutex<Option<leave::HubAnswer>>,
         /// The credentials each such revoke sent.
@@ -916,18 +825,6 @@ mod tests {
         async fn revoke_own(&self, record: MachineCredential) -> leave::HubAnswer {
             self.own_revokes.lock().unwrap().push(record.credential);
             self.own_answer.lock().unwrap().clone().unwrap_or(leave::HubAnswer::Revoked)
-        }
-        async fn rotate(
-            &self,
-            record: &MachineCredential,
-            capabilities: &[String],
-        ) -> Result<Rotated> {
-            self.rotations.lock().unwrap().push(capabilities.to_vec());
-            Ok(Rotated {
-                credential: Zeroizing::new("cmm_rotated".to_owned()),
-                generation: record.credential_generation + 1,
-                user_id: self.minter.clone().or_else(|| record.user_id.clone()),
-            })
         }
     }
 
@@ -1123,15 +1020,12 @@ mod tests {
     }
 
     #[test]
-    fn a_redeem_and_a_rotate_always_say_whether_the_egress_proxy_runs() {
+    fn a_redeem_always_says_whether_the_egress_proxy_runs() {
         assert_eq!(capabilities_for(true), vec!["vault.proxy.v1".to_owned()]);
         assert_eq!(capabilities_for(false), Vec::<String>::new());
         assert_eq!(machine_capabilities(), capabilities_for(RUNS_EGRESS_PROXY));
         // An empty list is sent, never left out (the hub reads a missing one as a legacy join).
         for capabilities in [capabilities_for(true), capabilities_for(false)] {
-            let rotate: cmux_cloud_client::types::MachineCredentialRotate =
-                serde_json::from_value(json!({"capabilities": capabilities})).unwrap();
-            assert_eq!(serde_json::to_value(rotate).unwrap()["capabilities"], json!(capabilities));
             let redeem: cmux_cloud_client::types::JoinRedeem = serde_json::from_value(json!({
                 "token": "cmj_x", "platform": "linux", "hostname": "box", "wgPublicKey": "key",
                 "capabilities": capabilities,
@@ -1142,32 +1036,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_legacy_credential_rotates_once_and_never_again() {
+    async fn a_legacy_credential_is_never_rotated_by_a_sign_in() {
+        // A rotate the hub committed whose answer was lost would leave this machine with a
+        // retired credential, its relay's 401 read as a revoke: a sign-in never rotates, so the
+        // joined credential stays the one the hub holds.
         let home = tempfile::tempdir().unwrap();
         joined(home.path(), |r| r.capabilities = None);
         let port = FakeHub::at(home.path());
-        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::AlreadyJoined);
-        assert_eq!(*port.rotations.lock().unwrap(), vec![machine_capabilities()]);
-        let record = load_at(home.path()).unwrap().unwrap();
-        assert_eq!(record.credential, "cmm_rotated");
-        assert_eq!(record.credential_generation, 2);
-        assert_eq!(record.capabilities, Some(vec!["vault.proxy.v1".to_owned()]));
-        // The next start's sign-in: recorded, so no second rotate.
-        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::AlreadyJoined);
-        assert_eq!(port.rotations.lock().unwrap().len(), 1);
+        for _ in 0..2 {
+            assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::AlreadyJoined);
+            let record = load_at(home.path()).unwrap().unwrap();
+            assert_eq!((record.credential.as_str(), record.credential_generation), ("cmm_old", 1));
+            assert_eq!(record.capabilities, None);
+            assert!(!record.revoked);
+        }
         assert_eq!(port.mints.load(Ordering::SeqCst), 0);
-
-        // Rotated by someone who did not mint it: the hub records none, and so does the record.
-        let home = tempfile::tempdir().unwrap();
-        joined(home.path(), |r| {
-            r.capabilities = None;
-            r.user_id = None;
-        });
-        let port = FakeHub { minter: Some("user_admin".into()), ..FakeHub::at(home.path()) };
-        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::AlreadyJoined);
-        let record = load_at(home.path()).unwrap().unwrap();
-        assert_eq!(record.capabilities, Some(Vec::new()));
-        assert_eq!(record.user_id.as_deref(), Some("user_admin"));
     }
 
     /// A join proposal in `home` as `recovery::new_pending` writes it.
