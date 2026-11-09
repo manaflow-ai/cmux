@@ -351,7 +351,7 @@ export const sqlDeviceIntents = (sql: SqlClientService): DeviceIntentStore => ({
            SET revoked_at = CASE WHEN mesh_device_intents.revoked_at IS NULL OR mesh_device_intents.revoked_at <= $6::timestamptz
                                  THEN EXCLUDED.revoked_at ELSE mesh_device_intents.revoked_at END
            WHERE (mesh_device_intents.created_by = $4 OR $8::boolean) AND mesh_device_intents.labels @> $7::text::jsonb
-             AND ($9::text[] IS NULL OR mesh_device_intents.attempt_device_ids <@ $9::text[])
+             AND ($9::text IS NULL OR to_jsonb(mesh_device_intents.attempt_device_ids) <@ $9::text::jsonb)
          RETURNING ${COLUMNS}`,
         [
           tenantId,
@@ -362,7 +362,7 @@ export const sqlDeviceIntents = (sql: SqlClientService): DeviceIntentStore => ({
           ago(now, INTENT_TOMBSTONE_MS),
           JSON.stringify(caller.labels),
           caller.admin,
-          caller.allowlist === null ? null : [...caller.allowlist],
+          caller.allowlist === null ? null : JSON.stringify(caller.allowlist),
         ],
       )
       .pipe(Effect.flatMap(decode(Row, "intent.revoke")), Effect.map((rows) => Option.map(Option.fromNullable(rows[0]), toRow))),

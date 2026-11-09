@@ -816,7 +816,7 @@ const createDevice = <C, M>(
               .pipe(
                 // Only a provider answer that proves nothing was made resolves the attempt. A device id (and so the
                 // tunnel's slug) is fresh per attempt and sent once, so a 409 is a refusal, never "this slug exists".
-                Effect.tapError((error) => (definitelyNotCreated(error.status) ? resolve : Effect.void)),
+                Effect.tapError((error) => (definitelyNotCreated(error) ? resolve : Effect.void)),
                 Effect.mapError((error) => (error.status === 409 ? new Conflict({ message: "The tunnel could not be created for this mesh" }) : unavailable(error))),
               );
             if (key !== null) yield* store.recordAttemptTunnel(key, created.upstreamId).pipe(Effect.ignore);
@@ -915,10 +915,13 @@ const key0 = <R>(
 ): Effect.Effect<void, never, R> => (intentId === undefined ? Effect.void : effect({ tenantId, meshId, intentId, deviceId }));
 
 /**
- * Provider answers that prove the tunnel create made nothing: a 4xx other than 408 (a timeout). A 5xx, a 408, a
- * transport error or anything after the provider answered may have left a tunnel.
+ * Failures of `createTunnel` that prove it made nothing: its network read, which runs before the create is sent, or a
+ * create the provider answered with a 4xx other than 408 (a timeout). A 5xx, a 408, a transport error, or anything
+ * after the provider answered (a minted key, an unresolvable endpoint) may have left a tunnel.
  */
-const definitelyNotCreated = (status: number | null) => status !== null && status >= 400 && status < 500 && status !== 408;
+const definitelyNotCreated = (error: { readonly operation: string; readonly status: number | null }) =>
+  error.operation === "getNetwork" ||
+  (error.operation === "createTunnel" && error.status !== null && error.status >= 400 && error.status < 500 && error.status !== 408);
 
 /** Why an intent could not be claimed or committed: its tombstone, or another create holding it. */
 const intentRefusal = (tenantId: Principal["tenantId"], meshId: string, intentId: string) =>

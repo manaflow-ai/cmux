@@ -24,7 +24,7 @@ const later = (ms: number) => new Date(at.getTime() + ms);
 let pg: PGlite;
 let store: DeviceIntentStore;
 const run = <A>(effect: Effect.Effect<A, StoreError>) => Effect.runPromise(effect);
-const owner = { ref: "key:x", labels: {}, admin: false, allowlist: null };
+const owner: Parameters<DeviceIntentStore["revokeDeviceIntent"]>[3] = { ref: "key:x", labels: {}, admin: false, allowlist: null };
 const revokeAs = async (meshId: string, intentId: string, when: Date, caller = owner) => {
   const row = await run(store.revokeDeviceIntent(A, meshId, intentId, caller, when));
   if (Option.isNone(row)) throw new Error("revoke refused");
