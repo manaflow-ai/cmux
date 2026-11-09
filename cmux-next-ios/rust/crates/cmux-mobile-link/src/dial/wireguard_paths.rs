@@ -83,12 +83,20 @@ impl Paths {
     }
 
     /// Make the path set exactly `wanted`: new routes become probing paths,
-    /// routes no longer wanted are removed (the selector moves off them).
+    /// routes no longer wanted are removed (the selector moves off them). A
+    /// route whose kind changed (a learned address the peer then announced
+    /// as its new TURN relayed address) is removed and added again, so the
+    /// selector never ranks a relay as direct.
     pub fn sync(&mut self, wanted: &[Wanted]) {
         let gone: Vec<PathId> = self
             .entries
             .iter()
-            .filter(|entry| !wanted.iter().any(|want| want.route == entry.route))
+            .filter(|entry| match wanted.iter().find(|want| want.route == entry.route) {
+                None => true,
+                Some(want) => {
+                    self.selector.path(entry.id).is_some_and(|view| view.kind != self.rank_of(*want).0)
+                }
+            })
             .map(|entry| entry.id)
             .collect();
         for id in gone {
@@ -400,6 +408,28 @@ mod tests {
         assert_eq!(seen, vec![lan, relay], "never moves to the stale tailnet path");
         let relay_after = now.duration_since(cut);
         assert!(relay_after <= std::time::Duration::from_secs(5), "relay after {relay_after:?}");
+    }
+
+    #[test]
+    fn a_route_announced_as_relayed_later_is_ranked_as_a_relay() {
+        let ms = std::time::Duration::from_millis;
+        let mut paths = paths_on(lan_table());
+        let wan = udp("198.51.100.20:41000");
+        let new_relay = udp("203.0.113.9:50002");
+        // A datagram from the peer's new relayed address came before its
+        // announcement: learned as a direct address.
+        paths.sync(&[Wanted { route: new_relay, relayed: false }]);
+        answer_all(&mut paths, Instant::now(), ms(30));
+        assert_eq!(paths.current(), Some(new_relay));
+        paths.sync(&[Wanted { route: new_relay, relayed: false }, Wanted { route: wan, relayed: false }]);
+        answer_all(&mut paths, Instant::now(), ms(30));
+        assert_eq!(paths.current(), Some(new_relay), "the same rank: the held path stays");
+        // The announcement names it relayed; the direct WAN path must win.
+        paths.sync(&[Wanted { route: wan, relayed: false }, Wanted { route: new_relay, relayed: true }]);
+        answer_all(&mut paths, Instant::now(), ms(5));
+        assert_eq!(paths.current(), Some(wan));
+        let id = paths.entries.iter().find(|entry| entry.route == new_relay).map(|entry| entry.id).unwrap();
+        assert_eq!(paths.selector.path(id).map(|view| view.kind), Some(PathKind::TurnRelay));
     }
 
     #[test]
