@@ -108,9 +108,9 @@ final class CloudChatsFlowUITests: XCTestCase {
             throw XCTSkip("this build's gallery has no Cloud connect scene")
         }
         shot(app, "04-cloud-connect-gallery")
-        let reason = text(app, containing: "through")
-        let eta = text(app, containing: " s")
-        ergo("wait", wait.label, reason: reason.exists, eta: eta.exists)
+        // The wait reads as one element: what it waits on, then its bound.
+        ergo("wait", wait.label, reason: wait.label.contains("through"), eta: wait.label.contains("up to"))
+        XCTAssertTrue(wait.label.contains("through") && wait.label.contains("up to"), "reason and ETA: \(wait.label)")
         let failed = app.descendants(matching: .any)["cloudChats.connectFailed"].firstMatch
         XCTAssertTrue(failed.exists, "the timeout state\n\(app.debugDescription)")
         ergo("state", "Couldn't connect, with its cause and Retry", reason: true)
