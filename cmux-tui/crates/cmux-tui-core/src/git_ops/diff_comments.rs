@@ -12,10 +12,9 @@
 //! `resource_mutations` ledger, serialized per root, so a retry replays the
 //! first result and concurrent writes never lose one another.
 //!
-//! A send hands the caller's prompt to an acpmux session of this machine as
-//! one queued prompt whose acpmux prompt id is the request's key, so a
-//! resend runs it once; once acpmux takes it, the sent comments still at the
-//! caller's versions are removed, as a delete removes them.
+//! A send (`send`) hands the caller's prompt to an acpmux session of this
+//! machine as one queued prompt; once acpmux takes it, the sent comments
+//! still at the caller's versions are removed, as a delete removes them.
 
 use std::collections::HashMap;
 use std::io;
@@ -29,10 +28,14 @@ use sha2::{Digest, Sha256};
 use super::checkpoint::ledger::{self, Identity};
 use super::checkpoint::record::{now_ms, rfc3339};
 use super::checkpoint::store::{hex, private_directory, read_json, write_json};
-use crate::mux::agent_message_pump::Handover;
 use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_router::ParsedResourceRequest;
 use crate::{Mux, ResourceTarget};
+
+mod send;
+#[cfg(test)]
+#[path = "diff_comments/send_tests.rs"]
+mod send_tests;
 
 /// Advertised in identify: the session host owns `diff.comments.*`.
 pub(crate) const CAPABILITY: &str = "diff-comments-v1";
@@ -87,7 +90,7 @@ pub(super) fn dispatch(
             let versions = versions(&request.fields)?;
             mutate(mux, &store, request, root, |file, _| Ok(delete(file, &ids, &versions)))
         }
-        ResourceOperation::DiffCommentsSend => send(mux, &store, request, root),
+        ResourceOperation::DiffCommentsSend => send::send(mux, &store, request, root),
         // Dispatched only for the operations `handles` names; any other is refused, never a panic.
         _ => Err(ResourceError::operation_failed(
             operation,
@@ -131,71 +134,6 @@ fn fingerprint(request: &ParsedResourceRequest) -> Value {
     let selectors = serde_json::to_value(&request.selectors).unwrap_or(Value::Null);
     let fields = Value::Object(request.fields.clone());
     ledger::fingerprint(request.envelope.operation.wire_name(), &selectors, &fields, &identity)
-}
-
-/// Hands `text` to the acpmux session `acp_session` as one queued prompt
-/// whose prompt id is the request's key, then removes the sent comments, as
-/// a delete with the same `ids` and `versions` does. Returns `{sent,
-/// cleared}`: how many comments were sent and the ids removed. The root's
-/// lock is not held while acpmux takes the prompt.
-fn send(
-    mux: &Arc<Mux>,
-    store: &Store,
-    request: &ParsedResourceRequest,
-    root: &str,
-) -> Result<Value, ResourceError> {
-    const OPERATION: &str = "diff.comments.send";
-    let acp_session = acp_session(&request.fields)?;
-    let text = prompt(&request.fields)?;
-    let ids = ids(&request.fields)?;
-    if ids.is_empty() {
-        return Err(ResourceError::validation_invalid(Some("ids"), "a send names at least one id"));
-    }
-    let versions = versions(&request.fields)?;
-    let key = super::checkpoint::mutation_key(request);
-    // A retry of a send that finished answers as the first did and sends nothing.
-    if let Some(replayed) = ledger::prior(mux, &key, OPERATION, &fingerprint(request))? {
-        return Ok(replayed);
-    }
-    // Queued behind a running turn, never steered into it, and marked a
-    // resend so acpmux answers a prompt id it already took, even from its
-    // log, without running it again.
-    let meta = json!({"steer": false, "promptId": key, "resend": true});
-    match mux.acp_prompt(acp_session, &key, text.to_owned(), meta) {
-        Handover::Delivered => {}
-        Handover::Unreachable => {
-            let message = format!(
-                "nothing was sent: acpmux on this machine is not running or runs no session \
-                 {acp_session}"
-            );
-            return Err(ResourceError::operation_failed(
-                OPERATION,
-                "no_session",
-                json!({"message": message}),
-            ));
-        }
-        Handover::Failed(error) => {
-            let message = format!("acpmux refused the prompt: {error}");
-            return Err(ResourceError::operation_failed(
-                OPERATION,
-                "send_failed",
-                json!({"message": message}),
-            ));
-        }
-        Handover::Unsettled(why) => {
-            let message = format!(
-                "{why}; the agent may have taken the prompt, and a retry with the same \
-                 idempotency key runs it once"
-            );
-            return Err(ResourceError::operation_failed(
-                OPERATION,
-                "send_unsettled",
-                json!({"message": message}),
-            ));
-        }
-    }
-    let sent = ids.len();
-    mutate(mux, store, request, root, |file, _| Ok(cleared(file, &ids, &versions, sent)))
 }
 
 /// A delivered send's clear: [`delete`]'s removal, answered as `{sent, cleared}`.
