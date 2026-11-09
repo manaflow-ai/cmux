@@ -138,9 +138,13 @@ pub(super) fn foreign_session(
 
 /// [`foreign_session`] over one `agent.list` read.
 fn foreign_in(read: impl FnOnce() -> anyhow::Result<Value>, terminal: &str, session: &str) -> bool {
-    // Red stub: the roster is not read yet.
-    let _ = (read, terminal, session);
-    false
+    let Ok(rows) = read() else { return false };
+    rows.as_array().into_iter().flatten().any(|row| {
+        row["terminal_id"].as_str() == Some(terminal)
+            && row["source"].as_str() == Some("hook")
+            && row["state"].as_str() != Some("done")
+            && row["extra"]["agent_session_id"].as_str().is_some_and(|live| live != session)
+    })
 }
 
 /// claude `SessionStart` in a cmux terminal: the startup line for how this

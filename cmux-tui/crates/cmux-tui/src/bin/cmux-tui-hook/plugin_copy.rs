@@ -65,7 +65,7 @@ pub(super) fn stands_down(
     if source != "claude" {
         return false;
     }
-    if claimed_by_another(session, &getenv) {
+    if claimed_by_another(session, None, &getenv) {
         return true;
     }
     if !is_plugin_copy(source, &getenv) {
@@ -89,24 +89,33 @@ pub(super) fn claimed_elsewhere(
     session: Option<&str>,
     getenv: impl Fn(&str) -> Option<OsString>,
 ) -> bool {
-    // Red stub: the route terminal is not read yet.
-    let _ = terminal;
-    source == "claude" && claimed_by_another(session, &getenv)
+    source == "claude" && claimed_by_another(session, terminal, &getenv)
 }
 
-/// Whether this environment claims its terminal for a session other than
-/// `session`.
-fn claimed_by_another(session: Option<&str>, getenv: &impl Fn(&str) -> Option<OsString>) -> bool {
-    claim(getenv).is_some_and(|(terminal, owner)| {
-        terminal_of(getenv).as_deref() == Some(terminal.as_str()) && session != Some(owner.as_str())
-    })
+/// Whether this environment claims its terminal (`terminal`, else
+/// `CMUX_TUI_TERMINAL_ID`) for a session other than `session` of another
+/// Claude process. The claiming Claude's own hooks never stand down: after
+/// `/clear` it runs a new session, and a Claude Code that let its hooks see
+/// the env file would show them its own claim.
+fn claimed_by_another(
+    session: Option<&str>,
+    terminal: Option<&str>,
+    getenv: &impl Fn(&str) -> Option<OsString>,
+) -> bool {
+    let Some(claim) = claim(getenv) else { return false };
+    let here = terminal.map(str::to_owned).or_else(|| terminal_of(getenv));
+    here.as_deref() == Some(claim.terminal.as_str())
+        && session != Some(claim.session.as_str())
+        && claim.pid.is_none_or(|pid| claude_pid(getenv).as_deref() != Some(pid.as_str()))
 }
 
 /// After a Claude `SessionStart` that reports (any copy: the plugin, the
-/// installed hooks or the shim's): claims the terminal for `session` in
-/// `CLAUDE_ENV_FILE`, created when missing, so the Claudes its tool commands
-/// start stand down (a later claim, after `/clear`, replaces it). Does nothing
-/// when an id holds anything but letters, digits, `-` and `_`.
+/// installed hooks or the shim's): claims `terminal` (the hook's route, else
+/// `CMUX_TUI_TERMINAL_ID`) for `session` and this Claude process
+/// (`CLAUDE_PID`) in `CLAUDE_ENV_FILE`, created when missing, so the Claudes
+/// its tool commands start stand down (a later claim, after `/clear`,
+/// replaces it). Does nothing when an id holds anything but letters, digits,
+/// `-` and `_`.
 pub(super) fn claim_terminal(
     source: &str,
     native_event: &str,
@@ -114,8 +123,6 @@ pub(super) fn claim_terminal(
     session: Option<&str>,
     getenv: impl Fn(&str) -> Option<OsString>,
 ) {
-    // Red stub: the route terminal and the Claude process are not read yet.
-    let _ = (terminal, CLAUDE_PID_ENV);
     if source != "claude" || native_event != "SessionStart" {
         return;
     }
@@ -124,7 +131,7 @@ pub(super) fn claim_terminal(
             && id.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
     };
     let (Some(terminal), Some(session), Some(file)) = (
-        terminal_of(&getenv),
+        terminal.map(str::to_owned).or_else(|| terminal_of(&getenv)),
         session.filter(plain),
         getenv(CLAUDE_ENV_FILE).filter(|file| !file.is_empty()),
     ) else {
@@ -133,7 +140,10 @@ pub(super) fn claim_terminal(
     if !plain(&terminal.as_str()) {
         return;
     }
-    let line = format!("export {OWNER_ENV}={terminal}/{session}\n");
+    let line = match claude_pid(&getenv) {
+        Some(pid) => format!("export {OWNER_ENV}={terminal}/{session}/{pid}\n"),
+        None => format!("export {OWNER_ENV}={terminal}/{session}\n"),
+    };
     let _ = std::fs::OpenOptions::new()
         .append(true)
         .create(true)
@@ -150,11 +160,28 @@ fn terminal_of(getenv: &impl Fn(&str) -> Option<OsString>) -> Option<String> {
     getenv(TERMINAL_ENV).and_then(|terminal| terminal.into_string().ok()).filter(|t| !t.is_empty())
 }
 
-/// The terminal and session of the claim in this environment.
-fn claim(getenv: &impl Fn(&str) -> Option<OsString>) -> Option<(String, String)> {
+/// A claim in the environment: `<terminal>/<session>[/<pid>]` (builds
+/// before W5-N3 wrote no process id).
+struct Claim {
+    terminal: String,
+    session: String,
+    pid: Option<String>,
+}
+
+/// The claim in this environment.
+fn claim(getenv: &impl Fn(&str) -> Option<OsString>) -> Option<Claim> {
     let claim = getenv(OWNER_ENV)?.into_string().ok()?;
-    let (terminal, session) = claim.split_once('/')?;
-    Some((terminal.to_owned(), session.to_owned()))
+    let mut parts = claim.split('/');
+    let (terminal, session) = (parts.next()?.to_owned(), parts.next()?.to_owned());
+    let pid = parts.next().map(str::to_owned);
+    parts.next().is_none().then_some(Claim { terminal, session, pid })
+}
+
+/// The id of the Claude Code process this hook runs under: digits only.
+fn claude_pid(getenv: &impl Fn(&str) -> Option<OsString>) -> Option<String> {
+    getenv(CLAUDE_PID_ENV)
+        .and_then(|pid| pid.into_string().ok())
+        .filter(|pid| !pid.is_empty() && pid.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 /// Whether an installed command finds a helper: `CMUX_TUI_HOOK`, or inside
