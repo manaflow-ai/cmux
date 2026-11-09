@@ -5,7 +5,10 @@
 //! A world holds up to three daemon control sockets on one slot. It starts
 //! with registrations written by the relay before registration numbers
 //! (legacy, number 0), some unjoined circuits and parked Connects from before
-//! the upgrade, then runs random steps. After every step it checks:
+//! the upgrade, then runs random steps. The circuits wait either on daemons
+//! that have all gone quiet, or on a legacy daemon that just died (still
+//! inside the liveness window) while another legacy registration survives
+//! and keeps pinging. After every step it checks:
 //!
 //! 1. at most one registration is current;
 //! 2. a socket that is closing is never current (a closed one is gone);
@@ -35,7 +38,8 @@ use crate::abuse::{
 use crate::attachment::{SlotAttachment, SlotPhase};
 use crate::daemon::{
     accepts_connects, current_registration, live_daemon, next_registration_number,
-    owed_handover_after_fallback, record_ping, replaced_by_register, still_allocated_to,
+    owed_handover_after_close, owed_handover_after_fallback, record_ping, replaced_by_register,
+    still_allocated_to,
 };
 use crate::park::{
     ConnectDisposition, ParkedConnect, connect_disposition, pairing_order, parked_and_live,
@@ -99,6 +103,10 @@ struct World {
     /// Connects whose daemon was replaced or closed while the allocation
     /// awaited storage.
     superseded_connects: u64,
+    /// Legacy registrations that closed while circuits waited unjoined and
+    /// another legacy registration stayed open: the survivor of the upgrade
+    /// case.
+    legacy_closes_with_unjoined: u64,
 }
 
 fn pending_socket() -> SlotAttachment {
@@ -131,15 +139,28 @@ impl World {
             violations: BTreeMap::new(),
             two_live_legacy_connects: 0,
             superseded_connects: 0,
+            legacy_closes_with_unjoined: 0,
         };
         // Circuits allocated, and Connects parked, before the upgrade wait
         // only on a slot whose daemons have gone quiet: a daemon heard from
         // within the window would have joined them.
         let waiting = rng.chance(50);
+        // Or the old relay gave circuits to a legacy daemon that had just
+        // died and was still inside the window, and another legacy
+        // registration survives and keeps pinging: its Pings are heartbeats
+        // while the dead one's socket is open, and it becomes current only
+        // when that socket closes.
+        let dying = !waiting && rng.chance(50);
         // Registrations written before registration numbers: number 0, open
         // or still closing (the old relay closed the one a Register replaced).
-        for _ in 0..1 + rng.below(3) {
-            let silent_s = if waiting { 16 + rng.below(20) } else { rng.below(20) };
+        let count = if dying { 2 + rng.below(2) } else { 1 + rng.below(3) };
+        for index in 0..count {
+            let silent_s = match (waiting, dying, index) {
+                (true, _, _) => 16 + rng.below(20),
+                (_, true, 0) => 1 + rng.below(14),
+                (_, true, 1) => rng.below(10),
+                _ => rng.below(20),
+            };
             let last_seen_ms = START_MS - silent_s * 1_000;
             let attachment = SlotAttachment {
                 phase: SlotPhase::Registered,
@@ -147,11 +168,14 @@ impl World {
                 idle_deadline_ms: last_seen_ms + DAEMON_CONTROL_IDLE_TIMEOUT_MS,
                 ..pending_socket()
             };
-            let ready_state = if rng.chance(25) { CLOSING } else { OPEN };
-            let alive = rng.chance(60);
+            let (ready_state, alive) = match (dying, index) {
+                (true, 0) => (OPEN, false),
+                (true, 1) => (OPEN, true),
+                _ => (if rng.chance(25) { CLOSING } else { OPEN }, rng.chance(60)),
+            };
             world.add(ready_state, attachment, alive);
         }
-        for _ in 0..if waiting { 1 + rng.below(3) } else { 0 } {
+        for _ in 0..if waiting || dying { 1 + rng.below(3) } else { 0 } {
             let circuit = world.circuit_id();
             let deadline_ms = START_MS + 1_000 + rng.below(29) * 1_000;
             assert!(world.ledger.reserve_for(circuit, deadline_ms, START_MS, Some(route())));
@@ -166,6 +190,27 @@ impl World {
     fn add(&mut self, ready_state: u16, attachment: SlotAttachment, alive: bool) {
         self.sockets.push(Socket { name: self.next_name, ready_state, attachment, alive });
         self.next_name += 1;
+    }
+
+    /// The socket at `index` closes: its peer closed it or went away
+    /// (`RelaySlot::websocket_close`), or the cleanup alarm closed it past
+    /// its idle deadline (`RelaySlot::alarm`). Both call
+    /// `RelaySlot::owe_handover_after_close`.
+    fn close(&mut self, index: usize) {
+        let closed = self.sockets[index].attachment.clone();
+        let mut owed = false;
+        for (other, socket) in self.sockets.iter_mut().enumerate() {
+            if other != index
+                && owed_handover_after_close(&closed, &socket.attachment, socket.ready_state, SLOT)
+            {
+                socket.attachment.pending_handover = true;
+                owed = true;
+            }
+        }
+        if owed && !self.unjoined().is_empty() {
+            self.legacy_closes_with_unjoined += 1;
+        }
+        self.sockets[index].ready_state = CLOSING;
     }
 
     fn circuit_id(&mut self) -> String {
@@ -400,7 +445,7 @@ impl World {
                 Some(format!("s{} Registers", self.sockets[index].name))
             }
             _ if self.sockets[chosen].ready_state == OPEN => {
-                self.sockets[chosen].ready_state = CLOSING;
+                self.close(chosen);
                 Some(format!("s{} starts closing", self.sockets[chosen].name))
             }
             _ => None,
@@ -459,6 +504,12 @@ impl World {
     fn advance(&mut self, ms: u64) {
         self.now_ms += ms;
         let now_ms = self.now_ms;
+        for index in 0..self.sockets.len() {
+            let socket = &self.sockets[index];
+            if socket.ready_state == OPEN && socket.attachment.idle_deadline_ms <= now_ms {
+                self.close(index);
+            }
+        }
         self.sockets.retain(|socket| socket.attachment.idle_deadline_ms > now_ms);
         self.clients.retain(|client| client.idle_deadline_ms > now_ms);
         self.ledger.prune(now_ms);
@@ -517,7 +568,7 @@ impl World {
             }
             80..=87 => match pick(rng) {
                 Some(index) if self.sockets[index].ready_state == OPEN => {
-                    self.sockets[index].ready_state = CLOSING;
+                    self.close(index);
                     format!("s{} starts closing", self.sockets[index].name)
                 }
                 _ => "no close".into(),
@@ -580,6 +631,7 @@ fn register_ping_and_close_interleavings_keep_one_current_registration() {
     let mut counts: BTreeMap<&'static str, u64> = BTreeMap::new();
     let mut two_live_legacy_connects = 0;
     let mut superseded_connects = 0;
+    let mut legacy_closes_with_unjoined = 0;
     for seed in 0..SEEDS {
         let mut rng = Rng::new(seed);
         let mut world = World::new(&mut rng);
@@ -589,6 +641,7 @@ fn register_ping_and_close_interleavings_keep_one_current_registration() {
         }
         two_live_legacy_connects += world.two_live_legacy_connects;
         superseded_connects += world.superseded_connects;
+        legacy_closes_with_unjoined += world.legacy_closes_with_unjoined;
         for (invariant, detail) in world.violations {
             *counts.entry(invariant).or_default() += 1;
             first.entry(invariant).or_insert((seed, detail));
@@ -606,4 +659,8 @@ fn register_ping_and_close_interleavings_keep_one_current_registration() {
         "no seed sent a Connect while two live legacy registrations were open"
     );
     assert!(superseded_connects > 0, "no Connect's daemon was replaced while it was allocated");
+    assert!(
+        legacy_closes_with_unjoined > 0,
+        "no legacy registration closed while circuits waited and another legacy one stayed open"
+    );
 }
