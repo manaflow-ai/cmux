@@ -4883,6 +4883,14 @@ def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
         ) == expected, (paths, actual)
 
 
+
+def test_docs_reference_inputs_run_web_unit_tests() -> None:
+    # web/tests/next-docs.test.ts reads these outside web/; a change to them that
+    # skipped Web tests left the generated palette reference stale on base (#38631).
+    for path in ("plans/cmux-next/action-surfaces.json", "schemas/settings/settings-schema.json"):
+        assert web_subareas.classify_paths([path]).unit_tests, path
+        assert module.is_web_change(path), path
+
 def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
     result = run_web_status(
         results={

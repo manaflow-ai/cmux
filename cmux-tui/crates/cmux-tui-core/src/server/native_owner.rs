@@ -150,6 +150,7 @@ const CAPABILITIES: &[&str] = &[
     crate::fs_ops::FS_READ_NOFOLLOW_CAPABILITY,
     crate::git_seed::GIT_SEED_CAPABILITY,
     crate::git_seed::GIT_SEED_EXPORT_CAPABILITY,
+    crate::git_seed::GIT_SEED_HOLD_CAPABILITY,
     crate::blob_fetch::BLOB_FETCH_CAPABILITY,
 ];
 
