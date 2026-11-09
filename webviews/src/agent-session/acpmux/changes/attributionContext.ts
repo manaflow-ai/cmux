@@ -1,6 +1,7 @@
-// Where a chat's edit diffs read who wrote their lines (changes/attribution.ts). The pane provides
-// it; without it (a gallery, a test, a page with no daemon) the diffs show no markers.
-import { createContext } from "react";
+// Where a chat's edit diffs read who wrote their lines (changes/attribution.ts). The pane sets it
+// (`useProvideAttribution`), with no provider around the transcript; without it (a gallery, a test,
+// a page with no daemon) the diffs show no markers.
+import { useEffect, useSyncExternalStore } from "react";
 import type { AttributionRepo, AttributionStore } from "./attribution";
 
 export type AttributionSource = {
@@ -13,4 +14,28 @@ export type AttributionSource = {
   reveal(turnId: string): void;
 };
 
-export const AttributionContext = createContext<AttributionSource | undefined>(undefined);
+let current: AttributionSource | undefined;
+const listeners = new Set<() => void>();
+const subscribe = (listener: () => void) => {
+  listeners.add(listener);
+  return () => void listeners.delete(listener);
+};
+const read = () => current;
+
+/// Makes `source` the page's attribution source while the calling pane is mounted.
+export function useProvideAttribution(source: AttributionSource): void {
+  useEffect(() => {
+    current = source;
+    for (const listener of listeners) listener();
+    return () => {
+      if (current !== source) return;
+      current = undefined;
+      for (const listener of listeners) listener();
+    };
+  }, [source]);
+}
+
+/// The page's attribution source, or undefined where no pane set one.
+export function useAttributionSource(): AttributionSource | undefined {
+  return useSyncExternalStore(subscribe, read, read);
+}

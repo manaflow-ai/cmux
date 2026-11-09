@@ -5,7 +5,6 @@
 // nothing in the diff moves); resting on it shows the writers' card, and a click opens the newest
 // writer's turn. A line no turn wrote shows nothing.
 import {
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -31,7 +30,7 @@ import {
   type AttributionTarget,
 } from "./attribution";
 import { AttributionCardContent } from "./AttributionCard";
-import { AttributionContext, type AttributionSource } from "./attributionContext";
+import { useAttributionSource, type AttributionSource } from "./attributionContext";
 
 /// The pointer's rest on a marker before its card shows: a tooltip's, since the dot is small and
 /// sits where the pointer passes on its way along the lines.
@@ -78,10 +77,10 @@ export type EditAttribution = {
   card: ReactNode;
 };
 
-/// The attribution of `file`'s edits: nothing without a source (`AttributionContext`), a canonical
+/// The attribution of `file`'s edits: nothing without a source (`useAttributionSource`), a canonical
 /// path or a numbered edit.
 export function useEditAttribution(file: TurnFile): EditAttribution {
-  const source = useContext(AttributionContext);
+  const source = useAttributionSource();
   const canonical = file.canonical;
   const enabled = Boolean(source && canonical && file.edits.some((edit) => edit.numbered && edit.hunks.length));
   const [target, setTarget] = useState<AttributionTarget | undefined>(undefined);
