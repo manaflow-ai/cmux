@@ -319,5 +319,7 @@ test("no cmux model router code reads as an own key's empty account", () => {
   }
   // Never inside an address: a provider host that starts like a code keeps its own meaning.
   for (const host of ["inference.baseten.co", "usage.example.com", "free.example.org"])
-    expect(failureKind(`402 Payment Required: insufficient credits, url: https://${host}/v1`, claude)).toBe("no-credit");
+    expect(failureKind(`402 Payment Required: insufficient credits, url: https://${host}/v1`, claude)).toBe(
+      "no-credit",
+    );
 });
