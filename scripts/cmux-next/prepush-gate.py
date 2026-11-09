@@ -82,17 +82,20 @@ new [syntax-check] findings when it is on PATH), for a push to any branch, main 
 CMUX_NEXT_CHECKS_SKIP_REASON does not skip it: GitHub runs no job of a workflow it cannot load (dd8b867f,
 2026-11-06: no nightly for 3.5 hours). CI's "Lint every workflow" step is the backstop.
 
-Also on every local run, the same way: "Crash ratchet" (crash_ratchet_findings): the Rust classes of CI's crash
-ratchet (crash_ratchet.py: unwrap, expect, panic!/unreachable!/todo!/unimplemented!, process::exit/abort, outside
-test code), judged per crate over the files the push changes: a crate whose count rises in those files is refused
-(2026-11-08: #39304's first head added two non-test `.lock().unwrap()`, passed the hook and CI refused it, because
-the crate's count in the gate's small trees never reached its crash-safety-baseline.json row). The ratchet code is
-CI's own, never a copy of its rules: the installed reviewed copy for the hook. A row the push raises with a reviewed
-Crash-allow-OK commit, and a hit that moved from another crate, are allowed. A main-based push (its tree has no
-CmuxNext app entry, or it left origin/main after feat-cmux-next did) runs main's own crash rule instead of
-check-crash-safety.sh, which reads that feat-only file: origin/main's crash_ratchet.py when main has one, else
-the installed one (main's CI has none today); a reviewed `// crash-allow: <reason>` passes there, as main keeps
-no baseline to record it in.
+Also wherever the scanners run (the hook, a plain run and CI's --base/--head and --commits modes): "Crash ratchet"
+(crash_ratchet_findings), the Rust judgement of the "Crash safety" scanner. The classes of CI's crash ratchet
+(crash_ratchet.py: unwrap, expect, panic!/unreachable!/todo!/unimplemented!, process::exit/abort, outside test code)
+are counted per crate in the files the push changes only, at the base and the head; a count that rises is refused
+(2026-11-08: #39304's first head added two non-test `.lock().unwrap()`, passed the hook and CI refused it). Test code
+is told by CI's own rust_test_modules over the changed files plus the files that can declare them as test modules
+(parent modules, `#[path = ...]` lines); those files only classify and are never counted, so they neither add a hit
+nor hide one (lead decision on #39853). The scanner's own whole-crate Rust lines are dropped: in the gate's small
+trees a crate over its row on both sides printed the same line and hid a new hit. The ratchet code is CI's own, never
+a copy of its rules: the installed reviewed copy for the hook. A row the push raises with a reviewed Crash-allow-OK
+commit, and a hit that moved from another crate, are allowed. A main-based push (its tree has no CmuxNext app entry,
+or it left origin/main after feat-cmux-next did) runs main's own crash rule instead of check-crash-safety.sh, which
+reads that feat-only file: origin/main's crash_ratchet.py when main has one, else the installed one (main's CI has
+none today); a reviewed `// crash-allow: <reason>` passes there, as main keeps no baseline to record it in.
 
 Also on every local run (the hook and a plain run; never --commits, never under GitHub Actions, so CI
 gains no gate; Lawrence 2026-10-23): "Guardrails" (guardrails.py, plans/cmux-next/codebase-health.md):
@@ -293,6 +296,10 @@ APP_ENTRY = PKG + "/Sources/CmuxNextApp/CmuxNextApp.swift"
 MAIN_REF = "origin/main"
 CRASH_RATCHET_CHECK = "Crash ratchet (crash_ratchet.py: no crate gains a Rust unwrap, expect, panic or exit)"
 CRASH_RATCHET = "crash_ratchet.py"
+# crash_ratchet.py's lines in check-crash-safety.sh's output: a row over its baseline, and the closing summary.
+RUST_RATCHET_LINE = re.compile(r"^crash-ratchet: rust \S+: ")
+RATCHET_ROW_LINE = re.compile(r"^crash-ratchet: (?:swift|banned|env_write) ")
+RATCHET_SUMMARY = re.compile(r"^crash-ratchet: \d+ module\(s\) or crate\(s\) gained")
 RUST_CRATES = "cmux-tui/crates/"
 CRASH_RATCHET_HINT = ("Crash ratchet: handle the failure instead (a poisoned lock: "
                       "`.lock().unwrap_or_else(PoisonError::into_inner)`); test code is not counted. On "
@@ -1141,7 +1148,7 @@ def load_crash_ratchet(repo: Path, head_tree: Path, trusted_scripts: Path | None
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         if all(hasattr(module, attr) for attr in ("Scan", "scan_rust", "scan_rows", "baseline_rows", "load_baseline",
-                                                  "proven_moves", "WAIVED")):
+                                                  "proven_moves", "rust_test_modules", "WAIVED")):
             return module
         log(f"prepush-gate: {script} has no crash ratchet this gate can call; trying the next copy")
     raise SystemExit(f"prepush-gate: {STALE_INSTALL} (it has no {CRASH_RATCHET}).")
@@ -1209,37 +1216,61 @@ def prepare_crash_ratchet(repo: Path, base: str, head: str, head_tree: Path, tru
     return on_main, ratchet, time.monotonic() - started
 
 
-def add_rust_context(repo: Path, base: str, head: str, base_tree: Path, head_tree: Path, crates: list[str]) -> None:
-    """Put into both trees (and their index, which the scanners' ratchet lists) what CI's crash ratchet needs to tell
-    test code in the changed crate files CRATES: the files that declare their module or a folder above it, the crate
-    files whose `#[path = ...]` line names them (rust_test_modules reads `#[cfg(test)] #[path] mod x;` in any file),
-    and, on the base side only, the crate files the push deletes (a file moved within its crate is no new hit). The
-    added files are the same on both sides, so a scanner's findings in them cancel out. Before the scanners run: the
-    "Crash safety" scanner runs the same ratchet over these trees (review of #39767: it and the crash ratchet layer
-    both counted cmux-vnc's #[path] test module session_backpressure.rs as production code)."""
-    deleted = [p for p in git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=D", "-z", base, head, "--",
-                               RUST_CRATES).decode().split("\0") if p.endswith(".rs")]
-    owners = sorted({o for p in crates + deleted for o in rust_owner_files(p)})
-    add_blobs(repo, base_tree, base, owners + deleted + rust_path_declarers(repo, base, crates + deleted))
-    add_blobs(repo, head_tree, head, owners + rust_path_declarers(repo, head, crates))
-    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    for tree in (base_tree, head_tree):
-        if (tree / ".git").exists():
-            subprocess.run(["git", "-C", str(tree), "add", "-A"], check=True, capture_output=True, env=env)
+def without_rust_ratchet(output: str) -> str:
+    """The Crash safety scanner's OUTPUT without its Rust ratchet lines (`crash-ratchet: rust <crate>: ...`), and
+    without the ratchet's closing summary when no other ratchet line is left. Those lines compare a whole-crate count
+    in the gate's small trees with the baseline row: a crate over its row on both sides printed the same line and hid
+    a new hit (lead decision on #39853). The crash ratchet layer (crash_ratchet_findings) judges Rust instead, counting
+    only the changed files."""
+    lines = [line for line in output.splitlines() if not RUST_RATCHET_LINE.match(line)]
+    if not any(RATCHET_ROW_LINE.match(line) for line in lines):
+        lines = [line for line in lines if not RATCHET_SUMMARY.match(line)]
+    return "\n".join(lines)
+
+
+def counted_rust_tree(repo: Path, rev: str, tree: Path, files: list[str], ratchet, work: Path) -> Path:
+    """A folder with only those of FILES (crate files at REV: the changed ones, and on the base side the deleted ones)
+    that CI's ratchet counts as production code, for its scan_rust. Which of them are test code is decided by CI's own
+    rust_test_modules over FILES plus the files that can declare them as test modules: their parent module files and
+    the files whose `#[path = ...]` line names them (`#[cfg(test)] #[path] mod x;` may sit in any file). Those extra
+    files only classify: they are never counted, so a hit in an unchanged file can neither be the push's nor hide one
+    (lead decision on #39853). TREE holds REV's copy of the changed files."""
+    classify, counted = work / "classify", work / "counted"
+    extra = sorted({o for p in files for o in rust_owner_files(p)} | set(rust_path_declarers(repo, rev, files)))
+    for path in files:
+        if (tree / path).is_file():
+            (classify / path).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(tree / path, classify / path)
+    add_blobs(repo, classify, rev, files + extra)
+    paths = sorted(os.path.join(d, n) for d, _, names in os.walk(classify) for n in names)
+    test_files, test_folders = ratchet.rust_test_modules(paths)
+    for path in files:
+        source = classify / path
+        if not source.is_file() or str(source) in test_files or any(str(source).startswith(folder + os.sep)
+                                                                     for folder in test_folders):
+            continue
+        (counted / path).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, counted / path)
+    counted.mkdir(parents=True, exist_ok=True)
+    return counted
 
 
 def crash_ratchet_findings(repo: Path, base: str, head: str, base_tree: Path, head_tree: Path, crates: list[str],
-                           prepared: tuple[bool, object, float]) -> list["Finding"]:
+                           prepared: tuple[bool, object, float], work: Path) -> list["Finding"]:
     """The Rust crash ratchet over what the push adds: per crate and class (and waived hits apart), CI's crash
     ratchet code counts the hits in the changed crate files at BASE and at HEAD, and a count that rises is refused,
     less the rows the head's baseline raises over the base's (a reviewed raise, the same rows CI reads) and the hits
-    that moved in from another crate. The trees already hold what tells test code (add_rust_context). One finding per
-    added hit line, at its place in HEAD. PREPARED is prepare_crash_ratchet's answer."""
+    that moved in from another crate. Only the changed files are counted (and, on the base side, the crate files the
+    push deletes: a file moved within its crate is no new hit); counted_rust_tree says why and how test code is told.
+    One finding per added hit line, at its place in HEAD. PREPARED is prepare_crash_ratchet's answer; WORK is scratch.
+    """
     on_main, ratchet, _ = prepared
+    deleted = [p for p in git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=D", "-z", base, head, "--",
+                               RUST_CRATES).decode().split("\0") if p.endswith(".rs")]
     scans = []
-    for tree in (base_tree, head_tree):
+    for side, rev, tree, files in (("base", base, base_tree, crates + deleted), ("head", head, head_tree, crates)):
         scan = ratchet.Scan()
-        ratchet.scan_rust(str(tree), scan, True)
+        ratchet.scan_rust(str(counted_rust_tree(repo, rev, tree, files, ratchet, work / f"rust-{side}")), scan, True)
         scans.append(scan)
     old, new = scans
     old_rows, new_rows = ratchet.scan_rows(old), ratchet.scan_rows(new)
@@ -1824,11 +1855,6 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     with tempfile.TemporaryDirectory(prefix="cmux-prepush-") as tmp:
         base_tree, head_tree = build_trees(repo, base, head, changed + deleted, Path(tmp), trusted_scripts)
         crates = [p for p in changed if p.startswith(RUST_CRATES) and p.endswith(".rs")]
-        if crates:
-            t0 = time.monotonic()
-            add_rust_context(repo, base, head, base_tree, head_tree, crates)
-            if timings:
-                log(f"  {time.monotonic() - t0:5.2f}s  Rust test-module context (module and #[path] declarations)")
         # The tool rules and pins: on a hook run, only the installed reviewed copy's (head_tree/SCRIPTS is that copy);
         # a pin names a binary the gate downloads and runs, and its sha256 proves nothing when the same file names it.
         # An install without them refuses. A manual run reads the head's, else (a commit older than the gate) the
@@ -1886,7 +1912,8 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                 code = 1 if out else 0
             return code, out, time.monotonic() - t0
 
-        crash_layer = bool(crates) and (highlights_layer if only is None else "crash-ratchet" in only)
+        # Wherever the scanners run (CI's modes too): it is the Crash safety scanner's Rust judgement (RUST_RATCHET_LINE).
+        crash_layer = bool(crates) and (only is None or bool(only & {"scanners", "crash-ratchet"}))
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, (os.cpu_count() or 4))) as pool:
             futures = {(name, i): pool.submit(side, job, tree)
                        for name, job in jobs.items()
@@ -1904,6 +1931,8 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                         + "\n".join(head_out.splitlines()[-5:]))
                 if os.environ.get("CMUX_PREPUSH_GATE_DEBUG"):
                     log(f"--- {name} (head exit {head_code})\n{head_out}")
+                if name == CRASH_SAFETY_CHECK:
+                    base_out, head_out = without_rust_ratchet(base_out), without_rust_ratchet(head_out)
                 if name == DEPS_CHECK:
                     head_out, head_code = deps_findings(repo, base, head, base_out, head_out, head_code,
                                                         full_package=name in trees_for, cmd=jobs[name][1],
@@ -1917,7 +1946,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         if prepared is not None:
             ready = prepared.result()
             t0 = time.monotonic()
-            fresh = crash_ratchet_findings(repo, base, head, base_tree, head_tree, crates, ready)
+            fresh = crash_ratchet_findings(repo, base, head, base_tree, head_tree, crates, ready, Path(tmp))
             if timings:
                 log(f"  {time.monotonic() - t0:5.2f}s  {CRASH_RATCHET_CHECK} (after the scanners; its git reads, "
                     f"{ready[2]:.2f}s, ran next to them)")
