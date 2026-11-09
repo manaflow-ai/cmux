@@ -14,16 +14,36 @@ export interface ToolbarIconsGalleryProps {
   before?: boolean;
 }
 
-const SIZES = [12, 14, 16, 18, 20] as const;
+const SIZES = [12, 14, 16, 20] as const;
 // The sidebar's own show and hide time (Motion.sidebar, the appear and disappear tokens).
-const SLIDE: CSSProperties = { transition: "transform 180ms cubic-bezier(0, 0, 0.58, 1), opacity 180ms" };
+const SLIDE: CSSProperties = {
+  transition: "transform var(--cmux-motion-standard) var(--cmux-ease-out), opacity var(--cmux-motion-standard)",
+};
 
 /** The panel glyph on the pack's 24-unit grid: frame 18 x 14, divider a third in. */
-function ToggleGlyph({ toggle, hidden, size }: { toggle: ToolbarIconsGalleryProps["toggle"]; hidden: boolean; size: number }) {
+function ToggleGlyph({
+  toggle,
+  hidden,
+  size,
+}: {
+  toggle: ToolbarIconsGalleryProps["toggle"];
+  hidden: boolean;
+  size: number;
+}) {
   const frame = <rect x="3" y="5" width="18" height="14" rx="3.5" />;
   if (toggle === "arrow-swap") {
     return (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
         {frame}
         <path d="M9.1 5V19" />
         {hidden ? <path d="M13 9.5L15.5 12L13 14.5" /> : <path d="M15.5 9.5L13 12L15.5 14.5" />}
@@ -38,10 +58,29 @@ function ToggleGlyph({ toggle, hidden, size }: { toggle: ToolbarIconsGalleryProp
     transform: toggle === "sliding-bar" && hidden ? "translateX(-3.1px) scaleY(0.46)" : "none",
   };
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
       {frame}
       {toggle === "filling-rail" && (
-        <rect x="5" y="7" width="3.4" height="10" rx="1.2" fill="currentColor" stroke="none" style={{ ...SLIDE, opacity: hidden ? 0 : 1 }} />
+        <rect
+          x="5"
+          y="7"
+          width="3.4"
+          height="10"
+          rx="1.2"
+          fill="currentColor"
+          stroke="none"
+          style={{ ...SLIDE, opacity: hidden ? 0 : 1 }}
+        />
       )}
       <path d="M9.1 5.75V18.25" style={bar} />
     </svg>
@@ -50,7 +89,17 @@ function ToggleGlyph({ toggle, hidden, size }: { toggle: ToolbarIconsGalleryProp
 
 function BeforeGlyph({ name, size }: { name: "browser" | "terminal"; size: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
       {name === "browser" ? (
         <>
           <circle cx="12" cy="12" r="8.415" />
@@ -83,24 +132,60 @@ export function ToolbarIconsGallery({ toggle, before = false }: ToolbarIconsGall
   const glyph = (name: "browser" | "terminal", size: number) =>
     before ? <BeforeGlyph name={name} size={size} /> : <Icon name={name} size={size} />;
   return (
-    <div style={{ display: "grid", gap: 20, padding: 20, color: "var(--cmux-text-primary, #e4e4e7)" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 8px", borderRadius: 10, background: "var(--cmux-surface-raised, #1f1f23)" }}>
-        <button type="button" style={button} aria-label={hidden ? "Show Sidebar" : "Hide Sidebar"} onClick={() => setHidden((value) => !value)}>
-          <ToggleGlyph toggle={toggle} hidden={hidden} size={18} />
+    <div style={{ display: "grid", gap: 24, padding: 24, color: "var(--cmux-text-primary, #e4e4e7)" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "4px 8px",
+          borderRadius: 12,
+          background: "var(--cmux-surface-raised, #1f1f23)",
+        }}
+      >
+        <button
+          type="button"
+          style={button}
+          aria-label={hidden ? "Show Sidebar" : "Hide Sidebar"}
+          onClick={() => setHidden((value) => !value)}
+        >
+          <ToggleGlyph toggle={toggle} hidden={hidden} size={20} />
         </button>
-        <span style={{ flex: 1, fontSize: 12, opacity: 0.6 }}>{hidden ? "Sidebar hidden: click to show" : "Sidebar shown: click to hide"}</span>
-        <span style={button}>{glyph("terminal", 18)}</span>
-        <span style={button}>{glyph("browser", 18)}</span>
+        <span style={{ flex: 1, fontSize: "var(--text-caption)", opacity: 0.6 }}>
+          {hidden ? "Sidebar hidden: click to show" : "Sidebar shown: click to hide"}
+        </span>
+        <span style={button}>{glyph("terminal", 20)}</span>
+        <span style={button}>{glyph("browser", 20)}</span>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "auto repeat(5, 28px)", alignItems: "center", gap: 10, fontSize: 12 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "auto repeat(4, 28px)",
+          alignItems: "center",
+          gap: 12,
+          fontSize: "var(--text-caption)",
+        }}
+      >
         <span>Globe</span>
-        {SIZES.map((size) => <span key={size}>{glyph("browser", size)}</span>)}
+        {SIZES.map((size) => (
+          <span key={size}>{glyph("browser", size)}</span>
+        ))}
         <span>Prompt</span>
-        {SIZES.map((size) => <span key={size}>{glyph("terminal", size)}</span>)}
+        {SIZES.map((size) => (
+          <span key={size}>{glyph("terminal", size)}</span>
+        ))}
         <span>Toggle, shown</span>
-        {SIZES.map((size) => <span key={size}><ToggleGlyph toggle={toggle} hidden={false} size={size} /></span>)}
+        {SIZES.map((size) => (
+          <span key={size}>
+            <ToggleGlyph toggle={toggle} hidden={false} size={size} />
+          </span>
+        ))}
         <span>Toggle, hidden</span>
-        {SIZES.map((size) => <span key={size}><ToggleGlyph toggle={toggle} hidden size={size} /></span>)}
+        {SIZES.map((size) => (
+          <span key={size}>
+            <ToggleGlyph toggle={toggle} hidden size={size} />
+          </span>
+        ))}
       </div>
     </div>
   );
