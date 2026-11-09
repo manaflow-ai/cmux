@@ -227,13 +227,18 @@ pub(super) fn paused_since(
 /// Whether `seen` (a look at boot time `now_ns`) is still the wake `own`,
 /// the watch as a `--skip-resume-hold` check found it at its start, still
 /// waking from the resume the Scaler's refresh made: the watch has not looked
-/// since (the same count and last look), or its first look since counted that
-/// one pause and it has not been stopped again (it is not waking). A pause
-/// after the watch's first look since counts past `own` or wakes from a newer
-/// look: that is a new stop. A new stop before that first look reads as the
-/// same wake (one stop to the watch; the check itself was stopped in it).
+/// since (the same count and last look), or it counted exactly one pause
+/// since, that pause is the one after `own`'s last look (the gap the refresh's
+/// resume ended), and it has not been stopped again (it is not waking). A
+/// pause counted after any later look names that look, not `own`'s, so it is
+/// a new stop, whether or not the first look since counted one (review F1 on
+/// ffbe82dc, #39366). A new stop before that first look reads as the same
+/// wake (one gap to the watch; the check itself was stopped in it).
 pub(super) fn own_wake_covers(own: PauseSeen, seen: PauseSeen, now_ns: i128) -> bool {
-    seen == own || (seen.pauses == own.pauses.saturating_add(1) && !seen.waking(now_ns))
+    seen == own
+        || (seen.pauses == own.pauses.saturating_add(1)
+            && seen.pause_from_ns == own.last_look_ns
+            && !seen.waking(now_ns))
 }
 
 /// The last look before a flip: a pause the watch counted or is waking from

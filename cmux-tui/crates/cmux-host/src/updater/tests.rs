@@ -1524,6 +1524,20 @@ fn a_new_stop_during_the_refresh_stops_its_flip() {
     let gated = refresh_flip(&paths, &stops, || Ok(Vec::new()), 0, at(2402 + 60));
     assert!(matches!(gated, role::Gated::Held(_)), "waking from a new pause: {gated:?}");
 
+    // Review F1 on ffbe82dc (#39366): the watch's first look since the check
+    // started counts nothing, then a real pause is counted. It is one count
+    // past the start and the watch is awake, but the pause came after a later
+    // look than the start's, so it is a new stop, not the refresh's own wake.
+    let (_dir, paths, service) = resumed_spare();
+    let check = refresh(&paths);
+    let looks = check.looks();
+    let stops = role::Stops::new(&looks, gate::Honor::AllButResume, at(2400).0);
+    service.looked(at(2402).0, false);
+    service.looked(at(2582).0, true);
+    assert!(stops.recount(&paths, at(2583)), "a pause after a look since the start");
+    let gated = refresh_flip(&paths, &stops, || Ok(Vec::new()), 0, at(2584));
+    assert!(matches!(gated, role::Gated::Held(_)), "a pause after a later look: {gated:?}");
+
     // A pause during the carrier query, inside the gate.
     let (_dir, paths, service) = resumed_spare();
     let check = refresh(&paths);
@@ -1551,6 +1565,32 @@ fn a_new_stop_during_the_refresh_stops_its_flip() {
         let gated = refresh_flip(&paths, &stops, || Ok(Vec::new()), jump, at(2402));
         assert!(matches!(gated, role::Gated::Held(_)), "a restore, before {before}: {gated:?}");
     }
+}
+
+/// The pause record names the look each counted pause came after, written
+/// and read back across processes; a record without the field (an older
+/// build's) names none, so its counts are never a refresh's own wake.
+#[test]
+fn the_pause_record_names_the_look_a_pause_came_after() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pauses.json");
+    let watch = crate::agent::PauseWatch::new();
+    watch.persist_to(path.clone());
+    watch.looked(1_000, false);
+    watch.looked(9_000, true);
+    let read = crate::agent::PauseWatch::load(&path).seen();
+    assert_eq!((read.pauses, read.last_look_ns, read.pause_from_ns), (1, 9_000, 1_000));
+    watch.found();
+    let read = crate::agent::PauseWatch::load(&path).seen();
+    assert_eq!(
+        read.pause_from_ns,
+        i128::from(crate::agent::PAUSE_FROM_NONE),
+        "a clock set names no look"
+    );
+
+    fs::write(&path, r#"{"last_look_ns": 9000, "pauses": 1}"#).unwrap();
+    let old = crate::agent::PauseWatch::load(&path).seen();
+    assert_eq!(old.pause_from_ns, i128::from(crate::agent::PAUSE_FROM_NONE));
 }
 
 /// The flip's carrier read inside the gate holds the gate's flock, so it is
