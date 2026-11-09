@@ -365,9 +365,8 @@ fn change_peers(
     change: impl FnOnce(&mut Pairings) -> std::io::Result<bool>,
 ) -> anyhow::Result<()> {
     let state = state(flags)?;
-    let mut pairings = Pairings::load(&state.peers_path())?;
-    let changed = change(&mut pairings)?;
-    pairings.save(&state.peers_path())?;
+    // Under the file's lock, which a running link's inbound rekeys take too.
+    let changed = Pairings::update(&state.peers_path(), change)?;
     let reloaded = match ensure::live(&state) {
         Some(live) => tokio_runtime()?.block_on(reload(&live.socket)),
         None => false,

@@ -4,7 +4,9 @@
 mod mesh_support;
 
 use std::net::{IpAddr, SocketAddr};
+use std::time::Duration;
 
+use boringtun::noise::{Tunn, TunnResult};
 use cmux_wg::testing::random_keypair;
 use cmux_wg::{InterfaceAddress, WgMesh, WgMeshConfig, WgPeer};
 use mesh_support::*;
@@ -125,4 +127,91 @@ async fn a_peer_on_the_retired_key_that_knows_the_current_one_moves_to_it() {
     let mut stream = within(b.mesh.connect(SocketAddr::new(overlay(1), LINK_PORT))).await.unwrap();
     assert_eq!(within(accepted.recv()).await.unwrap().0, b.public);
     echo_round_trip(&mut stream, 4096).await;
+}
+
+/// A handshake initiation from `private` to `responder`, from a fresh session.
+fn initiation(private: [u8; 32], responder: [u8; 32]) -> Vec<u8> {
+    let mut tunn = Tunn::new(
+        x25519_dalek::StaticSecret::from(private),
+        x25519_dalek::PublicKey::from(responder),
+        None,
+        None,
+        7,
+        None,
+    );
+    let mut buffer = [0u8; 256];
+    match tunn.format_handshake_initiation(&mut buffer, false) {
+        TunnResult::WriteToNetwork(packet) => packet.to_vec(),
+        other => panic!("no initiation: {other:?}"),
+    }
+}
+
+/// An initiation's MAC1 (WireGuard: keyed BLAKE2s of the message so far, by
+/// the hash of "mac1----" and the responder's key), which anyone may compute.
+fn seal_mac1(message: &mut [u8], responder: [u8; 32]) {
+    use blake2::digest::consts::U16;
+    use blake2::digest::{Digest, KeyInit, Mac};
+    let key =
+        blake2::Blake2s256::new().chain_update(b"mac1----").chain_update(responder).finalize();
+    let mut mac = <blake2::Blake2sMac<U16> as KeyInit>::new_from_slice(&key).expect("key");
+    Mac::update(&mut mac, &message[..116]);
+    message[116..132].copy_from_slice(&mac.finalize().into_bytes());
+    message[132..148].fill(0);
+}
+
+/// Whether `socket` gets any datagram within `wait`.
+async fn answered(socket: &UdpSocket, wait: Duration) -> bool {
+    let mut buffer = [0u8; 256];
+    timeout(wait, socket.recv_from(&mut buffer)).await.is_ok()
+}
+
+/// An initiation to the current key that names a peer on the retired key,
+/// with a valid MAC1 but a timestamp it did not seal, moves nothing: the
+/// peer's session on the retired key keeps carrying its stream.
+#[tokio::test]
+async fn a_forged_initiation_to_the_current_key_leaves_the_retired_session_alone() {
+    let (old_private, old_public) = random_keypair();
+    let a = retiring(overlay(1), old_private).await;
+    let b = node(&[overlay(2)]).await;
+    within(a.mesh.add_peer_on_retired_key(peer_of(&b, &[overlay(2)], false))).await.unwrap();
+    within(b.mesh.add_peer(known_as(&a, old_public, true))).await.unwrap();
+    let (_echo, _accepted) = spawn_echo(within(a.mesh.listen(LINK_PORT)).await.unwrap());
+    let mut stream = within(b.mesh.connect(SocketAddr::new(overlay(1), LINK_PORT))).await.unwrap();
+    echo_round_trip(&mut stream, 512).await;
+
+    // B's static key, sealed right; the timestamp's ciphertext is not.
+    let mut forged = initiation(b.private, a.public);
+    forged[90] ^= 0x01;
+    seal_mac1(&mut forged, a.public);
+    let attacker = UdpSocket::bind("127.0.0.1:0").await.expect("bind");
+    attacker.send_to(&forged, a.udp).await.expect("send");
+    assert!(!answered(&attacker, QUIET).await, "a forged initiation was answered");
+    echo_round_trip(&mut stream, 4096).await;
+}
+
+/// An initiation to the current key seen once is answered and moves the
+/// peer; the same one again is not answered (its timestamp is no newer),
+/// and a newer one is.
+#[tokio::test]
+async fn a_replayed_initiation_to_the_current_key_is_not_answered() {
+    let (old_private, _) = random_keypair();
+    let a = retiring(overlay(1), old_private).await;
+    let (b_private, b_public) = random_keypair();
+    let b = WgPeer {
+        public_key: b_public,
+        preshared_key: None,
+        allowed_ips: vec![host(overlay(2))],
+        route: None,
+        persistent_keepalive: None,
+    };
+    within(a.mesh.add_peer_on_retired_key(b)).await.unwrap();
+    let socket = UdpSocket::bind("127.0.0.1:0").await.expect("bind");
+    let first = initiation(b_private, a.public);
+    socket.send_to(&first, a.udp).await.expect("send");
+    assert!(answered(&socket, TIMEOUT).await, "an authentic initiation was not answered");
+    socket.send_to(&first, a.udp).await.expect("send");
+    assert!(!answered(&socket, QUIET).await, "a replayed initiation was answered");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    socket.send_to(&initiation(b_private, a.public), a.udp).await.expect("send");
+    assert!(answered(&socket, TIMEOUT).await, "a newer initiation was not answered");
 }

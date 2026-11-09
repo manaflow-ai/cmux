@@ -49,15 +49,14 @@ pub(super) struct RekeyTarget {
     changed: Arc<tokio::sync::Notify>,
     retiring: Option<Arc<RetiringPeers>>,
     own: Vec<[u8; 32]>,
-    updates: Arc<tokio::sync::Mutex<()>>,
     #[cfg(test)]
     drop_replies: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl RekeyTarget {
     /// Move `install`'s pairing to `key` in the file; true when it changed.
-    /// One read-modify-write at a time (with reloads), so two rekeys never
-    /// save over each other. This link's own keys are refused: a peer record
+    /// One read-modify-write at a time, under the file's lock across
+    /// processes ([`Pairings::update`]), so no writer saves over another. This link's own keys are refused: a peer record
     /// with one would stop every start of the mesh. The caller answers the
     /// peer first, then calls [`Self::reload`]: the reload closes the old
     /// key's streams, the answering one included.
@@ -65,13 +64,13 @@ impl RekeyTarget {
         if self.own.contains(key) {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "own_key"));
         }
-        let _update = self.updates.lock().await;
-        let mut pairings = Pairings::load(&self.path)?;
-        let changed = pairings.rekey(install, key)?;
-        if changed {
-            pairings.save(&self.path)?;
-        }
-        Ok(changed)
+        // The file's own lock, which `link peer add|remove` and install moves take too.
+        let (path, install, key) = (self.path.clone(), install.to_owned(), *key);
+        tokio::task::spawn_blocking(move || {
+            Pairings::update(&path, |pairings| pairings.rekey(&install, &key))
+        })
+        .await
+        .map_err(io::Error::other)?
     }
 
     /// This link's node key, for the answer to `install` while this link
@@ -124,7 +123,6 @@ impl Peers {
             changed: self.rekeyed.clone(),
             retiring: self.retiring.get().cloned(),
             own: self.own.get().cloned().unwrap_or_default(),
-            updates: self.updates.clone(),
             #[cfg(test)]
             drop_replies: self.drop_replies.clone(),
         }

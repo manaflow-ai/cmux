@@ -57,6 +57,16 @@ impl PairingRecord {
 }
 
 /// Every paired peer, unique by install and by key.
+/// The held write lock of a pairing file ([`Pairings::lock`]); dropped, it is free.
+#[derive(Debug)]
+pub struct PairingsLock(std::fs::File);
+
+impl Drop for PairingsLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Pairings {
@@ -80,6 +90,41 @@ impl Pairings {
             ));
         }
         Ok(pairings)
+    }
+
+    /// Hold the pairing file's write lock: `flock` on `<file>.lock` next to
+    /// it, shared by every process. Every read, change and save of the file
+    /// runs under it ([`Pairings::update`]), as does moving the file aside.
+    pub fn lock(path: &Path) -> io::Result<PairingsLock> {
+        let name = path.file_name().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "the pairing file has no name")
+        })?;
+        let mut lock_name = name.to_os_string();
+        lock_name.push(".lock");
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        }
+        let file = options.open(path.with_file_name(lock_name))?;
+        file.lock()?;
+        Ok(PairingsLock(file))
+    }
+
+    /// Read the file at `path`, apply `change`, save it, all under
+    /// [`Pairings::lock`]: two writers never save over each other, in one
+    /// process or two. Nothing is saved when `change` fails.
+    pub fn update<T>(
+        path: &Path,
+        change: impl FnOnce(&mut Self) -> io::Result<T>,
+    ) -> io::Result<T> {
+        let _lock = Self::lock(path)?;
+        let mut pairings = Self::load(path)?;
+        let out = change(&mut pairings)?;
+        pairings.save(path)?;
+        Ok(out)
     }
 
     /// Write the file at `path` with mode 0600, replacing it atomically.

@@ -48,8 +48,11 @@ pub(crate) struct Peer {
     pub(crate) initiated: Option<Instant>,
     /// The session runs on this side's retired key (`WgMesh::add_peer_on_retired_key`).
     pub(crate) on_retired: bool,
-    /// What the peer was added with, to make its session again on the current key.
-    spec: WgPeer,
+    /// For a peer on the retired key: its session on the current key, which
+    /// only answers. A handshake to the current key goes through it in full
+    /// (static key, timestamp, replay), and only one it accepts moves the
+    /// peer there ([`Peer::move_to_current`]).
+    pub(crate) current: Option<Tunn>,
 }
 
 impl Peer {
@@ -65,6 +68,15 @@ impl Peer {
             self.route = Some(source);
         }
         self.schedule.on_activity(now);
+    }
+
+    /// The peer's handshake to the current key was accepted by its session
+    /// there: that session is the peer's from now on.
+    pub(crate) fn move_to_current(&mut self) {
+        if let Some(current) = self.current.take() {
+            self.tunn = current;
+            self.on_retired = false;
+        }
     }
 
     /// Whether a dial waits on this peer's handshake and the last initiation
@@ -128,19 +140,9 @@ impl PeerTable {
 
     /// Whether `key` may start a session on this side's retired key
     /// (`retired`, only a peer put there) or on its current one (any peer: a
-    /// peer on the retired key that knows the current one moves to it,
-    /// [`PeerTable::move_to_current`]).
+    /// peer on the retired key goes through its [`Peer::current`] session).
     pub(crate) fn admits(&self, key: &PeerKey, retired: bool) -> bool {
         self.peers.get(key).is_some_and(|peer| !retired || peer.on_retired)
-    }
-
-    /// Make `key`'s session again on the current key, when it is on the
-    /// retired one: the peer proved it knows the current key.
-    pub(crate) fn move_to_current(&mut self, key: &PeerKey, now: Instant) {
-        let Some(peer) = self.peers.get(key).filter(|peer| peer.on_retired) else { return };
-        let mut spec = peer.spec.clone();
-        spec.route = peer.route;
-        self.insert(spec, now, false);
     }
 
     pub(crate) fn get_mut(&mut self, key: &PeerKey) -> Option<&mut Peer> {
@@ -203,7 +205,6 @@ impl PeerTable {
     /// replaced peer keeps the route it was last seen on unless `peer`
     /// names one. Call [`PeerTable::check`] first.
     pub(crate) fn insert(&mut self, peer: WgPeer, now: Instant, retired: bool) -> &mut Peer {
-        let spec = peer.clone();
         let previous = self.remove(&peer.public_key);
         let index = self.allocate_index();
         let own = match &self.retired {
@@ -218,6 +219,17 @@ impl PeerTable {
             index,
             None,
         );
+        let on_retired = retired && self.retired.is_some();
+        let current = on_retired.then(|| {
+            Tunn::new(
+                self.private.clone(),
+                PublicKey::from(peer.public_key),
+                peer.preshared_key.as_deref().copied(),
+                peer.persistent_keepalive,
+                index,
+                None,
+            )
+        });
         let keepalive = peer.persistent_keepalive.is_some_and(|seconds| seconds > 0);
         let entry = Peer {
             tunn,
@@ -227,8 +239,8 @@ impl PeerTable {
             schedule: TimerSchedule::new(now, keepalive),
             waiting: None,
             initiated: None,
-            on_retired: retired && self.retired.is_some(),
-            spec,
+            on_retired,
+            current,
         };
         self.by_index.insert(index, peer.public_key);
         self.peers.entry(peer.public_key).or_insert(entry)

@@ -597,3 +597,56 @@ async fn an_adopted_link_refuses_another_external_lock_dir() {
     assert!(!other.join(KeyFile::Node.file_name()).exists());
     assert_eq!(adopted(&state).unwrap().unwrap().key_dir, machine.home);
 }
+
+/// Second review, F2: `link peer remove` and an inbound rekey of the same
+/// install, at once. Both run under the pairing file's lock, so the rekey
+/// never saves the removed record back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_revoke_racing_a_rekey_stays_revoked() {
+    for round in 0..40u8 {
+        let far = tempfile::tempdir().unwrap();
+        let file = far.path().join("peers.json");
+        let mut theirs = Pairings::default();
+        theirs.upsert(record("inst_x", [1; 32])).unwrap();
+        theirs.upsert(record("inst_y", [2; 32])).unwrap();
+        theirs.save(&file).unwrap();
+        let target = Peers::load(file.clone()).unwrap().rekey_target();
+        let path = file.clone();
+        let revoke = tokio::task::spawn_blocking(move || {
+            Pairings::update(&path, |pairings| Ok(pairings.remove("inst_x")))
+        });
+        let rekey = target.apply("inst_x", &[round + 50; 32]);
+        let (revoked, _) = tokio::join!(revoke, rekey);
+        assert!(revoked.unwrap().unwrap(), "round {round}");
+        let now = Pairings::load(&file).unwrap();
+        assert!(now.by_install("inst_x").is_none(), "round {round}: the revoked pairing came back");
+        assert_eq!(now.by_install("inst_y").unwrap().key(), Some([2; 32]));
+    }
+}
+
+/// Second review, F3: an install moved aside while a paired peer is still
+/// pending takes its adoption record along, and gets it back with its
+/// retired key: the pending retirement goes on.
+#[tokio::test]
+async fn an_install_switch_keeps_a_pending_retirement() {
+    let machine = machine();
+    let state = LinkState::open(Some(machine.link.clone())).unwrap();
+    let mut pairings = Pairings::default();
+    pairings.upsert(record("inst_b", [2; 32])).unwrap();
+    let holder = KeyHolder::acquire(&machine.home).unwrap();
+    let served = serve_key(&state, &holder, &pairings).await.unwrap();
+    assert!(served.retiring.is_some());
+    let before = adopted(&state).unwrap().unwrap();
+    assert_eq!(before.pending, BTreeSet::from(["inst_b".into()]));
+
+    state.switch_install("inst_a", "inst_other").unwrap();
+    assert!(adopted(&state).unwrap().is_none(), "another install has no adoption record");
+    assert!(!state.has_link_key());
+
+    state.switch_install("inst_other", "inst_a").unwrap();
+    assert_eq!(adopted(&state).unwrap(), Some(before));
+    assert!(state.has_link_key(), "the retired key came back with its record");
+    let again = serve_key(&state, &holder, &pairings).await.unwrap();
+    let retiring = again.retiring.expect("the retirement goes on");
+    assert_eq!(retiring.pending, BTreeSet::from(["inst_b".into()]));
+}

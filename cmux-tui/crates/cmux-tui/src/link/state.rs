@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use cmux_link::key_holder::{self, KeyFile, KeyHolder};
+use cmux_link::pairing::Pairings;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
@@ -130,8 +131,9 @@ impl LinkState {
         write_private(&self.config_path(), &text)
     }
 
-    /// Moves this install's WireGuard key and paired peers aside under
-    /// `old`'s name (`private.key.<old>`, `peers.<old>.json`) and puts back
+    /// Moves this install's WireGuard key, paired peers and adoption record
+    /// aside under `old`'s name (`private.key.<old>`, `peers.<old>.json`,
+    /// `key-adopted.<old>.json`) and puts back
     /// `new`'s archived pair when it has one. Nothing is deleted; a new
     /// install without an archive gets a new key (`init`) and no peers.
     pub(super) fn switch_install(&self, old: &str, new: &str) -> io::Result<()> {
@@ -167,8 +169,15 @@ impl LinkState {
             return Err(invalid("invalid install id"));
         }
         let archive = |stem: &str, ext: &str, id: &str| self.dir.join(format!("{stem}{id}{ext}"));
-        let currents =
-            [(self.key_path(), "private.key.", ""), (self.peers_path(), "peers.", ".json")];
+        // The adoption record goes with its install's key and peers: a peer still
+        // pending keeps its retired key when the install comes back (`key_adoption.rs`).
+        let currents = [
+            (self.key_path(), "private.key.", ""),
+            (self.peers_path(), "peers.", ".json"),
+            (self.dir.join(super::key_adoption::MARKER), "key-adopted.", ".json"),
+        ];
+        // No pairing write lands between the checks and the moves.
+        let _pairings = Pairings::lock(&self.peers_path())?;
         let mut moves: Vec<(PathBuf, PathBuf)> = Vec::new();
         for (current, stem, ext) in &currents {
             if let Some(old) = old {

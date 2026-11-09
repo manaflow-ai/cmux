@@ -27,7 +27,13 @@ const COOKIE_REPLY_BYTES: usize = 64;
 impl MeshDriver {
     pub(crate) fn handle_datagram(&mut self, datagram: &[u8], source: Option<PeerRoute>) {
         let key = match Tunn::parse_incoming_packet(datagram) {
-            Ok(Packet::HandshakeInit(_)) => self.initiator(datagram, source),
+            Ok(Packet::HandshakeInit(_)) => match self.initiator(datagram, source) {
+                Some((key, true)) => {
+                    self.receive_on_current(key, datagram, source);
+                    None
+                }
+                found => found.map(|(key, _)| key),
+            },
             Ok(Packet::HandshakeResponse(response)) => {
                 self.table.by_receiver(response.receiver_idx)
             }
@@ -48,7 +54,9 @@ impl MeshDriver {
     /// key (`WgMesh::start_retiring`) passes its own gate and is taken only
     /// from a peer whose session runs on that key; one to the current key
     /// from such a peer moves its session to the current key.
-    fn initiator(&mut self, datagram: &[u8], source: Option<PeerRoute>) -> Option<PeerKey> {
+    /// The second value: the initiation is to the current key from a peer on
+    /// the retired one ([`MeshDriver::receive_on_current`]).
+    fn initiator(&mut self, datagram: &[u8], source: Option<PeerRoute>) -> Option<(PeerKey, bool)> {
         let from = source.map(|route| route.address().ip());
         let mut cookie = [0u8; COOKIE_REPLY_BYTES];
         self.gate.reset_count();
@@ -82,10 +90,30 @@ impl MeshDriver {
         if !self.table.admits(&key, retired) {
             return None;
         }
-        if !retired {
-            self.table.move_to_current(&key, Instant::now());
+        let on_retired = self.table.get_mut(&key).is_some_and(|peer| peer.on_retired);
+        Some((key, !retired && on_retired))
+    }
+
+    /// A handshake initiation to the current key from a peer whose session is
+    /// on the retired key: its session on the current key checks it in full
+    /// (static key, timestamp and its replay check, as any handshake). Only
+    /// one it answers moves the peer there; a forged or replayed one changes
+    /// nothing.
+    fn receive_on_current(&mut self, key: PeerKey, datagram: &[u8], source: Option<PeerRoute>) {
+        let Some(peer) = self.table.get_mut(&key) else { return };
+        let Some(current) = peer.current.as_mut() else { return };
+        let from = source.map(|route| route.address().ip());
+        if let TunnResult::WriteToNetwork(packet) =
+            current.decapsulate(from, datagram, &mut self.scratch)
+        {
+            if classify(packet) == DatagramClass::WireGuardCookieReply {
+                self.out.send(source, packet);
+                return;
+            }
+            peer.move_to_current();
+            peer.authenticated(source, Instant::now());
+            self.out.send(source, packet);
         }
-        Some(key)
     }
 
     /// Hand `datagram` to `key`'s session and act on the result.
