@@ -245,7 +245,13 @@ const titled = readLedger({
       account: "work",
       lastAt: NOW,
     },
-    { ...totals({ costUsd: 2, tableCostUsd: 2, turns: 1 }), sessionId: "s2", title: "Second", models: [], pullRequests: [] },
+    {
+      ...totals({ costUsd: 2, tableCostUsd: 2, turns: 1 }),
+      sessionId: "s2",
+      title: "Second",
+      models: [],
+      pullRequests: [],
+    },
     { ...totals({ unpricedTurns: 1, turns: 1 }), sessionId: "s3", title: "Third", models: [], pullRequests: [] },
   ],
   rollups: { repo: [{ ...totals({ costUsd: 3, harnessCostUsd: 3 }), key: "acme/app" }] },
@@ -295,7 +301,8 @@ test("JSON holds the range, the price table, the totals with the hit rate, and e
   expect(body.rows[1].pullRequests).toBe("https://example.com/pull/1");
   // An absent field is left out, not null.
   expect("cacheHitRate" in body.rows[2]).toBe(false);
-  expect(ledgerFileName(titled, "7d", "repo")).toBe(`cmux-costs-7d-by-repo-${new Date(NOW).toISOString().slice(0, 10)}`);
+  const day = new Date(NOW).toISOString().slice(0, 10);
+  expect(ledgerFileName(titled, "7d", "repo")).toBe(`cmux-costs-7d-by-repo-${day}`);
 });
 
 test("Export saves through the host's save panel, and copies when the host cannot save", async () => {
@@ -318,7 +325,10 @@ test("Export saves through the host's save panel, and copies when the host canno
   });
   const save = pages.ledger.save!;
   expect(await save("a,b\r\n", "cmux-costs", "csv")).toBe("saved");
-  expect(calls[0]).toEqual({ method: "pane.saveFile", params: { text: "a,b\r\n", suggestedName: "cmux-costs", kind: "csv" } });
+  expect(calls[0]).toEqual({
+    method: "pane.saveFile",
+    params: { text: "a,b\r\n", suggestedName: "cmux-costs", kind: "csv" },
+  });
   host = "cancel";
   expect(await save("{}", "cmux-costs", "json")).toBe("cancelled");
   expect(copied).toEqual([]);

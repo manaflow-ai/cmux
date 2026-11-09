@@ -96,7 +96,11 @@ export type LedgerReply = {
 };
 
 /// The read for `range` ending `now`: every rollup the page offers, in one request.
-export function ledgerParams(range: LedgerRange, now: number, limit = LEDGER_ROW_LIMIT): Record<string, unknown> {
+export function ledgerParams(
+  range: LedgerRange,
+  now: number,
+  limit: number = LEDGER_ROW_LIMIT,
+): Record<string, unknown> {
   const span = RANGE_MS[range];
   // All time starts at 0: acpmux reads a missing `since` as its default window, not as no start.
   return {
@@ -415,14 +419,20 @@ export function csvField(value: Cell): string {
 /// The range and grouping as CSV: a header, then one line per row, CRLF line ends.
 export function ledgerCsv(reply: LedgerReply, group: LedgerGroup): string {
   const lines = [EXPORT_COLUMNS.join(",")];
-  for (const row of exportRows(reply, group)) lines.push(EXPORT_COLUMNS.map((column) => csvField(row[column])).join(","));
+  for (const row of exportRows(reply, group)) {
+    lines.push(EXPORT_COLUMNS.map((column) => csvField(row[column])).join(","));
+  }
   return `${lines.join("\r\n")}\r\n`;
 }
 
 /// The range and grouping as JSON: the range, the price table, the totals and every row.
 export function ledgerJson(reply: LedgerReply, range: LedgerRange, group: LedgerGroup): string {
   const rows = exportRows(reply, group).map((row) =>
-    Object.fromEntries(EXPORT_COLUMNS.flatMap((column) => (row[column] === undefined ? [] : [[column, row[column]]]))),
+    Object.fromEntries(
+      EXPORT_COLUMNS.flatMap((column): [ExportColumn, Cell][] =>
+        row[column] === undefined ? [] : [[column, row[column]]],
+      ),
+    ),
   );
   const body = {
     range: { name: range, since: iso(reply.range.since), until: iso(reply.range.until) },
