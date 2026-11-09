@@ -119,7 +119,7 @@ struct ChiefPanelStyleWindowTests {
         let clear = style == .seeThrough || style == .seeThroughBar
         #expect(style.isSeeThrough == clear)
         #expect(view.showsPanelGlass == !clear, "\(style): panel glass \(view.showsPanelGlass)")
-        #expect((chief.shadow != nil) == clear, "\(style): no halo keeps the Chief's text readable over the workspace")
+        #expect(chief.shadow == nil, "\(style): a halo over the whole chat blurs every bubble; only the header gets a plate")
         let plate = view.composerPlate
         #expect((plate != nil) == clear, "\(style): the message box has no plate")
         if let plate { #expect(plate.minY >= view.bounds.height - 80 && plate.width >= view.bounds.width - 2, "\(style): plate \(plate)") }
@@ -171,10 +171,41 @@ struct ChiefPanelStyleWindowTests {
         #expect(!chat.chiefShowsThrough, "the chat stayed clear after it left the panel")
     }
 
+    /// The see-through styles keep the bar and the chat's header readable over busy text (user 2026-11-08: "tight
+    /// halo behind the header only, not the whole chat"): a glass plate from the panel's top down to the header's
+    /// bottom, and no lower (a little fade aside), so the bubbles under it still show the workspace.
+    @Test func theSeeThroughStylesKeepAPlateBehindTheHeaderOnly() async throws {
+        let chat = ClearableChat()
+        let f = try await ChiefPanelWindowTests.fixture(chat)
+        defer { f.close() }
+        f.controller.armChiefPanel()
+        f.services.windows.show(workspaceID: "k1", in: f.state)
+        f.frame()
+        let view = try #require(f.controller.chiefPanelView)
+        try #require(f.controller.frameChiefPanelShown, "the link opened no Chief")
+        for style in ChiefPanelStyle.allCases {
+            view.style = style
+            f.frame()
+            f.controller.frameFocusChiefPanel()  // the keys in the panel: a collapsing style grows to show its header
+            f.frame()
+            #expect(f.controller.frameChiefPanelHasKeys, "\(style): the panel did not take the keys")
+            guard style.isSeeThrough else { #expect(view.headerPlate == nil, "\(style) draws a header plate"); continue }
+            let plate = try #require(view.headerPlate, "\(style): the header has no plate over busy text")
+            let bottom = view.convert(chat.bounds, from: chat).minY + chat.chiefHeaderHeight  // under the bar or strip
+            #expect(plate.minY <= 0 && plate.width >= view.bounds.width - 2, "\(style): plate \(plate)")
+            #expect(plate.maxY >= bottom && plate.maxY <= bottom + ChiefPanelView.headerPlateFade,
+                    "\(style): the plate ends at \(plate.maxY), the header at \(bottom)")
+        }
+    }
+
     final class ClearableChat: NSView, ChiefPanelContent {
         var chiefIsAnswering = false
         var chiefShowsThrough = false
-        init() { super.init(frame: NSRect(x: 0, y: 0, width: 320, height: 400)) }
+        var chiefHeaderHeight: CGFloat = 72
+        init() {
+            super.init(frame: NSRect(x: 0, y: 0, width: 320, height: 400))
+            addSubview(NSTextView(frame: NSRect(x: 8, y: 8, width: 220, height: 40)))  // a message box to take the keys
+        }
         @available(*, unavailable) required init?(coder: NSCoder) { nil }
     }
 
