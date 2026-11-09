@@ -178,7 +178,7 @@ export function TeamAuditScreen({ load, initialRange = "30d", initialGroup = "pe
             <thead>
               <tr>
                 <th scope="col" className="tma-key">
-                  {t(GROUP_KEY[shown])}
+                  <span className="tma-key-text">{t(GROUP_KEY[shown])}</span>
                 </th>
                 <th scope="col">{t("ledger.total.tokensIn")}</th>
                 <th scope="col">{t("ledger.total.tokensOut")}</th>
@@ -194,7 +194,9 @@ export function TeamAuditScreen({ load, initialRange = "30d", initialGroup = "pe
               {rows.map((row) => (
                 <tr key={`${shown}:${row.key}`}>
                   <th scope="row" className="tma-key" title={row.key}>
-                    {row.key === TEAM_AUDIT_NONE ? t("teamAudit.none") : auditRowLabel(shown, row, locale)}
+                    <span className="tma-key-text">
+                      {row.key === TEAM_AUDIT_NONE ? t("teamAudit.none") : auditRowLabel(shown, row, locale)}
+                    </span>
                   </th>
                   <Measures totals={row} machine={machine} locale={locale} />
                 </tr>
