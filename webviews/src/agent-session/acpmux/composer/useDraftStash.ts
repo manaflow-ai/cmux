@@ -13,6 +13,9 @@ export type StashedComposer = {
   held(): HeldDraft;
   /// Empties the prompt and its chips.
   clear(): void;
+  /// Whether an attachment is still loading: its contents are not in the draft yet, and clearing
+  /// would cancel it, so ⌃S waits and the draft stays.
+  loading(): boolean;
   /// Puts a draft back in the prompt, before what is typed there.
   restore(text: string, attachments: ComposerAttachment[]): void;
   focus(): void;
@@ -83,8 +86,12 @@ export function useDraftStash(chat: string, composer: StashedComposer) {
     });
   };
   /// ⌃S: a draft is stashed (one acpmux does not take stays in the prompt); an empty prompt
-  /// brings the newest stashed one back.
+  /// brings the newest stashed one back. While an attachment loads it does neither.
   const toggle = () => {
+    if (io.current.loading()) {
+      io.current.focus();
+      return;
+    }
     const held = io.current.held();
     if (held.text.trim() || held.attachments.length) stash();
     else unstash();

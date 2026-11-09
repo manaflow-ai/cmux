@@ -575,6 +575,8 @@ export function NewTabScreen(props: Props) {
   // into a chat: a draft put aside here comes back on any New Tab, never in a chat it was not
   // written for. The location the page opens with is a suggestion, not a draft: never stashed.
   const stashChat = NEW_TAB_STASH;
+  const readingRef = useRef(reading);
+  readingRef.current = reading;
   const touchedRef = useRef(touched);
   touchedRef.current = touched;
   const {
@@ -586,6 +588,7 @@ export function NewTabScreen(props: Props) {
       const value = field.current?.value() ?? text;
       return { text: touchedRef.current ? value : "", attachments: attachmentsRef.current };
     },
+    loading: () => readingRef.current.length > 0,
     clear: () => {
       if (!field.current?.type("")) setText("");
       attachmentsRef.current = [];

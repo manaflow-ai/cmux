@@ -908,6 +908,7 @@ function ComposerFrame({
       text: field.current?.value() ?? textRef.current,
       attachments: attachmentsRef.current.filter((chip) => !chip.shellRun),
     }),
+    loading: () => pendingRef.current.length > 0,
     clear: () => {
       notTyped();
       if (!field.current?.type("")) {
