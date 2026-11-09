@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import {
   buildLlmsText,
   isEnglishOnlyAgentPage,
+  llmsTextOrigin,
   resolveAgentPageVariant,
 } from "../lib/agent-page-paths";
 import {
@@ -34,7 +35,7 @@ export async function GET(request: NextRequest) {
   const origin = requestOrigin(request);
 
   if (variant.kind === "llms") {
-    return new NextResponse(buildLlmsText(origin), {
+    return new NextResponse(buildLlmsText(llmsTextOrigin(origin)), {
       headers: headersForLlmsTxt(),
     });
   }

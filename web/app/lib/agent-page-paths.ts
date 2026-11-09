@@ -18,6 +18,7 @@ import {
 } from "../../i18n/locale-availability";
 import { genericCodingAgents } from "../../i18n/coding-agents";
 import { nextDocPages, nextDocPublicPath } from "../../data/next-docs/pages";
+import { docsCanonicalOrigin, isDocsZoneDeployment } from "./docs-channel";
 
 export type AgentPageFormat = "md" | "txt";
 
@@ -351,6 +352,20 @@ export function variantPathForPage(
   format: AgentPageFormat,
 ): string {
   return canonicalPath === "/" ? `/index.${format}` : `${canonicalPath}.${format}`;
+}
+
+/**
+ * The origin llms.txt links point at. A docs zone (the release or nightly
+ * deployment cmux.com/docs rewrites to) serves only its own docs, under
+ * /docs rather than the public /docs/nightly, so its links name the public
+ * cmux.com pages instead. Any other deployment (cmux.com, a preview) links
+ * to itself.
+ */
+export function llmsTextOrigin(
+  origin: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  return isDocsZoneDeployment(env) ? docsCanonicalOrigin() : origin;
 }
 
 export function buildLlmsText(origin: string): string {

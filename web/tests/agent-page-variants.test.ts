@@ -4,6 +4,7 @@ import {
   resolveAgentPageVariant,
   variantPathForPage,
   isEnglishOnlyAgentPage,
+  llmsTextOrigin,
 } from "../app/lib/agent-page-paths";
 import { sitemapEntries as sitemap } from "../app/sitemap";
 import {
@@ -429,6 +430,21 @@ describe("agent page variants", () => {
       "[How to run multiple Claude Code agents in parallel](https://preview.example/compare/multiple-claude-code-agents-parallel)",
     );
     expect(llms).not.toContain("https://cmux.com/compare/");
+  });
+
+  // The nightly docs zone served llms.txt with its own host and the public
+  // /docs/nightly/next paths, which that host does not serve (it serves
+  // /docs/next), so every cmux-next link 404'd.
+  test("llms.txt on a docs zone links to the public cmux.com pages", () => {
+    const zone = "https://cmux-docs-nightly.vercel.app";
+    for (const channel of ["nightly", "release"]) {
+      const origin = llmsTextOrigin(zone, { CMUX_DOCS_CHANNEL: channel });
+      expect(origin).toBe("https://cmux.com");
+      const llms = buildLlmsText(origin);
+      expect(llms).toContain("https://cmux.com/docs/nightly/next/own-keys.md");
+      expect(llms).not.toContain(zone);
+    }
+    expect(llmsTextOrigin("https://preview.example", {})).toBe("https://preview.example");
   });
 
   test("limits en-ja docs variants to translated locales", () => {
