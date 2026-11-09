@@ -216,8 +216,18 @@ async fn history_names_a_restart_cut_turn_outcome_unknown() {
     store.save(&meta).unwrap();
     let hub = Hub::new(cfg, store);
     let session = hub.resolve("history-cut").unwrap();
-    hub.append(&session, "client", "user_message", json!({"text": "[chaos t agent daemon restart] hi"}));
-    hub.append(&session, "mux", "turn_started", json!({"turnId":"cut", "promptId":"p1", "control":"local"}));
+    hub.append(
+        &session,
+        "client",
+        "user_message",
+        json!({"text": "[chaos t agent daemon restart] hi"}),
+    );
+    hub.append(
+        &session,
+        "mux",
+        "turn_started",
+        json!({"turnId":"cut", "promptId":"p1", "control":"local"}),
+    );
     *session.log_load.lock().unwrap() = false;
     session.log_loaded.store(false, Ordering::SeqCst);
     hub.load_session_log(&session);
