@@ -1,8 +1,5 @@
 {
- "title": "A table opened from an agent chat shows in the side panel on the right, and the panel's left edge drags like a split divider (cmux#39090). The chat runs on the fake harness, which echoes the prompt, so the reply is a synthetic Markdown table. Steps: the reply, Open table (the panel at its default width), a held drag of the edge to the left (the edge's hover line), then the drop (the panel wider, the chat narrower).",
- "launch_args": [
-  "--showcase"
- ],
+ "title": "A table opened from an agent chat shows in the side panel on the right, and the panel's left edge drags like a split divider (cmux#39090). The chat runs on the fake harness (no showcase mock: the mock chat opens no panel), which echoes the prompt, so the reply is a synthetic Markdown table. Steps: the reply, Open table (the panel at its default width), a held drag of the edge to the left (the edge's hover line), then the drop (the panel wider, the chat narrower).",
  "fakeHarness": {
   "id": "fake",
   "name": "Fake"
