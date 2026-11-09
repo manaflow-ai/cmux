@@ -8,7 +8,14 @@ import type { ChatCards } from "./ChatCards";
 import type { ChatCard } from "./screenModel";
 
 const live: ChatCard[] = [
-  { sessionId: "s-1", title: "Review the settings", age: "2m", state: "idle", harness: "codex", message: "Ready for the next step." },
+  {
+    sessionId: "s-1",
+    title: "Review the settings",
+    age: "2m",
+    state: "idle",
+    harness: "codex",
+    message: "Ready for the next step.",
+  },
   {
     sessionId: "s-2",
     title: "Tune the build cache",
@@ -38,7 +45,10 @@ export default componentEntry<ComponentProps<typeof ChatCards>>({
   height: 320,
   anchors: [{ selector: ".nt-chats" }],
   variants: {
-    "before-cards": { props: { ...base, cards: live }, note: "Before Archive Chat: the middle card reads its live log." },
+    "before-cards": {
+      props: { ...base, cards: live },
+      note: "Before Archive Chat: the middle card reads its live log.",
+    },
     "after-cards": {
       props: { ...base, cards: archived },
       note: "After Archive Chat: the same card, badged Archived, reads its kept preview.",

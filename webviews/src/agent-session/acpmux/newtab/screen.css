@@ -73,7 +73,7 @@
 .nt-card[data-state=error] .nt-card-message,.nt-card[data-state=failed] .nt-card-message{color:var(--agent-danger)}
 .nt-card-age{font-variant-numeric:tabular-nums}
 /* An archived chat (acpmux's cold archive): a muted badge beside its age, and its preview as quiet as the age; nothing else on the card moves. */
-.nt-card-badge{flex:none;padding:0 6px;border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-text) 7%,transparent);color:var(--acpmux-composer-dim);font-size:var(--text-caption);line-height:1.6;white-space:nowrap}
+.nt-card-badge{flex:none;padding:0 var(--ds-space-1);border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-text) 7%,transparent);color:var(--acpmux-composer-dim);font-size:var(--text-caption);line-height:1.6;white-space:nowrap}
 .nt-cards[data-variant="list"] .nt-card-badge{order:-1}
 .nt-card[data-state=input] .nt-card-message{color:var(--agent-warning,var(--agent-text))}
 /* Hover as Edge draws it (cx-f6i7): the fill eases in fast and clears at once (--agent-motion-hover-out, 0 by default). */

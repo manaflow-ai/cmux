@@ -159,7 +159,9 @@ test("an archived card shows its badge and preview, and its menu archives or bri
   expect(card("Live chat").dataset.archived).toBeUndefined();
   expect(card("Live chat").querySelector(".nt-card-badge")).toBeNull();
 
-  const archive = (await openMenu("Live chat")).find((item) => item.textContent === translateNewTab("card.archiveChat"));
+  const archive = (await openMenu("Live chat")).find(
+    (item) => item.textContent === translateNewTab("card.archiveChat"),
+  );
   expect(archive).toBeDefined();
   await act(async () => archive!.click());
   const unarchive = (await openMenu("Old chat")).find((item) => item.textContent === translateNewTab("card.unarchive"));
