@@ -651,19 +651,19 @@ fn roster_replay_over_output_heavy_segments_decodes_each_segment_once() {
 fn a_damaged_segment_in_a_parallel_batch_ends_the_page_before_it() {
     let (registry, expected) = output_heavy_sealed_registry(4, 64);
     let db = registry.connection.get();
-    db.execute(
-        "UPDATE journal_segments SET sha256 = zeroblob(32) WHERE segment_id = 'segment_2049_3072'",
-        [],
+    db.execute_batch(
+        "DROP TRIGGER journal_segments_reject_update;
+         UPDATE journal_segments SET sha256 = zeroblob(32) WHERE segment_id = 'segment_2049_3072';",
     )
     .unwrap();
     drop(db);
     let head = registry.session_journal_head().unwrap();
     SEGMENT_DECODE_WORKERS.with(|cell| cell.set(Some(4)));
-    let (records, reached) = registry.session_journal_without_output_after(0, head, 4096).unwrap();
+    let (records, reached) = registry.session_journal_without_output_after(0, head, 1024).unwrap();
     assert_eq!(reached, 2048);
     let before = expected.iter().copied().filter(|sequence| *sequence <= 2048).collect::<Vec<_>>();
     assert_eq!(records.iter().map(|record| record.sequence).collect::<Vec<_>>(), before);
-    let error = registry.session_journal_without_output_after(reached, head, 4096).unwrap_err();
+    let error = registry.session_journal_without_output_after(reached, head, 1024).unwrap_err();
     SEGMENT_DECODE_WORKERS.with(|cell| cell.set(None));
     assert!(format!("{error:#}").contains("digest is invalid"), "{error:#}");
 }

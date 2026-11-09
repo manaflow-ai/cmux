@@ -1450,7 +1450,13 @@ fn query_session_journal_without_output_after(
         {
             // Every archived record through `archived_reached` is here; the
             // page may hold more than `limit` (see archived_non_output_after).
-            if archived.len() >= limit || archived_reached >= through {
+            // A read that stopped short of the archive's end (a segment that
+            // does not decode) ends the page there: the active rows below
+            // start after the archive and would carry `reached` past it.
+            if archived.len() >= limit
+                || archived_reached >= through
+                || archived_reached < archive_through
+            {
                 return Ok((archived, archived_reached));
             }
             records = archived;
