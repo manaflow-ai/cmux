@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 618,
+  "count": 619,
   "sections": [
     {
       "id": "general",
@@ -2629,6 +2629,31 @@
             "tabs",
             "both",
             "none"
+          ]
+        },
+        {
+          "key": "appearance.font",
+          "title": "App Font",
+          "help": "The font of the whole app: tabs, the sidebar, menus, chats and pages. Terminal and code text keep their own fonts.",
+          "kind": "choice",
+          "default": "system",
+          "group": "Density and Motion",
+          "values": [
+            "system",
+            "Helvetica Neue",
+            "Avenir Next",
+            "Futura",
+            "Gill Sans",
+            "Optima",
+            "Verdana",
+            "Trebuchet MS",
+            "Georgia",
+            "Palatino",
+            "Charter",
+            "Iowan Old Style",
+            "Baskerville",
+            "American Typewriter",
+            "Menlo"
           ]
         },
         {

@@ -468,6 +468,7 @@
               "appearance.density",
               "appearance.customDensity",
               "appearance.customDensities",
+              "appearance.font",
               "appearance.borders",
               "appearance.focusIndicator",
               "focus.inactiveTabStyle",
@@ -30747,6 +30748,265 @@
       "title" : {
         "key" : "settings.appearance.uiScale",
         "text" : "Interface Scale"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "system",
+        "Helvetica Neue",
+        "Avenir Next",
+        "Futura",
+        "Gill Sans",
+        "Optima",
+        "Verdana",
+        "Trebuchet MS",
+        "Georgia",
+        "Palatino",
+        "Charter",
+        "Iowan Old Style",
+        "Baskerville",
+        "American Typewriter",
+        "Menlo"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatUiFontSystemUi",
+            "text" : "System (default)"
+          },
+          "value" : "system"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Helvetica Neue"
+          },
+          "value" : "Helvetica Neue"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Avenir Next"
+          },
+          "value" : "Avenir Next"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Futura"
+          },
+          "value" : "Futura"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Gill Sans"
+          },
+          "value" : "Gill Sans"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Optima"
+          },
+          "value" : "Optima"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Verdana"
+          },
+          "value" : "Verdana"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Trebuchet MS"
+          },
+          "value" : "Trebuchet MS"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Georgia"
+          },
+          "value" : "Georgia"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Palatino"
+          },
+          "value" : "Palatino"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Charter"
+          },
+          "value" : "Charter"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Iowan Old Style"
+          },
+          "value" : "Iowan Old Style"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Baskerville"
+          },
+          "value" : "Baskerville"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "American Typewriter"
+          },
+          "value" : "American Typewriter"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Menlo"
+          },
+          "value" : "Menlo"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "system",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.font.help",
+        "text" : "The font of the whole app: tabs, the sidebar, menus, chats and pages. Terminal and code text keep their own fonts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.font",
+      "keywords" : [
+        "font",
+        "fonts",
+        "typeface",
+        "family",
+        "app",
+        "interface",
+        "ui",
+        "whole",
+        "everything",
+        "preview"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "font"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.font"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.font",
+        "text" : "App Font"
       },
       "validation" : "portable"
     },
