@@ -332,6 +332,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case cloudChatRelay = "cloud_chat_relay.v1"
     /// `agent-session-fork`: fork an attached chat through its latest completed turn.
     case agentSessionFork = "agent-session-fork-v1"
+    /// `agent-session-side`: New side chat and `/side [prompt]` of an attached chat, run on that
+    /// machine in the chat's folder (cmux-tui agent_session_side.rs).
+    case agentSessionSide = "agent-session-side-v1"
     /// Read-only observation of a remote agent session. An observer never falls back to the
     /// writable attach capability (`cmux-tui/spec/commands.md`, `agent-session-observe`).
     case agentSessionObserve = "agent-session-observe-v1"
@@ -525,6 +528,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case agentCLIAppProvider = "agent-cli-app-provider-v1"
     /// Agent inventory invalidation events for app providers (`AppProviderSession`).
     case agentCLIAppInvalidation = "agent-cli-app-invalidation-v1"
+    /// A provider tells readable app subscribers its family changed (`AppProviderSession.changed(family:)`).
+    case appProviderChanged = "app-provider-changed-v1"
     /// Admission receipts on the agent inventory watch (`DaemonReadyConnection`).
     case agentInventoryWatchAdmission = "agent-inventory-watch-admission-v1"
     /// Stash, a native OneTab (`stash.*`; `StateResourceClient+Stash.swift`).
@@ -575,7 +580,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents, .attachVisibility, .subscribeScrollOnAttach, .treeSelectionDeltas,
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
-             .agentSessionAttach, .agentSessionFork, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
+             .agentSessionAttach, .agentSessionFork, .agentSessionSide, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
              .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionTrustVMKind, .agentSessionFolders,
              .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionContext, .agentSessionBtw, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
@@ -588,7 +593,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .workspaceCreateFocus, .attachIdentity, .creationReceipts, .creationAttemptKeys,
              .terminalColorOverrides, .terminalSnapshotHistory, .terminalSnapshotLocalHistory,
              .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
-             .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation,
+             .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation, .appProviderChanged,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .layoutBulkBare:
             return .optional
         }

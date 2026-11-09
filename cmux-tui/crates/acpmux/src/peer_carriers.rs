@@ -8,7 +8,8 @@
 //! - ssh: `ssh -W` to the configured `ssh://` URL. Always kept: it reaches a machine when the
 //!   platform is down and the network allows nothing else.
 //! - The configured `ws://`/`wss://` URL of a peer that is not ssh.
-//! - The hub relay is no stream path yet (`Via::streams`); it becomes one more path when it is.
+//! - The hub relay (`peer_hub.rs`), with the `hub-carrier` feature: the daemon's hub carrier,
+//!   for a peer with a hub `daemonId`. Without the feature it carries no stream (`Via::streams`).
 
 use super::{EARLY_TUNNEL_FOR, Peer, RESTART_AFTER, connect_timed_out, ssh_errors, tokens};
 use crate::no_panic::LockExt;
@@ -200,6 +201,28 @@ pub(crate) async fn dial_link(_socket: &Path, _host: &str) -> Result<BoxDuplex, 
     Err("the cmux link runs on Unix only".to_owned())
 }
 
+/// The next copy queued for the shadow; never, without one.
+async fn next_copy(shadow: &mut Option<super::dual::ShadowRun>) -> Option<String> {
+    match shadow.as_mut() {
+        Some(run) => run.rx.recv().await,
+        None => std::future::pending().await,
+    }
+}
+
+/// Send `texts` on a probe's WebSocket, each within [`PROBE_EVERY`]; false when one did not go.
+async fn send_texts<S>(ws: &mut tokio_tungstenite::WebSocketStream<S>, texts: Vec<String>) -> bool
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    for text in texts {
+        let sent = tokio::time::timeout(PROBE_EVERY, ws.send(Frame::Text(text.into()))).await;
+        if !matches!(sent, Ok(Ok(()))) {
+            return false;
+        }
+    }
+    true
+}
+
 /// A ping's payload: when it went out, in microseconds since a process-wide origin, so its
 /// pong measures the path's round trip.
 pub(super) fn ping_stamp() -> Vec<u8> {
@@ -240,6 +263,10 @@ impl Peer {
                 .into_iter()
                 .collect();
         vias.push(if self.ssh_parts().is_some() { Via::Ssh } else { Via::Url });
+        #[cfg(feature = "hub-carrier")]
+        if self.has_hub_path() {
+            vias.push(Via::Hub);
+        }
         vias
     }
 
@@ -397,7 +424,7 @@ impl Peer {
     /// need no read, so a direct path never waits on ssh for them; and a read that fails
     /// (ssh down) leaves the direct path its kept tokens, never stops it.
     async fn direct_tokens(&self, order: &[Via]) -> Option<(tokens::Tokens, bool)> {
-        let direct = order.iter().any(|via| matches!(via, Via::Wireguard | Via::Link));
+        let direct = order.iter().any(|via| matches!(via, Via::Wireguard | Via::Link | Via::Hub));
         let configured = self.token.is_some() && self.peer_token.is_some();
         if !direct || configured || self.ssh_parts().is_none() {
             return None;
@@ -412,7 +439,8 @@ impl Peer {
     }
 
     /// The cmux link socket to dial, ahead of the link's registration (tests).
-    #[cfg(test)]
+    // Only the Linux link tests in peer_carriers_tests.rs call it.
+    #[cfg(all(test, target_os = "linux"))]
     pub(super) fn set_link_socket(&self, socket: PathBuf) {
         let _ = self.link_socket.set(socket);
     }
@@ -436,6 +464,8 @@ impl Peer {
                 let stream = dial_link(&socket, host).await?;
                 Ok((Box::new(stream), "ws://localhost/".to_owned()))
             }
+            #[cfg(feature = "hub-carrier")]
+            Via::Hub => Ok((Box::new(self.hub_stream().await?), "ws://localhost/".to_owned())),
             other => Err(format!("{} is not a direct stream path", other.as_str())),
         }
     }
@@ -636,12 +666,36 @@ impl Peer {
         via: Via,
         ssh_tokens: Option<(tokens::Tokens, bool)>,
     ) -> Result<Opened, String> {
-        match via {
+        let opened = match via {
             Via::Ssh => self.open_ssh(ssh_tokens).await,
             Via::Url => self.open_url().await,
             Via::Wireguard | Via::Link => self.open_direct(via, ssh_tokens.as_ref()).await,
+            Via::Hub if via.streams() => self.open_direct(via, ssh_tokens.as_ref()).await,
             Via::Hub => Err("the hub relay carries no live link yet".to_owned()),
-        }
+        }?;
+        // Unproven until the daemon's `initialize` answer on this connection says it is the
+        // peer principal (`dualPrincipal`, read by the handshake).
+        self.note_token_path(via, false);
+        Ok(opened)
+    }
+
+    /// Whether path `via`'s current connection is the daemon's peer principal, as that
+    /// daemon's `initialize` answer on it said (`token_paths`); false until it answers.
+    pub(super) fn note_token_path(&self, via: Via, principal: bool) {
+        self.token_paths.lock_or_recover().insert(via, principal);
+    }
+
+    /// The `initialize` a probe sends on its own connection: only to learn whether the daemon
+    /// takes it as the peer principal (`dualPrincipal`). It says it only observes, so it keeps
+    /// no daemon running (`daemon/unused_exit.rs`).
+    fn probe_hello(&self) -> (i64, String) {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let hello = serde_json::json!({"protocolVersion": 1, "clientCapabilities": {},
+            "clientInfo": {"name": super::CLIENT_NAME, "version": crate::hub::VERSION},
+            "_meta": {"acpmux": {"observer": true}}});
+        let line =
+            crate::rpc::Message::request(id, crate::rpc::method::INITIALIZE, hello).to_line();
+        (id, line.trim_end_matches('\n').to_owned())
     }
 
     /// Keep every path of this peer that does not carry the link open and measured: once per
@@ -694,8 +748,11 @@ impl Peer {
         }
     }
 
-    /// Ping `ws` on `via` until it fails, the link moves onto `via`, or the peer stops.
-    async fn probe_link<S>(
+    /// Ping `ws` on `via` until it fails, the link moves onto `via`, or the peer stops. While
+    /// the link's path is in doubt and `via` is the best other path, `ws` is also the link's
+    /// shadow (`peer_dual.rs`): it carries a copy of each frame, and its chat events and
+    /// replies are taken once.
+    pub(super) async fn probe_link<S>(
         &self,
         via: Via,
         mut ws: tokio_tungstenite::WebSocketStream<S>,
@@ -706,17 +763,63 @@ impl Peer {
         let mut stopped = self.stop_changed.subscribe();
         let mut ping = tokio::time::interval(PROBE_EVERY);
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut check = tokio::time::interval(super::dual::DOUBT_CHECK);
+        // Whether the daemon takes this connection as the peer principal: only its answer on
+        // this connection qualifies the path for dual send, read again on each probe.
+        self.note_token_path(via, false);
+        let (hello_id, hello) = self.probe_hello();
+        let mut hello_id = Some(hello_id);
+        if !send_texts(&mut ws, vec![hello]).await {
+            self.path_failed(via);
+            return;
+        }
+        check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut shadow: Option<super::dual::ShadowRun> = None;
         loop {
             tokio::select! {
                 _ = stopped.changed() => break,
                 _ = ping.tick() => {
                     // The link took this path: its own pings measure it now.
-                    if self.serving() == Some(via) {
+                    if self.serving() == Some(via) && shadow.is_none() {
                         break;
                     }
                     self.paths_tick();
                     let sent = tokio::time::timeout(PROBE_EVERY, ws.send(Frame::Ping(ping_stamp().into()))).await;
                     if !matches!(sent, Ok(Ok(()))) {
+                        self.path_failed(via);
+                        break;
+                    }
+                }
+                _ = check.tick() => {
+                    let done = shadow.as_mut().is_some_and(|run| self.shadow_done(run));
+                    let frames = match shadow.take() {
+                        None if self.dual_wanted(via) => {
+                            let (run, frames) = self.shadow_start(via).await;
+                            shadow = Some(run);
+                            frames
+                        }
+                        Some(run) if done => self.shadow_end(run).await,
+                        Some(mut run) => {
+                            // A chat whose gap outlived its bound is attached again from its
+                            // cursor.
+                            let mut frames = Vec::new();
+                            for sid in self.dual_gaps().await {
+                                frames.extend(self.shadow_resubscribe(&mut run, &sid).await);
+                            }
+                            // A chat whose attach did not cover its stream, due again.
+                            frames.extend(self.shadow_retries(&mut run).await);
+                            shadow = Some(run);
+                            frames
+                        }
+                        None => Vec::new(),
+                    };
+                    if !send_texts(&mut ws, frames).await {
+                        self.path_failed(via);
+                        break;
+                    }
+                }
+                Some(copy) = next_copy(&mut shadow) => {
+                    if !send_texts(&mut ws, vec![copy]).await {
                         self.path_failed(via);
                         break;
                     }
@@ -727,6 +830,20 @@ impl Peer {
                             self.path_pong(via, rtt);
                         }
                     }
+                    Some(Ok(Frame::Text(text))) => {
+                        if let Some(id) = hello_id
+                            && let Some(principal) = hello_answer(text.as_str(), id)
+                        {
+                            hello_id = None;
+                            self.note_token_path(via, principal);
+                        } else if let Some(run) = shadow.as_mut() {
+                            let frames = self.shadow_frame(run, text.as_str()).await;
+                            if !send_texts(&mut ws, frames).await {
+                                self.path_failed(via);
+                                break;
+                            }
+                        }
+                    }
                     Some(Ok(Frame::Close(_)) | Err(_)) | None => {
                         self.path_failed(via);
                         break;
@@ -734,6 +851,9 @@ impl Peer {
                     Some(Ok(_)) => {}
                 },
             }
+        }
+        if let Some(run) = shadow.take() {
+            let _ = self.shadow_end(run).await;
         }
         let _ = tokio::time::timeout(Duration::from_secs(1), ws.close(None)).await;
         // `_tunnel` (an ssh probe's own process) ends here.
@@ -743,8 +863,21 @@ impl Peer {
     /// reads tokens over ssh: the link's connect did), and its ssh process for an ssh path.
     async fn open_probe(&self, via: Via) -> Result<(OpenedWs, Option<ProbeTunnel>), String> {
         match via {
-            Via::Wireguard | Via::Link => Ok((self.open_direct(via, None).await?.ws, None)),
-            Via::Url => Ok((self.open_url().await?.ws, None)),
+            Via::Wireguard | Via::Link => {
+                let opened = self.open_direct(via, None).await?;
+                self.note_token_path(via, false);
+                Ok((opened.ws, None))
+            }
+            Via::Hub if via.streams() => {
+                let opened = self.open_direct(via, None).await?;
+                self.note_token_path(via, false);
+                Ok((opened.ws, None))
+            }
+            Via::Url => {
+                let ws = self.open_url().await?.ws;
+                self.note_token_path(via, false);
+                Ok((ws, None))
+            }
             Via::Ssh => {
                 let (token, peer_token) = self
                     .direct_credentials(None)
@@ -763,6 +896,7 @@ impl Peer {
                 )
                 .await
                 .map_err(|e| e.to_string())?;
+                self.note_token_path(via, false);
                 Ok((OpenedWs::Boxed(Box::new(ws)), Some((child, errors))))
             }
             Via::Hub => Err("the hub relay carries no live link yet".to_owned()),
@@ -812,3 +946,15 @@ impl Drop for AnsweringGuard {
 #[cfg(test)]
 #[path = "peer_carriers_tests.rs"]
 mod tests;
+
+/// Whether `text` answers the probe's `initialize` `id`: Some with whether the daemon said this
+/// connection is its peer principal (an error, or no word, says no).
+fn hello_answer(text: &str, id: i64) -> Option<bool> {
+    let msg: serde_json::Value = serde_json::from_str(text).ok()?;
+    if msg.get("method").is_some() || msg.get("id").and_then(serde_json::Value::as_i64) != Some(id)
+    {
+        return None;
+    }
+    let principal = msg.pointer("/result/_meta/acpmux/dualPrincipal");
+    Some(principal == Some(&serde_json::Value::Bool(true)))
+}

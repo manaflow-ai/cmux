@@ -80,6 +80,16 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
 
     public func btw(_ question: String) async throws -> Data { try await mapped { try await client.btw(question) } }
 
+    /// An observation never opens a side chat.
+    public func servesSide() async -> Bool {
+        guard mode != .observe else { return false }
+        return await client.servesSide()
+    }
+
+    public func side(throughSeq: Int?, prompt: String?, promptID: String) async throws -> Data {
+        try await mapped { try await client.side(throughSeq: throughSeq, prompt: prompt, promptID: promptID) }
+    }
+
     public func close() async { await client.close() }
 
     /// A daemon push as the pane's event: the record or request object, or the close reason.

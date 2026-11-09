@@ -3,6 +3,8 @@
 
 Behaviour per prompt text:
   "ask: <x>"   -> requests permission, then replies with the chosen optionId
+  "plan-ask: <plan>" -> a plan approval as Claude Code's ExitPlanMode asks it, then as "ask:"
+  "plan-ask-on: <plan>" -> the same; a rejected plan plans on until session/cancel
   "xai-question: <q>" / "xai-plan: <p>" -> Grok's x.ai ask / exit-plan requests
   "cursor-question: <q>" / "cursor-plan: <p>" -> Cursor's ask / create-plan requests
   "slow"       -> streams three chunks with delays, honours session/cancel
@@ -19,6 +21,8 @@ Behaviour per prompt text:
   "works-through-cancel-beside-background" -> the same after starting background subagent bg-1
   "answer-then-exit" -> answers, then the agent exits between turns
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
+  "goal: <objective>" -> a Codex goal as session_info_update _meta.goal (running 32 min), then a short reply
+  "/goal pause|resume|clear|<text>" -> that goal paused, running again, gone, or set to <text>
   "work-gate: <p>" -> a plan step in progress and a running tool call, then as "gate:"
   image blocks -> the echo ends with " image:<sha256 of its bytes>" for each
   anything     -> echoes the text as one agent_message_chunk
@@ -83,6 +87,8 @@ import time
 lock = threading.Lock()
 cancelled = set()
 failed_once = set()
+# "goal:" and "/goal": each session's goal as Codex reports it (session_info_update _meta.goal).
+goals = {}
 cap_failures = {}
 failed_digest = set()
 # Sessions whose "net-down" prompt cut the connection for good (auto-resume tests).
@@ -442,6 +448,39 @@ def run_stuck_loop(rid, sid):
     update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "stuck-progress", "status": "completed"})
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {
         "type": "text", "text": " STUCK LOOP CLEARED"}})
+    send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+
+
+def run_goal(rid, sid, text):
+    now = int(time.time() * 1000)
+    goal = goals.get(sid)
+    if text.startswith("goal:"):
+        goal = {"objective": text[5:].strip(), "status": "active", "provider": "codex",
+                "startedAt": now - 32 * 60 * 1000, "updatedAt": now}
+        reply = "Goal set."
+    else:
+        arg = text[6:].strip()
+        if goal is None and arg in ("pause", "resume", "clear"):
+            reply = "No goal is set."
+        elif arg == "pause":
+            goal = {**goal, "status": "paused", "updatedAt": now}
+            reply = "Goal paused."
+        elif arg == "resume":
+            goal = {**goal, "status": "active", "updatedAt": now}
+            reply = "Goal resumed."
+        elif arg == "clear":
+            goal = None
+            reply = "Goal cleared."
+        else:
+            goal = {**(goal or {"provider": "codex", "startedAt": now}), "objective": arg, "status": "active",
+                    "updatedAt": now}
+            reply = "Goal updated."
+    if goal is None:
+        goals.pop(sid, None)
+    else:
+        goals[sid] = goal
+    update(sid, {"sessionUpdate": "session_info_update", "_meta": {"goal": goal}})
+    update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}})
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
 
 
@@ -959,6 +998,38 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "plan-ask-on: <plan>": as "plan-ask:", but a rejected plan is a tool denial, as Claude
+    # Code's adapter takes it: the turn plans on ("kept planning") unless it is cancelled.
+    plan_on = text.startswith("plan-ask-on:")
+    if plan_on:
+        text = "plan-ask:" + text[len("plan-ask-on:"):]
+    if text.startswith("plan-ask:"):
+        plan = text[len("plan-ask:"):].strip()
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "plan-1", "title": "Approve plan", "kind": "switch_mode",
+                             "status": "pending", "rawInput": {"plan": plan},
+                             "_meta": {"claude": {"tool": "ExitPlanMode", "interactive": True}}},
+                "options": [
+                    {"optionId": "yes", "name": "Yes", "kind": "allow_once"},
+                    {"optionId": "no", "name": "No", "kind": "reject_once"},
+                ],
+            },
+        )
+        chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
+        if plan_on and chosen == "no":
+            for _ in range(100):
+                if sid in cancelled:
+                    cancelled.discard(sid)
+                    send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                    return
+                time.sleep(0.05)
+            update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": " kept planning"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text.startswith("ask:"):
         res = request(
             "session/request_permission",
@@ -1168,10 +1239,19 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "partial "}})
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "simulated internal error after output"}})
         return
+    # "goal: X" sets a Codex goal, "/goal pause|resume|clear|<text>" drives it, as codex-acp
+    # reports one: session_info_update with _meta.goal (null once cleared).
+    if text.startswith("goal:") or text.startswith("/goal "):
+        return run_goal(rid, sid, text)
     # "meta: X" sends a chunk whose notification carries the agent's own _meta.
     # "harness-title: X" titles the session itself, as Codex does.
     if text.startswith("harness-title:"):
         update(sid, {"sessionUpdate": "session_info_update", "title": text[14:].strip()})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "suggest: TEXT" ends the turn with TEXT as the predicted next prompt.
+    if text.startswith("suggest:"):
+        update(sid, {"sessionUpdate": "prompt_suggestion", "suggestion": text[8:].strip()})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     if text.startswith("meta:"):
@@ -1740,6 +1820,9 @@ def main():
             # FAKE_PLAN_MODE=1: opencode's modes, "build" and a "plan" that runs bash.
             if os.environ.get("FAKE_PLAN_MODE") == "1":
                 result["modes"] = {"currentModeId": "build", "availableModes": [{"id": "build", "name": "Build"}, {"id": "plan", "name": "Plan"}]}
+            # FAKE_PLAN_MODE=claude: Claude's asking modes, "default" and a "plan" that asks.
+            if os.environ.get("FAKE_PLAN_MODE") == "claude":
+                result["modes"] = {"currentModeId": "default", "availableModes": [{"id": "default", "name": "Default"}, {"id": "plan", "name": "Plan"}]}
             # FAKE_FULL_ACCESS=1: a harness that also offers a full-access mode.
             if os.environ.get("FAKE_FULL_ACCESS") == "1" and "modes" in result:
                 result["modes"]["availableModes"].append({"id": "full-access", "name": "Full access"})

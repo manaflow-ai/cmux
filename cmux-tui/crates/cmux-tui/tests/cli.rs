@@ -3749,6 +3749,9 @@ mod browser_profiles;
 #[path = "cli/caller_selector.rs"]
 mod caller_selector;
 #[cfg(unix)]
+#[path = "cli/carrier_tunnel.rs"]
+mod carrier_tunnel;
+#[cfg(unix)]
 #[path = "cli/chief.rs"]
 mod chief;
 #[cfg(unix)]
@@ -3831,6 +3834,9 @@ mod state_helpers;
 mod status;
 #[path = "cli/tab_group_hex.rs"]
 mod tab_group_hex;
+#[cfg(unix)]
+#[path = "cli/tabless_terminals.rs"]
+mod tabless_terminals;
 #[cfg(unix)]
 #[path = "cli/terminal_paste.rs"]
 mod terminal_paste;

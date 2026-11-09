@@ -1,6 +1,7 @@
 import CmuxHomeCore
 @testable import CmuxNextHome
 @testable import CmuxNextHomeEngine
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -30,7 +31,7 @@ import Testing
 
     @Test func theUnreadConversationsAskForNoDisplayInput() {
         let suite = "cmux.tests.homeUnread.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = UserDefaults(testSuiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let calls = Calls()
         let source = HomeSidebarSource(store: HomePinStore(defaults: defaults), account: { "acct" }, rows: { Self.rows() },

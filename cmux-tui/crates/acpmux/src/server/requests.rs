@@ -151,6 +151,19 @@ fn resolved_session(
     }
 }
 
+/// The part of a cancel that belongs to the connection it came on: the turn preparations made
+/// there end. The repeat of a cancel sent on two paths (`dual_requests.rs`) runs this, and
+/// takes the first copy's Stop.
+pub(super) fn cancel_on_connection(hub: &Hub, conn: &Conn, params: Option<&Value>) {
+    let Some(params) = params else { return };
+    if let Ok(key) = session_key(params)
+        && let Ok(s) = hub.resolve(key)
+    {
+        conn.cancel_preparation(&s.id);
+        s.abandon_prepared_connection(&conn.id);
+    }
+}
+
 pub(super) async fn handle_notification(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -968,7 +981,7 @@ pub(super) async fn handle_request(
         let (pid, carried) = crate::sender_harness::check_trust(
             conn.socket_peer,
             conn.origin == super::Origin::Local,
-            conn.origin == super::Origin::Peer && conn.auth == super::ConnAuth::PeerToken,
+            conn.origin == super::Origin::Peer && conn.auth.peer_daemon(),
         );
         let prompt =
             if m == method::MUX_SEND_QUEUE { params.get_mut("request") } else { Some(&mut params) };
@@ -1202,6 +1215,10 @@ async fn dispatch_request_with_identity(
                 "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
                 // The proof this connection presented (`conn_auth.rs`).
                 "auth": conn.auth.as_str(),
+                // This connection is the peer principal whose `dualId` this daemon takes
+                // (`dual_requests.rs`): known only once its peer token was checked. A peer link
+                // sends on two paths only when both say so (`peer_dual.rs`).
+                "dualPrincipal": conn.dual_principal.is_some(),
                 // A paired device's Full-access setting covers it now (`crate::pairing`):
                 // a phone offers the modes that do not ask by it. Read again per request.
                 "fullAccess": conn.device.as_deref().is_some_and(|d| conn.auth == ConnAuth::Device && hub.pairing.full_access(d)),
@@ -1219,7 +1236,7 @@ async fn dispatch_request_with_identity(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::watch_delta::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::watch_delta::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE], "trustGate": true}}
             });
             // Large messages go compressed from here on (`frame_compress.rs`).
             if conn.wire.as_ref().is_some_and(|wire| wire.enabled()) {
@@ -1857,7 +1874,7 @@ async fn dispatch_request_with_identity(
             // `client` device is served as a peer too (`pairing::origin_of`), so the
             // proof is the peer token, not the origin.
             let message_sender =
-                (conn.origin == super::Origin::Peer && conn.auth == ConnAuth::PeerToken && !web)
+                (conn.origin == super::Origin::Peer && conn.auth.peer_daemon() && !web)
                     .then(|| mux_meta(&params).and_then(|m| m.get("messageSender")))
                     .flatten()
                     .and_then(|sender| {
@@ -2038,6 +2055,7 @@ async fn dispatch_request_with_identity(
             // The person's answer to the suggestion the chat showed, if any (`suggestion_gate.rs`).
             if !agent_message && person_asks(conn) {
                 crate::suggestion_gate::note_prompt(
+                    &hub.suggestion_gate,
                     &s.id,
                     &sent_text,
                     crate::suggestion_gate::marked_taken(&params),
@@ -2045,7 +2063,7 @@ async fn dispatch_request_with_identity(
                 crate::memory_inbox::note_prompt(&s.id, &sent_text);
             } else {
                 // Another agent's message answers nothing the person was shown.
-                crate::suggestion_gate::withdraw(&s.id);
+                crate::suggestion_gate::withdraw(&hub.suggestion_gate, &s.id);
             }
             let answer = heap(|| hub.prompt_with(&s, blocks, &client, steer, opts)).await;
             // The turn ended (its read was decided) before the answer came back.
@@ -3247,8 +3265,7 @@ fn transport_of(conn: &Conn) -> &'static str {
     match conn.origin {
         super::Origin::Local => "unix",
         super::Origin::LocalApp => "app",
-        super::Origin::Web => "web",
-        super::Origin::Peer => "peer",
+        super::Origin::Web | super::Origin::Peer => super::carrier::transport(conn),
     }
 }
 
@@ -3278,7 +3295,7 @@ pub(super) fn person_admitted(conn: &Conn, params: &Value) -> bool {
         // and its own `personVerified` proves nothing. Its `via` is no proof either: it labels
         // any client but the owner's, a unix one too.
         super::Origin::Peer => {
-            conn.auth == ConnAuth::PeerToken
+            conn.auth.peer_daemon()
                 && params
                     .pointer("/_meta/acpmux")
                     .and_then(|m| m.get(super::remote_guard::PERSON_PROVEN))
@@ -3551,7 +3568,7 @@ pub(super) fn note_initialize(conn: &Conn, params: &Value) {
     // (`hub/github_owner.rs`). It counts from its `_acpmux/watch`, once the Mac's side of the
     // handshake is done.
     let lends = conn.origin == Origin::Peer
-        && conn.auth == ConnAuth::PeerToken
+        && conn.auth.peer_daemon()
         && params.pointer("/_meta/acpmux/githubBroker").and_then(Value::as_bool) == Some(true);
     conn.client_requests.lends_github.store(lends, Ordering::SeqCst);
 }

@@ -15,7 +15,7 @@ extension SidebarBridge {
         let requests = services.cache.pageRequests
         let nowPlaying = model.followNowPlaying(requests.sidebarSources, dismissal: requests.nowPlayingCard, settings: { [weak services] in services?.settings }, registry: services.registry)
         // The Priority view (`sidebar.priorityView.*`) ends with the cards.
-        let priority = SidebarPriorityFeed(services: services).start(container.sidebarView)
+        let priority = SidebarPriorityFeed(services: services).start(container.sidebarView, approvals: SidebarApprovals(environment: services.feed.acpmuxEnvironment))
         let updateButton = SidebarCardFeed.followAvailableUpdate(container.sidebarView, updater: services.updater)
         let document: @MainActor @Sendable () -> SidebarDocStore? = { [weak services] in services?.sidebarDoc.store }
         cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, document: document, registry: services.registry, settings: services.settings, asks: services.machineAsks)

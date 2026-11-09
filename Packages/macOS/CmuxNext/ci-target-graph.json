@@ -536,7 +536,10 @@
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
-      "packages": []
+      "packages": [
+        "CmuxHomeCore",
+        "CmuxHomeRender"
+      ]
     },
     "CmuxNextAppsTests": {
       "kind": "test",
@@ -548,7 +551,9 @@
         "CmuxNextDesign",
         "CmuxNextWakeups"
       ],
-      "packages": [],
+      "packages": [
+        "CmuxHomeRender"
+      ],
       "reads": []
     },
     "CmuxNextBookmarks": {
@@ -700,8 +705,21 @@
     "CmuxNextCLIInstall": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCLIInstall",
-      "targets": [],
+      "targets": [
+        "CmuxNextCompat"
+      ],
       "packages": []
+    },
+    "CmuxNextCLIInstallTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCLIInstallTests",
+      "targets": [
+        "CmuxNextCLIInstall"
+      ],
+      "packages": [],
+      "reads": [
+        "Resources/bin/"
+      ]
     },
     "CmuxNextChecklist": {
       "kind": "regular",
@@ -769,7 +787,8 @@
         "CmuxNextAgentActivity",
         "CmuxNextChiefViews",
         "CmuxNextPages",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextTestSupport"
       ],
       "packages": [],
       "reads": []
@@ -1031,6 +1050,7 @@
       "targets": [
         "CmuxNextCompat",
         "CmuxNextDaemon",
+        "CmuxNextTestSupport",
         "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
@@ -1182,7 +1202,8 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextFilesTests",
       "targets": [
-        "CmuxNextFiles"
+        "CmuxNextFiles",
+        "CmuxNextTestSupport"
       ],
       "packages": [],
       "reads": []
@@ -1275,7 +1296,8 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextHangReportsTests",
       "targets": [
         "CmuxNextCompat",
-        "CmuxNextHangReports"
+        "CmuxNextHangReports",
+        "CmuxNextTestSupport"
       ],
       "packages": [],
       "reads": []
@@ -1473,10 +1495,13 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextKeepAwake",
       "targets": [
+        "CCmuxAppFFI",
+        "CmuxNextActions",
         "CmuxNextBridge",
         "CmuxNextCompat",
         "CmuxNextDaemon",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },

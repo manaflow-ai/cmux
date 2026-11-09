@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2f64fd8595b0c23ce4e6ad169aa7a5a48b6fd548d677b6128eb27abefb81caf8. */
+/* cmux-tui mux protocol 12, IR 62625fc976e69a44b62563b404477f91207f431e3b472e3b79007ead92baffb6. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "2f64fd8595b0c23ce4e6ad169aa7a5a48b6fd548d677b6128eb27abefb81caf8" as const;
+export const SDK_IR_SHA256 = "62625fc976e69a44b62563b404477f91207f431e3b472e3b79007ead92baffb6" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -11397,7 +11397,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "constraints": [
       "Counters accumulate since daemon start.",
       "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect.",
-      "wal_commits counts registry commits written to the WAL and wal_synced_commits those the WAL syncer flushed to disk; registry_wal_frame_bytes counts the bytes of the WAL frames those commits appended (a 24-byte header and one page each). Each is absent from daemons older than its field."
+      "wal_commits counts registry commits written to the WAL and wal_synced_commits those the WAL syncer flushed to disk; registry_wal_frame_bytes counts the bytes of the WAL frames those commits appended (a 24-byte header and one page each); registry_wal_file_bytes is the registry's WAL file size now and registry_wal_file_high_water_bytes the largest size seen since daemon start. Each is absent from daemons older than its field."
     ],
     "fields": {
       "effect_intent_batches": {
@@ -11419,6 +11419,22 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "effect_intents": {
         "nullable": false,
         "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "registry_wal_file_bytes": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "registry_wal_file_high_water_bytes": {
+        "nullable": false,
+        "presence": "optional",
         "type": {
           "kind": "scalar",
           "name": "uint64"

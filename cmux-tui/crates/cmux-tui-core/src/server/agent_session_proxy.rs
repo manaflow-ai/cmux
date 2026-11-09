@@ -7,37 +7,9 @@ use super::*;
 #[path = "agent_session_shares.rs"]
 pub(super) mod shares;
 
-/// A teammate's verbs: the shared chat's own, never start, trust, media, children, permission,
-/// typing or view, whatever the proxy forwards.
-const TEAMMATE_VERBS: [&str; 6] = [
-    "agent-session-attach",
-    "agent-session-observe",
-    "agent-session-events",
-    "agent-session-prompt",
-    "agent-session-cancel",
-    "agent-session-detach",
-];
-/// A guest invited with `talk` (a signed-in account): watch and write (every prompt held for the
-/// owner), its typing and view. A guest who joined by the link alone gets `VIEWER_VERBS`.
-/// Never cancel, permission, children or media. An attach is the guest's writable observe.
-const GUEST_VERBS: [&str; 7] = [
-    "agent-session-attach",
-    "agent-session-observe",
-    "agent-session-events",
-    "agent-session-prompt",
-    "agent-session-typing",
-    "agent-session-view",
-    "agent-session-detach",
-];
-
-/// An invitee with the `view` role: watch only (no prompt, no typing).
-const VIEWER_VERBS: [&str; 5] = [
-    "agent-session-attach",
-    "agent-session-observe",
-    "agent-session-events",
-    "agent-session-view",
-    "agent-session-detach",
-];
+// The verbs of a teammate, a talking guest and a viewer: one source with acpmux's Cloud carrier
+// rules (`cmux_agent_pane_policy::share_roles`).
+use cmux_agent_pane_policy::share_roles::{GUEST_VERBS, TEAMMATE_VERBS, VIEWER_VERBS};
 
 /// Whether `author` is a link guest's (`guest:<share_id>.<guest_id>`).
 pub(super) fn is_guest(author: &Value) -> bool {
