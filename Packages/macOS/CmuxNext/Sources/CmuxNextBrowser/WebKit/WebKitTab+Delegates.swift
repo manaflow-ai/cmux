@@ -42,7 +42,8 @@ extension WebKitTab: WKNavigationDelegate {
             // The shared opener prompts for every non-gesture navigation,
             // including sign-in returns, before handing it to another app.
             if navigationAction.targetFrame?.isMainFrame ?? true {
-                BrowserExternalApps.shared.open(url, from: navigationAction.sourcePage, userGesture: isUserLinkClick, ask: enqueuePrompt)
+                BrowserExternalApps.shared.open(url, from: navigationAction.sourcePage, userGesture: isUserLinkClick,
+                                                asking: isAsking, ask: enqueuePrompt)
             }
             return
         }

@@ -53,6 +53,7 @@ public final class BrowserExternalApps {
     /// Opens a main-frame link in its app, or asks first through the tab's
     /// prompt bar. Non-gesture navigations always require the app-opening
     /// prompt, including schemes that open immediately from a click.
+    /// `asking` says whether the tab's prompt bar already holds a question.
     func open(_ url: URL, from page: URL?, userGesture: Bool = true,
               asking: (BrowserPromptKind, String) -> Bool = { _, _ in false },
               ask: (BrowserPromptKind, String, @escaping (BrowserPromptResponse) -> Void) -> Void) {
@@ -66,7 +67,11 @@ public final class BrowserExternalApps {
             return launch(url)
         }
         let name = FileManager.default.displayName(atPath: app.path).replacingOccurrences(of: ".app", with: "")
-        ask(.openExternalApp(app: name, scheme: scheme), site) { [weak self] response in
+        let kind = BrowserPromptKind.openExternalApp(app: name, scheme: scheme)
+        // A script can retry a navigation without a gesture in a loop: one
+        // open question per tab is enough (`asking`, the tab's pending prompts).
+        guard userGesture || !asking(kind, site) else { return }
+        ask(kind, site) { [weak self] response in
             switch response {
             case .allow:
                 self?.allowAlways(scheme, for: site)

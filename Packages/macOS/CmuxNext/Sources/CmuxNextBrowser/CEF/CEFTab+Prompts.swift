@@ -18,6 +18,11 @@ extension CEFTab {
         if let prompt { pendingPrompts.append(prompt) }
     }
 
+    /// Whether the prompt bar already holds this question (BrowserExternalApps).
+    func isAsking(_ kind: BrowserPromptKind, origin: String) -> Bool {
+        pendingPrompts.contains { $0.kind == kind && $0.origin == origin }
+    }
+
     /// The tab closed: every open question gets its dismissal answer.
     func dismissPrompts() {
         let prompts = pendingPrompts
