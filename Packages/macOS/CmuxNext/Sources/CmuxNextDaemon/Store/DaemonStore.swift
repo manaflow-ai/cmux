@@ -1,6 +1,6 @@
 import CmuxNextCompat
 public import CmuxNextWakeups
-import Foundation
+public import Foundation
 public import Observation
 import os
 
@@ -455,10 +455,38 @@ public final class DaemonStore: StateResourceQueries {
     /// (`DaemonConnection.observeRetriesSpent`): its header reads offline, not connecting (HQ
     /// #4877 G4). Cleared by the next connect and by a new attempt.
     public private(set) var retriesSpent = false
+    /// The reconnect parked while the store still read connected: its disconnect drains on a later
+    /// frame, which then applies the mark (``DaemonConnectionChange``). Cleared by the next connect.
+    private(set) var parkedBeforeDisconnect = false
+    /// Connections the store applied (``DaemonConnectionChange/connected(_:_:)``).
+    public private(set) var connects = 0
+    /// The last connection the store applied: its connection and serial (``DaemonEventEnvelope``).
+    private(set) var connectedSerial: (source: UUID, serial: UInt64)?
 
-    public func noteRetriesSpent(_ spent: Bool) {
-        if spent, case .connected = connectionState { return }
+    /// `source` and `serial`: the connection and attempt that parked. A park from an attempt older
+    /// than the last connection applied is stale (the link recovered before the delivery landed)
+    /// and changes nothing, so it never marks the next disconnect offline.
+    public func noteRetriesSpent(_ spent: Bool, source: UUID? = nil, serial: UInt64? = nil) {
+        if spent, let source, let serial, let last = connectedSerial, last.source == source, last.serial > serial { return }
+        if spent, case .connected = connectionState {
+            parkedBeforeDisconnect = true
+            return
+        }
+        if !spent { parkedBeforeDisconnect = false }
         if retriesSpent != spent { retriesSpent = spent }
+    }
+
+    /// The disconnect drained: a park noted before it applies now.
+    func applyParkedBeforeDisconnect() {
+        guard parkedBeforeDisconnect else { return }
+        parkedBeforeDisconnect = false
+        noteRetriesSpent(true)
+    }
+
+    func noteConnected(_ envelope: DaemonEventEnvelope? = nil) {
+        connects += 1
+        connectedSerial = envelope.flatMap { envelope in envelope.sourceID.map { ($0, envelope.connectionSerial) } }
+        noteRetriesSpent(false)
     }
 
     // MARK: Derived state

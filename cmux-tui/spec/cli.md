@@ -704,7 +704,7 @@ agent message --reply-to <message-id> [--from <name>] [--] <text...|->
 agent message release <message-id> --recipient <agent> --approve|--decline
 agent message unsend <message-id> [--recipient <agent>]
 agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
-agent report --terminal <selector> --state <state> --source <source>
+agent report --terminal <selector> --state working|blocked|idle|ended|unknown --source <source>
 agent hook emit --source <provider> --event <native-event> [--terminal <id>]
 agent hook install|uninstall|status [provider...]
 
@@ -918,8 +918,9 @@ Every `--pattern` regex (`screen wait`, `send`, `run`, and `agents wait
 they go into a new pane split off q. `--to-tab <t>` puts them after tab t in
 its pane. `--to-workspace <w>` and `--new-screen` (alias `--new-tab`, the
 pane's own workspace) put them into a new screen there, named `--name`. A new
-pane's shell tab closes once the tabs are in, and the new pane takes the
-moved pane's name. `tab.move` focuses what it moved, so afterwards the command
+pane's shell ends once the tabs are in (`terminal <t> close`, which takes
+its tab; a tab close alone left the shell running with no tab), and the new
+pane takes the moved pane's name. `tab.move` focuses what it moved, so afterwards the command
 focuses the pane that had the focus before (`--focus`: the destination pane);
 when the moved pane had the focus, the focus stays with its tabs. A
 destination in the pane itself is a usage error. The result is `{pane,
@@ -944,8 +945,10 @@ command goes on). The result is the `workspace create` result plus
 --remove-worktree [--discard]` runs `git worktree remove` of the workspace's
 agent folder when it has one, else of the worktree its current terminal works
 in (`--workspace <ws>`; the main checkout is never removed), then closes the
-workspace; a refused remove closes nothing. The result is the close result
-plus `worktree`, the removal. Each step has its own key derived from `--idempotency-key` (made
+workspace, then ends each terminal whose every tab was in it (they worked in
+the removed folder); a refused remove closes nothing. The result is the close
+result plus `worktree`, the removal, and `ended_terminals`, the terminals it
+ended (one it could not end is left to the reaper). Each step has its own key derived from `--idempotency-key` (made
 when absent), so retrying the whole command replays the steps that ran; a
 failed step's error names `step`, the command's `idempotency_key` and what
 the steps before it `made`.
@@ -1274,8 +1277,15 @@ rows, so the wire value is unchanged. `--state` and `--terminal` are the
 read's own filters. Every row has `status`, one of the words `terminal list
 --agents` and `agent wait` use: `blocked`, `done` (idle with an unread
 notification on its terminal), `working`, `idle` or `unknown`, and `null` for
-an agent whose session ended. The daemon's `state` field (`working`,
-`blocked`, `idle`, `done` = ended, `unknown`) stays as it was. `--state` takes
+an agent whose session ended. The CLI writes the row's `state` over with
+the same word (`ended` for an ended session), as a deprecated alias of
+`status`. The daemon's wire does not change: `agent.list` and
+`session.snapshot` still say `state: done` for an ended session, and the CLI
+maps that `done` to `ended` in every output (`agent list`, `agent report`,
+`terminal list --agents`, the `send` receipt). In the CLI, `done` means only a
+finished turn that nobody viewed yet. The CLI leaves out the ended agents of
+terminals that closed (the snapshot has no such terminal); `--state ended`
+shows them. `--state` takes
 the status words and `ended` and asks the daemon for its state: `done` and
 `idle` ask for `idle` (the CLI then keeps the rows with that status), `ended`
 asks for the daemon's `done`, the others for themselves. `--state done` used to
@@ -1340,9 +1350,10 @@ extra argument stays one argv word, with `pane run --on-exit keep`: the exited
 terminal keeps its argv and name for `resume`. Without `--pane` or `--split`
 the caller's pane (else the focused pane) is split to the right; `--pane SEL`
 alone opens a tab in that pane; `--split DIR` splits SEL (default: the
-caller's pane). The split's shell tab is closed once the agent runs. In a session
+caller's pane). The split's shell ends (`terminal <t> close`, which takes its
+tab) once the agent runs. In a session
 with no pane yet (a daemon that no client opened), it creates a workspace named
-NAME and replaces its shell tab; the pane and the shell tab come from the create
+NAME and ends its shell the same way; the pane and the shell tab come from the create
 receipt (else the pane of the receipt's workspace), never from focus, so two
 starts at once each use their own workspace. The tab
 is focused unless `--no-focus`.

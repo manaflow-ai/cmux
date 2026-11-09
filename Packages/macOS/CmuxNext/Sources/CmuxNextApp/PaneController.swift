@@ -543,8 +543,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// `key`'s live content, if its surface or page exists.
     func existingContent(for key: String) -> TabContent? {
         if let entry = services.cache.existingTerminal(key) { return .terminal(entry) }
-        if let view = services.agentTabs.existingView(key) { return .agent(view) }
-        if let notice = services.agentTabs.notices[services.agentTabs.resolve(key)] { return .notice(notice) }
+        if let view = services.agentTabs.existingView(key, machine: daemon.machineID) { return .agent(view) }
+        if let notice = services.agentTabs.notices[services.agentTabs.tabKey(key, machine: daemon.machineID)] { return .notice(notice) }
         if let view = services.pages.existingView(key) { return .page(view) }
         if let placeholder = services.remoteTerminals.existingPlaceholder(key) { return .placeholder(placeholder) }
         if let home = services.home.existingTabView(key) { return .conversation(home) }
