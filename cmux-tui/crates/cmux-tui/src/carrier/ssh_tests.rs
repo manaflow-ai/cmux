@@ -210,17 +210,16 @@ fn the_ssh_group_comes_after_the_relay_only_when_every_piece_is_there() {
     let absent = |setup: &SshSetup, answer: &CarrierAnswer| {
         ssh_route(setup, answer, MACHINE, source.clone()).map(|_| ()).unwrap_err()
     };
-    assert_eq!(absent(&full, &answer(None)), Absent::NoCandidate);
+    assert_eq!(absent(&full, &answer(None)), Absent::Candidate);
     let quiet = tempfile::tempdir().unwrap();
     let (no_listener, _) = setup(quiet.path(), false);
-    assert_eq!(absent(&no_listener, &with_ssh), Absent::NoTunnel, "no hub socket");
+    assert_eq!(absent(&no_listener, &with_ssh), Absent::Tunnel, "no hub socket");
     std::fs::write(quiet.path().join("hub.sock"), b"").unwrap();
-    assert_eq!(absent(&no_listener, &with_ssh), Absent::NoTunnel, "a file, not a live hub");
-    assert_eq!(absent(&SshSetup { hub: None, ..full.clone() }, &with_ssh), Absent::NoTunnel);
-    assert_eq!(absent(&SshSetup { exe: None, ..full.clone() }, &with_ssh), Absent::NoTunnel);
-    assert_eq!(absent(&SshSetup { state: None, ..full.clone() }, &with_ssh), Absent::NoKey);
-    let codes: Vec<_> =
-        [Absent::NoCandidate, Absent::NoTunnel, Absent::NoKey].map(Absent::code).into();
+    assert_eq!(absent(&no_listener, &with_ssh), Absent::Tunnel, "a file, not a live hub");
+    assert_eq!(absent(&SshSetup { hub: None, ..full.clone() }, &with_ssh), Absent::Tunnel);
+    assert_eq!(absent(&SshSetup { exe: None, ..full.clone() }, &with_ssh), Absent::Tunnel);
+    assert_eq!(absent(&SshSetup { state: None, ..full.clone() }, &with_ssh), Absent::Key);
+    let codes: Vec<_> = [Absent::Candidate, Absent::Tunnel, Absent::Key].map(Absent::code).into();
     assert_eq!(codes, ["no_candidate", "no_tunnel", "no_key"]);
 }
 

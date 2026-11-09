@@ -213,6 +213,7 @@ fn phase_times_run_mark_to_mark_and_the_open_step_to_now() {
         connected: at(700),
         mux_open: at(730),
         lanes: 3,
+        ..Marks::default()
     };
     let now = t0 + Duration::from_millis(5000);
     let ms = Duration::from_millis;

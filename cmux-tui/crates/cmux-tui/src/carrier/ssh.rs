@@ -103,22 +103,22 @@ pub(super) fn default_hub() -> Option<PathBuf> {
 pub(super) enum Absent {
     /// The answer has no (well-formed) `ssh`: not the owner, not a mesh
     /// member yet, or a platform without the field.
-    NoCandidate,
+    Candidate,
     /// No tunnel hub answers on its socket (no `carrier tunnel`, or the
     /// team's mesh devices are off).
-    NoTunnel,
+    Tunnel,
     /// No carrier key: no private state directory, or the key could not be
     /// read or made.
-    NoKey,
+    Key,
 }
 
 impl Absent {
     /// The connect log's word for it.
     pub(super) fn code(self) -> &'static str {
         match self {
-            Self::NoCandidate => "no_candidate",
-            Self::NoTunnel => "no_tunnel",
-            Self::NoKey => "no_key",
+            Self::Candidate => "no_candidate",
+            Self::Tunnel => "no_tunnel",
+            Self::Key => "no_key",
         }
     }
 }
@@ -136,13 +136,13 @@ pub(super) fn ssh_route(
     machine: &str,
     source: Arc<dyn CarrierSource>,
 ) -> Result<Arc<SshRoute>, Absent> {
-    let candidate = answer.ssh.clone().ok_or(Absent::NoCandidate)?;
-    let hub = setup.hub.as_deref().filter(|hub| hub_up(hub)).ok_or(Absent::NoTunnel)?;
-    let exe = setup.exe.as_deref().ok_or(Absent::NoTunnel)?;
-    let state = setup.state.as_deref().ok_or(Absent::NoKey)?;
-    let key = CarrierKey::load_or_create(state).map_err(|_| Absent::NoKey)?;
+    let candidate = answer.ssh.clone().ok_or(Absent::Candidate)?;
+    let hub = setup.hub.as_deref().filter(|hub| hub_up(hub)).ok_or(Absent::Tunnel)?;
+    let exe = setup.exe.as_deref().ok_or(Absent::Tunnel)?;
+    let state = setup.state.as_deref().ok_or(Absent::Key)?;
+    let key = CarrierKey::load_or_create(state).map_err(|_| Absent::Key)?;
     let pin = state.join(machine).join("known_hosts");
-    let args = ssh_arguments(&key.path, &pin, exe, hub).ok_or(Absent::NoKey)?;
+    let args = ssh_arguments(&key.path, &pin, exe, hub).ok_or(Absent::Key)?;
     let config = SshProviderConfig {
         ssh_binary: setup.ssh_binary.clone(),
         remote_binary: REMOTE_BINARY.into(),
@@ -151,8 +151,8 @@ pub(super) fn ssh_route(
         extra_args: args,
         ..SshProviderConfig::default()
     };
-    let provider = SshProvider::new(config).map_err(|_| Absent::NoKey)?;
-    let url = route_url(&candidate).ok_or(Absent::NoCandidate)?;
+    let provider = SshProvider::new(config).map_err(|_| Absent::Key)?;
+    let url = route_url(&candidate).ok_or(Absent::Candidate)?;
     Ok(Arc::new(SshRoute {
         url,
         machine: machine.to_owned(),
@@ -391,7 +391,7 @@ impl CarrierKey {
                 return Err(std::io::ErrorKind::PermissionDenied.into());
             }
             let mut text = Zeroizing::new(String::new());
-            std::io::Read::read_to_string(&mut &file, &mut *text)?;
+            std::io::Read::read_to_string(&mut &file, &mut text)?;
             let public_line = public_line_of(&text).ok_or_else(invalid)?;
             Ok(Self { path: path.clone(), public_line })
         };
