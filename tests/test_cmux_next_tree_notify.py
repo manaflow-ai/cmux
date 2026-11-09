@@ -32,6 +32,17 @@ UPLOADED = "2026-11-02T03:01:10Z"  # the marker artifact
 LATER = "2026-11-02T03:30:02Z"
 
 
+REPO_ID = 1144115288  # o/r
+FORK_ID = 9  # someone/cmux
+FORK_RUN = {"head_repository_id": FORK_ID}  # the artifact of a fork pull request's run
+
+
+def pull(sha: str = HEAD, *, ref: str = "lane/x", repo: str = "o/r", base: str = "feat-cmux-next",
+         state: str = "open") -> dict:
+    """pulls/7 as GitHub returns it (the fields the notifier reads)."""
+    return {"state": state, "head": {"sha": sha, "ref": ref, "repo": {"full_name": repo}}, "base": {"ref": base}}
+
+
 def marker_zip(marker: dict) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
@@ -56,17 +67,23 @@ def pr_marker(**extra) -> dict:
 
 class FakeApi:
     def __init__(self, markers: list[dict], *, branch_head: str = SHA, pr: dict | None = None,
+                 artifact_runs: list[dict | None] | None = None,
                  refuse_refs: tuple[str, ...] = (), runs: list[dict] | None = None,
                  history_error: bool = False, jobs: dict[int, list[dict]] | None = None):
         self.artifacts = [
             {"id": 100 + index, "name": f"cmux-next-tree-wait-{KEY}", "expired": False,
              "created_at": UPLOADED,
-             "archive_download_url": f"zip/{100 + index}", "workflow_run": {"id": marker.get("run_id")}}
+             "archive_download_url": f"zip/{100 + index}",
+             # The artifact's run as GitHub records it: a same-repository run unless the test says otherwise.
+             "workflow_run": dict({"id": marker.get("run_id"), "repository_id": REPO_ID, "head_repository_id": REPO_ID,
+                                   "head_branch": marker.get("head_ref") or marker.get("branch"),
+                                   "head_sha": marker.get("status_sha")},
+                                  **((artifact_runs or [None] * len(markers))[index] or {}))}
             for index, marker in enumerate(markers)
         ]
         self.zips = {f"zip/{100 + index}": marker_zip(marker) for index, marker in enumerate(markers)}
         self.branch_head = branch_head
-        self.pr = pr if pr is not None else {"state": "open", "head": {"sha": HEAD}}
+        self.pr = pr if pr is not None else pull()
         self.refuse_refs = refuse_refs
         self.dispatched: list[dict] = []
         self.deleted: list[int] = []
@@ -295,10 +312,15 @@ class Notify(unittest.TestCase):
                 self.assertEqual(run(api), 0)
                 self.assertEqual(api.dispatched, [])
 
-    def test_a_fork_pull_request_runs_on_the_base_branch(self):
-        api = FakeApi([pr_marker(head_repo="someone/cmux")])
-        self.assertEqual(run(api), 1)
-        self.assertEqual([body["ref"] for body in api.dispatched], ["feat-cmux-next"])
+    def test_a_fork_pull_requests_marker_starts_nothing(self):
+        """Review of #39634 (comment 6744212258): a fork pull request's run executes the fork's workflow file, so
+        it can write any marker.json; its artifact (workflow_run.head_repository_id is the fork) is not trusted.
+        The fork keeps its pull_request run; it gets no same-tree dispatch from its marker."""
+        api = FakeApi([pr_marker(head_repo="someone/cmux")], artifact_runs=[FORK_RUN],
+                      pr=pull(repo="someone/cmux"))
+        self.assertEqual(run(api), 0)
+        self.assertEqual(api.dispatched, [])
+        self.assertEqual(api.cancelled, [])
 
     def test_a_failed_publish_reports_red_and_keeps_the_marker(self):
         """A takeover run may still publish the key; its notify then dispatches green."""
@@ -556,11 +578,14 @@ class SupersededSameTreeRuns(unittest.TestCase):
         tip's name, so neither names its pull request; only a pull request's head-branch run is swept."""
         tip_runs = [open_run(501, 1, branch="feat-cmux-next"), open_run(502, 2, branch="feat-cmux-next"),
                     open_run(503, 3, branch="feat-cmux-next")]
-        for marker in (push_marker(), pr_marker(head_repo="someone/cmux")):
-            with self.subTest(marker=marker):
-                api = FakeApi([marker], runs=[dict(item) for item in tip_runs])
-                self.assertEqual(run(api), 1)
-                self.assertEqual(api.cancelled, [])
+        api = FakeApi([push_marker()], runs=[dict(item) for item in tip_runs])
+        self.assertEqual(run(api), 1)
+        self.assertEqual(api.cancelled, [])
+        # A same-repository run whose pull request GitHub says comes from a fork (the marker names it).
+        api = FakeApi([pr_marker(head_repo="someone/cmux")], runs=[dict(item) for item in tip_runs],
+                      pr=pull(repo="someone/cmux"))
+        run(api)
+        self.assertEqual(api.cancelled, [])
 
     def test_a_fork_branch_named_like_the_base_sweeps_nothing(self):
         """Review of #39634 (comment 6742425555): a fork pull request is dispatched on its base branch. When
@@ -569,13 +594,16 @@ class SupersededSameTreeRuns(unittest.TestCase):
         tip_runs = [open_run(501, 1, branch="feat-cmux-next"), open_run(502, 2, branch="feat-cmux-next"),
                     open_run(503, 3, branch="feat-cmux-next")]
         marker = pr_marker(head_repo="someone/cmux", head_ref="feat-cmux-next")
-        api = FakeApi([marker], runs=tip_runs)
-        self.assertEqual(run(api), 1)
-        self.assertEqual([body["ref"] for body in api.dispatched], ["feat-cmux-next"])
-        self.assertEqual(api.cancelled, [])
-        stale = FakeApi([marker], runs=[dict(item) for item in tip_runs], pr={"state": "open", "head": {"sha": NEWER}})
-        self.assertEqual(run(stale), 0)
-        self.assertEqual(stale.cancelled, [])
+        for fork_run in (FORK_RUN, None):
+            with self.subTest(artifact_run=fork_run):
+                api = FakeApi([marker], runs=[dict(item) for item in tip_runs], artifact_runs=[fork_run],
+                              pr=pull(ref="feat-cmux-next", repo="someone/cmux"))
+                run(api)
+                self.assertEqual(api.cancelled, [])
+                stale = FakeApi([marker], runs=[dict(item) for item in tip_runs], artifact_runs=[fork_run],
+                                pr=pull(NEWER, ref="feat-cmux-next", repo="someone/cmux"))
+                self.assertEqual(run(stale), 0)
+                self.assertEqual(stale.cancelled, [])
 
     def test_a_run_of_the_pull_requests_head_is_never_cancelled(self):
         """Review of #39634: two markers of one head (a re-run, other routing) give two runs of that head,
@@ -589,7 +617,7 @@ class SupersededSameTreeRuns(unittest.TestCase):
         """A marker whose pull request head moved on dispatches nothing and is deleted; its branch's older
         same-tree runs get the same rule (keep the newest run, the head's runs and the oldest candidate)."""
         runs = [open_run(501, 1), open_run(502, 2), open_run(503, 3), open_run(504, 4, sha=NEWER)]
-        api = FakeApi([pr_marker()], runs=runs, pr={"state": "open", "head": {"sha": NEWER}})
+        api = FakeApi([pr_marker()], runs=runs, pr=pull(NEWER))
         self.assertEqual(run(api), 0)
         self.assertEqual(api.dispatched, [])
         self.assertEqual(api.deleted, [100])
@@ -598,10 +626,70 @@ class SupersededSameTreeRuns(unittest.TestCase):
     def test_several_superseded_markers_of_one_branch_sweep_it_once(self):
         runs = [open_run(501, 1), open_run(502, 2), open_run(503, 3), open_run(504, 4, sha=NEWER)]
         markers = [pr_marker(), pr_marker(status_sha="e" * 40, run_id=13)]
-        api = FakeApi(markers, runs=runs, pr={"state": "open", "head": {"sha": NEWER}})
+        api = FakeApi(markers, runs=runs, pr=pull(NEWER))
         self.assertEqual(run(api), 0)
         self.assertEqual(api.deleted, [100, 101])
         self.assertEqual(sorted(api.cancelled), [502, 503])
+
+    # Review of #39634 (comment 6744212258): a fork pull request's run can write any marker.json, so the sweep
+    # and the dispatch read what GitHub records (the artifact's run, pulls/<n>), never the marker's claims.
+    FORGED = dict(head_repo="o/r", head_ref="feat-cmux-next", base_ref="x")
+
+    def tip_runs(self) -> list[dict]:
+        return [open_run(run_id, minute, branch="feat-cmux-next") for minute, run_id in enumerate((501, 502, 503, 504), 1)]
+
+    def test_a_forged_marker_sweeps_nothing_on_the_dispatch_path(self):
+        api = FakeApi([pr_marker(**self.FORGED)], runs=self.tip_runs(), artifact_runs=[FORK_RUN],
+                      pr=pull(repo="someone/cmux"))
+        run(api)
+        self.assertEqual(api.dispatched, [])
+        self.assertEqual(api.cancelled, [])
+
+    def test_a_forged_marker_sweeps_nothing_on_the_superseded_path(self):
+        api = FakeApi([pr_marker(**self.FORGED)], runs=self.tip_runs(), artifact_runs=[FORK_RUN],
+                      pr=pull(state="closed", repo="someone/cmux"))
+        self.assertEqual(run(api), 0)
+        self.assertEqual(api.dispatched, [])
+        self.assertEqual(api.cancelled, [])
+
+    def test_a_forged_marker_starts_no_same_tree_run_on_another_branch(self):
+        """dispatch_refs reads the marker's head_ref: a fork run's marker must never get that far."""
+        for marker in (pr_marker(head_repo="o/r", head_ref="lane/victim"), pr_marker(**self.FORGED),
+                       push_marker(), push_marker(origin="dispatch", tip_suite="base"),
+                       push_marker(origin="dispatch", branch="lane/victim")):
+            with self.subTest(marker=marker):
+                api = FakeApi([marker], artifact_runs=[FORK_RUN], branch_head=SHA, pr=pull(repo="someone/cmux"))
+                self.assertEqual(run(api), 0)
+                self.assertEqual(api.dispatched, [])
+
+    def test_a_missing_field_sweeps_nothing(self):
+        cases = {
+            "no head_repository_id": dict(artifact_runs=[{"head_repository_id": None}]),
+            "no repository_id": dict(artifact_runs=[{"repository_id": None}]),
+            "no head repo": dict(pr={"state": "open", "head": {"sha": HEAD, "ref": "lane/x"},
+                                     "base": {"ref": "feat-cmux-next"}}),
+            "no head ref": dict(pr={"state": "open", "head": {"sha": HEAD, "repo": {"full_name": "o/r"}},
+                                    "base": {"ref": "feat-cmux-next"}}),
+            "no base": dict(pr={"state": "open", "head": {"sha": HEAD, "ref": "lane/x", "repo": {"full_name": "o/r"}}}),
+            "head ref is not the marker's": dict(pr=pull(ref="lane/other")),
+            "head ref is the base ref": dict(pr=pull(ref="lane/x", base="lane/x")),
+        }
+        for name, extra in cases.items():
+            with self.subTest(case=name):
+                api = FakeApi([pr_marker()], runs=[open_run(501, 1), open_run(502, 2), open_run(503, 3)], **extra)
+                run(api)
+                self.assertEqual(api.cancelled, [])
+
+    def test_a_head_branch_main_or_feat_cmux_next_sweeps_nothing(self):
+        """Push-origin same-tree runs (the base verdicts) run on main and feat-cmux-next."""
+        for head_ref, base_ref in (("main", "feat-cmux-next"), ("feat-cmux-next", "main")):
+            with self.subTest(head_ref=head_ref):
+                runs = [open_run(run_id, minute, branch=head_ref) for minute, run_id in enumerate((501, 502, 503), 1)]
+                marker = pr_marker(head_ref=head_ref, base_ref=base_ref)
+                for pr in (pull(ref=head_ref, base=base_ref), pull(NEWER, ref=head_ref, base=base_ref)):
+                    api = FakeApi([marker], runs=[dict(item) for item in runs], pr=pr)
+                    run(api)
+                    self.assertEqual(api.cancelled, [])
 
     def test_an_unreadable_run_list_cancels_nothing_and_still_dispatches(self):
         class ListDown(FakeApi):
