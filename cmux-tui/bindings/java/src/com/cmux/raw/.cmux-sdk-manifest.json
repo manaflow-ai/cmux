@@ -762,8 +762,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "28d4a003707e514f9025cadcb5f22da2da0ca8ea52774bb948a4559a3bee6488",
-      "size": 81658
+      "sha256": "156ba6c4a9191efa4812cbdb3296e010271a8db6d89c02699ac4c222344d508b",
+      "size": 81920
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1412,8 +1412,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "6d0dd3bb42cce6a8f0ae0dd182cfc5bce2eeec2e68fa3150bbf72fdcdc13ac10",
-      "size": 70371
+      "sha256": "fa1b9f1c6198bb7817aca9b3229f1e7d7ba3f9c43935537773c4d18239a1368c",
+      "size": 70638
     },
     {
       "path": "GetBlobRequest.java",
@@ -2182,7 +2182,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "cc9331b937ba1b4f8da2e1e381835d8ed05bbf7de20403a00db68942ee6dd703",
+      "sha256": "0b14e4ebb7153ab3fb79180a59f48ee326527962d98e3cff5ec5025ad6b90762",
       "size": 7838
     },
     {
@@ -2834,6 +2834,16 @@
       "path": "SetTerminalKeepResult.java",
       "sha256": "173eb66d377669f0a5b05c9fa51ecde970239911fe6e6c06897fe91df4d6b0c1",
       "size": 3555
+    },
+    {
+      "path": "SetTerminalTailPinRequest.java",
+      "sha256": "2a92c3c47ea0a1321f42d1fcaadd97d9639bfe555abeaff3d943281b872357e7",
+      "size": 3398
+    },
+    {
+      "path": "SetTerminalTailPinResult.java",
+      "sha256": "5596de71bd73f26ca8a27279c60e930417a040259287626bf9d236622dd2ac31",
+      "size": 2699
     },
     {
       "path": "SetViewportPaneWidthRequest.java",
@@ -3587,7 +3597,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "a4a30f87d16adb0c5ed5fc62b7cfc020d9b331eaf35051b3c54d9d370beed4a8",
+  "ir_sha256": "d047deea0173153a0b657535427f50c883896270574e8fbf7c03e45ab13a3b49",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

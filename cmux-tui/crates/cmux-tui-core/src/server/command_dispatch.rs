@@ -320,6 +320,9 @@ fn dispatch_command(
         Command::SetTerminalKeep { surface, terminal_id, keep } => {
             cmd_terminals::set_terminal_keep(mux, surface, terminal_id, keep)
         }
+        Command::SetTerminalTailPin { surface, terminal, pinned } => {
+            cmd_terminals::set_terminal_tail_pin(mux, surface, terminal, pinned)
+        }
         Command::TerminalLastCommand { surface, terminal_id } => {
             cmd_terminals::terminal_last_command(mux, surface, terminal_id)
         }
