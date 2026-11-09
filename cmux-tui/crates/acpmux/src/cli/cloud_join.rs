@@ -13,8 +13,8 @@ mod recovery;
 mod self_capabilities;
 
 pub(crate) use enroll::{
-    EnrollOutcome, EnrollRequest, enroll_self, finish_leave_at_start, leave_if_auto, leave_pending,
-    relay_may_start,
+    EnrollOutcome, EnrollRequest, JOINED_BY_SIGN_IN, enroll_self, finish_leave_at_start,
+    leave_if_auto, leave_pending, relay_may_start,
 };
 pub(crate) use self_capabilities::{
     state_at_start as state_capabilities_at_start,
@@ -530,7 +530,8 @@ pub(crate) fn already_joined(replace: bool, report: Report) -> Result<bool> {
     }
     // No released build created pre-marker credentials. Even branch-only local
     // state must persist the shared requirement before idempotent success.
-    authority().and_then(|authority| authority.enroll()).map_err(|_| store_error())?;
+    let sign_in = record.joined_by.as_deref() == Some(JOINED_BY_SIGN_IN);
+    authority().and_then(|authority| authority.enroll_as(sign_in)).map_err(|_| store_error())?;
     // Repair a previous config-save failure before reporting idempotent success.
     configure_mesh_relay(&record.hub_origin).map_err(|_| store_error())?;
     match report {
@@ -701,6 +702,12 @@ pub fn require_consent(surface: &str) -> Result<()> {
         let _ = record_consent_refusal(surface);
         Err(anyhow!(CONSENT_REQUIRED))
     }
+}
+
+/// Whether the Mac's own sessions keep computer use with no consent: the requirement comes only
+/// from joins signing in made ([`machine_consent::Authority::required_only_by_sign_in`]).
+pub(crate) fn local_computer_use_kept() -> bool {
+    authority().is_ok_and(|authority| authority.required_only_by_sign_in())
 }
 
 pub fn require_joined_consent(surface: &str) -> Result<()> {

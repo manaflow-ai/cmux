@@ -525,10 +525,20 @@ pub fn remove_mcp_config(home: &Path, session_id: &str) {
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
     let mut tools = resolve_with_cua_helper(inputs, cua_helper::installed);
-    if crate::cli::cloud_join::require_joined_consent("control").is_err() {
+    if !computer_use_allowed(crate::cli::cloud_join::local_computer_use_kept, || {
+        crate::cli::cloud_join::require_joined_consent("control").is_ok()
+    }) {
         tools.servers.retain(|server| server.name != "cmux-cua");
     }
     tools
+}
+
+/// Whether this daemon's own sessions get computer use (a remote-origin session gets no tools,
+/// [`left_out`]): on a joined machine only with local control consent, unless only signing in
+/// joined it (`kept`), which never takes the Mac's own tools away. `consent` is asked only then:
+/// it records a refusal.
+fn computer_use_allowed(kept: impl FnOnce() -> bool, consent: impl FnOnce() -> bool) -> bool {
+    kept() || consent()
 }
 
 fn resolve_with_cua_helper(

@@ -94,11 +94,11 @@ fn redirected_parent_is_refused_even_when_authority_does_not_exist() {
 fn existing_marker_retries_file_and_parent_durability() {
     use std::cell::RefCell;
     let (_dir, a, _) = fixture();
-    let first = a.enroll_with_sync(|_| anyhow::bail!("injected interrupted flush"));
+    let first = a.enroll_with_sync(false, |_| anyhow::bail!("injected interrupted flush"));
     assert!(first.is_err());
     assert!(a.root.join("enrolled.json").exists());
     let seen = RefCell::new(Vec::new());
-    a.enroll_with_sync(|path| {
+    a.enroll_with_sync(false, |path| {
         seen.borrow_mut().push(path.to_owned());
         Ok(())
     })
@@ -106,4 +106,35 @@ fn existing_marker_retries_file_and_parent_durability() {
     let mut expected = vec![a.root.join("enrolled.json")];
     expected.extend(a.root.ancestors().take(3).map(Path::to_owned));
     assert_eq!(*seen.borrow(), expected);
+}
+
+#[test]
+fn a_sign_in_join_requires_consent_from_elsewhere_and_keeps_the_macs_own_computer_use() {
+    let (_dir, a, b) = fixture();
+    a.enroll_as(true).unwrap();
+    // What reaches this Mac from elsewhere still needs the consent.
+    assert_eq!(b.status()["consentRequired"], true);
+    assert_eq!(b.status()["consent"]["control"], "none");
+    // The Mac's own sessions keep computer use, on every tag.
+    assert!(a.required_only_by_sign_in() && b.required_only_by_sign_in());
+    // Signing in again changes nothing.
+    b.enroll_as(true).unwrap();
+    assert!(a.required_only_by_sign_in());
+    // A consent the person set (granted or taken back) is theirs: the gate is as it always was.
+    a.set("control", false).unwrap();
+    assert!(!a.required_only_by_sign_in());
+}
+#[test]
+fn any_other_join_makes_the_requirement_the_one_it_always_was() {
+    let (_dir, a, b) = fixture();
+    a.enroll_as(true).unwrap();
+    b.enroll().unwrap();
+    assert!(!a.required_only_by_sign_in());
+    // A later sign-in never turns it back.
+    a.enroll_as(true).unwrap();
+    assert!(!b.required_only_by_sign_in());
+    // Never enrolled: nothing is required, so nothing is kept by sign-in either.
+    let (_dir, fresh, _) = fixture();
+    assert!(!fresh.required_only_by_sign_in());
+    assert_eq!(fresh.status()["consentRequired"], false);
 }

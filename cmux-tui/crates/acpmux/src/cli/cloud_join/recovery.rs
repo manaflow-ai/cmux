@@ -324,8 +324,13 @@ fn completed_record(p: &Pending, probed: &MachineCredential) -> MachineCredentia
     }
 }
 
+/// Whether `p` is a sign-in's join (`enroll.rs`), for the consent marker.
+fn by_sign_in(p: &Pending) -> bool {
+    p.joined_by.as_deref() == Some(super::enroll::JOINED_BY_SIGN_IN)
+}
+
 fn complete(p: &Pending, record: &MachineCredential, report: Report) -> Result<()> {
-    authority().and_then(|a| a.enroll()).map_err(|_| store_error())?;
+    authority().and_then(|a| a.enroll_as(by_sign_in(p))).map_err(|_| store_error())?;
     let record = &completed_record(p, record);
     let bytes = Zeroizing::new(serde_json::to_vec(record).map_err(|_| store_error())?);
     write_durable(&credential_path(), &bytes, true).map_err(|_| store_error())?;
@@ -499,7 +504,7 @@ pub(super) async fn join(
     pending.capabilities.get_or_insert_with(machine_capabilities);
     let token =
         token.ok_or_else(|| error(2, "join incomplete; original join token required on stdin"))?;
-    authority().and_then(|a| a.enroll()).map_err(|_| store_error())?;
+    authority().and_then(|a| a.enroll_as(by_sign_in(&pending))).map_err(|_| store_error())?;
     let mut body = json!({"token":token,"proposedCredential":pending.credential,
         "name":pending.name,"hostname":pending.hostname,"platform":pending.platform,"wgPublicKey":pending.wg_public_key,
         "capabilities":pending.capabilities});
