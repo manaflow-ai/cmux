@@ -7,6 +7,8 @@
 
 mod directory;
 use directory::PublishedDirectory;
+#[cfg(unix)]
+mod host_frames;
 
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
@@ -3267,6 +3269,19 @@ impl Surface {
                     let mut resync_requested = false;
                     let mut journal_target = None;
                     let mut journal_update = None;
+                    // The demultiplexer owns this connection's socket until
+                    // the iteration ends, after a reconnect installed its
+                    // replacement; a reconnect reassigns `reader`.
+                    let frames = match host_frames::HostFrames::spawn(
+                        format!("surface-{id}-host-frames"),
+                        reader,
+                        control_responses.clone(),
+                        protocol_version,
+                        smart_renderer,
+                    ) {
+                        Ok(frames) => frames,
+                        Err(_) => return,
+                    };
                     'host_stream: loop {
                         if journal_update.is_none() {
                             journal_target = pty.journal_target();
@@ -3277,12 +3292,9 @@ impl Surface {
                                 break;
                             }
                         }
-                        let frame = match crate::terminal_host_protocol::read_frame(
-                            &mut reader,
-                            crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
-                        ) {
-                            Ok(Some(frame)) => frame,
-                            Ok(None) | Err(_) => break,
+                        let frame = match frames.recv() {
+                            host_frames::HostFrame::Frame(frame) => frame,
+                            host_frames::HostFrame::End => break,
                         };
                         // Targeted responses must be consumed before live staging:
                         // HostedFrameStager intentionally rejects every nonzero request id.
@@ -3611,7 +3623,7 @@ impl Surface {
                         drop(journal_update.take());
                         journal_target = None;
                     }
-                    control_responses.fail_all();
+                    frames.abandon();
                     let Some(pty) = surface.as_pty() else { return };
                     if pty.owner_detaching.load(Ordering::Acquire) {
                         return;
