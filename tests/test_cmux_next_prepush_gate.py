@@ -288,6 +288,63 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("python3 -I -m unittest discover -s scripts/cmux-next/tests -p 'test_perf_cron*.py'",
                       result.stderr, "must say how to run them")
 
+    def test_the_hook_names_each_phase_time_and_what_to_do_next(self):
+        # 2026-11-09 (push-reliability): pushes took 34-98 s, and an agent could not tell a slow hook from a slow
+        # git or GitHub. The hook prints each phase's time and its total, then says what a failure after it means.
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("clean")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        times = [line for line in result.stderr.splitlines() if line.startswith("pre-push: hook times: ")]
+        self.assertEqual(len(times), 1, result.stderr)
+        for phase in ("fast-tier", "web-lint", "cmux-next-gate", "base-merge-warning", "total"):
+            self.assertIn(phase, times[0])
+        self.assertIn("a failure after this line is git or GitHub", result.stderr)
+        self.assertIn("Retry a failed push", result.stderr)
+
+        self.kit("Refused", self.with_try("Refused"))
+        self.commit("adds a try!")
+
+        result = self.push()
+
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        times = [line for line in result.stderr.splitlines() if line.startswith("pre-push: hook times: ")]
+        self.assertEqual(len(times), 1, result.stderr)
+        self.assertIn("cmux-next-gate", times[0], "the phase that refused is named with its time")
+        self.assertIn("pre-push: refused in cmux-next-gate", result.stderr)
+        self.assertIn("do not retry", result.stderr)
+
+    def test_the_ui_font_check_runs_only_on_a_push_that_changes_what_it_reads(self):
+        # 2026-11-09 (push-reliability): check-ui-font.py reads every webviews/src and Native/OptChat source at the
+        # base and again at the head (4268 files on feat-cmux-next). On a push that changed one Python file it took
+        # 9.6 s of the gate's 18.8 s, and in this blob:none clone each source blob the clone lacks costs one
+        # on-demand fetch (5-8 s measured, 16 missing at the feat tip). A push that changes none of the files it
+        # reads cannot change what it finds.
+        snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
+        installed = snapshot.resolve() / "check-ui-font.py"
+        runs = self.root / "ui-font-runs"
+        entry = 'if __name__ == "__main__":'
+        text = installed.read_text()
+        self.assertIn(entry, text)
+        installed.write_text(text.replace(entry, f"open({str(runs)!r}, 'a').write('ran\\n')\n\n\n{entry}", 1))
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("a Swift change only")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(runs.exists(), "the hook ran the UI font check on a push that changes none of its inputs")
+
+        self.write("webviews/src/pages/shared/desktop.css", "/* a webviews change */\n")
+        self.commit("a webviews change")
+
+        result = self.push()
+
+        self.assertTrue(runs.exists(), "a push that changes a file the UI font check reads must run it\n"
+                        + result.stdout + result.stderr)
+
     def kit(self, name, text):
         self.write(f"{PKG}/Sources/CmuxNextKit/{name}.swift", text)
 

@@ -2,8 +2,8 @@ import AppKit
 import os
 
 /// SF Symbol masks for chat widget cards, drawn into row bitmaps off the main thread.
+// crash-allow: the only state is `masks`, a `let` OSAllocatedUnfairLock; every read and write goes through it.
 final class HomeWidgetSymbols: @unchecked Sendable {
-    // @unchecked Sendable: the only state is `masks`, behind its lock.
 
     private struct Key: Hashable {
         var name: String

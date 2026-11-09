@@ -3035,8 +3035,9 @@ impl WorkspaceRegistry {
             );
         }
         // A registry copied from another machine gets its own ids first.
-        host_identity::rehome_registry(&connection)?;
-        timings.lap("registry.migrations.rehome");
+        let mut rehome = crate::startup_timings::StartupTimings::start();
+        host_identity::rehome_registry(&connection, &mut rehome)?;
+        timings.absorb(rehome, "registry.migrations.rehome");
         let registry_id = required_meta(&connection, "registry_id")?;
         validate_identifier("registry id", &registry_id)?;
         let session_id = SessionPublicId::parse(required_meta(&connection, "session_public_id")?)?;

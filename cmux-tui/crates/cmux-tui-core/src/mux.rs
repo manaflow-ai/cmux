@@ -156,7 +156,7 @@ use guards::PendingWorkspaceSurface;
 pub(crate) use guards::ResourceWaitWake;
 mod agent_reports;
 mod agent_roster_fold;
-mod agent_roster_restore;
+pub(crate) mod agent_roster_restore;
 mod apply_layout;
 mod browser_create;
 mod browser_providers;
@@ -912,6 +912,7 @@ impl Mux {
                 machine_name: None,
                 session_id: &self.session_public_id,
                 session_name: &self.session,
+                in_process_host: Some(&|host: &str| self.in_process_terminal_by_host(host)),
             },
             target,
             selectors,
@@ -933,6 +934,7 @@ impl Mux {
                 machine_name: None,
                 session_id: registry.session_id(),
                 session_name: &self.session,
+                in_process_host: Some(&|host: &str| self.in_process_terminal_by_host(host)),
             },
             target,
             selectors,

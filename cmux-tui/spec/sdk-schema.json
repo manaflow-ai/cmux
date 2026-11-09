@@ -3576,6 +3576,56 @@
      "presence": "optional",
      "nullable": true,
      "since": 9
+    },
+    "terminal_resource_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
+    },
+    "tab_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
+    },
+    "pane_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
+    },
+    "screen_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
+    },
+    "workspace_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     }
    },
    "additional_properties": false
@@ -3638,6 +3688,36 @@
      "nullable": true,
      "since": 12,
      "capability": "split-client-keys-v1"
+    },
+    "terminal_resource_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
+    },
+    "screen_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
+    },
+    "workspace_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     }
    },
    "additional_properties": false
@@ -3981,6 +4061,46 @@
      "nullable": false,
      "since": 12,
      "capability": "detached-terminals-v1"
+    },
+    "tab_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
+    },
+    "pane_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
+    },
+    "screen_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
+    },
+    "workspace_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     }
    },
    "additional_properties": false
@@ -4463,6 +4583,56 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "terminal_resource_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
+    },
+    "tab_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
+    },
+    "pane_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
+    },
+    "screen_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
+    },
+    "workspace_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     }
    },
    "additional_properties": false
@@ -4689,6 +4859,56 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "terminal_resource_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
+    },
+    "tab_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
+    },
+    "pane_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
+    },
+    "screen_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
+    },
+    "workspace_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     }
    },
    "additional_properties": false
@@ -5101,6 +5321,56 @@
      "presence": "required",
      "nullable": false,
      "since": 11
+    },
+    "terminal_resource_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
+    },
+    "tab_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
+    },
+    "pane_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
+    },
+    "screen_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
+    },
+    "workspace_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     }
    },
    "additional_properties": false
@@ -8083,6 +8353,36 @@
      "presence": "optional",
      "nullable": false,
      "capability": "row-client-keys-v1"
+    },
+    "terminal_resource_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
+    },
+    "screen_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
+    },
+    "workspace_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "terminal-public-ids-v1"
     }
    },
    "kind": "object"

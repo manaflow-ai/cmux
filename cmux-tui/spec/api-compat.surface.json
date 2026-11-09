@@ -16415,6 +16415,9 @@
         "required": true,
         "nullable": true
       },
+      "/data/pane_id": {
+        "ty": "string"
+      },
       "/data/registry_id": {
         "ty": "string",
         "required": true
@@ -16428,10 +16431,16 @@
         "required": true,
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/tab_id": {
+        "ty": "string"
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -16453,6 +16462,9 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:create-workspace": {
@@ -18530,6 +18542,9 @@
         "required": true,
         "nullable": true
       },
+      "/data/pane_id": {
+        "ty": "string"
+      },
       "/data/registry_id": {
         "ty": "string",
         "required": true
@@ -18543,10 +18558,16 @@
         "required": true,
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/tab_id": {
+        "ty": "string"
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -18557,6 +18578,9 @@
         "required": true,
         "nullable": true
       },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
       "/data/terminal_revision": {
         "ty": "uint64",
         "required": true
@@ -18565,6 +18589,9 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       },
       "/data/workspace_key": {
         "ty": "string",
@@ -18623,9 +18650,20 @@
       }
     },
     "response:new-browser-tab": {
+      "/data/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/tab_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -18634,6 +18672,12 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:new-conversation-tab": {
@@ -18709,6 +18753,9 @@
         "ty": "boolean",
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
@@ -18724,6 +18771,12 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:new-pane-right": {
@@ -18735,6 +18788,9 @@
         "ty": "boolean",
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
@@ -18750,6 +18806,12 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:new-remote-terminal-tab": {
@@ -18766,6 +18828,9 @@
       "/data/pane_id": {
         "ty": "string"
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
@@ -18781,14 +18846,31 @@
         "ty": "string",
         "nullable": true
       },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
       "/data/transaction": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
         "ty": "string"
       }
     },
     "response:new-screen": {
+      "/data/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/tab_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -18797,12 +18879,29 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:new-tab": {
+      "/data/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/tab_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -18811,12 +18910,29 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:new-workspace": {
+      "/data/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/tab_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -18825,6 +18941,12 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:note-size-activity": {
@@ -19554,14 +19676,23 @@
           "tombstoned"
         ]
       },
+      "/data/pane_id": {
+        "ty": "string"
+      },
       "/data/registry_id": {
         "ty": "string",
         "required": true
+      },
+      "/data/screen_id": {
+        "ty": "string"
       },
       "/data/surface": {
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/tab_id": {
+        "ty": "string"
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -19572,9 +19703,15 @@
         "required": true,
         "nullable": true
       },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
       "/data/terminal_revision": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       },
       "/data/workspace_key": {
         "ty": "string",
@@ -19650,15 +19787,24 @@
         "required": true,
         "nullable": true
       },
+      "/data/pane_id": {
+        "ty": "string"
+      },
       "/data/screen": {
         "ty": "uint64",
         "required": true,
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/tab_id": {
+        "ty": "string"
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -19669,6 +19815,9 @@
         "required": true,
         "nullable": true
       },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
       "/data/terminal_revision": {
         "ty": "uint64",
         "required": true
@@ -19677,6 +19826,9 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:save-screen-group": {
@@ -21364,6 +21516,9 @@
         "ty": "boolean",
         "nullable": true
       },
+      "/data/screen_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
@@ -21379,6 +21534,12 @@
       "/data/terminal_incarnation": {
         "ty": "string",
         "nullable": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string"
+      },
+      "/data/workspace_id": {
+        "ty": "string"
       }
     },
     "response:subscribe": {},
