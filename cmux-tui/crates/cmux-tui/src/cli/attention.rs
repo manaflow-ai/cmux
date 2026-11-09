@@ -82,7 +82,7 @@ fn run(global: &GlobalArgs, verb: &str, flags: &Flags) -> i32 {
     if verb == "list" {
         return wire::print_local_success(&json!({"queue": queue}), global.output);
     }
-    let target = next_target(&queue, flags.after.as_deref()).cloned();
+    let target = next_target(&queue, flags.after.as_deref(), None).cloned();
     let mut focused = false;
     if flags.focus
         && let Some(tab) = target.as_ref().and_then(|entry| text(entry, "tab"))
@@ -314,7 +314,11 @@ fn entry_json(
 /// The entry `attention next` answers: the one after `after` (wrapping),
 /// else the first, the most urgent. The focused tab does not move the start:
 /// an agent asks what needs the person most, wherever the person looks.
-fn next_target<'a>(queue: &'a [Value], after: Option<&str>) -> Option<&'a Value> {
+fn next_target<'a>(
+    queue: &'a [Value],
+    after: Option<&str>,
+    _focused: Option<&str>,
+) -> Option<&'a Value> {
     next_entry(queue, after)
 }
 
@@ -487,9 +491,47 @@ mod tests {
         assert_eq!(focused_tab(&snapshot).as_deref(), Some("tab_b"));
         let queue = snapshot_queue(&snapshot);
         assert_eq!(tabs(&queue), vec!["tab_c", "tab_b", "tab_d", "tab_a"]);
-        assert_eq!(next_target(&queue, None).unwrap()["tab"], "tab_c");
-        assert_eq!(next_target(&queue, Some("tab_c")).unwrap()["tab"], "tab_b");
-        assert_eq!(next_target(&queue, Some("tab_a")).unwrap()["tab"], "tab_c");
+        assert_eq!(next_target(&queue, None, None).unwrap()["tab"], "tab_c");
+        assert_eq!(next_target(&queue, Some("tab_c"), None).unwrap()["tab"], "tab_b");
+        assert_eq!(next_target(&queue, Some("tab_a"), None).unwrap()["tab"], "tab_c");
+    }
+
+    /// W5-Q review (PR A finding 9): `attention next --focus` without
+    /// `--after` starts after the focused tab, so pressing it again cycles;
+    /// it does not stay on a blocked tab that focus does not clear.
+    #[test]
+    fn w5q_attention_next_focus_starts_after_the_focused_tab() {
+        let queue = snapshot_queue(&snapshot());
+        assert_eq!(tabs(&queue), vec!["tab_c", "tab_b", "tab_d", "tab_a"]);
+        assert_eq!(next_target(&queue, None, Some("tab_c")).unwrap()["tab"], "tab_b");
+        assert_eq!(next_target(&queue, None, Some("tab_a")).unwrap()["tab"], "tab_c");
+        // A focused tab that needs nothing: the most urgent entry.
+        assert_eq!(next_target(&queue, None, Some("tab_e")).unwrap()["tab"], "tab_c");
+        // `--after` wins over the focused tab.
+        assert_eq!(next_target(&queue, Some("tab_b"), Some("tab_c")).unwrap()["tab"], "tab_d");
+    }
+
+    /// W5-Q review (PR A finding 10): a blocked row's reason is never the
+    /// program status record's title ("Claude Code" says nothing about why);
+    /// without a message the terminal's unread notification says why.
+    #[test]
+    fn w5q_attention_blocked_reason_is_never_the_record_title() {
+        let mut program = snapshot();
+        program["terminals"][2]["extra"] = json!({"program_status": [
+            {"app": "claude-code", "state": "blocked", "kind": "permission",
+             "title": "Claude Code", "since_ms": "150"},
+        ]});
+        program["notifications"] = json!([
+            {"id": "n9", "terminal_id": "term_c", "unread": true, "level": "info",
+             "created_at_ms": "210", "title": "Claude Code",
+             "body": "Claude needs your permission to use Bash"},
+        ]);
+        let queue = snapshot_queue(&program);
+        assert_eq!(queue[0]["tab"], "tab_c");
+        assert_eq!(queue[0]["reason"], "Claude needs your permission to use Bash", "{}", queue[0]);
+        program["notifications"] = json!([]);
+        let queue = snapshot_queue(&program);
+        assert_eq!(queue[0]["reason"], Value::Null, "{}", queue[0]);
     }
 
     /// W5-Q (bench r4 #5): a finished agent turn nobody viewed (`done`)
@@ -511,7 +553,7 @@ mod tests {
         assert_eq!(tabs(&queue), vec!["tab_c", "tab_e", "tab_a"]);
         assert_eq!(queue[1]["kind"], "done");
         assert_eq!(queue[2]["kind"], "unread");
-        assert_eq!(next_target(&queue, None).unwrap()["kind"], "blocked");
+        assert_eq!(next_target(&queue, None, None).unwrap()["kind"], "blocked");
     }
 
     #[test]
