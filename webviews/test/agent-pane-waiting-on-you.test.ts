@@ -68,11 +68,12 @@ test("a read keeps whole items only and sorts them by score, then the oldest ask
     ],
   });
   expect(reply.items.map((each) => each.id)).toEqual([
-    "acpmux:c",
+    // Another machine's row and a pull request's are told apart by machine and chat.
+    "acpmux:c@studio/s3",
     // Equal scores: the one asked first (b at now - ageMs = 1_000) before a (5_000).
     "acpmux:b",
     "acpmux:a",
-    "pr:https://example.com/pull/1",
+    "pr:https://example.com/pull/1@/",
   ]);
   expect(reply.items[1]!.at).toBe(1_000);
   expect(reply.items[0]!.host).toBe("studio");
@@ -418,7 +419,7 @@ test("a Request changes comment an older acpmux dropped opens the chat to say it
   expect(selected).toEqual(["s1"]);
 });
 
-test("one pull request listed in two chats is two rows, each answered on its own", () => {
+test("one pull request listed in two chats is two rows, each answered on its own, with ids that never move", () => {
   const pr = { id: "pr:https://example.com/pull/1", kind: "pr", prUrl: "https://example.com/pull/1", at: 1 };
   const reply = readQueue({
     items: [
@@ -432,8 +433,11 @@ test("one pull request listed in two chats is two rows, each answered on its own
   expect(new Set(ids).size).toBe(3);
   expect(ids).toContain("pr:https://example.com/pull/1@/s1");
   expect(ids).toContain("pr:https://example.com/pull/1@studio/s2");
-  // An id no other row shares stays as acpmux sent it.
+  // This Mac's ask keeps acpmux's id.
   expect(ids).toContain("acpmux:p1");
+  // A row's id does not hang on the others: alone, the same pull request has the same id.
+  const alone = readQueue({ items: [{ ...pr, sessionId: "s1" }], now: 10 });
+  expect(alone.items[0]!.id).toBe("pr:https://example.com/pull/1@/s1");
 });
 
 test("a pull request's chat finishing its turn reads the queue again", () => {

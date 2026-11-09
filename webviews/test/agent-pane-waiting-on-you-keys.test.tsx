@@ -158,7 +158,7 @@ test("the queue is sorted by score and the first ask is selected", async () => {
   expect([...host.querySelectorAll(".wq-row")].map((row) => row.id)).toEqual([
     "wq-row-acpmux_p1",
     "wq-row-acpmux_p2",
-    "wq-row-pr_u",
+    "wq-row-pr_u__s3",
   ]);
   expect(selected()).toBe("wq-row-acpmux_p1");
   expect(host.querySelector('.wq-row[aria-current="true"]')?.id).toBe("wq-row-acpmux_p1");
@@ -171,7 +171,7 @@ test("j and k move; Return goes to the chat; x exports", async () => {
   expect(selected()).toBe("wq-row-acpmux_p2");
   await press(list, "j");
   await press(list, "j");
-  expect(selected()).toBe("wq-row-pr_u");
+  expect(selected()).toBe("wq-row-pr_u__s3");
   await press(list, "k");
   expect(selected()).toBe("wq-row-acpmux_p2");
   await press(list, "Enter");
@@ -209,11 +209,11 @@ test("a question is answered in its chat; on a pull request Deny asks for the ch
   await press(list, "Enter");
   expect(calls.opened).toEqual(["s2", "s2"]);
   await press(list, "j");
-  expect(selected()).toBe("wq-row-pr_u");
+  expect(selected()).toBe("wq-row-pr_u__s3");
   await shortcut("Deny");
   expect(host.querySelector(".wq-comment-field")).not.toBeNull();
   await shortcut("AllowOnce");
-  expect(calls.verdicts).toEqual([["pr:u", "accept"]]);
+  expect(calls.verdicts).toEqual([["pr:u@/s3", "accept"]]);
 });
 
 test("another machine's pull request offers no verdict here and keeps its row", async () => {
@@ -244,7 +244,7 @@ test("a refused Request changes brings its box back with what was typed", async 
   });
   expect(host.querySelector<HTMLTextAreaElement>(".wq-comment-field")?.value).toBe("Split the commit");
   expect(host.querySelector(".wq-failure")?.textContent).toBe(translate("waiting.answerFailed"));
-  expect(host.querySelector("#wq-row-pr_u")?.hasAttribute("data-leaving")).toBe(false);
+  expect(host.querySelector("#wq-row-pr_u__s3")?.hasAttribute("data-leaving")).toBe(false);
 });
 
 test("an acpmux older than the queue says so in words", async () => {
@@ -309,4 +309,32 @@ test("leaving the tab while an answer's refresh is under way reads again on the 
   // from the kept copy without a read.
   await render(load, false, { cache, refreshKey: "k" });
   expect(reads).toBe(3);
+});
+
+test("a comment that reached neither the chat nor the clipboard stays on the page to copy", async () => {
+  const pr = items[2]!;
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <QueueScreen
+        load={async () => ({ items: [pr], now: 10 })}
+        answer={async () => "answered"}
+        verdict={async () => ({ recorded: true, commentCopied: false })}
+        open={() => {}}
+        exportAudit={async () => 0}
+      />,
+    ),
+  );
+  await shortcut("Deny");
+  const field = host.querySelector<HTMLTextAreaElement>(".wq-comment-field")!;
+  await act(async () => {
+    const set = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!;
+    set.call(field, "Split the commit");
+    field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>('.wq-comment-actions button[data-tone="allow"]')!.click();
+  });
+  expect(host.querySelector(".wq-notice")?.textContent).toContain(translate("waiting.commentNotCopied"));
+  expect(host.querySelector(".wq-notice-detail")?.textContent).toBe("Split the commit");
 });

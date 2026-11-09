@@ -49,7 +49,8 @@ type Props = QueueActions & {
   cache?: QueueCache;
 };
 
-type Notice = { tone: "ok" | "error"; text: string };
+/// `detail`: words the person wrote that reached nowhere, shown whole so they can copy them.
+type Notice = { tone: "ok" | "error"; text: string; detail?: string };
 
 const NO_ITEMS: QueueItem[] = [];
 const rowId = (id: string) => `wq-row-${id.replace(/[^A-Za-z0-9_-]/g, "_")}`;
@@ -149,7 +150,9 @@ export function QueueScreen({
           // The chat did not get the words: say where they went (historyPages.ts `verdict`).
           const copied = (reply as { commentCopied?: unknown } | null)?.commentCopied;
           if (copied === true) setNotice({ tone: "ok", text: t("waiting.commentCopied") });
-          else if (copied === false) setNotice({ tone: "error", text: t("waiting.commentNotCopied") });
+          // Neither the chat nor the clipboard took it: the words stay on the page to copy by hand.
+          else if (copied === false && text)
+            setNotice({ tone: "error", text: t("waiting.commentNotCopied"), detail: text });
           return reply;
         },
         t("waiting.answerFailed"),
@@ -334,6 +337,7 @@ export function QueueScreen({
         </div>
         <output className="wq-notice" data-tone={notice?.tone}>
           {notice?.text ?? ""}
+          {notice?.detail && <span className="wq-notice-detail">{notice.detail}</span>}
         </output>
       </div>
     </div>
