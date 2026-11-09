@@ -149,9 +149,11 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
   let last: number | undefined;
   let scale = 1;
   /// The spring's response and near-home speed for the move in flight: a send's rise or a reply's
-  /// growth (GROWTH_RESPONSE_S), set by each `shift`.
+  /// growth (GROWTH_RESPONSE_S), set by each `shift`. A send's rise keeps its step until it rests,
+  /// so the reply's first lines join the one motion instead of changing its speed partway.
   let response = RESPONSE_S;
   let maxSpeed = CHASE_MAX_SPEED;
+  let sendInFlight = false;
   /// While the trail is past its bound: the speed (px/s) that brings it back within BURST_S of the
   /// landing that put it there, 0 inside the bound.
   let burst = 0;
@@ -193,6 +195,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     landing = false;
     spent = 0;
     stepped = 0;
+    sendInFlight = false;
     draw();
   };
   const step = (now: number) => {
@@ -344,7 +347,8 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       thread = node;
       landing = false;
       scale = speed;
-      const growth = below !== Number.POSITIVE_INFINITY;
+      if (below === Number.POSITIVE_INFINITY) sendInFlight = true;
+      const growth = !sendInFlight;
       response = growth ? GROWTH_RESPONSE_S : RESPONSE_S;
       maxSpeed = growth ? GROWTH_MAX_SPEED : CHASE_MAX_SPEED;
       // Drawn back by the move: the rows stay where the reader saw them this frame (up to
