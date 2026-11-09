@@ -119,6 +119,7 @@ import {
 import { settleTurnFold, startTurnFold, watchTurnFold, type TurnFold } from "./conversation/turnFold";
 import {
   captureTurnEnd,
+  keptRowMove,
   endsTurn,
   playTurnEnd,
   settleTurnEnd,
@@ -3534,6 +3535,19 @@ function TranscriptView({
     // took the view keeps the thread where the held chase drew it: nothing of theirs moves.
     if (followingRef.current) stopFollowMotion();
     turnEnd.current = playTurnEnd(host, capture, sessionId, ref.current);
+    // The fold read the rows but plays nothing (no motion on the thread, nothing of it to animate):
+    // the swap still moved the rows the reader follows. The follow motion takes that move from where
+    // they were drawn, on its own curve, so the reply never steps at once. Motion off or Reduce Motion
+    // stops the chase too, and the swap applies at once; another chat is a switch, never a move.
+    const chase = followChase.current;
+    if (!turnEnd.current && chasing && followingRef.current && chase && capture.sessionId === sessionId) {
+      const moved = keptRowMove(host, capture);
+      if (moved !== undefined && Math.abs(moved) >= 0.5) {
+        chase.resume();
+        chase.shift(host, moved);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `chasing` is fixed per transcript
   }, [rows, sessionId, stopFollowMotion]);
   // Another chat shown, or the transcript unmounting: a fold still playing ends at once.
   useLayoutEffect(

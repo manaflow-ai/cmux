@@ -5,8 +5,8 @@
 // from its dev entry, against a stand-in acpmux daemon (as turn-end-fold-browser.test.ts). The turn's
 // last paragraph comes with its end, so it reveals after it:
 // - the fold read the rows at the end but cannot play (`playTurnEnd` finds no motion on the thread):
-//   the reply never steps more than 75% of its move in one frame, nor past its place and back, the
-//   bottom pinned;
+//   the swap still moves the reply (58 px up in one frame before the fix); it now eases there on the
+//   follow motion, no more than about a line a frame, the bottom pinned;
 // - a turn of words alone (no running line, so no fold): the same;
 // - motion off before the end: the end applies at once, and nothing settles on after;
 // - the reader scrolled up: the row at the top of their view stays where it is.
@@ -296,8 +296,9 @@ await requireBrowserLane("turn-end-reply-motion-browser.test.ts", async () => {
     return { page, samples };
   }
 
-  /// From `from` on, the reply never steps more than 75% of its whole move in one frame, and never goes
-  /// past its place and back (every step one way). A move of a few px is no motion to judge.
+  /// From `from` on, the reply moves over several frames, no more than about a line (24 px) or a
+  /// quarter of its move in any one, and never past its place and back (every step one way). A move of
+  /// a few px is no motion to judge.
   function expectEased(samples: Sample[], from: number, label: string) {
     expect(from).toBeGreaterThan(0);
     const after = samples.slice(from - 1).filter((sample) => Number.isFinite(sample.reply));
@@ -305,7 +306,9 @@ await requireBrowserLane("turn-end-reply-motion-browser.test.ts", async () => {
     const steps = after.slice(1).map((sample, index) => sample.reply - after[index]!.reply);
     console.log(`TURN_END_REPLY ${label} move=${move.toFixed(1)} steps=${JSON.stringify(steps.map(Math.round))}`);
     if (Math.abs(move) > 8) {
-      expect(Math.max(...steps.map(Math.abs))).toBeLessThan(Math.abs(move) * 0.75);
+      // At most about a line in any one frame (the follow motion's landing pace), and never most of the move.
+      expect(Math.max(...steps.map(Math.abs))).toBeLessThanOrEqual(Math.max(24, Math.abs(move) * 0.25));
+      expect(steps.filter((step) => Math.abs(step) >= 0.5).length).toBeGreaterThanOrEqual(3);
       expect(steps.every((step) => Math.sign(step) !== -Math.sign(move) || Math.abs(step) < 1)).toBe(true);
     }
     // The bottom stays pinned once it lands.
