@@ -184,12 +184,13 @@ async function pane(log: Rec[]) {
   await until(() => rows.length > 0);
   const notify = (method: string, params: unknown) =>
     socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method, params }) });
-  /// Resolves once no request is out and every reply has been handled: the next macrotask after
-  /// the last answer, so whatever the pane read on from it has been asked and answered too.
+  /// Resolves once no request is out but the ones held (`host.hold`) and every reply has been
+  /// handled: the next macrotask after the last answer, so whatever the pane read on from it has
+  /// been asked and answered too.
   const quiet = async () => {
     do {
       await new Promise((done) => setTimeout(done, 0));
-    } while (inFlight > 0);
+    } while (inFlight > host.held.length);
   };
   return {
     host,
@@ -311,6 +312,8 @@ test("a read asked before the journal went back cannot put the lost rows back", 
   chat.host.log = [...synced];
   chat.notify("_acpmux/rewound", { sessionId: CHAT, lastSeq: 4, peer: "cloud" });
   await chat.until(() => !chat.reply().includes("LOST"));
+  // The pane read the chat back and on from the journal's end: all of it but the lag's read.
+  await chat.quiet();
   chat.host.log = [...synced, ...fresh];
   for (const record of fresh) chat.live(record);
   await chat.until(() => chat.reply().includes("Fresh two."));
