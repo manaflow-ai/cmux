@@ -55,10 +55,19 @@ public enum CmuxMobilePreferences {
         defaults.object(forKey: Key.dismissKeyboardAfterSend) as? Bool ?? defaultDismissKeyboardAfterSend
     }
 
-    /// Whether a message sent while the agent is still working steers it
-    /// (acpmux `_meta.acpmux.steer`) rather than queueing after the turn.
+    /// Whether prompt queueing is off: Queue (send after this turn) steers the running turn too
+    /// (acpmux `_meta.acpmux.steer`), as the Mac's ⌘Return does then ([`steersMidTurn`]).
     public static func steersFollowUps(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.string(forKey: Key.followUp) == steerFollowUp
+    }
+
+    /// Whether a message sent while the agent works steers it, as the Mac's composer decides:
+    /// Send and Return steer the turn (Leo, 2026-11-05: "WHY THE F*** ARE MY MESSAGES BEING
+    /// QUEUED INSTEAD OF STEERING"); only Queue (send after this turn), the Mac's ⌘Return, waits
+    /// for the turn, and with queueing off it steers too. An agent that cannot steer still runs
+    /// it after the turn.
+    public static func steersMidTurn(queue: Bool, _ defaults: UserDefaults = .standard) -> Bool {
+        !queue || steersFollowUps(defaults)
     }
 
     /// The Mac's Toggle Prompt Queueing, from a chat: queueing on (a message sent mid-turn waits

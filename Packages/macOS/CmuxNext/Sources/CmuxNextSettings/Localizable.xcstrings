@@ -210281,7 +210281,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verbraucht mehr Daten, um in verlustreichen Netzen schnell zu bleiben"
+            "value": "Verbraucht mehr Daten, bleibt bei Paketverlust schnell"
           }
         },
         "en": {
@@ -210299,7 +210299,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilise plus de données pour rester rapide sur les réseaux instables"
+            "value": "Utilise plus de données, reste rapide sur réseau instable"
           }
         },
         "it": {
@@ -210335,7 +210335,7 @@
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zużywa więcej danych, by działać szybko w sieciach z utratą pakietów"
+            "value": "Zużywa więcej danych, by działać szybko mimo utraty pakietów"
           }
         },
         "pt-BR": {
@@ -210347,7 +210347,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Расходует больше данных, чтобы оставаться быстрым в сетях с потерями"
+            "value": "Расходует больше данных ради скорости в сетях с потерями"
           }
         },
         "th": {
@@ -210365,7 +210365,7 @@
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Використовує більше даних, щоб лишатися швидким у мережах із втратами"
+            "value": "Витрачає більше даних ради швидкості в мережах із втратами"
           }
         },
         "vi": {
