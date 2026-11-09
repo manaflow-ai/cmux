@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42567026396",
+  "recorded_at": "2026-11-09T05:33:35Z",
+  "reason": "cmux-tui 1dea36a86007 changes the image's cmux-tui (pinned ffc35a480489)",
+  "dry_run": false,
+  "cmux_tui": "1dea36a860075c91e13e5cc86a90b4cafc3677c2",
+  "fixes": [
+    {
+      "sha": "1dea36a860075c91e13e5cc86a90b4cafc3677c2",
+      "mergedAt": "2026-11-08T21:09:13-08:00",
+      "subject": "smoltcp SACK: the lost-repair probe test sends its blocks before the first probe (#39215)"
+    },
+    {
+      "sha": "f0872c0313d3185a273a919d1a26c6691cd37af2",
+      "mergedAt": "2026-11-08T21:03:58-08:00",
+      "subject": "rd: the Cloud desktop's datagram link falls back to TURN over UDP before the carrier stream (#39159)"
+    },
+    {
+      "sha": "48b5b24be216d6d962cad91581d0fd5030ddbe0e",
+      "mergedAt": "2026-11-08T21:03:27-08:00",
+      "subject": "acpmux: the ledger writes owner-only and never under a lost home (test (linux) red on tip) (#39213)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T05:33:35Z",
+    "snapshot_id": "sh-4bc0ea3b97fa4381a0ab27ac869e8965",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42567026396): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "cef6d3a0b88fa8e23b4f79ff269590beaf4d5f59",
+    "image": "cloud-native-auto-1dea36a8-42567026396-1",
+    "revision": "ci-42567026396-1",
+    "at": "2026-11-09T05:33:35Z"
+  },
+  "rolled_back": false
+}
