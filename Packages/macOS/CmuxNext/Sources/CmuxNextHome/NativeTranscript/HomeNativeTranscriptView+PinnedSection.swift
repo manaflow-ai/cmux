@@ -70,6 +70,7 @@ extension HomeNativeTranscriptView {
         if let card = setupCard {
             // Before its first size the page stays in the window at 1 pt (never hidden): a hidden web view
             // stops measuring, and the card would never report the height that shows it.
+            // Taller than the room above the message box, the slot stops there and the page scrolls.
             let shown = min(card.height, max(0, transcript.fieldTop - top - 8))
             let frame = CGRect(x: x, y: top, width: width, height: max(shown, 1))
             if card.view.frame != frame { card.view.frame = frame }

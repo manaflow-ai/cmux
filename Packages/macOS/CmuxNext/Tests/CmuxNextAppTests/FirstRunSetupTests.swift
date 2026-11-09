@@ -153,6 +153,50 @@ import Testing
         #expect(provider.state["cli"] == "installed")
     }
 
+    /// Every other row done, and the read of the chat sources slow to answer: the card does not end before that
+    /// read returns, so a found history keeps its row (and its offer).
+    @Test func theCardWaitsForTheChatSourcesBeforeEnding() async throws {
+        let defaults = try defaults()
+        let setup = FirstRunSetup(defaults: defaults)
+        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+        let mac = PressLog()
+        let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: SetupCardEnvironment(
+            account: { (true, nil) }, signInAccount: {}, cliState: { "installed" }, installCLI: { _ in }, openAgents: {},
+            historySources: { await withCheckedContinuation { mac.sourcesRead = $0 }; return true }, importHistory: { false }))
+        defer { provider.stop() }
+        await until { provider.cli != nil && mac.sourcesRead != nil }
+        #expect(provider.history == nil)
+        #expect(!provider.rowsBesideAgentsDone, "no end while the chat sources are still being read")
+
+        mac.sourcesRead?.resume()
+        await until { provider.history != nil }
+        #expect(provider.history == true && !provider.rowsBesideAgentsDone && setup.shows)
+        setup.historyAnswered()
+        #expect(provider.rowsBesideAgentsDone)
+    }
+
+    /// An install that failed, then a read that finds the agent installed after all: the row follows the read
+    /// (Sign In), not the stale failure (an Install with nothing to do).
+    @Test func aFreshReadWinsOverAnEarlierFailedInstall() async throws {
+        let setup = FirstRunSetup(defaults: try defaults())
+        let source = MockAgentSignInSource(agents: [
+            OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .unknown, installed: false)])
+        source.installFails = "the installer exited 1"
+        let provider = SetupCardPageProvider(setup: setup, agents: source, environment: SetupCardEnvironment(
+            account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in }, openAgents: {},
+            historySources: { false }, importHistory: { false }))
+        defer { provider.stop() }
+        await until { provider.agents.loaded }
+        provider.agents.install("claude")
+        await until { provider.agents.installs["claude"] != .installing }
+        #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "failed")
+
+        source.agents = [OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .signedOut)]
+        provider.agents.refresh(recheck: true)
+        await until { provider.agents.agents.contains { $0.id == "claude" } }
+        #expect(provider.state["agents"]?.arrayValue?.first?["state"] == "signedOut")
+    }
+
     /// Not Now on the chat history row answers it for good.
     @Test func notNowDismissesTheChatHistoryRow() async throws {
         let defaults = try defaults()
@@ -220,6 +264,7 @@ import Testing
     var signIns = 0
     var imports = 0
     var installs = 0
+    var sourcesRead: CheckedContinuation<Void, Never>?
     var cliAfter = "missing"
     var installRuns: CheckedContinuation<Void, Never>?
     var importShows = false

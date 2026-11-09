@@ -159,10 +159,12 @@ public final class SetupCardPageProvider: PageProvider {
     var state: JSONValue {
         let rows: [JSONValue] = Self.agentIDs.compactMap { id in
             guard let agent = agents.agents.first(where: { $0.id == id }) ?? agents.installable.first(where: { $0.id == id }) else { return nil }
+            // A read that finds the agent installed wins over an earlier failed install (installed by hand, or
+            // found after all): the row then offers its Sign In, not an Install that has nothing to do.
             let state: String = switch agents.installs[id] {
             case .installing: "installing"
-            case .failed: "failed"
-            case nil: !agent.installed ? "missing" : agent.auth == .signedIn ? "signedIn" : "signedOut"
+            case .failed where !agent.installed: "failed"
+            default: !agent.installed ? "missing" : agent.auth == .signedIn ? "signedIn" : "signedOut"
             }
             return ["id": .string(id), "name": .string(agent.name), "state": .string(state)]
         }
@@ -173,11 +175,15 @@ public final class SetupCardPageProvider: PageProvider {
                 "account": .object(wire), "cli": .string(cliInstalling ? "installing" : cli ?? "missing"), "classic": .null]
     }
 
-    /// Every row is done: an agent signed in, the chat history answered (when found), the account signed in,
-    /// this app's `cmux` on PATH.
+    /// Every row is done: an agent signed in, the chat history answered (when found: never before the read of
+    /// the chat sources returned, so a slow read cannot lose the row), the account signed in, this app's `cmux` on PATH.
     var allDone: Bool {
-        agents.agents.contains { Self.agentIDs.contains($0.id) && $0.auth == .signedIn } && (history != true || setup.historyDone)
-            && environment.account().signedIn && cli == "installed"
+        agents.agents.contains { Self.agentIDs.contains($0.id) && $0.auth == .signedIn } && rowsBesideAgentsDone
+    }
+
+    /// The rows besides the agents' are done (``allDone``).
+    var rowsBesideAgentsDone: Bool {
+        (history == false || setup.historyDone) && environment.account().signedIn && cli == "installed"
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
