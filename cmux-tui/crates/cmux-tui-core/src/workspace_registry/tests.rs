@@ -4225,6 +4225,75 @@ fn startup_repair_retires_a_dangling_terminal_tab_and_selects_its_sibling() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A build with #38839 published a startup repair's deletes in one commit
+/// and the restatement of the repaired panes in a second one, and kept the
+/// pending panes in meta key `startup_repair_restate_panes` between the
+/// two. A database that crashed between those commits still has the key.
+/// The next open publishes the restatement and removes the key.
+#[test]
+fn an_open_restates_the_panes_a_crashed_two_commit_repair_left_pending() {
+    let root = temp_root("legacy-pending-restatement");
+    let before = {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        registry
+            .commit_resource_patch(
+                &WorkspaceMutation::new("seed-one-tab", "test").unwrap(),
+                "workspace.create",
+                &json!({"operation":"workspace.create","name":"One"}),
+                None,
+                Some(0),
+                &terminal_topology_patch(),
+                &json!({"workspace_id":workspace(1, "one", "One").public_id}),
+                &json!([{"kind":"workspace.created"}]),
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO meta(key, value) VALUES('startup_repair_restate_panes', ?1)",
+                [json!([pane_id(1).as_str()]).to_string()],
+            )
+            .unwrap();
+        registry.resource_topology_snapshot().unwrap().revision
+    };
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let pending: Option<String> = reopened
+        .connection
+        .query_row("SELECT value FROM meta WHERE key = 'startup_repair_restate_panes'", [], |row| {
+            row.get(0)
+        })
+        .optional()
+        .unwrap();
+    assert_eq!(pending, None, "the open left the legacy restatement key behind");
+    let page = reopened.resource_events_after(before).unwrap();
+    assert_eq!(page.batches.len(), 1, "{:?}", page.batches);
+    let changes = page.batches[0].changes.as_array().unwrap();
+    let topology = reopened.resource_topology_snapshot().unwrap();
+    assert!(
+        changes.iter().any(|change| change["kind"] == "upsert"
+            && change["resource"] == "tab"
+            && change["id"] == tab_id(1).as_str()),
+        "{changes:?}"
+    );
+    assert!(
+        changes.iter().any(|change| change["kind"] == "upsert"
+            && change["resource"] == "screen"
+            && change["id"] == topology.panes[0].screen_id.as_str()),
+        "{changes:?}"
+    );
+    for (sequence, change) in changes.iter().enumerate() {
+        assert_eq!(change["sequence"], sequence);
+    }
+    drop(reopened);
+
+    // Published once: the next open adds no batch.
+    let again = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(again.resource_events_after(before).unwrap().batches.len(), 1);
+    drop(again);
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn terminal_close_tombstones_before_kill_and_retries_safely() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
