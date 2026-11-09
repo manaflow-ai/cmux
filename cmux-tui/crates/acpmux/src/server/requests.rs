@@ -1456,6 +1456,9 @@ async fn dispatch_request_with_identity(
                 let mut p = params.clone();
                 super::peer_forward::strip_new_meta(&mut p);
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
+                // An approved no-prompt preset's chat runs unattended there (`unattended_presets.rs`).
+                let unattended =
+                    hub.forward_unattended_preset(conn.caller(), &peer.name, &mut p).await?;
                 // A full-access starter's chat runs in full access there too.
                 hub.forward_starter_policy(conn.caller(), &mut p);
                 crate::hub::merge_mux_meta(&mut p, created_by_stamp(hub, conn, &params));
@@ -1472,6 +1475,9 @@ async fn dispatch_request_with_identity(
                         &mut p,
                         json!({crate::hub::vm_boundary::FIELD: true}),
                     );
+                }
+                if let Some((name, digest)) = &unattended {
+                    hub.unattended_preset_holds(name, digest).await?;
                 }
                 let mut result = super::remote_guard::hint::new_on(&peer, &params, p).await?;
                 if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
