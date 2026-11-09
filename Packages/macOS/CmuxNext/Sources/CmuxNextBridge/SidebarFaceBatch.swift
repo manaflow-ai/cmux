@@ -86,7 +86,10 @@ public final class SidebarFaceBatch {
 
     /// Adds one row. `listTitle` is the tab list's title of a tab (`tabTitle`, else a New Tab page's title, else
     /// its display title); `branded` whether its agent has a brand mark or its chat's harness its own icon.
+    /// `focusedPane` is the pane id the window last focused in the workspace: it ranks as the most recently
+    /// focused pane, over the daemon's `focused_at` (a default the app never writes); nil keeps the daemon's.
     func append(_ workspace: WorkspaceModel, local: Bool, status: String?, selectedTab: (PaneModel) -> String?,
+                focusedPane: String? = nil,
                 newTabPages: Set<String>, listTitle: (TabModel) -> String, branded: (TabModel) -> Bool) {
         var row = CmuxSidebarFaceWorkspace()
         row.pane_start = UInt32(clamping: panes.count)
@@ -95,7 +98,8 @@ public final class SidebarFaceBatch {
         for screen in workspace.screens {
             for pane in screen.panes {
                 let selected = selectedTab(pane).flatMap { id in pane.tabs.firstIndex { $0.id == id } }
-                panes.append(CmuxSidebarFacePane(focused_at: pane.focusedAt, default_tab: Int64(pane.defaultTabIndex),
+                let focusedAt = pane.id == focusedPane ? UInt64.max : pane.focusedAt
+                panes.append(CmuxSidebarFacePane(focused_at: focusedAt, default_tab: Int64(pane.defaultTabIndex),
                                                  tab_count: UInt32(clamping: pane.tabs.count),
                                                  selected: selected.map { UInt32(clamping: $0) } ?? Self.none))
                 for tab in pane.tabs {

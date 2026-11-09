@@ -19,7 +19,9 @@ A layer is {"d": path, "op": op} plus optional fields:
 - rule: "evenodd" for fills drawn with the even-odd rule (SVG fill-rule); nonzero otherwise.
 
 A source icon may also give "sf" (its SF Symbol fallback; it stands for that symbol only when
-"replaces" lists it) and "source" (provenance, "chromium" for scripts/icons/chromium_icons.py's batch).
+"replaces" lists it), "source" (provenance, "chromium" for scripts/icons/chromium_icons.py's batch) and
+"overrides" (SF Symbols the app draws as this icon even where it otherwise draws system symbols: toolbars,
+the palette, menus and the pages' symbol images).
 
 Also writes the catalog (name, meaning, SF Symbol fallback, dense style, family) and the generated Swift
 IconName members. Run with --check to verify the outputs are up to date.
@@ -484,6 +486,8 @@ def build():
             # without claiming it app-wide).
             if icon.get("sf") and icon["sf"] not in (icon.get("replaces") or []):
                 entry["alias"] = False
+            if icon.get("overrides"):
+                entry["overrides"] = icon["overrides"]
             catalog.append(entry)
     pack = {"id": "cmux", "version": 1, "grid": 24, "icons": dict(sorted(icons.items()))}
     catalog.sort(key=lambda e: e["name"])

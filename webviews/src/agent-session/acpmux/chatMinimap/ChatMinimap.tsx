@@ -15,8 +15,7 @@ import { chatColumnOf, useChatSizing } from "../chatWidth";
 import type { RowsChange } from "../threadMinimap/model";
 import { stopScroll } from "../threadMinimap/scrollMotion";
 import { THREAD_PADDING_TOP } from "../threadMinimap/model";
-import { experimentArm } from "../../../experiments/experiment";
-import { chatMinimapPlaceholder } from "./placeholder.experiment";
+
 import {
   firstChangedRow,
   MINIMAP_BOTTOM,
@@ -30,9 +29,7 @@ import {
   type MinimapColors,
 } from "./paint";
 import "./chatMinimap.css";
-
-/// While the rows keep changing, the picture follows at most this often.
-export const REDRAW_MS = 250;
+import { REDRAW_MS, placeholderLook } from "./chatMinimapModel";
 /// A scroll rests this long before rows measured while it moved draw (at most SCROLL_MAX_WAIT_MS late).
 const SCROLL_REST_MS = 150;
 const SCROLL_MAX_WAIT_MS = 1000;
@@ -60,10 +57,6 @@ type Props = {
   change?: RowsChange;
 };
 type Source = { rows: readonly AcpmuxRow[]; layout: TranscriptLayout };
-
-/// The placeholder's look: the shimmer, except in the gallery, which compares the others. Only the
-/// gallery sets an arm in globalThis.cmuxExperiments; a stored cmux.experiments override is ignored.
-export const placeholderLook = () => experimentArm(chatMinimapPlaceholder, { stored: {} });
 
 /// Draws nothing, and reads no row, unless the setting is on; the rows are tracked only then.
 export function ChatMinimap(props: Props) {

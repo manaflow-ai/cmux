@@ -16,6 +16,12 @@ import { subsessionCall } from "./subsessionCalls";
 import { argsSource, fieldsText, inputFields, opensToFields, requestText } from "./toolInputFields";
 import { fileCard, fileCardText } from "./fileResults";
 import { plainText } from "./messageMenu";
+import { drawnPromptText, type PasteJoin } from "./promptCollapse";
+import { bubbleParts } from "./bubbleParts";
+import { chiefEnvelope } from "./chiefEnvelope";
+import { sentPasteJoin } from "./sentPasteJoin.experiment";
+import { experimentArm } from "../../../experiments/experiment";
+import { type AttachmentView, composerSettingsSnapshot, useComposerSettings } from "../composerSettings";
 import { drawnThought } from "./thoughts";
 import { callOutput, rowFailed, shellOutput, toolFailure } from "./toolFailure";
 import { agentCall } from "./agentCalls";
@@ -33,6 +39,8 @@ export type FindMatch = { rowIndex: number; rowId: string; occurrence: number };
 
 export type FindMatchesCache = {
   needle: string;
+  /// How prompts drew when these matches were found (`promptLook`): another look redoes every row.
+  look: string;
   rows: readonly AcpmuxRow[];
   matches: FindMatch[];
 };
@@ -181,9 +189,26 @@ function searchableActivityText(item: AcpmuxActivity): string {
   return text;
 }
 
+/// What a prompt's bubble draws depends on (bubbleParts.ts): the pane's attachment view, which
+/// moves attachments to the band and so joins the words on either side, and the paste join.
+type PromptLook = { view: AttachmentView; join: PasteJoin };
+const promptLook = (view: AttachmentView = composerSettingsSnapshot().attachmentView): PromptLook => ({
+  view,
+  join: experimentArm(sentPasteJoin),
+});
+const lookKey = (look: PromptLook) => `${look.view}\n${look.join}`;
+
 /** What Find reads of a row: a prompt's or reply's text, or its tool calls'. Diffs come last, so
  * the drawn matches keep their order and a diff's match lands on the row's last drawn one. */
-function rowText(row: AcpmuxRow): string | undefined {
+function rowText(row: AcpmuxRow, look: PromptLook): string | undefined {
+  // A prompt its bubble draws in its parts' order, in the pane's attachment view: the words it
+  // draws, and a text file's body where its chip opens to it (the chip opens to a match,
+  // InlinePromptContent.tsx PromptTextFile). One whose parts are only for its bands draws its
+  // recorded text, as any prompt does, and a Chief's draws its own bubble (ChiefPromptBubble.tsx),
+  // as the row's estimate reads it (model.ts).
+  const parts =
+    row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text) ? bubbleParts(row, look.view) : undefined;
+  if (parts) return drawnPromptText(parts, look.join);
   if (SEARCHED_KINDS.has(row.kind)) return row.text;
   if (!row.items?.length) return undefined;
   return [...row.items.map(drawnText), ...row.items.map(diffText)].join("\n");
@@ -192,50 +217,57 @@ function rowText(row: AcpmuxRow): string | undefined {
 // Rows are immutable snapshots. Keep the assembled, case-folded search text by row identity so
 // typing a query does not rebuild every tool output and edit diff on every keystroke. A weak map
 // lets old transcript snapshots disappear as virtualization/history replacement releases them.
-const searchableTextCache = new WeakMap<AcpmuxRow, string | undefined>();
+// A prompt's text depends on how it draws (`PromptLook`), so the entry keeps the look it was read in.
+const searchableTextCache = new WeakMap<AcpmuxRow, { look: string; text: string | undefined }>();
 
-function searchableText(row: AcpmuxRow): string | undefined {
-  if (searchableTextCache.has(row)) return searchableTextCache.get(row);
-  const raw = rowText(row);
+function searchableText(row: AcpmuxRow, look: PromptLook, key: string): string | undefined {
+  const cached = searchableTextCache.get(row);
+  if (cached?.look === key) return cached.text;
+  const raw = rowText(row, look);
   const text = raw === undefined ? undefined : foldFind(raw);
-  searchableTextCache.set(row, text);
+  searchableTextCache.set(row, { look: key, text });
   return text;
 }
 
-/** Every match of `query` (case-insensitive) in the prompts, replies and work of `rows`, in order. */
+/** Every match of `query` (case-insensitive) in the prompts, replies and work of `rows`, in order.
+ * Prompts read as they draw in attachment view `view` (the pane's, by default). */
 export function findMatchesIncremental(
   rows: readonly AcpmuxRow[],
   query: string,
   previous?: FindMatchesCache,
+  view?: AttachmentView,
 ): FindMatchesResult {
   const needle = foldFind(query);
+  const look = promptLook(view);
+  const key = lookKey(look);
   if (!needle) {
-    return { matches: [], cache: { needle, rows, matches: [] }, scannedRows: 0 };
+    return { matches: [], cache: { needle, look: key, rows, matches: [] }, scannedRows: 0 };
   }
 
+  const same = previous?.needle === needle && previous.look === key;
   let prefix = 0;
-  if (previous?.needle === needle) {
+  if (same) {
     while (prefix < rows.length && prefix < previous.rows.length && rows[prefix] === previous.rows[prefix]) prefix += 1;
   }
 
-  if (previous?.needle === needle && prefix === rows.length && rows.length === previous.rows.length) {
-    return { matches: previous.matches, cache: { needle, rows, matches: previous.matches }, scannedRows: 0 };
+  if (same && prefix === rows.length && rows.length === previous.rows.length) {
+    return { matches: previous.matches, cache: { needle, look: key, rows, matches: previous.matches }, scannedRows: 0 };
   }
 
-  const matches = previous?.needle === needle ? previous.matches.filter(({ rowIndex }) => rowIndex < prefix) : [];
+  const matches = same ? previous.matches.filter(({ rowIndex }) => rowIndex < prefix) : [];
   for (let rowIndex = prefix; rowIndex < rows.length; rowIndex += 1) {
     const row = rows[rowIndex];
-    const text = searchableText(row);
+    const text = searchableText(row, look, key);
     if (!text) continue;
     let occurrence = 0;
     for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + needle.length))
       matches.push({ rowIndex, rowId: row.id, occurrence: occurrence++ });
   }
-  return { matches, cache: { needle, rows, matches }, scannedRows: rows.length - prefix };
+  return { matches, cache: { needle, look: key, rows, matches }, scannedRows: rows.length - prefix };
 }
 
-export function findMatches(rows: readonly AcpmuxRow[], query: string): FindMatch[] {
-  return findMatchesIncremental(rows, query).matches;
+export function findMatches(rows: readonly AcpmuxRow[], query: string, view?: AttachmentView): FindMatch[] {
+  return findMatchesIncremental(rows, query, undefined, view).matches;
 }
 
 export type ChatFind = {
@@ -268,14 +300,16 @@ export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
   const [active, setActive] = useState(0);
   const [focusRequest, setFocusRequest] = useState(0);
   const matchesCache = useRef<FindMatchesCache | undefined>(undefined);
+  // A prompt reads as its bubble draws in the pane's attachment view, so switching it finds again.
+  const { attachmentView } = useComposerSettings();
   const matches = useMemo(() => {
     if (!open) return NO_MATCHES;
     // While Find is open the pane draws every output update (ChatFindScope.tsx); a running
     // command's output from before it opened is in liveToolOutput.ts, not `rows`.
-    const result = findMatchesIncremental(rowsWithLiveOutput(rows), query, matchesCache.current);
+    const result = findMatchesIncremental(rowsWithLiveOutput(rows), query, matchesCache.current, attachmentView);
     matchesCache.current = result.cache;
     return result.matches;
-  }, [open, rows, query]);
+  }, [open, rows, query, attachmentView]);
   const count = matches.length;
   const current = count ? Math.min(active, count - 1) : 0;
   // Where focus was when the bar opened, so closing it puts the reader back there.

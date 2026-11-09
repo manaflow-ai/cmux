@@ -4,7 +4,8 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { AddAccountDialog, accountIdFor } from "./AddAccountDialog";
+import { AddAccountDialog } from "./AddAccountDialog";
+import { accountIdFor } from "./addAccountDialogModel";
 import type { NewChatAccount } from "./chatAccounts";
 
 let dom: JSDOM | undefined;

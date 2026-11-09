@@ -92,6 +92,8 @@ public final class AgentPaneView: NSView {
     /// host (`cmux-agent://pane`, deleted with P5 of the agent pane move).
     let page: PageWebView?
     let pageEvents: AgentPageProvider?
+    /// The page's generated resources (its media, its chat's drawn copy); nil on the old host.
+    private var pageResources: AgentPageResources?
     /// Whether the page can take typing yet (the key dispatcher queues keys until then).
     public let inputReadiness: PageInputReadiness
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
@@ -213,8 +215,13 @@ public final class AgentPaneView: NSView {
             provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
             provider.tailHost = model.host
             provider.tabKey = { [weak model] in model?.tabKey() }
+            // A chat's drawn copy is kept only outside incognito (``AgentPaneChatSnapshots``).
+            let keepsSnapshots = { @MainActor [weak model] in model?.sendIsIncognito.map { !$0() } ?? false }
+            provider.keepsChatSnapshots = keepsSnapshots
+            let resources = AgentPageResources(session: { [weak model] in model?.sessionId }, allowed: keepsSnapshots)
+            pageResources = resources
             guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), testRoot: testRoot, provider: provider, renderRate: renderRate,
-                                                                 chromium: chromium, panelProvider: panelProvider)
+                                                                 chromium: chromium, panelProvider: panelProvider, resources: resources)
             else { return nil }
             self.page = page
             pageEvents = provider
@@ -266,6 +273,10 @@ public final class AgentPaneView: NSView {
         self.webView = webView
         super.init(frame: .zero)
         pageEvents?.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
+        pageResources?.themeKey = { [weak self] in
+            guard let self else { return nil }
+            return self.performWithTheme { AgentPageEvent.theme(self.themeTokens, surface: self.surfaceKind)?.value["key"]?.stringValue }
+        }
         model.tabRow.supportsNativeTools = pageEvents != nil
         model.onTabRowToolInvoked = { [weak self] id, menuItemID in
             self?.invokeTabRowTool(id, menuItemID: menuItemID)
@@ -402,7 +413,7 @@ public final class AgentPaneView: NSView {
         guard page == nil else { return }
         applyZoom()
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.userScale) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale) }) {
                 guard let self else { return }
                 self.applyZoom()
             }
@@ -508,17 +519,21 @@ public final class AgentPaneView: NSView {
     /// The app's microphone watcher (``AgentPaneShared/microphone``); nil: no outside-dictation mark.
     var microphoneActivity: MicrophoneActivity?
 
-    /// While `on`, tells the page whenever another app takes or releases the microphone; off (the
-    /// page's composers lost the keyboard) or a closed pane stops watching.
+    /// While `on`, tells the page whenever another app takes or releases the microphone, and its
+    /// level while metered; off (the page's composers lost the keyboard) or a closed pane stops watching.
     func watchMicrophone(_ on: Bool) {
         guard let microphoneActivity else { return }
         guard on, let pageEvents else {
             microphoneActivity.unwatch(self)
             return
         }
-        microphoneActivity.watch(self) { [weak pageEvents] state in
+        microphoneActivity.watch(self, onLevel: { [weak pageEvents] level in
+            // A level is stale at once: with no page subscribed, none is buffered for later.
+            guard let pageEvents, pageEvents.hasSubscribers else { return }
+            _ = pageEvents.publish(.micLevel(level))
+        }, onChange: { [weak pageEvents] state in
             _ = pageEvents?.publish(.micActivity(state))
-        }
+        })
     }
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
