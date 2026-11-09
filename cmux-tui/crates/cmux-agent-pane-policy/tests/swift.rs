@@ -83,3 +83,68 @@ fn the_act_as_me_covers_are_the_macos_hosts() {
         "policy.json act_as_me_covers vs AgentPaneActAsMe.covers"
     );
 }
+
+/// The method sets of one Swift `Set<String>` table, `// comments` dropped.
+fn swift_set(file: &str, declaration: &str) -> BTreeSet<String> {
+    strings(&block(&read(file), declaration, "\n    ]")).into_iter().collect()
+}
+
+#[test]
+fn the_session_scoped_methods_are_the_macos_hosts() {
+    let swift =
+        swift_set("AcpmuxPaneMethods.swift", "public static let sessionScoped: Set<String> = [");
+    assert_eq!(
+        policy().session_scoped,
+        swift,
+        "policy.json session_scoped vs AcpmuxPaneMethods.sessionScoped"
+    );
+    let swift = swift_set(
+        "AcpmuxPaneMethods.swift",
+        "public static let optionallySessionScoped: Set<String> = [",
+    );
+    assert_eq!(
+        policy().optionally_session_scoped,
+        swift,
+        "policy.json optionally_session_scoped vs AcpmuxPaneMethods.optionallySessionScoped"
+    );
+}
+
+/// `whenOptionAllows` as policy.json names it: `when_option_allows`.
+fn snake_case(swift_case: &str) -> String {
+    let mut out = String::new();
+    for c in swift_case.chars() {
+        if c.is_ascii_uppercase() {
+            out.push('_');
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+#[test]
+fn the_gesture_rules_are_the_macos_hosts() {
+    let table = block(
+        &read("AcpmuxPaneMethods.swift"),
+        "public static let gestureRules: [String: GestureRule] = [",
+        "\n    ]",
+    );
+    // One entry per line: `"method": .rule,`.
+    let mut swift = BTreeMap::new();
+    for line in table.lines().map(str::trim).filter(|line| line.starts_with('"')) {
+        let (method, rest) = line[1..].split_once('"').unwrap_or_else(|| panic!("entry: {line}"));
+        let rule = rest.trim_start_matches(':').trim().trim_end_matches(',');
+        let rule = rule.strip_prefix('.').unwrap_or_else(|| panic!("entry: {line}"));
+        swift.insert(method.to_owned(), snake_case(rule));
+    }
+    let raw: serde_json::Value =
+        serde_json::from_str(include_str!("../policy.json")).expect("policy.json parses");
+    let rust: BTreeMap<String, String> = raw["gesture_rules"]
+        .as_object()
+        .expect("policy.json gesture_rules")
+        .iter()
+        .map(|(method, rule)| (method.clone(), rule.as_str().expect("a rule name").to_owned()))
+        .collect();
+    assert_eq!(rust, swift, "policy.json gesture_rules vs AcpmuxPaneMethods.gestureRules");
+}

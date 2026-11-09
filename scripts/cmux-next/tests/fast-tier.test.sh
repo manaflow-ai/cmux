@@ -121,7 +121,8 @@ expect "admission passes a stable entry" 0 "^FAST-TIER ADMISSIBLE ok .*3/3 passe
 registry '{"entries": [
   {"name": "tokens", "kind": "swift", "package": "Packages/Shared/CmuxHomeRender", "filter": "MotionTokenTests", "owner": "op-test"},
   {"name": "intents", "kind": "swift", "package": "Packages/Shared/CmuxHomeRender", "filter": "IntentMappingTests", "owner": "op-test"},
-  {"name": "clock", "kind": "cargo", "path": "cmux-tui", "package": "cmux-motion", "owner": "op-test"}]}'
+  {"name": "clock", "kind": "cargo", "path": "cmux-tui", "package": "cmux-motion", "owner": "op-test"},
+  {"name": "clock frames", "kind": "cargo", "path": "cmux-tui", "package": "cmux-motion", "filter": "frames", "owner": "op-test"}]}'
 run --dry-run
 expect "dry run builds a Swift package once" 0 "^BUILD swift build --build-tests --package-path Packages/Shared/CmuxHomeRender$"
 if [ "$(grep -c '^BUILD swift build' <<<"$out")" -ne 1 ]; then echo "FAIL: one build per Swift package" >&2; printf '%s\n' "$out" >&2; exit 1; fi
@@ -129,6 +130,7 @@ expect "dry run plans each Swift package's tests once, outside the cap" 0 "^BUIL
 expect "dry run tests each Swift entry against the built package" 0 "^RUN tokens: swift test --skip-build --package-path Packages/Shared/CmuxHomeRender --filter MotionTokenTests$"
 expect "dry run builds cargo test binaries once, outside the cap" 0 "^BUILD cargo test --locked --no-run -p cmux-motion \\(in cmux-tui\\)$"
 expect "dry run tests a cargo entry" 0 "^RUN clock: cargo test --locked -p cmux-motion \(in cmux-tui\)$"
+expect "dry run tests a second entry of one cargo package with its filter" 0 "^RUN clock frames: cargo test --locked -p cmux-motion -- frames \(in cmux-tui\)$"
 
 # --kind splits one registry between the Linux cargo job and the Mac Swift job:
 # each runs and builds only its kinds, and a kind with no entry is refused.
