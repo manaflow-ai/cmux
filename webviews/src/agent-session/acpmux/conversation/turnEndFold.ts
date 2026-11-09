@@ -5,7 +5,7 @@
 //
 // While a turn runs its calls stay in sight (turns.ts `codexRuns`). When it ends, one update swaps
 // those rows for the closed "Worked for" line and the answer. This file plays that swap on the
-// house settle (`--cmux-motion-settle` on `--cmux-ease-settle`: 265 ms, cubic-bezier(0.16, 1, 0.3,
+// house settle (`--cmux-motion-settle` on `--cmux-ease-settle`: 180 ms, cubic-bezier(0.16, 1, 0.3,
 // 1)) as a FLIP in the view's own coordinates:
 // - before the swap renders, the rows drawn now are read: each one's top in the view, and a drawn
 //   copy of each row the swap takes away (`captureTurnEnd`, from VirtualTranscript's render);
@@ -18,6 +18,7 @@
 // above it come down to meet the folded line. Reduce Motion, `data-agent-motion="off"` or no Web
 // Animations: the swap applies at once and nothing here runs. The work is bounded by the rows
 // mounted now (the view's window), never the whole chat.
+import { MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 import { cssTimeMs, foldMs } from "./fold";
 import { ghostOf } from "./turnFold";
 import { LIVE_THINKING } from "./turns";
@@ -33,9 +34,9 @@ export const TURN_END_LOOK_ATTR = "data-turn-end-fold";
 /// Set on the thread while the fold plays (tests and the gallery's shift gate read it).
 export const TURN_END_ATTR = "data-turn-end-folding";
 
-/// The house settle when the page has no token (a test DOM): 265 ms.
-const SETTLE_FALLBACK_MS = 265; // motion-allow: the house settle's own length (schemas/motion-scale `settle`)
-const SETTLE_FALLBACK_EASE = "cubic-bezier(0.16, 1, 0.3, 1)";
+/// The house settle when the page has no token (a test DOM).
+const SETTLE_FALLBACK_MS = MOTION_SETTLE_MS;
+const SETTLE_FALLBACK_EASE = MOTION_SETTLE;
 /// How many trailing rows hold the running turn's line: it is the turn's last row, after which come
 /// only rows the view adds (a date, the queue's line).
 const LINE_TAIL = 6;
