@@ -137,10 +137,17 @@ fn another_host_uses_only_its_own_sealed_token() {
 fn a_checkout_cloned_through_cmux_keeps_its_helper_for_push() {
     let step = Repo::new("o", "r").step();
     let at = |needle: &str| step.find(needle).unwrap_or_else(|| panic!("{needle}"));
-    let keep = at(r#"if { [ "$cred" = cmux-github ] || [ "$cred" = cmux-gitlab ]; }"#);
+    let defined = at("keep_helper() {");
+    let kept = at(r#"if { [ "$cred" = cmux-github ] || [ "$cred" = cmux-gitlab ]; }"#);
+    assert!(defined < kept, "the helper is kept by keep_helper");
+    // A start keeps it after its clone or update, before its record; a warm update behind the
+    // chat keeps it after its fetch (review F2, cmux#38997 aafeae5053e).
+    let keep = at("\nkeep_helper\n");
     let cloned = at("status=cloned");
     let result = at(r#"sha=$(g -C "$dir" rev-parse"#);
     assert!(cloned < keep && keep < result);
+    let fetched = at(r#"if g -C "$dir" fetch --quiet --tags origin; then"#);
+    assert!(step[fetched..].trim_start_matches(|c| c != '\n').trim_start().starts_with("keep_helper"));
     assert!(
         step.contains(r#"git -C "$dir" config --local --add "$key.helper" """#),
         "a global helper is dropped first"
