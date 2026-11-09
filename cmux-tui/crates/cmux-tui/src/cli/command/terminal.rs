@@ -281,6 +281,37 @@ pub(super) fn parse_terminal(
                 stream: false,
             }))
         }
+        [selector, "pin-tail", state] => {
+            // `current` is the terminal the command runs in.
+            let caller = std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty());
+            let selector = match (*selector, caller) {
+                ("current", Some(caller)) => caller,
+                ("current", None) => {
+                    return Err(UsageError::new(
+                        "terminal current pin-tail needs a caller terminal (CMUX_TUI_TERMINAL_ID is not set); pass a term_ ID",
+                    ));
+                }
+                (selector, _) if matches!(Selector::parse(selector), Ok(Selector::Id(_))) => {
+                    selector.to_owned()
+                }
+                _ => return Err(UsageError::new("terminal pin-tail needs a term_ terminal ID or current")),
+            };
+            validate_prefixed_id("terminal", "term", &selector)?;
+            let pinned = match *state {
+                "on" => true,
+                "off" => false,
+                _ => return Err(UsageError::new("terminal pin-tail must be on or off")),
+            };
+            Ok(CommandPlan::RawCommand(super::super::raw::RawCommandPlan {
+                request: json!({
+                    "id": 1,
+                    "cmd": "set-terminal-tail-pin",
+                    "terminal": selector,
+                    "pinned": pinned,
+                }),
+                stream: false,
+            }))
+        }
         _ => usage("terminal action"),
     }
 }

@@ -746,6 +746,7 @@ tab <selector> terminal|browser ...
 terminal list [--cwd <path>]
 terminal <selector> show|status|write|keys|mouse|copy|move|project|attach|close
 terminal <term_id> keep on|off
+terminal <term_id>|current pin-tail on|off
 terminal <selector> focus <in|out>
 terminal <selector> screen read [--unwrap] [--lines <n>]
 terminal <selector> screen wait --pattern <regex> [--new] [--timeout-ms <n>]

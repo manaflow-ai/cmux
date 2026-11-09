@@ -236,6 +236,7 @@ impl Mux {
         // Owned status entries a previous run left: re-arm their watches and
         // drop the ones whose TTL passed while the daemon was down.
         crate::state::status_owners::resume(self);
+        self.clear_stale_terminal_tails();
         let ephemeral = self.read_registry_state(crate::state::store::ephemeral_workspaces)?;
         for workspace_id in ephemeral {
             self.close_ephemeral_workspace(&workspace_id, TerminalCloseGuard::None)?;

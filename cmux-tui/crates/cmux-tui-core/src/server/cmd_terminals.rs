@@ -242,6 +242,23 @@ pub(super) fn set_terminal_keep(
     }))
 }
 
+pub(super) fn set_terminal_tail_pin(
+    mux: &Arc<Mux>,
+    surface: Option<SurfaceId>,
+    terminal: Option<String>,
+    pinned: bool,
+) -> anyhow::Result<Value> {
+    let surface = match (surface, terminal) {
+        (Some(surface), None) => surface,
+        (None, Some(terminal)) => mux
+            .placed_surface_of_terminal(&terminal)
+            .ok_or_else(|| anyhow::anyhow!("terminal_not_found"))?,
+        _ => anyhow::bail!("bad request: exactly one of surface or terminal"),
+    };
+    let terminal = mux.set_terminal_tail_pin(surface, pinned)?;
+    Ok(json!({ "terminal": terminal.as_str(), "pinned": pinned }))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn create_terminal(
     mux: &Arc<Mux>,
