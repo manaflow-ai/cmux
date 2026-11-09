@@ -1111,6 +1111,11 @@ export class SubagentFold {
         if (value !== undefined) agent[key] = value;
       }
     }
+    // A completed subagent's whole last reply, which acpmux puts on its end (subagents.rs): what its
+    // report card shows, where `lastMessage` is only a 240-character preview. A sub-session's
+    // record says its reply (`reduceChild`) and is not overwritten.
+    const said = text(change.result);
+    if (said && change.state === "completed" && !this.recorded.has(agent.id)) agent.result = said;
     if (change.background === true) agent.background = true;
     const done = count(change.agents?.done);
     const started = count(change.agents?.started);
