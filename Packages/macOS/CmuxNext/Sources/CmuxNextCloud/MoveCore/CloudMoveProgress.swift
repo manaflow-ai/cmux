@@ -1,78 +1,95 @@
 public import Foundation
+import CmuxNextWakeups
 
 /// Move to Cloud's and Bring Back Local's working toast while the chat moves: the step it is on, why it
 /// waits there and about how long is left, as Rust says it (`moves::progress`, op `cloud_move_progress`).
-/// The app says which step runs and hands on the folder copy's progress; this asks Rust again each
-/// second for the countdown and hands `show` the line only when its text changed.
+/// Glue only: the app says which step runs and pushes the folder copy's progress lines as they come;
+/// Rust answers the line and when it next changes on its own (`nextMs`). The one timer here is a
+/// one-shot ``DemandTimer`` at that moment, replaced by every new answer. It stops when the move ends (``end()``,
+/// which the app's run calls on success, failure and cancellation alike) and never outlives this
+/// object (it holds it weakly).
 @MainActor
 public final class CloudMoveProgress {
     public enum Direction: String, Encodable, Sendable { case move, bringBack }
     public enum Stage: String, Encodable, Sendable { case machine, copy, agent, tab }
-    /// The machine the move reaches: running, paused (it resumes first) or none yet (Cloud starts one).
-    public enum Machine: String, Encodable, Sendable { case live, paused, new }
 
     private struct Facts: Encodable {
-        var direction: Direction, stage: Stage, machine: Machine, name: String?, stageMs: UInt64, copy: SeedProgress?
+        var direction: Direction, stage: Stage, machine: String?, name: String?, stageMs: UInt64, copy: SeedProgress?
     }
-    private struct Line: Decodable { var text: String }
+    private struct Line: Decodable { var text: String, nextMs: UInt64? }
 
     private let direction: Direction
     private let show: @MainActor (String) -> Void
-    private var facts: (stage: Stage, machine: Machine, name: String?)?
-    private var started = ContinuousClock.now
+    private let elapsed: @Sendable () -> Duration
+    private var facts: (stage: Stage, machine: String?, name: String?)?
+    private var started = Duration.zero
     private var copy: SeedProgress?
     private var shown: String?
-    private var ticker: Task<Void, Never>?
+    private let wake: DemandTimer
 
     /// `show` gets each new line (the app puts it under the toast's headline).
-    public init(_ direction: Direction, show: @escaping @MainActor (String) -> Void) {
+    public convenience init(_ direction: Direction, show: @escaping @MainActor (String) -> Void) {
+        self.init(direction, clock: ContinuousClock(), show: show)
+    }
+
+    /// ``init(_:show:)`` on `clock` (a test's manual clock).
+    public init<C: Clock & Sendable>(_ direction: Direction, clock: C, show: @escaping @MainActor (String) -> Void) where C.Duration == Duration {
         self.direction = direction
         self.show = show
+        let origin = clock.now
+        elapsed = { origin.duration(to: clock.now) }
+        wake = DemandTimer(owner: "CloudMoveProgress", clock: clock)
     }
 
-    /// The move starts `stage` now; `name` is the machine's, once there is one.
-    public func enter(_ stage: Stage, machine: Machine = .live, name: String? = nil) {
+    /// Whether a wake is set: only while a move runs and its line changes on its own.
+    public var isWaiting: Bool { wake.isScheduled }
+
+    /// The move starts `stage` now; `machine` is the machine's status as Cloud says it (`new`: none yet), `name` its
+    /// name, once there is one. Rust reads what they mean.
+    public func enter(_ stage: Stage, machine: String? = nil, name: String? = nil) {
         facts = (stage, machine, name)
-        started = .now
+        started = elapsed()
         copy = nil
         render()
-        guard ticker == nil else { return }
-        ticker = Task { [weak self] in
-            // wakeup-allow: the countdown's one tick a second while a move runs; end() cancels it
-            while !Task.isCancelled, (try? await Task.sleep(for: .seconds(1))) != nil {
-                self?.render()
-            }
-        }
     }
 
-    /// The move reaches `machine` now: resuming it when paused, connecting otherwise; nil: Cloud starts a new one.
+    /// The move reaches `machine` now; nil: Cloud starts a new one.
     public func reaching(_ machine: CloudMachine?) {
-        guard let machine else { return enter(.machine, machine: .new) }
-        enter(.machine, machine: machine.status == .paused ? .paused : .live, name: machine.title)
+        enter(.machine, machine: machine?.status.rawValue ?? "new", name: machine?.title)
     }
 
-    /// The folder copy's newest progress line.
+    /// The folder copy's newest progress line, pushed as it comes.
     public func copied(_ progress: SeedProgress) {
         copy = progress
         render()
     }
 
     /// Something else shows on the toast for now (a machine update): no line until the next ``enter(_:machine:name:)``.
-    public func hold() { (facts, shown) = (nil, nil) }
-
-    /// The move ended: no more lines.
-    public func end() {
-        ticker?.cancel()
-        ticker = nil
-        facts = nil
+    public func hold() {
+        (facts, shown) = (nil, nil)
+        stopWaking()
     }
 
+    /// The move ended: no more lines and no wake.
+    public func end() {
+        facts = nil
+        stopWaking()
+    }
+
+    private func stopWaking() { wake.cancel() }
+
     private func render() {
+        stopWaking()
         guard let facts else { return }
-        let ms = UInt64(max(0, started.duration(to: .now).wholeMilliseconds))
+        let ms = UInt64(max(0, (elapsed() - started).wholeMilliseconds))
         let request = Facts(direction: direction, stage: facts.stage, machine: facts.machine, name: facts.name, stageMs: ms, copy: copy)
-        guard let line = CloudMoveCore().call("progress", request, as: Line.self), line.text != shown else { return }
-        shown = line.text
-        show(line.text)
+        guard let line = CloudMoveCore().call("progress", request, as: Line.self) else { return }
+        if line.text != shown {
+            shown = line.text
+            show(line.text)
+        }
+        guard let next = line.nextMs else { return }
+        // One deadline when Rust says the line next changes; each answer replaces it, end() and hold() cancel it.
+        wake.schedule(after: .milliseconds(Int64(clamping: next))) { @MainActor [weak self] in self?.render() }
     }
 }

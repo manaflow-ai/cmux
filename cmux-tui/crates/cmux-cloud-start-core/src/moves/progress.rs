@@ -34,17 +34,19 @@ pub enum Stage {
 
 const STAGES: [Stage; 4] = [Stage::Machine, Stage::Copy, Stage::Agent, Stage::Tab];
 
-/// The machine the move reaches, as the app found it.
+/// The machine the move reaches, from its status as the Cloud API names it (`paused`), or `new`
+/// when there is none yet.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Machine {
-    /// Running (connected or not yet): a link opens.
-    #[default]
-    Live,
     /// Paused (idle auto-pause): it resumes first.
     Paused,
     /// None to reuse: Cloud starts a new one.
     New,
+    /// Any other status (running, starting, provisioning): a link opens.
+    #[default]
+    #[serde(other)]
+    Live,
 }
 
 /// What the app knows now.
@@ -73,12 +75,15 @@ pub struct Line {
     /// About how long is left of the whole move; none once a step runs past what it usually takes
     /// and no copy progress says how far it is.
     pub eta_ms: Option<u64>,
-    /// When to ask again even if nothing else changed (the countdown).
-    pub refresh_ms: u64,
+    /// How long from now until this text changes on its own (the countdown reaches its next
+    /// value, or the step runs past its usual time); none when only a new fact changes it (a new
+    /// step, the copy's next progress line, which the app hands on as it comes). The app asks
+    /// again once at that time, and never after the move ended.
+    pub next_ms: Option<u64>,
 }
 
-/// How often the app asks again while a step runs.
-pub const REFRESH_MS: u64 = 1_000;
+/// The longest countdown searched for its next change, in whole seconds (an hour).
+const MAX_SEARCH_SECONDS: u64 = 3_600;
 
 /// What a step usually takes, in milliseconds. Starting a new machine "usually takes under a
 /// minute" (the New Cloud Workspace progress text); resuming a paused one is about half that.
@@ -142,6 +147,14 @@ pub fn line(facts: &Facts) -> Line {
         None => None,
     };
     let eta_ms = current.map(|current| current.saturating_add(later));
+    // A measured copy changes with its progress lines; an overrun line never changes on its own.
+    let next_ms = match (measured, current, eta_ms) {
+        (None, Some(current), Some(eta)) => {
+            let overrun = current.saturating_add(1);
+            Some(next_change_ms(eta).map_or(overrun, |next| next.min(overrun)))
+        }
+        _ => None,
+    };
     let what = doing(facts);
     let when = match eta_ms {
         Some(eta) => left_text(eta),
@@ -149,13 +162,19 @@ pub fn line(facts: &Facts) -> Line {
     };
     let steps = STAGES.len();
     let step = step.saturating_add(1);
-    Line {
-        text: format!("{step} of {steps} · {what} · {when}"),
-        step,
-        steps,
-        eta_ms,
-        refresh_ms: REFRESH_MS,
-    }
+    Line { text: format!("{step} of {steps} · {what} · {when}"), step, steps, eta_ms, next_ms }
+}
+
+/// How long until the text for `eta` left reads differently as it counts down: the time to the
+/// whole second below which `left_text` changes. None past an hour, or when it never changes.
+fn next_change_ms(eta: u64) -> Option<u64> {
+    let now = left_text(eta);
+    let seconds = eta.saturating_add(999) / 1_000;
+    (0..seconds.min(MAX_SEARCH_SECONDS))
+        .rev()
+        .map(|whole| whole.saturating_mul(1_000))
+        .find(|at| left_text(*at) != now)
+        .map(|at| eta.saturating_sub(at))
 }
 
 /// The step, in the person's words.
@@ -188,9 +207,14 @@ fn doing(facts: &Facts) -> String {
     }
 }
 
-/// "about 40 s left", "about 2 min left", "a few seconds left".
+/// "about 40 s left", "about 2 min left", "a few seconds left" (under 5 whole seconds, as `about`
+/// counts them).
 fn left_text(ms: u64) -> String {
-    if ms < 5_000 { "a few seconds left".to_owned() } else { format!("{} left", about(ms)) }
+    if ms.saturating_add(999) / 1_000 < 5 {
+        "a few seconds left".to_owned()
+    } else {
+        format!("{} left", about(ms))
+    }
 }
 
 /// A duration as a person reads it: under a minute in 5 s steps, rounded up; then whole minutes.
@@ -282,6 +306,44 @@ mod tests {
         let early = line(&facts(Stage::Agent, 0)).eta_ms;
         let later = line(&facts(Stage::Agent, 6_000)).eta_ms;
         assert_eq!((early, later), (Some(13_000), Some(7_000)));
+    }
+
+    #[test]
+    fn the_app_asks_again_only_when_the_text_would_change() {
+        // 13 s left reads "about 15 s" until it reaches 10 s: 3 s from now.
+        let agent = line(&facts(Stage::Agent, 0));
+        assert_eq!(agent.next_ms, Some(3_000));
+        let at_ten = line(&facts(Stage::Agent, 3_000));
+        assert_ne!(at_ten.text, agent.text);
+        assert_eq!(line(&facts(Stage::Agent, 2_999)).text, agent.text);
+        // "a few seconds left" changes only when the step runs past its usual 3 s.
+        assert_eq!(line(&facts(Stage::Tab, 1_000)).next_ms, Some(2_001));
+        assert!(line(&facts(Stage::Tab, 3_001)).text.contains("longer than usual"));
+        // An overrun line, and a copy its progress lines measure, never change on their own.
+        assert_eq!(line(&facts(Stage::Agent, 30_000)).next_ms, None);
+        let mut copying = facts(Stage::Copy, 10_000);
+        copying.copy = Some(copy(301, 1_204));
+        assert_eq!(line(&copying).next_ms, None);
+        // Minutes: 88 s reads "about 1 min" until 55 s, 33 s from now.
+        let mut new = facts(Stage::Machine, 0);
+        new.machine = Machine::New;
+        assert_eq!(line(&new).next_ms, Some(33_000));
+    }
+
+    #[test]
+    fn every_wake_lands_on_a_change() {
+        for stage in STAGES {
+            let mut ms = 0;
+            while let Some(next) = line(&facts(stage, ms)).next_ms {
+                let before = line(&facts(stage, ms)).text;
+                assert_eq!(
+                    line(&facts(stage, ms.saturating_add(next).saturating_sub(1))).text,
+                    before
+                );
+                ms = ms.saturating_add(next);
+                assert_ne!(line(&facts(stage, ms)).text, before, "{stage:?} at {ms} ms");
+            }
+        }
     }
 
     #[test]
