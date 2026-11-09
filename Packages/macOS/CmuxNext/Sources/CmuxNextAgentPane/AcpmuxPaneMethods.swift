@@ -445,8 +445,9 @@ nonisolated enum AcpmuxPaneMethods {
     /// Whether a granting frame of `method` may use the current gesture: a permission allow needs
     /// the person's fresh click or permission shortcut, never a typing gesture (cx-ocdz).
     @MainActor static func answerAllowed(_ method: String?, _ gestures: AgentPaneUserGestures) -> Bool {
+        // A preset approval lets agents start chats with no prompts from then on: a click, never typing.
         let answers = method == "_acpmux/permission_respond" || method == "_acpmux/permission_group_respond"
-            || method == "_acpmux/plan/build"
+            || method == "_acpmux/plan/build" || method == "_acpmux/presets"
         return !answers || gestures.hasFreshAnswerGesture
     }
 

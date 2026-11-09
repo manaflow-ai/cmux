@@ -119,6 +119,15 @@ impl Hub {
             .and_then(|id| self.resolve(&id).ok().filter(|s| s.id == id))
             .filter(|s| !s.meta().remote_origin)
             .map(|s| s.id.clone());
+        // The request adds nothing of its own to its preset: what an approved preset's exception
+        // below needs (`unattended_presets.rs`; review F2 of #39333).
+        let preset_only = harness.is_none()
+            && model.is_none()
+            && effort.is_none()
+            && policy.is_none()
+            && route.is_none()
+            && adopt.is_none()
+            && session_env.is_empty();
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
         // Resolution is a lookup, never a guess: preset → head (family or
@@ -146,9 +155,10 @@ impl Hub {
         // the chat starts at the person's configured default, as a start with no starter does
         // (user 2026-11-03: an agent in Manual left the chats it opened in Manual).
         let held = self.config.read().await.hold_agent_starts_to_starter;
-        // A no-prompt preset the person approved for the contents this start resolved
-        // (`unattended_presets.rs`): its policy holds whatever the starter's, but in a sub-session.
-        let approved_preset = match preset_name.as_deref() {
+        // A no-prompt preset the person approved for the contents this start resolved, with
+        // nothing of the request's own (`unattended_presets.rs`): its policy holds whatever the
+        // starter's, but in a sub-session.
+        let approved_preset = match preset_name.as_deref().filter(|_| preset_only) {
             Some(n) => self.config.read().await.presets.get(n).is_some_and(|p| {
                 p.policy_approved()
                     && p.approval_digest() == preset_digest

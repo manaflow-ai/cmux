@@ -29,8 +29,14 @@ const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 /// `full-access`. The daemon policy is `ask` and the start level `standard`, so a chat ends in
 /// full access only by its starter.
 fn hub() -> Arc<Hub> {
+    hub_with(false)
+}
+
+/// [`hub`], with `holdAgentStartsToStarter` as `held`.
+fn hub_with(held: bool) -> Arc<Hub> {
     let _ = &HERMETIC;
     let mut cfg: Config = serde_json::from_value(json!({
+        "holdAgentStartsToStarter": held,
         "harnesses": {
             "fake": {"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}},
             "kin": {"argv": ["python3", FAKE], "family": "kin", "env": {"FAKE_FULL_ACCESS": "1"}},
@@ -276,6 +282,27 @@ async fn approving_needs_a_mode_or_a_policy_that_does_not_ask() {
         r["error"]["message"].as_str().unwrap_or_default().contains("no mode or policy"),
         "{r}"
     );
+}
+
+/// Under `holdAgentStartsToStarter`, an approved no-prompt preset's policy holds for a chat an
+/// asking agent starts here, but only for the preset's own contents: a harness the request adds
+/// keeps the starter's limits (review F2 of #39333).
+#[tokio::test]
+async fn a_held_start_keeps_an_approved_presets_policy_only_for_its_own_contents() {
+    let hub = hub_with(true);
+    let mut app = Client::person(&hub).await;
+    app.ok(
+        "_acpmux/presets",
+        json!({"name": PRESET, "set": {"harness": "fake", "policy": "approve-all"}, "approveMode": true}),
+    )
+    .await;
+    let asking = starter(&mut app, "ask", "strict").await;
+    let mut agent = Client::as_session(&hub, &asking).await;
+    let own = id(&agent.ok("session/new", new_params(json!({"preset": PRESET}))).await);
+    assert_eq!(app.level(&own).await.1, json!("approve-all"), "the approved preset's policy");
+    let added =
+        id(&agent.ok("session/new", new_params(json!({"preset": PRESET, "harness": "kin"}))).await);
+    assert_ne!(app.level(&added).await.1, json!("approve-all"), "a request's own harness rode it");
 }
 
 /// The session/new handler's future is deeper than a debug build's 2 MiB worker stack, as in
