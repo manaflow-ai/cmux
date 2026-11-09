@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import cliGenerated from "../data/next-docs/cli-reference.generated.json";
@@ -7,7 +7,7 @@ import paletteGenerated from "../data/next-docs/palette-reference.generated.json
 import settingsGenerated from "../data/next-docs/settings-reference.generated.json";
 import { nextDocHref, nextDocPage, nextDocPages, nextDocPublicPath } from "../data/next-docs/pages";
 import { buildLlmsText, resolveAgentPageVariant } from "../app/lib/agent-page-paths";
-import { buildNextDocsFullText } from "../app/lib/next-docs-text";
+import { buildLocalGuide, buildNextDocsFullText } from "../app/lib/next-docs-text";
 import { sitemapEntries } from "../app/sitemap";
 import {
   buildCliReference,
@@ -175,6 +175,17 @@ describe("cmux-next docs", () => {
         if ("files" in block) for (const file of block.files) expect(full).toContain(`[\`${file.path}\`]`);
       }
     }
+  });
+
+  // The cmux CLI embeds docs/cmux-next/guide/pages.json (`cmux docs guide`), so agents read the
+  // pages with no network. The files are generated; this fails when they are stale.
+  test("the local guide in docs/cmux-next/guide is fresh against the pages", () => {
+    const expected = buildLocalGuide();
+    const dir = join(repo, "docs/cmux-next/guide");
+    expect(readdirSync(dir).sort()).toEqual(Object.keys(expected).sort());
+    for (const [name, text] of Object.entries(expected)) expect([name, readFileSync(join(dir, name), "utf8")]).toEqual([name, text]);
+    expect(expected["architecture.md"]).toContain("](acpmux.md)");
+    expect(expected["llms-full.txt"]).not.toContain("https://cmux.com/docs");
   });
 
   test("Markdown variants resolve on cmux.com and in the nightly zone", () => {
