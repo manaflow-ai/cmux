@@ -240,13 +240,14 @@ pub fn wrapper_path(home: &std::path::Path) -> std::path::PathBuf {
     home.join("bin").join(CLI_ALIAS)
 }
 
-/// Writes `script` at `path`, owner-only and executable (0700, its folder too), unless the
-/// regular file there holds it already: a new file renamed over the old one, so an agent that
-/// starts it meanwhile runs either the old text or the new one, whole.
+/// Writes `script` at `path`, owner-only and executable (0700, its folder private state:
+/// `config::private_state_dir`), unless the regular file there holds it already: a new file
+/// renamed over the old one, so an agent that starts it meanwhile runs either the old text or
+/// the new one, whole.
 #[cfg(unix)]
 pub fn install_wrapper(path: &std::path::Path, script: &str) -> std::io::Result<()> {
     use std::io::Write;
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     if let Ok(meta) = std::fs::symlink_metadata(path)
         && meta.is_file()
@@ -256,7 +257,9 @@ pub fn install_wrapper(path: &std::path::Path, script: &str) -> std::io::Result<
         return Ok(());
     }
     let dir = path.parent().ok_or_else(|| std::io::Error::other("the wrapper has no folder"))?;
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    // Private state, as every folder in the acpmux home: owner-only, and refused when another
+    // user could write it or an ancestor (F1 of #39020): they could swap the script agents run.
+    crate::config::private_state_dir(dir).map_err(|e| std::io::Error::other(format!("{e:#}")))?;
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = dir.join(format!(".{CLI_ALIAS}.{}.{n}.tmp", std::process::id()));
     let written = (|| {
