@@ -129,6 +129,15 @@ impl Hub {
             None => (None, None, None),
         };
         let parent_meta = session.meta();
+        // Tests only: the parent's turn records its rules while the fork is being made.
+        #[cfg(test)]
+        {
+            let seam = self.fork_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some((arrived, release)) = seam {
+                let _ = arrived.send(());
+                let _ = release.await;
+            }
+        }
         // Its agent started it (`created_by.rs`); a fork the person made records none.
         let created_by =
             lineage.as_ref().map(|l| super::created_by::agent(&l.parent, &parent_meta));
