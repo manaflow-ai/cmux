@@ -51,6 +51,8 @@ public struct ChiefConversationScreen: View {
         #if DEBUG
         if DeveloperOptions.mockContentEnabled, CommandLine.arguments.contains("-cmux-mobile-chief-outbox-demo") {
             self.session = Self.outboxDemo
+        } else if DeveloperOptions.mockContentEnabled, CommandLine.arguments.contains("-cmux-mobile-chief-stale-demo") {
+            self.session = Self.staleDemo
         } else {
             self.session = session
         }
@@ -68,6 +70,15 @@ public struct ChiefConversationScreen: View {
         session.status = "Offline"
         session.send(ConversationComposeMessage(text: "Check the latest build."), asksForAlerts: false)
         session.send(ConversationComposeMessage(text: "Let me know when the tests finish."), asksForAlerts: false)
+        return session
+    }()
+
+    /// A Mac conversation kept from a dropped link (CMUX-30), as ``MacConversationLoader``
+    /// marks it; memory only.
+    private static let staleDemo: ChiefSession = {
+        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil))
+        MacConversationLoader.markStale(session, tryAgain: {})
+        session.send(ConversationComposeMessage(text: "Run the tests again when the Mac is back."), asksForAlerts: false)
         return session
     }()
     #endif
