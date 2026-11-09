@@ -3306,7 +3306,10 @@ function TranscriptView({
             const chase = followChase.current;
             if (chase && grew > 0.5) {
               chase.resume();
-              chase.shift(thread.current, -grew);
+              // After Jump to latest the reply's lines keep to the room (chaseHeld), as they do
+              // while the turn runs: an unbounded draw-back drew the folded line under the card.
+              const held = chaseHeld.current;
+              chase.shift(thread.current, -grew, held ? room : Number.POSITIVE_INFINITY, held);
               chase.land();
             }
           } else if (foldRiding && !resizing) {
@@ -3317,10 +3320,12 @@ function TranscriptView({
             // The turn's end rides on its fold (turnEndFold.ts), or rests where nothing moved: the
             // reply's last lines still revealing after it are the turn's all the same, and chase
             // (send-stream-motion), never move the rows at once. Its height now is where they start.
-            if (turnEnding && lineLeft) {
-              chaseDrainUntil.current = now + StreamReveal.finishMs;
-              drainReply.current = replyHeight(rows);
-            }
+            if (turnEnding && lineLeft) chaseDrainUntil.current = now + StreamReveal.finishMs;
+            // Whatever the reply grew by while a ride moved the rows (Jump to latest heads for the
+            // moving end) is the ride's, never the drain's to chase after it: the drain measures
+            // from the rows as this pass leaves them (a jump landing mid-fold drew the reply's
+            // growth over its whole glide back at once, 100 to 200 px under the card).
+            if ((turnEnding && lineLeft) || draining) drainReply.current = replyHeight(rows);
             // A resize settles in this pass: the next pass after it measures from the rows as they
             // lie now (none noted, the first move after an idle resize, a prompt landing, moved at
             // once). A ride, a fold and a jump move the rows on their own frames: nothing noted.
