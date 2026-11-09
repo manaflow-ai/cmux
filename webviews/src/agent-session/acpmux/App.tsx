@@ -712,7 +712,7 @@ import { MEMORY_OFFER } from "./conversation/memoryInbox";
 import { type ScrollAnchor, VirtualTranscript } from "./VirtualTranscript";
 import { NO_ROWS, rowKind } from "./virtualTranscriptModel";
 import { turnEndedBetween, saveSnapshot, emptySnapshot, cachedSnapshot } from "./snapshotCache";
-import { useFinishMoments } from "./finish/useFinishMoments";
+import { newestTurnSummary, useFinishMoments } from "./finish/useFinishMoments";
 import { applyPaneTheme, applyPaneThemeCSS } from "./paneTheme";
 export { VirtualTranscript } from "./VirtualTranscript";
 export type { ScrollAnchor } from "./VirtualTranscript";
@@ -9141,6 +9141,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         .then(setHeaderState)
         .catch(() => undefined);
   }, [snapshot.sessionId, snapshot.isWorking, snapshot.turnsEnded, quick]);
+  const finishTurnSummary = useMemo(() => newestTurnSummary(snapshot.rows), [snapshot.rows]);
   // A long turn's end, green checks and a merge: the short "done" state and its sound (finish/).
   useFinishMoments({
     session: snapshot.sessionId,
@@ -9149,6 +9150,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     clockOffsetMs: snapshot.clockOffsetMs,
     stopping: snapshot.stopping === true,
     pullRequest: headerPullRequest,
+    turnSummary: finishTurnSummary,
   });
   // A floating chat's panel that held this chat before the page loaded (a tab moved there, a reload)
   // says so once; later changes are pushed, and a reread per chat could land after a newer push.

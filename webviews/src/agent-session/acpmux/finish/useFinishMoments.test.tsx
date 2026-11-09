@@ -51,6 +51,8 @@ const render = (props: Props) => {
   act(() => root!.render(<Probe {...props} />));
 };
 
+const done = (id: string, status = "completed") => ({ id, status });
+
 const pr = (state: string, checks: string): HeaderPullRequest => ({
   url: "https://github.com/o/r/pull/7",
   number: 7,
@@ -73,7 +75,7 @@ test("a long turn's end starts the turn moment for that turn, with its sound onl
   endFinishMoment();
   setChatDisplay({ [FINISH_SOUND_KEY]: true });
   render({ session: "s", working: true, turnStartedAtMs: Date.now() - 31_000 });
-  render({ session: "s", working: false });
+  render({ session: "s", working: false, turnSummary: done("a") });
   expect(sounds).toEqual([{ kind: "turn" }]);
 });
 
@@ -107,7 +109,7 @@ test("a refused Stop leaves the turn running, and its later end has its moment",
   render({ session: "s", working: true, turnStartedAtMs: start });
   render({ session: "s", working: true, turnStartedAtMs: start, stopping: true });
   render({ session: "s", working: true, turnStartedAtMs: start });
-  render({ session: "s", working: false });
+  render({ session: "s", working: false, turnSummary: done("a") });
   expect(finishMoment()?.kind).toBe("turn");
   expect(sounds).toEqual([{ kind: "turn" }]);
 });
@@ -149,4 +151,43 @@ test("a hidden page gets no moment, and a turn's end there plays no sound of its
   render({ session: "s", working: false, pullRequest: pr("merged", "passing") });
   expect(finishMoment()).toBeUndefined();
   expect(sounds).toEqual([{ kind: "merged" }]);
+});
+
+test("a failed long turn shows no success sound; a summary a render later decides (review F4)", () => {
+  setChatDisplay({ [FINISH_SOUND_KEY]: true });
+  render({ session: "s", working: true, turnStartedAtMs: Date.now() - 60_000, turnSummary: done("old") });
+  render({ session: "s", working: false, turnSummary: done("new", "failed") });
+  expect(sounds).toEqual([]);
+  // The next long turn's summary arrives one render after its end: it sounds then, once.
+  endFinishMoment();
+  render({ session: "s", working: true, turnStartedAtMs: Date.now() - 60_000, turnSummary: done("new", "failed") });
+  render({ session: "s", working: false, turnSummary: done("new", "failed") });
+  expect(sounds).toEqual([]);
+  render({ session: "s", working: false, turnSummary: done("next") });
+  render({ session: "s", working: false, turnSummary: done("next") });
+  expect(sounds).toEqual([{ kind: "turn" }]);
+});
+
+test("switching to a working chat with no reported start never times its end from the last chat (review F3)", () => {
+  setChatDisplay({ [FINISH_SOUND_KEY]: true });
+  render({ session: "s", working: true, turnStartedAtMs: Date.now() - 90_000 });
+  render({ session: "t", working: true });
+  render({ session: "t", working: false, turnSummary: done("t1") });
+  expect(finishMoment()).toBeUndefined();
+  expect(sounds).toEqual([]);
+});
+
+test("the previous chat's pull request carried over a switch is no read of the new chat's (review F2)", () => {
+  setChatDisplay({ [FINISH_SOUND_KEY]: true });
+  const open = pr("open", "pending");
+  render({ session: "s", working: false, pullRequest: open });
+  // The new chat renders while the header still holds the old chat's read, then its own: merged.
+  render({ session: "t", working: false, pullRequest: open });
+  render({ session: "t", working: false, pullRequest: pr("merged", "passing") });
+  expect(finishMoment()).toBeUndefined();
+  expect(sounds).toEqual([]);
+  // A real change on the new chat's pull request after its first read still celebrates.
+  render({ session: "t", working: false, pullRequest: pr("open", "pending") });
+  render({ session: "t", working: false, pullRequest: pr("open", "passing") });
+  expect(finishMoment()?.kind).toBe("ci");
 });
