@@ -37,7 +37,7 @@ extension WorkspaceRowView {
         guard shownGroupPin == .shelf else { return nil }
         guard let tint = groupPinTint, !tint.isNone else { return Palette.sidebarStep }
         let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        return tint.lineColor(themed: SidebarGroupPalette.tunable.value == .theme).withAlphaComponent(dark ? 0.2 : 0.13)
+        return tint.lineColor(palette: DesignSettings.shared.sidebarSections.groupPalette).withAlphaComponent(dark ? 0.2 : 0.13)
     }
 
     /// Places a trailing pin left of `trailing`; returns the new trailing edge.
