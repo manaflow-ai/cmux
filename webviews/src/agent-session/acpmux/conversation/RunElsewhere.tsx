@@ -26,6 +26,8 @@ import {
 const CHIP_ICON = rowIconSize(12);
 /** The untracked paths the panel names; the rest are counted. */
 const UNTRACKED_SHOWN = 6;
+/** Failed output reads in a row before the run reads as ended. */
+const READ_FAILURES = 5;
 let lastMachine: string | undefined;
 
 /** Whether `due` has passed, re-rendering once when it does (one timer, gone on unmount). */
@@ -166,6 +168,7 @@ function RunElsewherePanel({
   const secrets = tree?.files.filter((f) => f.secret) ?? [];
   const ready = plan.eligible && Boolean(machine) && Boolean(tree) && !run.starting;
   return (
+    // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape closes the panel from any of its controls.
     <form
       className="cv-run-elsewhere"
       aria-label={t("runElsewhere.title")}
@@ -183,7 +186,7 @@ function RunElsewherePanel({
       <div className="cv-run-elsewhere__head">
         <span className="cv-run-elsewhere__title">{t("runElsewhere.title")}</span>
         {tree && (
-          <span className="cv-run-elsewhere__base">
+          <span className="cv-run-elsewhere__base" title={tree.origin}>
             {t("runElsewhere.base", { commit: tree.base.slice(0, 9) })}
           </span>
         )}
@@ -203,6 +206,7 @@ function RunElsewherePanel({
             >
               <input
                 type="radio"
+                aria-label={m.name}
                 name={`run-elsewhere-${toolCallId}`}
                 value={m.name}
                 checked={m.name === machine}
@@ -237,6 +241,7 @@ function RunElsewherePanel({
                 <label key={f.path} className="cv-run-elsewhere__file">
                   <input
                     type="checkbox"
+                    aria-label={f.path}
                     checked={send.includes(f.path)}
                     onChange={(event) =>
                       update({
@@ -303,16 +308,19 @@ function RunElsewhereStream({
     let timer: ReturnType<typeof setTimeout> | undefined;
     let from = 0;
     let delay = 250;
+    let failures = 0;
     const decoder = new TextDecoder();
     const read = () => {
       runs.client.output(taskId, from).then(
         (out) => {
           if (stopped) return;
+          failures = 0;
           const text = decodeChunk(decoder, out.data);
           from = out.nextByte;
           const current = runs.store.get(toolCallId);
           if (current?.phase !== "running" || current.taskId !== taskId) return;
-          const ended = out.state !== "running";
+          // An ended task is read to its last byte first: one read returns at most 64 KiB.
+          const ended = out.state !== "running" && (out.totalBytes === undefined ? !out.data : from >= out.totalBytes);
           runs.store.set(toolCallId, {
             ...current,
             phase: ended ? "ended" : "running",
@@ -326,6 +334,13 @@ function RunElsewhereStream({
         },
         () => {
           if (stopped) return;
+          // A task acpmux no longer has (a daemon restart, a purged chat) ends the reads.
+          failures += 1;
+          const current = runs.store.get(toolCallId);
+          if (failures >= READ_FAILURES && current?.phase === "running" && current.taskId === taskId) {
+            runs.store.set(toolCallId, { ...current, phase: "ended", state: "lost" });
+            return;
+          }
           delay = nextReadDelay(delay, false);
           timer = setTimeout(read, delay);
         },
@@ -349,23 +364,33 @@ function RunElsewhereStream({
       ? t("runElsewhere.finished", { machine })
       : t("runElsewhere.ended", { machine, code: String(run.exitCode ?? run.state ?? "") });
   return (
-    <div className="cv-run-elsewhere cv-run-elsewhere--run" data-state={live ? "running" : run.exitCode === 0 ? "ok" : "failed"}>
+    <div
+      className="cv-run-elsewhere cv-run-elsewhere--run"
+      data-state={live ? "running" : run.exitCode === 0 ? "ok" : "failed"}
+    >
       <div className="cv-run-elsewhere__head">
         <Icon name="machine.remote" size={CHIP_ICON} row fit />
-        <span className={`cv-run-elsewhere__title${live ? " is-live" : ""}`} role="status">
-          {status}
-        </span>
+        <output className={`cv-run-elsewhere__title${live ? " is-live" : ""}`}>{status}</output>
         {live ? (
-          <button type="button" className="cv-run-elsewhere__link" onClick={() => void runs.client.stop(taskId).catch(() => undefined)}>
+          <button
+            type="button"
+            className="cv-run-elsewhere__link"
+            onClick={() => void runs.client.stop(taskId).catch(() => undefined)}
+          >
             {t("runElsewhere.stop")}
           </button>
         ) : (
-          <button type="button" className="cv-run-elsewhere__link" onClick={() => runs.store.set(toolCallId, undefined)}>
+          <button
+            type="button"
+            className="cv-run-elsewhere__link"
+            onClick={() => runs.store.set(toolCallId, undefined)}
+          >
             {t("runElsewhere.dismiss")}
           </button>
         )}
       </div>
       {run.output && (
+        // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focus the output's scroller to read it with the keys.
         <pre ref={outputRef} className="cv-run-elsewhere__output" tabIndex={0}>
           {run.output}
         </pre>

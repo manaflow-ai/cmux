@@ -39,6 +39,7 @@ const PLAN: RunPlan = {
     { name: "laptop", ok: false, why: "not connected now" },
   ],
   tree: {
+    origin: "https://github.com/acme/app.git",
     base: "4f1c2a9be03d7e51a2c6f0b8d9e4a7c3b1f05e62",
     prefix: "",
     files: [
@@ -70,7 +71,11 @@ function stateFor(shown: Shown): RunState | undefined {
     case "panel":
       return { phase: "choosing", plan: PLAN, machine: "build-box", send: [] };
     case "refused":
-      return { phase: "choosing", plan: { eligible: false, why: "vim needs this machine", machines: PLAN.machines }, send: [] };
+      return {
+        phase: "choosing",
+        plan: { eligible: false, why: "vim needs this machine", machines: PLAN.machines },
+        send: [],
+      };
     case "no-machine":
       return { phase: "choosing", plan: { ...PLAN, machines: [] }, send: [] };
     case "running":

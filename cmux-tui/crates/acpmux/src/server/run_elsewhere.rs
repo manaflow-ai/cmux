@@ -115,9 +115,22 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
         .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
         .unwrap_or_default();
     let left_out = plan.left_out(&send_secrets);
-    let patch = re::diff(&plan.root, &plan.base, &left_out).await.map_err(RpcError::invalid_params)?;
+    // The diff the digest covers goes as it is. One that leaves files out is read again without
+    // them, and goes only if the tree still has the digest after that read: a file staged in
+    // between would otherwise go unseen.
+    let patch = if left_out.is_empty() {
+        plan.patch.clone()
+    } else {
+        let patch = re::diff(&plan.root, &plan.base, &left_out).await.map_err(RpcError::invalid_params)?;
+        if re::plan(&cwd).await.map(|p| p.digest()).as_deref() != Ok(digest) {
+            return Err(RpcError::invalid_params(
+                "the files changed since you looked; check what goes again",
+            ));
+        }
+        patch
+    };
     let run_id = uuid::Uuid::now_v7().simple().to_string();
-    let script = re::remote_script(&plan, &patch, command, &run_id).map_err(RpcError::invalid_params)?;
+    let script = re::remote_script(&plan, &patch, &left_out, command, &run_id).map_err(RpcError::invalid_params)?;
     let path = write_script(&run_id, &script).map_err(|e| RpcError::internal(format!("save the run's script: {e}")))?;
     let task = re::task_command("ssh", &destination, &path);
     let description = format!("{} on {peer}", crate::bg_run::label(None, command));

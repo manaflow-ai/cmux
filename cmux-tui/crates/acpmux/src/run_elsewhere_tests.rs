@@ -44,6 +44,8 @@ fn secret_looking_names_are_flagged_and_examples_are_not() {
     for path in [
         ".env",
         "app/.env.local",
+        ".envrc",
+        "deploy/.env-prod",
         "certs/server.pem",
         "deploy/id_ed25519",
         "config/credentials.json",
@@ -74,6 +76,15 @@ fn the_task_command_quotes_every_part() {
         "'ssh' -T -o BatchMode=yes -o ConnectTimeout=20 -- 'me@box' 'bash -s' < '/tmp/a b/run.sh'; rc=$?; rm -f '/tmp/a b/run.sh'; exit $rc"
     );
     assert_eq!(shell_quote("it's"), r"'it'\''s'");
+}
+
+#[test]
+fn a_login_in_the_origin_url_never_leaves_this_machine() {
+    assert_eq!(without_login("https://me:ghp_secret@github.com/acme/app.git"), "https://github.com/acme/app.git");
+    assert_eq!(without_login("https://token@host:8443/a@b/c"), "https://host:8443/a@b/c");
+    assert_eq!(without_login("https://github.com/acme/app"), "https://github.com/acme/app");
+    assert_eq!(without_login("git@github.com:acme/app.git"), "git@github.com:acme/app.git");
+    assert_eq!(without_login("ssh://git@host/acme/app"), "ssh://host/acme/app");
 }
 
 #[test]
@@ -191,12 +202,14 @@ async fn a_dirty_tree_arrives_the_same_without_its_untracked_or_secret_files() {
     );
     assert_eq!(plan.untracked, vec!["scratch.txt".to_owned()]);
     let digest = plan.digest();
-    assert_eq!(super::plan(&work).await.unwrap().digest(), digest, "the same tree, the same digest");
+    let again = super::plan(&work.join("crates/core")).await.unwrap();
+    assert_eq!(again.digest(), digest, "the same tree, the same digest");
+    assert_ne!(super::plan(&work).await.unwrap().digest(), digest, "another folder, another digest");
 
     let left_out = plan.left_out(&[]);
     assert_eq!(left_out, vec![".env".to_owned()]);
     let patch = diff(&plan.root, &plan.base, &left_out).await.unwrap();
-    let script = remote_script(&plan, &patch, "pwd; cat ../../src/lib.rs", "run-1").unwrap();
+    let script = remote_script(&plan, &patch, &left_out, "pwd; cat ../../src/lib.rs", "run-1").unwrap();
     let out = run_script(&script, &home);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(out.status.success(), "{stderr}");
@@ -215,13 +228,42 @@ async fn a_dirty_tree_arrives_the_same_without_its_untracked_or_secret_files() {
 
     // A second run reuses the worktree and resets what the first left in it.
     write(&remote.join("src/leftover.rs"), b"from the last run\n");
-    let out = run_script(&remote_script(&plan, &patch, "ls ../../src", "run-2").unwrap(), &home);
+    let out = run_script(&remote_script(&plan, &patch, &left_out, "ls ../../src", "run-2").unwrap(), &home);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     assert!(!String::from_utf8_lossy(&out.stdout).contains("leftover"));
 
     // A change after the plan changes the digest, so a stale start is refused.
     write(&work.join("src/lib.rs"), b"pub fn a() -> u8 { 4 }\n");
-    assert_ne!(super::plan(&work).await.unwrap().digest(), digest);
+    assert_ne!(super::plan(&work.join("crates/core")).await.unwrap().digest(), digest);
+}
+
+#[tokio::test]
+async fn a_secret_one_run_sent_is_gone_from_the_next_run_that_leaves_it_out() {
+    let tmp = tempfile::tempdir().unwrap();
+    let work = dirty_clone(tmp.path());
+    let home = tmp.path().join("peer-home");
+    // The other machine ignores .env, as most repositories do, so `git clean` alone keeps it.
+    write(&home.join("ignore"), b".env\n");
+    let config = format!(
+        "[protocol \"file\"]\n\tallow = always\n[core]\n\texcludesFile = {}\n",
+        home.join("ignore").display()
+    );
+    std::fs::write(home.join("gitconfig"), config).unwrap();
+    let plan = plan(&work).await.unwrap();
+
+    // The person ticks .env: it goes with the run.
+    let out = run_script(&remote_script(&plan, &plan.patch, &[], "cat .env", "run-5").unwrap(), &home);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("hunter2"));
+
+    // The next run leaves it out, in the same worktree: it is not there to read.
+    let left_out = plan.left_out(&[]);
+    let patch = diff(&plan.root, &plan.base, &left_out).await.unwrap();
+    let script = remote_script(&plan, &patch, &left_out, "cat .env 2>/dev/null || echo absent", "run-6").unwrap();
+    let out = run_script(&script, &home);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(stdout.trim(), "absent", "{stdout}");
 }
 
 #[tokio::test]
@@ -240,10 +282,11 @@ async fn the_task_streams_the_remote_output_in_order_and_keeps_its_exit_code() {
     std::fs::set_permissions(&fake, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
 
     let plan = plan(&work).await.unwrap();
-    let patch = diff(&plan.root, &plan.base, &plan.left_out(&[])).await.unwrap();
+    let left_out = plan.left_out(&[]);
+    let patch = diff(&plan.root, &plan.base, &left_out).await.unwrap();
     let command = "for i in 1 2 3; do echo line $i; sleep 0.05; done; echo oops >&2; exit 7";
     let script_path = tmp.path().join("run.sh");
-    std::fs::write(&script_path, remote_script(&plan, &patch, command, "run-3").unwrap()).unwrap();
+    std::fs::write(&script_path, remote_script(&plan, &patch, &left_out, command, "run-3").unwrap()).unwrap();
     let task = task_command(fake.to_str().unwrap(), "me@box", &script_path);
     let out = Command::new("bash")
         .arg("-c")
@@ -257,4 +300,55 @@ async fn the_task_streams_the_remote_output_in_order_and_keeps_its_exit_code() {
     assert_eq!(String::from_utf8_lossy(&out.stdout), "line 1\nline 2\nline 3\n");
     assert!(String::from_utf8_lossy(&out.stderr).ends_with("oops\n"));
     assert!(!script_path.exists(), "the script is removed after the run");
+}
+
+#[tokio::test]
+async fn a_dropped_connection_ends_the_command_on_the_other_machine() {
+    let tmp = tempfile::tempdir().unwrap();
+    let work = dirty_clone(tmp.path());
+    let home = tmp.path().join("peer-home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(home.join("gitconfig"), "[protocol \"file\"]\n\tallow = always\n").unwrap();
+    // A stand-in for ssh that keeps the remote shell as its child, as sshd does: killing it drops
+    // the connection, and the remote shell is left without its parent.
+    let fake = tmp.path().join("fake-ssh");
+    write(&fake, b"#!/bin/bash\nbash -s\n");
+    std::fs::set_permissions(&fake, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let marks = tmp.path().join("marks");
+    std::fs::create_dir_all(&marks).unwrap();
+    let started = marks.join("started");
+    let late = marks.join("late");
+    let command = format!(
+        "touch {}; sleep 6; touch {}",
+        shell_quote(started.to_str().unwrap()),
+        shell_quote(late.to_str().unwrap())
+    );
+    let plan = plan(&work).await.unwrap();
+    let left_out = plan.left_out(&[]);
+    let patch = diff(&plan.root, &plan.base, &left_out).await.unwrap();
+    let script = remote_script(&plan, &patch, &left_out, &command, "run-4").unwrap();
+    let mut ssh = Command::new(&fake)
+        .env("HOME", &home)
+        .env("XDG_CACHE_HOME", home.join("cache"))
+        .env("GIT_CONFIG_GLOBAL", home.join("gitconfig"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    {
+        use std::io::Write as _;
+        let mut stdin = ssh.stdin.take().unwrap();
+        stdin.write_all(script.as_bytes()).unwrap();
+    }
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    while !started.exists() {
+        assert!(std::time::Instant::now() < deadline, "the command never started");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    ssh.kill().unwrap();
+    ssh.wait().unwrap();
+    // The watcher looks every 2 s; the command would finish 6 s after it started.
+    tokio::time::sleep(Duration::from_secs(9)).await;
+    assert!(!late.exists(), "the command ran on after the connection dropped");
 }

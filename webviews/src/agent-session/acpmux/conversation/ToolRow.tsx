@@ -193,7 +193,15 @@ export const ToolRow = memo(function ToolRow({
       {background ? (
         <span className="cv-command__meta cv-tool__meta">
           {background.state === "running" && <PreviewChip toolCallId={tool.id} />}
-          {shell && <RunElsewhereChip toolCallId={tool.id} kind={tool.kind} command={tool.command} startedAt={tool.startedAt} running={running} />}
+          {shell && (
+            <RunElsewhereChip
+              toolCallId={tool.id}
+              kind={tool.kind}
+              command={tool.command}
+              startedAt={tool.startedAt}
+              running={running}
+            />
+          )}
           <ReactionMark reaction={tool.reaction} />
           {tool.approved && <ApprovedMark />}
           <BackgroundMark background={background} />
@@ -202,13 +210,25 @@ export const ToolRow = memo(function ToolRow({
       ) : foreground && shell && !tool.approved ? (
         // A running shell's edge holds only the offer of another machine, from 20 s on (RunElsewhere.tsx).
         <span className="cv-command__meta cv-tool__meta">
-          <RunElsewhereChip toolCallId={tool.id} kind={tool.kind} command={tool.command} startedAt={tool.startedAt} running={running} />
+          <RunElsewhereChip
+            toolCallId={tool.id}
+            kind={tool.kind}
+            command={tool.command}
+            startedAt={tool.startedAt}
+            running={running}
+          />
         </span>
       ) : (
         (!foreground || tool.approved) && (
           <span className="cv-command__meta">
             {shell && running && (
-              <RunElsewhereChip toolCallId={tool.id} kind={tool.kind} command={tool.command} startedAt={tool.startedAt} running={running} />
+              <RunElsewhereChip
+                toolCallId={tool.id}
+                kind={tool.kind}
+                command={tool.command}
+                startedAt={tool.startedAt}
+                running={running}
+              />
             )}
             <ReactionMark reaction={tool.reaction} />
             {tool.approved && <ApprovedMark />}

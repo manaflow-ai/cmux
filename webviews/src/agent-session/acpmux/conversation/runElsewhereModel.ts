@@ -29,6 +29,8 @@ export interface RunPlan {
   why?: string;
   machines: RunMachine[];
   tree?: {
+    /** The repository the other machine fetches, without a login. */
+    origin: string;
     base: string;
     prefix: string;
     files: RunFile[];
@@ -43,6 +45,8 @@ export interface RunPlan {
 export interface RunOutput {
   data: string;
   nextByte: number;
+  /** Every byte the task has written so far. */
+  totalBytes?: number;
   state: string;
   exitCode?: number | null;
 }
@@ -59,7 +63,14 @@ export interface RunElsewhereClient {
 export type RunState =
   | { phase: "loading" }
   | { phase: "choosing"; plan: RunPlan; machine?: string; send: string[]; error?: string; starting?: boolean }
-  | { phase: "running" | "ended"; machine: string; taskId: string; output: string; exitCode?: number | null; state?: string };
+  | {
+      phase: "running" | "ended";
+      machine: string;
+      taskId: string;
+      output: string;
+      exitCode?: number | null;
+      state?: string;
+    };
 
 /** The rows' store: each tool call's run, and a listener set per tool call. */
 export class RunElsewhereStore {
@@ -99,9 +110,8 @@ const NONE = () => () => undefined;
 
 /** Tool call `toolCallId`'s run, re-read only when it changes. */
 export function useRun(runs: RunElsewhere | undefined, toolCallId: string): RunState | undefined {
-  return useSyncExternalStore(
-    runs ? (listener) => runs.store.subscribe(toolCallId, listener) : NONE,
-    () => runs?.store.get(toolCallId),
+  return useSyncExternalStore(runs ? (listener) => runs.store.subscribe(toolCallId, listener) : NONE, () =>
+    runs?.store.get(toolCallId),
   );
 }
 

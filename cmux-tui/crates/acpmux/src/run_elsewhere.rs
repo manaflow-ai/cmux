@@ -93,7 +93,8 @@ fn programs(command: &str) -> Vec<String> {
 /// bundle, a credentials or token file.
 pub fn secret_name(path: &str) -> bool {
     let name = path.rsplit('/').next().unwrap_or(path).to_ascii_lowercase();
-    if name == ".env" || (name.starts_with(".env.") && !example(&name)) {
+    // Every `.env*` (`.env.local`, `.envrc`, `.env-prod`) but the examples.
+    if name.starts_with(".env") && !example(&name) {
         return true;
     }
     if name.starts_with("id_rsa")
@@ -153,6 +154,17 @@ fn token_after(line: &str, prefix: &str) -> bool {
     })
 }
 
+/// `url` without a login (`https://user:token@host/x` is `https://host/x`): the other machine
+/// fetches with its own credentials, and a token in the URL never leaves this one.
+pub fn without_login(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else { return url.to_owned() };
+    let host_end = rest.find('/').unwrap_or(rest.len());
+    match rest[..host_end].rsplit_once('@') {
+        Some((_, host)) => format!("{scheme}://{host}{}", &rest[host_end..]),
+        None => url.to_owned(),
+    }
+}
+
 /// One tracked file the diff carries.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -185,8 +197,10 @@ impl Plan {
     /// person saw, and goes only while the tree still has it.
     pub fn digest(&self) -> String {
         let mut h = Sha256::new();
-        h.update(self.base.as_bytes());
-        h.update([0]);
+        for part in [&self.origin, &self.prefix, &self.base] {
+            h.update(part.as_bytes());
+            h.update([0]);
+        }
         h.update(&self.patch);
         let d = h.finalize();
         d.iter().take(12).map(|b| format!("{b:02x}")).collect()
@@ -204,6 +218,7 @@ impl Plan {
     pub fn view(&self) -> serde_json::Value {
         serde_json::json!({
             "root": self.root,
+            "origin": self.origin,
             "prefix": self.prefix,
             "base": self.base,
             "files": self.files,
@@ -257,11 +272,14 @@ pub async fn plan(cwd: &Path) -> Result<Plan, String> {
     );
     let root = PathBuf::from(root);
     let prefix = line(git(cwd, &["rev-parse", "--show-prefix"]).await?);
-    let origin = line(
+    let origin = without_login(&line(
         git(&root, &["remote", "get-url", "origin"])
             .await
             .map_err(|_| "the repository has no origin remote".to_owned())?,
-    );
+    ));
+    if origin.starts_with('-') {
+        return Err("the origin remote's URL starts with -".into());
+    }
     let upstream = match git(&root, &["rev-parse", "--verify", "-q", "@{upstream}"]).await {
         Ok(sha) => line(sha),
         Err(_) => line(
@@ -361,7 +379,13 @@ fn cache_slug(origin: &str) -> String {
 /// out `base` in a reusable worktree (a second run while one holds it gets its own, removed at
 /// its end), apply `patch`, and run `command` in `prefix` under a login shell. Its own lines
 /// go to stderr, prefixed `[cmux]`; it exits with the command's code.
-pub fn remote_script(plan: &Plan, patch: &[u8], command: &str, run_id: &str) -> Result<String, String> {
+pub fn remote_script(
+    plan: &Plan,
+    patch: &[u8],
+    left_out: &[String],
+    command: &str,
+    run_id: &str,
+) -> Result<String, String> {
     let patch = std::str::from_utf8(patch)
         .map_err(|_| "the changes are not text git can send (a non-UTF-8 path?)".to_owned())?;
     let end = format!("CMUX_PATCH_{}", run_id.replace('-', "_"));
@@ -387,23 +411,37 @@ mkdir -p "$cache"
 repo="$cache/repo.git"
 if [ ! -d "$repo" ]; then
   say "cloning the repository once into $cache"
-  git clone -q --bare --filter=blob:none "$origin" "$repo.tmp-$run" 2>/dev/null \
-    || git clone -q --bare "$origin" "$repo.tmp-$run"
+  git clone -q --bare --filter=blob:none -- "$origin" "$repo.tmp-$run" 2>/dev/null \
+    || git clone -q --bare -- "$origin" "$repo.tmp-$run"
   mv "$repo.tmp-$run" "$repo" 2>/dev/null || rm -rf "$repo.tmp-$run"
 fi
 if ! git -C "$repo" cat-file -e "$base^{commit}" 2>/dev/null; then
-  git -C "$repo" fetch -q origin "$base" 2>/dev/null || git -C "$repo" fetch -q origin
+  git -C "$repo" fetch -q origin "$base" 2>/dev/null \
+    || git -C "$repo" fetch -q origin '+refs/heads/*:refs/heads/*'
 fi
-lock="$cache/work.lock"
-held() { p=$(cat "$lock" 2>/dev/null || true); [ -n "$p" ] && kill -0 "$p" 2>/dev/null; }
-if ( set -o noclobber; echo $$ > "$lock" ) 2>/dev/null || { ! held && echo $$ > "$lock"; }; then
+# One run at a time holds the shared worktree (mkdir is atomic); another gets its own. A lock
+# whose run is gone is cleared at this run's end, so the next run takes it.
+lock="$cache/work.lock.d"
+if mkdir "$lock" 2>/dev/null; then
+  echo $$ > "$lock/pid"
   work="$cache/work"
-  done_() { rm -f "$lock"; }
+  done_() { rm -rf "$lock"; }
 else
+  stale=$(cat "$lock/pid" 2>/dev/null || true)
   work="$cache/run-$run"
-  done_() { git -C "$repo" worktree remove --force "$work" >/dev/null 2>&1 || rm -rf "$work"; }
+  done_() {
+    git -C "$repo" worktree remove --force "$work" >/dev/null 2>&1 || rm -rf "$work"
+    if [ -n "$stale" ] && ! kill -0 "$stale" 2>/dev/null && [ "$(cat "$lock/pid" 2>/dev/null)" = "$stale" ]; then
+      rm -rf "$lock"
+    fi
+  }
 fi
 trap done_ EXIT
+# The files the last run in the shared worktree brought: one the repository ignores (a sent
+# .env) would outlive `git clean` into a run that left it out. Checkout restores tracked ones.
+if [ -e "$work/.git" ] && [ -f "$work.sent" ]; then
+  (cd "$work" && xargs -0 rm -f -- <"$work.sent") || true
+fi
 if [ -e "$work/.git" ]; then
   git -C "$work" checkout -q -f --detach "$base"
   git -C "$work" clean -fdq
@@ -420,11 +458,48 @@ fi
             nl = if patch.ends_with('\n') { "" } else { "\n" },
         ));
     }
+    let sent: Vec<String> = plan
+        .files
+        .iter()
+        .filter(|f| f.status != "D" && !left_out.contains(&f.path))
+        .map(|f| shell_quote(&f.path))
+        .collect();
+    s.push_str("if [ \"$work\" = \"$cache/work\" ]; then\n");
+    if sent.is_empty() {
+        s.push_str("  : >\"$work.sent\"\n");
+    } else {
+        s.push_str(&format!("  printf '%s\\0' {} >\"$work.sent\"\n", sent.join(" ")));
+    }
+    s.push_str("fi\n");
     s.push_str(&format!(
-        "say \"running on $(hostname) at {short} with {n} changed file(s)\"\ncd \"$work/$prefix\"\nset +e\nbash -lc {cmd}\nexit $?\n",
+        "say \"running on $(hostname) at {short} with {n} changed file(s)\"\ncd \"$work/$prefix\"\nset +e\ncmd={cmd}\n",
         n = plan.files.len(),
         cmd = shell_quote(command),
     ));
+    // The command runs in its own process group, its stdin empty (the script is this shell's).
+    // ssh gives it no terminal, so a dropped connection (Stop here, a closed laptop) sends it no
+    // hangup: a watcher sees this shell lose its parent and ends the group, then stops itself.
+    s.push_str(
+        r#"set -m
+bash -lc "$cmd" </dev/null &
+child=$!
+set +m
+parent=$PPID
+(
+  while kill -0 "$child" 2>/dev/null; do
+    if [ "$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' ')" != "$parent" ]; then
+      kill -TERM -- "-$child" 2>/dev/null
+      sleep 5
+      kill -KILL -- "-$child" 2>/dev/null
+      exit 0
+    fi
+    sleep 2
+  done
+) </dev/null >/dev/null 2>&1 &
+wait "$child"
+exit $?
+"#,
+    );
     Ok(s)
 }
 

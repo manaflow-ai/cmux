@@ -3,7 +3,7 @@
 // finished one or a non-shell; a click shows exactly what goes (secret-looking files left out
 // until ticked, untracked files staying) and starts the run with the plan's digest; the run's
 // output streams in under the row in order, and the reads stop when it ends.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -49,6 +49,7 @@ function installDom(): HTMLElement {
 
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
+  jest.useRealTimers();
   resetTranscriptDisclosure();
   root = undefined;
   dom?.window.close();
@@ -73,6 +74,7 @@ const PLAN: RunPlan = {
     { name: "build-box", ok: true },
   ],
   tree: {
+    origin: "https://github.com/acme/app.git",
     base: "4f1c2a9be03d7e51a2c6f0b8d9e4a7c3b1f05e62",
     prefix: "",
     files: [
@@ -86,7 +88,17 @@ const PLAN: RunPlan = {
   },
 };
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Lets the client's resolved promises and their `.then`s run, with no wall-clock wait. */
+const flush = () =>
+  act(async () => {
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+  });
+
+/** Moves the reader's fake clock on, then lets the read it starts settle. */
+async function advance(ms: number) {
+  await act(async () => void jest.advanceTimersByTime(ms));
+  await flush();
+}
 
 function harness(outputs: RunOutput[] = []) {
   const calls: { started?: unknown[]; reads: number[]; stopped: string[] } = { reads: [], stopped: [] };
@@ -178,7 +190,7 @@ test("a click shows what goes, leaves the secret out, and starts with the plan's
   expect(chip?.textContent).toBe(translate("runElsewhere.chip"));
   const row = host.querySelector<HTMLButtonElement>(".cv-command")!;
   await act(async () => chip!.click());
-  await act(async () => wait(0));
+  await flush();
   expect(row.getAttribute("aria-expanded")).toBe("false");
   const panel = host.querySelector(".cv-run-elsewhere")!;
   expect(panel.textContent).toContain("src/lib.rs");
@@ -193,7 +205,7 @@ test("a click shows what goes, leaves the secret out, and starts with the plan's
   const run = panel.querySelector<HTMLButtonElement>(".cv-run-elsewhere__run")!;
   expect(run.textContent).toContain(translate("runElsewhere.run", { machine: "build-box" }));
   await act(async () => run.click());
-  await act(async () => wait(0));
+  await flush();
   expect(calls.started).toEqual(["cargo test", "build-box", "d1", []]);
   expect(host.querySelector(".cv-run-elsewhere-chip")).toBeNull();
 });
@@ -202,32 +214,37 @@ test("ticking a secret-looking file sends it", async () => {
   const { runs, calls } = harness();
   const host = await render(call("in_progress", Date.now() - 30_000), runs);
   await act(async () => host.querySelector<HTMLElement>(".cv-run-elsewhere-chip")!.click());
-  await act(async () => wait(0));
+  await flush();
   const box = host.querySelector<HTMLInputElement>(".cv-run-elsewhere input[type=checkbox]")!;
   await act(async () => box.click());
   await act(async () => host.querySelector<HTMLButtonElement>(".cv-run-elsewhere__run")!.click());
-  await act(async () => wait(0));
+  await flush();
   expect(calls.started).toEqual(["cargo test", "build-box", "d1", [".env"]]);
 });
 
-test("the run's output streams in under the row in order and the reads stop when it ends", async () => {
+test("the run's output streams in under the row in order, drains its tail and stops reading when it ends", async () => {
   // A multi-byte character split across two reads arrives whole.
   const bytes = Buffer.from("line 1\nné\n", "utf8");
   const { runs, calls } = harness([
     { data: bytes.subarray(0, 9).toString("base64"), nextByte: 9, state: "running" },
     { data: bytes.subarray(9).toString("base64"), nextByte: bytes.length, state: "running" },
-    { data: b64("done\n"), nextByte: bytes.length + 5, state: "exited", exitCode: 3 },
+    // The task ended with bytes still unread: the reader takes them before it stops.
+    { data: b64("done\n"), nextByte: bytes.length + 5, totalBytes: bytes.length + 11, state: "exited", exitCode: 3 },
+    { data: b64("tail!\n"), nextByte: bytes.length + 11, totalBytes: bytes.length + 11, state: "exited", exitCode: 3 },
   ]);
   runs.store.set("t1", { phase: "running", machine: "build-box", taskId: "bg-7", output: "" });
+  // The reader's timing is the behavior here: its clock is fake, so the reads land on the 250 ms marks.
+  jest.useFakeTimers();
   const host = await render(call("in_progress", Date.now() - 30_000), runs);
-  for (let i = 0; i < 4; i++) await act(async () => wait(300));
+  await flush();
+  for (let i = 0; i < 5; i++) await advance(300);
   const out = host.querySelector(".cv-run-elsewhere__output");
-  expect(out?.textContent).toBe("line 1\nné\ndone\n");
-  expect(calls.reads).toEqual([0, 9, bytes.length]);
+  expect(out?.textContent).toBe("line 1\nné\ndone\ntail!\n");
+  expect(calls.reads).toEqual([0, 9, bytes.length, bytes.length + 5]);
   const status = host.querySelector(".cv-run-elsewhere__title")!;
   expect(status.textContent).toBe(translate("runElsewhere.ended", { machine: "build-box", code: "3" }));
-  await act(async () => wait(600));
-  expect(calls.reads.length).toBe(3);
+  await advance(5_000);
+  expect(calls.reads.length).toBe(4);
 });
 
 test("Stop stops the task on the other machine", async () => {
