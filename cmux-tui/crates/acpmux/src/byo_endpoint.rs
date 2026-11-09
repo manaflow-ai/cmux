@@ -337,9 +337,13 @@ pub fn profile_text(e: &Endpoint<'_>) -> String {
                 models.insert(m.clone(), serde_json::json!({"name": m}));
             }
             // A keyless endpoint gets no apiKey: the client then sends no Authorization header.
-            let mut options = serde_json::json!({"baseURL": e.base_url});
+            let mut options = serde_json::Map::new();
+            options.insert("baseURL".into(), serde_json::json!(e.base_url));
             if e.keychain_item.is_some() {
-                options["apiKey"] = serde_json::json!(format!("{{env:{OPENAI_KEY_ENV}}}"));
+                options.insert(
+                    "apiKey".into(),
+                    serde_json::json!(format!("{{env:{OPENAI_KEY_ENV}}}")),
+                );
             }
             let config = serde_json::json!({
                 "$schema": "https://opencode.ai/config.json",
