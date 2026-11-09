@@ -256,7 +256,6 @@ extension WindowOverlayHost {
         }, completion: { finished.done() })
     }
 
-    /// Places `handle` in panel coordinates, which are the window's own.
     /// The area window-layer overlays are laid out in: the overlay panel's container (the whole window frame, title
     /// bar included), else the window's content view before the panel has a size. A page that fills the window
     /// takes this size.
@@ -264,6 +263,7 @@ extension WindowOverlayHost {
         panel.overlayContainer.bounds.isEmpty ? (window?.contentView?.bounds ?? .zero) : panel.overlayContainer.bounds
     }
 
+    /// Places `handle` in panel coordinates, which are the window's own.
     func layout(_ handle: OverlayHandle) {
         cachedRegions = nil
         if isAppHost { return layoutAppPanel() }
