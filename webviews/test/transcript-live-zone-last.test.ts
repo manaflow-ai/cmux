@@ -191,3 +191,28 @@ test("the run under the prompt changes when a call from any of its rows changes"
   expect(callIds([run(first)!], run(first)!.id)).toEqual(["c-1", "c-2"]);
   expect(run(next)!.version).not.toBe(run(first)!.version);
 });
+
+// Review of #39825 (F3): the pane's send time and the agent's call times are read on one clock. The
+// pane stamps `delivery.sentAt` on this computer's clock; a call's `endedAt` is the events' clock,
+// `clockOffset` behind or ahead (events' time + offset = this computer's).
+for (const offset of [5 * 60_000, -5 * 60_000]) {
+  test(`a call's place against a prompt sent mid-turn holds with the pane's clock ${offset > 0 ? "ahead" : "behind"} by 5 min`, () => {
+    // The person sent at 10 s on the events' clock; the pane stamped it on its own.
+    const sent = steer("landed", {
+      delivery: { state: "read", promptId: "p-2", sessionId: "s-1", sentAt: at(10) + offset },
+    });
+    const shaped = (endedAt: number) =>
+      turnView(
+        [prompt, reply, row("act-1", "activity", 3, { items: [call("c-1", "Read relay.ts", "read", 3, endedAt)] }), sent],
+        new Set(),
+        { working: true, agentFamily: "claude", now: at(60) + offset, clockOffset: offset },
+      );
+    // Ended 5 s before the send: it stays above the prompt.
+    const before = ids(shaped(5));
+    expect(before.indexOf("act-1")).toBeLessThan(before.indexOf("u-2"));
+    expect(before).not.toContain(`act-1${AFTER_SEND}u-2`);
+    // Ended 2 s after it: it lands under the prompt.
+    const after = ids(shaped(12));
+    expect(after.indexOf(`act-1${AFTER_SEND}u-2`)).toBe(after.indexOf("u-2") + 1);
+  });
+}

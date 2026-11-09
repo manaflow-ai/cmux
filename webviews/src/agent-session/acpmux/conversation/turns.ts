@@ -1024,7 +1024,7 @@ function shapedTurn(
       ...line,
     ];
     // What was still going when the person sent into the running turn draws after the prompt.
-    if (live) shaped = afterSends(shaped);
+    if (live) shaped = afterSends(shaped, clockOffset);
     // Legacy/history turns can end without a turn_result. Keep the normal turn rhythm at the
     // composer for the latest completed turn without restoring the permanent runway under every
     // turn. The marker is consumed by the row estimator and CSS only for this terminal row.
@@ -2280,8 +2280,11 @@ function liveCompaction(drawn: readonly AcpmuxRow[]): AcpmuxRow | undefined {
 const sentByPerson = (row: AcpmuxRow) =>
   row.kind === "user" && !row.incoming && !row.received && !row.untyped && row.from === undefined;
 
-/// When the person sent `row`: the pane's send time while it has one, else its record's.
-const sentTime = (row: AcpmuxRow) => row.delivery?.sentAt ?? row.at;
+/// When the person sent `row`, on the events' clock (a call's `endedAt`): the pane's send time while
+/// it has one, moved off this computer's clock by `clockOffset` (the snapshot's `clockOffsetMs`,
+/// events' time + offset = this computer's), else its record's.
+const sentTime = (row: AcpmuxRow, clockOffset: number) =>
+  row.delivery?.sentAt !== undefined ? row.delivery.sentAt - clockOffset : row.at;
 
 /// Whether `item` was still going at `sentAt`: a call running now or one that ended after it, a
 /// thought that streamed on past it.
@@ -2301,14 +2304,14 @@ export const AFTER_SEND = ":after:";
 /// for a run of its own right under the prompt (`AFTER_SEND`), so it lands below the prompt when it
 /// ends instead of in its run above it. One pass over the turn's rows per prompt the person sent
 /// into it (a few); a turn with none is returned as it is.
-export function afterSends(rows: AcpmuxRow[]): AcpmuxRow[] {
+export function afterSends(rows: AcpmuxRow[], clockOffset = 0): AcpmuxRow[] {
   let out: AcpmuxRow[] | undefined;
   const emptied = new Set<AcpmuxRow>();
   for (let at = 1; at < (out ?? rows).length; at += 1) {
     const list = out ?? rows;
     const sent = list[at]!;
     if (!sentByPerson(sent) || sent.failed) continue;
-    const sentAt = sentTime(sent);
+    const sentAt = sentTime(sent, clockOffset);
     const moved: NonNullable<AcpmuxRow["items"]> = [];
     let source: AcpmuxRow | undefined;
     // Every row an item came from: Find and a count's reveal still name them (`joined`, chatFind.ts
