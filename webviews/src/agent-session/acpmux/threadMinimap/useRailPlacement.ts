@@ -5,6 +5,7 @@ import { CHAT_LAYOUT_EVENT, chatColumnOf, useChatSizing } from "../chatWidth";
 import { transcriptColumn } from "../model";
 import { experimentArm } from "../../../experiments/experiment";
 import { threadMinimapGutter } from "./gutter.experiment";
+import { threadMinimapRestTick } from "./restTick.experiment";
 import { railPlacement } from "./model";
 import type { RailSide } from "./railSide";
 
@@ -33,7 +34,15 @@ export function useRailPlacement(
   /// How the rail fits a narrow gutter (gutter.experiment.ts), read once per pane: `tight` lets its
   /// inset shrink to the smallest spacing step before it overlaps any text.
   const [gutterArm] = useState(() => experimentArm(threadMinimapGutter));
-  const [placement, setPlacement] = useState(() => ({ ...railPlacement(paneWidth), reserve: 0, gutterArm }));
+  /// Whether a short gutter shortens the resting ticks or only the room beside them
+  /// (restTick.experiment.ts), read once per pane.
+  const [restTickArm] = useState(() => experimentArm(threadMinimapRestTick));
+  const [placement, setPlacement] = useState(() => ({
+    ...railPlacement(paneWidth),
+    reserve: 0,
+    gutterArm,
+    restTickArm,
+  }));
   // The layout effect places the rail before paint when the scroller is already attached. On a mount
   // the child effect runs before the ancestor scroller's ref is set, so the passive effect, which
   // runs after every ref is attached, measures again and subscribes to the shell's layout event.
@@ -65,9 +74,10 @@ export function useRailPlacement(
           max: token("--cmux-space-4", 16),
           compact: token("--cmux-space-3", 12),
           ...(gutterArm === "tight" ? { narrowest: token("--cmux-space-3", 12) } : {}),
-        }),
+        }, restTickArm === "inset-first"),
         reserve,
         gutterArm,
+        restTickArm,
       };
       setPlacement((was) =>
         was.left === next.left &&
@@ -81,7 +91,7 @@ export function useRailPlacement(
     };
     update();
     return { shell, update };
-  }, [scroller, paneWidth, columnWidth, display, scale, side, chatMinimap, gutterArm]);
+  }, [scroller, paneWidth, columnWidth, display, scale, side, chatMinimap, gutterArm, restTickArm]);
   useLayoutEffect(() => {
     measure();
   }, [measure]);
