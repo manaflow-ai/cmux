@@ -103,6 +103,7 @@ public struct CloudMoveStrings {
 }
 
 /// Move to Cloud's stops in its words (the App's `CloudMove`, `CloudStartChat`).
+@MainActor
 extension CloudMoveFailure {
     /// A failed copy's failure: an outdated machine's Retry updates it first.
     public static func syncing(_ answer: CloudMoveCLI.Answer, machine: String, retry: CloudMoveRetries.Retry) -> Self {
