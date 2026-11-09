@@ -31,7 +31,11 @@ const WAIT: Duration = Duration::from_secs(20);
 
 fn hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "harnesses": {
+            "fake": {"argv": ["python3", FAKE]},
+            // Steers as Claude Code does: a prompt during a turn is read into it at once.
+            "steer": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_CLAUDE_STEER": "1"}},
+        },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
     }))
@@ -86,11 +90,16 @@ impl Client {
     }
 
     async fn new_session(&mut self, name: &str) -> String {
+        self.new_session_on(name, "fake").await
+    }
+
+    /// A session named `name` on `harness`.
+    async fn new_session_on(&mut self, name: &str, harness: &str) -> String {
         let r = self
             .ok(
                 "session/new",
                 json!({"cwd": std::env::temp_dir(), "mcpServers": [],
-                       "_meta": {"acpmux": {"name": name}}}),
+                       "_meta": {"acpmux": {"name": name, "harness": harness}}}),
             )
             .await;
         r["sessionId"].as_str().unwrap().to_owned()
@@ -151,6 +160,16 @@ fn question(to: &str, text: &str, sub: Option<&str>) -> Value {
         mux["callerSubagent"] = json!({"id": sub, "type": "general-purpose"});
     }
     json!({"sessionId": to, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": mux}})
+}
+
+/// A FIFO at a fresh path, for a `gate:` turn of the stand-in agent.
+fn fifo(name: &str) -> std::path::PathBuf {
+    let path = std::env::temp_dir().join(format!("w5s-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let c = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
+    // SAFETY: a NUL-terminated path this test owns.
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+    path
 }
 
 /// Waits until `check` finds something, checking every 50 ms; None after [`WAIT`].
@@ -319,4 +338,91 @@ async fn w5s_a_forged_from_routes_no_reply_to_the_session_it_names() {
         !got.iter().any(|r| r.contains("SPOOF-Q") || r.contains("w5s-asked")),
         "the victim got a reply to a question it never asked: {got:?}"
     );
+}
+
+/// Review of #39055, item 3: a question whose caller waits for the reply (`send --wait`) gets it
+/// on its call, its notice says "waiting for it", and no report of it comes to the asker's chat.
+#[tokio::test]
+async fn w5s_a_waited_question_gets_its_reply_on_the_call_and_no_report() {
+    let hub = hub();
+    let mut person = Client::new(&hub);
+    let alpha = person.new_session("w5s-waits").await;
+    let beta = person.new_session("w5s-answers-the-call").await;
+    // beta ran a turn of its own: alpha's messages go to its inbox, not as its first work.
+    person
+        .ok(
+            "session/prompt",
+            json!({"sessionId": beta, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+    let mut alpha_cli = Client::as_session(&hub, &alpha).await;
+    let mut waited = question(&beta, "WAITED-Q What is 4*4?", None);
+    waited["_meta"]["acpmux"]["readsReply"] = json!(true);
+    alpha_cli.ok("session/prompt", waited).await;
+    let prompts = person.agent_prompts(&beta).await;
+    let notice = prompts.iter().find(|t| t.contains("WAITED-Q")).expect("beta got the question");
+    assert!(notice.contains("waiting for it"), "its caller waits: {notice}");
+
+    // alpha's next question, sent without waiting, does come back as a report.
+    alpha_cli.send("session/prompt", question(&beta, "AFTER-Q What is 3*3?", None)).await;
+    let found =
+        within(async || person.reports(&alpha).await.into_iter().find(|r| r.contains("AFTER-Q")))
+            .await;
+    if found.is_none() {
+        let (a, b) = (person.trail(&alpha).await, person.trail(&beta).await);
+        panic!("alpha got beta's reply to AFTER-Q within {WAIT:?}\nalpha:\n{a}\nbeta:\n{b}");
+    }
+    let reports = person.reports(&alpha).await;
+    let twice: Vec<_> =
+        reports.iter().filter(|r| r.contains("WAITED-Q") && !r.contains("AFTER-Q")).collect();
+    assert!(twice.is_empty(), "the waited reply came back as a report too: {twice:?}");
+}
+
+/// Review of #39055, item 3: a question's notice steered into a running turn is answered by that
+/// turn: its report comes to the asker when that turn ends, with that turn's reply.
+#[tokio::test]
+async fn w5s_a_question_steered_into_a_running_turn_reports_at_that_turns_end() {
+    let hub = hub();
+    let mut person = Client::new(&hub);
+    let alpha = person.new_session("w5s-asks-midturn").await;
+    let beta = person.new_session_on("w5s-steered", "steer").await;
+    let orch = person.new_session("w5s-orch").await;
+    // beta's turn is another agent's first work (no notice goes into the person's own turn),
+    // held on a gate.
+    let gate = fifo("steer-gate");
+    let mut orch_cli = Client::as_session(&hub, &orch).await;
+    let gated = format!("gate: {}", gate.display());
+    orch_cli
+        .send(
+            "session/prompt",
+            json!({"sessionId": beta, "prompt": [{"type": "text", "text": gated}]}),
+        )
+        .await;
+    let s = hub.resolve(&beta).unwrap();
+    until("beta's gated turn runs", async || s.turn().map(|_| ())).await;
+
+    let mut alpha_cli = Client::as_session(&hub, &alpha).await;
+    alpha_cli.send("session/prompt", question(&beta, "STEER-Q What is 2*2?", None)).await;
+    until("the notice went into beta's running turn", async || {
+        let p = person.agent_prompts(&beta).await;
+        p.iter().any(|t| t.contains("STEER-Q")).then_some(())
+    })
+    .await;
+    assert!(s.turn().is_some(), "the gated turn still runs");
+    let early = person.reports(&alpha).await;
+    assert!(
+        !early.iter().any(|r| r.contains("w5s-steered")),
+        "no report before its end: {early:?}"
+    );
+
+    std::fs::write(&gate, "go").unwrap();
+    let found = within(async || {
+        person.reports(&alpha).await.into_iter().find(|r| r.contains("after-gate"))
+    })
+    .await;
+    let Some(report) = found else {
+        let (a, b) = (person.trail(&alpha).await, person.trail(&beta).await);
+        panic!("alpha got the gated turn's reply within {WAIT:?}\nalpha:\n{a}\nbeta:\n{b}");
+    };
+    assert!(report.contains("w5s-steered"), "the report names beta: {report}");
 }
