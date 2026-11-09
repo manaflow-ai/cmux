@@ -766,6 +766,20 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
 
+## An agent driving the screen or a browser shows on its row (2026-11-08)
+
+Lawrence 2026-11-07: "i think the computer use/browser use indiciator in workspaces needs to be better".
+A row whose agent uses the computer (Computer Use) or a browser draws `AgentDriveIndicatorView` in its
+trailing cluster, left of the badge column, with `sidebar.presenceDots` off: a capsule tinted in the
+agent's presence color with the drive's glyph (`display` or `globe`) and the agent's short name
+(`Claude 2`). The glyph breathes on agent work's `MotionLoop.breath`; Reduce Motion shows it still and
+fades nothing in. It never gives way to the hover controls (it sits left of them, as the usage warning
+does). A click opens Go to (the agent's tab, `.selectTab`) and Stop (`.stopAgentDrive`: its Computer Use
+session, or its chat's turn; a terminal agent's browser use has no Stop). Debug Settings
+`sidebar.driveIndicator` switches to the glyph alone, a solid badge, or the old dot. The tab chip and pane
+tag lead with the same glyph. Quieter presence (editing, reading) stays behind `sidebar.presenceDots`.
+Tests: `AgentDriveIndicatorTests`. Coordinated with a590 (sidebar owner) by note; a590 was not running.
+
 ## A workspace row's favicon follows the tab last focused in it (2026-11-07)
 
 Lawrence msg 23802: "workspace favicon needs to reflect the latest focused/interacted entity that was interacted with

@@ -49,6 +49,8 @@ export const usageModesOf = (plan: UsagePlan): ReadonlyArray<IncludedMode> => (U
 export const defaultTeamMode = (set: UsagePriceSet): IncludedMode => (set === "v2" ? "per_seat" : "per_team")
 /** A plan's included mode when the operator set none: the set's Team default for Team, per team for every other plan (or none). */
 export const defaultIncludedMode = (plan: UsagePlan | null, set: UsagePriceSet): IncludedMode => (plan && USAGE_TEAM_MODE_PLANS.has(plan) ? defaultTeamMode(set) : "per_team")
+/** Whether the set's included amount pools Cloud machine time with model spend (Leo 2026-11-09: v2 only). */
+export const poolsMachineTime = (set: UsagePriceSet): boolean => set === "v2"
 export const USAGE_INCLUDED_USD: Readonly<Record<UsagePlan, number>> = USAGE_PRICE_SETS.v1
 export const usageIncludedUsd = (plan: UsagePlan, set: UsagePriceSet = "v1") => USAGE_PRICE_SETS[set][plan]
 export const usageMeterEvent = (mode: IncludedMode) => (mode === "per_seat" ? USAGE_METER_EVENT_ABOVE : USAGE_METER_EVENT)
