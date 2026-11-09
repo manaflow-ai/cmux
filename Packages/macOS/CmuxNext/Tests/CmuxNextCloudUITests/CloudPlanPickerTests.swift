@@ -63,7 +63,7 @@ import Testing
         defer { window.close() }
         let answer = Task { await CloudPlanPickerPresenter().choose(CloudPlanPicker(interval: .year, offersRunHere: true), in: window) }
         let view = try #require(await shown(in: window))
-        #expect(view.frame.size == window.contentView?.bounds.size, "the picker fills the window")
+        #expect(view.frame == window.contentView?.bounds, "the picker fills the window, edge to edge")
         #expect(view.accessibilityRole() == .group && view.isAccessibilityModal())
         view.choose(.plan(.max, .year))
         view.notNow()
@@ -89,9 +89,9 @@ import Testing
         defer { window.close() }
         let answer = Task { await CloudPlanPickerPresenter().choose(CloudPlanPicker(), in: window) }
         let view = try #require(await shown(in: window))
-        var views: [NSView] = [view]
+        var views = view.subviews
         while let next = views.popLast() {
-            #expect(!String(describing: type(of: next)).contains("Hosting"), "no SwiftUI bridge: \(type(of: next))")
+            #expect(!String(describing: type(of: next)).contains("NSHosting"), "no SwiftUI bridge: \(type(of: next))")
             views.append(contentsOf: next.subviews)
         }
         #expect(view.shownCards.map(\.first) == ["Pro", "Max", "Team"])

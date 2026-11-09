@@ -145,11 +145,13 @@ public final class CloudPlanPickerHostingView: NSView {
         let preferredWidth = stack.widthAnchor.constraint(equalToConstant: maxWidth)
         preferredWidth.priority = .defaultHigh
         let fillHeight = page.heightAnchor.constraint(greaterThanOrEqualTo: clip.heightAnchor)
+        // As tall as the window unless the content needs more (then it scrolls).
+        let windowHeight = page.heightAnchor.constraint(equalTo: clip.heightAnchor).withPriority(.defaultLow)
         NSLayoutConstraint.activate([
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor), scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
             scroll.topAnchor.constraint(equalTo: topAnchor), scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
             page.leadingAnchor.constraint(equalTo: clip.leadingAnchor), page.topAnchor.constraint(equalTo: clip.topAnchor),
-            page.widthAnchor.constraint(equalTo: clip.widthAnchor), fillHeight,
+            page.widthAnchor.constraint(equalTo: clip.widthAnchor), fillHeight, windowHeight,
             // Centered in the window, at most `maxWidth` wide, padded on every side.
             stack.centerXAnchor.constraint(equalTo: page.centerXAnchor),
             stack.centerYAnchor.constraint(equalTo: page.centerYAnchor).withPriority(.defaultLow),
@@ -171,6 +173,8 @@ public final class CloudPlanPickerHostingView: NSView {
             CloudPlanCardView(plan: plan, picker: picker) { [weak self] choice in self?.choose(choice) }
         }
         cards.forEach(cardsRow.addArrangedSubview)
+        // One level row: every card as tall as the tallest.
+        for card in cards.dropFirst() { card.heightAnchor.constraint(equalTo: cards[0].heightAnchor).isActive = true }
     }
 
     private func applyColors() {
@@ -293,7 +297,9 @@ final class CloudPlanCardView: NSView {
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -inset),
             stack.topAnchor.constraint(equalTo: topAnchor, constant: inset),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -inset),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -inset),
+            // No taller than its content unless the row makes it (the cards share one height).
+            heightAnchor.constraint(equalTo: stack.heightAnchor, constant: 2 * inset).withPriority(.defaultLow),
         ])
         for view in [header, billingLabel, includedLabel, getButton, todayLabel, divider, features] as [NSView] {
             view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
