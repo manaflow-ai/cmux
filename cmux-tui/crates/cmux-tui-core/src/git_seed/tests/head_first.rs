@@ -80,7 +80,7 @@ fn at_the_head_the_start_files_carry_work_and_every_tool_still_waits() {
     let (service, job, release) = held_at_head(&world, &params, &folder);
     let held = status(&service, &job);
     assert_eq!((&held["state"], &held["head_ready"]), (&json!("running"), &json!(true)), "{held}");
-    assert!(matches!(probe(&folder).unwrap(), Probe::HeadReady));
+    assert_eq!(settled_head(&folder), "head");
     assert_eq!(read(&folder.join("a")), "a\nstaged\nunstaged\n", "the person's unstaged edit");
     assert_eq!(read(&folder.join("b")), "b\nunpushed\n");
     assert!(!folder.join("gone").exists(), "WORK's delete");
@@ -259,7 +259,7 @@ fn a_harness_folder_linked_to_the_subpath_is_never_marked() {
 /// A seed whose WORK has a submodule at `at` (its folder not initialized, as a clone leaves
 /// one; no `.gitmodules`, so the seed never reaches for it over the network), held at its
 /// head: the barrier's state there and the job's status.
-fn submodule_at_head(label: &str, at: &str) -> (String, Value) {
+fn submodule_at_head(label: &str, at: &str, want: &str) -> (String, Value) {
     let world = World::new(label);
     let lib = world.home.join("lib");
     std::fs::create_dir_all(&lib).unwrap();
@@ -275,12 +275,28 @@ fn submodule_at_head(label: &str, at: &str) -> (String, Value) {
     let folder = world.home.join("project");
     let params = head_params(&world, &folder, &snapshot, None);
     let (service, job, release) = held_at_head(&world, &params, &folder);
-    let probed = barrier_state(&folder);
+    let probed = if want == "head" { settled_head(&folder) } else { barrier_state(&folder) };
     let reported = status(&service, &job);
     drop(release);
     let done = wait(&service, &job);
     assert_eq!(done["state"], "done", "{label}: {done}");
     (probed, reported)
+}
+
+/// [`barrier_state`] once it reads the head, or after 5 s. The seed lets go of the head lock
+/// before it says so, but a git another test thread forked at that moment holds a copy of
+/// the descriptor until it execs, so the probe may read the lock as held for a moment
+/// (cmuxterm-hq goals/cloud-no-network-wait.md). Taking a lock never lags: a test that
+/// wants `syncing` reads it once.
+fn settled_head(folder: &Path) -> String {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let now = barrier_state(folder);
+        if now == "head" || Instant::now() >= deadline {
+            return now;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 /// The probe's answer, and for a syncing folder which of its sidecar locks are held, so a
@@ -316,7 +332,7 @@ fn barrier_state(folder: &Path) -> String {
 /// the head (submodules come after the fill), so the head is never marked.
 #[test]
 fn a_harness_folder_kept_as_a_submodule_is_never_marked() {
-    let (probed, reported) = submodule_at_head("head-sub-harness", ".claude");
+    let (probed, reported) = submodule_at_head("head-sub-harness", ".claude", "syncing");
     assert!(probed.starts_with("syncing"), "{probed}");
     assert!(reported["head_ready"].is_null(), "{reported}");
 }
@@ -324,7 +340,7 @@ fn a_harness_folder_kept_as_a_submodule_is_never_marked() {
 /// A submodule off the head leaves it marked: barrier and status say the same.
 #[test]
 fn a_submodule_off_the_head_leaves_it_marked() {
-    let (probed, reported) = submodule_at_head("head-sub-elsewhere", "vendor/lib");
+    let (probed, reported) = submodule_at_head("head-sub-elsewhere", "vendor/lib", "head");
     assert_eq!(reported["head_ready"], true, "{reported}");
     assert_eq!(probed, "head", "{reported}");
 }
