@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42701364070",
+  "recorded_at": "2026-11-09T21:31:47Z",
+  "reason": "cmux-tui d0b56111f8c7 changes the image's cmux-tui (pinned 7243434d3ce1)",
+  "dry_run": false,
+  "cmux_tui": "d0b56111f8c7f3388fe43a40b7dabef70f1b0250",
+  "fixes": [
+    {
+      "sha": "76341f29d026c5718311eda40f2a9a3196a5badc",
+      "mergedAt": "2026-11-09T12:55:35-08:00",
+      "subject": "cmux-tui: every terminal wait that runs out of time says timed_out and exits 124 (#38640)"
+    },
+    {
+      "sha": "20c1a03251a53c5e0e4a2a9812eacd9ed30530f7",
+      "mergedAt": "2026-11-09T12:53:20-08:00",
+      "subject": "Cloud: delete NEXT's remaining classic /api/vm calls (#39661)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T21:31:47Z",
+    "snapshot_id": "sh-22954ef00c49435cb4ced6bbddbdf4f7",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42701364070): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "59938f27acc6bce3d37d08cedb41b6fc61405130",
+    "image": "cloud-native-auto-d0b56111-42701364070-1",
+    "revision": "ci-42701364070-1",
+    "at": "2026-11-09T21:31:47Z"
+  },
+  "rolled_back": false
+}
