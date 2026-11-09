@@ -152,12 +152,12 @@ class StatusMapping(unittest.TestCase):
         step = next(step for step in job()["steps"] if "run" in step)
         self.assertIn("timeout \"$left\" curl", step["run"])
         self.assertIn("WAIT_SECONDS:-2400", step["run"])
-        # The deadline starts before the pending post, and the terminal post (3 tries of 30 s, 2 waits
-        # of 10 s) fits after it: 40 min + 110 s, inside the step's 50, the job's 55 and the token's 60.
+        # The deadline starts before the pending post, and the terminal post (8 tries 30 s apart, bound
+        # to 240 s) fits after it: 40 min + 240 s, inside the step's 50, the job's 55 and the token's 60.
         run = step["run"]
         self.assertLess(run.index("deadline=$((SECONDS"), run.index("post pending"))
-        self.assertIn("timeout 110 curl -sS --fail-with-body", run)
-        self.assertLessEqual(2400 + 110, step["timeout-minutes"] * 60 - 300)
+        self.assertIn("timeout 240 curl -sS --fail-with-body", run)
+        self.assertLessEqual(2400 + 240, step["timeout-minutes"] * 60 - 300)
         self.assertLessEqual(step["timeout-minutes"], job()["timeout-minutes"])
         self.assertLess(job()["timeout-minutes"], 60)
 
