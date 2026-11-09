@@ -133,7 +133,7 @@ struct CloudStartChat {
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         // The chat's harness login (DEV and dogfood builds, +Login) and remote approvals run beside the copy, awaited before the chat opens.
         let size = AgentPaneCloudStart.sizeText(machine.machine.size)
-        let copy: (CloudMoveCLI.Answer, (chat: String, folder: String, copied: Bool, sourceTrusted: Bool)) = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account } }) {
+        let copy: (CloudMoveCLI.Answer, (chat: String, folder: String, copied: Bool, sourceTrusted: Bool)) = try await RemoteApprovalPreparations.owned({ [services] owner in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus, owner: owner) { account == services.cloud.account } }) {
             async let loginPassed = passHarnessLogin(harness: start.harness, machine: machine)
             report(.init(name: "folder", folder: folderName, machine: name, size: size))
             // Each copy goes to a new folder of the send's own, under its account as its pin; a retry whose
@@ -243,7 +243,7 @@ struct CloudStartChat {
                                                      cli: CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout), invocation: invocation) { await CloudChatPick(services: services).read(folder: nil, tab: tab) }
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         // The harness login before the first prompt, as for a chat with a project (+Login), and remote approvals meanwhile.
-        _ = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account } }) { await passHarnessLogin(harness: start.harness, machine: machine) }
+        _ = try await RemoteApprovalPreparations.owned({ [services] owner in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus, owner: owner) { account == services.cloud.account } }) { await passHarnessLogin(harness: start.harness, machine: machine) }
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         report(.init(name: "opening", machine: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size),
                      start: .init(environmentId: plan.environmentId, setup: plan.setup)))

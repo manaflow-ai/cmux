@@ -86,7 +86,7 @@ struct CloudApprovalsPrepareTests {
     @MainActor @Test func aFailedLoginCancelsAndAwaitsThePrepBeforeTheStartEnds() async {
         let prep = Prep()
         await #expect(throws: LoginFailed.self) {
-            try await RemoteApprovalPreparations.owned({
+            try await RemoteApprovalPreparations.owned({ _ in
                 try? await Task.sleep(for: .seconds(30)) // a slow status read; the cancel ends it at once
                 await prep.end(cancelled: Task.isCancelled)
                 return false
@@ -102,7 +102,7 @@ struct CloudApprovalsPrepareTests {
     /// A login that passes waits for the prep too, uncancelled: the chat's first start carries the key.
     @MainActor @Test func aPassedLoginAwaitsThePrepUncancelled() async throws {
         let prep = Prep()
-        let value = try await RemoteApprovalPreparations.owned({
+        let value = try await RemoteApprovalPreparations.owned({ _ in
             await Task.yield()
             await prep.end(cancelled: Task.isCancelled)
             return true
@@ -119,8 +119,8 @@ struct CloudApprovalsPrepareTests {
         let machine = "cloud-approvals-owned-\(UUID().uuidString)"
         let starts = Counter()
         await #expect(throws: LoginFailed.self) {
-            try await RemoteApprovalPreparations.owned({
-                await RemoteApprovalPreparations.shared.prepare(machine: machine, daemonSaidSafe: false, held: false, idle: {
+            try await RemoteApprovalPreparations.owned({ owner in
+                await RemoteApprovalPreparations.shared.prepare(machine: machine, daemonSaidSafe: false, held: false, owner: owner, idle: {
                     try? await Task.sleep(for: .milliseconds(300)) // the shared task is not cancelled: the read answers idle
                     return true
                 }) {
@@ -139,8 +139,8 @@ struct CloudApprovalsPrepareTests {
     @MainActor @Test func aSharedPrepRestartsForTheOwnerStillLive() async throws {
         let machine = "cloud-approvals-shared-\(UUID().uuidString)"
         let starts = Counter()
-        let prep: @MainActor @Sendable () async -> Bool = {
-            await RemoteApprovalPreparations.shared.prepare(machine: machine, daemonSaidSafe: false, held: false, idle: {
+        let prep: @MainActor @Sendable (RemoteApprovalPreparations.Owner) async -> Bool = { owner in
+            await RemoteApprovalPreparations.shared.prepare(machine: machine, daemonSaidSafe: false, held: false, owner: owner, idle: {
                 try? await Task.sleep(for: .milliseconds(300))
                 return true
             }) {

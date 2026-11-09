@@ -232,7 +232,7 @@ struct CloudStartSession {
         steps.done("connect")
         try still(name)
         // Remote approvals turn on beside the login (an idle daemon only), awaited on every exit: the gate is never released under them.
-        try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(session, .checkStatus) { account == services.cloud.account } }) {
+        try await RemoteApprovalPreparations.owned({ [services] owner in await services.cloud.restartWithApprovalsIfIdle(session, .checkStatus, owner: owner) { account == services.cloud.account } }) {
             try await passHarnessLogin(session, agent: agent, login: request.login) { try still(name) }
             steps.done("login")
         }
