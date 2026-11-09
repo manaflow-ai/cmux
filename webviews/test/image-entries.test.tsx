@@ -28,6 +28,7 @@ Object.assign(scope, replacements);
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const images = await import("../src/agent-session/acpmux/conversation/imageEntries");
+const { attachmentRetry } = await import("../src/pages/shared/attachmentRetry");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 
@@ -63,6 +64,8 @@ try {
   });
 
   test("an image acpmux does not have, or a failed read, is not kept", async () => {
+    // A failed read is tried again on its own first (pages/shared/attachmentRetry.ts): no waits here.
+    attachmentRetry.delaysMs = [0, 0, 0];
     expect(await images.loadSentImage("none", async () => undefined)).toBeUndefined();
     expect(images.sentImageEntry("none")).toBeUndefined();
     await expect(

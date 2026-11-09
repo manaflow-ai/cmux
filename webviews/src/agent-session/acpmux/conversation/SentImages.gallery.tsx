@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { AcpmuxRow, PromptImage } from "../model";
+import { attachmentRetry } from "../../../pages/shared/attachmentRetry";
 import { primeSentImages } from "./imageEntries";
 import { ImageViewerContext } from "./imageViewerContext";
 import { PresentationContext } from "./presentationContextModel";
@@ -13,7 +14,8 @@ import { SentImages, UserBubble } from "./UserBubble";
 
 type Shot = { width: number; height: number; hue: number };
 type Props = {
-  images: (PromptImage & { shot?: Shot; broken?: boolean })[];
+  /// `unread`: acpmux's read of it keeps failing (a reconnect that outlasts the tries again).
+  images: (PromptImage & { shot?: Shot; broken?: boolean; unread?: boolean })[];
   pending?: boolean;
   /// The pane's own paste: acpmux's echo names each image (by the SHA-256 of its bytes) before
   /// the pane has primed it, and acpmux's read never answers; the pane's priming draws it.
@@ -135,8 +137,16 @@ function GalleryShownImages({ images, pending = false, inline = false }: Props) 
     const urls = new Map(
       images.map((image) => [image.id, image.broken ? "data:image/png;base64,AAAA" : image.shot && paint(image.shot)]),
     );
+    const unread = new Set(images.filter((image) => image.unread).map((image) => image.id));
+    // The gallery shows where the tries again end, not the seconds they take.
+    if (unread.size > 0) attachmentRetry.delaysMs = [0, 0, 0];
     return {
-      promptImage: (id: string) => (pending ? new Promise<never>(() => {}) : Promise.resolve(urls.get(id))),
+      promptImage: (id: string) =>
+        pending
+          ? new Promise<never>(() => {})
+          : unread.has(id)
+            ? Promise.reject(new Error("socket closed"))
+            : Promise.resolve(urls.get(id)),
     };
   });
   return (
@@ -218,6 +228,20 @@ export default componentEntry<Props>({
     failed: {
       note: "An image acpmux answers but the engine cannot draw: its slot says Couldn't load image.",
       props: { images: [pasted[0]!, { id: "x", mimeType: "image/png", name: "image.png", broken: true }] },
+    },
+    "read-failed": {
+      note: "A screenshot whose read still fails after its tries again: its slot says Couldn't load image with a Retry under it, never an empty gap.",
+      props: { images: [pasted[0]!, { ...pasted[1]!, id: "unread-b", unread: true }] },
+    },
+    "read-failed-sized": {
+      note: "A failed read whose record names its size keeps the thumbnail's own wide shape, so a Retry that draws it moves nothing.",
+      props: {
+        images: [{ ...pasted[1]!, id: "unread-sized", unread: true, width: 3024, height: 1180 }],
+      },
+    },
+    "read-failed-all": {
+      note: "Three screenshots whose reads all failed: each slot has its own Retry.",
+      props: { images: pasted.map((image) => ({ ...image, id: `unread-all-${image.id}`, unread: true })) },
     },
     loading: {
       note: "While acpmux reads the images, each slot holds its thumbnail's height (square: no size known yet).",

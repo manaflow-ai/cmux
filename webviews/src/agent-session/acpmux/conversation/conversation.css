@@ -419,6 +419,24 @@
   text-align: center;
   letter-spacing: var(--text-caption--letter-spacing);
 }
+/* A failed read's Retry under the note: a small pill on the slot's own surface. */
+.cv-user__image-retry {
+  margin-top: var(--ds-space-1);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  color: var(--agent-text);
+  font: inherit;
+  cursor: default;
+}
+.cv-user__image-retry:hover {
+  background: color-mix(in srgb, var(--agent-text) 18%, transparent);
+}
+.cv-user__image-retry:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
 
 /* A Chief subagent's first message: the Chief's view as one collapsed line above the task, with its
    Copy at the line's trailing end (App.tsx). The summary keeps the Copy's width free, so the label

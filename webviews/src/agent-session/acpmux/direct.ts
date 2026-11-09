@@ -191,6 +191,7 @@ import {
   memoryRowId,
   settleMemoryOffer,
 } from "./conversation/memoryInbox";
+import { withAttachmentRetries } from "../../pages/shared/attachmentRetry";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -9868,19 +9869,34 @@ export class AcpmuxDirectClient {
     return read;
   }
   /// The image `id` a prompt of the open chat sent, as a data URL; undefined when acpmux has none.
-  /// An id names the image's bytes, so one read serves every bubble that shows it.
+  /// An id names the image's bytes, so one read serves every bubble that shows it. A read that
+  /// failed for any other reason (the socket reconnecting, acpmux busy) throws, so the bubble tries
+  /// again and then offers Retry (imageEntries.ts loadSentImage), instead of drawing nothing as
+  /// though the image were gone.
   async promptImage(id: string): Promise<string | undefined> {
     const shown = this.promptImageUrls.get(id);
     if (shown) return shown;
-    const data = await this.promptImageData(id);
+    const data = await this.readPromptImage(id);
     const url = data && `data:${data.mimeType};base64,${data.data}`;
     if (url) this.promptImageUrls.set(id, url);
     return url;
   }
   private readonly promptImageUrls = new Map<string, string>();
+  /// For a resend: the image's bytes, tried again on its own after a failed read; undefined when
+  /// they still cannot be read.
   private async promptImageData(id: string): Promise<{ mimeType: string; data: string } | undefined> {
+    try {
+      return await withAttachmentRetries(() => this.readPromptImage(id));
+    } catch {
+      return undefined;
+    }
+  }
+  /// One read of the image `id`: undefined when acpmux has none (it answers not found, or the id
+  /// is not one), throws on any other failure.
+  private async readPromptImage(id: string): Promise<{ mimeType: string; data: string } | undefined> {
     const sessionId = this.selectedSession;
-    if (!sessionId) return undefined;
+    // No chat selected for a moment (a reconnect, a switch): a read now cannot tell, so try again.
+    if (!sessionId) throw new Error("no chat selected");
     try {
       const reply = await this.request("_acpmux/attachment", { sessionId, id });
       return typeof reply?.data === "string"
@@ -9889,8 +9905,9 @@ export class AcpmuxDirectClient {
             data: reply.data,
           }
         : undefined;
-    } catch {
-      return undefined;
+    } catch (error) {
+      if (error instanceof AcpmuxRpcError && !refusedByHost(error) && ATTACHMENT_GONE.has(error.code)) return undefined;
+      throw error;
     }
   }
   async continueIn(harness: string): Promise<string | undefined> {
@@ -12963,6 +12980,9 @@ function pageShown(): boolean {
 
 /// JSON-RPC's method-not-found code: a daemon that predates the method.
 const METHOD_NOT_FOUND = -32601;
+/// acpmux's answers for an image it has none of: not found (hub/prompt_images.rs), or an id that
+/// is not one (invalid params). Reading again never finds it.
+const ATTACHMENT_GONE = new Set<unknown>([-32002, -32602]);
 
 /// Methods the pane's host refused because they are not on its allowlist, said once each.
 const notAllowlisted = new Set<string>();

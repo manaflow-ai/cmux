@@ -25,6 +25,7 @@ import { Avatar } from "./Avatar";
 import { EmojiPicker, loadEmoji } from "./EmojiPicker";
 import { HomeIcon, type HomeIconName } from "./icons";
 import { useWebSwapHold } from "../shared/useWebSwapHold";
+import { isAbort, withAttachmentRetries } from "../shared/attachmentRetry";
 import type { HomeAttachment, HomeParticipant } from "./types";
 
 export interface ComposerProps {
@@ -132,19 +133,38 @@ export function Composer({
         reader.onload = () => typeof reader.result === "string" && patchFile(id, { thumb: reader.result });
         reader.readAsDataURL(file);
       }
-      const controller = new AbortController();
-      uploads.current.set(id, controller);
-      attachments.service
-        .upload(attachments.conversation, file, (progress) => patchFile(id, { progress }), controller.signal)
-        .then(
-          (part) => patchFile(id, { part }),
-          (error: unknown) => {
-            if (!controller.signal.aborted) patchFile(id, { error: uploadError(error, t) });
-          },
-        )
-        .finally(() => uploads.current.delete(id));
+      startUpload(id, file);
     }
     if (added.length) setFiles((current) => [...current, ...added]);
+  };
+  /// Uploads `file` for tray item `id`. A failed upload is tried again on its own a few times
+  /// (pages/shared/attachmentRetry.ts; the daemon keeps a hash it already has, so a try again
+  /// sends only what is missing); one that still fails shows Retry on its tray item, never nothing.
+  const startUpload = (id: string, file: File) => {
+    if (!attachments) return;
+    const { service, conversation } = attachments;
+    const controller = new AbortController();
+    uploads.current.set(id, controller);
+    withAttachmentRetries(
+      () => service.upload(conversation, file, (progress) => patchFile(id, { progress }), controller.signal),
+      { retries: (error) => !isAbort(error) && retryableUpload(error), signal: controller.signal },
+    )
+      .then(
+        (part) => patchFile(id, { part }),
+        (error: unknown) => {
+          if (!controller.signal.aborted)
+            patchFile(id, { error: uploadError(error, t), retryable: retryableUpload(error) });
+        },
+      )
+      .finally(() => {
+        if (uploads.current.get(id) === controller) uploads.current.delete(id);
+      });
+  };
+  const retryFile = (id: string) => {
+    const item = files.find((candidate) => candidate.id === id);
+    if (!item?.retryable) return;
+    patchFile(id, { error: undefined, retryable: undefined, progress: { sent: 0, total: item.file.size } });
+    startUpload(id, item.file);
   };
   const removeFile = (id: string) => {
     uploads.current.get(id)?.abort();
@@ -325,7 +345,7 @@ export function Composer({
       }}
     >
       {dropping && <div className="hc-drop-hint">{t("attach.drop")}</div>}
-      <AttachmentTray items={files} strings={strings} onRemove={removeFile} />
+      <AttachmentTray items={files} strings={strings} onRemove={removeFile} onRetry={retryFile} />
       {showFormats && (
         <Toolbar label={t("format.toolbar")} className="hc-format">
           {FORMAT_GROUPS.map((group, index) => (
@@ -533,8 +553,16 @@ export function Composer({
   );
 }
 
+function uploadCode(error: unknown): string {
+  return typeof error === "object" && error && "code" in error ? String((error as { code: unknown }).code) : "";
+}
+
 function uploadError(error: unknown, t: (key: string) => string): string {
-  const code = typeof error === "object" && error && "code" in error ? String((error as { code: unknown }).code) : "";
-  if (code === "cmux.page.unavailable") return t("attach.unavailable");
+  if (uploadCode(error) === "cmux.page.unavailable") return t("attach.unavailable");
   return t("attach.failed");
+}
+
+/** Whether trying again can work: a page that cannot send files here never will. */
+function retryableUpload(error: unknown): boolean {
+  return uploadCode(error) !== "cmux.page.unavailable";
 }
