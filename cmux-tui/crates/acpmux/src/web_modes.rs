@@ -171,7 +171,7 @@ pub(crate) const CARRIED_CONFIG_IDS: &[&str] = &[
     crate::claude_stdio::prompt_suggestions::OPTION,
 ];
 
-fn non_asking(mode: &str) -> bool {
+pub(crate) fn non_asking(mode: &str) -> bool {
     NON_ASKING_MODES.iter().any(|(_, modes)| modes.contains(&mode))
 }
 
