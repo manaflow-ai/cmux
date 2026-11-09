@@ -346,9 +346,11 @@ jobs:
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
         # On a cmux-tui.yml dispatch, save only on an owned mini (GitHub store): a Blacksmith
-        # save was not restored by later dispatch runs.
+        # save was not restored by later dispatch runs. A cmux-tui.yml --commit run builds
+        # another commit than the caller's revision (checkout_ref != github.sha): it does not
+        # save into the integration branch's scope (advisory: the commit's own actions run here).
         with:
-          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
+          save-on-dispatch: ${{ (inputs.checkout_ref == '' || inputs.checkout_ref == github.sha) && contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -867,9 +869,11 @@ jobs:
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
         # On a cmux-tui.yml dispatch, save only on an owned mini (GitHub store): a Blacksmith
-        # save was not restored by later dispatch runs.
+        # save was not restored by later dispatch runs. A cmux-tui.yml --commit run builds
+        # another commit than the caller's revision (checkout_ref != github.sha): it does not
+        # save into the integration branch's scope (advisory: the commit's own actions run here).
         with:
-          save-on-dispatch: ${{ contains(runner.name, '-glaeda') }}
+          save-on-dispatch: ${{ (inputs.checkout_ref == '' || inputs.checkout_ref == github.sha) && contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust

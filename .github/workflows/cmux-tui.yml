@@ -158,7 +158,9 @@ jobs:
 
       # The steps come from this workflow revision, but the scripts they call and the
       # local actions they use come from the tested commit's tree. A commit on an
-      # older base can lack one: fail here, and name it, not deep in a job.
+      # older base can lack one: fail here, and name it, not deep in a job. Only jobs
+      # that check out the tested commit count: this job's own tools (the guard,
+      # ensure-gh.sh) come from the workflow revision, so the commit need not have them.
       - name: Require the scripts this workflow runs in the tested commit (another commit only)
         if: github.sha != inputs.commit
         env:
@@ -440,7 +442,8 @@ jobs:
           workspaces: cmux-tui -> target
           # One Linux key lets lint and test reuse each other's compiled crates.
           shared-key: cmux-tui-${{ matrix.os }}
-          # A --commit run (another commit, on an integration branch) never writes that branch's cache.
+          # A --commit run (another commit, on an integration branch) does not save into that branch's cache
+          # scope. Advisory: the tested commit's own .github/actions and code run here and could still write.
           save-if: ${{ github.sha == inputs.commit }}
 
       - name: Report cargo cache hit rate
@@ -616,7 +619,8 @@ jobs:
         with:
           cache-bin: false
           workspaces: cmux-tui -> target
-          # A --commit run (another commit, on an integration branch) never writes that branch's cache.
+          # A --commit run (another commit, on an integration branch) does not save into that branch's cache
+          # scope. Advisory: the tested commit's own .github/actions and code run here and could still write.
           save-if: ${{ github.sha == inputs.commit }}
 
       - name: Build test binaries
@@ -823,8 +827,12 @@ jobs:
 
       # A verified Zig tarball survives a mirror outage (FLAKE-ZIG-MIRRORS-502):
       # install-zig-ci.sh uses it only when it matches the pinned SHA-256.
-      - name: Cache the verified Zig tarball
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      # Restore and save are split so a --commit run (another commit than the
+      # workflow revision) restores but does not save into the integration
+      # branch's cache scope.
+      - name: Restore the verified Zig tarball
+        id: zig-tarball-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/cmux-zig-tarballs
           key: cmux-zig-tarball-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci/zig-tarballs.sha256') }}
@@ -833,6 +841,13 @@ jobs:
         env:
           ZIG_TARBALL_CACHE_DIR: ${{ runner.temp }}/cmux-zig-tarballs
         run: ./scripts/install-zig-ci.sh
+
+      - name: Save the verified Zig tarball
+        if: github.sha == inputs.commit && steps.zig-tarball-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/cmux-zig-tarballs
+          key: cmux-zig-tarball-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci/zig-tarballs.sha256') }}
 
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
@@ -1191,7 +1206,8 @@ jobs:
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-${{ matrix.os }}
-          # A --commit run (another commit, on an integration branch) never writes that branch's cache.
+          # A --commit run (another commit, on an integration branch) does not save into that branch's cache
+          # scope. Advisory: the tested commit's own .github/actions and code run here and could still write.
           save-if: ${{ github.sha == inputs.commit }}
 
       - name: Report cargo cache hit rate

@@ -13,6 +13,10 @@ The script rejects dirty or unpushed work, verifies the exact commit in every ho
 
 To prove a regression test is red, verify the red (test-only) commit of a two-commit fix with `--commit <40-char-sha>` (for example `--commit "$(git rev-parse HEAD~1)" --filter <name>`) after you push the fix commit. The sha must be on your branch's pushed head. The run is dispatched on `feat-cmux-next`, so that branch's `cmux-tui.yml` runs; it tests exactly that sha, and the workflow refuses a sha that no branch of this repository contains. Do not make a separate red branch, and do not dispatch the workflow by hand.
 
+A `--commit` red run is a valid red receipt only when both are true. A reviewer checks both:
+- The run title `cmux-tui <mode> <request_id> @ <sha>` names the PR's own red commit (`gh pr view <n> --json commits`). Any commit that a branch of this repository contains can be tested, so a run for another commit proves nothing about this PR.
+- The run failed in the named test in a test job. A failure in `validate exact commit request` (for example, a missing script that the guard names), a compile error that the base already has, or a step that fails on a path with a variable is red for the wrong reason.
+
 `rust-toolchain.toml` is the single Rust toolchain source for hosted TUI tests, package builds, and live conformance. Change that file instead of adding a workflow-specific Rust version.
 
 ## Daemon edits: swap the running daemon
