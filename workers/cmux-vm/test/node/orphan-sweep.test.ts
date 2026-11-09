@@ -180,10 +180,12 @@ it("deletes no tunnel when the sweep's lookup fails", async () => {
 
 it("reads a tunnel listing far over the 1 MiB reply cap as it streams, and still sweeps it", async () => {
   // 4,000 tunnels with a full WireGuard config each: about 3 MiB, streamed in 16 KiB chunks.
+  // tun-3999 sits only on its device's mesh network and is deleted; tun-2000 is named by the
+  // lookup too but sits on another network, so the exact-attachment check skips it.
   const listing = Array.from({ length: 4_000 }, (_, n) => ({
     ...deviceTunnel(n + 1),
     clientConfig: `[Interface]\nPrivateKey = \nAddress = 100.64.0.1/32\n${"#".repeat(600)}`,
-    attachments: [{ vpcId: "vpc-1", address: "10.0.0.2" }],
+    attachments: [{ vpcId: n + 1 === 2_000 ? "vpc-other" : "vpc-mesh", address: "10.0.0.2" }],
   }));
   const text = JSON.stringify({ tunnels: listing, totalCount: listing.length });
   expect(text.length).toBeGreaterThan(3 * 1024 * 1024);
@@ -209,9 +211,10 @@ it("reads a tunnel listing far over the 1 MiB reply cap as it streams, and still
   };
   const report = await Effect.runPromise(sweepOrphanTunnels(
     { baseUrl: "https://provider.test", apiKey: Redacted.make("key"), environment: "production", fetch },
-    { dryRun: false, sweepable: naming([device(3_999)]) },
+    { dryRun: false, sweepable: naming([device(2_000), device(3_999)]) },
   ));
   expect(report.listed).toBe(4_000);
+  expect(report.skipped).toEqual(["tun-2000"]);
   expect(report.deleted).toEqual(["tun-3999"]);
   expect(deletes).toEqual(["tun-3999"]);
 });
