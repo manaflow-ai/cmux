@@ -22,7 +22,11 @@ test("with no pane toasts the debug toast says it showed nothing", () => {
 
 test("a debug toast with no text shows nothing and says so", () => {
   const shown: string[] = [];
-  const debug = createAcpmuxDebug({ replaceRows: () => undefined, rowCount: () => 0, toast: (text) => shown.push(text) });
+  const debug = createAcpmuxDebug({
+    replaceRows: () => undefined,
+    rowCount: () => 0,
+    toast: (text) => shown.push(text),
+  });
   expect(debug.toast("")).toEqual({ shown: false, text: "", error: "toast needs text" });
   expect(debug.toast(undefined as unknown as string)).toEqual({ shown: false, text: "", error: "toast needs text" });
   expect(shown).toEqual([]);

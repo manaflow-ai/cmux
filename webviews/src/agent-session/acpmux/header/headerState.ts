@@ -102,7 +102,9 @@ const listeners = new Set<() => void>();
 function moveReasonsOf(value: unknown): Record<string, string> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const reasons: Record<string, string> = {};
-  for (const [id, reason] of Object.entries(value)) if (typeof reason === "string" && reason.trim()) reasons[id] = reason;
+  for (const [id, reason] of Object.entries(value)) {
+    if (typeof reason === "string" && reason.trim()) reasons[id] = reason;
+  }
   return reasons;
 }
 
