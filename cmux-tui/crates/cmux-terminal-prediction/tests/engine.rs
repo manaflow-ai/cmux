@@ -1448,3 +1448,19 @@ fn a_replay_read_after_missed_output_sets_concealment() {
     session.type_key("x");
     assert_eq!(session.drawn(), "x", "status {:?}", session.status());
 }
+
+#[test]
+fn a_cursor_restore_after_missed_output_conceals_again() {
+    let mut session = armed_session();
+    session.remote("\x1b[8m\x1b7\x1b[0m");
+    session.engine.missed_output(session.clock);
+    session.remote("\x1b8");
+    session.advance(ms(2_000));
+    for key in ["h", "u", "n", "t"] {
+        session.type_key(key);
+        session.remote(key);
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key("e");
+    assert_eq!(session.drawn(), "", "status {:?}", session.status());
+}

@@ -248,3 +248,14 @@ fn a_cursor_restore_brings_back_the_saved_conceal_state() {
     scanner.scan(b"\x1b[8m\x1b7\x1b[0mX\x1b8");
     assert!(scanner.is_concealed());
 }
+
+#[test]
+fn a_restart_keeps_the_conceal_state_a_cursor_save_holds() {
+    // SGR 8, ESC 7, SGR 0, then a resize: the terminal's ESC 8 still brings
+    // concealment back.
+    let mut scanner = TerminalOutputScanner::new();
+    scanner.scan(b"\x1b[8m\x1b7\x1b[0m");
+    assert!(!scanner.is_concealed());
+    let mut scanner = scanner.restarted();
+    assert_eq!(scanner.scan(b"\x1b8"), [Concealed(true)]);
+}

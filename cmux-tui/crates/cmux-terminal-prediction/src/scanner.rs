@@ -222,11 +222,15 @@ impl TerminalOutputScanner {
         self.is_concealed
     }
 
-    /// A fresh parse state that keeps the conceal state: output went missing
-    /// (a resize, a replaced screen), and only an SGR the scanner reads can
-    /// say concealment ended.
+    /// A fresh parse state that keeps the conceal state and the copy a cursor
+    /// save holds: output went missing (a resize, a replaced screen), the
+    /// terminal kept both, and only output the scanner reads can change them.
     pub fn restarted(&self) -> Self {
-        Self { is_concealed: self.is_concealed, ..Self::new() }
+        Self {
+            is_concealed: self.is_concealed,
+            saved_concealed: self.saved_concealed,
+            ..Self::new()
+        }
     }
 
     fn set_concealed(&mut self, concealed: bool) -> OutputSignal {
