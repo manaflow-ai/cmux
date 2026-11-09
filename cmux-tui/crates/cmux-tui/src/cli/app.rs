@@ -514,27 +514,34 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     Ok(Some(command))
 }
 
-/// An action's `path`, `out` or `cwd` argument as the app must read it: a relative
-/// path names a folder or file of the caller's working directory, and the app
-/// runs elsewhere, so it is made absolute here (`.` parts dropped). An
-/// absolute path, `~/…`, `-` (stdout: `cmux window screenshot --out -`), or a
-/// non-string value is sent unchanged.
+/// An action's `path`, `out`, `cwd` or `fromFolder` argument as the app must read it: a
+/// relative path names a folder or file of the caller's working directory, and the app
+/// runs elsewhere, so it is made absolute here ([`caller_absolute`]). An absolute path,
+/// `~/…`, `-` (stdout: `cmux window screenshot --out -`), or a non-string value is sent
+/// unchanged.
 fn caller_path(value: Value) -> Value {
-    let Some(text) = value.as_str() else { return value };
-    if text == "-" {
-        return value;
+    match value.as_str().and_then(caller_absolute) {
+        Some(path) => json!(path),
+        None => value,
     }
+}
+
+/// A relative path of the caller's, joined to this process's working directory (`.` parts
+/// dropped); `None` for an absolute path, `~/…`, `-`, the empty text, or no working directory.
+/// The one place a CLI path argument of this Mac becomes absolute: [`caller_path`] for app
+/// actions, and `cloud start-chat --from-folder` (`cloud_start_chat::local_folder`).
+pub(in crate::cli) fn caller_absolute(text: &str) -> Option<String> {
     let path = Path::new(text);
-    if text.is_empty() || path.is_absolute() || text.starts_with('~') {
-        return value;
+    if text == "-" || text.is_empty() || path.is_absolute() || text.starts_with('~') {
+        return None;
     }
-    let Ok(cwd) = std::env::current_dir() else { return value };
+    let cwd = std::env::current_dir().ok()?;
     let joined: PathBuf = cwd
         .join(path)
         .components()
         .filter(|part| !matches!(part, std::path::Component::CurDir))
         .collect();
-    json!(joined.to_string_lossy())
+    Some(joined.to_string_lossy().into_owned())
 }
 
 /// `cli` when a person runs the command at a terminal, else `script`.
@@ -696,9 +703,11 @@ pub(super) fn run_action(
             _ => {
                 let key = argument_name(&name);
                 // A file or folder of the caller's working directory, for an app that runs elsewhere.
-                let file =
-                    matches!(key.as_str(), "path" | "out" | "bootstrapScript" | "machineConfig")
-                        || (key == "cwd" && cwd_is_callers(action));
+                // `fromFolder` (`cloud start-session`) is always a folder of this Mac to copy.
+                let file = matches!(
+                    key.as_str(),
+                    "path" | "out" | "bootstrapScript" | "machineConfig" | "fromFolder"
+                ) || (key == "cwd" && cwd_is_callers(action));
                 let value = if file { caller_path(value) } else { value };
                 arguments.insert(key, value);
             }
