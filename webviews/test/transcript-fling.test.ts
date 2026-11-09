@@ -204,7 +204,9 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
       });
       await page.evaluate(startScrollCoverage, { timeoutMs: 20_000 });
       // A trackpad shaken up and down: half to one and a half viewports a frame, turning every
-      // few frames, each burst a little longer than the last.
+      // few frames, each burst a little longer than the last. Each frame also holds the main thread
+      // 12 ms, as a long chat's own work does, so the deferred warm rows lag the scroll as they do
+      // in the app (headless WebKit otherwise has time to build them between frames).
       const steps = await page.evaluate(async () => {
         const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         const sizes = [0.5, 0.9, 1.3, 1.5, 1.1, 0.7];
@@ -215,6 +217,8 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
             const by = sizes[(turn + frame) % sizes.length]! * node.clientHeight * sign;
             await window.cmuxPaintFrame(() => {
               node.scrollTop += by;
+              const busy = performance.now() + 12;
+              while (performance.now() < busy);
             });
             moved += 1;
           }
