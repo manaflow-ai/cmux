@@ -891,6 +891,21 @@ pub(super) fn push(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Re
     push_inner(socket, local, remote_root, &|_, _| true, false, Some(&mut printer))
 }
 
+/// [`push`] of only the files in the head of a chat opened at `subpath`
+/// (`cmux_git::harness_head::in_head`), and every symlink: what the held copy
+/// sends before the machine marks the head (`seed_cli`). The [`push`] after it
+/// finds these unchanged.
+pub(super) fn push_head(
+    socket: &Path,
+    local: &Path,
+    remote_root: &str,
+    subpath: &str,
+) -> anyhow::Result<Summary> {
+    let mut printer = progress_printer();
+    let head = |relative: &str, _: bool| cmux_git::harness_head::in_head(relative, subpath);
+    push_inner(socket, local, remote_root, &head, false, Some(&mut printer))
+}
+
 /// Whether `folder` is in a git working copy (its top folder or below it).
 pub(super) fn in_git(folder: &Path) -> bool {
     !matches!(local::GitDirs::of(folder), Ok(None))

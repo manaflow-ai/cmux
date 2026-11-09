@@ -42,6 +42,8 @@ fn write(path: &Path, text: &str) {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Serves {
     Seed,
+    /// `git-seed-v1` and the held copy's `git-seed-hold-v1`.
+    Hold,
     /// Another build without `git-seed-v1`.
     CopyOnly,
 }
@@ -124,6 +126,15 @@ impl World {
         (output.status.success(), answer, progress)
     }
 
+    /// A start-chat push: the chat opens at `subpath` of `local`.
+    fn push_head_first(&self, local: &Path, remote: &Path, subpath: &str) -> (bool, Value) {
+        let (socket, local, remote) =
+            (self.socket.to_str().unwrap(), local.to_str().unwrap(), remote.to_str().unwrap());
+        let (ok, answer, _) =
+            self.seed(&["push", "--socket", socket, local, remote, "--head-first", subpath]);
+        (ok, answer)
+    }
+
     fn push(&self, local: &Path, remote: &Path, since_last: bool) -> (bool, Value, Vec<Value>) {
         let mut args = vec!["push", "--socket", self.socket.to_str().unwrap()];
         args.extend([local.to_str().unwrap(), remote.to_str().unwrap()]);
@@ -156,12 +167,13 @@ fn serve(socket: &Path, home: &Path, github: &Path, serves: Serves) -> &'static 
                     let reply = if cmd == "identify" {
                         let capabilities = match serves {
                             Serves::Seed => json!(["fs-v1", "git-seed-v1"]),
+                            Serves::Hold => json!(["fs-v1", "git-seed-v1", "git-seed-hold-v1"]),
                             Serves::CopyOnly => json!(["fs-v1"]),
                         };
                         json!({"id": id, "ok": true, "data": {"capabilities": capabilities,
                                "build_id": "machine-build", "session_id": "machine-a"}})
                     } else if git_seed::frame_command(&line).is_some() {
-                        if serves == Serves::Seed {
+                        if serves != Serves::CopyOnly {
                             git_seed::answer_line(Some(seed), true, &line)
                         } else {
                             json!({"id": id, "ok": false, "error_code": "unknown_command",
@@ -461,4 +473,69 @@ fn seed_clone_checks_out_a_repository_with_no_folder_here() {
         w.seed(&["clone", "--socket", socket, "--repo", "acme/nothing", missing.to_str().unwrap()]);
     assert!(!ok);
     assert_eq!(failed["error_code"], json!("seed.clone_failed"), "{failed}");
+}
+
+/// A folder no seed can take: the head (`README.md`, `CLAUDE.md`, `.claude/`, and
+/// `app/`'s own files for a chat in `app`) and three files past it.
+fn plain_project(root: &Path) -> PathBuf {
+    let plain = root.join("plain");
+    write(&plain.join("README.md"), "read me\n");
+    write(&plain.join("CLAUDE.md"), "be kind\n");
+    write(&plain.join(".claude/skills/s/SKILL.md"), "a skill\n");
+    write(&plain.join("app/notes.md"), "notes\n");
+    write(&plain.join("src/a.rs"), "fn a() {}\n");
+    write(&plain.join("src/b.rs"), "fn b() {}\n");
+    write(&plain.join("app/src/c.rs"), "fn c() {}\n");
+    plain
+}
+
+#[test]
+fn a_held_copy_answers_at_its_head_and_the_rest_follows_under_the_barrier() {
+    let w = World::new(Serves::Hold);
+    let plain = plain_project(&w.root);
+    let remote = w.remote("plain");
+    let (ok, copied) = w.push_head_first(&plain, &remote, "app");
+    assert!(ok, "{copied}");
+    assert_eq!(copied["mode"], json!("copy"), "{copied}");
+    assert_eq!(copied["filling"], json!(true), "{copied}");
+    // The answer counts the head alone: the root's two files, the skill and app's own one.
+    assert_eq!(copied["copy"]["written"], json!(4), "{copied}");
+    // The rest lands while every tool waits, then the folder reads ready, whole.
+    cmux_git::sync_barrier::wait_ready(&remote, std::time::Duration::from_secs(60)).unwrap();
+    assert_eq!(files(&remote).len(), 7, "{:?}", files(&remote));
+    assert_eq!(std::fs::read_to_string(remote.join("app/src/c.rs")).unwrap(), "fn c() {}\n");
+    // A --since-last waits for the hold's job, then re-pushes only what changed.
+    write(&plain.join("src/d.rs"), "fn d() {}\n");
+    let (ok, again, _) = w.push(&plain, &remote, true);
+    assert!(ok, "{again}");
+    assert!(again.get("filling").is_none(), "{again}");
+    assert_eq!(again["copy"]["written"], json!(1), "{again}");
+    assert_eq!(again["copy"]["unchanged"], json!(7), "{again}");
+}
+
+#[test]
+fn a_held_head_that_would_start_mcp_servers_is_copied_whole_before_the_answer() {
+    let w = World::new(Serves::Hold);
+    let plain = plain_project(&w.root);
+    write(&plain.join(".mcp.json"), "{}\n");
+    let remote = w.remote("plain");
+    let (ok, copied) = w.push_head_first(&plain, &remote, "");
+    assert!(ok, "{copied}");
+    assert!(copied.get("filling").is_none(), "{copied}");
+    assert_eq!(copied["copy"]["written"], json!(8), "{copied}");
+    // Ready already; a wait only rides out another test's fork holding a copy of a lock.
+    cmux_git::sync_barrier::wait_ready(&remote, std::time::Duration::from_secs(10)).unwrap();
+}
+
+#[test]
+fn a_folder_the_machine_already_has_gets_the_plain_copy() {
+    let w = World::new(Serves::Hold);
+    let plain = plain_project(&w.root);
+    let remote = w.remote("plain");
+    write(&remote.join("theirs.txt"), "the machine's\n");
+    let (ok, copied) = w.push_head_first(&plain, &remote, "");
+    assert!(ok, "{copied}");
+    assert!(copied.get("filling").is_none(), "{copied}");
+    assert_eq!(copied["copy"]["written"], json!(7), "{copied}");
+    assert_eq!(std::fs::read_to_string(remote.join("theirs.txt")).unwrap(), "the machine's\n");
 }
