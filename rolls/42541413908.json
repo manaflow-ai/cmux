@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42541413908",
+  "recorded_at": "2026-11-09T00:48:02Z",
+  "reason": "cmux-tui 9eab6e4400c8 changes the image's cmux-tui (pinned 16c3fab2ea18)",
+  "dry_run": false,
+  "cmux_tui": "9eab6e4400c8e5c52d8d0275b3aa8c58276d5cf4",
+  "fixes": [
+    {
+      "sha": "9eab6e4400c8e5c52d8d0275b3aa8c58276d5cf4",
+      "mergedAt": "2026-11-08T16:22:39-08:00",
+      "subject": "cmux-tui: split cli/command.rs under 100 KB (tests, flag values, journal flags, terminal, notification) (#38931)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T00:48:02Z",
+    "snapshot_id": "sh-4b58d5bd60154acea9cf70e380533c04",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42541413908): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9d45bb8a25fe5696f0d4cb4502f396dc3e01616c",
+    "image": "cloud-native-auto-9eab6e44-42541413908-1",
+    "revision": "ci-42541413908-1",
+    "at": "2026-11-09T00:48:02Z"
+  },
+  "rolled_back": false
+}
