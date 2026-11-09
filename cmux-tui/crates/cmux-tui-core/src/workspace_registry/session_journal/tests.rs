@@ -733,7 +733,6 @@ fn a_kind_read_runs_a_bounded_slice_of_an_unfinished_kind_backfill() {
         cursor = reached;
         calls += 1;
     }
-    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(None));
     let total = started.elapsed();
     eprintln!(
         "bounded kind backfill: {segments} unmapped segments; first read {} ms, \
@@ -742,6 +741,12 @@ fn a_kind_read_runs_a_bounded_slice_of_an_unfinished_kind_backfill() {
         total.as_millis()
     );
     assert_eq!(seen, expected, "the full-decode path returns the same records");
+    // A read can pass a segment the backfill has not mapped yet (it decodes
+    // that one whole); each later call maps one more.
+    for _ in 0..segments {
+        registry.session_journal_kinds_after(0, head, kinds, 1).unwrap();
+    }
+    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(None));
     assert_eq!(mapped(&registry), i64::try_from(segments).unwrap(), "the backfill finished");
 }
 
