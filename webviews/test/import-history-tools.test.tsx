@@ -126,7 +126,8 @@ test("Sources opens the tool's Chats and Memories apart, each source with its pa
     [...kind.querySelectorAll(".history-source-text label")].map((label) => label.textContent);
   expect(titles(kinds[0]!)).toEqual(["Claude Code", "Claude export (.zip)"]);
   expect(titles(kinds[1]!)).toEqual(["Claude memory"]);
-  expect(kinds[1]!.querySelector(".history-file")).not.toBeNull();
+  // The mock reports a path only for the archives; real detection gives every source one.
+  expect(kinds[0]!.querySelector(".history-file")?.textContent).toBe("/Users/example/Desktop/claude-export.zip");
   // Only this tool opened.
   expect(tool("Codex").querySelectorAll(".history-source")).toHaveLength(0);
 });
