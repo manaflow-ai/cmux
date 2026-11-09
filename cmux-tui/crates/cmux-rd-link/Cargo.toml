@@ -30,3 +30,7 @@ required-features = ["net"]
 [[test]]
 name = "turn"
 required-features = ["net"]
+
+[[test]]
+name = "dlink_turn"
+required-features = ["net"]

@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use super::super::command::RequestPlan;
-use super::super::mcp::CallFailure;
+use super::super::mcp::{CallFailure, FailureKind};
 use super::super::terminal_talk::send::Daemon;
 use super::super::wire::request_value;
 use super::launch::{self, Launch};
@@ -1053,4 +1053,117 @@ fn w5q_start_split_in_a_column_screen_changes_no_ratio() {
         run_with_clock(|clock| start(&daemon, &env(), clock, "beta", &options)).expect("start");
     assert_eq!(exit, 0, "{report}");
     assert!(daemon.sent("pane.split_ratio.set").is_empty());
+}
+
+/// A scripted `session.events` stream on a fake clock: each item comes `step` after the last,
+/// then a tick (`None`) every `tick` until the deadline or until the wait stops it.
+struct ScriptedEvents {
+    clock: Cell<Instant>,
+    opened_from: RefCell<Vec<Option<Value>>>,
+    stopped_early: Cell<bool>,
+}
+
+impl ScriptedEvents {
+    fn new() -> Self {
+        Self {
+            clock: Cell::new(Instant::now()),
+            opened_from: RefCell::new(Vec::new()),
+            stopped_early: Cell::new(false),
+        }
+    }
+
+    /// One `wake_after` call over `items` (or `refused`: no stream opens); the time it took.
+    fn wake(
+        &self,
+        items: &[Value],
+        refused: Option<&str>,
+        cursor: &mut Option<Value>,
+        at_most: Duration,
+    ) -> Duration {
+        let step = Duration::from_millis(50);
+        let started = self.clock.get();
+        let now = || self.clock.get();
+        let mut sleep = |d: Duration| self.clock.set(self.clock.get() + d);
+        readiness::wake_after(
+            &mut |from, deadline, tick, on_wake| {
+                self.opened_from.borrow_mut().push(from.cloned());
+                if let Some(code) = refused {
+                    return Err(CallFailure::local(FailureKind::Rejected, code, "refused"));
+                }
+                for item in items {
+                    self.clock.set(self.clock.get() + step);
+                    if on_wake(Some(item)) {
+                        self.stopped_early.set(true);
+                        return Ok(());
+                    }
+                }
+                while self.clock.get() + tick <= deadline {
+                    self.clock.set(self.clock.get() + tick);
+                    if on_wake(None) {
+                        self.stopped_early.set(true);
+                        return Ok(());
+                    }
+                }
+                self.clock.set(deadline);
+                Ok(())
+            },
+            cursor,
+            at_most,
+            &now,
+            &mut sleep,
+        );
+        self.clock.get() - started
+    }
+}
+
+fn initial_snapshot(cursor: &str) -> Value {
+    json!({"kind": "snapshot", "reset_reason": "initial", "cursor": cursor})
+}
+
+/// #38981: a change on the daemon's stream wakes the wait long before its fallback look, and
+/// the wait keeps the stream's cursor for the next look.
+#[test]
+fn w5_a_session_event_wakes_the_wait_before_its_fallback_look() {
+    let events = ScriptedEvents::new();
+    let mut cursor = None;
+    let at_most = Duration::from_secs(1);
+    let delta = json!({"kind": "batch", "cursor": "c2"});
+    let waited = events.wake(&[initial_snapshot("c1"), delta], None, &mut cursor, at_most);
+    assert!(events.stopped_early.get(), "the wait closed the stream once it saw the change");
+    assert!(waited < at_most / 2, "woke after {waited:?}, not at the {at_most:?} fallback");
+    assert_eq!(cursor, Some(json!("c2")));
+    assert_eq!(*events.opened_from.borrow(), [None::<Value>]);
+}
+
+/// The initial snapshot is no change: with nothing else on the stream the wait takes its whole
+/// fallback, and the next look resumes from the snapshot's cursor.
+#[test]
+fn w5_the_initial_snapshot_alone_waits_out_the_fallback_and_the_next_look_resumes() {
+    let events = ScriptedEvents::new();
+    let mut cursor = None;
+    let at_most = Duration::from_secs(1);
+    let waited = events.wake(&[initial_snapshot("c1")], None, &mut cursor, at_most);
+    assert!(!events.stopped_early.get());
+    assert_eq!(waited, at_most);
+    assert_eq!(cursor, Some(json!("c1")));
+    let delta = json!({"kind": "batch", "cursor": "c3"});
+    let waited = events.wake(&[delta], None, &mut cursor, at_most);
+    assert!(waited < at_most / 2, "woke after {waited:?}");
+    assert_eq!(*events.opened_from.borrow(), [None, Some(json!("c1"))]);
+    assert_eq!(cursor, Some(json!("c3")));
+}
+
+/// No stream (an older daemon): the wait sleeps out its fallback. A cursor the daemon refuses
+/// as invalid is dropped, so the next look opens from a snapshot.
+#[test]
+fn w5_no_stream_waits_out_the_fallback_and_an_invalid_cursor_is_dropped() {
+    let events = ScriptedEvents::new();
+    let at_most = Duration::from_secs(1);
+    let mut cursor = Some(json!("ahead"));
+    let waited = events.wake(&[], Some("transport.unavailable"), &mut cursor, at_most);
+    assert_eq!(waited, at_most);
+    assert_eq!(cursor, Some(json!("ahead")), "an unreachable daemon keeps the cursor");
+    let waited = events.wake(&[], Some("cursor.invalid"), &mut cursor, at_most);
+    assert_eq!(waited, at_most);
+    assert_eq!(cursor, None);
 }

@@ -302,8 +302,15 @@ fn location() -> Option<Value> {
     None
 }
 
-/// The guide, for the caller at `location` (`None`: outside a cmux terminal).
+/// The guide, for the caller at `location` (`None`: outside a cmux terminal),
+/// with this process's `CMUX_TUI_CLI`.
 pub(super) fn render(location: &Option<Value>) -> String {
+    let cli = std::env::var("CMUX_TUI_CLI").ok();
+    render_with(location, cli.as_deref())
+}
+
+/// [`render`] with `pane_cli`, the `CMUX_TUI_CLI` the pane sets.
+pub(super) fn render_with(location: &Option<Value>, pane_cli: Option<&str>) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "# cmux: agent guide\n");
     let _ = writeln!(
@@ -312,7 +319,7 @@ pub(super) fn render(location: &Option<Value>) -> String {
          `cmux <scope> --help` prints every path and flag.\n",
         version()
     );
-    write_location(&mut out, location);
+    write_location(&mut out, location, pane_cli);
     out.push_str(RULES);
     out.push_str("\n## Recipes\n\nIDs in angle brackets come from an earlier command's JSON.\n");
     for recipe in RECIPES {
@@ -332,7 +339,7 @@ pub(super) fn render(location: &Option<Value>) -> String {
     out
 }
 
-fn write_location(out: &mut String, location: &Option<Value>) {
+fn write_location(out: &mut String, location: &Option<Value>, pane_cli: Option<&str>) {
     out.push_str("## Where you are\n\n");
     let Some(identity) = location else {
         out.push_str(
@@ -344,10 +351,22 @@ fn write_location(out: &mut String, location: &Option<Value>) {
     };
     let text =
         |pointer: &str| identity.pointer(pointer).and_then(Value::as_str).unwrap_or("-").to_owned();
-    let _ = writeln!(
-        out,
-        "You run in a cmux terminal. `cmux` on your PATH talks to this session by default.\n"
-    );
+    // `"$CMUX_TUI_CLI"` only when the pane set it to an absolute path (a
+    // pane of an older daemon has none): else it runs `""`.
+    if pane_cli.is_some_and(|path| std::path::Path::new(path).is_absolute()) {
+        let _ = writeln!(
+            out,
+            "You run in a cmux terminal. Run this session's own cmux as `\"$CMUX_TUI_CLI\"`: \
+             the pane sets it to the absolute path of the session's build, and a `cmux` on PATH \
+             can be another, older install. Every `cmux` in this guide means \
+             `\"$CMUX_TUI_CLI\"` (for example `\"$CMUX_TUI_CLI\" --json identify`); it talks \
+             to this session by default.\n"
+        );
+    } else {
+        out.push_str(
+            "You run in a cmux terminal. `cmux` here talks to this session by default.\n\n",
+        );
+    }
     let _ = writeln!(out, "| object | id |\n| --- | --- |");
     let _ =
         writeln!(out, "| session | `{}` (name `{}`) |", text("/session/id"), text("/session/name"));

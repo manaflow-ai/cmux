@@ -383,27 +383,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "29b1527bdde83941e8061b1b39ee9408ed15326c",
-      "url": "https://files.cmux.com/cmux-tui/29b1527bdde83941e8061b1b39ee9408ed15326c/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "34a7288d45a6900befab1ef282fd41fd10a5c119422212e2d2c935167f055915",
-      "size": 174068208,
+      "version": "a91766dc82b39c9d1942d64c1ba4faf14dabad58",
+      "url": "https://files.cmux.com/cmux-tui/a91766dc82b39c9d1942d64c1ba4faf14dabad58/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "294cdcb97ded5f5460afa4cb7f5decf0e0b711a8fd06f2c6e0a74e7fcd2f4095",
+      "size": 176613296,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "acpmux": "cmux-tui", "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/29b1527bdde83941e8061b1b39ee9408ed15326c/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/42561490760; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/a91766dc82b39c9d1942d64c1ba4faf14dabad58/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/42589932278; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "29b1527bdde83941e8061b1b39ee9408ed15326c",
-      "url": "https://files.cmux.com/cmux-tui/29b1527bdde83941e8061b1b39ee9408ed15326c/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "25960eb795d7328b8a959c939ca62df0d4f5bba1e09391cbf3163e87cdbf808c",
-      "size": 4921160,
+      "version": "a91766dc82b39c9d1942d64c1ba4faf14dabad58",
+      "url": "https://files.cmux.com/cmux-tui/a91766dc82b39c9d1942d64c1ba4faf14dabad58/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "19d67a87caadd39ffe2eb0f41cd5daed409d3700ea3cb835a9a2b272f8a896b3",
+      "size": 4950776,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/29b1527bdde83941e8061b1b39ee9408ed15326c/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/42561490760; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/a91766dc82b39c9d1942d64c1ba4faf14dabad58/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/42589932278; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "coderouter",
@@ -576,17 +576,17 @@
     },
     {
       "name": "cmux-rd",
-      "version": "0.2.2",
-      "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.2/cmux-rd-0.2.2-x86_64-unknown-linux-gnu.tar.gz",
-      "sha256": "9c7190c62274bd0bc755223d03d8057dab388c724f733579665c8c6f89071ae1",
-      "size": 7058496,
+      "version": "0.2.3",
+      "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.3/cmux-rd-0.2.3-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "06549da6bf9a54d991e01c4d6489517718676a2575d1cb7bdcbfaa5d2d4357b8",
+      "size": 7186170,
       "format": "tar.gz",
       "bin": {
         "cmux-rd": "bin/cmux-rd"
       },
       "versionArgs": [],
-      "checksumsUrl": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.2/checksums.txt",
-      "checksumsName": "cmux-rd-0.2.2-x86_64-unknown-linux-gnu.tar.gz",
+      "checksumsUrl": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.3/checksums.txt",
+      "checksumsName": "cmux-rd-0.2.3-x86_64-unknown-linux-gnu.tar.gz",
       "roles": [
         "desktop"
       ],
@@ -594,7 +594,7 @@
         "LICENSE",
         "THIRD_PARTY_LICENSES.md"
       ],
-      "source": "manaflow-ai/cmux release cmux-rd-v0.2.2 (2026-11-05; tag on fe8c367bc15c, the merge of #36765; release run 42097002278). The cmux.rd/1 Linux host (cmux-tui/crates/cmux-rd-host, scripts/release.py). sha256 and size from checksums.txt, the release asset digest and the download. Archive: LICENSE (GPL-3.0-or-later), THIRD_PARTY_LICENSES.md, bin/cmux-rd. OpenH264 is not in it: cmux-rd openh264-install fetches Cisco's binary on the machine."
+      "source": "manaflow-ai/cmux release cmux-rd-v0.2.3 (2026-11-09; tag on fd8a53265837, feat-cmux-next after #39099 and #39159; release run 42567226980). The cmux.rd/1 Linux host (cmux-tui/crates/cmux-rd-host, scripts/release.py), with the UDP datagram link (cap link.udp, --link-stun). sha256 and size from checksums.txt, the release asset digest and the download. Archive: LICENSE (GPL-3.0-or-later), THIRD_PARTY_LICENSES.md, bin/cmux-rd. OpenH264 is not in it: cmux-rd openh264-install fetches Cisco's binary on the machine."
     }
   ],
   "roles": {

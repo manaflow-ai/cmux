@@ -4,7 +4,7 @@
 import { FindReveal, isRevealRow } from "./chatFind";
 import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AcpmuxRow } from "../model";
-import { copyTextResult } from "./clipboard";
+import { ErrorDetails } from "./ErrorDetails";
 import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
 import { WhoElseCard } from "./WhoElseCard";
@@ -649,8 +649,6 @@ function TurnFailure({
   retryNote?: RetryNote;
 }) {
   const t = useT();
-  const [copied, setCopied] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const actionsRef = useRef<HTMLSpanElement>(null);
   const { access } = useContext(TurnActionsContext);
   // One click sends one /compact: the button stays disabled until that send settles.
@@ -670,6 +668,8 @@ function TurnFailure({
       "subscription-login",
       "auth",
       "needs-credits",
+      "no-credit",
+      "cloud-auth-expired",
     ].includes(kind);
   // The cmux model router refused the turn: no paid plan and no credits, or credits that do not cover
   // the call (accessOffer.ts; Leo 2026-10-26: "we offer them to add credits or add their own api key").
@@ -835,30 +835,7 @@ function TurnFailure({
           // A retried attempt that failed too says so, so the new card is not read as the old one.
           failedAgain && <output className="cv-turn-error__note text-detail text-dim">{t("turn.failedAgain")}</output>
         )}
-        {message && (
-          <details className="cv-turn-error__details" onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
-            {/* The chat's chevron, as on Worked for, not the browser's triangle. */}
-            <summary className="cv-turn-note__summary">
-              {t("turn.failure.details")}
-              <ChevronRight size={12} aria-hidden="true" className={`cv-rotor${detailsOpen ? " is-open" : ""}`} />
-            </summary>
-            <span className="cv-turn-error__raw">
-              <span className="block font-mono text-detail whitespace-pre-wrap text-dim select-text">{message}</span>
-              <button
-                type="button"
-                className="cv-turn-auth-action"
-                onClick={() =>
-                  void copyTextResult(message).then(
-                    (accepted) => setCopied(accepted),
-                    () => setCopied(false),
-                  )
-                }
-              >
-                {copied ? t("turn.copied") : t("turn.failure.copyError")}
-              </button>
-            </span>
-          </details>
-        )}
+        {message && <ErrorDetails text={message} />}
       </span>
     </div>
   );

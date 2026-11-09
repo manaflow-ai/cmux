@@ -473,7 +473,7 @@ function stillWatch(parts: Record<string, string>, started: number, seconds: num
         openedAt = at;
         rendersAtOpen = new Map(acpmuxPerf.renders);
         let armed = false;
-        // A subscriber that joins a running clock is called at once: that is not a tick.
+        // A subscriber is called at once with the clock's last sample: that is not a tick.
         stopClock = subscribePageSecond(() => {
           if (armed) clockTicks += 1;
         });

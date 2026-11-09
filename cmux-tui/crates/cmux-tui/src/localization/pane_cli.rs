@@ -36,6 +36,13 @@ pub(crate) struct PaneCliMessages {
     pub folder_trust_no_approval: &'static str,
     /// Between the folder-trust reason and its warning.
     pub folder_trust_separator: &'static str,
+    /// The warning row's label of `cmux identify`.
+    pub warning: &'static str,
+    /// `cmux identify` from a `cmux` of another build than the session
+    /// daemon on this machine: `{own}` this build, `{daemon}` the daemon's,
+    /// `{run}` how to run the daemon's own `cmux` (`"$CMUX_TUI_CLI" (path)`
+    /// in a pane, else the path).
+    pub build_mismatch: &'static str,
 }
 
 pub(super) const ENGLISH: PaneCliMessages = PaneCliMessages {
@@ -59,6 +66,8 @@ pub(super) const ENGLISH: PaneCliMessages = PaneCliMessages {
     folder_trust_keys: "the agent asks whether you trust this folder; ask the person, and when they agree to \"{label}\" run cmux terminal {who} keys {keys} (cmux never answers it on its own)",
     folder_trust_no_approval: "warning: \"{label}\" also lets the agent act without asking for approval; tell the person",
     folder_trust_separator: "; ",
+    warning: "warning",
+    build_mismatch: "this cmux is build {own}, but the session daemon is build {daemon}; run the session's own cmux: {run}",
 };
 
 pub(super) const JAPANESE: PaneCliMessages = PaneCliMessages {
@@ -82,4 +91,6 @@ pub(super) const JAPANESE: PaneCliMessages = PaneCliMessages {
     folder_trust_keys: "エージェントがこのフォルダーを信頼するか尋ねています。本人に確認し、「{label}」に同意したら cmux terminal {who} keys {keys} を実行してください (cmux が自動で答えることはありません)",
     folder_trust_no_approval: "警告: 「{label}」を選ぶと、エージェントは承認を求めずに操作します。本人に伝えてください",
     folder_trust_separator: "。",
+    warning: "警告",
+    build_mismatch: "この cmux はビルド {own} ですが、セッションデーモンはビルド {daemon} です。セッション自身の cmux を使ってください: {run}",
 };

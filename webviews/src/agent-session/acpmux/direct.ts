@@ -4642,6 +4642,9 @@ export class AcpmuxDirectClient {
   private since?: Omit<AcpmuxSince, "key"> & { sessionId: string };
   /// Each standalone recap row by the chat and the `since` its record named (`placeSince`).
   private readonly recapsBySince = new Map<string, string>();
+  /// An older page folded in (`foldOlder`): a reply it brought may span `since.seq`, so the drawn
+  /// divider is placed again even when its mark did not change.
+  private sinceStale = false;
   private placeSince(): void {
     // Its attach answered before the list said turns ended unseen (a cold open): acpmux keeps the
     // return on the chat while the person stays (`lastReturn`).
@@ -4662,8 +4665,14 @@ export class AcpmuxDirectClient {
       return this.placeSince();
     }
     const drawn = this.rows.get(SINCE_DIVIDER);
-    if (drawn?.since?.seq === since.seq && drawn.since.turns === since.turns && drawn.since.recap === since.recap)
+    if (
+      !this.sinceStale &&
+      drawn?.since?.seq === since.seq &&
+      drawn.since.turns === since.turns &&
+      drawn.since.recap === since.recap
+    )
       return;
+    this.sinceStale = false;
     this.rows.setAt(this.rows.placeAfter(since.seq), {
       id: SINCE_DIVIDER,
       version: (drawn?.version ?? 0) + 1,
@@ -10715,6 +10724,14 @@ export class AcpmuxDirectClient {
       ...(Array.isArray(summary?.configOptions) ? { configOptions: summary.configOptions } : {}),
     };
   }
+  /// Whether `sessionId` is the chat on screen and attached, once a switch's hold has let it draw:
+  /// an action that reads the drawn chat (Stop, Fork) then reaches it and never the chat before.
+  async shownAndAttached(sessionId: string): Promise<boolean> {
+    while (this.snapshotHold && this.shownSessionId !== this.selectedSessionId) await this.snapshotHold.released;
+    return (
+      this.selectedSessionId === sessionId && this.actingSessionId === sessionId && this.attachedSession() === sessionId
+    );
+  }
   /// The selected chat's attach has supplied a matching summary for this selection generation.
   /// A stale or malformed attach can otherwise make `select()` resolve with only its requested id.
   attachedSession(): string | undefined {
@@ -11326,17 +11343,9 @@ export class AcpmuxDirectClient {
       return await this.select(String(result.sessionId));
     } catch (error) {
       if (!this.forkCancelled && generation === this.selectionGeneration) {
-        const at = Date.now();
+        // Feedback on the person's Fork: a toast, never a transcript row (review of #37629).
         const reason = errorMessage(error) || undefined;
-        const id = noticeId("notice-fork");
-        this.rows.set(id, {
-          id,
-          version: 1,
-          at,
-          kind: "notice",
-          text: reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"),
-        });
-        this.emit("fork failed");
+        this.transient(reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"));
       }
       return undefined;
     } finally {
@@ -12084,6 +12093,7 @@ export class AcpmuxDirectClient {
     } finally {
       this.foldingBelow = undefined;
     }
+    this.sinceStale = true;
     // The held events' compactions take up the ones the page left open, in order, as reading the
     // whole record does (`compaction` above). One whose first record is a running note continues a
     // compaction the page left running, or noted as failed while it may go on (a forced Stop, or an
