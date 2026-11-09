@@ -784,9 +784,23 @@ pub(in crate::cli) fn resume<D: Daemon + ?Sized>(
         }),
     );
     let who = name.unwrap_or(created.terminal.as_str()).to_owned();
-    // The session id came from the agent's hooks, so they report this agent:
-    // a resumed Claude Code draws its input box before it takes a message.
-    let exit = finish(daemon, clock, options, &created, &who, &mut report, true)?;
+    // The session id came from the agent's hooks in this pane. When those
+    // hooks report a session start, ready waits for that report: a resumed
+    // Claude Code draws its input box before it takes a message. A harness
+    // whose hooks report no start (or another harness than the one that
+    // reported) is ready on its input box, as for a start: it never reports
+    // idle before a turn, and a wait for it would run to the timeout.
+    let hooked = record
+        .pointer("/extra/agent")
+        .and_then(Value::as_str)
+        .or(exited.harness.as_deref())
+        .is_some_and(|reported| harness_name(reported) == harness);
+    let report_required = hooked
+        && super::terminal_talk::roster::harness_hooks_report(
+            &harness,
+            cmux_tui_core::agent_hook_event_starts_session,
+        );
+    let exit = finish(daemon, clock, options, &created, &who, &mut report, report_required)?;
     Ok((report, exit))
 }
 

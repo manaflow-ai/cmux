@@ -521,16 +521,13 @@ fn reports_prompts(terminal: &Value, agents: &[Value], request: &SendRequest) ->
         .max_by_key(|record| updated(record));
     let idle =
         own.is_some_and(|record| record.get("state").and_then(Value::as_str) == Some("idle"));
-    let harness = own
+    let starts_turns = own
         .and_then(|record| {
             record.pointer("/extra/agent").or_else(|| record.get("agent")).and_then(Value::as_str)
         })
-        .map(|harness| if harness == "claude-code" { "claude" } else { harness });
-    let starts_turns = harness.is_some_and(|harness| {
-        cmux_tui_hooks::provider_events(harness).is_some_and(|events| {
-            events.iter().any(|event| cmux_tui_core::agent_hook_event_starts_turn(harness, event))
-        })
-    });
+        .is_some_and(|harness| {
+            roster::harness_hooks_report(harness, cmux_tui_core::agent_hook_event_starts_turn)
+        });
     let local_input = request.text.trim_start().starts_with(['/', '!', '#']);
     hooked
         && idle

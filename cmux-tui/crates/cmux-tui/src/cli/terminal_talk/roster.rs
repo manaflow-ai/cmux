@@ -171,6 +171,16 @@ pub(in crate::cli) fn reported_by_agent(record: &Value) -> bool {
     !matches!(record.get("source").and_then(Value::as_str), Some("plugin" | "detected"))
 }
 
+/// Whether the hooks cmux installs for `harness` (any alias,
+/// cmux-tui-hooks `provider_events`) include one that `kind` matches, a
+/// cmux-tui-core `agent_hook_event_*` predicate. A harness with no such hook
+/// never reports that event, so no wait may depend on it.
+pub(in crate::cli) fn harness_hooks_report(harness: &str, kind: fn(&str, &str) -> bool) -> bool {
+    let harness = super::super::agent_vocabulary::harness_name(harness);
+    cmux_tui_hooks::provider_events(&harness)
+        .is_some_and(|events| events.iter().any(|event| kind(&harness, event)))
+}
+
 /// The agent of one terminal record, from the daemon's agent records of
 /// that terminal (newest first wins) or its OSC 7501 program status.
 /// `unseen` is whether the terminal carries an unread notification.
