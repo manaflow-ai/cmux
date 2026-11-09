@@ -1631,7 +1631,9 @@ async fn tunnel_platform()
                     x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from([6u8; 32]));
                 base64::engine::general_purpose::STANDARD.encode(public.to_bytes())
             };
-            let reply = if line.contains("/wg-key ") && body["wgPublicKey"] == lost.as_str() {
+            let reply = if line.starts_with("get /v1/host/network/target ") {
+                json!({"team": "team_test", "mesh": "mesh_test", "ipv4_cidr": "10.64.0.0/16"})
+            } else if line.contains("/wg-key ") && body["wgPublicKey"] == lost.as_str() {
                 json!({"code": "test.gateway_timeout", "message": "lost"})
             } else if line.contains("/wg-key ") {
                 json!({"machineId": "machine_test", "joinTokenId": "join_test", "teamId": "team_test",
@@ -1747,9 +1749,18 @@ async fn only_the_person_moves_this_macs_cloud_tunnel() {
     }
     assert_eq!(requests[0].2["wgPublicKey"], candidate.as_str());
     assert_eq!(requests[2].2["wgPublicKey"], new_key.as_str());
-    // The id `cmux cloud network-list` lists for this Mac's network, the joined team's, is taken
-    // by both: detach, then attach again.
-    let team = json!({"token": "person-token", "networkId": "team_test"});
+    // What `cmux cloud network-list` lists (cmux-cloud-api's `vm.networks`, from the platform's
+    // network target) is the id both take: detach, then attach again.
+    let (list, tail) = cmux_cloud_api::parse(
+        json!({"call": "vm.networks", "api": origin, "auth": "worker", "credential": "install"})
+            .to_string()
+            .as_bytes(),
+    )
+    .unwrap();
+    let listed = cmux_cloud_api::perform(&list, tail).await.unwrap();
+    assert_eq!(listed.as_array().map(Vec::len), Some(1), "{listed}");
+    let network = listed[0]["id"].clone();
+    let team = json!({"token": "person-token", "networkId": network});
     let detached = app.ok("_acpmux/machine.tunnel.detach", team.clone()).await;
     assert_eq!(detached["tunnel_id"], "machine_test");
     let attached = app.ok("_acpmux/machine.tunnel.attach", team).await;

@@ -17,6 +17,7 @@ dependencies = [
  "clap",
  "cmux-agent-pane-policy",
  "cmux-chat-index",
+ "cmux-cloud-api",
  "cmux-cloud-client",
  "cmux-coderouter",
  "cmux-codex-acp",

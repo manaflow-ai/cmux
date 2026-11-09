@@ -281,10 +281,10 @@ fn ambiguous(error: &RpcError) -> bool {
 }
 
 /// A rekey an earlier one left unsettled, finished before an attach: the pending key goes to
-/// the platform again and, when it takes it, into place. Nothing when there is no pending key,
-/// a rekey runs, or another process holds the key. Answers the rekey's answer, or its refusal,
-/// which the attach answers in place of attaching: the platform and this Mac may still hold
-/// different keys.
+/// the platform again and, when it takes it, into place. Nothing when there is no pending key.
+/// Otherwise the rekey's answer, or its refusal (`busy` while a rekey runs, `key_held` while
+/// another process holds the key), which the attach answers in place of attaching: the
+/// platform and this Mac may still hold different keys.
 pub(crate) async fn finish_pending_rekey(
     rekeys: &tokio::sync::Mutex<()>,
     machine: &Machine,
@@ -296,9 +296,7 @@ pub(crate) async fn finish_pending_rekey(
     if std::fs::symlink_metadata(KeyFile::NodePending.path_in(state_dir)).is_err() {
         return None;
     }
-    let _running = rekeys.try_lock().ok()?;
-    let holder = Holder::take(transport, state_dir).ok()?;
-    Some(rekey(machine, state_dir, holder, token, record).await)
+    Some(rekey_once(rekeys, machine, state_dir, transport, token, record).await)
 }
 
 /// What an attach says about the pending rekey it finished first.

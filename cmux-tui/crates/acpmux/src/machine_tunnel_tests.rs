@@ -326,11 +326,16 @@ async fn an_attach_first_finishes_a_rekey_whose_answer_was_lost() {
     assert_eq!(outcome, json!({"finished": true, "wgPublicKey": candidate}));
     assert_eq!(public_of(dir.path()), candidate);
     assert!(pending_public(dir.path()).is_none());
-    // While another process holds the key, the attach goes on and the candidate waits.
+    // While another process holds the key, or a rekey runs, the candidate waits and the
+    // attach is refused with that reason: it never reads as attached on a key that may differ.
     let _ = std::fs::write(KeyFile::NodePending.path_in(dir.path()), [7u8; 32]);
     let other = KeyHolder::acquire(dir.path()).unwrap();
-    assert!(finish().await.is_none());
+    assert_eq!(reason(&finish().await.expect("a pending key").unwrap_err()), "key_held");
     drop(other);
+    let running = rekeys.lock().await;
+    assert_eq!(reason(&finish().await.expect("a pending key").unwrap_err()), "busy");
+    drop(running);
+    assert_eq!(std::fs::read(KeyFile::NodePending.path_in(dir.path())).unwrap(), [7u8; 32]);
     assert_eq!(platform.seen.lock().unwrap().len(), 2);
 }
 

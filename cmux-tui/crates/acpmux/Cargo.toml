@@ -152,6 +152,8 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+# The NEXT Cloud network list (`vm.networks`), whose id the tunnel tests attach with.
+cmux-cloud-api.workspace = true
 # The simulated crash file system, for the journal store's crash tests.
 cmux-journal = { workspace = true, features = ["sim"] }
 cmux-server-core = { path = "../cmux-server-core" }
