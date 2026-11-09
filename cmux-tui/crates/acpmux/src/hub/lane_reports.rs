@@ -309,10 +309,28 @@ pub(super) fn reports_only(provenance: Option<&Value>) -> bool {
     }
 }
 
-/// What a still-waiting turn's reply says: that it still waits, or that nothing changed. A reply
-/// is a still-waiting one only when it says so (review of #39105 at bfdb6cd, F1): a reply this
-/// does not recognise is news.
-const WAITING: &str = r"(?i)\b(still (waiting|running|in progress|pending|going|queued)|waiting (on|for)|nothing new|no news|no change|not (done|finished|back) yet|keeps? waiting|wait(ing)? again)\b";
+/// A clause of a still-waiting reply, whole: a wait on a named piece of the lane's own work
+/// ("still waiting on fleet run 42549646257", "the compile check is still running on the pool"),
+/// or "nothing new". Nothing else may be in the clause: a reply is still-waiting only when every
+/// clause is one of these or an [`ELAPSED`] one (reviews of #39105 at bfdb6cd, dd6dd96 and
+/// 849eeac: a request in or beside a wait is news). The work is named from a short list of
+/// words, so a wait on anything else (a person, an input) is news too.
+const WAITING: &str = concat!(
+    r"(?i)^(?:",
+    // "still waiting on (the) fleet run 4254...", "waiting for CI (attempt 2)"
+    r"(?:still |just )?(?:waiting|wait) (?:on|for) (?:the |its |my |a |this )?(?:WORK|ID)(?: (?:WORK|ID))*",
+    r"|(?:the |its |my )?(?:WORK)(?: (?:WORK|ID))* (?:is|are) still (?:running|pending|queued|in progress|going)",
+    r"(?: on (?:the )?(?:pool|fleet|runner|runners|mini|minis|linux|mac|box|vm))?",
+    r"|(?:still )?(?:waiting|running)",
+    r"|nothing new(?: yet)?(?: (?:here|from (?:the )?(?:WORK)))?",
+    r"|no change(?: yet)?",
+    r")$",
+);
+
+/// The words a wait may name its work with, and what may follow them (an id, a number, a link,
+/// "(attempt 2)").
+const WAITING_WORK: &str = r"fleet|ci|checks?|builds?|tests?|compile|compile-check|compile check|jobs?|pool|runners?|runs?|review|reviews|reviewer|merge queue|queue|mirror|deploy|deployment|nightly|pr|pull request|workflow|actions|pipeline|the|its|my|linux|mac|macos|ios|web|rust|cargo|bench|benchmark|soak|sync|upload of the build|artifact|artifacts|lease|machine";
+const WAITING_ID: &str = r"#?\d+|\(attempt \d+\)|https?://\S+|[0-9a-f]{7,12}|[A-Za-z]+-\d+";
 
 /// Words that make a turn's reply news for its parent even while it says it waits: an end, a
 /// failure, a block, an ask, a request to act, or a wait on the reader ("waiting for you to
@@ -322,18 +340,22 @@ const DECISIVE: &str = r"(?i)\b(merged|landed|shipped|done|finished|completed?|p
 
 /// A sentence of a still-waiting reply that only says how long it has waited ("4 min in").
 const ELAPSED: &str = r"(?i)^\(?\s*(about |over |~)?\d+\s*(s|sec|secs|seconds?|m|min|mins|minutes?|h|hours?)\b( in| so far| now| elapsed)?\)?$";
-/// Where a reply's sentences end: `.`, `;`, `!` or `?` before a space or the end, or a line
-/// break. A period inside a URL ends none.
-const SENTENCE_END: &str = r"[.;!?](\s+|$)|\n";
+/// Where a reply's clauses end: `.`, `,`, `;`, `:`, `!` or `?` before a space or the end, a
+/// dash between spaces, or a line break. A period inside a URL ends none.
+const SENTENCE_END: &str = r"[.,;:!?](\s+|$)|\s[-\u{2013}\u{2014}]\s|\n";
 
-static WAITING_WORDS: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(WAITING).ok());
+static WAITING_WORDS: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    let work = format!("(?:{WAITING_WORK})");
+    let id = format!("(?:{WAITING_ID})");
+    Regex::new(&WAITING.replace("WORK", &work).replace("ID", &id)).ok()
+});
 static DECISIVE_WORDS: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(DECISIVE).ok());
 static ELAPSED_LINE: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(ELAPSED).ok());
 static SENTENCE_ENDS: LazyLock<Option<Regex>> = LazyLock::new(|| Regex::new(SENTENCE_END).ok());
 
-/// Whether `reply`, a lane's turn's, says only that it still waits: each of its sentences says
-/// it waits ([`WAITING`]) or how long ([`ELAPSED`]), so a request beside a wait ("Still waiting
-/// on fleet. Stop the rollout.", review of #39105 at dd6dd96, F2) is news; and it has no review
+/// Whether `reply`, a lane's turn's, says only that it still waits: each of its clauses is a
+/// whole wait ([`WAITING`]) or says how long ([`ELAPSED`]), so a request in or beside a wait
+/// ("Still waiting on fleet, stop the rollout.") is news; and it has no review
 /// verdict, no full commit sha and none of [`DECISIVE`]'s words. A pull request it names is news
 /// only when not reported before, which delivery decides (`due_report`). A pattern that failed
 /// to build counts every reply as news.
@@ -1736,6 +1758,10 @@ mod tests {
             "Still waiting on your answer about the schema.",
             "Waiting for permission to push to the mirror.",
             "Still waiting on fleet. Stop the rollout.",
+            "Still waiting on fleet, stop the rollout.",
+            "Still waiting on fleet stop the rollout.",
+            "Still waiting on the fleet run and then I will delete the old branch.",
+            "Waiting on Sam to merge the schema change.",
             "Still waiting on the fleet run.\nThe staging deploy looks wrong to me.",
             "",
         ] {
