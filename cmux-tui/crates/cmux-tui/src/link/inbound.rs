@@ -64,10 +64,16 @@ where
     let target = target.ok_or(InboundRefused::EntryUnavailable)?;
     let text = read_line(stream, MAX_LINE_BYTES).await.map_err(|_| InboundRefused::BadHello)?;
     let request = parse_line::<RekeyRequest>(&text).ok_or(InboundRefused::BadHello)?;
-    let refused = |why: String| RekeyReply { ok: false, error: Some(why) };
+    let refused = |why: String| RekeyReply { ok: false, error: Some(why), public_key: None };
     let (reply, changed) = match rekey_key(&request.public_key) {
         Some(key) => match target.apply(install, &key) {
-            Ok(changed) => (RekeyReply { ok: true, error: None }, changed),
+            Ok(changed) => {
+                // This link adopted a key too and still kept the asker on its old one: the
+                // answer names the new key, and the asker moves to it now (`key_adoption.rs`).
+                let ours = target.confirm(install);
+                let public_key = ours.map(|ours| STANDARD.encode(ours));
+                (RekeyReply { ok: true, error: None, public_key }, changed || ours.is_some())
+            }
             Err(error) => (refused(error.to_string()), false),
         },
         None => (refused("invalid_key".to_owned()), false),
@@ -82,7 +88,7 @@ where
 }
 
 /// A rekey's key: canonical standard base64 of 32 bytes, not all zero.
-fn rekey_key(text: &str) -> Option<[u8; 32]> {
+pub(super) fn rekey_key(text: &str) -> Option<[u8; 32]> {
     let key: [u8; 32] = STANDARD.decode(text).ok()?.try_into().ok()?;
     (STANDARD.encode(key) == text && key != [0; 32]).then_some(key)
 }

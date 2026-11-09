@@ -6,13 +6,14 @@
 use std::collections::{BTreeSet, HashMap};
 use std::io;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use cmux_link::pairing::Pairings;
 use cmux_wg::{IpNetwork, PeerRoute, WgMesh, WgMeshListener, WgPeer, WgStream};
 
 use super::control::OverlayListener;
 use super::dial::Overlay;
+use super::key_adoption::RetiringPeers;
 use super::locked;
 
 /// Keepalives hold NAT mappings open on direct paths.
@@ -29,17 +30,22 @@ pub(super) struct MeshOverlay {
     peers: Mutex<HashMap<[u8; 32], PeerShape>>,
     /// The installs whose session stays on the retired key (a mesh started
     /// with `WgMesh::start_retiring`).
-    retiring: Mutex<BTreeSet<String>>,
+    retiring: Arc<RetiringPeers>,
 }
 
 impl MeshOverlay {
     pub(super) fn new(mesh: WgMesh) -> Self {
-        Self { mesh, peers: Mutex::new(HashMap::new()), retiring: Mutex::new(BTreeSet::new()) }
+        Self { mesh, peers: Mutex::new(HashMap::new()), retiring: Arc::default() }
     }
 
     /// The installs kept on the retired key from the next sync on.
     pub(super) fn set_retiring(&self, installs: BTreeSet<String>) {
-        *locked(&self.retiring) = installs;
+        self.retiring.set(installs);
+    }
+
+    /// Who stays on the retired key, shared with the inbound rekeys.
+    pub(super) fn retiring(&self) -> Arc<RetiringPeers> {
+        self.retiring.clone()
     }
 
     pub(super) async fn listen(&self, port: u16) -> io::Result<WgMeshListener> {
@@ -83,7 +89,7 @@ impl Overlay for MeshOverlay {
     /// keeps its install's `/128`, which would overlap). Replace endpoint-only
     /// changes in place so the stack preserves the same peer's streams.
     async fn sync_peers(&self, pairings: &Pairings) -> io::Result<()> {
-        let retiring = locked(&self.retiring).clone();
+        let retiring = self.retiring.installs();
         let wanted = wanted(pairings, &retiring)?;
         let current = locked(&self.peers).clone();
         for (key, shape) in &current {

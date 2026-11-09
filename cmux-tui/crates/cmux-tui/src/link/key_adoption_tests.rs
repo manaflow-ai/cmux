@@ -208,7 +208,7 @@ async fn a_paired_peer_takes_the_new_key_over_the_old_session_and_never_another_
 
     let reloaded = peers.rekeyed();
     let told = tell_all(&far_link, &[7; 32], &ours, Duration::from_secs(5)).await;
-    assert_eq!(told, ["inst_b"]);
+    assert_eq!(told, [("inst_b".to_owned(), None)]);
     tokio::time::timeout(Duration::from_secs(5), reloaded).await.expect("no reload was asked");
     let now = Pairings::load(&file).unwrap();
     assert_eq!(now.by_install("inst_a").unwrap().key(), Some([7; 32]));
@@ -305,7 +305,9 @@ async fn run(machine: &Machine, adopting: bool, socket: tokio::net::UdpSocket) -
     let still_retiring = !retiring.is_empty();
     let overlay = Arc::new(MeshOverlay::new(mesh));
     overlay.set_retiring(retiring);
+    overlay.retiring().answer_with(public);
     let peers = Arc::new(Peers::load(state.peers_path()).unwrap());
+    peers.answer_rekeys_from(overlay.retiring());
     overlay.sync_peers(&peers.snapshot()).await.unwrap();
     let listener = overlay.listen(LINK_PORT).await.unwrap();
     let mut tasks =

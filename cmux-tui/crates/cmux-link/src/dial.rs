@@ -63,6 +63,10 @@ pub struct RekeyReply {
     pub ok: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// The receiving link's own new key, when it adopted one too and still
+    /// knew the asking link by its old key: both move in the one exchange.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_key: Option<String>,
 }
 
 /// How the stream reaches the peer. Lane 10's UI shows "same network only"

@@ -519,7 +519,10 @@ async fn serve(
     let still_retiring = !retiring.is_empty();
     let overlay = Arc::new(MeshOverlay::new(mesh));
     overlay.set_retiring(retiring);
+    overlay.retiring().answer_with(public_key);
     let peers = Arc::new(Peers::load(state.peers_path())?);
+    // A peer that adopted too and names its key over the retired one gets the node key back.
+    peers.answer_rekeys_from(overlay.retiring());
     overlay.sync_peers(&peers.snapshot()).await?;
     let listener = overlay.listen(LINK_PORT).await?;
     let socket_path = state.socket_path();

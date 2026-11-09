@@ -17,6 +17,7 @@ use tokio::net::{UnixListener, UnixStream};
 use super::acpmux::AcpmuxTarget;
 use super::dial::{Overlay, serve_dial_line};
 use super::inbound::{InboundRefused, serve_inbound_watched};
+use super::key_adoption::RetiringPeers;
 use super::lines::read_line;
 use super::paired_streams::{OpenStreams, Revocations};
 
@@ -30,6 +31,8 @@ pub(super) struct Peers {
     updates: tokio::sync::Mutex<()>,
     /// Woken when a paired peer's link named its new key ([`RekeyTarget`]).
     rekeyed: Arc<tokio::sync::Notify>,
+    /// The peers still on this link's retired key, when it adopted the node key.
+    retiring: std::sync::OnceLock<Arc<RetiringPeers>>,
 }
 
 /// Where a paired peer's [`cmux_link::dial::Service::Rekey`] goes: its record
@@ -38,6 +41,7 @@ pub(super) struct Peers {
 pub(super) struct RekeyTarget {
     path: PathBuf,
     changed: Arc<tokio::sync::Notify>,
+    retiring: Option<Arc<RetiringPeers>>,
 }
 
 impl RekeyTarget {
@@ -51,6 +55,13 @@ impl RekeyTarget {
             pairings.save(&self.path)?;
         }
         Ok(changed)
+    }
+
+    /// `install` just named its new key over its session with this link's
+    /// retired key: it adopted too. It leaves the retired key, and this
+    /// link's node key goes back in the answer.
+    pub(super) fn confirm(&self, install: &str) -> Option<[u8; 32]> {
+        self.retiring.as_ref()?.confirm(install)
     }
 
     /// Ask the running link to reload its peers.
@@ -73,12 +84,23 @@ impl Peers {
             open: Arc::default(),
             updates: tokio::sync::Mutex::new(()),
             rekeyed: Arc::default(),
+            retiring: std::sync::OnceLock::new(),
         })
     }
 
     /// Where inbound rekeys write.
     pub(super) fn rekey_target(&self) -> RekeyTarget {
-        RekeyTarget { path: self.path.clone(), changed: self.rekeyed.clone() }
+        RekeyTarget {
+            path: self.path.clone(),
+            changed: self.rekeyed.clone(),
+            retiring: self.retiring.get().cloned(),
+        }
+    }
+
+    /// Inbound rekeys from a peer still on the retired key answer with the
+    /// node key (set once, before `serve_overlay` starts).
+    pub(super) fn answer_rekeys_from(&self, retiring: Arc<RetiringPeers>) {
+        let _ = self.retiring.set(retiring);
     }
 
     /// Wait until a paired peer's rekey changed the pairing file.

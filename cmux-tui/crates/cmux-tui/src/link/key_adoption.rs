@@ -268,10 +268,51 @@ pub(super) const RETRY: Retry = Retry {
     tell_for: Duration::from_secs(5),
 };
 
+/// The paired installs a running link still keeps on its retired key, and
+/// its node key, which an inbound rekey from one of them gets back.
+#[derive(Default)]
+pub(super) struct RetiringPeers {
+    installs: std::sync::Mutex<BTreeSet<String>>,
+    node_public: std::sync::OnceLock<[u8; 32]>,
+    /// Woken when an inbound rekey took an install off the retired key.
+    confirmed: tokio::sync::Notify,
+}
+
+impl RetiringPeers {
+    pub(super) fn set(&self, installs: BTreeSet<String>) {
+        *super::locked(&self.installs) = installs;
+    }
+
+    pub(super) fn installs(&self) -> BTreeSet<String> {
+        super::locked(&self.installs).clone()
+    }
+
+    pub(super) fn answer_with(&self, node_public: [u8; 32]) {
+        let _ = self.node_public.set(node_public);
+    }
+
+    /// Take `install` off the retired key; the node key, when it was on it.
+    pub(super) fn confirm(&self, install: &str) -> Option<[u8; 32]> {
+        let node_public = *self.node_public.get()?;
+        if !super::locked(&self.installs).remove(install) {
+            return None;
+        }
+        self.confirmed.notify_one();
+        Some(node_public)
+    }
+
+    /// Keep only the installs in `pending`; never adds one.
+    fn retain(&self, pending: &BTreeSet<String>) {
+        super::locked(&self.installs).retain(|install| pending.contains(install));
+    }
+}
+
 /// Step 3 and 4 while the link serves: tell each peer left the node key, move
 /// the told ones to it, and retire the old key once nobody is left or its
-/// time is up. Returns then (or on an error it logged); the caller keeps
-/// serving.
+/// time is up. A peer counts as told when it took the key, or when it named
+/// its own new key to this link first (it adopted too, and got this link's
+/// key in the answer, `inbound.rs`). Returns then (or on an error it
+/// logged); the caller keeps serving.
 pub(super) async fn finish_retiring(
     state: &LinkState,
     overlay: &MeshOverlay,
@@ -279,6 +320,7 @@ pub(super) async fn finish_retiring(
     node_public: &[u8; 32],
     retry: Retry,
 ) {
+    let retiring = overlay.retiring();
     let mut wait = retry.first;
     loop {
         let record = match adopted(state) {
@@ -291,30 +333,44 @@ pub(super) async fn finish_retiring(
         };
         let deadline = record.retire_after.unwrap_or(0);
         let pairings = peers.snapshot();
-        let paired = |install: &String| pairings.by_install(install).is_some();
+        let still = retiring.installs();
         let left = Pairings {
             peers: pairings
                 .peers
                 .iter()
                 .filter(|peer| record.pending.contains(&peer.install))
+                .filter(|peer| still.contains(&peer.install))
                 .cloned()
                 .collect(),
         };
         let told = tell_all(overlay, node_public, &left, retry.tell_for).await;
+        // A peer that adopted too names its new key in the answer.
+        let target = peers.rekey_target();
+        for (install, key) in &told {
+            if let Some(key) = key
+                && let Err(error) = target.apply(install, key)
+            {
+                eprintln!("cmux link: {install}'s new key in its answer was refused: {error}");
+            }
+        }
+        let still = retiring.installs();
         let pending: BTreeSet<String> = record
             .pending
             .iter()
-            .filter(|install| paired(install) && !told.contains(install))
+            .filter(|install| pairings.by_install(install).is_some())
+            .filter(|install| still.contains(*install))
+            .filter(|install| !told.iter().any(|(told, _)| told == *install))
             .cloned()
             .collect();
         let expired = now_secs() >= deadline;
+        let moved = pending != record.pending;
         let result = if pending.is_empty() || expired {
             let record = Adopted { pending, ..record };
-            overlay.set_retiring(BTreeSet::new());
+            retiring.retain(&BTreeSet::new());
             retire(state, record)
-        } else if pending != record.pending {
+        } else if moved {
             let record = Adopted { pending: pending.clone(), ..record };
-            overlay.set_retiring(pending);
+            retiring.retain(&pending);
             commit(state, &record)
         } else {
             Ok(())
@@ -323,7 +379,7 @@ pub(super) async fn finish_retiring(
             eprintln!("cmux link: could not record the peers told this link's new key: {error}");
             return;
         }
-        if !told.is_empty() || expired {
+        if moved || expired {
             // The told peers (or all, at the end) move to the node key.
             if let Err(error) = peers.reload(overlay).await {
                 eprintln!("cmux link: moving told peers to the new key failed: {error}");
@@ -333,19 +389,23 @@ pub(super) async fn finish_retiring(
             return;
         }
         let until_deadline = Duration::from_secs(deadline.saturating_sub(now_secs()));
-        tokio::time::sleep(wait.min(until_deadline)).await;
+        tokio::select! {
+            () = tokio::time::sleep(wait.min(until_deadline)) => {}
+            () = retiring.confirmed.notified() => {}
+        }
         wait = (wait * 2).min(retry.cap);
     }
 }
 
 /// Tell every peer of `pairings` the key `new_public`, at once, each within
-/// `budget`; the installs that took it.
+/// `budget`; the installs that took it, each with the new key it named back
+/// when it adopted one too.
 pub(super) async fn tell_all<O: super::dial::Overlay>(
     overlay: &O,
     new_public: &[u8; 32],
     pairings: &Pairings,
     budget: Duration,
-) -> Vec<String> {
+) -> Vec<(String, Option<[u8; 32]>)> {
     let request = line(&RekeyRequest { public_key: STANDARD.encode(new_public) });
     let tells = pairings.peers.iter().map(|record| {
         let request = request.clone();
@@ -359,10 +419,17 @@ pub(super) async fn tell_all<O: super::dial::Overlay>(
                 let answer = read_line(&mut stream, cmux_link::dial::MAX_LINE_BYTES).await?;
                 let reply: RekeyReply = serde_json::from_str(answer.trim())
                     .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-                io::Result::Ok(reply.ok)
+                io::Result::Ok(reply)
             };
             match tokio::time::timeout(budget, told).await {
-                Ok(Ok(true)) => Some(record.install.clone()),
+                Ok(Ok(reply)) if reply.ok => {
+                    let theirs = reply
+                        .public_key
+                        .as_deref()
+                        .and_then(super::inbound::rekey_key)
+                        .filter(|theirs| theirs != new_public);
+                    Some((record.install.clone(), theirs))
+                }
                 _ => None,
             }
         }
