@@ -1165,7 +1165,8 @@ impl Daemon for LaterSnapshotDaemon {
 /// snapshot read after the wait. When that read fails, the snapshot from
 /// before the send is no answer: its old unread notification said `done`
 /// for a turn somebody viewed, and it cannot show the new one. The read is
-/// tried once more; when that fails too, `status` is the wait's own word.
+/// tried once more; when that fails too, a finished turn's `status` is
+/// `unknown` (#39602 review: `idle` would claim somebody viewed it).
 #[test]
 fn w5q_send_receipt_status_never_comes_from_the_snapshot_before_the_send() {
     let answer = "> what is 2+2\n\n⏺ 4\n\n──────────────────────\n> \n──────────────────────";
@@ -1186,7 +1187,7 @@ fn w5q_send_receipt_status_never_comes_from_the_snapshot_before_the_send() {
 
     // An old unread notification before the send; both reads after it fail.
     let receipt = send_with(unread.clone(), vec![None, None]);
-    assert_eq!(receipt["status"], "idle", "the old notification gave the status: {receipt}");
+    assert_eq!(receipt["status"], "unknown", "the old notification gave the status: {receipt}");
 
     // The first read after the wait fails; the second one shows the new
     // unread notification of this turn.
