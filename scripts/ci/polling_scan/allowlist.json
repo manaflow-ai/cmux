@@ -6,6 +6,11 @@
       "reason": "Not a wait: ghw retries one gh call refused for the API rate limit, at most 3 tries and 15 minutes in total, sleeping until the reset GitHub names. Runs in CI, where glaeda-gh does not exist."
     },
     {
+      "path": ".github/workflows/cmux-next-remote-browser-host-publish.yml",
+      "match": "for attempt in 1 2 3 4 5; do",
+      "reason": "Not a wait: retries one tag create that GitHub answered with a transient error (run 42541124658 got a 502), at most 5 tries 10 to 80 s apart (150 s in all), then the step fails. Runs in CI, where glaeda-gh does not exist."
+    },
+    {
       "path": ".github/workflows/coderouter-release.yml",
       "match": "for _ in 1 2 3 4 5; do",
       "reason": "Read-after-write check of a draft release's asset list right after gh release upload: at most 5 reads 2 s apart (about 10 s), then the release fails. No event or glaeda-gh exists for it in CI."
