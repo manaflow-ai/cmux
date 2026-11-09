@@ -316,10 +316,6 @@ export function adoptedBy(result: any, adopt: AcpmuxAdopt): boolean {
 export type EventRecord = Pick<SessionEvent, "seq" | "at" | "dir" | "kind"> & {
   sessionId?: string;
   msg: Record<string, any>;
-  /// A kept tail's run of one message's streamed chunks, as one record (tailCache.ts
-  /// `keptEvents`): `seq` and `at` are its first chunk's, this is its last chunk's seq, and the
-  /// records between are this one.
-  coalescedThrough?: number;
 };
 /// The one place the pane takes acpmux's records as `EventRecord`s.
 const records = (events: SessionEvent[] | undefined): EventRecord[] => (events ?? []) as EventRecord[];
@@ -1193,26 +1189,9 @@ export function settleOptimisticPrompt(
 }
 
 export function mergeEventRecords(...batches: EventRecord[][]): EventRecord[] {
-  const raw = new Map<number, EventRecord>();
-  const joined = new Map<number, EventRecord>();
-  for (const event of batches.flat()) (event.coalescedThrough === undefined ? raw : joined).set(event.seq, event);
-  if (joined.size === 0) return [...raw.values()].sort((left, right) => left.seq - right.seq);
-  // A kept tail's joined run of one message's chunks (tailCache.ts `keptEvents`) stands for its
-  // chunks until acpmux's own records of the run's start come: a page holds every record after its
-  // oldest, so it holds the whole run, which is the authority (a chunk the tail missed live is in
-  // it). A page that starts inside the run leaves the joined record in place, and its chunks inside
-  // the run are in it already: kept, they would draw its text twice.
-  const merged = [...raw.values(), ...[...joined.values()].filter((run) => !raw.has(run.seq))].sort(
-    (left, right) => left.seq - right.seq,
-  );
-  let coveredThrough = -Infinity;
-  return merged.filter((event) => {
-    if (event.coalescedThrough !== undefined) {
-      coveredThrough = Math.max(coveredThrough, event.coalescedThrough);
-      return true;
-    }
-    return event.seq > coveredThrough;
-  });
+  const bySequence = new Map<number, EventRecord>();
+  for (const event of batches.flat()) bySequence.set(event.seq, event);
+  return [...bySequence.values()].sort((left, right) => left.seq - right.seq);
 }
 
 export function applySupersededMessage(
@@ -3498,11 +3477,10 @@ export class AcpmuxDirectClient {
     if (!sessionId || this.events.length === 0 || this.replayThrough !== undefined) return undefined;
     const copy = whole && this.peerCopy?.sessionId === sessionId ? this.peerCopy : undefined;
     if (this.attachedGeneration !== this.selectionGeneration && !copy) return undefined;
-    // The newest `KEPT_EVENTS` records once each message's streamed chunks are one record
+    // The newest `KEPT_EVENTS` messages, counting each message's streamed chunks as one
     // (`keptEvents`): counted raw, a working chat's 400 records are a few tool calls' worth of
     // thinking fragments, and a relaunch drew little but tool calls and prompts (Leo, 2026-11-08).
-    const kept = whole ? { start: 0, events: this.events } : keptEvents(this.events);
-    const events = kept.events;
+    const events = whole ? this.events : keptEvents(this.events);
     // The kept page may start inside a turn whose prompt was in the history we just cut off.
     // Keep that prompt beside the page, as attach does: without it the first cached frame draws
     // the turn's work unfolded, then the identical attach folds it once the prompt comes back.
@@ -3510,7 +3488,7 @@ export class AcpmuxDirectClient {
     let turnOpener: EventRecord | undefined;
     if (first && !startsTurn(first)) {
       turnOpener = this.turnOpener;
-      for (let index = kept.start - 1; index >= 0; index -= 1) {
+      for (let index = this.events.length - events.length - 1; index >= 0; index -= 1) {
         const event = this.events[index]!;
         if (event.seq < first.seq && startsTurn(event)) {
           turnOpener = event;
@@ -3526,7 +3504,7 @@ export class AcpmuxDirectClient {
       summary: this.provenSummary(),
       turnOpener,
       // Only a whole transcript is exhausted: a tail cut at KEPT_EVENTS has older events to read.
-      historyExhausted: this.historyExhausted && kept.start === 0,
+      historyExhausted: this.historyExhausted && events.length === this.events.length,
       queue: this.queue,
       configSeq: this.configSeq,
       usageFromSeq: this.usageFromSeq,
@@ -5823,12 +5801,6 @@ export class AcpmuxDirectClient {
     } else this.turnOpener = served ?? undefined;
     if (readCommandsThrough !== undefined)
       void this.fetchCommands(sessionId, generation, readCommandsThrough).catch(() => {});
-    // A kept tail's joined reply the page starts inside (tailCache.ts `keptEvents`): the page's
-    // chunks of it may hold one the joined record lacks, so the rest of the reply is read below.
-    const straddled =
-      page.length > 0
-        ? this.events.find((event) => event.seq < oldest && (event.coalescedThrough ?? 0) >= oldest)
-        : undefined;
     // Merged after the opener's read: live events that landed meanwhile are kept.
     this.events = mergeEventRecords(page, this.events);
     this.sawPrompts(page);
@@ -5885,34 +5857,7 @@ export class AcpmuxDirectClient {
       this.waitingPermissions = new Map(asks.slice(1).map((item) => [item.permissionId, item]));
     }
     this.emit("attached");
-    if (straddled) this.readJoinedRun(sessionId, generation, straddled, oldest, page);
     return page;
-  }
-
-  /// Reads a joined tail reply that an attach page starts inside from acpmux, from its first chunk
-  /// to the page: with the page's own chunks of it, that is the reply as acpmux holds it, which
-  /// replaces the joined record (`mergeEventRecords`), a chunk the tail missed live included. The
-  /// joined record stays drawn until then, and stays when acpmux no longer holds the reply's start.
-  private readJoinedRun(
-    sessionId: string,
-    generation: number,
-    run: EventRecord,
-    pageFrom: number,
-    page: EventRecord[],
-  ) {
-    const through = run.coalescedThrough!;
-    void this.readTurnRecords(sessionId, generation, run.seq - 1, pageFrom - 1).then(
-      (stored) => {
-        if (this.closed || generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
-        if (!stored.some((event) => event.seq === run.seq)) return;
-        const runPage = page.filter((event) => event.seq <= through);
-        this.events = mergeEventRecords(this.events, stored, runPage);
-        this.sawPrompts(stored);
-        this.rebuildKeepingLiveState(run.seq - 1);
-        this.emit("connected");
-      },
-      () => undefined,
-    );
   }
 
   /// A chat opened with nothing of it drawn yet (no kept tail, no Mac's copy) takes its listed row as
@@ -6195,11 +6140,7 @@ export class AcpmuxDirectClient {
     void this.readTurnRecords(sessionId, generation, afterSeq, endSeq).then(
       (stored) => {
         if (this.closed || generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
-        // A kept tail's joined reply (tailCache.ts `keptEvents`) is not held: acpmux's chunks of it
-        // are the record, and with its first chunk among them they replace it (`mergeEventRecords`).
-        const held = new Set(
-          this.events.filter((event) => event.coalescedThrough === undefined).map((event) => event.seq),
-        );
+        const held = new Set(this.events.map((event) => event.seq));
         const missing = stored.filter((event) => !held.has(event.seq));
         if (missing.length === 0) return;
         this.events = mergeEventRecords(this.events, missing);
@@ -6469,7 +6410,7 @@ export class AcpmuxDirectClient {
     // Drawn first, but neither firstSeq nor lastSeq moves: older pages still load from the held history.
     else if (opener && opener.seq <= through) this.reduce(opener);
     for (const event of events) {
-      this.lastSeq = Math.max(this.lastSeq, event.coalescedThrough ?? event.seq);
+      this.lastSeq = Math.max(this.lastSeq, event.seq);
       this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
       this.reduce(event);
     }

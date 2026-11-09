@@ -213,7 +213,10 @@ function writeHostTail(sessionId: string, tail: KeptTail, ifNewer = false): void
   // `events` is: `queue` carries the whole text of every queued prompt, and a reader who queued a
   // pasted log would otherwise hand over megabytes that neither side counts.
   const rest = { ...tail, events: [] as EventRecord[] };
-  const events = newestWithin(tail.events, Math.max(0, HOST_TAIL_BYTES - bytesOf(rest)));
+  // Each message's streamed chunks as one record (`packStreamed`): the host bounds a tail at
+  // ``KEPT_EVENTS`` records, which `keptEvents` counts this way.
+  const packed = packStreamed(tail.events);
+  const events = newestWithin(packed, Math.max(0, HOST_TAIL_BYTES - bytesOf(rest)));
   // Not one record of this chat fits the host's bound (a single huge paste, or a queue that fills
   // it on its own): the host forgets what it had rather than keeping an older tail under a chat
   // this page has since read on.
@@ -229,7 +232,7 @@ function writeHostTail(sessionId: string, tail: KeptTail, ifNewer = false): void
       events,
       // Only a whole transcript is exhausted: a tail the byte bound cut has older events to read,
       // and a tail that claimed otherwise would hide them (test/reopened-chat-history.test.ts).
-      historyExhausted: tail.historyExhausted && events.length === tail.events.length,
+      historyExhausted: tail.historyExhausted && events.length === packed.length,
     },
   }).catch(() => undefined);
 }
@@ -257,11 +260,12 @@ function newestWithin(events: EventRecord[], maxBytes: number): EventRecord[] {
 /// records, beside 227 tool calls).
 const STREAMED_KINDS = new Set(["agent_message_chunk", "agent_thought_chunk"]);
 
-/// The newest records of `events` a tail keeps: at most ``KEPT_EVENTS`` once each run of one
-/// message's streamed chunks is one record, so the tail holds the chat's last turns as they read,
-/// not the last few hundred fragments of one. A run is never cut: the tail starts where one
-/// starts. `start` is where in `events` the kept ones begin (0 when the tail is all of them).
-export function keptEvents(events: EventRecord[]): { start: number; events: EventRecord[] } {
+/// The newest records of `events` a tail keeps: the newest ``KEPT_EVENTS`` messages, each run of
+/// one message's streamed chunks counted once, so the tail holds the chat's last turns as they
+/// read, not the last few hundred fragments of one. A run is never cut: the tail starts where one
+/// starts. The records are the page's own, unchanged; only the hand-over to the host packs each
+/// run into one record (`packStreamed`), which is what keeps the host's bound at ``KEPT_EVENTS``.
+export function keptEvents(events: EventRecord[]): EventRecord[] {
   let count = 0;
   let start = events.length;
   let newerKey: string | undefined;
@@ -274,57 +278,110 @@ export function keptEvents(events: EventRecord[]): { start: number; events: Even
     start = at;
     newerKey = key;
   }
-  return { start, events: coalesceStreamed(events.slice(start)) };
+  return events.slice(start);
 }
 
-/// `events` with each run of one message's streamed chunks as one record: the run's first chunk
-/// with the whole run's text, its `seq` and `at` (the row the chat draws is named and timed by
-/// them), and `coalescedThrough` naming the run's last seq, so the chat reads on after it and a
-/// page that holds the run's chunks again adds none of them (direct.ts `mergeEventRecords`).
-export function coalesceStreamed(events: EventRecord[]): EventRecord[] {
+/// One run's chunks, packed: each chunk's seq, time and text length, in order.
+type PackedChunk = [seq: number, at: number, length: number];
+type PackedRecord = EventRecord & { chunks?: PackedChunk[] };
+
+/// `events` with each run of one message's streamed chunks as one record, for the host's copy: the
+/// run's text joined, its last chunk's `seq` and `at` (the host keeps the tail with the newest
+/// `seq`, AgentPaneTailCache `newestSeq`), and `chunks`, from which `unpackStreamed` gives back
+/// every chunk as it was. Lossless: a page reads back exactly the records it handed over.
+export function packStreamed(events: EventRecord[]): EventRecord[] {
   const out: EventRecord[] = [];
+  let run: EventRecord[] = [];
   let runKey: string | undefined;
-  let texts: string[] = [];
   const close = () => {
-    const first = out.at(-1);
-    if (!first || texts.length < 2) return;
-    const update = first.msg.params.update;
-    out[out.length - 1] = {
-      ...first,
-      msg: {
-        ...first.msg,
-        params: { ...first.msg.params, update: { ...update, content: { ...update.content, text: texts.join("") } } },
-      },
-    };
+    if (run.length === 1) out.push(run[0]!);
+    else if (run.length > 1) {
+      const first = run[0]!;
+      const last = run.at(-1)!;
+      const update = first.msg.params.update;
+      const texts = run.map((event) => event.msg.params.update.content.text as string);
+      const packed: PackedRecord = {
+        ...first,
+        seq: last.seq,
+        at: last.at,
+        msg: {
+          ...first.msg,
+          params: { ...first.msg.params, update: { ...update, content: { ...update.content, text: texts.join("") } } },
+        },
+        chunks: run.map((event, index) => [event.seq, event.at, texts[index]!.length]),
+      };
+      out.push(packed);
+    }
+    run = [];
   };
   for (const event of events) {
     const key = streamedRun(event);
-    const last = out.at(-1);
-    if (key !== undefined && key === runKey && last) {
-      texts.push(event.msg.params.update.content.text);
-      out[out.length - 1] = { ...last, coalescedThrough: event.coalescedThrough ?? event.seq };
-      continue;
-    }
-    close();
-    out.push(event);
+    if (key === undefined || key !== runKey) close();
     runKey = key;
-    texts = key === undefined ? [] : [event.msg.params.update.content.text];
+    if (key === undefined) out.push(event);
+    else run.push(event);
   }
   close();
   return out;
 }
 
-/// What a streamed chunk shares with the rest of its message's chunks (everything but its text),
-/// or undefined for a record that is no streamed text.
+/// The records `packStreamed` packed, each run's chunks given back as they were. A packed record
+/// whose chunks do not add up to its text is dropped: the chat opens without that message until
+/// its attach reads it, as when a chunk was missed live.
+export function unpackStreamed(events: EventRecord[]): EventRecord[] {
+  const out: EventRecord[] = [];
+  for (const event of events as PackedRecord[]) {
+    const { chunks, ...record } = event;
+    if (chunks === undefined) {
+      out.push(event);
+      continue;
+    }
+    const text = record.msg?.params?.update?.content?.text;
+    const valid =
+      Array.isArray(chunks) &&
+      typeof text === "string" &&
+      chunks.every(
+        (chunk) =>
+          Array.isArray(chunk) &&
+          typeof chunk[0] === "number" &&
+          typeof chunk[1] === "number" &&
+          typeof chunk[2] === "number" &&
+          chunk[2] >= 0,
+      ) &&
+      chunks.reduce((sum, chunk) => sum + chunk[2], 0) === text.length;
+    if (!valid) continue;
+    let from = 0;
+    for (const [seq, at, length] of chunks) {
+      const update = record.msg.params.update;
+      out.push({
+        ...record,
+        seq,
+        at,
+        msg: {
+          ...record.msg,
+          params: {
+            ...record.msg.params,
+            update: { ...update, content: { ...update.content, text: text.slice(from, from + length) } },
+          },
+        },
+      });
+      from += length;
+    }
+  }
+  return out;
+}
+
+/// What a streamed chunk shares with the rest of its message's chunks (everything but its seq,
+/// time and text), or undefined for a record that is no streamed text.
 function streamedRun(event: EventRecord): string | undefined {
   if (!STREAMED_KINDS.has(event.kind)) return undefined;
   const update = event.msg?.params?.update;
   const content = update?.content;
   if (content?.type !== "text" || typeof content.text !== "string") return undefined;
+  const { seq: _seq, at: _at, msg, ...rest } = event;
   return JSON.stringify([
-    event.dir,
-    event.sessionId,
-    { ...event.msg, params: { ...event.msg.params, update: { ...update, content: { ...content, text: "" } } } },
+    rest,
+    { ...msg, params: { ...msg.params, update: { ...update, content: { ...content, text: "" } } } },
   ]);
 }
 
@@ -334,16 +391,22 @@ function tailFromHost(value: unknown): KeptTail | undefined {
   const tail = (value ?? undefined) as Partial<KeptTail> | undefined;
   if (!tail || typeof tail !== "object") return undefined;
   const listed = Array.isArray(tail.events) ? tail.events : [];
-  const events = listed.filter(isEventRecord);
+  const packed = listed.filter(isEventRecord);
+  // Each packed message back as the chunks the page handed over (`packStreamed`).
+  const events = unpackStreamed(packed.slice(-KEPT_EVENTS));
   if (events.length === 0) return undefined;
   return {
-    events: events.slice(-KEPT_EVENTS),
+    events,
     summary: typeof tail.summary === "object" && tail.summary !== null ? tail.summary : undefined,
     turnOpener: isEventRecord(tail.turnOpener) ? tail.turnOpener : undefined,
     // Only a whole tail can call the chat's history read through: a record dropped here (or by the
     // cap) leaves a hole or a cut, and a cut that claimed otherwise would hide the chat's older
     // turns, which is #23064's bug.
-    historyExhausted: tail.historyExhausted === true && events.length === listed.length && events.length <= KEPT_EVENTS,
+    historyExhausted:
+      tail.historyExhausted === true &&
+      packed.length === listed.length &&
+      packed.length <= KEPT_EVENTS &&
+      events.length === packed.reduce((count, event) => count + ((event as PackedRecord).chunks?.length ?? 1), 0),
     queue: Array.isArray(tail.queue) ? (tail.queue as QueuedPrompt[]) : [],
     configSeq: typeof tail.configSeq === "number" ? tail.configSeq : 0,
     usageFromSeq: typeof tail.usageFromSeq === "number" ? tail.usageFromSeq : 0,

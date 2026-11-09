@@ -19,7 +19,7 @@
 //     (a copy whose log ran past `forkSeq`, a store that changed) is a chat the rows are not of:
 //     the page alone is the fork, as for any tail of another session.
 import type { EventRecord } from "./direct";
-import { coalesceStreamed, KEPT_EVENTS, type KeptTail } from "./tailCache";
+import { KEPT_EVENTS, type KeptTail } from "./tailCache";
 
 /// The records a fork shows of its chat (acpmux `store/fork_view.rs` `HISTORY_KINDS`).
 export const FORK_HISTORY_KINDS: ReadonlySet<string> = new Set([
@@ -57,13 +57,7 @@ export function forkHistoryTail(source: ForkSource, reply: Record<string, unknow
   // `forkSeq` counts every record of the chat, its wire traffic too, which an attached page is not
   // sent: the page's own newest seq is often below it with all the history in hand. A record of the
   // history the page has not got yet is caught by the fork's attach (`sameForkHistory`).
-  // A message the page holds as one joined record (tailCache.ts `keptEvents`) that ran on past the
-  // fork is not the fork's: only its chunks through `forkSeq` are, which the joined record cannot
-  // part with, so the fork reads it from acpmux.
-  const history = source.events.filter(
-    (event) =>
-      (event.coalescedThrough ?? event.seq) <= forkSeq && event.seq <= forkSeq && FORK_HISTORY_KINDS.has(event.kind),
-  );
+  const history = source.events.filter((event) => event.seq <= forkSeq && FORK_HISTORY_KINDS.has(event.kind));
   const events = history.slice(-KEPT_EVENTS);
   const first = events[0];
   if (!first) return;
@@ -97,35 +91,22 @@ export function forkHistoryTail(source: ForkSource, reply: Record<string, unknow
 /// the rows drawn as the fork's history cover, the same record: same kind, time, direction and
 /// message. A record of either that the other lacks there fails it. Older records only the page
 /// holds (a page that reads further back than the tail kept) are the fork's history before it.
-///
-/// A drawn record that joins one message's chunks (tailCache.ts `keptEvents`) is held to the page's
-/// chunks over the same seqs, joined the same way. A joined run that starts before the page does
-/// cannot be checked whole, so the shared range starts after it.
 export function sameForkHistory(page: EventRecord[], drawn: EventRecord[], through: number): boolean {
   const drawnHistory = drawn.filter((event) => event.seq <= through);
   const pageHistory = page.filter((event) => event.seq <= through);
   if (pageHistory.length === 0 || drawnHistory.length === 0) return true;
   const oldest = (events: EventRecord[]) => events.reduce((min, event) => Math.min(min, event.seq), Infinity);
-  let from = Math.max(oldest(pageHistory), oldest(drawnHistory));
-  for (const event of drawnHistory)
-    if (event.seq < from && (event.coalescedThrough ?? event.seq) >= from) from = event.coalescedThrough! + 1;
+  const from = Math.max(oldest(pageHistory), oldest(drawnHistory));
   const shared = pageHistory.filter((event) => event.seq >= from);
-  const sharedDrawn = drawnHistory.filter((event) => event.seq >= from);
-  const same = (kept: EventRecord, event: EventRecord) =>
-    kept.kind === event.kind &&
-    kept.at === event.at &&
-    kept.dir === event.dir &&
-    kept.coalescedThrough === event.coalescedThrough &&
-    JSON.stringify(kept.msg) === JSON.stringify(event.msg);
-  let matched = 0;
-  for (const kept of sharedDrawn) {
-    const end = kept.coalescedThrough ?? kept.seq;
-    const span = shared.filter((event) => event.seq >= kept.seq && event.seq <= end);
-    const read = kept.coalescedThrough === undefined ? span : coalesceStreamed(span);
-    if (read.length !== 1 || read[0]!.seq !== kept.seq || !same(kept, read[0]!)) return false;
-    matched += span.length;
+  const drawnBySeq = new Map<number, EventRecord>();
+  for (const event of drawnHistory) if (event.seq >= from) drawnBySeq.set(event.seq, event);
+  if (drawnBySeq.size !== shared.length) return false;
+  for (const event of shared) {
+    const kept = drawnBySeq.get(event.seq);
+    if (!kept || kept.kind !== event.kind || kept.at !== event.at || kept.dir !== event.dir) return false;
+    if (JSON.stringify(kept.msg) !== JSON.stringify(event.msg)) return false;
   }
-  return matched === shared.length;
+  return true;
 }
 
 function startsTurn(event: EventRecord): boolean {
