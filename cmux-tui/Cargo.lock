@@ -66,6 +66,7 @@ dependencies = [
  "regex",
  "reqwest",
  "ring",
+ "rusqlite",
  "rustls",
  "schemars 1.2.2",
  "serde",

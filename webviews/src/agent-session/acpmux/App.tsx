@@ -10995,7 +10995,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               const send = async () => {
                 // Replying to a View Only chat takes it over first (`takeOver`); while the app that
                 // runs it still does, the pane asks how, and the composer keeps the message.
-                // A Claude desktop session acpmux delivers into takes the reply where it runs (`bridgedWatch`).
+                // A Claude or Codex desktop session acpmux delivers into takes the reply where it runs (`bridgedWatch`).
                 if (
                   snapshot.summary?.watching &&
                   !snapshot.summary.bridged &&

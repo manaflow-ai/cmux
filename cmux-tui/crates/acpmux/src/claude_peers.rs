@@ -25,7 +25,9 @@ use std::time::Duration;
 
 /// The settings key that turns the bridge on.
 pub const ENABLED_KEY: &str = "agents.desktopBridge.enabled";
-/// The settings key listing the entrypoints listed as chats (default: the desktop app's).
+/// The settings key listing the entrypoints listed as chats (default: the Claude desktop app's).
+/// Codex threads are listed by originator from the same list: `codex_desktop` (`codex_desktop.rs`)
+/// lists the Codex desktop app's.
 pub const ENTRYPOINTS_KEY: &str = "agents.desktopBridge.entrypoints";
 /// The entrypoint Claude Code records for a session the Claude desktop app runs.
 pub const DESKTOP_ENTRYPOINT: &str = "claude-desktop";
@@ -72,7 +74,21 @@ pub fn listed_entrypoints() -> Vec<String> {
         crate::user_settings::Settings::Parsed(doc) => doc,
         _ => Value::Null,
     };
-    entrypoints_of(&doc)
+    with_test_listing(entrypoints_of(&doc))
+}
+
+#[cfg(not(test))]
+fn with_test_listing(listed: Vec<String>) -> Vec<String> {
+    listed
+}
+
+/// The tests that turn the bridge on list the Codex desktop app's threads too.
+#[cfg(test)]
+fn with_test_listing(mut listed: Vec<String>) -> Vec<String> {
+    if TEST_ENABLED.load(std::sync::atomic::Ordering::SeqCst) {
+        listed.push(crate::codex_desktop::DESKTOP_ORIGINATOR.to_owned());
+    }
+    listed
 }
 
 fn entrypoints_of(doc: &Value) -> Vec<String> {

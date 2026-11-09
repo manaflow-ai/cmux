@@ -19,8 +19,8 @@ fn only_an_all_text_prompt_is_carried() {
 
 #[test]
 fn a_delivery_is_found_by_its_uuid_in_its_own_session_until_answered() {
-    let rx = deliveries().claim("u-find".into(), "s1", "p1", "hi").unwrap();
-    assert!(deliveries().claim("u-other".into(), "s1", "p1", "hi").is_err(), "one id, one send");
+    let rx = deliveries().claim("u-find".into(), "s1", "p1", "hi", "hi").unwrap();
+    assert!(deliveries().claim("u-other".into(), "s1", "p1", "hi", "hi").is_err(), "one id, one send");
     assert_eq!(delivered("s1", "u-find"), Some(("p1".into(), "hi".into())));
     assert_eq!(delivered("s2", "u-find"), None);
     answered("s1", "p1", "t1");
@@ -32,7 +32,7 @@ fn a_delivery_is_found_by_its_uuid_in_its_own_session_until_answered() {
 /// A resend waiting on a delivery the inbox refused fails with it, never answers as a turn.
 #[tokio::test]
 async fn a_resend_of_a_delivery_that_failed_fails_too() {
-    let rx = deliveries().claim("u-fail".into(), "s9", "p9", "hi").unwrap();
+    let rx = deliveries().claim("u-fail".into(), "s9", "p9", "hi", "hi").unwrap();
     let waiting = tokio::spawn(turn_of(rx));
     let gone = deliveries().by_uuid.remove("u-fail").unwrap();
     gone.turn.send_replace(Some(Err("refused".into())));
@@ -319,4 +319,146 @@ async fn a_send_from_the_desktop_apps_process_tree_is_its_bridged_chats() {
     let mut prompt = json!({"_meta": {"acpmux": {key: session.id}}});
     hub.stamp_bridged_sender(&mut prompt, None, true, false).await;
     assert_eq!(stamped(&prompt).as_deref(), Some(session.id.as_str()));
+}
+
+#[test]
+fn a_codex_delivery_is_found_by_its_text_once_and_oldest_first() {
+    deliveries().claim("u-c1".into(), "sc", "pc1", "hi", "hi\n\n[hint]").unwrap();
+    deliveries().claim("u-c2".into(), "sc", "pc2", "hi", "hi\n\n[hint]").unwrap();
+    assert_eq!(delivered_text("sc", "hi"), None, "the app got the hinted text");
+    assert_eq!(delivered_text("other", "hi\n\n[hint]"), None);
+    assert_eq!(delivered_text("sc", " hi\n\n[hint] "), Some(("pc1".into(), "hi".into())));
+    assert_eq!(delivered_text("sc", "hi\n\n[hint]"), Some(("pc2".into(), "hi".into())));
+    assert_eq!(delivered_text("sc", "hi\n\n[hint]"), None, "each line shows one delivery");
+}
+
+/// The Codex loop: a prompt to a watched Codex desktop chat is queued for its thread through
+/// the app-server daemon; the rollout's prompt line shows as that prompt (its text, not the
+/// reply hint the app got), its answer as the turn's answer, and the call answers at its end.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_prompt_to_a_watched_codex_desktop_chat_is_queued_and_its_answer_shown() {
+    use crate::codex_desktop::tests as codex;
+    crate::claude_peers::TEST_ENABLED.store(true, std::sync::atomic::Ordering::SeqCst);
+    let thread = "01a1bf30-0000-7000-8000-00000000c0de";
+    let dir = codex::home();
+    let home = dir.path().to_path_buf();
+    codex::state_db(&home, &[(thread, "codex_desktop", "/w", false)]);
+    let _lock = codex::hold(&home, thread);
+    let rollout = home.join("rollout.jsonl");
+    std::fs::write(&rollout, "").unwrap();
+    let written = rollout.clone();
+    let added = codex::fake_daemon(&home, move |params| {
+        let text = params["input"][0]["text"].as_str().unwrap();
+        let user = json!({"type": "response_item", "payload": {"type": "message", "role": "user",
+            "content": [{"type": "input_text", "text": text}],
+            "internal_chat_message_metadata_passthrough": {"content_item_kinds": ["user.text"]}}});
+        let answer = json!({"type": "response_item", "payload": {"type": "message",
+            "role": "assistant", "phase": "final_answer",
+            "content": [{"type": "output_text", "text": "PONG"}]}});
+        let end = json!({"type": "event_msg", "payload": {"type": "task_complete"}});
+        let mut f = std::fs::OpenOptions::new().append(true).open(&written).unwrap();
+        writeln!(f, "{user}\n{answer}\n{end}").unwrap();
+    });
+
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.harness_homes.lock().unwrap().codex = home.clone();
+    let session = hub
+        .new_session(crate::hub::NewRequest { cwd: Some(home.clone()), ..Default::default() })
+        .await
+        .unwrap();
+    {
+        let mut meta = session.meta.lock().unwrap();
+        meta.agent_session_id = Some(thread.into());
+        meta.tags
+            .insert("bridge".into(), crate::store::Tag { value: "codex".into(), expires_at: None });
+        meta.watching = Some(Watching {
+            family: "codex".into(),
+            file: rollout,
+            offset: 0,
+            codex_items: false,
+            open: None,
+        });
+    }
+    hub.save_meta(&session);
+    hub.start_watch(&session);
+
+    let opts = PromptOptions {
+        prompt_id: Some("p-codex".into()),
+        agent: Some("desktop cmux".into()),
+        ..Default::default()
+    };
+    let blocks = vec![json!({"type": "text", "text": "ping from claude"})];
+    let reply = tokio::time::timeout(
+        Duration::from_secs(20),
+        hub.prompt_with(&session, blocks, "test", false, opts),
+    )
+    .await
+    .expect("answered within 20 s")
+    .unwrap();
+
+    assert_eq!(reply["_meta"]["acpmux"]["answered"], true, "{reply}");
+    assert_eq!(reply["_meta"]["acpmux"]["bridged"]["thread"], thread, "{reply}");
+    let added = added.lock().unwrap().clone();
+    assert_eq!(added.len(), 1);
+    assert_eq!(added[0]["threadId"], thread);
+    let sent = added[0]["input"][0]["text"].as_str().unwrap();
+    assert!(sent.starts_with("ping from claude\n\n[From desktop cmux"), "{sent}");
+    let events = hub.store.events(&session.id, 0, usize::MAX).unwrap();
+    let user = events.iter().find(|e| e.kind == "user_message").expect("the prompt shows");
+    assert_eq!(user.msg["promptId"], "p-codex");
+    assert_eq!(user.msg["text"], "ping from claude");
+    assert_eq!(user.msg["client"], "bridge");
+    assert!(events.iter().any(|e| e.kind == "agent_message_chunk"
+        && e.msg.pointer("/params/update/content/text") == Some(&json!("PONG"))));
+    assert!(events.iter().any(|e| e.kind == "turn_result" && e.msg["promptId"] == "p-codex"));
+}
+
+/// A watched Codex chat whose thread no running Codex holds stays read-only.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_watched_codex_chat_with_no_live_thread_is_still_read_only() {
+    use crate::codex_desktop::tests as codex;
+    crate::claude_peers::TEST_ENABLED.store(true, std::sync::atomic::Ordering::SeqCst);
+    let thread = "01a1bf30-0000-7000-8000-00000000dead";
+    let dir = codex::home();
+    let home = dir.path().to_path_buf();
+    codex::state_db(&home, &[(thread, "codex_desktop", "/w", false)]);
+    let added = codex::fake_daemon(&home, |_| {});
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py")]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.harness_homes.lock().unwrap().codex = home.clone();
+    let session = hub
+        .new_session(crate::hub::NewRequest { cwd: Some(home.clone()), ..Default::default() })
+        .await
+        .unwrap();
+    {
+        let mut meta = session.meta.lock().unwrap();
+        meta.agent_session_id = Some(thread.into());
+        meta.tags
+            .insert("bridge".into(), crate::store::Tag { value: "codex".into(), expires_at: None });
+        meta.watching = Some(Watching {
+            family: "codex".into(),
+            file: home.join("x.jsonl"),
+            offset: 0,
+            codex_items: false,
+            open: None,
+        });
+    }
+    let blocks = vec![json!({"type": "text", "text": "hi"})];
+    let err = hub.prompt_with(&session, blocks, "test", false, PromptOptions::default()).await;
+    assert!(err.unwrap_err().message.contains("watch.read_only"));
+    assert!(added.lock().unwrap().is_empty(), "nothing reached the app");
 }

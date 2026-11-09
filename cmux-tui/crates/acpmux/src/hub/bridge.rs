@@ -1,11 +1,14 @@
-//! A prompt to a watched Claude Code chat whose app still runs it, delivered into that app's
-//! session (`claude_peers.rs`) instead of refused as `watch.read_only`.
+//! A prompt to a watched Claude Code or Codex chat whose app still runs it, delivered into that
+//! app's session (`claude_peers.rs`, `codex_desktop.rs`) instead of refused as `watch.read_only`.
 //!
-//! With `agents.desktopBridge.enabled`, `prompt_with` hands a watched Claude chat's prompt here.
+//! With `agents.desktopBridge.enabled`, `prompt_with` hands a watched bridged chat's prompt here.
 //! When the conversation's own Claude Code is registered and live, the prompt goes to its inbox
 //! as a message with a fresh `uuid`, and is accepted at once. The app runs it as a turn and writes
 //! it to the transcript with that uuid; the watch (`watch.rs`) shows that line as this prompt,
-//! under this prompt's id, and its answer as the turn's answer. The prompt's call answers when
+//! under this prompt's id, and its answer as the turn's answer. A Codex thread a running Codex
+//! holds gets it through its app-server's queue (`thread/queue/add`); its rollout keeps no id of
+//! ours on the prompt line, so the watch knows the delivery by its exact text, the oldest one not
+//! shown yet first. The prompt's call answers when
 //! the watch ends that turn, so a person's send and an agent's `--wait` read the answer as from
 //! any turn. Nothing is started and nothing is written to the transcript by acpmux.
 //!
@@ -18,6 +21,7 @@ use super::{Hub, PromptOptions, Session};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 use tokio::sync::watch;
@@ -39,6 +43,10 @@ pub(super) struct Pending {
     pub(super) session_id: String,
     pub(super) prompt_id: String,
     pub(super) text: String,
+    /// The text as the app got it (with the reply hint): what a Codex rollout line shows.
+    wire: String,
+    /// The watch showed its line (known by its text, which another line may repeat).
+    shown: bool,
     order: u64,
     turn: watch::Sender<Outcome>,
 }
@@ -64,6 +72,7 @@ impl Deliveries {
         session_id: &str,
         prompt_id: &str,
         text: &str,
+        wire: &str,
     ) -> Result<watch::Receiver<Outcome>, watch::Receiver<Outcome>> {
         if let Some((_, p)) = self.of_prompt(session_id, prompt_id) {
             return Err(p.turn.subscribe());
@@ -74,6 +83,8 @@ impl Deliveries {
             session_id: session_id.to_owned(),
             prompt_id: prompt_id.to_owned(),
             text: text.to_owned(),
+            wire: wire.to_owned(),
+            shown: false,
             order: self.next,
             turn,
         };
@@ -106,6 +117,25 @@ pub(super) fn delivered(session_id: &str, uuid: &str) -> Option<(String, String)
         .map(|p| (p.prompt_id.clone(), p.text.clone()))
 }
 
+/// The delivery a Codex rollout's prompt `text` in `session_id` shows: the oldest one acpmux
+/// sent with that text the watch has not shown yet, marked shown.
+pub(super) fn delivered_text(session_id: &str, text: &str) -> Option<(String, String)> {
+    let text = text.trim();
+    let mut all = deliveries();
+    let p = all
+        .by_uuid
+        .values_mut()
+        .filter(|p| {
+            p.session_id == session_id
+                && !p.shown
+                && p.turn.borrow().is_none()
+                && p.wire.trim() == text
+        })
+        .min_by_key(|p| p.order)?;
+    p.shown = true;
+    Some((p.prompt_id.clone(), p.text.clone()))
+}
+
 /// The watch ended the turn of `prompt_id`: its call (and any resend's) answers with `turn_id`.
 pub(super) fn answered(session_id: &str, prompt_id: &str, turn_id: &str) {
     if let Some((_, p)) = deliveries().of_prompt(session_id, prompt_id) {
@@ -133,8 +163,40 @@ fn text_of(blocks: &[Value]) -> Option<String> {
         .filter(|text| !text.trim().is_empty())
 }
 
+/// Where a bridged chat's prompt goes: the Claude Code session's inbox, or the Codex thread's
+/// queue.
+enum Target {
+    Claude { config: PathBuf, peer: crate::claude_peers::Peer },
+    Codex { home: PathBuf, thread: crate::codex_desktop::Thread },
+}
+
+impl Target {
+    /// What the delivery record and the prompt's answer say of the app.
+    fn details(&self) -> Value {
+        match self {
+            Target::Claude { peer, .. } => json!({"pid": peer.pid, "entrypoint": peer.entrypoint}),
+            Target::Codex { thread, .. } => {
+                json!({"thread": thread.id, "originator": thread.originator})
+            }
+        }
+    }
+
+    /// Delivers `wire` as message `uuid` from `sender`.
+    async fn deliver(&self, wire: &str, uuid: &str, sender: &str) -> Result<(), String> {
+        match self {
+            Target::Claude { config, peer } => {
+                let from = crate::claude_peers::from_address(sender);
+                crate::claude_peers::deliver(config, peer, wire, uuid, &from).await
+            }
+            Target::Codex { home, thread } => {
+                crate::codex_desktop::deliver(home, &thread.id, wire, uuid).await.map(drop)
+            }
+        }
+    }
+}
+
 impl Hub {
-    /// `Some` answer when `session` is a watched Claude chat this prompt was delivered into;
+    /// `Some` answer when `session` is a watched bridged chat this prompt was delivered into;
     /// `None` leaves the prompt to the usual path (which refuses it while watched).
     pub(super) async fn bridged_prompt(
         self: &Arc<Self>,
@@ -143,13 +205,14 @@ impl Hub {
         opts: &mut PromptOptions,
     ) -> Option<Result<Value, RpcError>> {
         let watching = session.meta().watching?;
-        if watching.family != "claude" {
+        let family = watching.family.clone();
+        if family != "claude" && family != "codex" {
             return None;
         }
         let agent_session_id = session.meta().agent_session_id?;
         // Only a chat the bridge listed (`desktop_bridge.rs`) takes prompts; any other watched
         // chat stays read-only, whatever runs its conversation.
-        if session.meta().tags.get("bridge").is_none_or(|t| t.value != "claude") {
+        if session.meta().tags.get("bridge").is_none_or(|t| t.value != family) {
             return None;
         }
         // A resend of a prompt id that went answers with its turn, whether or not the app still runs.
@@ -159,38 +222,41 @@ impl Hub {
                 return Some(resent(session, &id, rx, opts).await);
             }
         }
-        let config = self.harness_homes.lock().unwrap_or_else(|e| e.into_inner()).claude.clone();
-        let lookup = (config.clone(), agent_session_id.clone());
-        let peer = tokio::task::spawn_blocking(move || {
-            // The session's own registry entry must name an entrypoint the setting lists: a tag
-            // alone is anyone's to set.
+        let homes = self.harness_homes.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let target = tokio::task::spawn_blocking(move || {
+            if !crate::claude_peers::enabled() {
+                return None;
+            }
+            // The app's own record must name an entrypoint (Claude Code) or originator (Codex)
+            // the setting lists: a tag alone is anyone's to set.
             let listed = crate::claude_peers::listed_entrypoints();
-            crate::claude_peers::enabled()
-                .then(|| crate::claude_peers::find(&lookup.0, &lookup.1))
-                .flatten()
+            if family == "codex" {
+                let thread = crate::codex_desktop::find(&homes.codex, &agent_session_id, &listed)?;
+                return Some(Target::Codex { home: homes.codex, thread });
+            }
+            crate::claude_peers::find(&homes.claude, &agent_session_id)
                 .filter(|p| p.entrypoint.as_ref().is_some_and(|e| listed.contains(e)))
+                .map(|peer| Target::Claude { config: homes.claude, peer })
         })
         .await
         .ok()??;
         let Some(text) = text_of(blocks) else {
             return Some(Err(RpcError::invalid_params(
-                "only text reaches a Claude Code session another app runs: send it without attachments, or take the chat over",
+                "only text reaches a session another app runs: send it without attachments, or take the chat over",
             )));
         };
         let prompt_id = opts.prompt_id.clone().unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let uuid = uuid::Uuid::now_v7().to_string();
+        // The chat shows the prompt as sent (`delivered`); the app also reads how to answer.
+        let wire = with_reply_hint(&text, opts.agent.as_deref());
         // Claimed under one lock: two sends of one id never both go.
-        let claimed = deliveries().claim(uuid.clone(), &session.id, &prompt_id, &text);
+        let claimed = deliveries().claim(uuid.clone(), &session.id, &prompt_id, &text, &wire);
         let rx = match claimed {
             Ok(rx) => rx,
             Err(rx) => return Some(resent(session, &prompt_id, rx, opts).await),
         };
         let sender = opts.agent.clone().unwrap_or_else(|| "person".to_owned());
-        let from = crate::claude_peers::from_address(&sender);
-        // The chat shows the prompt as sent (`delivered`); the app also reads how to answer.
-        let wire = with_reply_hint(&text, opts.agent.as_deref());
-        let sent = crate::claude_peers::deliver(&config, &peer, &wire, &uuid, &from).await;
-        if let Err(e) = sent {
+        if let Err(e) = target.deliver(&wire, &uuid, &sender).await {
             // A resend waiting on this delivery fails with it, and a later one delivers again.
             let gone = deliveries().by_uuid.remove(&uuid);
             if let Some(p) = gone {
@@ -198,18 +264,18 @@ impl Hub {
             }
             return Some(Err(undelivered(&e)));
         }
-        self.append(
-            session,
-            "mux",
-            "bridge_delivered",
-            json!({"promptId": prompt_id, "uuid": uuid, "pid": peer.pid, "entrypoint": peer.entrypoint}),
-        );
+        let details = target.details();
+        let mut record = json!({"promptId": prompt_id, "uuid": uuid});
+        if let (Some(record), Some(more)) = (record.as_object_mut(), details.as_object()) {
+            record.extend(more.clone());
+        }
+        self.append(session, "mux", "bridge_delivered", record);
         if let Some(f) = opts.on_accepted.take() {
             f(
                 json!({"sessionId": session.id, "promptId": prompt_id, "queued": false, "state": "delivered", "bridged": true}),
             );
         }
-        Some(answer(&prompt_id, turn_of(rx).await, Some(&peer)))
+        Some(answer(&prompt_id, turn_of(rx).await, Some(&details)))
     }
 }
 
@@ -234,15 +300,11 @@ fn undelivered(e: &str) -> RpcError {
         .with_data(json!({"reason": "bridge.undelivered"}))
 }
 
-fn answer(
-    prompt_id: &str,
-    outcome: Outcome,
-    peer: Option<&crate::claude_peers::Peer>,
-) -> Result<Value, RpcError> {
+fn answer(prompt_id: &str, outcome: Outcome, app: Option<&Value>) -> Result<Value, RpcError> {
     match outcome {
         Some(Err(e)) => Err(undelivered(&e)),
-        Some(Ok(turn_id)) => Ok(reply(prompt_id, Some(&turn_id), peer)),
-        None => Ok(reply(prompt_id, None, peer)),
+        Some(Ok(turn_id)) => Ok(reply(prompt_id, Some(&turn_id), app)),
+        None => Ok(reply(prompt_id, None, app)),
     }
 }
 
@@ -264,12 +326,9 @@ async fn resent(
     answer
 }
 
-fn reply(
-    prompt_id: &str,
-    turn_id: Option<&str>,
-    peer: Option<&crate::claude_peers::Peer>,
-) -> Value {
-    let bridged = peer.map(|p| json!({"pid": p.pid, "entrypoint": p.entrypoint}));
+/// `app`: what the delivery says of the app ([`Target::details`]); a resend's names none.
+fn reply(prompt_id: &str, turn_id: Option<&str>, app: Option<&Value>) -> Value {
+    let bridged = app.cloned();
     json!({
         "stopReason": "end_turn",
         "_meta": {"acpmux": {

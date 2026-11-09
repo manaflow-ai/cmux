@@ -177,6 +177,8 @@ cmux-relay = { path = "../cmux-relay" }
 axum.workspace = true
 # WireGuard's construction hash, which the hub carrier's Noise hash must equal (tests/hub_carrier.rs).
 blake2 = "0.10"
+# A Codex state database for the Codex desktop bridge's tests (`codex_desktop_tests.rs`).
+rusqlite.workspace = true
 
 # The deterministic simulation of the daemon (HQ#6740): `cargo test --features sim --test sim`.
 [[test]]
