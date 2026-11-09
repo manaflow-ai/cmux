@@ -1276,7 +1276,8 @@
           {
             "key" : "settings.group.cmuxRemote",
             "rows" : [
-              "remote.endSharingOnQuit"
+              "remote.endSharingOnQuit",
+              "remote.ultraMode"
             ],
             "title" : {
               "key" : "settings.group.cmuxRemote",
@@ -1299,7 +1300,8 @@
               "sessions.keepAwake",
               "sessions.resumeAgents",
               "sessions.allowFullAccess",
-              "sessions.promptSuggestions"
+              "sessions.promptSuggestions",
+              "agents.promptSuggestions"
             ],
             "title" : {
               "key" : "settings.group.sessions",
@@ -1948,7 +1950,16 @@
           "advanced"
         ],
         "groups" : [
-
+          {
+            "key" : "settings.group.developerTools",
+            "rows" : [
+              "developerTools.appPages"
+            ],
+            "title" : {
+              "key" : "settings.group.developerTools",
+              "text" : "Developer Tools"
+            }
+          }
         ],
         "id" : "advanced",
         "lead" : [
@@ -11869,6 +11880,141 @@
       "title" : {
         "key" : "settings.sessions.promptSuggestions",
         "text" : "Suggest Follow-Up Tasks"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.agents.promptSuggestions.help",
+        "text" : "After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.promptSuggestions",
+      "keywords" : [
+        "suggestions",
+        "prompt",
+        "next prompt",
+        "ghost text",
+        "autocomplete",
+        "claude",
+        "codex",
+        "usage"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "promptSuggestions"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agents.promptSuggestions"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.promptSuggestions",
+        "text" : "Suggest Next Prompt"
       },
       "validation" : "portable"
     },
@@ -46628,6 +46774,8 @@
     },
     {
       "accepts" : [
+        "system-ui",
+        "system-ui-tight",
         "inter-tuned",
         "inter",
         "verdana",
@@ -46637,17 +46785,29 @@
         "geist",
         "cmux-sans",
         "hanken",
-        "atkinson",
-        "system-ui",
-        "system-ui-tight"
+        "atkinson"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
         {
           "title" : {
+            "key" : "settings.choice.agentChatUiFontSystemUi",
+            "text" : "System (default)"
+          },
+          "value" : "system-ui"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatUiFontSystemUiTight",
+            "text" : "System, tight"
+          },
+          "value" : "system-ui-tight"
+        },
+        {
+          "title" : {
             "key" : "settings.choice.agentChatUiFontInterTuned",
-            "text" : "cmux Inter (default)"
+            "text" : "cmux Inter"
           },
           "value" : "inter-tuned"
         },
@@ -46713,26 +46873,12 @@
             "text" : "Atkinson Hyperlegible Next"
           },
           "value" : "atkinson"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.agentChatUiFontSystemUi",
-            "text" : "System"
-          },
-          "value" : "system-ui"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.agentChatUiFontSystemUiTight",
-            "text" : "System, tight"
-          },
-          "value" : "system-ui-tight"
         }
       ],
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "inter-tuned",
+      "default" : "system-ui",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.agentChat",
@@ -46762,7 +46908,8 @@
         "source sans",
         "cmux sans",
         "hanken",
-        "atkinson"
+        "atkinson",
+        "system"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -101992,6 +102139,140 @@
       "consumers" : [
         "cmux-next"
       ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.developerTools",
+        "text" : "Developer Tools"
+      },
+      "help" : {
+        "key" : "settings.developerTools.appPages.help",
+        "text" : "Inspect Element in the right-click menu and Toggle Developer Tools (⌥⌘I) work in agent chats, Home, Markdown and Settings. Browser tabs always have them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "developerTools.appPages",
+      "keywords" : [
+        "developer",
+        "devtools",
+        "inspector",
+        "web inspector",
+        "inspect element",
+        "chrome",
+        "debug"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "developerTools",
+        "appPages"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:developerTools.appPages"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.developerTools.appPages",
+        "text" : "Developer Tools for cmux Pages"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -102391,6 +102672,145 @@
       "title" : {
         "key" : "settings.remote.endSharingOnQuit",
         "text" : "End Sharing When cmux Quits"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.cmuxRemote",
+        "text" : "cmux Remote"
+      },
+      "help" : {
+        "key" : "settings.remote.ultraMode.help",
+        "text" : "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "remote.ultraMode",
+      "keywords" : [
+        "ultra",
+        "lossy",
+        "packet loss",
+        "bandwidth",
+        "data",
+        "wireguard",
+        "cloud",
+        "latency",
+        "fec"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "remote",
+        "ultraMode"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.remote.ultraMode.summary",
+        "text" : "Uses more data to stay fast on lossy networks"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:remote.ultraMode"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.remote.ultraMode",
+        "text" : "Ultra Connection Mode"
       },
       "validation" : "portable"
     },
