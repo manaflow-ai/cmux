@@ -174,9 +174,13 @@ export class SessionHoverStore {
   private patch(sessions: readonly AcpmuxSessionEntry[], replaced?: readonly number[]): boolean {
     if (sessions.length !== this.from.size) return false;
     const changed: AcpmuxSessionEntry[] = [];
+    // A recorded in-place change keeps every id where it was, so only the replaced entries are read.
+    const seen = new Set<string>();
     for (const entry of replaced ? replaced.map((at) => sessions[at]!) : sessions) {
       const before = this.from.get(entry.sessionId);
-      if (!before) return false;
+      // Equal length with every id known can still hide one listed twice in place of another.
+      if (!before || seen.has(entry.sessionId)) return false;
+      seen.add(entry.sessionId);
       if (before === entry) continue;
       if (
         before.harness !== entry.harness ||

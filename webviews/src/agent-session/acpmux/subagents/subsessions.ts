@@ -310,6 +310,8 @@ export class SubsessionStore {
       nameFrom.set(id, entry);
       nameSigs.set(id, sig);
     }
+    // A session listed twice in place of another keeps the length: the ids' count shows it left.
+    if (nameFrom.size !== this.nameFrom.size) names = true;
     this.nameFrom = nameFrom;
     this.nameSigs = nameSigs;
     this.nameCount = sessions.length;
@@ -439,9 +441,13 @@ export class SubsessionStore {
   private patch(sessions: readonly AcpmuxSessionEntry[], replaced?: readonly number[]): boolean {
     if (sessions.length !== this.nameFrom.size || sessions.length !== this.nameCount) return false;
     const changed: AcpmuxSessionEntry[] = [];
+    // A recorded in-place change keeps every id where it was, so only the replaced entries are read.
+    const seen = new Set<string>();
     for (const entry of replaced ? replaced.map((at) => sessions[at]!) : sessions) {
       const before = this.nameFrom.get(entry.sessionId);
-      if (!before) return false;
+      // Equal length with every id known can still hide one listed twice in place of another.
+      if (!before || seen.has(entry.sessionId)) return false;
+      seen.add(entry.sessionId);
       if (before === entry) continue;
       if (nameFields(entry) !== this.nameSigs.get(entry.sessionId)) return false;
       changed.push(entry);
