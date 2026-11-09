@@ -121,6 +121,7 @@ export function misfit(snapshot: ChatSnapshot, doc: Document): string | undefine
   const drawn = `${Math.round(snapshot.width)}x${Math.round(snapshot.height)}`;
   const widthFits = Math.round(view.innerWidth) === Math.round(snapshot.width);
   const heightFits = Math.abs(view.innerHeight - snapshot.height) <= SNAPSHOT_HEIGHT_SLACK;
+  // l10n-allow: a diagnostic code for the page's debug record (layoutWatch.ts), never shown in the pane.
   if (!widthFits || !heightFits) return `size ${size}, drawn at ${drawn}`;
   if ((view as unknown as Record<string, unknown>)[SNAPSHOT_THEME_GLOBAL] !== snapshot.theme) return "theme";
   return undefined;
