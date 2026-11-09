@@ -147,7 +147,9 @@ fn a_checkout_cloned_through_cmux_keeps_its_helper_for_push() {
     let result = at(r#"sha=$(g -C "$dir" rev-parse"#);
     assert!(cloned < keep && keep < result);
     let fetched = at(r#"if g -C "$dir" fetch --quiet --tags origin; then"#);
-    assert!(step[fetched..].trim_start_matches(|c| c != '\n').trim_start().starts_with("keep_helper"));
+    assert!(
+        step[fetched..].trim_start_matches(|c| c != '\n').trim_start().starts_with("keep_helper")
+    );
     assert!(
         step.contains(r#"git -C "$dir" config --local --add "$key.helper" """#),
         "a global helper is dropped first"
