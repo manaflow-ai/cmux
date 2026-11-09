@@ -299,6 +299,9 @@ export type PromptDelivery = {
   failedAt?: number;
   /// No answer for a while: the row says it is still sending.
   slow?: boolean;
+  /// acpmux is starting or reconnecting: the pane holds the prompt and sends it once acpmux answers
+  /// (sendWhenReady.ts). The row says "Sending when ready".
+  waitingForHost?: boolean;
   hop?: PromptDeliveryHop;
   /// The refusal's code and acpmux's reason (`trust.pending`): the failure's cause, which the card's
   /// words and actions follow (sendFailure.ts). `error` is the refuser's own words, for Details.
