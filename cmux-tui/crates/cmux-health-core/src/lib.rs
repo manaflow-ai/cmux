@@ -48,7 +48,9 @@ pub enum Kind {
 }
 
 /// A part's state, best first, so `Ord` gives the worst (`max`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum State {
     #[default]

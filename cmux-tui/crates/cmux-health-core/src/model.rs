@@ -244,8 +244,8 @@ fn evaluate(part: &mut Part, now: u64) -> Cond {
                 let first = s.starts[0];
                 let span_ms = s.starts[starts - 1] - first;
                 // Ends when the third newest start leaves the window.
-                let ends = s.starts[starts - policy::DAEMON_LOOP_STARTS]
-                    + policy::DAEMON_LOOP_WINDOW_MS;
+                let ends =
+                    s.starts[starts - policy::DAEMON_LOOP_STARTS] + policy::DAEMON_LOOP_WINDOW_MS;
                 stuck(Cause::DaemonLoop { starts, span_ms }, Mode::Hold).until(ends)
             } else {
                 healthy

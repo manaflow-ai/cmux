@@ -2,8 +2,8 @@
 //! host's repair results.
 
 use super::*;
-use crate::State;
 use crate::RepairAction::{ReloadPage, RestartRenderer};
+use crate::State;
 
 const ID: &str = "page:42";
 
@@ -17,7 +17,10 @@ fn silent_page_climbs_the_ladder_then_fails_and_the_click_restarts_it() {
     // Slow at 5 s silent, no action.
     assert!(h.tick(5_000).is_empty());
     let slow = part(&h, ID).expect("listed");
-    assert_eq!((slow.state, slow.action, slow.can_repair), (State::Slow, RepairAction::None, false));
+    assert_eq!(
+        (slow.state, slow.action, slow.can_repair),
+        (State::Slow, RepairAction::None, false)
+    );
     assert_eq!(h.next_tick_ms(), Some(10_000));
 
     // Stuck at 10 s: reload at once, then the renderer after 2 s and 10 s.
@@ -33,7 +36,10 @@ fn silent_page_climbs_the_ladder_then_fails_and_the_click_restarts_it() {
     assert!(repairing.can_repair);
     assert_eq!(repairing.label, "Agent chat");
     assert_eq!(repairing.since_ms, 10_000);
-    assert_eq!(run(&mut h, 81_999), vec![(12_000, RestartRenderer, 2), (22_000, RestartRenderer, 3)]);
+    assert_eq!(
+        run(&mut h, 81_999),
+        vec![(12_000, RestartRenderer, 2), (22_000, RestartRenderer, 3)]
+    );
 
     // The 60 s after the third attempt pass: the cap is spent, `failed`.
     assert_eq!(h.next_tick_ms(), Some(82_000));

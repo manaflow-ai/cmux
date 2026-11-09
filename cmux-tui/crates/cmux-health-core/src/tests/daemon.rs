@@ -104,7 +104,10 @@ fn a_stalled_restore_is_stuck_with_no_action_and_resumes() {
     assert!(run(&mut h, 121_000).is_empty(), "a restore is never killed");
     let stuck = part(&h, ID).expect("listed");
     assert_eq!(stuck.state, State::Stuck);
-    assert_eq!((stuck.action, stuck.can_repair, stuck.max_attempts), (RepairAction::None, false, 0));
+    assert_eq!(
+        (stuck.action, stuck.can_repair, stuck.max_attempts),
+        (RepairAction::None, false, 0)
+    );
     assert_eq!(
         stuck.detail,
         "Restoring workspaces has made no progress for 2 min (12.4 GB read). Waiting; a restore \
