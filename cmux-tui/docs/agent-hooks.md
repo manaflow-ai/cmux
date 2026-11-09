@@ -154,6 +154,9 @@ Claude Code 2.1 reads under any config directory and beside any
   This relies on each Claude Code process setting its own `CLAUDE_PID` for
   its hooks (2.1.319 does). A nested Claude that passes on its parent's
   `CLAUDE_PID` counts as the terminal's agent.
+  A nested Claude that runs the agent's own session id (`claude -p
+  --continue` or `--resume <id>` from a hook or an MCP server) also counts
+  as the terminal's agent, as before.
 
   The check runs after the event is handed to the daemon, so it never
   delays the event. At `SessionStart` the journal hook and the

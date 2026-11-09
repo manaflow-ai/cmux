@@ -59,10 +59,11 @@ impl Run<'_> {
         self.check(false, || self.read_roster())
     }
 
-    /// [`Self::is_nested`] for the journal hook's `SessionStart`. A Claude
-    /// that a read shows to be the terminal's agent is recorded as it; a
-    /// start beside a row that a crash may have left is counted (the
-    /// session-context hook runs beside it and does neither).
+    /// [`Self::is_nested`] for the journal hook's `SessionStart`: a read that
+    /// shows no other live session records this process too, and a start
+    /// beside a row that a crash may have left is counted. The
+    /// session-context hook runs beside it through [`Self::is_nested`], so
+    /// it does neither.
     pub(super) fn start_is_nested(&self) -> bool {
         self.check(true, || self.read_roster())
     }
