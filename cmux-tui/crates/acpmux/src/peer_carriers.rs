@@ -680,7 +680,7 @@ impl Peer {
     /// takes it as the peer principal (`dualPrincipal`). It says it only observes, so it keeps
     /// no daemon running (`daemon/unused_exit.rs`).
     fn probe_hello(&self) -> (i64, String) {
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst) as i64;
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let hello = serde_json::json!({"protocolVersion": 1, "clientCapabilities": {},
             "clientInfo": {"name": super::CLIENT_NAME, "version": crate::hub::VERSION},
             "_meta": {"acpmux": {"observer": true}}});
