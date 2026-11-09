@@ -68,7 +68,7 @@ permission, nor record a peer's verdict). A pull request verdict goes through
 | Older acpmux (`method not found`, or not on the relay's list) | — | "This Mac's agent service is older and keeps no queue yet. Update cmux to see every ask here." |
 | Empty | — | "Nothing is waiting on you." |
 
-## Variants (gallery `agent-pane.review-queue`) and the pick
+## Variants (gallery `agent-pane.review-changes`) and the pick
 
 1. `inbox`: two lines per row, with the answers only on the selected row.
 2. `cards`: every row is a tonal card, with its answers and detail showing.

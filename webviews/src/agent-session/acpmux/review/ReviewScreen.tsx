@@ -79,6 +79,9 @@ export function ReviewScreen({
   const found = rows.findIndex((row) => row.key === selected);
   const index = rows.length === 0 ? -1 : found >= 0 ? found : Math.min(lastIndex.current, rows.length - 1);
   const current = index >= 0 ? rows[index] : undefined;
+  // A verdict acts only on the row the person chose: when theirs left for another reason (a refresh
+  // rereads a folder above it), the cursor rests nearby but `a` and `r` wait until they move.
+  const target = selected !== undefined && found < 0 ? undefined : current;
   // The cursor's place, for when its row leaves: a ref, so no render follows.
   useLayoutEffect(() => {
     if (index >= 0) lastIndex.current = index;
@@ -96,6 +99,9 @@ export function ReviewScreen({
       restore?: () => void,
     ) => {
       const mark = `${row.key}:${row.stat.signature}`;
+      // Decide and move on: the cursor goes to the next row (or the one above the last).
+      const at = rows.findIndex((other) => other.key === row.key);
+      setSelected((rows[at + 1] ?? rows[at - 1])?.key);
       setLocal((previous) => new Set(previous).add(mark));
       setFailures((previous) => without(previous, row.key));
       run(verdictTag(verdict, row.stat)).catch(() => {
@@ -108,7 +114,7 @@ export function ReviewScreen({
         restore?.();
       });
     },
-    [],
+    [rows],
   );
 
   const acceptRow = (row: ReviewRow) =>
@@ -153,11 +159,11 @@ export function ReviewScreen({
           move(-1);
           return true;
         case "a":
-          if (current) acceptRow(current);
-          return Boolean(current);
+          if (target) acceptRow(target);
+          return Boolean(target);
         case "r":
-          if (current) setComment({ key: current.key, text: unsent.get(current.key)?.text ?? "" });
-          return Boolean(current);
+          if (target) setComment({ key: target.key, text: unsent.get(target.key)?.text ?? "" });
+          return Boolean(target);
         default:
           return false;
       }

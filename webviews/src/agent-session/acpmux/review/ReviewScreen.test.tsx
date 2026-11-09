@@ -1,12 +1,14 @@
 // l10n-allow-file: test fixtures.
-// A comment whose send fails is never lost: the person may open another row's comment while the
-// first send is in flight, and `r` on the first row still gives its words back with the same prompt
-// id, so acpmux delivers it once.
+// The Review queue's keys. `a` accepts the selected row and moves on, and acts only on the row the
+// person chose: a refresh that hides it leaves `a` waiting. A comment whose send fails is never lost:
+// the person may open another row's comment while the first send is in flight, and `r` on the first
+// row still gives its words back with the same prompt id, so acpmux delivers it once.
 import { afterEach, expect, test } from "bun:test";
-import { act } from "react";
+import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { session } from "../../../gallery/fixtures/acpmux";
+import type { AcpmuxSessionEntry } from "../sessionList";
 import { ReviewScreen } from "./ReviewScreen";
 
 const scope = globalThis as Record<string, unknown>;
@@ -16,15 +18,15 @@ let dom: JSDOM | null = null;
 let root: Root | null = null;
 
 const NOW = Date.parse("2026-11-08T12:00:00Z");
-const sessions = ["a", "b"].map((name, at) =>
+const chat = (name: string, activityAt: number) =>
   session({
     sessionId: `review-${name}`,
     title: `Change ${name}`,
     worktree: `/work/${name}`,
     branch: `lane/${name}`,
-    activityAt: NOW - (at + 1) * 60_000,
-  }),
-);
+    activityAt,
+  });
+const sessions = ["a", "b"].map((name, at) => chat(name, NOW - (at + 1) * 60_000));
 const readDiff = async () => ({
   scope: "branch",
   head: "1111111111111111111111111111111111111111",
@@ -49,7 +51,9 @@ async function flush() {
   });
 }
 
-test("a failed send keeps its words and prompt id while another row's comment is open", async () => {
+type Actions = Partial<Pick<ComponentProps<typeof ReviewScreen>, "readDiff" | "accept" | "send">>;
+
+function mount(chats: AcpmuxSessionEntry[], actions: Actions = {}) {
   dom = new JSDOM('<!doctype html><html><body><main id="root"></main></body></html>', { url: "http://localhost/" });
   for (const key of KEYS) saved.set(key, scope[key]);
   Object.assign(scope, {
@@ -61,34 +65,90 @@ test("a failed send keeps its words and prompt id while another row's comment is
     KeyboardEvent: dom.window.KeyboardEvent,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
-  const doc = dom.window.document;
-  const sent: { sessionId: string; text: string; promptId: string; fail(): void }[] = [];
-  const send = (sessionId: string, text: string, _tag: string, promptId: string) =>
-    new Promise((_resolve, reject) => sent.push({ sessionId, text, promptId, fail: () => reject(new Error("down")) }));
+  const window = dom.window;
+  const doc = window.document;
   const done = async () => undefined;
   root = createRoot(doc.getElementById("root")!);
-  act(() =>
-    root!.render(
-      <ReviewScreen sessions={sessions} readDiff={readDiff} openDiff={done} accept={done} send={send} now={NOW} />,
-    ),
-  );
-  await flush();
-  const list = doc.querySelector<HTMLElement>('[role="listbox"]')!;
-  expect(doc.querySelectorAll('[role="option"]').length).toBe(2);
-
+  const render = (next: AcpmuxSessionEntry[]) =>
+    act(() =>
+      root!.render(
+        <ReviewScreen
+          sessions={next}
+          readDiff={actions.readDiff ?? readDiff}
+          openDiff={done}
+          accept={actions.accept ?? done}
+          send={actions.send ?? done}
+          now={NOW}
+        />,
+      ),
+    );
+  render(chats);
+  const list = () => doc.querySelector<HTMLElement>('[role="listbox"]')!;
   const key = (target: Element, name: string) =>
     act(() => {
-      target.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
+      target.dispatchEvent(new window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
     });
   const type = (text: string) => {
     const field = doc.querySelector<HTMLTextAreaElement>("textarea")!;
-    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!;
     act(() => {
       setter.call(field, text);
-      field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+      field.dispatchEvent(new window.Event("input", { bubbles: true }));
     });
     return field;
   };
+  return { doc, list, key, type, render };
+}
+
+test("`a` accepts the selected row and moves on to the next", async () => {
+  const accepted: string[] = [];
+  const view = mount(["a", "b", "c"].map((name, at) => chat(name, NOW - (at + 1) * 60_000)), {
+    accept: async (sessionId) => void accepted.push(sessionId),
+  });
+  await flush();
+  expect(view.doc.querySelectorAll('[role="option"]').length).toBe(3);
+  view.key(view.list(), "a");
+  view.key(view.list(), "a");
+  expect(accepted).toEqual(["review-a", "review-b"]);
+});
+
+test("a refresh that hides the selected row leaves `a` waiting until the person moves", async () => {
+  const accepted: string[] = [];
+  const reads = new Map<string, number>();
+  const view = mount(["a", "b", "c"].map((name, at) => chat(name, NOW - (at + 1) * 60_000)), {
+    accept: async (sessionId) => void accepted.push(sessionId),
+    // A folder's second read never answers: its row and every row under it wait for it.
+    readDiff: (cwd, scope) => {
+      const count = (reads.get(cwd) ?? 0) + 1;
+      reads.set(cwd, count);
+      return count > 1 ? new Promise(() => {}) : readDiff(cwd, scope);
+    },
+  });
+  await flush();
+  view.key(view.list(), "j");
+  view.key(view.list(), "j");
+
+  // B's chat does something, so B is read again; C (selected) hides under it.
+  view.render([chat("a", NOW - 60_000), chat("b", NOW - 90_000), chat("c", NOW - 180_000)]);
+  await flush();
+  expect(view.doc.querySelectorAll('[role="option"]').length).toBe(1);
+  view.key(view.list(), "a");
+  expect(accepted).toEqual([]);
+
+  // Moving picks a row again, and `a` accepts the one the person now sees selected.
+  view.key(view.list(), "j");
+  view.key(view.list(), "a");
+  expect(accepted).toEqual(["review-a"]);
+});
+
+test("a failed send keeps its words and prompt id while another row's comment is open", async () => {
+  const sent: { sessionId: string; text: string; promptId: string; fail(): void }[] = [];
+  const send = (sessionId: string, text: string, _tag: string, promptId: string) =>
+    new Promise((_resolve, reject) => sent.push({ sessionId, text, promptId, fail: () => reject(new Error("down")) }));
+  const { doc, list: listbox, key, type } = mount(sessions, { send });
+  await flush();
+  const list = listbox();
+  expect(doc.querySelectorAll('[role="option"]').length).toBe(2);
 
   // Comment A goes out; while it is in flight the person opens a comment on B.
   key(list, "r");

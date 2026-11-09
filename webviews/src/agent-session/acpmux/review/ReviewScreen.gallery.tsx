@@ -78,7 +78,7 @@ const done = async () => undefined;
 const base: Props = { sessions, readDiff, openDiff: done, accept: done, send: done };
 
 export default componentEntry<Props>({
-  id: "agent-pane.review-queue",
+  id: "agent-pane.review-changes",
   title: "Review queue",
   area: "Agent pane",
   covers: ["agent-session/acpmux/review/ReviewScreen.tsx#ReviewScreen"],
