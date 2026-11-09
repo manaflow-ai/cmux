@@ -23,6 +23,7 @@
 
 mod query;
 mod store;
+pub mod waiting_day;
 
 pub use query::{LedgerQuery, LedgerReply, Rollup, Row};
 
@@ -344,6 +345,8 @@ pub struct Ledger {
     thread: Mutex<Option<store::WriterThread>>,
     /// The person every session on this machine runs for.
     person: String,
+    /// When each chat worked or waited on the person, the last two days (`waiting_day.rs`).
+    pub(crate) waiting: waiting_day::WaitingDay,
 }
 
 impl std::fmt::Debug for Ledger {
@@ -372,6 +375,8 @@ impl Ledger {
     pub(crate) fn open_with(dir: Option<PathBuf>, compact_bytes: u64, person: String) -> Self {
         let state = Arc::new(Mutex::new(State::default()));
         let mut repos = Vec::new();
+        let waiting_path = dir.as_ref().map(|d| d.join(waiting_day::FILE));
+        let waiting = waiting_day::WaitingDay::open(waiting_path, crate::store::now_ms());
         let spawned = dir.and_then(|dir| {
             let path = dir.join(store::FILE);
             let size = {
@@ -395,7 +400,8 @@ impl Ledger {
             Some((tx, thread)) => (Some(tx), Some(thread)),
             None => (None, None),
         };
-        let ledger = Self { state, writer: Mutex::new(writer), thread: Mutex::new(thread), person };
+        let (writer, thread) = (Mutex::new(writer), Mutex::new(thread));
+        let ledger = Self { state, writer, thread, person, waiting };
         for work in repos {
             ledger.send(work);
         }
@@ -405,6 +411,8 @@ impl Ledger {
     /// Shutdown (`Hub::flush`): closes the writer's queue and waits up to `within` for it to
     /// write what it holds and end. True when it ended; later lines are kept in memory only.
     pub fn close(&self, within: std::time::Duration) -> bool {
+        // The waiting day, whole, for the next daemon (`waiting_day.rs`).
+        self.waiting.save(crate::store::now_ms());
         drop(self.writer.lock().unwrap_or_else(PoisonError::into_inner).take());
         let Some(thread) = self.thread.lock().unwrap_or_else(PoisonError::into_inner).take() else {
             return true;
@@ -453,6 +461,13 @@ impl Ledger {
         self.record(&session.id, record, || {
             TurnContext::of(&session.meta.lock().unwrap_or_else(PoisonError::into_inner))
         });
+        // The waiting day's marks, O(1); a sub-session waits on the session above it.
+        if record.dir == "mux"
+            && matches!(record.kind.as_str(), "status" | "turn_started")
+            && session.meta.lock().unwrap_or_else(PoisonError::into_inner).subsession.is_none()
+        {
+            self.waiting.record(&session.id, record);
+        }
         // A purge that landed while this record was counted: it is the purge's to drop.
         if session.purged.load(Ordering::SeqCst) {
             self.purge(&session.id);
@@ -547,6 +562,7 @@ impl Ledger {
         let known = s.sessions.contains_key(session) || s.open.contains_key(session);
         s.purged.insert(session.to_owned());
         s.remove_session(session);
+        self.waiting.forget(session);
         if known {
             self.emit(&mut s, Line::Purge { sid: session.to_owned() });
         }

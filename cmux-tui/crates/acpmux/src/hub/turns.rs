@@ -2389,7 +2389,6 @@ impl Hub {
             session.purged.store(true, Ordering::SeqCst);
             // Its spend, title and folder leave the cost ledger with it (`hub/ledger`).
             self.ledger.purge(&session.id);
-            self.waiting_day.forget(&session.id);
             self.remove_cached_closed_summary(&session.id);
             let replaced = session.replaced.load(Ordering::SeqCst);
             if !self

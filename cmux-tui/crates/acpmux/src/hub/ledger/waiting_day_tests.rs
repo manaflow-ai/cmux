@@ -1,4 +1,4 @@
-//! The waiting day over fixture transition logs (`hub/waiting_day.rs`).
+//! The waiting day over fixture transition logs (`hub/ledger/waiting_day.rs`).
 
 use super::*;
 use serde_json::json;

@@ -2,7 +2,7 @@
 //! idle, for the Home's "Waiting on me" lanes (wow idea 86; Leo, 2026-11-08: "go think of
 //! things/look at things, esp valuable things that people would think \"wow this is awesome\"").
 //!
-//! Fed from `Hub::append_record_locked` as records are appended, O(1) each: a `status` record
+//! Fed as records are appended, O(1) each: a `status` record
 //! is a mark (`running` is working, `waiting` is blocked on an answer, every other status idle),
 //! and `turn_started` names the turn the next marks belong to, so a blocked stretch opens the
 //! chat at its turn. No log or transcript is read, ever.
@@ -12,9 +12,10 @@
 //! [`MAX_LANES`] chats are kept (the one quiet longest goes first). Sub-sessions are left out:
 //! the session above them answers them, not the person.
 //!
-//! Kept in memory, and written whole to `<home>/waiting-day.json` when the daemon seals its logs
-//! at shutdown; the next daemon reads it back. A stretch the old daemon left open ends when it
-//! wrote the file. A daemon that dies without sealing loses the marks since its start.
+//! Part of the cost ledger (`hub/ledger`), which feeds it from `Hub::append_record_locked`, drops
+//! a purged chat's marks, and writes them whole to `<home>/ledger/waiting-day.json` when the daemon
+//! seals its logs at shutdown; the next daemon reads it back. A stretch the old daemon left open
+//! ends when it wrote the file. A daemon that dies without sealing loses the marks since its start.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;

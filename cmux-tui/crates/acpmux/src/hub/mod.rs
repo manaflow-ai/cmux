@@ -150,7 +150,6 @@ mod policy_gate;
 mod policy_mode;
 mod policy_source;
 mod pool;
-pub mod waiting_day;
 pub(crate) use pool::SESSION_NEW_BUDGET;
 mod prompt_attribution;
 pub(crate) mod prompt_images;
@@ -640,8 +639,6 @@ pub struct Hub {
     pub(crate) usage_stats: usage_view::UsageCache,
     /// What every turn here cost, indexed by day and session (`hub/ledger`, `_acpmux/ledger`).
     pub(crate) ledger: ledger::Ledger,
-    /// When each chat worked or waited on the person, the last two days (`hub/waiting_day.rs`).
-    pub(crate) waiting_day: waiting_day::WaitingDay,
     /// `_acpmux/models` replies now asking peers for theirs
     /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
     /// daemon's own catalog, so mutual peers cannot ping-pong.
@@ -1014,8 +1011,6 @@ impl Hub {
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
-        let waiting_path = home.as_ref().map(|h| h.join(waiting_day::FILE));
-        let waiting_day = waiting_day::WaitingDay::open(waiting_path, now_ms());
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let audit = audit_log::AuditLog::open(store.audit_dir());
@@ -1043,7 +1038,6 @@ impl Hub {
             list_guard: Default::default(),
             usage_stats: Default::default(),
             ledger,
-            waiting_day,
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             review_index: Default::default(),
             audit,
@@ -2218,17 +2212,6 @@ impl Hub {
         }
         // The cost ledger's index: O(1), no IO (its writer thread writes the file).
         self.ledger.observe(session, &record);
-        // The waiting day's marks: O(1), no IO; a sub-session waits on the session above it.
-        let sub = || {
-            let meta = session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            meta.subsession.is_some()
-        };
-        if matches!(kind, "status" | "turn_started")
-            && !session.purged.load(Ordering::SeqCst)
-            && !sub()
-        {
-            self.waiting_day.record(&session.id, &record);
-        }
         if matches!(
             kind,
             "status"

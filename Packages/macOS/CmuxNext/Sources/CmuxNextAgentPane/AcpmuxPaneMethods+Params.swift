@@ -78,7 +78,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/race/list": (["parent"], []),
         "_acpmux/race/cancel": (["parent", "raceId"], []),
         "_acpmux/race/stats": (["parent"], []),
-        // The day's range in ms; acpmux clamps it to the last 48 hours.
+        // The home's Waiting on me lanes (waiting/useWaitingDay.ts; acpmux hub/ledger/waiting_day.rs):
+        // times, seqs and turn ids, never text. Read-only and local-only in acpmux; not session-scoped,
+        // like `_acpmux/sessions`, since it covers every chat. The range is in ms, clamped to 48 hours.
         "_acpmux/waiting_day": (["since", "until"], []),
         // `server`: one of that chat's MCP servers by name; acpmux refuses a name the chat does not list.
         "_acpmux/mcp/reconnect": (["sessionId", "server"], []),

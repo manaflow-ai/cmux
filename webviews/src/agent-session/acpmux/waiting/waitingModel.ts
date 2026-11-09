@@ -1,5 +1,5 @@
 // Waiting on me: the day's agent chats as swimlanes, working and blocked on the person, from
-// acpmux's `_acpmux/waiting_day` (cmux-tui/crates/acpmux/src/hub/waiting_day.rs). acpmux keeps each
+// acpmux's `_acpmux/waiting_day` (cmux-tui/crates/acpmux/src/hub/ledger/waiting_day.rs). acpmux keeps each
 // chat's status changes as they happen, in a small rolling log, so a read opens no session log.
 // Everything here is pure: the reply's shape, the layout of a lane's spans as fractions of the
 // shown window, and which rows a scroll position mounts.

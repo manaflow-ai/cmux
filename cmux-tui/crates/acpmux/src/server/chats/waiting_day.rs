@@ -1,6 +1,6 @@
-//! `_acpmux/waiting_day`: when each chat worked or waited on the person (`hub/waiting_day.rs`),
-//! for the Home's "Waiting on me" lanes. How a person works is their data, like
-//! `_acpmux/ledger`: the local unix socket and the app's own pane (LocalApp) get it; a Web or Peer
+//! `_acpmux/waiting_day`: when each chat worked or waited on the person
+//! (`hub/ledger/waiting_day.rs`), for the Home's "Waiting on me" lanes. How a person works is
+//! their data, like `_acpmux/ledger`: the local unix socket and the app's own pane (LocalApp) get it; a Web or Peer
 //! origin gets "Method not found". Never forwarded to a peer. A read walks the kept marks only.
 
 use std::sync::Arc;
@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use super::super::Origin;
 use crate::hub::Hub;
-use crate::hub::waiting_day;
+use crate::hub::ledger::waiting_day;
 use crate::rpc::{RpcError, method};
 
 pub(super) fn handle(hub: &Arc<Hub>, origin: Origin, params: &Value) -> Result<Value, RpcError> {
@@ -17,7 +17,7 @@ pub(super) fn handle(hub: &Arc<Hub>, origin: Origin, params: &Value) -> Result<V
         return Err(RpcError::method_not_found(method::MUX_WAITING_DAY));
     }
     let (since, until) = waiting_day::range(params, crate::store::now_ms());
-    serde_json::to_value(hub.waiting_day.query(since, until))
+    serde_json::to_value(hub.ledger.waiting.query(since, until))
         .map_err(|e| RpcError::internal(e.to_string()))
 }
 

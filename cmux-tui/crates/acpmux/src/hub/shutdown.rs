@@ -107,8 +107,6 @@ impl Hub {
         }
         // The cost ledger's last lines too: its writer drains its queue and ends (`hub/ledger`).
         self.ledger.close(LEDGER_DRAIN);
-        // The waiting day, whole, for the next daemon (`hub/waiting_day.rs`).
-        self.waiting_day.save(now_ms());
     }
 
     async fn shutdown_sessions(&self, preserve_auto_resume: bool) -> usize {

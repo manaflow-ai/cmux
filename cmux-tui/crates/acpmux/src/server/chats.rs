@@ -181,7 +181,7 @@ pub(super) async fn route(
     if m == crate::rpc::method::MUX_LEDGER {
         return ledger::handle(hub, conn.origin, &params);
     }
-    // When each chat worked or waited on the person (`hub/waiting_day.rs`): as the ledger.
+    // When each chat worked or waited on the person (`hub/ledger/waiting_day.rs`): as the ledger.
     if m == crate::rpc::method::MUX_WAITING_DAY {
         return waiting_day::handle(hub, conn.origin, &params);
     }
