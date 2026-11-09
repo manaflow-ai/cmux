@@ -188,7 +188,7 @@ fn seeds_hold() {
 /// returned 60 s later was one the daemon had dropped).
 #[test]
 fn seeds_that_found_bugs_hold() {
-    for seed in [3, 658] {
+    for seed in [3, 479, 658] {
         let o = world::run(seed, true);
         if let Err(failure) = invariants::check(&o) {
             panic!("seed {seed}: {failure}\nreplay: {}", replay_command(seed));
