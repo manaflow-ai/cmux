@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42602614237",
+  "recorded_at": "2026-11-09T10:49:12Z",
+  "reason": "cmux-tui f6dc75dbc489 changes the image's cmux-tui (pinned b335e956146d)",
+  "dry_run": false,
+  "cmux_tui": "f6dc75dbc489e6414710db73016a6347e9701e6f",
+  "fixes": [
+    {
+      "sha": "f6dc75dbc489e6414710db73016a6347e9701e6f",
+      "mergedAt": "2026-11-09T02:22:31-08:00",
+      "subject": "cmux NEXT: delete dead Swift (CmuxNextAppPermissions, CmuxTerminalClient) (#39285)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T10:49:12Z",
+    "snapshot_id": "sh-e30b38a8f1e0408f9574011e432ee703",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42602614237): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a3f792e21a191a56eea06e6ca2c1d04611c9e99f",
+    "image": "cloud-native-auto-f6dc75db-42602614237-1",
+    "revision": "ci-42602614237-1",
+    "at": "2026-11-09T10:49:12Z"
+  },
+  "rolled_back": false
+}
