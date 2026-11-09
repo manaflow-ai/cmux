@@ -259,11 +259,12 @@ fn move_stack_with(
     write(&to_path, to, &drafts).map_err(not_saved)?;
     // A source that stays puts `to` back as it was: a move is whole or not at all, so no draft is
     // in two stacks for a later move to take twice or one of them to lose.
-    let removed = crate::config::refuse_lost_home(&from_path)
-        .map_err(io::Error::other)
-        .and_then(|()| match remove_source(&from_path) {
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
-            other => other,
+    let removed =
+        crate::config::refuse_lost_home(&from_path).map_err(io::Error::other).and_then(|()| {
+            match remove_source(&from_path) {
+                Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+                other => other,
+            }
         });
     if let Err(e) = removed {
         let _ = if own.is_empty() { fs::remove_file(&to_path) } else { write(&to_path, to, &own) };
@@ -547,7 +548,9 @@ mod tests {
         assert_eq!(fs::read(chat_path(&dir, "session")).unwrap(), session);
         assert_eq!(load(&chat_path(&dir, "new")).unwrap()[0].text, "moving");
         // Into a chat with no stack, the put-back leaves none.
-        assert!(move_stack_with(&dir, "new", "empty", |_| Err(io::Error::other("refused"))).is_err());
+        assert!(
+            move_stack_with(&dir, "new", "empty", |_| Err(io::Error::other("refused"))).is_err()
+        );
         assert!(!chat_path(&dir, "empty").exists());
         // Tried again with the removal working, it moves once.
         assert_eq!(move_stack(&dir, "new", "session").unwrap().count, 1);
