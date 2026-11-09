@@ -220,7 +220,7 @@ fn run_systemd(opts: &Opts) -> Res<()> {
     // The UDP media link (cap `link.udp`), on unless `--no-udp-link`; see hybrid.rs.
     let link = match opts.flag("no-udp-link") {
         true => None,
-        false => Some(LinkCfg { stun: crate::hybrid::parse_stun(opts.get("link-stun"))? }),
+        false => Some(LinkCfg::new(crate::hybrid::stun_names(opts.get("link-stun"))?)),
     };
     let listener = crate::systemd::listener_from_env()?;
     let cfg = session_cfg(opts)?;
@@ -533,6 +533,10 @@ fn serve_viewer<S: ViewerStream>(
     let max_datagram = max_datagram.min(MAX_DATAGRAM_DEFAULT);
     // With the link, every datagram fits it sealed, so none has to fall back to the stream.
     let link = link.filter(|_| negotiated.caps.iter().any(|c| c == caps::LINK_UDP));
+    // The STUN names resolve in the background now; the offer comes after `started`.
+    if let Some(link) = link {
+        link.resolve_stun();
+    }
     #[cfg(feature = "link")]
     let max_datagram = match link {
         Some(_) => max_datagram.min(crate::hybrid::LINK_MAX_DATAGRAM),

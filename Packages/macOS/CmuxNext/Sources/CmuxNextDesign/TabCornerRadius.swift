@@ -25,10 +25,20 @@ extension Metrics {
 
     /// The corner radius of a titled window on macOS `macOSMajor`, as AppKit draws it: 16 pt from
     /// macOS 26 on (measured on 27: titled, full-size content and every toolbar style alike),
-    /// 10 pt on macOS 11 through 15. Lawrence 2026-11-07: "we are not concentric with macos window
+    /// 10 pt on macOS 11 through 15 (measured on 15.7.4). Lawrence 2026-11-07: "we are not concentric with macos window
     /// ... make it all concentric with macos windows by default".
     public static func standardWindowCornerRadius(macOSMajor: Int) -> CGFloat {
         macOSMajor >= 26 ? 16 : 10
+    }
+
+    /// The corner radius AppKit draws for a titled window that reports `reported` (`_cornerRadius`,
+    /// nil when it reports none) on macOS `macOSMajor`. From macOS 26 the reported value is the drawn
+    /// one (16 pt, more under a toolbar). Before it, AppKit reports 12 pt but draws a 10 pt corner
+    /// (measured from the window's pixels on macOS 15.7.4, 2026-11-08), so the drawn
+    /// ``standardWindowCornerRadius(macOSMajor:)`` wins there.
+    public static func drawnWindowCornerRadius(reported: CGFloat?, macOSMajor: Int) -> CGFloat {
+        guard macOSMajor >= 26, let reported else { return standardWindowCornerRadius(macOSMajor: macOSMajor) }
+        return reported
     }
 
     /// The radius of the rounded card whose top-leading corner a top-row pane's tab strip sits
