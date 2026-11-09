@@ -29,7 +29,7 @@ import cmux_next_base_tier as tier  # noqa: E402
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 KICK = ROOT / ".github/workflows/cmux-next-base-tier-kick.yml"
 REPO = "manaflow-ai/cmux"
-OLD, MID, TIP = "a" * 40, "b" * 40, "c" * 40
+OLDEST, OLD, MID, TIP = "e" * 40, "a" * 40, "b" * 40, "c" * 40
 T0 = 1_800_000_000.0
 
 
@@ -116,24 +116,59 @@ def job(name: str, status: str, conclusion: str | None = None) -> dict:
 
 QUEUED_MAC = [job("cmux-next path routing", "completed", "success"), job("cmux-next daemon tests", "queued"),
               job("cmux-next generated files", "queued"), job("cmux app scheme compile (Debug)", "queued")]
+# What 11 open base tier runs looked like on 2026-11-09: daemon tests done, the scheme compile still queued.
+DAEMON_DONE = [job("cmux-next path routing", "completed", "success"),
+               job("cmux-next daemon tests", "completed", "success"),
+               job("cmux-next generated files", "completed", "failure"),
+               job("cmux app scheme compile (Debug)", "queued")]
+RUNNING_MAC = [job("cmux-next daemon tests", "in_progress")] + QUEUED_MAC[2:]
 
 
 class CancelSuperseded(unittest.TestCase):
-    """Once the tip has a base tier run, older ones whose Mac jobs never started are cancelled."""
+    """Once the tip has a base tier run, older ones with no Mac job running are cancelled, but the oldest of them."""
 
-    def test_a_dispatch_cancels_older_runs_waiting_for_a_mac(self):
+    def test_a_dispatch_keeps_the_oldest_waiting_run_and_cancels_the_rest(self):
         api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 20 * 60)
         api.open_run(11, OLD, T0, "in_progress", QUEUED_MAC)
         api.open_run(12, MID, T0 + 5 * 60, "queued", [])
         self.assertEqual(kick(api, clock), TIP)
         self.assertEqual(len(api.dispatched), 1)
+        self.assertEqual(api.cancelled, [12])
+
+    def test_a_superseded_run_whose_daemon_tests_finished_is_cancelled(self):
+        # 2026-11-09: 11 open base tier runs, each with its daemon tests done and only its scheme compile
+        # queued for the Mac pool, held queue slots for hours; a finished Mac job no longer protects a run.
+        api, clock = FakeApi([(OLDEST, T0 - 120)], TIP), Clock(T0 + 20 * 60)
+        api.open_run(10, OLDEST, T0 - 120, "in_progress", DAEMON_DONE)
+        api.open_run(11, OLD, T0 - 60, "in_progress", DAEMON_DONE)
+        api.open_run(12, MID, T0, "in_progress", DAEMON_DONE)
+        self.assertEqual(kick(api, clock), TIP)
         self.assertEqual(sorted(api.cancelled), [11, 12])
+
+    def test_the_oldest_waiting_run_is_kept_whatever_its_jobs_and_listing_order(self):
+        # Its queued job is the nearest to a runner: the tier makes progress even when a Mac waits longer
+        # than the kick window, where cancelling every older run would starve it.
+        api, clock = FakeApi([(OLDEST, T0 - 120)], TIP), Clock(T0 + 20 * 60)
+        api.open_run(11, OLD, T0 - 60, "in_progress", DAEMON_DONE)
+        api.open_run(10, OLDEST, T0 - 120, "queued", QUEUED_MAC)
+        api.open_run(12, MID, T0, "queued", QUEUED_MAC)
+        self.assertEqual(kick(api, clock), TIP)
+        self.assertEqual(sorted(api.cancelled), [11, 12])
+
+    def test_the_newest_run_is_kept(self):
+        api, clock = FakeApi([(OLDEST, T0 - 120)], TIP), Clock(T0 + 20 * 60)
+        api.jobs[99] = DAEMON_DONE  # the run the dispatch starts
+        api.open_run(10, OLDEST, T0 - 120, "in_progress", DAEMON_DONE)
+        api.open_run(11, OLD, T0 - 60, "in_progress", DAEMON_DONE)
+        self.assertEqual(kick(api, clock), TIP)
+        self.assertEqual(api.cancelled, [11])
 
     def test_a_run_titled_with_a_commit_that_landed_after_the_tip_read_is_kept(self):
         # The dispatch takes the branch ref, so its run may name a newer commit than the tip read.
         api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 20 * 60)
         api.landed = "d" * 40
         api.jobs[99] = QUEUED_MAC
+        api.open_run(10, OLDEST, T0 - 60, "queued", QUEUED_MAC)
         api.open_run(11, OLD, T0, "queued", QUEUED_MAC)
         self.assertEqual(kick(api, clock), TIP)
         self.assertEqual(api.cancelled, [11])
@@ -141,6 +176,7 @@ class CancelSuperseded(unittest.TestCase):
     def test_a_re_run_is_left_alone(self):
         # An earlier attempt may have run its Mac jobs; the latest attempt's list would not show them.
         api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 20 * 60)
+        api.open_run(10, OLDEST, T0 - 60, "queued", QUEUED_MAC)
         api.open_run(11, OLD, T0, "queued", QUEUED_MAC)
         api.runs[0]["run_attempt"] = 2
         kick(api, clock)
@@ -149,36 +185,31 @@ class CancelSuperseded(unittest.TestCase):
     def test_a_tip_that_already_has_a_run_still_cancels_the_older_waiting_ones(self):
         # A hand dispatch on the tip leaves the older waiting runs to the next kick.
         api, clock = FakeApi([(TIP, T0)], TIP), Clock(T0 + 20 * 60)
+        api.open_run(10, OLDEST, T0 - 120, "queued", QUEUED_MAC)
         api.open_run(11, OLD, T0 - 60, "queued", QUEUED_MAC)
         self.assertIsNone(kick(api, clock))
         self.assertEqual(api.dispatched, [])
         self.assertEqual(api.cancelled, [11])
 
-    def test_a_run_whose_mac_job_started_or_finished_is_left_alone(self):
-        api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 20 * 60)
-        running = [job("cmux-next daemon tests", "in_progress")] + QUEUED_MAC[2:]
-        finished = [job("cmux-next generated files", "completed", "failure"), job("cmux-next daemon tests", "queued")]
-        api.open_run(11, OLD, T0, "in_progress", running)
-        api.open_run(12, MID, T0 + 60, "in_progress", finished)
+    def test_a_run_with_a_mac_job_in_progress_is_left_alone(self):
+        # It is never cancelled, and it is not the oldest waiting run either: the oldest of the others is kept.
+        api, clock = FakeApi([(OLDEST, T0 - 60)], TIP), Clock(T0 + 20 * 60)
+        api.open_run(10, OLDEST, T0 - 60, "in_progress", RUNNING_MAC)
+        api.open_run(11, OLD, T0, "queued", QUEUED_MAC)
+        api.open_run(12, MID, T0 + 60, "in_progress", DAEMON_DONE)
         kick(api, clock)
-        self.assertEqual(api.cancelled, [])
+        self.assertEqual(api.cancelled, [12])
 
-    def test_skipped_or_cancelled_mac_jobs_never_started(self):
+    def test_an_unreadable_job_list_counts_as_running(self):
         api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 20 * 60)
-        api.open_run(11, OLD, T0, "in_progress", [job("cmux app scheme compile (Debug)", "completed", "skipped"),
-                                                   job("cmux-next daemon tests", "completed", "cancelled"),
-                                                   job("cmux-next generated files", "queued")])
-        kick(api, clock)
-        self.assertEqual(api.cancelled, [11])
-
-    def test_an_unreadable_job_list_counts_as_started(self):
-        api, clock = FakeApi([(OLD, T0)], TIP), Clock(T0 + 20 * 60)
+        api.open_run(10, OLDEST, T0 - 60, "queued", QUEUED_MAC)
         api.open_run(11, OLD, T0, "queued", None)
         kick(api, clock)
         self.assertEqual(api.cancelled, [])
 
     def test_the_tips_own_runs_finished_runs_and_other_titles_are_never_cancelled(self):
         api, clock = FakeApi([(TIP, T0)], TIP), Clock(T0 + 20 * 60)
+        api.open_run(10, OLDEST, T0 - 120, "queued", QUEUED_MAC)  # the oldest waiting run: kept
         api.open_run(11, TIP, T0 + 60, "queued", QUEUED_MAC)  # the tip's same-tree run
         api.open_run(12, OLD, T0 - 60, "completed", QUEUED_MAC)
         api.open_run(13, OLD, T0 - 60, "queued", QUEUED_MAC, title="cmux NEXT DEV daily · ")
@@ -223,9 +254,10 @@ class Kick(unittest.TestCase):
     def test_a_new_base_tier_run_while_waiting_owns_its_full_window(self):
         # A hand dispatch can start while this kick sleeps. The first run's
         # deadline must never let a second Mac tier start inside the new window.
-        # The older run still waits for a Mac: the new run supersedes it, so it is
-        # cancelled even though this kick dispatches nothing.
+        # The older runs still wait for a Mac: the new run supersedes them, so all
+        # but the oldest are cancelled even though this kick dispatches nothing.
         api, clock = FakeApi([], TIP), Clock(T0 + 5 * 60)
+        api.open_run(10, OLDEST, T0 - 60, "queued", QUEUED_MAC)
         api.open_run(11, OLD, T0, "queued", QUEUED_MAC)
 
         clock.during_wait = lambda: api.open_run(12, MID, T0 + 12 * 60, "queued", QUEUED_MAC)
