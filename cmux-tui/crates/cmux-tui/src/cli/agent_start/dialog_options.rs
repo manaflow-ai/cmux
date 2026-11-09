@@ -162,6 +162,17 @@ mod tests {
         assert_eq!(accept_label(&options(" ❯ 1. No, exit\n   2. Maybe")), None);
     }
 
+    /// W5-Q review 3 (PR C): a dialog drawn in a box ends each row with
+    /// `│`; the label the person approves has no box character.
+    #[test]
+    fn w5q_a_boxed_option_label_has_no_box_character() {
+        let boxed = options(
+            "│ ❯ 1. Yes, I trust this folder      │\n│   2. No, exit                     │",
+        );
+        assert_eq!(accept_label(&boxed), Some("Yes, I trust this folder"));
+        assert_eq!(boxed.get(1).map(|option| option.label.as_str()), Some("No, exit"));
+    }
+
     /// W5-Q review (PR C): the folder-trust reason is localized, names the
     /// terminal (never the placeholder `NAME`), names the option the keys
     /// pick, and warns when that option also turns approvals off (a Codex
@@ -189,5 +200,6 @@ mod tests {
         assert!(warned.contains("warning:"), "{warned}");
         let warned = folder_trust_reason(japanese, "beta", Some((keys, risky)));
         assert!(warned.contains("警告"), "{warned}");
+        assert!(!warned.contains("; "), "the Japanese reason has an ASCII separator: {warned}");
     }
 }

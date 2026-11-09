@@ -894,11 +894,11 @@ fn w5q_start_split_keeps_a_person_pane_with_an_agent_name() {
     assert!(ratios.is_empty(), "a pane's width changed: {ratios:?}");
 }
 
-/// W5-Q review (PR C): agent panes that agent start made in one row share
-/// their space equally, and the person's pane keeps its width: the third
-/// agent pane is not an eighth of the screen.
-#[test]
-fn w5q_start_split_evens_only_the_agent_panes_of_its_row() {
+/// The widths of caller, alpha, beta and gamma after `agent start gamma
+/// --pane beta --split right` in the row caller 1/2 | (alpha 1/4 | (beta
+/// 1/8 | gamma 1/8)), alpha's terminal being `alpha` (`running` or
+/// `exited`).
+fn three_agent_row_widths(alpha: &str) -> [f64; 4] {
     const GAMMA_PANE: &str = "pane_44444444444444444444444444444444";
     const BETA_SPLIT: &str = "split_000000000000000000000000000000a3";
     // The beta pane is an agent pane an earlier start made.
@@ -916,7 +916,13 @@ fn w5q_start_split_evens_only_the_agent_panes_of_its_row() {
             .push(json!({"id": "term_b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1", "lifecycle": "running",
             "tab_id": "tab_b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1"}));
     }
-    // alpha's and beta's terminals run agent start launches.
+    // alpha's and beta's terminals run agent start launches; alpha's
+    // terminal is `alpha` (running or exited, kept with --on-exit keep).
+    if let Some(terminals) = snapshot["terminals"].as_array_mut() {
+        for terminal in terminals.iter_mut().filter(|terminal| terminal["id"] == OLD) {
+            terminal["lifecycle"] = json!(alpha);
+        }
+    }
     mark_agent_start(&mut snapshot, &[OLD, "term_b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1"]);
     let daemon = Fake::new(move |operation, _params, _count| match operation {
         "session.snapshot" => snapshot.clone(),
@@ -956,11 +962,31 @@ fn w5q_start_split_evens_only_the_agent_panes_of_its_row() {
     let inner = ratios.get(INNER_SPLIT).copied().unwrap_or(0.5);
     let beta = ratios.get(BETA_SPLIT).copied().unwrap_or(0.5);
     let rest = 1.0 - outer;
-    let widths =
-        [outer, rest * inner, rest * (1.0 - inner) * beta, rest * (1.0 - inner) * (1.0 - beta)];
+    [outer, rest * inner, rest * (1.0 - inner) * beta, rest * (1.0 - inner) * (1.0 - beta)]
+}
+
+/// W5-Q review (PR C): agent panes that agent start made in one row share
+/// their space equally, and the person's pane keeps its width: the third
+/// agent pane is not an eighth of the screen.
+#[test]
+fn w5q_start_split_evens_only_the_agent_panes_of_its_row() {
+    let widths = three_agent_row_widths("running");
     assert!((widths[0] - 0.5).abs() < 0.001, "the caller's pane changed: {widths:?}");
     for width in &widths[1..] {
         assert!((width - 1.0 / 6.0).abs() < 0.01, "alpha, beta, gamma widths {widths:?}");
+    }
+}
+
+/// W5-Q review 3 (PR C): an agent pane whose agent exited (kept with
+/// --on-exit keep) counts as the person's: it keeps its width, and only the
+/// running agent panes next to the new one share their space.
+#[test]
+fn w5q_start_split_keeps_an_exited_agent_pane_width() {
+    let widths = three_agent_row_widths("exited");
+    assert!((widths[0] - 0.5).abs() < 0.001, "the caller's pane changed: {widths:?}");
+    assert!((widths[1] - 0.25).abs() < 0.001, "the exited alpha pane changed: {widths:?}");
+    for width in &widths[2..] {
+        assert!((width - 0.125).abs() < 0.01, "beta, gamma widths {widths:?}");
     }
 }
 
