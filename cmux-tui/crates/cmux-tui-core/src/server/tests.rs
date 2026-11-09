@@ -553,6 +553,7 @@ mod rds_input_lane;
 mod read_barrier;
 mod resource_attach;
 mod resource_waits;
+mod send_expect_agent_replay;
 mod session_streams;
 mod sizing;
 mod socket_and_render;
