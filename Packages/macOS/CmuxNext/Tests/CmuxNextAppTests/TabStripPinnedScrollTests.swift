@@ -65,7 +65,8 @@ import Testing
         DesignSettings.shared.tabOverflow = overflow
         defer { DesignSettings.shared.tabOverflow = .shrink }
         // The icon-only pinned form (`tabs.pinnedKeepsTitle` off): its fixed width is what these cases measure.
-        _ = TunableStore.shared.set(TabTunables.pinnedKeepsTitle.key, .bool(false))
+        TunableStore.shared.register([TabTunables.pinnedKeepsTitle.descriptor])
+        try #require(TunableStore.shared.set(TabTunables.pinnedKeepsTitle.key, .bool(false)) == .bool(false))
         defer { _ = TunableStore.shared.set(TabTunables.pinnedKeepsTitle.key, nil) }
         let harness = Harness(pinned: 2, unpinned: 40, width: 1000)
         defer { harness.window.closeAfterTest() }
@@ -115,7 +116,8 @@ import Testing
     @Test func pinnedTabsWiderThanTheStripScrollWithTheRest() throws {
         DesignSettings.shared.tabOverflow = .shrink
         // The icon-only pinned form (`tabs.pinnedKeepsTitle` off): its fixed width is what these cases measure.
-        _ = TunableStore.shared.set(TabTunables.pinnedKeepsTitle.key, .bool(false))
+        TunableStore.shared.register([TabTunables.pinnedKeepsTitle.descriptor])
+        try #require(TunableStore.shared.set(TabTunables.pinnedKeepsTitle.key, .bool(false)) == .bool(false))
         defer { _ = TunableStore.shared.set(TabTunables.pinnedKeepsTitle.key, nil) }
         let pinnedCount = 12
         let width = (CGFloat(pinnedCount) * Metrics.tabPinnedWidth * 0.8).rounded()

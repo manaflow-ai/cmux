@@ -53,11 +53,12 @@ import Testing
         }
     }
 
-    /// `TabTunables.pinnedKeepsTitle.key`, spelled out so the test compiles at the base.
-    private static let pinnedKeepsTitleKey = "tabs.pinnedKeepsTitle"
+    private static let pinnedKeepsTitleKey = TabTunables.pinnedKeepsTitle.key
 
-    private static func withPinnedKeepsTitle(_ on: Bool, _ body: () throws -> Void) rethrows {
-        _ = TunableStore.shared.set(Self.pinnedKeepsTitleKey, .bool(on))
+    private static func withPinnedKeepsTitle(_ on: Bool, _ body: () throws -> Void) throws {
+        // The store refuses a key it has no descriptor for (the app registers TabTunables.all at launch).
+        TunableStore.shared.register([TabTunables.pinnedKeepsTitle.descriptor])
+        try #require(TunableStore.shared.set(Self.pinnedKeepsTitleKey, .bool(on)) == .bool(on))
         defer { _ = TunableStore.shared.set(Self.pinnedKeepsTitleKey, nil) }
         try body()
     }
