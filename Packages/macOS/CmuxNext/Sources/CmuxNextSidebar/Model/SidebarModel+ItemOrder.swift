@@ -93,7 +93,9 @@ extension SidebarModel {
         for row in SidebarLayout.make(sections: sections, metrics: .standard, options: unfolded).rows {
             switch row.key {
             case let .workspace(id) where placed.contains(id):
-                places[id] = next
+                // Drawn where it would draw selected (a filter or Group by Status folds nothing): its own row is its
+                // stop, as any other row's. Else it draws away from there: step from its place.
+                if let at = index[.workspace(id)], at == next { next = at + 1 } else { places[id] = next }
             case let .workspace(id):
                 if let at = index[.workspace(id)] { next = at + 1 }
             case let .item(id):
@@ -108,11 +110,12 @@ extension SidebarModel {
         }
         // A row even that layout does not draw (a subgroup under a collapsed parent): after the last stop before it
         // in the model's order.
-        guard places.count < placed.count else { return places }
+        let unplaced = placed.filter { places[$0] == nil && index[.workspace($0)] == nil }
+        guard !unplaced.isEmpty else { return places }
         next = rows.firstIndex { if case .topItem = $0 { false } else { true } } ?? rows.count
         for ws in selectableWorkspaces {
-            if placed.contains(ws.id) {
-                if places[ws.id] == nil { places[ws.id] = next }
+            if unplaced.contains(ws.id) {
+                places[ws.id] = next
             } else if let at = index[.workspace(ws.id)] ?? stops[ws.id].flatMap({ index[$0] }) {
                 next = at + 1
             }

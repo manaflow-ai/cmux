@@ -192,4 +192,18 @@ import Testing
             #expect(order.step(from: selected, by: -1, Self.numbers) == .workspace(WorkspaceID("first")))
         }
     }
+
+    /// A filter folds nothing: Done rows draw in place as stops of their own, and a step from one goes to its
+    /// neighbour (three Done rows in a row: Next from the middle one is the third).
+    @Test func aFilterKeepsDoneRowsAsTheirOwnStops() {
+        Self.withFolds {
+            let members = [Self.done("work-1"), Self.done("work-2"), Self.done("work-3")]
+            let model = SidebarModel(sections: Self.doneSections(members))
+            model.filterText = "work"
+            let order = model.itemOrder
+            #expect(order.rows == Self.ids(["work-1", "work-2", "work-3"]))
+            #expect(order.step(from: .workspace(WorkspaceID("work-2")), by: 1, Self.numbers) == .workspace(WorkspaceID("work-3")))
+            #expect(order.step(from: .workspace(WorkspaceID("work-2")), by: -1, Self.numbers) == .workspace(WorkspaceID("work-1")))
+        }
+    }
 }
