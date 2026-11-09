@@ -306,6 +306,21 @@ const KITTY_IMAGE_BUDGET_OWNER_LIMIT: usize = {
     if image_limit < placement_limit { image_limit as usize } else { placement_limit as usize }
 };
 
+/// Debug builds hold a terminal-host reconnect checkpoint while
+/// `CMUX_TUI_TEST_HOLD_RECONNECT_CHECKPOINT` names a FIFO: opening it waits
+/// for the test to open the other end, and the read ends when the test closes
+/// it. A held capture stands for a slow one (a long scrollback on a busy
+/// machine) without a timing race.
+#[cfg(debug_assertions)]
+fn hold_reconnect_checkpoint_for_test(origin: &str) {
+    if origin != "terminal_host_reconnect" {
+        return;
+    }
+    if let Some(path) = std::env::var_os("CMUX_TUI_TEST_HOLD_RECONNECT_CHECKPOINT") {
+        let _ = std::fs::read(path);
+    }
+}
+
 fn cell_pixel_retry_delay(attempts: u8) -> Duration {
     let multiplier = 1_u32.checked_shl(u32::from(attempts.saturating_sub(1))).unwrap_or(u32::MAX);
     CELL_PIXEL_RETRY_INITIAL.saturating_mul(multiplier).min(CELL_PIXEL_RETRY_MAX)
@@ -7104,6 +7119,8 @@ impl Mux {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<crate::workspace_registry::JournalCheckpointCommit> {
+        #[cfg(debug_assertions)]
+        hold_reconnect_checkpoint_for_test(origin);
         let mut last_error = None;
         for attempt in 0..crate::journal_checkpoint::MAX_CHECKPOINT_CAPTURE_ATTEMPTS {
             if let Some(commit) = self
