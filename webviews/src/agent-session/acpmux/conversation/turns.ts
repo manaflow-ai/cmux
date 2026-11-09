@@ -2505,7 +2505,9 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
         items,
         settled: true,
         foldRun: false,
-        version: row.version * RUN_STATES + (thinking ? 3 : 1),
+        // Whether it shows its thought is the row's own (its text and its chunks' times, not the
+        // clock), so the version it has says it: state 1 either way, never an ended fold's 3.
+        version: row.version * RUN_STATES + 1,
       },
     ];
   });

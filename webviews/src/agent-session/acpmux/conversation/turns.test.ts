@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { BACKGROUND_TURN } from "./backgroundTurns";
-import { THINKING, WORKING, turnView, turnViewFrom } from "./turns";
+import { THINKING, WORKED, WORKING, turnView, turnViewFrom } from "./turns";
 
 const user = (at: number): AcpmuxRow => ({ id: "user", version: 1, at, kind: "user", text: "resume" });
 
@@ -178,4 +178,31 @@ test("an inbox notice that lands mid-thought leaves the thought in its run", () 
       fresh.rows.map((row) => `${row.id}:${row.version}`),
     );
   }
+});
+
+// Review of #39781 (Codex, F2): a Stop that ends a streaming thought, its turn's fold held open,
+// redraws the run. The run that shows its thought and the ended turn's open fold of the same row
+// draw otherwise, so their versions differ (rows/ToolActivityRow.tsx compares versions only).
+test("a streaming thought's run and the stopped turn's open fold of it have their own versions", () => {
+  const text = "Looking for every retry loop: the fetch client, the socket reconnect";
+  const act: AcpmuxRow = {
+    id: "act",
+    version: 3,
+    at: 2_000,
+    kind: "activity",
+    items: [{ kind: "thought", text, startedAt: 2_000, endedAt: 2_400 }],
+    streaming: true,
+  };
+  const live = turnView([user(1_000), act], new Set(), { now: 3_000, working: true }).find((row) => row.id === "act");
+  expect(live?.items?.map((item) => item.text)).toEqual([text]);
+  const stopped = [
+    user(1_000),
+    act,
+    { id: "summary", version: 1, at: 3_000, kind: "turnSummary", status: "cancelled", durationMs: 2_000 } as AcpmuxRow,
+  ];
+  const options = { now: 4_000, working: false, turnStartedAtMs: 1_000 };
+  const fold = turnView(stopped, new Set(), options).find((row) => row.kind === WORKED);
+  const open = turnView(stopped, new Set(fold ? [fold.id] : []), options).find((row) => row.id === "act");
+  expect(open).toBeDefined();
+  expect(open!.version).not.toBe(live!.version);
 });
