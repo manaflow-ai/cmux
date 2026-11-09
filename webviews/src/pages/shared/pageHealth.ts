@@ -189,21 +189,27 @@ function draftField(element: Element | null): HTMLElement | null {
   return element.isContentEditable || element.getAttribute("contenteditable") === "true" ? element : null;
 }
 
-/** Puts the kept scroll and draft back once their elements exist, giving up after `RESTORE_FRAMES`;
- * then calls `done`. */
+/** Puts the kept scroll and draft back once their elements exist, giving up after `RESTORE_FRAMES`
+ * or when the page navigates (the state is the old route's); then calls `done`. */
 export function restoreState(doc: Document, state: KeptState | null, done: () => void = () => {}): void {
   const view = doc.defaultView;
   if (!view || !state || (!state.scroll && !state.draft)) return done();
   let scroll = state.scroll;
   let draft = state.draft;
   let frames = 0;
+  const href = view.location.href;
   const step = () => {
+    if (view.location.href !== href) return done();
     frames += 1;
     const last = frames >= RESTORE_FRAMES;
     if (scroll) {
       const element = find(doc, scroll.path);
-      // Wait for the content to be tall enough, unless this is the last try.
-      if (element && (last || element.scrollHeight - element.clientHeight >= scroll.top)) {
+      // Wait for the content to be tall and wide enough, unless this is the last try.
+      const fits =
+        element &&
+        element.scrollHeight - element.clientHeight >= scroll.top &&
+        element.scrollWidth - element.clientWidth >= scroll.left;
+      if (element && (last || fits)) {
         element.scrollTop = scroll.top;
         element.scrollLeft = scroll.left;
         scroll = undefined;
