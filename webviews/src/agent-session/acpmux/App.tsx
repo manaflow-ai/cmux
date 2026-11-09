@@ -653,6 +653,10 @@ import { failedRuns, failedSendText, type FailedRun } from "./sendFailure";
 import { clientWaiter, lostPrompt, resentAfterLoss } from "./lostPrompt";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
+import { readSteerLog, recordSteer, type SteerAct } from "./steerQueue/log";
+import { steerQueue } from "./steerQueue/model";
+import { SteerQueue, type SteerActions } from "./steerQueue/SteerQueue";
+import { steerQueueExperiment } from "./steerQueue/steerQueue.experiment";
 import { BtwNotes } from "./aside/btwNotes";
 import { askBtwQuestion } from "./btwCapability";
 import { HELD_EFFORT_ID, HELD_FAST_ID, HELD_FAST_ON, isFastModeOption } from "./heldOptions";
@@ -1461,6 +1465,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [newSession, setNewSession] = useState(injectedStart?.newSession === true);
   /// The chat whose recorded history plays back read-only in place of it (chat menu Replay, cx-osmw).
   const [replaying, setReplaying] = useState<string | undefined>();
+  // Steer queue (steerQueue/, an experiment): open or not, the clock its ages read, and the
+  // person's record of where they stepped in.
+  const [steering, setSteering] = useState(false);
+  const [steerNow, setSteerNow] = useState(0);
+  const [steerLog, setSteerLog] = useState<SteerAct[]>([]);
   /// The focused pane's rail visibility. The experiment still chooses compact/full when visible;
   /// this local switch is only the command-palette toggle and does not write shared experiment state.
   const [minimapVisible, setMinimapVisible] = useState(true);
@@ -9133,6 +9142,85 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       await postNative("chat.sideChat", { sessionId: await client.btw(question, sessionId) });
     },
   });
+  // Steer queue (steerQueue/): ⌘⇧J or the chat menu opens it over the chat. Each step opens the chat
+  // it acts on first, so the step goes through the same send, Stop and fork the chat's own composer
+  // and menu use, and the person sees it land in the chat under the queue.
+  const steerQueueOn = !quick && experimentArm(steerQueueExperiment) === "on";
+  useEffect(() => {
+    if (!steerQueueOn) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.repeat || !(event.metaKey && event.shiftKey && event.key.toLowerCase() === "j")) return;
+      event.preventDefault();
+      setSteering((open) => !open);
+    };
+    // ui-allow: the Steer queue's one opening key, page-wide while its experiment is on.
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [steerQueueOn]);
+  useEffect(() => {
+    if (!steering) return;
+    setSteerLog(readSteerLog());
+    setSteerNow(Date.now());
+    // Ages tick while the queue is open, and only then.
+    const timer = window.setInterval(() => setSteerNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, [steering]);
+  const steerItems = useMemo(
+    () => (steering ? steerQueue({ sessions: snapshot.sessions, now: steerNow || Date.now(), log: steerLog }) : []),
+    [steering, snapshot.sessions, steerNow, steerLog],
+  );
+  const steerActions = useMemo<SteerActions>(() => {
+    // Opens the chat and waits until it is the one drawn: Stop and Fork act on the drawn chat, which
+    // during a switch's hold is still the chat before.
+    const openChat = async (sessionId: string) => {
+      if (directClient.current?.selectedSession !== sessionId) await callNative("chat.select", { sessionId });
+      if (!(await directClient.current?.shownAndAttached(sessionId)))
+        throw new Error(translate("steerQueue.state.failed"));
+    };
+    // Settles once acpmux took the prompt, as a composer send does (sendWhenTaken).
+    const sendTo = (sessionId: string, text: string, steer: boolean) =>
+      new Promise<void>((resolve, reject) => {
+        callNative("chat.send", {
+          text,
+          attachments: [],
+          steer,
+          expectedSessionId: sessionId,
+          accepted: () => resolve(),
+        }).then(
+          () => resolve(),
+          // A prompt the folder's trust holds is taken: it goes once the folder is trusted.
+          (error: unknown) => (heldRefusal(error) ? resolve() : reject(error)),
+        );
+      });
+    return {
+      steer: async (item, text) => {
+        await openChat(item.sessionId);
+        await sendTo(item.sessionId, text, item.running);
+      },
+      // Stop, then the line as the next prompt: acpmux runs it once the stopped turn ends.
+      redirect: async (item, text) => {
+        await openChat(item.sessionId);
+        await callNative("chat.cancel");
+        await sendTo(item.sessionId, text, false);
+      },
+      stop: async (item) => {
+        await openChat(item.sessionId);
+        await callNative("chat.cancel");
+      },
+      // A fork the chat refuses (nothing to fork yet) answers nothing, and says why in its own toast.
+      fork: async (item) => {
+        await openChat(item.sessionId);
+        if ((await callNative("chat.forkTo", {})) === undefined) throw new Error(translate("steerQueue.state.failed"));
+      },
+      // The queue closes once the chat is drawn, and a line typed for it goes on in its composer,
+      // ahead of what it holds: a refused switch keeps the queue and the line.
+      open: async (item, draft) => {
+        await openChat(item.sessionId);
+        setSteering(false);
+        if (draft) composerHandle.current?.prefill(`${draft} `);
+      },
+    };
+  }, []);
   const lastForkSeq = latestForkSeq(snapshot.rows);
   const sideChat = sideChatRow(
     // Quick Chat's panel is not a tab: there is no split to open beside it (no `sidePlace`).
@@ -9238,6 +9326,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             },
           ]
         : [];
+    const steerQueueRow: ChatMenuItem[] =
+      !quick && experimentArm(steerQueueExperiment) === "on"
+        ? [
+            {
+              key: "steerQueue",
+              label: t("steerQueue.open"),
+              icon: "composer.steer",
+              onSelect: () => setSteering(true),
+            },
+          ]
+        : [];
     // The chat folder's CLAUDE.md or AGENTS.md, in a file tab beside the chat (a tab: not Quick Chat).
     const instructions = quick
       ? undefined
@@ -9265,6 +9364,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const tools: ChatMenuItem[] = [
       transcriptView ?? { ...display, icon: "site.permission.localfonts" },
       ...replay,
+      ...steerQueueRow,
       ...(instructions ? [instructions] : []),
       ...(projectFiles ? [projectFiles] : []),
       {
@@ -11455,6 +11555,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         aria-label={composerSnapshot.summary?.title || t("header.agentChat")}
         style={inTabRow ? tabRowStyle(tabRow) : undefined}
       >
+        {steering && steerQueueOn ? (
+          <SteerQueue
+            items={steerItems}
+            now={steerNow || Date.now()}
+            actions={steerActions}
+            onClose={() => setSteering(false)}
+            onAct={(item, act, text) =>
+              setSteerLog((log) =>
+                recordSteer(log, { sessionId: item.sessionId, act, ...(text ? { text } : {}), at: Date.now() }),
+              )
+            }
+          />
+        ) : null}
         <div
           className="acpmux-main"
           data-stuck={stuckDiagnosis ? "" : undefined}
