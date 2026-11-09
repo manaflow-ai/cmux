@@ -1,6 +1,6 @@
 // The page's half of app health (pages/shared/pageHealth.ts): it beats at once and while visible,
-// never while hidden; it counts handled keys and presses; an app without the op stops the beats; it
-// keeps a focused textarea's draft for the reload and puts it back; it leaves an editor that keeps
+// never while hidden; it counts handled keys and presses; an app without the op stops the beats but
+// not the save on hide; it keeps a focused textarea's draft for the reload, per route, and puts it back; it leaves an editor that keeps
 // its own draft alone; and the hang injection exists only when the host allowed it.
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -100,6 +100,29 @@ test("the host's save keeps a focused draft, and the next load puts it back", ()
   second.dom.window.close();
 });
 
+test("an edit to a prefilled field comes back over the text the page loaded", () => {
+  const html = `<textarea id="note" data-cmux-restore-draft>from the server</textarea>`;
+  const first = page(html);
+  const field = first.dom.window.document.querySelector("textarea")!;
+  field.value = "from the server, edited";
+  field.focus();
+  const kept = captureState(first.dom.window.document);
+  expect(kept.draft).toMatchObject({ text: "from the server, edited", base: "from the server" });
+  first.dom.window.close();
+
+  const second = page(html);
+  restoreState(second.dom.window.document, kept);
+  expect(second.dom.window.document.querySelector("textarea")!.value).toBe("from the server, edited");
+  second.dom.window.close();
+
+  // Text the person typed since the load is theirs: the kept edit never replaces it.
+  const third = page(html);
+  third.dom.window.document.querySelector("textarea")!.value = "typed after the reload";
+  restoreState(third.dom.window.document, kept);
+  expect(third.dom.window.document.querySelector("textarea")!.value).toBe("typed after the reload");
+  third.dom.window.close();
+});
+
 test("a field that did not opt in is never captured or restored (a document editor saves what it is given)", () => {
   const first = page(`<textarea id="source"></textarea>`);
   const field = first.dom.window.document.querySelector("textarea")!;
@@ -123,6 +146,93 @@ test("an editor that keeps its own draft is left alone", () => {
   const { dom } = page(`<div data-cmux-restore-draft><div class="ProseMirror">${editor}</div></div>`);
   (dom.window.document.getElementById("composer") as HTMLElement).focus();
   expect(captureState(dom.window.document).draft).toBeUndefined();
+  dom.window.close();
+});
+
+test("a route change at the same place still saves under the new route", () => {
+  const { dom, handlers, client } = page(`<textarea id="note" data-cmux-restore-draft></textarea>`);
+  installPageHealth(client, dom.window.document);
+  const field = dom.window.document.querySelector("textarea")!;
+  field.value = "half a thought";
+  field.focus();
+  handlers.get(PAGE_SAVE_STATE_OP)?.({});
+  dom.window.location.hash = "#/other";
+  handlers.get(PAGE_SAVE_STATE_OP)?.({});
+  const kept = dom.window.sessionStorage.getItem("cmux.page.kept:https://cmux.settings/#/other");
+  expect(JSON.parse(kept!).draft).toMatchObject({ text: "half a thought" });
+  dom.window.close();
+});
+
+test("a page hidden on an app without the beat op still saves its place", async () => {
+  const { dom, calls, client, setVisible, refuse } = page(`<textarea id="note" data-cmux-restore-draft></textarea>`);
+  refuse();
+  installPageHealth(client, dom.window.document);
+  await Promise.resolve();
+  await Promise.resolve();
+  const field = dom.window.document.querySelector("textarea")!;
+  field.value = "half a thought";
+  field.focus();
+  setVisible(false);
+  const kept = dom.window.sessionStorage.getItem("cmux.page.kept:https://cmux.settings/#/general");
+  expect(JSON.parse(kept!).draft).toMatchObject({ text: "half a thought" });
+  setVisible(true);
+  expect(beats(calls)).toHaveLength(1);
+  dom.window.close();
+});
+
+/** A scroller whose content size the test sets, recording what restore writes. */
+function scroller(dom: JSDOM, id: string) {
+  const element = dom.window.document.getElementById(id)!;
+  const size = { height: 0, width: 0 };
+  const wrote: { top?: number; left?: number } = {};
+  Object.defineProperty(element, "scrollHeight", { get: () => size.height });
+  Object.defineProperty(element, "scrollWidth", { get: () => size.width });
+  Object.defineProperty(element, "scrollTop", { set: (top: number) => (wrote.top = top), get: () => 0 });
+  Object.defineProperty(element, "scrollLeft", { set: (left: number) => (wrote.left = left), get: () => 0 });
+  return { size, wrote };
+}
+/** Animation frames the test runs by hand. */
+function frames(dom: JSDOM) {
+  const queued: FrameRequestCallback[] = [];
+  dom.window.requestAnimationFrame = (callback: FrameRequestCallback) => queued.push(callback);
+  return () => queued.splice(0).forEach((callback) => callback(0));
+}
+
+test("a kept horizontal place waits for content wide enough to hold it", () => {
+  const { dom } = page(`<div id="list"></div>`);
+  const list = scroller(dom, "list");
+  const frame = frames(dom);
+  restoreState(dom.window.document, { scroll: { path: `[id="list"]`, top: 0, left: 200 } });
+  expect(list.wrote.left).toBeUndefined();
+  list.size.width = 400;
+  frame();
+  expect(list.wrote.left).toBe(200);
+  dom.window.close();
+});
+
+test("a navigation during the restore drops the old route's place", () => {
+  const { dom } = page(`<div id="list"></div>`);
+  const list = scroller(dom, "list");
+  const frame = frames(dom);
+  let done = false;
+  restoreState(dom.window.document, { scroll: { path: `[id="list"]`, top: 300, left: 0 } }, () => (done = true));
+  dom.window.location.hash = "#/other";
+  list.size.height = 1_000;
+  frame();
+  expect(list.wrote.top).toBeUndefined();
+  expect(done).toBe(true);
+  dom.window.close();
+});
+
+test("a person who scrolls during the restore keeps their own place", () => {
+  const { dom } = page(`<div id="list"></div>`);
+  const list = scroller(dom, "list");
+  const frame = frames(dom);
+  restoreState(dom.window.document, { scroll: { path: `[id="list"]`, top: 300, left: 0 } });
+  dom.window.document.dispatchEvent(new dom.window.Event("wheel"));
+  list.size.height = 1_000;
+  frame();
+  expect(list.wrote.top).toBeUndefined();
   dom.window.close();
 });
 
