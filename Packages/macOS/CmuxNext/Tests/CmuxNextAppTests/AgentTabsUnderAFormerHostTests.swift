@@ -5,8 +5,8 @@ import CmuxNextActions
 import Foundation
 import Testing
 
-/// Leo, 2026-11-09, on his own Mac (a tagged DEV build): "This chat belongs to another machine, so it
-/// does not run here." #36015 attached a tab this Mac's tree saved under a former install id
+/// Leo, 2026-11-05, on his own Mac's chat (a tagged DEV build): "why does it even say this "does nto run
+/// here"??" #36015 attached a tab this Mac's tree saved under a former install id
 /// (`install:<backend id>`, #35284) to this Mac's acpmux, but every other check compared the record's
 /// host with this Mac's exactly: the sidebar's session tree put the chat in its remote bucket, the
 /// duplicate-tab lookup missed it, and the open refused it. This Mac's own daemon's tree reads such a
