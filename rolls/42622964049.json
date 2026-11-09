@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42622964049",
+  "recorded_at": "2026-11-09T13:17:53Z",
+  "reason": "cmux-tui 1a02d48b6f72 changes the image's cmux-tui (pinned 66925fbb41c0)",
+  "dry_run": false,
+  "cmux_tui": "1a02d48b6f72dc5ebcc543660859ac5cd6211e20",
+  "fixes": [
+    {
+      "sha": "1a02d48b6f72dc5ebcc543660859ac5cd6211e20",
+      "mergedAt": "2026-11-09T04:42:21-08:00",
+      "subject": "Background tasks: an agent's \"hold\" timer says what it waits for (#39497)"
+    },
+    {
+      "sha": "6df651be29c9d0e55485b7cb16b7c33ba445fb03",
+      "mergedAt": "2026-11-09T04:42:17-08:00",
+      "subject": "Cloud spare: the reserve's or the claim's machine starts its login copy, keyed per machine (off by default) (#39382)"
+    },
+    {
+      "sha": "0eca7b7322b8c3d7f5263ca2df53681e67df9745",
+      "mergedAt": "2026-11-09T12:25:35Z",
+      "subject": "chore(next): base autofix at 13a43997e74a"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T13:17:53Z",
+    "snapshot_id": "sh-0c775711fce34d46af8483355252f57f",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42622964049): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ec03da90ee40a636de7b997b3a770b1c578c4c23",
+    "image": "cloud-native-auto-1a02d48b-42622964049-1",
+    "revision": "ci-42622964049-1",
+    "at": "2026-11-09T13:17:53Z"
+  },
+  "rolled_back": false
+}
