@@ -13,11 +13,29 @@ public struct GitRepositoryActions {
     public struct Place {
         public var link: AgentPaneGitLink
         public var cwd: String
+        /// The tab whose folder `cwd` is, and its machine: what ``pinned(_:at:)`` aims a run at.
+        public var tab: ActionTargetRef?
+        public var machineID: String?
 
-        public init(link: AgentPaneGitLink, cwd: String) {
+        public init(link: AgentPaneGitLink, cwd: String, tab: ActionTargetRef? = nil, machineID: String? = nil) {
             self.link = link
             self.cwd = cwd
+            self.tab = tab
+            self.machineID = machineID
         }
+    }
+
+    /// `invocation` aimed at `place`'s tab, machine and folder, for a run that asks first (Remove
+    /// Git Worktree): the confirmed run removes the worktree its question was about, not the one a
+    /// tab selected or a `cd` while the question is up names. Nil when `place` names no tab.
+    public static func pinned(_ invocation: ActionInvocation, at place: Place?) -> ActionInvocation? {
+        guard let place, let tab = place.tab else { return nil }
+        var pinned = invocation.onMachine(place.machineID)
+        pinned.target = tab
+        pinned.arguments[pinnedPathName] = .string(place.cwd)
+        // The confirmed run answers the question's click, not the first press.
+        pinned.inputTimestamp = nil
+        return pinned
     }
 
     /// One action's request: the session host operation and its fields beyond `path`.
@@ -52,7 +70,12 @@ public struct GitRepositoryActions {
         }
     }
 
-    static let actionIDs: [ActionID] = ["git.worktree.create", "git.worktree.apply", "git.worktree.remove", "git.checkpoint.create"]
+    /// The argument a confirmed run carries naming the folder its question was about
+    /// (``pinned(_:at:)``). It only narrows a run: one whose tab is now in
+    /// another folder is refused, and the folder git runs in is still the tab's own.
+    public static let pinnedPathName = "pinnedPath"
+
+    static let actionIDs: [ActionID] =["git.worktree.create", "git.worktree.apply", "git.worktree.remove", "git.checkpoint.create"]
 
     private let place: @MainActor (ActionInvocation) -> Place?
     private let announce: @MainActor (String) -> Void
@@ -71,6 +94,10 @@ public struct GitRepositoryActions {
             registry.bindEffect(id, effect: { invocation in
                 guard let request = Request.make(id, arguments: invocation.arguments) else { return .done }
                 guard let found = place(invocation), found.cwd.hasPrefix("/") else { return .refused(GitRepositoryStrings.noFolder) }
+                // A run that asked first carries the folder it asked about; the tab has moved on since.
+                if let pinned = invocation[Self.pinnedPathName]?.stringValue, pinned != found.cwd {
+                    return .refused(GitRepositoryStrings.folderChanged)
+                }
                 guard found.link.isLocal || !request.localOnly else { return .refused(GitRepositoryStrings.thisMacOnly) }
                 var params = request.params
                 params["path"] = .string(found.cwd)
@@ -111,6 +138,10 @@ extension GitRepositoryActions {
 nonisolated enum GitRepositoryStrings {
     static var noFolder: String {
         text("git.noFolder", "This tab has no folder on this machine. Focus a terminal in the repository, then try again.")
+    }
+
+    static var folderChanged: String {
+        text("git.folderChanged", "This tab moved to another folder while you were asked. Nothing was removed; run it again from the worktree.")
     }
 
     static var thisMacOnly: String {

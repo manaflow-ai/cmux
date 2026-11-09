@@ -47,9 +47,10 @@ enum DestructiveConfirmation {
                 services.registry.perform(id, invocation: run)
                 return
             }
+            let pinned = id == "git.worktree.remove" ? GitRepositoryActions.pinned(invocation, at: AgentHandlers.gitPlace(AppActionContext(services: services), invocation)) : nil // its question's tab and folder
             Task { @MainActor in
-                guard let prompt = await prompt(for: id, invocation, services) else { return proceed(false) }
-                present(prompt, in: services.windows.active?.window, settings: services.settings) { if $0 { proceed(true) } }
+                guard let prompt = await prompt(for: id, pinned ?? invocation, services) else { return proceed(false) }
+                present(prompt, in: services.windows.active?.window, settings: services.settings) { if $0 { if let pinned { services.registry.perform(id, invocation: pinned.confirmed()) } else { proceed(true) } } }
             }
         }
     }
@@ -68,8 +69,7 @@ enum DestructiveConfirmation {
         case "cloudFirewallDelete":
             return Prompt(title: CloudStrings.deleteFirewallRuleTitle, body: CloudStrings.deleteFirewallRuleBody,
                           button: CloudStrings.deleteFirewallRule)
-        case "git.worktree.remove":
-            return Prompt(title: GitRepositoryActions.removeTitle, body: GitRepositoryActions.removeBody(discard: invocation["discard"]?.boolValue == true), button: GitRepositoryActions.removeButton, returnConfirms: false)
+        case "git.worktree.remove": return Prompt(title: GitRepositoryActions.removeTitle, body: GitRepositoryActions.removeBody(discard: invocation["discard"]?.boolValue == true), button: GitRepositoryActions.removeButton, returnConfirms: false)
         default:
             return await question(for: id, invocation, context, warn: warn)
         }

@@ -70,6 +70,28 @@ struct GitAndHarnessPaletteActionsTests {
         #expect(reason == ActionRegistry.confirmationRequiredReason(for: "git.worktree.remove"))
     }
 
+    /// Review (codex) F1: the confirmed run re-read the selected tab's folder, so a tab switch or a
+    /// `cd` while the question was up removed a different worktree. The question pins the folder it
+    /// asked about; a confirmed run whose tab is now elsewhere is refused before anything is sent.
+    @Test func aConfirmedRemoveRefusesWhenItsTabLeftTheFolderItAskedAbout() {
+        let registry = ActionRegistry()
+        let link = AgentPaneGitLink(daemon: DaemonService())
+        GitRepositoryActions(place: { _ in GitRepositoryActions.Place(link: link, cwd: "/repo/worktree-b") }, announce: { _ in }).bind(into: registry)
+        let invocation = ActionInvocation(arguments: [GitRepositoryActions.pinnedPathName: .string("/repo/worktree-a")]).confirmed()
+        let reason = registry.capturingRefusal { _ = registry.perform("git.worktree.remove", invocation: invocation) }
+        #expect(reason == GitRepositoryStrings.folderChanged)
+
+        // The pin names the tab and machine too, so the confirmed run resolves that tab, not the selected one.
+        let tab = ActionTargetRef(kind: .tab, id: "tab-a")
+        let place = GitRepositoryActions.Place(link: link, cwd: "/repo/worktree-a", tab: tab, machineID: "local")
+        let pinned = GitRepositoryActions.pinned(ActionInvocation(arguments: ["discard": .bool(true)]), at: place)
+        #expect(pinned?.target == tab)
+        #expect(pinned?.targetMachineID == "local")
+        #expect(pinned?[GitRepositoryActions.pinnedPathName]?.stringValue == "/repo/worktree-a")
+        #expect(pinned?["discard"]?.boolValue == true, "the question's own arguments stay")
+        #expect(GitRepositoryActions.pinned(ActionInvocation(), at: nil) == nil, "no tab folder: no pin, the run refuses as before")
+    }
+
     @Test func removeDiscardsOnlyWhenAsked() {
         #expect(GitRepositoryActions.Request.make("git.worktree.remove", arguments: [:])?.params.isEmpty == true)
         #expect(GitRepositoryActions.Request.make("git.worktree.remove", arguments: ["discard": .bool(true)])?.params == ["discard": .bool(true)])

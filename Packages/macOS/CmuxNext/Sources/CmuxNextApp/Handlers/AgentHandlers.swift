@@ -276,9 +276,9 @@ enum AgentHandlers {
     }
 
     /// The invocation's tab folder and its machine's git link (GitRepositoryActions).
-    private static func gitPlace(_ context: AppActionContext, _ invocation: ActionInvocation) -> GitRepositoryActions.Place? {
+    static func gitPlace(_ context: AppActionContext, _ invocation: ActionInvocation) -> GitRepositoryActions.Place? {
         guard let tab = context.scope(invocation).tab, let cwd = tab.pane.tab(tab.id)?.cwd else { return nil }
-        return GitRepositoryActions.Place(link: context.services.agentGit.link(for: tab.pane.daemon), cwd: cwd)
+        return GitRepositoryActions.Place(link: context.services.agentGit.link(for: tab.pane.daemon), cwd: cwd, tab: ActionTargetRef(kind: .tab, id: tab.id.rawValue), machineID: tab.pane.daemon.machineID)
     }
 
     private static let agentPaneZoomPath = AgentPaneZoomSetting.configPath

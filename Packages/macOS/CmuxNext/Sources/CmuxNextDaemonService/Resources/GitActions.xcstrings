@@ -265,6 +265,138 @@
         }
       }
     },
+    "git.folderChanged": {
+      "comment": "Palette git worktree and checkpoint results and refusals; keep paths and commands exactly",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "انتقلت علامة التبويب هذه إلى مجلد آخر أثناء سؤالك. لم تتم إزالة أي شيء؛ شغّله مرة أخرى من شجرة العمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova kartica je prešla u drugu mapu dok ste bili pitani. Ništa nije uklonjeno; pokrenite ponovo iz radnog stabla."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne fane skiftede til en anden mappe, mens du blev spurgt. Intet blev fjernet; kør det igen fra worktree'en."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Tab ist in einen anderen Ordner gewechselt, während du gefragt wurdest. Es wurde nichts entfernt; führe es erneut im Worktree aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This tab moved to another folder while you were asked. Nothing was removed; run it again from the worktree."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta pestaña cambió a otra carpeta mientras se te preguntaba. No se eliminó nada; vuelve a ejecutarlo desde el worktree."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet onglet est passé dans un autre dossier pendant la question. Rien n’a été supprimé ; relancez depuis le worktree."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa scheda è passata a un’altra cartella mentre ti veniva chiesto. Non è stato rimosso nulla; eseguilo di nuovo dal worktree."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "確認中にこのタブが別のフォルダに移動しました。何も削除されていません。worktree からもう一度実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងនេះបានផ្លាស់ទៅថតផ្សេងខណៈពេលដែលអ្នកត្រូវបានសួរ។ គ្មានអ្វីត្រូវបានលុបទេ; សូមដំណើរការម្តងទៀតពី worktree។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "확인하는 동안 이 탭이 다른 폴더로 이동했습니다. 아무것도 제거되지 않았습니다. worktree에서 다시 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne fanen byttet til en annen mappe mens du ble spurt. Ingenting ble fjernet; kjør det igjen fra worktreeen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta karta przeszła do innego folderu, gdy pojawiło się pytanie. Nic nie zostało usunięte; uruchom ponownie z worktree."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta aba mudou para outra pasta enquanto você era perguntado. Nada foi removido; execute de novo a partir do worktree."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пока вы отвечали, эта вкладка перешла в другую папку. Ничего не удалено; запустите снова из рабочего дерева."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บนี้ย้ายไปยังโฟลเดอร์อื่นระหว่างที่ระบบถามคุณ ไม่มีสิ่งใดถูกลบ เรียกใช้อีกครั้งจาก worktree"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Size sorulurken bu sekme başka bir klasöre geçti. Hiçbir şey kaldırılmadı; worktree içinden yeniden çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поки вас питали, ця вкладка перейшла до іншої папки. Нічого не видалено; запустіть знову з робочого дерева."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thẻ này đã chuyển sang thư mục khác trong lúc bạn được hỏi. Không có gì bị xóa; hãy chạy lại từ worktree."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在询问期间此标签页切换到了另一个文件夹。未删除任何内容；请在该 worktree 中重新运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在詢問期間此分頁切換到了另一個資料夾。未移除任何內容；請在該 worktree 中重新執行。"
+          }
+        }
+      }
+    },
     "git.worktreeCreated": {
       "comment": "Palette git worktree and checkpoint results and refusals; keep paths and commands exactly",
       "extractionState": "manual",
