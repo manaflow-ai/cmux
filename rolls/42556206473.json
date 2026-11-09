@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42556206473",
+  "recorded_at": "2026-11-09T03:33:02Z",
+  "reason": "cmux-tui eb37e1673480 changes the image's cmux-tui (pinned 41847d8bace0)",
+  "dry_run": false,
+  "cmux_tui": "eb37e1673480e3a8d3aa0e02a0a0567ebd1d16d5",
+  "fixes": [
+    {
+      "sha": "91807436423a7b3cb0c61c6cceed36aeddcc3f5a",
+      "mergedAt": "2026-11-08T19:05:38-08:00",
+      "subject": "cmux mcp: cmux_exec always loads in Claude Code (no tool-search round trip) (#39119)"
+    },
+    {
+      "sha": "1c4358b2926907749391791255598be69d798293",
+      "mergedAt": "2026-11-08T19:05:22-08:00",
+      "subject": "acpmux: Claude chats get the cmux chat rules, not only a pointer to cmux:cmux-chat (#39115)"
+    },
+    {
+      "sha": "46fd10a8da5b8f1b92d9e34b7e6f5e38438fc458",
+      "mergedAt": "2026-11-08T19:05:10-08:00",
+      "subject": "cmux agent skills: shorter descriptions for the skill listing (#39113)"
+    },
+    {
+      "sha": "86e569ad2e127208d5d115d025081af5f023cf39",
+      "mergedAt": "2026-11-08T19:04:54-08:00",
+      "subject": "cmux-tui carrier tests: the stand-in session daemons take the role stamp (#39107)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T03:33:02Z",
+    "snapshot_id": "sh-f8119f0cf1d34c4aa458b83b58e55074",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42556206473): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4d3f0bef1be5e81cb3bf86289cd51f3814379c3e",
+    "image": "cloud-native-auto-eb37e167-42556206473-1",
+    "revision": "ci-42556206473-1",
+    "at": "2026-11-09T03:33:02Z"
+  },
+  "rolled_back": false
+}
