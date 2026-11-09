@@ -676,3 +676,155 @@ fn shares_lists_local_and_cloud_shares_marked_by_where_they_live() {
     assert_eq!(offline["shares"].as_array().unwrap().len(), 1);
     assert_eq!(offline["cloud_error"], "offline");
 }
+
+/// Where `TEAMMATE`'s next tailnet connection lands: `None` refused, `Some(true)` the filtered
+/// agent proxy, `Some(false)` the raw daemon.
+fn next_connection(config: &config::Config) -> Option<bool> {
+    let identity = crate::remote_host::tailnet::Identity {
+        login: Some(TEAMMATE.to_owned()),
+        node: "teammate-laptop".to_owned(),
+        tags: vec![],
+        shared: false,
+    };
+    let peer: std::net::IpAddr = "100.80.2.2".parse().unwrap();
+    let self_ip: std::net::IpAddr = "100.70.1.1".parse().unwrap();
+    match crate::remote_host::admit::decide(config, &[self_ip], peer, Ok(identity)) {
+        crate::remote_host::admit::Decision::Guest(_, scopes) => {
+            Some(crate::remote_host::serve::proxied(config, Some(TEAMMATE), Some(&scopes)))
+        }
+        crate::remote_host::admit::Decision::Refused(_) => None,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_teammate_with_agents_and_shell_never_reaches_the_raw_daemon_after_the_move() {
+    let api = Platform::default();
+    let config = config::Config {
+        grants: vec![grant(false, true, &[Scope::Agents, Scope::Shell])],
+        ..with_shares(vec![local(ANA, "s-1")])
+    };
+    assert_eq!(next_connection(&config), Some(true), "the local share keeps them proxied");
+    let outcome = moved(config, &api);
+    assert_eq!(outcome.moved.len(), 1);
+    assert!(outcome.config.shares.is_empty());
+    assert_eq!(next_connection(&outcome.config), None, "the grant ends with its last share");
+    assert!(outcome.config.grants.iter().all(|g| g.revoked_at.is_some()));
+}
+
+#[test]
+fn a_grant_with_a_share_left_here_stays_and_stays_proxied() {
+    let api = Platform::default();
+    let guest = Share { role: Role::Guest, ..local(ANA, "s-2") };
+    let config = config::Config {
+        grants: vec![grant(false, true, &[Scope::Agents, Scope::Shell])],
+        ..with_shares(vec![local(ANA, "s-1"), guest])
+    };
+    let outcome = moved(config, &api);
+    assert_eq!(outcome.moved.len(), 1);
+    assert_eq!(outcome.config.shares.len(), 1, "the guest share stays here");
+    assert!(outcome.config.grants.iter().all(|g| g.revoked_at.is_none()));
+    assert_eq!(next_connection(&outcome.config), Some(true));
+}
+
+/// The stand-in platform, with `after` run once right after the first create or revoke: a writer
+/// on another host whose change lands between this run's write and its read-back.
+struct Interleaved<'a> {
+    platform: &'a Platform,
+    after: RefCell<Option<Box<dyn FnOnce(&Platform) + 'a>>>,
+    passes: RefCell<u32>,
+}
+
+impl Interleaved<'_> {
+    fn landed(&self) {
+        *self.passes.borrow_mut() += 1;
+        if let Some(after) = self.after.borrow_mut().take() {
+            after(self.platform);
+        }
+    }
+}
+
+impl Api for Interleaved<'_> {
+    fn list(&self, machine: &str) -> Result<Vec<PlatformShare>, Failure> {
+        self.platform.list(machine)
+    }
+    fn create(&self, m: &str, p: &str, s: &Sessions) -> Result<PlatformShare, Failure> {
+        let share = self.platform.create(m, p, s)?;
+        self.landed();
+        Ok(share)
+    }
+    fn revoke(&self, m: &str, share: &str) -> Result<PlatformShare, Failure> {
+        let share = self.platform.revoke(m, share)?;
+        self.landed();
+        Ok(share)
+    }
+    fn members(&self) -> Result<Vec<Member>, Failure> {
+        self.platform.members()
+    }
+}
+
+fn sessions(ids: &[&str]) -> Sessions {
+    Sessions::new(ids.iter().map(|s| (*s).to_owned())).unwrap()
+}
+
+#[test]
+fn a_write_from_another_host_after_this_one_takes_another_pass() {
+    let platform = Platform::default();
+    platform.live(ANA, &["a", "b", "c"]);
+    // Right after this run writes [b, c], another host writes [a, b, c, d].
+    let api = Interleaved {
+        platform: &platform,
+        after: RefCell::new(Some(Box::new(|p: &Platform| {
+            p.create(VM, ANA, &sessions(&["a", "b", "c", "d"])).unwrap();
+        }))),
+        passes: RefCell::new(0),
+    };
+    let answer = unshare_while_on(&api, &["a", ANA]);
+    answer.unwrap();
+    assert_eq!(platform.live_sessions(ANA).unwrap(), ["b", "c", "d"]);
+    assert_eq!(*api.passes.borrow(), 2, "the read-back saw a share it did not write");
+}
+
+#[test]
+fn a_share_that_never_settles_is_reported_not_claimed() {
+    let platform = Platform::default();
+    platform.live(ANA, &["a", "b"]);
+    // Every write is followed by another host sharing `a` again.
+    struct Stubborn<'a>(&'a Platform);
+    impl Api for Stubborn<'_> {
+        fn list(&self, machine: &str) -> Result<Vec<PlatformShare>, Failure> {
+            self.0.list(machine)
+        }
+        fn create(&self, m: &str, p: &str, s: &Sessions) -> Result<PlatformShare, Failure> {
+            let share = self.0.create(m, p, s)?;
+            self.0.create(m, p, &sessions(&["a", "b"]))?;
+            Ok(share)
+        }
+        fn revoke(&self, m: &str, share: &str) -> Result<PlatformShare, Failure> {
+            self.0.revoke(m, share)
+        }
+        fn members(&self) -> Result<Vec<Member>, Failure> {
+            self.0.members()
+        }
+    }
+    let error = unshare_while_on(&Stubborn(&platform), &["a", ANA]).unwrap_err();
+    let text = &crate::localization::catalog().host_share;
+    assert!(error.to_string().contains(text.narrow_raced), "{error}");
+}
+
+fn unshare_while_on(api: &dyn Api, args: &[&str]) -> anyhow::Result<Value> {
+    let mut confirm = |_: &str| -> anyhow::Result<()> { Ok(()) };
+    let none = |_: u64| -> anyhow::Result<String> { anyhow::bail!("no") };
+    let same = |k: &str| -> anyhow::Result<String> { Ok(k.to_owned()) };
+    let listed: fn() -> Vec<(String, String)> = Vec::new;
+    let mut audit = |_: Value| {};
+    let mut hooks = Hooks {
+        confirm: &mut confirm,
+        surface_session: &none,
+        resolve_session: &same,
+        local_sessions: &listed,
+        audit: &mut audit,
+        lock: &no_lock,
+    };
+    act("unshare", &words(args), false, None, &elsewhere(), api, &mut hooks)
+}

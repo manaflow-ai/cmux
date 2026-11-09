@@ -95,7 +95,7 @@ pub(crate) const ENGLISH: Messages = Messages {
     sign_in_refused: "the cmux platform did not accept your sign-in",
     moved: "moved local shares to cmux Cloud",
     kept: "kept local shares that could not move (see not_moved)",
-    narrow_raced: "another change shared a removed chat again while this unshare ran; run cmux host shares and unshare again",
+    narrow_raced: "the share kept changing while this unshare ran; run cmux host shares and unshare again",
 };
 pub(crate) const JAPANESE: Messages = Messages {
     no_arguments: "位置引数は指定できません",
@@ -143,5 +143,5 @@ pub(crate) const JAPANESE: Messages = Messages {
     sign_in_refused: "cmux プラットフォームがサインインを受け付けませんでした",
     moved: "ローカルの共有を cmux Cloud に移しました",
     kept: "移せなかったローカルの共有は残しました (not_moved を参照)",
-    narrow_raced: "この共有解除の実行中に、別の変更が削除したチャットを再び共有しました。cmux host shares で確認してから、もう一度共有を解除してください",
+    narrow_raced: "この共有解除の実行中に共有が何度も変更されました。cmux host shares で確認してから、もう一度共有を解除してください",
 };

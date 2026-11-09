@@ -291,6 +291,9 @@ pub(crate) struct MoveOutcome {
 /// - `no verified identity`: the share carries no `user_` id (`Share::person`). A tailnet login is
 ///   never matched to a teammate by display name.
 ///
+/// A login whose last local share moved also loses its teammate grant here (revoked), so a grant
+/// with `shell` never outlives the share that kept it on the filtered proxy.
+///
 /// A list that fails changes nothing.
 pub(crate) fn move_local(
     mut config: config::Config,
@@ -353,6 +356,21 @@ pub(crate) fn move_local(
         !(s.role == shares::Role::Member
             && confirmed.iter().any(|(login, session)| *login == s.login && *session == s.session))
     });
+    // A local share is what kept its login on the filtered agent proxy (`serve::proxied`): a
+    // grant with `shell` whose last local share moved would otherwise reach the raw daemon. The
+    // grant ends with the last share it was used for; the shared chats are reached through the
+    // platform's grant from now on.
+    let now = super::grant::now_rfc3339();
+    for (login, _) in &confirmed {
+        if config.shares.iter().any(|s| config::same_login(&s.login, login)) {
+            continue;
+        }
+        for grant in config.grants.iter_mut() {
+            if config::same_login(&grant.login, login) && grant.revoked_at.is_none() {
+                grant.revoked_at = Some(now.clone());
+            }
+        }
+    }
     config.moved_shares.extend(outcome.moved.iter().cloned());
     outcome.config = config;
     Ok(outcome)
@@ -504,9 +522,14 @@ pub(crate) fn act(
 }
 
 /// Takes `remove` (every chat for `None`) out of `person`'s live share, holding their lock: each
-/// pass reads the share as it is, writes the narrowed one (or revokes it), and reads it back. A
-/// removed chat that is shared again after the write (a writer on another host) takes another
-/// pass, up to [`MAX_WRITES`]; a list computed before the lock is never written.
+/// pass reads the share as it is, writes the narrowed one (or revokes it), and reads it back. The
+/// read-back must find exactly what was written (the same share id with the same chats, or no
+/// live share after a revoke); anything else is another writer, and takes another pass from what
+/// is live, up to [`MAX_WRITES`]. A list computed before the lock is never written.
+///
+/// What this cannot see: a writer on another host that read the share before this write and
+/// writes after this read-back. The platform has no compare-and-swap on a person's share yet, so
+/// that writer's older list wins; the lock only serializes runs on this machine.
 fn narrow(
     api: &dyn Api,
     machine: &str,
@@ -517,20 +540,24 @@ fn narrow(
     let text = &crate::localization::catalog().host_share;
     let failed = |f: Failure| anyhow!("{}", explain(&f));
     let mut answer = None;
+    let mut written: Option<Written> = None;
     for _ in 0..MAX_WRITES {
         let live = api.list(machine).map_err(failed)?;
-        let Some(existing) = live_for(&live, person) else {
+        let existing = live_for(&live, person);
+        if let (Some(answer), Some(written)) = (&answer, &written)
+            && written.is_live(existing)
+        {
+            return Ok(answer.clone());
+        }
+        let Some(existing) = existing else {
             // Nothing (left) to take back.
             return Ok(answer.unwrap_or_else(|| json!({"machine": machine, "unchanged": true})));
         };
-        if answer.is_some() && !still_shares(existing, remove) {
-            break;
-        }
         let next = match remove {
             None => Narrowed::Revoke,
             Some(remove) => narrowed(existing, remove)?,
         };
-        answer = Some(match next {
+        match next {
             Narrowed::Unchanged => {
                 return Ok(answer.unwrap_or_else(
                     || json!({"machine": machine, "share": existing, "unchanged": true}),
@@ -540,29 +567,47 @@ fn narrow(
                 let share = api.revoke(machine, &existing.id).map_err(failed)?;
                 (hooks.audit)(json!({"decision": "unshare", "machine": machine,
                     "person": person, "share": existing.id}));
-                json!({"machine": machine, "revoked": share})
+                written = Some(Written::Revoked);
+                answer = Some(json!({"machine": machine, "revoked": share}));
             }
             Narrowed::Keep(sessions) => {
                 let share = api.create(machine, person, &sessions).map_err(failed)?;
                 (hooks.audit)(json!({"decision": "unshare", "machine": machine,
                     "person": person, "sessions": sessions.ids(), "share": share.id}));
-                json!({"machine": machine, "share": share})
+                written = Some(Written::Share(share.id.clone(), sessions));
+                answer = Some(json!({"machine": machine, "share": share}));
             }
-        });
+        }
     }
     let live = api.list(machine).map_err(failed)?;
-    match (answer, live_for(&live, person)) {
-        (Some(answer), None) => Ok(answer),
-        (Some(answer), Some(share)) if !still_shares(share, remove) => Ok(answer),
+    match (answer, written) {
+        (Some(answer), Some(written)) if written.is_live(live_for(&live, person)) => Ok(answer),
         _ => bail!("{}: {person}", text.narrow_raced),
     }
 }
 
-/// Whether `share` still reaches a chat `remove` took out (any chat, for `None`).
-fn still_shares(share: &PlatformShare, remove: Option<&Sessions>) -> bool {
-    match (remove, &share.sessions) {
-        (None, _) | (_, None) => true,
-        (Some(remove), Some(ids)) => ids.iter().any(|id| remove.ids().contains(id)),
+/// What a [`narrow`] pass wrote, to check the read-back against.
+enum Written {
+    Revoked,
+    Share(String, Sessions),
+}
+
+impl Written {
+    /// Whether `live` (the person's live share, if any) is exactly this write.
+    fn is_live(&self, live: Option<&PlatformShare>) -> bool {
+        match (self, live) {
+            (Self::Revoked, None) => true,
+            (Self::Share(id, sessions), Some(live)) => {
+                let mut want: Vec<&String> = sessions.ids().iter().collect();
+                let mut have: Vec<&String> = live.sessions.iter().flatten().collect();
+                want.sort();
+                want.dedup();
+                have.sort();
+                have.dedup();
+                live.id == *id && live.sessions.is_some() && want == have
+            }
+            _ => false,
+        }
     }
 }
 
