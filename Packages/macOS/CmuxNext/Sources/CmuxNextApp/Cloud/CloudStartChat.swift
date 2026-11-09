@@ -131,8 +131,7 @@ struct CloudStartChat {
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
         // The account may have changed while the machine connected: copy nothing then.
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
-        // The chat's harness login (DEV and dogfood builds, +Login): it runs alongside the copy and is
-        // awaited before the chat opens, so its first prompt starts signed in. It never fails the start.
+        // The chat's harness login (DEV and dogfood builds, +Login) and remote approvals run beside the copy, awaited before the chat opens.
         let size = AgentPaneCloudStart.sizeText(machine.machine.size)
         let copy: (CloudMoveCLI.Answer, (chat: String, folder: String, copied: Bool, sourceTrusted: Bool)) = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account } }) {
             async let loginPassed = passHarnessLogin(harness: start.harness, machine: machine)
