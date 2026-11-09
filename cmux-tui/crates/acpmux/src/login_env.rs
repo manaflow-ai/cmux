@@ -60,8 +60,9 @@ fn run_marker() -> String {
         Sha256::digest(seed.as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect();
     format!("{MARKER}{hex}")
 }
-// Older caches could contain machine declarations imported through a shell hook.
-const CACHE_VERSION: u32 = 3;
+// Older caches could contain machine declarations imported through a shell hook;
+// version 3 caches lack the provider keys (`PROVIDER_KEYS`), so the shell runs once more.
+const CACHE_VERSION: u32 = 4;
 
 #[derive(Debug, Default, Clone)]
 struct Imported {
@@ -605,7 +606,7 @@ fn vertex_allowed(key: &str, value: &str, profile: Option<&BTreeMap<String, Stri
 }
 
 /// The allow-list: which login-shell variables a child of `family`
-/// (`claude`, `codex`, else none) gets. Every other variable stays in the
+/// (`claude`, `codex`, `gemini`, `muse`, a `PROVIDER_FAMILIES` one, else none) gets. Every other variable stays in the
 /// daemon (GITHUB_TOKEN, GH_TOKEN, NPM_TOKEN, ...), unless the person adds
 /// its name to `loginEnvAllow`.
 ///
@@ -625,6 +626,8 @@ fn vertex_allowed(key: &str, value: &str, profile: Option<&BTreeMap<String, Stri
 /// - Codex: OPENAI_*, CODEX_*.
 /// - Gemini: GEMINI_* and GOOGLE_* (the CLI/API and Vertex credentials).
 /// - Muse: MUSE_* and META_* (the official CLI and API credentials).
+/// - OpenCode, pi, omp, cmux Harness (pi's loop) and Hermes: the fixed
+///   provider-key names in `PROVIDER_KEYS`, never a prefix.
 /// - Not here: a name delivered in `~/.config/cmux/machine-secrets.env`
 ///   passes only on the local spawn paths (`pairs_for`), never through this
 ///   rule, so nested-session restoration (`nested_overrides`), `${env:VAR}`
@@ -687,9 +690,49 @@ pub fn allowed_with(
         Some("codex") => key.starts_with("OPENAI_") || key.starts_with("CODEX_"),
         Some("gemini") => key.starts_with("GEMINI_") || key.starts_with("GOOGLE_"),
         Some("muse") => key.starts_with("MUSE_") || key.starts_with("META_"),
+        Some(f) if PROVIDER_FAMILIES.contains(&f) => PROVIDER_KEYS.contains(&key),
         _ => false,
     }
 }
+
+/// The harnesses that sign in with any provider's API key: OpenCode, pi and
+/// its fork omp, cmux Harness (pi's model loop) and Hermes.
+const PROVIDER_FAMILIES: [&str; 5] = ["opencode", "pi", "omp", "cmux-harness", "hermes"];
+
+/// The provider keys (and base URLs) those harnesses read from their
+/// environment. Exact names, never a prefix: a prefix would bring in any
+/// secret that shares it (`OPENAI_ORG_TOKEN`, `GROQ_SECRET`). Every key is a
+/// secret by name (`is_secret`), so only its name reaches the cache.
+/// Not here: cloud credentials (AWS_*, Vertex ADC), which only Claude's
+/// Bedrock and Vertex switches unlock, and GitHub tokens.
+const PROVIDER_KEYS: [&str; 26] = [
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_BASE_URL",
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "AZURE_OPENAI_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "GOOGLE_GENERATIVE_AI_API_KEY",
+    "OPENROUTER_API_KEY",
+    "GROQ_API_KEY",
+    "TOGETHER_API_KEY",
+    "TOGETHER_AI_API_KEY",
+    "FIREWORKS_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "MISTRAL_API_KEY",
+    "XAI_API_KEY",
+    "CEREBRAS_API_KEY",
+    "DEEPINFRA_API_KEY",
+    "HF_TOKEN",
+    "AI_GATEWAY_API_KEY",
+    "ZAI_API_KEY",
+    "MINIMAX_API_KEY",
+    "KIMI_API_KEY",
+    "MOONSHOT_API_KEY",
+    "PERPLEXITY_API_KEY",
+    "NOUS_API_KEY",
+];
 
 /// A name delivered to this machine's secrets file (`DELIVERED`).
 fn delivered(key: &str) -> bool {
@@ -723,6 +766,7 @@ fn storable(key: &str, value: &str) -> bool {
         || delivered(key)
         || allowed(key, value, None)
         || allowed(key, value, Some("codex"))
+        || PROVIDER_KEYS.contains(&key)
         || [
             "ANTHROPIC_",
             "CLAUDE_",
@@ -750,7 +794,8 @@ pub fn allowed_var(key: &str) -> Option<String> {
         || allowed(key, &v, Some("claude"))
         || allowed(key, &v, Some("codex"))
         || allowed(key, &v, Some("gemini"))
-        || allowed(key, &v, Some("muse")))
+        || allowed(key, &v, Some("muse"))
+        || PROVIDER_FAMILIES.iter().any(|f| allowed(key, &v, Some(f))))
     .then_some(v)
 }
 
