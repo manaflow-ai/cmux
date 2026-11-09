@@ -398,11 +398,11 @@ async fn stop_ends_a_retry_wait_and_failures_end_after_the_bound() {
     let stopped = tokio::time::timeout(Duration::from_secs(5), handle.stop()).await;
     assert_eq!(stopped.expect("stop ends the wait"), TunnelStatus::Stopped);
 
-    let mut rig = rig("bound", quick()).await;
-    rig.platform.answer("/attach", vec![(503, json!({"code": "mesh.node.unavailable"}))]);
-    let handle = start(rig.plan.take().unwrap()).unwrap();
+    let mut bound = rig("bound", quick()).await;
+    bound.platform.answer("/attach", vec![(503, json!({"code": "mesh.node.unavailable"}))]);
+    let handle = start(bound.plan.take().unwrap()).unwrap();
     assert!(matches!(handle.finished().await, TunnelStatus::Failed(_)));
-    assert_eq!(rig.platform.requests("/attach").len(), quick().max_failures as usize);
+    assert_eq!(bound.platform.requests("/attach").len(), quick().max_failures as usize);
 }
 
 #[tokio::test]

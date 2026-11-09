@@ -601,19 +601,26 @@ impl Supervisor {
             // must attach again.
             let next = loop {
                 let tick = tokio::time::sleep(self.plan.timing.refresh_every);
-                tokio::select! {
-                    _ = self.stop.wait_for(|stop| *stop) => {
+                // `None` is the refresh tick.
+                let event = tokio::select! {
+                    _ = self.stop.wait_for(|stop| *stop) => Some(None),
+                    why = hub.exited() => Some(Some(why)),
+                    _ = tick => None,
+                };
+                match event {
+                    Some(None) => {
                         hub.stop().await;
                         return HubEnd::Stopped;
                     }
-                    why = hub.exited() => {
-                        // A hub that ends by itself restarts on a fresh read.
-                        if let Some(end) = self.failed(&mut failures, format!("hub ended: {why}")).await {
+                    // A hub that ends by itself restarts on a fresh read.
+                    Some(Some(why)) => {
+                        let why = format!("hub ended: {why}");
+                        if let Some(end) = self.failed(&mut failures, why).await {
                             return HubEnd::Final(end);
                         }
                         break None;
                     }
-                    _ = tick => {}
+                    None => {}
                 }
                 // A platform rekey changed the join key: enroll the new one.
                 match (self.plan.identity)() {
