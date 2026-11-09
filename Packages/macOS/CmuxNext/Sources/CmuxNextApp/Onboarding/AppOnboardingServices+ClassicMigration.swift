@@ -63,10 +63,16 @@ extension AppOnboardingServices {
     ///   into its window, or Home, which stays.
     func migrateClassicAtLaunch(firstWorkspace: String?) async {
         guard classicMigrationRunsAtLaunch else { return }
+        let setup = owner.setup.expectingClassic()
+        defer { setup.classicSettled() }
         do {
-            let outcome = try await migrateClassic(.automatic, firstWorkspace: firstWorkspace,
-                                                   confirmation: confirmClassicImport)
-            guard let notice = outcome.opened.isEmpty ? outcome.notice : owner.classicImportNotice else { return }
+            // While the Set Up cmux card shows, its cmux Classic row asks; otherwise the dialog (a test's answer first).
+            let outcome = try await migrateClassic(.automatic, firstWorkspace: firstWorkspace, confirmation: { [self] plan in
+                if owner.classicMigrationConfirmation == nil, let answer = await setup.askClassic(.init(plan)) { return answer }
+                return await confirmClassicImport(plan)
+            })
+            // A No on the card's row reads there ("Not imported"): no toast repeats it.
+            guard setup.classicAnswer != .declined, let notice = outcome.opened.isEmpty ? outcome.notice : owner.classicImportNotice else { return }
             ClassicImportStrings.toast(notice, in: services.windows.active?.window)
         } catch {
             services.daemon.logger.error("classic migration failed: \(String(describing: error), privacy: .public)")

@@ -10406,258 +10406,259 @@
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "لم يُستورد: ملف > استيراد يحتفظ به"
+            "value" : "لم تُستورد: الإعدادات › الاستيراد يجلبها في أي وقت"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nije uvezeno: Datoteka > Uvoz ga čuva"
+            "value" : "Nije uvezeno: Postavke › Uvoz ih donosi bilo kada"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ikke importeret: Arkiv > Importér har det stadig"
+            "value" : "Ikke importeret: Indstillinger › Import henter dem når som helst"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nicht importiert: Ablage > Importieren behält es"
+            "value" : "Nicht importiert: Einstellungen › Import holt sie jederzeit"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Not imported: File > Import keeps it"
+            "value" : "Not imported: Settings › Import brings them any time"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "No importado: Archivo > Importar lo conserva"
+            "value" : "No importado: Ajustes › Importar los trae cuando quieras"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Non importé : Fichier > Importer le garde"
+            "value" : "Non importé : Réglages › Importer les récupère à tout moment"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Non importato: File > Importa lo conserva"
+            "value" : "Non importato: Impostazioni › Importa li porta quando vuoi"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "未インポート：ファイル > インポートからいつでも"
+            "value" : "未インポート：設定 › 読み込みからいつでも読み込めます"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "មិនបាននាំចូល៖ ឯកសារ > នាំចូល រក្សាវាទុក"
+            "value" : "មិនបាននាំចូល៖ ការកំណត់ › នាំចូល នាំវាមកពេលណាក៏បាន"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "가져오지 않음: 파일 > 가져오기에 남아 있음"
+            "value" : "가져오지 않음: 언제든지 설정 › 가져오기에서 가져올 수 있음"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ikke importert: Arkiv > Importer har det fortsatt"
+            "value" : "Ikke importert: Innstillinger › Import henter dem når som helst"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nie zaimportowano: Plik > Importuj nadal to ma"
+            "value" : "Nie zaimportowano: Ustawienia › Import przeniesie je w dowolnej chwili"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Não importado: Arquivo > Importar mantém"
+            "value" : "Não importado: Ajustes › Importar traz quando quiser"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Не импортировано: Файл > Импорт сохраняет это"
+            "value" : "Не импортировано: Настройки › Импорт перенесёт их в любое время"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ยังไม่นำเข้า: ไฟล์ > นำเข้า ยังเก็บไว้"
+            "value" : "ยังไม่นำเข้า: การตั้งค่า › นำเข้า นำมาได้ทุกเมื่อ"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "İçe aktarılmadı: Dosya > İçe Aktar saklıyor"
+            "value" : "İçe aktarılmadı: Ayarlar › İçe Aktar onları istediğiniz zaman getirir"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Не імпортовано: Файл > Імпорт зберігає це"
+            "value" : "Не імпортовано: Параметри › Імпорт перенесе їх будь-коли"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chưa nhập: Tệp > Nhập vẫn giữ"
+            "value" : "Chưa nhập: Cài đặt › Nhập mang chúng về bất cứ lúc nào"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "未导入：文件 > 导入中仍可使用"
+            "value" : "未导入：可随时在 设置 › 导入 中导入"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "未匯入：檔案 > 匯入中仍可使用"
+            "value" : "未匯入：可隨時在 設定 › 匯入 中匯入"
           }
         }
       }
     },
     "home.setup.classic.detail" : {
+      "comment" : "Set Up cmux card, cmux Classic row: %1$@ workspace count, %2$@ the classic app (its Dock name), %3$@ when it saved (a date and time).",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%1$@ مساحات عمل، حُفظت %2$@"
+            "value" : "%1$@ مساحات عمل من %2$@، حُفظت %3$@"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%1$@ radnih prostora, sačuvano %2$@"
+            "value" : "%1$@ radnih prostora iz %2$@, sačuvano %3$@"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%1$@ arbejdsområder, gemt %2$@"
+            "value" : "%1$@ arbejdsområder fra %2$@, gemt %3$@"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%1$@ Workspaces, gesichert %2$@"
+            "value" : "%1$@ Workspaces aus %2$@, gesichert %3$@"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%1$@ workspaces, saved %2$@"
+            "value" : "%1$@ workspaces from %2$@, saved %3$@"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%1$@ espacios de trabajo, guardados %2$@"
+            "value" : "%1$@ espacios de trabajo de %2$@, guardados %3$@"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%1$@ espaces de travail, enregistrés %2$@"
+            "value" : "%1$@ espaces de travail de %2$@, enregistrés %3$@"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%1$@ spazi di lavoro, salvati %2$@"
+            "value" : "%1$@ spazi di lavoro da %2$@, salvati %3$@"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%1$@ 個のワークスペース、%2$@ に保存"
+            "value" : "%2$@ の %1$@ 個のワークスペース、%3$@ に保存"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "កន្លែងធ្វើការ %1$@ រក្សាទុក %2$@"
+            "value" : "កន្លែងធ្វើការ %1$@ ពី %2$@ រក្សាទុក %3$@"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "워크스페이스 %1$@개, %2$@ 저장"
+            "value" : "%2$@의 워크스페이스 %1$@개, %3$@ 저장"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%1$@ arbeidsområder, lagret %2$@"
+            "value" : "%1$@ arbeidsområder fra %2$@, lagret %3$@"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%1$@ obszarów roboczych, zapisano %2$@"
+            "value" : "%1$@ obszarów roboczych z %2$@, zapisano %3$@"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%1$@ espaços de trabalho, salvos %2$@"
+            "value" : "%1$@ espaços de trabalho do %2$@, salvos %3$@"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Рабочих пространств: %1$@, сохранено %2$@"
+            "value" : "Рабочих пространств из %2$@: %1$@, сохранено %3$@"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%1$@ เวิร์กสเปซ บันทึก %2$@"
+            "value" : "%1$@ เวิร์กสเปซจาก %2$@ บันทึก %3$@"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%1$@ çalışma alanı, kaydedildi %2$@"
+            "value" : "%2$@ uygulamasından %1$@ çalışma alanı, kaydedildi %3$@"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Робочих просторів: %1$@, збережено %2$@"
+            "value" : "Робочих просторів із %2$@: %1$@, збережено %3$@"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%1$@ không gian làm việc, lưu %2$@"
+            "value" : "%1$@ không gian làm việc từ %2$@, lưu %3$@"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%1$@ 个工作区，保存于 %2$@"
+            "value" : "来自 %2$@ 的 %1$@ 个工作区，保存于 %3$@"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%1$@ 個工作區，儲存於 %2$@"
+            "value" : "來自 %2$@ 的 %1$@ 個工作區，儲存於 %3$@"
           }
         }
       }
@@ -10789,6 +10790,270 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "已匯入"
+          }
+        }
+      }
+    },
+    "home.setup.classic.open" : {
+      "comment" : "Set Up cmux card, cmux Classic row: the classic app (%1$@, its Dock name) is still open, so the import would bring its autosave from %2$@ (a date and time).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا يزال %1$@ مفتوحًا: هذا حفظه التلقائي من %2$@. أنهِه أولًا لجلب أحدث حالة له."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ je još otvoren: ovo je njegovo automatsko čuvanje od %2$@. Prvo ga zatvorite da prenesete najnovije stanje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ er stadig åben: dette er dens autogemning fra %2$@. Afslut den først for at få den nyeste tilstand med."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ ist noch geöffnet: Dies ist die automatische Sicherung von %2$@. Beende es zuerst, um den neuesten Stand zu übernehmen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ is still open: this is its autosave from %2$@. Quit it first to bring its latest state."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ sigue abierto: este es su guardado automático de %2$@. Ciérralo primero para traer su estado más reciente."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ est encore ouvert : voici sa sauvegarde automatique du %2$@. Quittez-le d’abord pour récupérer son dernier état."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ è ancora aperto: questo è il suo salvataggio automatico del %2$@. Chiudilo prima per portare il suo stato più recente."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ はまだ開いています：これは %2$@ の自動保存です。最新の状態を取り込むには、先に終了してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ នៅតែបើក៖ នេះជាការរក្សាទុកស្វ័យប្រវត្តិពី %2$@។ សូមបិទវាជាមុនសិន ដើម្បីនាំស្ថានភាពចុងក្រោយមក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@이(가) 아직 열려 있습니다: %2$@의 자동 저장본입니다. 최신 상태를 가져오려면 먼저 종료하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ er fortsatt åpen: dette er autolagringen fra %2$@. Avslutt den først for å ta med den nyeste tilstanden."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ jest nadal otwarty: to jego autozapis z %2$@. Najpierw go zamknij, aby przenieść najnowszy stan."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ ainda está aberto: este é o salvamento automático de %2$@. Encerre-o primeiro para trazer o estado mais recente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ всё ещё открыт: это его автосохранение от %2$@. Сначала завершите его, чтобы перенести последнее состояние."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ ยังเปิดอยู่: นี่คือการบันทึกอัตโนมัติจาก %2$@ ปิดก่อนเพื่อนำสถานะล่าสุดมา"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ hâlâ açık: bu, %2$@ tarihli otomatik kaydı. En son durumunu getirmek için önce kapatın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ досі відкрито: це його автозбереження від %2$@. Спершу закрийте його, щоб перенести останній стан."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ vẫn đang mở: đây là bản tự lưu từ %2$@. Hãy thoát trước để mang trạng thái mới nhất."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ 仍在运行：这是它 %2$@ 的自动保存。请先退出它，以带来最新状态。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%1$@ 仍在執行：這是它 %2$@ 的自動儲存。請先結束它，以帶來最新狀態。"
+          }
+        }
+      }
+    },
+    "home.setup.classic.resumes" : {
+      "comment" : "Set Up cmux card, cmux Classic row: what Import also does, shown before the person presses it.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يحمّل الاستيراد صفحات المتصفح المحفوظة، ويتصل بمضيفات SSH المحفوظة، ويستأنف محادثات الوكلاء المحفوظة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uvoz učitava sačuvane stranice preglednika, povezuje se sa sačuvanim SSH hostovima i nastavlja sačuvane razgovore s agentima."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Import indlæser gemte browsersider, forbinder til gemte SSH-værter og genoptager gemte agentchats."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der Import lädt gesicherte Browserseiten, verbindet sich mit gesicherten SSH-Hosts und setzt gesicherte Agent-Chats fort."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importing loads saved browser pages, connects to saved SSH hosts, and resumes saved agent chats."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importar carga las páginas del navegador guardadas, se conecta a los hosts SSH guardados y reanuda los chats de agentes guardados."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L’import charge les pages de navigateur enregistrées, se connecte aux hôtes SSH enregistrés et reprend les discussions d’agents enregistrées."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L’importazione carica le pagine del browser salvate, si connette agli host SSH salvati e riprende le chat degli agenti salvate."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "インポートすると、保存されたブラウザページを読み込み、保存された SSH ホストに接続し、保存されたエージェントのチャットを再開します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការនាំចូលផ្ទុកទំព័រកម្មវិធីរុករកដែលបានរក្សាទុក ភ្ជាប់ទៅម៉ាស៊ីន SSH ដែលបានរក្សាទុក ហើយបន្តការជជែករបស់ភ្នាក់ងារដែលបានរក្សាទុក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "가져오면 저장된 브라우저 페이지를 불러오고, 저장된 SSH 호스트에 연결하며, 저장된 에이전트 채팅을 이어갑니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Import laster inn lagrede nettlesersider, kobler til lagrede SSH-verter og gjenopptar lagrede agentchatter."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Import wczytuje zapisane strony przeglądarki, łączy się z zapisanymi hostami SSH i wznawia zapisane czaty agentów."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Importar carrega as páginas do navegador salvas, conecta aos hosts SSH salvos e retoma os chats de agentes salvos."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Импорт загружает сохранённые страницы браузера, подключается к сохранённым SSH-хостам и возобновляет сохранённые чаты агентов."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การนำเข้าจะโหลดหน้าเบราว์เซอร์ที่บันทึกไว้ เชื่อมต่อโฮสต์ SSH ที่บันทึกไว้ และกลับมาคุยแชทเอเจนต์ที่บันทึกไว้ต่อ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "İçe aktarma, kayıtlı tarayıcı sayfalarını yükler, kayıtlı SSH sunucularına bağlanır ve kayıtlı ajan sohbetlerini sürdürür."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Імпорт завантажує збережені сторінки браузера, підключається до збережених SSH-хостів і відновлює збережені чати агентів."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nhập sẽ tải các trang trình duyệt đã lưu, kết nối tới các máy chủ SSH đã lưu và tiếp tục các cuộc trò chuyện tác nhân đã lưu."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "导入会加载已保存的浏览器页面、连接已保存的 SSH 主机，并恢复已保存的智能体对话。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "匯入會載入已儲存的瀏覽器頁面、連線已儲存的 SSH 主機，並恢復已儲存的代理對話。"
           }
         }
       }

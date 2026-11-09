@@ -2,8 +2,8 @@
 // answer, a cmux account, the `cmux` command in any terminal, and classic cmux's workspaces when a
 // classic session was found), which row comes next, and how far along it is. The host reads each
 // row's state (acpmux's harness health, the account, `CLIInstallReport`, the classic migration's
-// plan) and runs each action; this file decides nothing the host can answer. Not wired yet: the
-// gallery shows it (goal next-first-run-setup, cmuxterm-hq goals/next-first-run-setup.md).
+// plan) and runs each action; this file decides nothing the host can answer (goal next-first-run-setup,
+// cmuxterm-hq goals/next-first-run-setup.md).
 import type { Strings } from "../strings";
 
 /** One agent CLI's row inside the agents step. */
@@ -24,8 +24,18 @@ export interface SetupState {
   /** Chats from other agents on this Mac (the host found some): the row opens the history import; `done` once
    * that page showed or the row was dismissed. Null or absent: none found (the row does not show). */
   history?: { done: boolean } | null;
-  /** Classic's saved session, when one was found and not answered yet; null: none (the row does not show). */
-  classic: { workspaces: number; saved: string; answered?: "imported" | "declined" } | null;
+  /** The launch's classic import while it asks on this row, and its answer; null: nothing to import (the row
+   * does not show). `app` is the classic app that saved it, as its Dock names it; `savedAt` when (ms since
+   * 1970); `running`: that app is still open, so this is its autosave; `resumes`: importing reconnects saved
+   * SSH hosts or resumes saved agent chats. */
+  classic: {
+    workspaces: number;
+    app: string;
+    savedAt: number;
+    running?: boolean;
+    resumes?: boolean;
+    answered?: "imported" | "declined";
+  } | null;
 }
 
 export type SetupStepID = "agents" | "history" | "account" | "cli" | "classic";
@@ -47,9 +57,11 @@ export interface SetupStep {
   done: boolean;
   title: string;
   detail: string;
+  /** A second line under the detail: what the row's action also does. */
+  note?: string;
   /** The row's one button; absent once done (the slot keeps its room). */
   action?: { label: string; run: SetupAction };
-  /** A quieter second button (classic's Not Now, the next agent); it stays while the row is busy, greyed
+  /** A quieter second button (classic's Skip, the next agent); it stays while the row is busy, greyed
    * (`disabled`) when it waits on the run in flight. */
   secondary?: { label: string; run: SetupAction; disabled?: boolean };
   /** A third, quieter still: only while an agent waits for its sign-in to be confirmed and another agent
@@ -78,7 +90,8 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
   const { t, format } = strings;
   const steps: SetupStep[] = [];
   if (state.classic) {
-    const { workspaces, saved, answered } = state.classic;
+    const { workspaces, app, savedAt, running, resumes, answered } = state.classic;
+    const saved = new Intl.DateTimeFormat(strings.language, { dateStyle: "medium", timeStyle: "short" }).format(savedAt);
     steps.push({
       id: "classic",
       done: answered !== undefined,
@@ -88,10 +101,15 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
           ? t("home.setup.classic.imported")
           : answered === "declined"
             ? t("home.setup.classic.declined")
-            : format("home.setup.classic.detail", String(workspaces), saved),
+            : running
+              ? format("home.setup.classic.open", app, saved)
+              : format("home.setup.classic.detail", new Intl.NumberFormat(strings.language).format(workspaces), app, saved),
+      // Skip is a No the migration keeps (later launches don't ask; Settings › Import still brings them), so
+      // the row says what Import also does before the person presses it, as the classic import dialog did.
       ...(answered === undefined && {
+        ...(resumes && { note: t("home.setup.classic.resumes") }),
         action: { label: t("home.setup.import"), run: { kind: "importClassic" } as const },
-        secondary: { label: t("home.setup.notNow"), run: { kind: "declineClassic" } as const },
+        secondary: { label: t("home.setup.skip"), run: { kind: "declineClassic" } as const },
       }),
     });
   }

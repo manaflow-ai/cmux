@@ -23,16 +23,36 @@ describe("setupSteps", () => {
     expect(setupProgress(steps)).toEqual({ done: 0, total: 3 });
   });
 
-  test("classic's session leads, with Import and Not Now, until answered", () => {
-    const state: SetupState = { ...fresh, classic: { workspaces: 27, saved: "1 minute ago" } };
+  // 2026-11-05 22:26 local: the save time the row names, in the page's own language.
+  const savedAt = new Date(2026, 10, 5, 22, 26).getTime();
+  const saved = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(savedAt);
+
+  test("classic's session leads, naming the app and its save, with Import and Skip, until answered", () => {
+    const state: SetupState = { ...fresh, classic: { workspaces: 27, app: "cmux NIGHTLY", savedAt } };
     const steps = setupSteps(state, strings);
     expect(steps[0]?.id).toBe("classic");
-    expect(steps[0]?.detail).toBe("27 workspaces, saved 1 minute ago");
+    expect(steps[0]?.title).toBe("cmux Classic");
+    expect(steps[0]?.detail).toBe(`27 workspaces from cmux NIGHTLY, saved ${saved}`);
+    expect(steps[0]?.note).toBeUndefined();
     expect(steps[0]?.action?.run).toEqual({ kind: "importClassic" });
-    expect(steps[0]?.secondary?.run).toEqual({ kind: "declineClassic" });
-    const answered = setupSteps({ ...state, classic: { ...state.classic!, answered: "declined" } }, strings);
-    expect(answered[0]?.done).toBe(true);
-    expect(answered[0]?.action).toBeUndefined();
+    expect(steps[0]?.secondary).toEqual({ label: "Skip", run: { kind: "declineClassic" } });
+    const declined = setupSteps({ ...state, classic: { ...state.classic!, answered: "declined" } }, strings);
+    expect(declined[0]?.done).toBe(true);
+    expect(declined[0]?.action).toBeUndefined();
+    expect(declined[0]?.detail).toBe("Not imported: Settings › Import brings them any time");
+    const imported = setupSteps({ ...state, classic: { ...state.classic!, answered: "imported" } }, strings);
+    expect([imported[0]?.done, imported[0]?.detail]).toEqual([true, "Imported"]);
+  });
+
+  test("a classic app still open, and an import that reconnects or resumes, say so before Import", () => {
+    const open = setupSteps({ ...fresh, classic: { workspaces: 3, app: "cmux", savedAt, running: true, resumes: true } }, strings);
+    expect(open[0]?.detail).toBe(`cmux is still open: this is its autosave from ${saved}. Quit it first to bring its latest state.`);
+    expect(open[0]?.note).toContain("connects to saved SSH hosts");
+    const answered = setupSteps(
+      { ...fresh, classic: { workspaces: 3, app: "cmux", savedAt, resumes: true, answered: "imported" } },
+      strings,
+    );
+    expect(answered[0]?.note).toBeUndefined();
   });
 
   test("chats found on this Mac: a chat history row after the agents, with Import and Not Now, until done", () => {

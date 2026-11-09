@@ -283,6 +283,62 @@ import Testing
         #expect(FirstRunSetup(defaults: defaults).historyDone)
     }
 
+    private static let offer = FirstRunSetup.ClassicOffer(workspaces: 27, app: "cmux", savedAt: 1_793_000_000, running: false, agentChats: 2)
+    private static let quiet = SetupCardEnvironment(account: { (true, nil) }, signInAccount: {}, cliState: { "installed" }, installCLI: { _ in },
+                                                    openAgents: {}, historySources: { false }, importHistory: { false })
+
+    /// A Classic user's first run is the same card: the launch's classic import asks on its cmux Classic row (the
+    /// app, its save time, what Import also does), and the row's own click answers it, Import or Skip (a No the
+    /// migration keeps); the row then reads the answer.
+    @Test func theLaunchsClassicImportAsksOnTheCardsClassicRow() async throws {
+        for (kind, answer, wire) in [("importClassic", ClassicImportAnswer.accepted, "imported"), ("declineClassic", .declined, "declined")] {
+            let setup = FirstRunSetup(defaults: try defaults())
+            #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+            let provider = SetupCardPageProvider(setup: setup, agents: nil, environment: Self.quiet)
+            defer { provider.stop() }
+            #expect(provider.state["classic"] == .null, "no row before the migration asks")
+            let ask = Task { await setup.expectingClassic().askClassic(Self.offer) }
+            await until { setup.classic != nil }
+            let row = try #require(provider.state["classic"]?.objectValue)
+            #expect(row["workspaces"] == .number(27) && row["app"] == .string("cmux") && row["savedAt"] == .number(1_793_000_000_000))
+            #expect(row["running"] == .bool(false) && row["resumes"] == .bool(true) && row["answered"] == nil)
+
+            // Only the person's own click answers it.
+            await #expect(throws: PageError.self) {
+                try await provider.call("cmux.setup.run", params: ["action": ["kind": .string(kind)]],
+                                        context: PageCallContext(page: PageDescriptor.setupCard.id, userGesture: false))
+            }
+            #expect(setup.classicAnswer == nil)
+            _ = try await provider.call("cmux.setup.run", params: ["action": ["kind": .string(kind)]], context: click(1))
+            #expect(await ask.value == answer)
+            #expect(provider.state["classic"]?.objectValue?["answered"] == .string(wire))
+        }
+    }
+
+    /// The card never ends before the launch's migration decided whether it asks, nor while it asks; Hide leaves an
+    /// ask unanswered (the next launch asks again, with the dialog), and a card that is gone asks nothing.
+    @Test func theCardWaitsForTheClassicAnswerAndHideLeavesItUnanswered() async throws {
+        let defaults = try defaults()
+        let setup = FirstRunSetup(defaults: defaults)
+        #expect(setup.begin(isFirstRun: true, replacedKeys: Self.replaced))
+        setup.historyAnswered()
+        let agent = OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .signedIn)
+        let provider = SetupCardPageProvider(setup: setup, agents: MockAgentSignInSource(agents: [agent]), environment: Self.quiet)
+        defer { provider.stop() }
+        setup.expectingClassic()
+        await until { provider.agents.loaded && provider.state["cli"] == .string("installed") }
+        #expect(!provider.allDone, "the migration has not decided yet")
+        let ask = Task { await setup.askClassic(Self.offer) }
+        await until { setup.classic != nil }
+        setup.classicSettled()
+        #expect(!provider.allDone, "the cmux Classic row still asks")
+
+        _ = try await provider.call("cmux.setup.hide", params: [:], context: click(1))
+        #expect(await ask.value == .unanswered, "Hide is no answer: only Skip is a No")
+        #expect(!setup.shows)
+        #expect(await setup.askClassic(Self.offer) == nil, "with no card, the launch asks with its dialog")
+    }
+
     private func until(_ done: () -> Bool) async {
         let deadline = ContinuousClock.now + .seconds(5)
         // test-only: waits for the provider's one async read, bounded by the deadline

@@ -173,11 +173,27 @@ public final class SetupCardPageProvider: PageProvider {
         var wire: [String: JSONValue] = ["signedIn": .bool(account.signedIn)]
         if account.signedIn, let email = account.email { wire["email"] = .string(email) }
         return ["agents": .array(rows), "history": history == true ? ["done": .bool(setup.historyDone)] : .null,
-                "account": .object(wire), "cli": .string(cliInstalling ? "installing" : cli ?? "missing"), "classic": .null]
+                "account": .object(wire), "cli": .string(cliInstalling ? "installing" : cli ?? "missing"), "classic": classicState]
+    }
+
+    /// The cmux Classic row (setupModel.ts `SetupState.classic`): what the launch's import would bring, and its answer.
+    private var classicState: JSONValue {
+        guard let offer = setup.classic else { return .null }
+        var wire: [String: JSONValue] = [
+            "workspaces": .number(Double(offer.workspaces)), "app": .string(offer.app), "savedAt": .number(offer.savedAt * 1000),
+            "running": .bool(offer.running), "resumes": .bool(offer.sshWorkspaces + offer.agentChats > 0),
+        ]
+        switch setup.classicAnswer {
+        case .accepted: wire["answered"] = .string("imported")
+        case .declined: wire["answered"] = .string("declined")
+        case .unanswered, nil: break
+        }
+        return .object(wire)
     }
 
     /// Every row is done: an agent signed in, the chat history answered (when found: never before the read of
-    /// the chat sources returned, so a slow read cannot lose the row), the account signed in, this app's `cmux` on PATH.
+    /// the chat sources returned, so a slow read cannot lose the row), the account signed in, this app's `cmux` on PATH,
+    /// and the launch's classic import answered (never before the migration decided whether it asks).
     var allDone: Bool {
         agents.agents.contains { Self.agentIDs.contains($0.id) && agents.countsAsSignedIn($0) } && rowsBesideAgentsDone
     }
@@ -185,6 +201,7 @@ public final class SetupCardPageProvider: PageProvider {
     /// The rows besides the agents' are done (``allDone``).
     var rowsBesideAgentsDone: Bool {
         (history == false || setup.historyDone) && environment.account().signedIn && cli == "installed"
+            && !setup.awaitsClassic && (setup.classic == nil || setup.classicAnswer != nil)
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -231,6 +248,8 @@ public final class SetupCardPageProvider: PageProvider {
         case "signInAccount": environment.signInAccount()
         case "importHistory": if environment.importHistory() { setup.historyAnswered() }
         case "declineHistory": setup.historyAnswered()
+        case "importClassic": setup.answerClassic(.accepted)
+        case "declineClassic": setup.answerClassic(.declined)
         case "installCLI":
             // Only the row's own offer: Install when missing, Replace for another cmux app's CLI; never over a
             // `cmux` that is no cmux app's.

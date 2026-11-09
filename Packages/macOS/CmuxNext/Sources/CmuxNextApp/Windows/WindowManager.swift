@@ -317,10 +317,11 @@ final class WindowManager {
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)
         Task {
+            // A first run's Set Up cmux card comes first: the migration asks on its cmux Classic row, not a dialog.
+            let isFirstRun = firstWorkspace != nil && document.windows.isEmpty, route = services.onboarding.firstRunRoute(isFirstRun: isFirstRun)
             await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace)
-            let isFirstRun = firstWorkspace != nil && document.windows.isEmpty
-            // One step at a time: Agents, then Bring your history once its window closed.
-            await services.onboarding.showFirstRunSteps(isFirstRun: isFirstRun)
+            // With no card, one step at a time: Agents, then Bring your history once its window closed.
+            await services.onboarding.showFirstRunSteps(route, isFirstRun: isFirstRun)
             // Then, once per channel: `cmux` in Terminal that would not run this app.
             await CLIInstallHandlers.offerAtLaunch(skipsOnboarding: services.environment.skipsOnboarding)
         }

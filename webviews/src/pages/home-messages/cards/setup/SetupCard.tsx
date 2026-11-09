@@ -54,6 +54,7 @@ export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction,
             <span className="hm-setup__next-text">
               <span className="hm-setup__row-title">{next.title}</span>
               <span className="hm-setup__row-detail">{next.detail}</span>
+              {next.note && <span className="hm-setup__row-detail">{next.note}</span>}
             </span>
             <Trailing step={next} onAction={onAction} wide />
           </div>
@@ -78,6 +79,7 @@ export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction,
             <span className="hm-setup__row-text">
               <span className="hm-setup__row-title">{step.title}</span>
               <span className="hm-setup__row-detail">{step.detail}</span>
+              {step.note && <span className="hm-setup__row-detail">{step.note}</span>}
             </span>
             <Trailing step={step} onAction={onAction} marksDone={look !== "checklist"} />
           </li>

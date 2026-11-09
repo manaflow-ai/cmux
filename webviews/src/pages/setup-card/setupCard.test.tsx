@@ -95,6 +95,21 @@ describe("the Set Up cmux page", () => {
     expect(words.toLowerCase()).not.toContain("bring your history");
   });
 
+  test("a Classic user's first run: the same card with its cmux Classic row, and no classic import dialog's words", async () => {
+    const classic = { workspaces: 27, app: "cmux", savedAt: Date.UTC(2026, 10, 5, 22, 26) };
+    const { client } = host({ ...fresh, classic });
+    const store = new SetupCardStore(client);
+    await store.start();
+    const words = text(renderToStaticMarkup(<SetupCardPage store={store} />));
+    for (const phrase of ["Set Up cmux", "cmux Classic", "27 workspaces from cmux", "Claude Code", "Codex", "cmux account", "Command line"])
+      expect(words).toContain(phrase);
+    expect(words).not.toContain("Import these classic workspaces");
+
+    const page = await mounted({ ...fresh, classic });
+    await act(async () => page.button("Skip").click());
+    expect(page.calls.filter(([op]) => op === SETUP_OPS.run)).toEqual([[SETUP_OPS.run, { action: { kind: "declineClassic" } }]]);
+  });
+
   test("draws nothing before the host answers, then follows its stream", async () => {
     const { client, push } = host(fresh);
     const store = new SetupCardStore(client);

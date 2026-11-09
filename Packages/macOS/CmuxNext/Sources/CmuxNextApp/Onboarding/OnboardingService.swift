@@ -191,14 +191,18 @@ final class OnboardingService {
     /// Home's Set Up cmux card (``FirstRunSetup``): what a first run offers, in place of the first-run windows.
     private(set) lazy var setup = FirstRunSetup(skipsOnboarding: services.environment.skipsOnboarding)
 
-    /// A first run starts Home's Set Up cmux card, which offers the agents, the chat history (when found), the
-    /// account and the command line in one place: the Agents window and the CLI toast count as shown, and
-    /// Bring your history opens from the card's row. Otherwise Agents, then Bring your history
-    /// (``OnboardingWindowPresenter/showFirstRunSteps``); never when ``AppEnvironment/skipsOnboarding``.
-    func showFirstRunSteps(isFirstRun: Bool) async {
-        guard !services.environment.skipsOnboarding else { return }
+    /// Before the classic migration, a first run starts Home's Set Up cmux card, which offers the classic import (its
+    /// cmux Classic row), the agents, the chat history (when found), the account and the command line in one place:
+    /// the Agents window and the CLI toast count as shown, and Bring your history opens from the card's row. Otherwise,
+    /// after the migration, Agents, then Bring your history (``OnboardingWindowPresenter/showFirstRunSteps``) for
+    /// `.windows`; nil when ``AppEnvironment/skipsOnboarding``.
+    func firstRunRoute(isFirstRun: Bool) -> FirstRunSetup.Route? {
+        guard !services.environment.skipsOnboarding else { return nil }
         let route = setup.route(isFirstRun: isFirstRun, replacedKeys: [CLIInstallHandlers.offeredAtLaunchKey], screenReader: NSWorkspace.shared.isVoiceOverEnabled)
         if route == .startCard { DebugTimings.markLaunch("first_run.setup_card_shown") }
+        return route
+    }
+    func showFirstRunSteps(_ route: FirstRunSetup.Route?, isFirstRun: Bool) async {
         guard route == .windows else { return }
         await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses) { self.showHistoryAtFirstRun(isFirstRun: isFirstRun) }
     }
