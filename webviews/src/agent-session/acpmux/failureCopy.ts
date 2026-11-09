@@ -54,17 +54,27 @@ const NEEDS_CREDITS =
 /// `billing_hard_limit_reached`, a gateway's "insufficient credits". Not a rate limit: waiting does not
 /// help, and OpenAI sends it as a 429, so it goes before RATE.
 const NO_CREDIT =
-  /credit balance (?:is )?too low|insufficient[ _-]quota|billing[ _-]hard[ _-]limit|exceeded your current quota|\binsufficient credits?\b|payment required/i;
-/// The cloud provider sign-in a Bedrock or Vertex chat uses has expired: the AWS SDK's `ExpiredToken`,
-/// `ExpiredTokenException`, `UnrecognizedClientException`, "The security token included in the request
-/// is expired", "Could not load credentials", an expired SSO session; Google's "Reauthentication is
-/// needed" (`invalid_rapt`), "Could not load the default credentials", or `invalid_grant` beside a
-/// Google word (alone, `invalid_grant` is the agent's own OAuth refresh: SUBSCRIPTION). Its way out is
-/// the provider's login command, not the agent's.
+  /credit balance (?:is )?too low|billing[ _-]hard[ _-]limit|exceeded your current quota|\binsufficient credits?\b|payment required/i;
+/// `insufficient_quota` alone is weaker: the cmux model router types its own rate limits with it (a
+/// 429 `free.rate`, "too many requests; wait a moment", backend inference/free.ts; a team's
+/// `inference.daily_limit`). It counts only without a router code or rate words beside it.
+const INSUFFICIENT_QUOTA = /insufficient[ _-]quota/i;
+const ROUTER_LIMIT = /\b(?:free|inference|usage)\.[a-z_]+\b|too many requests|rate.?limit|wait a moment/i;
+/// The cloud provider credentials a Bedrock or Vertex chat uses have expired or were refused: the AWS
+/// SDK's `ExpiredToken`, `ExpiredTokenException`, `UnrecognizedClientException`, "The security token
+/// included in the request is expired", "Could not load credentials", an expired SSO session; Google's
+/// "Reauthentication is needed", "Could not load the default credentials", or `invalid_grant` /
+/// `invalid_rapt` where application default credentials or Vertex are named. Its way out is the
+/// provider's own login, not the agent's.
 const AWS_AUTH_EXPIRED =
   /\bExpiredToken(?:Exception)?\b|\bUnrecognizedClientException\b|security token included in the request is (?:expired|invalid)|could not load credentials|\bSSO session\b.{0,60}\bexpired\b|token has expired and refresh failed/i;
-const GOOGLE_AUTH_EXPIRED = /reauthentication is needed|\binvalid_rapt\b|could not load the default credentials/i;
-const GOOGLE_WORDS = /google|gcloud|vertex|application[ _-]default|\bADC\b/i;
+/// `aws sso login` fixes only an SSO sign-in; static keys fail with the same exceptions.
+const AWS_SSO = /\bSSO\b|token has expired and refresh failed/i;
+const ADC_AUTH_EXPIRED = /reauthentication is needed|could not load the default credentials/i;
+/// `invalid_grant` alone is the agent's own OAuth refresh (SUBSCRIPTION), Gemini's through
+/// google-auth-library included: application default credentials or Vertex must be named.
+const ADC_REFRESH = /\binvalid_(?:grant|rapt)\b/i;
+const ADC_WORDS = /application[ _-]default|aiplatform\.googleapis|\bvertex\b|CLAUDE_CODE_USE_VERTEX|gcloud auth/i;
 /// The conversation outgrew the model's context window: Claude's "Prompt is too long", OpenAI's
 /// `context_length_exceeded` and "maximum context length", Codex's "exceeds the context window".
 /// Sending the same prompt into the same history fails the same way, so its way out is Compact
@@ -192,8 +202,9 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   // Before capacity: a refused request's body can name the quota it was measured against.
   if (CONTEXT_FULL.test(message)) return "context-full";
   // Before capacity: OpenAI's out-of-credit answer is a 429 that names a quota.
-  if (NO_CREDIT.test(message)) return "no-credit";
-  if (cloudSignInCommand(message)) return "cloud-auth-expired";
+  if (NO_CREDIT.test(message) || (INSUFFICIENT_QUOTA.test(message) && !ROUTER_LIMIT.test(message)))
+    return "no-credit";
+  if (cloudSignIn(message)) return "cloud-auth-expired";
   // Capacity and network first: their messages often mention authentication or keys in passing.
   if (RATE.test(message)) return "rate-limited";
   // Connection words count only outside addresses: a URL's path or query (`…/oauth/token`,
@@ -224,12 +235,12 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   return "other";
 }
 
-/// The command that refreshes the expired cloud provider sign-in `message` names, or undefined when it
-/// names none.
-function cloudSignInCommand(message: string): string | undefined {
-  if (GOOGLE_AUTH_EXPIRED.test(message) || (/\binvalid_grant\b/i.test(message) && GOOGLE_WORDS.test(message)))
-    return "gcloud auth application-default login";
-  if (AWS_AUTH_EXPIRED.test(message)) return "aws sso login";
+/// The expired cloud provider credentials `message` names, with the command that refreshes them when
+/// the message says which one does; undefined when it names none.
+function cloudSignIn(message: string): { command?: string } | undefined {
+  if (ADC_AUTH_EXPIRED.test(message) || (ADC_REFRESH.test(message) && ADC_WORDS.test(message)))
+    return { command: "gcloud auth application-default login" };
+  if (AWS_AUTH_EXPIRED.test(message)) return AWS_SSO.test(message) ? { command: "aws sso login" } : {};
   return undefined;
 }
 
@@ -302,11 +313,12 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
       return t("turn.failure.needsCredits", { harness });
     case "no-credit":
       return t("turn.failure.noCredit", { harness });
-    case "cloud-auth-expired":
-      return t("turn.failure.cloudSignInExpired", {
-        harness,
-        command: (message && cloudSignInCommand(message)) ?? "aws sso login",
-      });
+    case "cloud-auth-expired": {
+      const command = message ? cloudSignIn(message)?.command : undefined;
+      return command
+        ? t("turn.failure.cloudSignInExpired", { harness, command })
+        : t("turn.failure.cloudCredentialsExpired", { harness });
+    }
     case "rate-limited":
       return t("turn.failure.rateLimited", { harness });
     case "unreachable":

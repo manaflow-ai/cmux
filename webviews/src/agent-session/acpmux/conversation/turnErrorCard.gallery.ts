@@ -157,7 +157,13 @@ export default agentPaneEntry({
       ),
     },
     "cloud-sign-in-aws": {
-      note: "A chat on a cloud provider whose sign-in expired (ExpiredTokenException): the card names `aws sso login` to run in a terminal, then Retry.",
+      note: "A chat on a cloud provider whose SSO sign-in expired: the card names `aws sso login` to run in a terminal, then Retry.",
+      snapshot: failed(
+        "Error loading SSO Token: The SSO session associated with this profile has expired or is otherwise invalid.",
+      ),
+    },
+    "cloud-credentials": {
+      note: "The same provider refused credentials that name no SSO (static keys, ExpiredTokenException): the card says to sign in again or update the keys, with no command it cannot be sure of.",
       snapshot: failed("API Error: 403 ExpiredTokenException: The security token included in the request is expired"),
     },
     "cloud-sign-in-google": {
