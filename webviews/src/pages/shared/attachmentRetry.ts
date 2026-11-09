@@ -33,6 +33,10 @@ export function isAbort(error: unknown): boolean {
 
 function wait(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("cancelled", "AbortError"));
+      return;
+    }
     const aborted = () => {
       clearTimeout(timer);
       reject(new DOMException("cancelled", "AbortError"));

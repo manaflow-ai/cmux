@@ -9896,15 +9896,15 @@ export class AcpmuxDirectClient {
   private async readPromptImage(id: string): Promise<{ mimeType: string; data: string } | undefined> {
     const sessionId = this.selectedSession;
     // No chat selected for a moment (a reconnect, a switch): a read now cannot tell, so try again.
-    if (!sessionId) throw new Error("no chat selected");
+    // l10n-allow: a code for the retry, never shown.
+    if (!sessionId) throw new Error("no_session");
     try {
       const reply = await this.request("_acpmux/attachment", { sessionId, id });
-      return typeof reply?.data === "string"
-        ? {
-            mimeType: typeof reply.mimeType === "string" ? reply.mimeType : "image/png",
-            data: reply.data,
-          }
-        : undefined;
+      // acpmux answers an image it has with its bytes and one it has none of with an error, so a
+      // reply without bytes is a failure to try again, never a gone image.
+      // l10n-allow: a code for the retry, never shown.
+      if (typeof reply?.data !== "string") throw new Error("attachment_reply_without_data");
+      return { mimeType: typeof reply.mimeType === "string" ? reply.mimeType : "image/png", data: reply.data };
     } catch (error) {
       if (error instanceof AcpmuxRpcError && !refusedByHost(error) && ATTACHMENT_GONE.has(error.code)) return undefined;
       throw error;

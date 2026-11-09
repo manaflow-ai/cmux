@@ -49,3 +49,20 @@ test("an abort or an error it should not retry ends at once", async () => {
   ).rejects.toThrow("too large");
   expect(tries).toBe(2);
 });
+
+test("an abort while a try again waits ends the tries at once", async () => {
+  attachmentRetry.delaysMs = [60_000];
+  const controller = new AbortController();
+  let tries = 0;
+  const failed = withAttachmentRetries(
+    async () => {
+      tries += 1;
+      // Aborted before its wait starts: the wait never begins.
+      controller.abort();
+      throw new Error("socket closed");
+    },
+    { signal: controller.signal },
+  );
+  await expect(failed).rejects.toThrow("socket closed");
+  expect(tries).toBe(1);
+});
