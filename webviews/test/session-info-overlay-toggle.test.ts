@@ -338,10 +338,30 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
             // Context starts folded to its line (Lucas, 2026-11-06); unfold it, then fold it again: the
             // card ends at its sections again, shorter by just its rows.
             const context = panel.locator('section[data-section="context"]');
-            const frame = () =>
-              page.evaluate(
+            // Two frames, then every transition in the card done: a fold settles on the shared fold curve
+            // (#37845), so two frames alone measured it mid-way and the card had not shrunk yet.
+            const frame = async () => {
+              await page.evaluate(
                 () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
               );
+              // Only running, finite animations: a paused one never finishes. Capped, so a stuck one
+              // fails the measurement below instead of the whole file's time limit.
+              await panel.evaluate((node) =>
+                Promise.race([
+                  Promise.all(
+                    node
+                      .getAnimations({ subtree: true })
+                      .filter(
+                        (animation) =>
+                          animation.playState === "running" &&
+                          animation.effect?.getComputedTiming().endTime !== Infinity,
+                      )
+                      .map((animation) => animation.finished.catch(() => {})),
+                  ),
+                  new Promise((done) => setTimeout(done, 2_000)),
+                ]),
+              );
+            };
             const rows = context.locator(".ui-disclosure-panel");
             if ((await rows.count()) === 0) await context.locator(".ui-disclosure-trigger").click();
             await rows.waitFor({ timeout: 5_000 });
@@ -352,8 +372,15 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
             await rows.waitFor({ state: "detached", timeout: 5_000 });
             await frame();
             const after = await fit(panel);
+            const shrank = fold > 0 && Math.abs(unfolded.card - after.card - fold) < 0.5;
+            if (!shrank)
+              console.log(`fold heights (${name}, ${placement}):`, {
+                fold,
+                unfolded: unfolded.card,
+                after: after.card,
+              });
             folded = {
-              shrank: fold > 0 && Math.abs(unfolded.card - after.card - fold) < 0.5,
+              shrank,
               endsAtContent: after.endsAtContent,
               scrolls: after.scrolls,
             };

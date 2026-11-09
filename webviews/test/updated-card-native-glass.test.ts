@@ -161,7 +161,8 @@ await requireBrowserLane("updated-card-native-glass.test.ts", async () => {
           expect(alpha(got.card)).toBeGreaterThan(0.3);
           expect(alpha(got.card)).toBeLessThan(0.9);
           expect(got.shadow).not.toBe("none");
-          expect(await page.locator(".wn-card").innerText()).toContain("What's New");
+          // The shipped title line is "Updated to …" alone; What's New moved into the open preview (8d5626228).
+          expect(await page.locator(".wn-card").innerText()).toContain("Updated to");
           await page.close();
         });
       }
