@@ -674,6 +674,9 @@
           // "crashed" (page.reload() loads it again).
           const row = { id: t.targetId, title: t.title, url: t.url, active: !!t.active, current: t.targetId === current, state: t.state || "live" };
           if (options && options.all) row.workspace = t.windowId === undefined ? null : t.windowId;
+          // An agent (any session) drove it already: the app leaves its page as it is when one
+          // attaches again. A tab only the person used gets its page rebuilt on an agent's first touch.
+          if (options && options.all && t.agentDriven) row.agentDriven = true;
           // In a store that keeps nothing (tabs.open(url, { incognito: true })).
           if (t.incognito) row.incognito = true;
           return row;

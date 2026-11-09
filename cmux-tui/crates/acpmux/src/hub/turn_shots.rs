@@ -7,9 +7,10 @@
 //! The capture is the browser host's own `screenshot` (cmux-browser-host, `js/api.js`), through one
 //! REPL session of this daemon on the `cef` engine: the app's tabs only, never a headless browser
 //! started for it, and the host masks typed secrets in every capture. The tab is the selected live
-//! http(s) tab of the chat's workspace among the tabs agents already drive (`tabs.list()`: the ones an
-//! agent kept, such as a preview it opened): the app rebuilds a page the first time an agent touches
-//! it (no saved password stays filled), so a tab only the person used is never touched for a picture.
+//! http(s) tab of the chat's workspace among the tabs an agent already drove (`tabs.list({all: true})`
+//! rows marked `agentDriven`, such as a preview an agent opened): the app rebuilds a page the first
+//! time an agent touches it (no saved password stays filled), so a tab only the person used is never
+//! touched for a picture.
 //! A hibernated tab is never woken. No page, no host or no workspace: no capture, and the turn never
 //! waits on one. Unix only (the host's socket); elsewhere nothing is captured.
 //!
@@ -129,18 +130,17 @@ fn host_socket() -> PathBuf {
 /// The REPL cell that writes the workspace's page to `out`, printing `TURN_SHOT {url, id}` when it
 /// did. With `tab` (the before's), only that tab: a turn whose selection moved to another page
 /// gets no after, never two unrelated pages as its change.
-/// `tabs.list()` with no `all` names the tabs agents drive already (never one the person alone
-/// used); only `{all: true}` carries each tab's workspace, so the cell reads both and takes a tab in
-/// both. Listing attaches nothing; only `tabs.get` does, on the chosen tab.
+/// Only a tab the host lists as `agentDriven` (any agent session drove it, so the app already
+/// marked it and attaching again rebuilds nothing), never one the person alone used. Listing
+/// attaches nothing; only `tabs.get` does, on the chosen tab.
 pub(crate) fn capture_code(workspace: &str, out: &Path, tab: Option<&str>) -> String {
     let workspace = json!(workspace_key(workspace));
     let tab = json!(tab);
     let out = json!(out.display().to_string());
     format!(
         r#"const key = (id) => String(id || "").replace(/^ws_/, "").replace(/-/g, "").toLowerCase();
-const driven = new Set((await tabs.list()).map((t) => t.id));
 const only = {tab};
-const tab = (await tabs.list({{ all: true }})).find((t) => driven.has(t.id) && (only === null || t.id === only) && t.active && t.state === "live" && key(t.workspace) === {workspace} && /^https?:\/\//.test(t.url || ""));
+const tab = (await tabs.list({{ all: true }})).find((t) => t.agentDriven === true && (only === null || t.id === only) && t.active && t.state === "live" && key(t.workspace) === {workspace} && /^https?:\/\//.test(t.url || ""));
 if (tab) {{ await screenshot(await tabs.get(tab.id), {{ path: {out} }}); console.log("TURN_SHOT " + JSON.stringify({{ url: tab.url, id: tab.id }})); }}"#
     )
 }
@@ -260,10 +260,30 @@ fn prune(dir: &Path, keep: usize) {
     }
 }
 
-/// Session `id`'s pictures, deleted with its chat. Blocking.
+/// Session `id`'s pictures, deleted with its chat. Blocking. Its pending pairs end first, so a
+/// capture still running finds its turn gone and leaves nothing (`turn_began`, `turn_ended`).
 pub(crate) fn remove_session(id: &str) {
+    let mut pending = PENDING.lock().unwrap_or_else(PoisonError::into_inner);
+    pending.retain(|key, turn| {
+        let keep = key.0 != id;
+        if !keep {
+            let _ = turn.phase.send_replace(Phase::Done);
+        }
+        keep
+    });
+    drop(pending);
     if let Some(id) = segment(id) {
         let _ = std::fs::remove_dir_all(root().join(id));
+    }
+}
+
+/// A turn refused after it started: its before has no after coming.
+pub(super) fn turn_refused(session: &Session, turn: &str) {
+    let key = (session.id.clone(), turn.to_owned());
+    let known = PENDING.lock().unwrap_or_else(PoisonError::into_inner).contains_key(&key);
+    if known && let Some(dir) = turn_dir(&root(), &key.0, &key.1) {
+        finish(&key);
+        tokio::task::spawn_blocking(move || drop_turn(&dir));
     }
 }
 
@@ -306,10 +326,17 @@ pub(super) fn turn_began(session: &Session, turn: &str) {
             finish(&key);
             return;
         };
-        if let Some(pending) = PENDING.lock().unwrap_or_else(PoisonError::into_inner).get_mut(&key)
-        {
-            pending.tab = Some(tab);
-            let _ = pending.phase.send_replace(Phase::Ready);
+        let mut pending = PENDING.lock().unwrap_or_else(PoisonError::into_inner);
+        match pending.get_mut(&key) {
+            Some(turn) => {
+                turn.tab = Some(tab);
+                let _ = turn.phase.send_replace(Phase::Ready);
+            }
+            // The chat was deleted or the turn refused while the before was taken: it goes too.
+            None => {
+                drop(pending);
+                drop_turn(&dir);
+            }
         }
     });
 }
@@ -352,7 +379,14 @@ pub(super) fn turn_ended(session: &Session, turn: &str) {
                 // No after (the tab gone or no longer shown, or a picture too large): `settle`
                 // drops the lone before.
                 let _ = capture(&socket, &base, &workspace, Some(&tab), &dir.join(AFTER));
-                settle(&base, &base.join(&key.0), &dir);
+                let live =
+                    PENDING.lock().unwrap_or_else(PoisonError::into_inner).contains_key(&key);
+                // A chat deleted while the after was taken keeps nothing.
+                if live {
+                    settle(&base, &base.join(&key.0), &dir);
+                } else {
+                    drop_turn(&dir);
+                }
             }
             finish(&key);
         })

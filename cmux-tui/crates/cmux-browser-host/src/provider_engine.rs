@@ -175,7 +175,13 @@ impl ProviderEngine {
                     if created.contains(&row.target_id) {
                         row.active = current.as_deref() == Some(row.target_id.as_str());
                     }
-                    row.to_json()
+                    let agent = all && provider_session && self.provider.agent_tab(&row.target_id);
+                    let mut json = row.to_json();
+                    // A tab an agent already drove (any session): touching it leaves its page.
+                    if agent {
+                        json.set("agentDriven", Value::Bool(true));
+                    }
+                    json
                 })
                 .collect(),
         )

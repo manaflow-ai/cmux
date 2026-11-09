@@ -1784,6 +1784,8 @@ impl Hub {
         joined: &super::digest::DigestTurn,
     ) {
         self.fail_unstarted_turn(session, prompt_id, turn_id, e, joined);
+        // Its before picture has no after coming (`turn_shots.rs`).
+        super::turn_shots::turn_refused(session, turn_id);
         if session.status() == SessionStatus::Disconnected {
             self.set_status(session, SessionStatus::Ready);
         }
@@ -2428,12 +2430,11 @@ impl Hub {
             // itself comes back under this id.
             if !replaced {
                 let id = session.id.clone();
-                let _ =
-                    tokio::task::spawn_blocking(move || {
-                        super::file_uploads::remove_session(&id);
-                        super::turn_shots::remove_session(&id);
-                    })
-                    .await;
+                let _ = tokio::task::spawn_blocking(move || {
+                    super::file_uploads::remove_session(&id);
+                    super::turn_shots::remove_session(&id);
+                })
+                .await;
             }
             // No awaits follow unregistering: a fixed-ID creator may now publish. Keep the
             // removal, index update and event publication under the same lock so a replacement

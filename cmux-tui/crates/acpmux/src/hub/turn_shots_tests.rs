@@ -66,8 +66,8 @@ fn the_cell_names_the_workspace_and_out_path_as_json_strings() {
     assert!(code.contains(r#"const only = "t\"1";"#), "{code}");
     // Only a selected live web page: a hibernated tab is never woken for a picture.
     assert!(code.contains(r#"t.state === "live""#) && code.contains("t.active"), "{code}");
-    // Only tabs agents drive already: touching one the person alone used would rebuild its page.
-    assert!(code.contains("tabs.list()") && code.contains("driven.has(t.id)"), "{code}");
+    // Only tabs an agent drove already: touching one the person alone used would rebuild its page.
+    assert!(code.contains("t.agentDriven === true"), "{code}");
 }
 
 #[cfg(unix)]
@@ -197,7 +197,7 @@ async fn a_pair_still_being_taken_reads_as_pending_not_as_none() {
 }
 
 /// The cell itself, run by node against a stand-in of the host's `tabs` API (js/api.js: rows carry
-/// `workspace` only for `{all: true}`, and the plain list holds only the tabs agents drive). It
+/// `workspace` and `agentDriven` only for `{all: true}`). It
 /// takes the driven selected page of the workspace, never the person's own tab, and with the
 /// before's tab only that one. Skipped (and said) where no node is on PATH.
 #[test]
@@ -219,6 +219,7 @@ const tabs = {{
     return rows.filter((r) => options.all || r.driven).map((r) => {{
       const row = {{ id: r.id, url: r.url, active: r.active, state: r.state }};
       if (options.all) row.workspace = r.workspace;
+      if (options.all && r.driven) row.agentDriven = true;
       return row;
     }});
   }},
@@ -245,4 +246,17 @@ console.log("GOT " + JSON.stringify(got));
     // The after of a turn whose before showed another tab: none.
     let moved = run_cell(Some("gone")).unwrap();
     assert!(moved.contains("GOT []") && !moved.contains("TURN_SHOT"), "{moved}");
+}
+
+#[test]
+fn a_deleted_chat_ends_its_pending_pairs() {
+    let key = ("turn-shots-test-purged".to_owned(), "t1".to_owned());
+    let (phase, mut seen) = watch::channel(Phase::Ready);
+    let turn =
+        Pending { workspace: "ws_ab".into(), tab: Some("preview".into()), phase, ended: true };
+    PENDING.lock().unwrap().insert(key.clone(), turn);
+    remove_session(&key.0);
+    // A capture still running finds its turn gone and drops what it took.
+    assert!(!PENDING.lock().unwrap().contains_key(&key));
+    assert_eq!(*seen.borrow_and_update(), Phase::Done);
 }
