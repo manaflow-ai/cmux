@@ -32,7 +32,9 @@ const ADMIN_IO_TIMEOUT: Duration = Duration::from_secs(5);
 
 mod link;
 mod mux_binding;
-pub use link::{LINK_AWAIT_LIMIT, LinkStatus, link_admin_socket, serve_link_admin};
+pub use link::{
+    LINK_AWAIT_LIMIT, LinkStatus, link_admin_socket, serve_link_admin, serve_link_cell_admin,
+};
 pub use mux_binding::{MuxBinding, verify_mux_binding};
 
 /// Failure to authenticate the process on the other end of a Unix socket.

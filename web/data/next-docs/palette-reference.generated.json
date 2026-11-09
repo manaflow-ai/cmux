@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1376,
+    "entries": 1381,
     "shortcuts": 188
   },
   "sections": [
@@ -26,6 +26,12 @@
           "title": "Agent Messages Playground",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "home.archiveChief",
+          "title": "Archive Chief",
+          "shortcut": null,
+          "command": "cmux home archive-chief"
         },
         {
           "id": "home.attachFiles",
@@ -128,6 +134,12 @@
           "title": "Conversation Info…",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "home.deleteChief",
+          "title": "Delete Chief…",
+          "shortcut": null,
+          "command": "cmux home delete-chief"
         },
         {
           "id": "home.hideConversation",
@@ -248,6 +260,12 @@
           "title": "Location History…",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "home.setPrimaryChief",
+          "title": "Make Primary Chief",
+          "shortcut": null,
+          "command": "cmux home primary-chief"
         },
         {
           "id": "home.mcpConnectPlayground",
@@ -1344,7 +1362,7 @@
         {
           "id": "space.next",
           "title": "Next Space",
-          "shortcut": "⌃⌥⌘",
+          "shortcut": "⌃⌥⌘L",
           "command": "cmux space next"
         },
         {
@@ -1410,7 +1428,7 @@
         {
           "id": "space.previous",
           "title": "Previous Space",
-          "shortcut": "⌃⌥⌘",
+          "shortcut": "⌃⌥⌘H",
           "command": "cmux space previous"
         },
         {
@@ -6694,6 +6712,12 @@
           "command": "cmux agent quick"
         },
         {
+          "id": "home.startQueuedAgent",
+          "title": "Start Queued Agent Now",
+          "shortcut": null,
+          "command": "cmux home start-agent"
+        },
+        {
           "id": "agentPane.stopTurn",
           "title": "Stop Agent Turn",
           "shortcut": null,
@@ -7868,6 +7892,12 @@
           "title": "Pane Padding",
           "shortcut": null,
           "command": "cmux settings toggle-pane-padding"
+        },
+        {
+          "id": "appearance.personalize",
+          "title": "Personalization…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "agentPane.display.railOnRight",

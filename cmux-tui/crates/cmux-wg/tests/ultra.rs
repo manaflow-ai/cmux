@@ -1,6 +1,6 @@
 //! Ultra mode over a link that loses datagrams: FEC (XOR or Reed-Solomon)
-//! rebuilds them below WireGuard in both directions when both ends turn it on, a peer that did not
-//! turn it on never sends parity, and duplication needs no peer support.
+//! rebuilds them below WireGuard in both directions, and the two ends agree
+//! on the mode inside the tunnel, so one end turning it on is enough.
 
 use std::io;
 use std::net::SocketAddr;
@@ -134,23 +134,37 @@ async fn reed_solomon_rebuilds_a_fifth_of_the_datagrams_lost_both_ways() {
 }
 
 #[tokio::test]
-async fn fec_on_one_end_protects_that_direction_only() {
-    let fec = UltraMode::Fec { group: 8, parity: 2 };
-    // Only the client's direction loses datagrams, and only it sends parity.
-    let (client, server, target) = pair((fec, 9), (UltraMode::Off, 0)).await;
+async fn ultra_on_one_end_is_agreed_for_both_directions() {
+    // Only the client turned it on (an app setting); both directions lose
+    // datagrams. The hello inside the tunnel makes the server send parity
+    // too, so the client rebuilds the echo's losses.
+    let rs = UltraMode::Rs { group: 4, parity: 4 };
+    let (client, server, target) = pair((rs, 9), (UltraMode::Off, 9)).await;
     echo(&client, &server, target, 512 * 1024).await;
     let (client, server) = (client.ultra_stats(), server.ultra_stats());
     assert!(server.recovered > 0, "server rebuilds from the client's parity: {server:?}");
-    assert_eq!(server.parity_sent, 0, "a peer that did not turn it on sends none: {server:?}");
-    assert!(client.parity_sent > 0);
+    assert!(server.parity_sent > 0, "server agreed to the client's mode: {server:?}");
+    assert!(client.recovered > 0, "client rebuilds the server's losses: {client:?}");
 }
 
 #[tokio::test]
-async fn duplication_needs_nothing_from_the_peer() {
-    // Only the client's direction loses datagrams: the server sends no copies.
+async fn the_stronger_mode_wins_the_agreement() {
+    // XOR on the client, Reed-Solomon on the server: both send Reed-Solomon,
+    // and a fifth of the data lost each way is rebuilt.
+    let fec = UltraMode::Fec { group: 8, parity: 2 };
+    let rs = UltraMode::Rs { group: 4, parity: 4 };
+    let (client, server, target) = pair((fec, 5), (rs, 5)).await;
+    echo(&client, &server, target, 512 * 1024).await;
+    let (client, server) = (client.ultra_stats(), server.ultra_stats());
+    assert!(client.recovered > 0 && server.recovered > 0, "{client:?} {server:?}");
+}
+
+#[tokio::test]
+async fn duplication_is_agreed_too() {
+    // The client asked for copies; the server, started off, sends them too.
     let (client, server, target) =
-        pair((UltraMode::Duplicate { copies: 2 }, 9), (UltraMode::Off, 0)).await;
+        pair((UltraMode::Duplicate { copies: 2 }, 9), (UltraMode::Off, 9)).await;
     echo(&client, &server, target, 256 * 1024).await;
     assert!(client.ultra_stats().copies_sent > 0);
-    assert_eq!(server.ultra_stats().copies_sent, 0, "duplication is one-sided");
+    assert!(server.ultra_stats().copies_sent > 0, "the server agreed to copies");
 }

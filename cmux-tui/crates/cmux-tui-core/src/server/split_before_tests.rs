@@ -182,10 +182,7 @@ fn a_non_boolean_before_is_refused_and_creates_nothing() {
     let response = wire.send(request);
     assert_eq!(response["ok"], false, "{response}");
     assert!(
-        wire.mux.with_state(|state| matches!(
-            state.workspaces[0].screens[0].root,
-            Node::Leaf(_)
-        )),
+        wire.mux.with_state(|state| matches!(state.workspaces[0].screens[0].root, Node::Leaf(_))),
         "a refused split changed the layout"
     );
 }

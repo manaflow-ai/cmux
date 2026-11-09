@@ -363,7 +363,7 @@ export const GUEST_CARRIER_TIMELINE = [
  * through the wall clock segment it was written in), then to this computer's clock through the uptime read at the
  * exec's midpoint (`before`, `after`), so a time is good to about half the exec, whatever the guest's wall clock did.
  */
-export function guestTimeline(stdout: string, answeredAt: number, before: number, after: number): string {
+export function guestTimeline(stdout: string, answeredAt: number, before: number, after: number, sentAt = answeredAt): string {
   let wallNow = NaN;
   let upNow = NaN;
   const segments: Array<{ rt: number; boot: number }> = [];
@@ -401,7 +401,13 @@ export function guestTimeline(stdout: string, answeredAt: number, before: number
     return Number.isFinite(mono) ? [`${e.name}${e.text ? ` "${e.text.slice(0, 80)}"` : ""} ${rel(mono)}`] : [];
   })];
   const step = clock.length > 1 ? Math.round(clock[clock.length - 1].boot - clock[0].boot) : 0;
-  return `after create's answer (±${half} ms${step ? `; the guest's wall clock stepped ${step >= 0 ? "+" : ""}${step} ms after boot` : ""}): ${parts.join("; ")}`;
+  // A machine bound before create was sent is a claimed spare (made and bound ahead, handed out at create); a cold
+  // machine can bind while create's answer is on its way back, so the send, not the answer, is the line. Its boot
+  // time is the snapshot base's, so the bind, not the boot, is what says so.
+  const bound = events.find((e) => e.name === "bound.json" && e.wall !== undefined);
+  const boundAt = bound ? mid - (upNow - toMono(bound.wall!)) : NaN;
+  const spare = boundAt < sentAt ? `; a claimed spare: bound ${Math.round(answeredAt - boundAt)} ms before create answered` : "";
+  return `after create's answer (±${half} ms${step ? `; the guest's wall clock stepped ${step >= 0 ? "+" : ""}${step} ms after boot` : ""}${spare}): ${parts.join("; ")}`;
 }
 
 /** A carrier answer's `relay`, as the dial takes it (cmux-tui carrier/answer.rs relay_route): a bare `relay+do://<host>`. */
@@ -1190,6 +1196,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
     let createAnsweredAt: number | null = null;
+    let createSentAt: number | null = null;
     const created = reuse
       ? await J.step("use machine", async () => {
           const m = await api.read("cloud.machine.get", { machine: reuse });
@@ -1197,6 +1204,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           return { value: m, detail: `${reuse} status ${m.status}${m.status === "paused" ? " (started)" : ""}, kept` };
         })
       : await J.step("create machine", async () => {
+          createSentAt = Date.now();
           const v = await api.op("cloud.machine.create", { name: `cloud journey ${tag}`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-create`);
           machine = v.machine.id as string;
           createAnsweredAt = Date.now();
@@ -1663,7 +1671,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const r = await exec(GUEST_CARRIER_TIMELINE);
         const after = Date.now();
         if (r.code !== 0) throw new Error(`exit ${r.code} ${r.stderr.slice(-200)}`);
-        return { value: null, detail: guestTimeline(r.stdout, createAnsweredAt!, before, after) };
+        return { value: null, detail: guestTimeline(r.stdout, createAnsweredAt!, before, after, createSentAt ?? createAnsweredAt!) };
       });
     }
 
