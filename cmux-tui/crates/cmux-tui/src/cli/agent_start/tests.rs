@@ -630,3 +630,77 @@ fn w3h_the_wait_times_out_while_the_agent_still_starts() {
     assert_eq!(report["state"], "timeout");
     assert_eq!(report["waited_ms"], "5000");
 }
+
+/// A daemon whose first reads find it too busy to answer in time (the
+/// `session.no_answer` read timeout under load), then answers.
+struct Slow {
+    busy_reads: Cell<usize>,
+    rejected: bool,
+}
+
+impl Daemon for Slow {
+    fn request(&self, _session: Option<&str>, plan: RequestPlan) -> Result<Value, CallFailure> {
+        let request = request_value(&plan).expect("a valid request");
+        if self.busy_reads.get() > 0 {
+            self.busy_reads.set(self.busy_reads.get() - 1);
+            if self.rejected {
+                return Err(CallFailure::local(
+                    super::super::mcp::FailureKind::Rejected,
+                    "terminal.not_found",
+                    "no such terminal",
+                ));
+            }
+            return Err(CallFailure::local(
+                super::super::mcp::FailureKind::NotRun,
+                "transport.failed",
+                crate::localization::catalog().cli_connection.no_answer(),
+            ));
+        }
+        Ok(match request["operation"].as_str() {
+            Some("terminal.get") => json!({"id": NEW, "lifecycle": "running"}),
+            Some("terminal.screen.read") => json!({"text": COMPOSER}),
+            _ => json!([]),
+        })
+    }
+}
+
+fn new_reads() -> Reads {
+    Reads {
+        show: super::plan(&["terminal", NEW, "show"]).unwrap(),
+        agents: super::plan(&["agent", "list", "--terminal", NEW]).unwrap(),
+        screen: super::plan(&["terminal", NEW, "screen", "read"]).unwrap(),
+    }
+}
+
+#[test]
+fn w5t_a_started_agent_is_ready_after_reads_the_busy_session_did_not_answer() {
+    // agent start under load: the tab is made, then two reads time out. The
+    // agent is still there, so the wait keeps looking and finds it ready,
+    // and never reports a failure for an agent that started.
+    let daemon = Slow { busy_reads: Cell::new(2), rejected: false };
+    let options = WaitOptions::new(Duration::from_secs(30), 0);
+    let outcome = run_with_clock(|clock| {
+        readiness::wait(&daemon, &new_reads(), options, clock.now, clock.sleep)
+    })
+    .expect("a read the session did not answer is no failure of the start");
+    assert_eq!(outcome.readiness, Some(Readiness::Ready));
+
+    // Only no-answer reads all the way: the wait ends as a timeout (the
+    // report keeps the terminal id), not as an error.
+    let daemon = Slow { busy_reads: Cell::new(usize::MAX), rejected: false };
+    let options = WaitOptions::new(Duration::from_secs(5), 0);
+    let outcome = run_with_clock(|clock| {
+        readiness::wait(&daemon, &new_reads(), options, clock.now, clock.sleep)
+    })
+    .expect("a timeout, not an error");
+    assert_eq!(outcome.readiness, None);
+    assert_eq!(outcome.waited, Duration::from_secs(5));
+
+    // A refusal is still an error at once.
+    let daemon = Slow { busy_reads: Cell::new(1), rejected: true };
+    let failure = run_with_clock(|clock| {
+        readiness::wait(&daemon, &new_reads(), options, clock.now, clock.sleep)
+    })
+    .expect_err("refused");
+    assert_eq!(failure.error["code"], "terminal.not_found");
+}
