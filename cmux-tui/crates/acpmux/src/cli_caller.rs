@@ -366,6 +366,27 @@ mod tests {
         assert!(path.ends_with("rel/acpmux-home/bin/acpmux"), "{}", path.display());
     }
 
+    /// F5 of #39020: a temporary file a writer left when it died (its process is gone) is
+    /// removed on the next write; one of a live process stays.
+    #[cfg(unix)]
+    #[test]
+    fn w5s_a_dead_writers_temporary_wrapper_is_removed_on_write() {
+        let home = std::env::temp_dir().join(format!("w5s-wrapper-tmp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let path = wrapper_path(&home);
+        install_wrapper(&path, "#!/bin/sh\nexec '/a/cmux' 'acp' \"$@\"\n").unwrap();
+        let bin = path.parent().unwrap();
+        // No process has this pid (above every pid limit), so its writer is gone.
+        let dead = bin.join(format!(".{CLI_ALIAS}.2147483646.0.tmp"));
+        std::fs::write(&dead, "half").unwrap();
+        let live = bin.join(format!(".{CLI_ALIAS}.{}.99.tmp", std::process::id()));
+        std::fs::write(&live, "half").unwrap();
+        install_wrapper(&path, "#!/bin/sh\nexec '/b/cmux' 'acp' \"$@\"\n").unwrap();
+        assert!(!dead.exists(), "the dead writer's temporary file stayed");
+        assert!(live.exists(), "a live writer's temporary file was removed");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
     #[test]
     fn this_cli_declares_terminal_outside_a_session_and_agent_inside_one() {
         let mut mux = Map::new();
