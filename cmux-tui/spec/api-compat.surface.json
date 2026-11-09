@@ -11956,6 +11956,20 @@
         "nullable": true
       }
     },
+    "request:set-terminal-tail-pin": {
+      "/pinned": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/terminal": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
     "request:set-viewport-pane-width": {
       "/pane": {
         "ty": "uint64",
@@ -21064,6 +21078,16 @@
       "/data/terminal_resource_id": {
         "ty": "string",
         "nullable": true
+      }
+    },
+    "response:set-terminal-tail-pin": {
+      "/data/pinned": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/terminal": {
+        "ty": "string",
+        "required": true
       }
     },
     "response:set-viewport-pane-width": {
