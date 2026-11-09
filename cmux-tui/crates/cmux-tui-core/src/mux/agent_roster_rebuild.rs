@@ -52,6 +52,15 @@ const REBUILD_READ_ATTEMPTS: u32 = 15;
 #[cfg(test)]
 const REBUILD_READ_ATTEMPTS: u32 = 4;
 
+/// How long the roster's owner waits before it tries a failed background
+/// read again (the rebuild's, the start's replay's): `failed` reads in a
+/// row, from [`REBUILD_RETRY_FIRST`] doubling to [`REBUILD_RETRY_LONGEST`].
+pub(in crate::mux) fn roster_read_retry_delay(failed: u32) -> Duration {
+    REBUILD_RETRY_FIRST
+        .saturating_mul(1 << failed.saturating_sub(1).min(16))
+        .min(REBUILD_RETRY_LONGEST)
+}
+
 /// A roster folded from the first journal record, the ranges the fold
 /// skipped because they did not decode, the reads that failed in a row, and
 /// the terminals the live roster retired since the rebuild started.
@@ -214,9 +223,7 @@ impl Mux {
                         ));
                         return;
                     }
-                    let delay = REBUILD_RETRY_FIRST
-                        .saturating_mul(1 << (failed - 1).min(16))
-                        .min(REBUILD_RETRY_LONGEST);
+                    let delay = roster_read_retry_delay(failed);
                     eprintln!(
                         "cmux-tui: the agent roster rebuild read failed ({failed} in a row), \
                          retried in {} ms: {error:#}",

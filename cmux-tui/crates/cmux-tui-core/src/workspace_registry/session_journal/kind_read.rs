@@ -188,8 +188,9 @@ fn active_kinds_after(
 /// that reaches `limit` records or the end of the slice, so a read over many
 /// sparse segments returns to the replay's deadline check between pages.
 /// A segment with no kind map yet (an older segment the backfill above has
-/// not reached) is decoded whole, kept to the accepted kinds, and ends the
-/// page: a page decodes at most one of them. Before, the read fell back to
+/// not reached), or one whose map the backfill has not proven whole, is
+/// decoded whole, kept to the accepted kinds, and ends the page: a page
+/// decodes at most one of them. Before, the read fell back to
 /// the legacy read of `limit` records of every kind, which over sparse
 /// segments decoded up to `limit` whole segments in one call.
 fn archived_kinds_after(
@@ -230,6 +231,11 @@ fn archived_kinds_after(
     }
     let mut segment_kinds =
         connection.prepare("SELECT kind FROM journal_segment_kinds WHERE segment_id = ?1")?;
+    // A map the backfill has not proven whole can lack a kind: an older
+    // build (a downgrade) maps a segment one kind at a time, and a read-only
+    // reader cannot run the backfill that would finish it. Such a segment is
+    // read as an unmapped one.
+    let unproven = unproven_kind_maps(connection)?;
     let mut page = Page { sequence, through, kinds, records: Vec::new(), reached: sequence };
     let workers = segment_decode_workers();
     // Segments in order, each with how its accepted records are read.
@@ -240,7 +246,10 @@ fn archived_kinds_after(
             .query_map([&segment_id], |row| row.get::<_, String>(0))?
             .collect::<Result<Vec<_>, _>>()?;
         let (start, end) = (u64::try_from(start)?, u64::try_from(end)?);
-        if mapped.is_empty() {
+        let proven = !unproven.is_some_and(|(after, through)| {
+            start > after && through.is_none_or(|through| start <= through)
+        });
+        if mapped.is_empty() || !proven {
             batch.push((end.min(through), PageSegment::Decode(segment_id)));
             page.consume_batch(connection, batch)?;
             return Ok((page.records, page.reached));

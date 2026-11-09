@@ -191,6 +191,9 @@ pub(in crate::mux) struct AgentRosterWorker {
     /// The replay is not done: the roster may be behind the journal the
     /// start found, so the startup projection reconcile waits for it.
     pub(in crate::mux) replaying: AtomicBool,
+    /// The replay's slices whose read failed in a row: the backoff of its
+    /// retry (`run_roster_pass`).
+    pub(in crate::mux) replay_failed_reads: std::sync::atomic::AtomicU32,
     /// The replay is done, and the projection reconcile it owes waits for a
     /// pass whose fold reached the journal head (`run_roster_pass`).
     pub(in crate::mux) reconcile_pending: AtomicBool,
@@ -356,6 +359,12 @@ impl Mux {
         *worker.replay.lock().unwrap_or_else(PoisonError::into_inner) = Some(replay);
         worker.replaying.store(true, Ordering::Release);
         worker.control.continue_later();
+    }
+
+    /// Asks the owner for another pass of the background replay after
+    /// `delay`, with no request to wake it: a retry after a failed read.
+    pub(in crate::mux) fn retry_agent_roster_replay_after(&self, delay: Duration) {
+        self.agent_roster_worker.control.continue_after(delay);
     }
 
     /// Asks the owner for another pass of the background replay.

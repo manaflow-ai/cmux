@@ -1533,14 +1533,7 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
     {
         return Ok(());
     }
-    let meta_u64 = |key: &str| -> anyhow::Result<Option<u64>> {
-        Ok(connection
-            .query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| {
-                row.get::<_, String>(0)
-            })
-            .optional()?
-            .and_then(|value| value.parse::<u64>().ok()))
-    };
+    let rescan = unproven_kind_maps_after(connection, complete.as_deref())?;
     // A run that is not this one's first decodes again every legacy segment
     // after the last one this build finished, the inserts ignoring rows
     // already there: an older build inserts kind rows one at a time, so a
@@ -1555,14 +1548,6 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
     //   their kind map from the seal, and only unmapped ones of those remain.
     // - A marker at `1` next to the progress rows is a `2` an older build
     //   marked done (above), resumed the same way.
-    let rescan = match complete.as_deref() {
-        None => None,
-        Some("0") => Some((meta_u64("journal_segment_kinds_backfill_through")?.unwrap_or(0), None)),
-        Some(_) => Some((
-            meta_u64("journal_segment_kinds_backfill_through")?.unwrap_or(0),
-            meta_u64("journal_segment_kinds_backfill_end")?,
-        )),
-    };
     if complete.is_none() {
         all_or_nothing(connection, || {
             connection.execute(
@@ -1642,6 +1627,49 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
         )?;
         Ok(())
     })
+}
+
+/// The segments whose kind map the legacy kind backfill has not proven
+/// whole ([`backfill_legacy_journal_segment_kinds`]), as `(after, through)`:
+/// a segment with `after < start_sequence <= through` (no upper bound when
+/// `through` is `None`). `None` when every map is whole: the backfill never
+/// started (every map is a seal's), or it finished (`1`) with no progress
+/// rows left. `marker` is the backfill's marker, when it was read already.
+fn unproven_kind_maps_after(
+    connection: &Connection,
+    marker: Option<&str>,
+) -> anyhow::Result<Option<(u64, Option<u64>)>> {
+    let meta_u64 = |key: &str| -> anyhow::Result<Option<u64>> {
+        Ok(connection
+            .query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| {
+                row.get::<_, String>(0)
+            })
+            .optional()?
+            .and_then(|value| value.parse::<u64>().ok()))
+    };
+    let through = meta_u64("journal_segment_kinds_backfill_through")?;
+    let end = meta_u64("journal_segment_kinds_backfill_end")?;
+    Ok(match marker {
+        None => None,
+        Some("1") if through.is_none() && end.is_none() => None,
+        Some("0") => Some((through.unwrap_or(0), None)),
+        Some(_) => Some((through.unwrap_or(0), end)),
+    })
+}
+
+/// [`unproven_kind_maps_after`] with the marker read here: what a kind read
+/// must not trust, on a read-only reader too, which cannot run the backfill.
+pub(super) fn unproven_kind_maps(
+    connection: &Connection,
+) -> anyhow::Result<Option<(u64, Option<u64>)>> {
+    let marker = connection
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'journal_segment_kinds_backfill'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    unproven_kind_maps_after(connection, marker.as_deref())
 }
 
 /// How long one call of the kind backfill, and one kind read's sealed part

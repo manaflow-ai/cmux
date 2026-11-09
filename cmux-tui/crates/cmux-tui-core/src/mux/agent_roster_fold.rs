@@ -437,6 +437,7 @@ impl Mux {
                 };
                 match progress {
                     Ok(agent_roster_restore::ReplayProgress::Paused) => {
+                        self.agent_roster_worker.replay_failed_reads.store(0, Ordering::Release);
                         drop(slot);
                         drop(fold);
                         // The slice moved the roster: a subscriber's live
@@ -446,13 +447,28 @@ impl Mux {
                         return pass.retire;
                     }
                     Ok(agent_roster_restore::ReplayProgress::Done { diagnostic }) => {
+                        self.agent_roster_worker.replay_failed_reads.store(0, Ordering::Release);
                         *slot = None;
                         replayed = Some(diagnostic);
                     }
                     Err(error) => {
                         // A read that fails (I/O, a busy database) is tried
-                        // again by the next request or maintenance tick.
-                        eprintln!("cmux-tui: the background agent roster replay failed: {error}");
+                        // again after a backoff, as the rebuild's are, with
+                        // no request needed: until the replay is done, the
+                        // roster is behind and `expect_agent` sends are
+                        // refused. A stop drops the retry; the next start
+                        // resumes from the last save.
+                        let worker = &self.agent_roster_worker;
+                        let failed = worker.replay_failed_reads.fetch_add(1, Ordering::AcqRel) + 1;
+                        let delay = agent_roster_rebuild::roster_read_retry_delay(failed);
+                        eprintln!(
+                            "cmux-tui: the background agent roster replay failed ({failed} in a \
+                             row), retried in {} ms: {error}",
+                            delay.as_millis()
+                        );
+                        drop(slot);
+                        drop(fold);
+                        self.retry_agent_roster_replay_after(delay);
                         return pass.retire;
                     }
                 }
