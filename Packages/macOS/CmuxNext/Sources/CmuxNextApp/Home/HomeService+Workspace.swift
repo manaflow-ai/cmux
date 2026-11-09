@@ -79,11 +79,11 @@ extension HomeService {
         return nil
     }
 
-    /// The chief conversation: the oldest conversation with the mux in the
-    /// Chief owner, else one created under a fixed key.
-    private func chiefConversation(_ connection: DaemonConnection) async throws -> String {
+    /// The chief conversation: the oldest conversation with the mux in `listed` (the Chief owner's
+    /// list the caller just read; a second read held a fresh launch's Home a round trip longer), else one created under a fixed key.
+    private func chiefConversation(_ connection: DaemonConnection, listed: [ConversationSummary]) async throws -> String {
         let client = ConversationClient(connection)
-        if let existing = HomeChiefName.select(from: try await client.list()) {
+        if let existing = HomeChiefName.select(from: listed) {
             // One-time rename to the chief's name (N1); a failure keeps the old title.
             if let rename = HomeChiefName.migration(for: existing) {
                 do { _ = try await client.op(rename) } catch {
@@ -157,7 +157,7 @@ extension HomeService {
         let known = Set(listedAll.map(\.id))
         let listed = HomeChiefName.select(from: listedAll)
         // The local Chief is looked up (never created) while a cloud Chief has the tab.
-        let localChief = if shown == nil, let owner { try await chiefConversation(owner) } else { listed?.id }
+        let localChief = if shown == nil, let owner { try await chiefConversation(owner, listed: listedAll) } else { listed?.id }
         let localHasHistory = shown == nil || (listed?.lastSeq ?? 0) > 0
         // A teleported Chief's tab is the conversation where it answers now (HomeService+ChiefRoster).
         let followed = chiefFollow.conversation
