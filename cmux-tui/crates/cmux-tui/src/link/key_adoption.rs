@@ -509,7 +509,8 @@ pub(super) async fn tell_each<O: super::dial::Overlay>(
     futures_util::future::join_all(tells).await
 }
 
-/// [`tell_each`], keeping the installs that took the key.
+/// [`tell_each`], keeping the installs that took the key (the tests read it this way).
+#[cfg(test)]
 pub(super) async fn tell_all<O: super::dial::Overlay>(
     overlay: &O,
     new_public: &[u8; 32],
