@@ -301,6 +301,9 @@ CRASH_COMPARE = "scripts/ci/crash_ratchet_compare.py"
 # crash_ratchet_compare.py's lines: a red row (`  rust <crate>: <kind>: head N, base M|ok|not red`) and a raised row.
 COMPARE_ROW = re.compile(r"^  rust (?P<crate>\S+): (?P<kind>\S+): head (?P<head>\d+), base (?P<base>.+)$")
 COMPARE_RAISED = re.compile(r"^::error::crash-safety-baseline\.json may only go down: (.+)$")
+# With a red base, only the rows it names as worse are this push's.
+COMPARE_WORSE = re.compile(r"^::error::crash ratchet worse than the base: rust (?P<crate>\S+): (?P<kind>\S+) head "
+                           r"(?P<head>\d+), base (?P<base>.+)$")
 # crash_ratchet.py's lines in check-crash-safety.sh's output: a row over its baseline, and the closing summary.
 RUST_RATCHET_LINE = re.compile(r"^crash-ratchet: rust \S+: ")
 RATCHET_ROW_LINE = re.compile(r"^crash-ratchet: (?:swift|banned|env_write) ")
@@ -1229,7 +1232,8 @@ def crash_tree(repo: Path, rev: str, crates: list[str], dest: Path, baseline: di
     if not indexed:
         return
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    subprocess.run(["git", "init", "-q", str(dest)], check=True, env=env, capture_output=True)
+    # No template: its sample hooks are most of what `git init` writes.
+    subprocess.run(["git", "init", "-q", "--template=", str(dest)], check=True, env=env, capture_output=True)
     objects = Path(git(repo, "rev-parse", "--git-common-dir").decode().strip())
     objects = (objects if objects.is_absolute() else repo / objects).resolve() / "objects"
     (dest / ".git" / "objects" / "info").mkdir(parents=True, exist_ok=True)
@@ -1254,21 +1258,35 @@ def crash_ratchet_findings(repo: Path, base: str, head: str, head_tree: Path, cr
     gives the same verdict on both sides, so leaving it out changes nothing. Swift crash rows stay the Crash safety
     scanner's. On a refusal, each hit line the head adds in a red row is named at its place in a changed file."""
     started = time.monotonic()
-    on_main = main_based(repo, head, head_tree)
-    ratchet = load_crash_ratchet(repo, head_tree, trusted_scripts, on_main, work)
-    compare = load_crash_compare(repo, trusted_scripts, on_main, work)
-    deleted = [p for p in git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=D", "-z", base, head, "--",
-                               RUST_CRATES).decode().split("\0") if p.endswith(".rs")]
-    baselines = [rust_rows_only(json.loads(blob) if blob else None, ratchet.WAIVED)
-                 for blob in (blob_at(repo, rev, f"{SCRIPTS}/crash-safety-baseline.json") for rev in (base, head))]
-    rows = [ratchet.baseline_rows(b) if b else {} for b in baselines]
-    touched = sorted({p.split("/")[2] for p in crates + deleted if p.count("/") >= 3}
-                     | {row[3] for row in rows[0].keys() | rows[1].keys() if rows[0].get(row) != rows[1].get(row)})
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        # Which ratchet (main's or feat's) is a merge-base question; the trees do not depend on it.
+        main_job = pool.submit(main_based, repo, head, head_tree)
+        deleted = [p for p in git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=D", "-z", base, head,
+                                  "--", RUST_CRATES).decode().split("\0") if p.endswith(".rs")]
+        blobs = [blob_at(repo, rev, f"{SCRIPTS}/crash-safety-baseline.json") for rev in (base, head)]
+        data = [json.loads(blob) if blob else None for blob in blobs]
+        waived = "waived"  # crash_ratchet.WAIVED; checked against the loaded ratchet below
+        baselines = [rust_rows_only(d, waived) for d in data]
+        rows = [{(section, lang, kind, module): n
+                 for section, langs in (("counted", {"rust": (b or {}).get("rust", {})}),
+                                        ("waived", (b or {}).get(waived, {})))
+                 for lang, kinds in langs.items() for kind, modules in kinds.items()
+                 for module, n in modules.items() if n} for b in baselines]
+        touched = sorted({p.split("/")[2] for p in crates + deleted if p.count("/") >= 3}
+                         | {row[3] for row in rows[0].keys() | rows[1].keys() if rows[0].get(row) != rows[1].get(row)})
+        base_dir, head_dir = work / "crash-base", work / "crash-head"
+        trees = ([pool.submit(crash_tree, repo, base, touched, base_dir, baselines[0], False),
+                  pool.submit(crash_tree, repo, head, touched, head_dir, baselines[1], True)] if touched else [])
+        on_main = main_job.result()
+        ratchet = load_crash_ratchet(repo, head_tree, trusted_scripts, on_main, work)
+        compare = load_crash_compare(repo, trusted_scripts, on_main, work)
+        for job in trees:
+            job.result()
+    if ratchet.WAIVED != waived:
+        raise SystemExit(f"prepush-gate: {ratchet.__file__} names its waived section {ratchet.WAIVED!r}, not "
+                         f"{waived!r}; this gate cannot read its baseline")
     if not touched:
         return [], time.monotonic() - started
-    base_dir, head_dir = work / "crash-base", work / "crash-head"
-    crash_tree(repo, base, touched, base_dir, baselines[0], indexed=False)
-    crash_tree(repo, head, touched, head_dir, baselines[1], indexed=True)
     script = head_dir / SCRIPTS / CRASH_RATCHET
     script.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(ratchet.__file__, script)
@@ -1278,8 +1296,9 @@ def crash_ratchet_findings(repo: Path, base: str, head: str, head_tree: Path, cr
         return [], time.monotonic() - started
     findings: list[Finding] = []
     red: set[tuple[str, str]] = set()
+    worse = any(COMPARE_WORSE.match(line) for line in out.splitlines())
     for line in out.splitlines():
-        row = COMPARE_ROW.match(line)
+        row = (COMPARE_WORSE if worse else COMPARE_ROW).match(line)
         raised = COMPARE_RAISED.match(line)
         if row:
             crate, kind = row.group("crate"), row.group("kind")
