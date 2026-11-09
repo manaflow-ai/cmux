@@ -1318,10 +1318,20 @@ input box shows, is `blocked` with `dialog` (`folder_trust`,
 `update_prompt`) and a `reason`; a fresh hook record that says `blocked` is
 `agent_question`. Otherwise a fresh hook record that says idle (the
 `SessionStart` hook) or the agent's input box on screen is `ready`. Both count
-only once the screen stood still for 1 s. cmux never answers a dialog.
+only once the screen stood still for 1 s. cmux never answers a dialog. A
+blocked result also has the dialog's numbered `options` (`{number, label,
+selected}`) read from the screen; for `folder_trust` it has `accept_keys`, the
+keys that pick the trust option (for example `["down", "enter"]`), and the
+`reason` says to ask the person and then run `cmux terminal NAME keys` with
+them (Enter alone can pick "No, exit" and end the agent).
 
-`--json` prints `{name, state, reason, dialog, harness, launcher, args, cwd,
-placement, workspace_id, screen_id, pane_id, tab_id, terminal_id, waited_ms}`.
+The new agent's pane splits the caller's pane, and every pane of that row
+gets the same width (or height for a vertical row).
+
+`--json` prints `{name, state, reason, dialog, options, accept_keys, harness,
+launcher, args, cwd, placement, workspace_id, screen_id, pane_id, tab_id,
+terminal_id, waited_ms}` (`options` and `accept_keys` only when blocked on a
+dialog that shows them).
 `state` is `ready` (exit 0), `blocked` (exit 4), `timeout` (exit 124, default
 `--timeout` 90s), `exited` (exit 1) or `started` with `--no-wait` (exit 0).
 `harness` uses the one vocabulary of `terminal list --agents`.

@@ -104,8 +104,8 @@ pub(super) const RECIPES: &[Recipe] = &[
             "cmux --json agent start alpha --cmd 'sr2 claude' --no-focus",
             "cmux --json terminal alpha send --text 'Fix the failing test' --wait idle --timeout 15m",
         ],
-        read: "agent start splits your pane (each pane of that row gets the same width), runs the launcher (--cmd; codex works too) in a \
-               tab named alpha and returns once the agent can take a message: `state` \
+        read: "agent start splits your pane (each pane of that row gets the same width), runs \
+               the launcher (--cmd; codex works too) in a tab named alpha and returns once the agent can take a message: `state` \
                `ready` (exit 0) with `terminal_id`, `tab_id`, `pane_id`, or `blocked` \
                (exit 4) with `dialog` (`folder_trust`, `login`, ...), `reason` and the \
                dialog's numbered `options` when a startup dialog waits on the person. Ask the \
