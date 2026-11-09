@@ -185,6 +185,24 @@ impl Hub {
         };
         let prompt_id = opts.prompt_id.clone().unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let uuid = uuid::Uuid::now_v7().to_string();
+        // The gate every prompt passes again at dispatch (`web_control.rs` `check_dispatch`): the
+        // chat's mode, policy, device authorization or folder trust may have changed since the
+        // request's own check, and a refused prompt never reaches the app.
+        let checked = self
+            .check_dispatch(
+                session,
+                opts.control,
+                opts.cloud_mobile,
+                opts.trust_gate,
+                opts.full_access_device.as_deref(),
+                &prompt_id,
+                &uuid,
+                "bridge",
+            )
+            .await;
+        if let Err(e) = checked {
+            return Some(Err(e));
+        }
         // Claimed under one lock: two sends of one id never both go.
         let claimed = deliveries().claim(uuid.clone(), &session.id, &prompt_id, &text);
         let rx = match claimed {

@@ -367,3 +367,51 @@ async fn a_prompt_awaiting_the_owners_approval_never_reaches_the_app() {
     assert!(err.unwrap_err().message.contains("watch.read_only"));
     assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 0, "nothing reached the app");
 }
+
+/// Review of #38393 at e63236a (F1): a bridged prompt passes the dispatch gate every prompt
+/// passes (`check_dispatch`): a Web prompt to a chat whose Web control ended since the request's
+/// own check is refused and never reaches the app.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_prompt_the_dispatch_gate_refuses_never_reaches_the_app() {
+    crate::claude_peers::TEST_ENABLED.store(true, std::sync::atomic::Ordering::SeqCst);
+    let config = scratch("dispatch");
+    let transcript = config.join("sid-d.jsonl");
+    std::fs::write(&transcript, "").unwrap();
+    let inbox = fake_claude(&config, "sid-d", transcript.clone());
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py")]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    hub.harness_homes.lock().unwrap().claude = config.clone();
+    let session = hub
+        .new_session(crate::hub::NewRequest { cwd: Some(config.clone()), ..Default::default() })
+        .await
+        .unwrap();
+    {
+        let mut meta = session.meta.lock().unwrap();
+        meta.agent_session_id = Some("sid-d".into());
+        meta.tags.insert(
+            "bridge".into(),
+            crate::store::Tag { value: "claude".into(), expires_at: None },
+        );
+        meta.watching = Some(Watching {
+            family: "claude".into(),
+            file: transcript,
+            offset: 0,
+            codex_items: false,
+            open: None,
+        });
+    }
+    session.web_control_ended.store(true, std::sync::atomic::Ordering::SeqCst);
+    let opts = PromptOptions { control: crate::hub::Control::Web, ..Default::default() };
+    let blocks = vec![json!({"type": "text", "text": "run this"})];
+    let err = hub.prompt_with(&session, blocks, "test", false, opts).await.unwrap_err();
+    // Refused by the gate (whichever of its Web rules reads first), not by the watch.
+    assert!(!err.message.contains("watch.read_only"), "{}", err.message);
+    assert!(!err.message.contains("bridge.undelivered"), "{}", err.message);
+    assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 0, "nothing reached the app");
+}
