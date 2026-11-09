@@ -21,7 +21,7 @@
 import { cssTimeMs, foldMs } from "./fold";
 import { ghostOf } from "./turnFold";
 import { LIVE_THINKING } from "./turns";
-import type { AcpmuxRow } from "../model";
+import { isLineRow, type AcpmuxRow } from "../model";
 
 /// How the rows the fold takes away go. `fade` (shipped): each copy fades out where it was while the
 /// rows that stay slide over it. `tuck`: the copies slide up under the folded line as they fade, as
@@ -59,7 +59,9 @@ export function endsTurn(before: readonly AcpmuxRow[] | undefined, after: readon
   if (before === undefined || before === after || !hasLiveLine(before) || hasLiveLine(after)) return false;
   let prompt: string | undefined;
   for (let index = before.length - 1; index >= 0 && prompt === undefined; index -= 1)
-    if (before[index]!.kind === "user") prompt = before[index]!.id;
+    // The prompt, not a line another agent's message or the inbox drew (model.ts `isLineRow`): such a
+    // line regroups under a new id as the turn ends, and its id going is no cut transcript.
+    if (before[index]!.kind === "user" && !isLineRow(before[index]!)) prompt = before[index]!.id;
   return prompt === undefined || after.some((row) => row.id === prompt);
 }
 

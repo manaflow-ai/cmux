@@ -1408,6 +1408,20 @@ function TranscriptView({
   /// Until when (performance.now) the turn that just ended still draws its reply: the reveal drains
   /// what had arrived within StreamReveal.finishMs of the end, and those lines ride the chase.
   const chaseDrainUntil = useRef(Number.NEGATIVE_INFINITY);
+  /// The reply's drawn height while the turn's end folds and its last lines reveal (`chaseDrainUntil`).
+  const drainReply = useRef<{ id: string; height: number } | undefined>(undefined);
+  /// The turn's reply, its last assistant row near the end, and its drawn height. O(1): a few rows
+  /// from the end and one element's height.
+  const replyHeight = (shown: readonly AcpmuxRow[]) => {
+    for (let index = shown.length - 1; index >= Math.max(0, shown.length - 6); index -= 1) {
+      const row = shown[index]!;
+      if (row.kind !== "assistant") continue;
+      const name = typeof CSS === "undefined" ? row.id.replace(/["\\]/g, "\\$&") : CSS.escape(row.id);
+      const node = thread.current?.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${name}"]`);
+      return node ? { id: row.id, height: node.offsetHeight } : undefined;
+    }
+    return undefined;
+  };
   /// Ends the follow motion in flight where the rows lay out, and forgets where they were.
   const stopFollowMotion = useCallback(() => {
     followGlide.current?.stop();
@@ -3266,8 +3280,40 @@ function TranscriptView({
           const draining = now < chaseDrainUntil.current;
           const live = (working || sendWindow || draining) && chaseOpenTail.current === undefined;
           const riding = jumping || bottomStacking || heightFoldPlaying() || turnEnding;
-          if (riding || resizing) {
+          // The fold playing on after the pass that ended the turn: it moves the rows on its frames,
+          // and the chase that took the reply's last lines lands on its own (a stop there moved what
+          // it still held back at once).
+          const foldRiding =
+            turnEnding && turnEndCapture.current === undefined && !jumping && !bottomStacking && !heightFoldPlaying();
+          const folding = Boolean(thread.current?.hasAttribute(TURN_END_ATTR));
+          if (folding && draining && !jumping && !bottomStacking && !heightFoldPlaying() && !resizing) {
+            // The fold plays and the reply's last lines still reveal: the fold takes every move but
+            // theirs (it takes a late one only from its curve's remaining share, which moved the rest
+            // at once, 12 to 18 px in a frame), and the chase takes the reply's growth, drawn back by
+            // it and landing at no more than a line a frame. The fold reads the rows over the thread
+            // drawn back, so it sees only the rest.
+            const reply = replyHeight(rows);
+            const grew = reply && drainReply.current?.id === reply.id ? reply.height - drainReply.current.height : 0;
+            drainReply.current = reply;
+            chaseAnchor.current = undefined;
+            const chase = followChase.current;
+            if (chase && grew > 0.5) {
+              chase.resume();
+              chase.shift(thread.current, -grew);
+              chase.land();
+            }
+          } else if (foldRiding && !resizing) {
+            // The fold playing on: nothing noted, and a chase still landing lands on its own.
+            chaseAnchor.current = undefined;
+          } else if (riding || resizing) {
             stopFollowMotion();
+            // The turn's end rides on its fold (turnEndFold.ts), or rests where nothing moved: the
+            // reply's last lines still revealing after it are the turn's all the same, and chase
+            // (send-stream-motion), never move the rows at once. Its height now is where they start.
+            if (turnEnding && lineLeft) {
+              chaseDrainUntil.current = now + StreamReveal.finishMs;
+              drainReply.current = replyHeight(rows);
+            }
             // A resize settles in this pass: the next pass after it measures from the rows as they
             // lie now (none noted, the first move after an idle resize, a prompt landing, moved at
             // once). A ride, a fold and a jump move the rows on their own frames: nothing noted.

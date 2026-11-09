@@ -35,6 +35,18 @@ test("an update ends the turn only when it takes the line away", () => {
   );
 });
 
+test("a user line another agent or the inbox drew is not the turn's prompt", () => {
+  // An incoming message's line (model.ts `isLineRow`) after the prompt regroups under a new id as the
+  // turn ends: the prompt above it stays, so the turn ended.
+  const incoming: AcpmuxRow = { ...row("in-1", "user"), incoming: { kind: "message" } as AcpmuxRow["incoming"] };
+  const running = [row("u", "user"), row("work", "activity"), incoming, row(LIVE_THINKING, "thinking")];
+  expect(
+    endsTurn(running, [row("u", "user"), row("worked-u", "worked"), row("run-in-1", "messageRun"), row("answer")]),
+  ).toBe(true);
+  // The prompt itself going is still a cut transcript.
+  expect(endsTurn(running, [row("u2", "user"), row("worked-u2", "worked"), row("answer")])).toBe(false);
+});
+
 test("the look comes from the nearest attribute, else the shipped fade", () => {
   const node = { closest: () => ({ getAttribute: () => "tuck" }) } as unknown as Element;
   expect(turnEndLook(node)).toBe("tuck");
