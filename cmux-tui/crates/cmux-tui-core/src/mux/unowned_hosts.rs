@@ -376,9 +376,42 @@ fn walk_roots<T>(
     (cursor, false)
 }
 
+type LoadedRecords =
+    anyhow::Result<Vec<(PathBuf, crate::terminal_host_runtime::TerminalHostRecord)>>;
+
+/// How a pass reads and ends hosts: the real record files and host
+/// processes, or a test's.
+struct HostOps<'a> {
+    load: &'a dyn Fn(&Path) -> LoadedRecords,
+    liveness: &'a dyn Fn(
+        &Path,
+        &crate::terminal_host_runtime::TerminalHostRecord,
+    ) -> TerminalHostLiveness,
+    end: &'a dyn Fn(&crate::terminal_host_runtime::TerminalHostRecord, &Path) -> bool,
+}
+
+impl HostOps<'static> {
+    const REAL: Self = Self {
+        load: &crate::terminal_host_runtime::load_terminal_host_records,
+        liveness: &terminal_host_record_liveness,
+        end: &cleanup_terminal_host_record,
+    };
+}
+
 /// One pass over the other sessions' record roots ([`other_session_roots`]),
 /// starting after the root the last pass finished.
 fn reap_pass(
+    own_root: &Path,
+    store_path: &Path,
+    now_ms: u64,
+    timing: Timing,
+    stopped: &dyn Fn() -> bool,
+) -> PassReport {
+    reap_pass_with(&HostOps::REAL, own_root, store_path, now_ms, timing, stopped)
+}
+
+fn reap_pass_with(
+    hosts: &HostOps<'_>,
     own_root: &Path,
     store_path: &Path,
     now_ms: u64,
@@ -396,7 +429,7 @@ fn reap_pass(
         previous.cursor.as_deref(),
         stopped,
         |(state_root, root, component)| {
-            let Ok(records) = crate::terminal_host_runtime::load_terminal_host_records(root) else {
+            let Ok(records) = (hosts.load)(root) else {
                 return Visit::Done;
             };
             if records.is_empty() {
@@ -436,7 +469,7 @@ fn reap_pass(
                     .map_or(now_ms, |seen| seen.first_seen_ms);
                 let seen = Seen { first_seen_ms: first_seen, owner_mark: owner_mark.clone() };
                 let unowned_for = Duration::from_millis(now_ms - first_seen);
-                match terminal_host_record_liveness(&record_path, &record) {
+                match (hosts.liveness)(&record_path, &record) {
                     TerminalHostLiveness::Dead => {
                         dead.push((record_path, record, key, seen, unowned_for));
                         continue;
@@ -462,7 +495,7 @@ fn reap_pass(
                     store.hosts.insert(key, seen);
                     continue;
                 }
-                if cleanup_terminal_host_record(&record, &record_path) {
+                if (hosts.end)(&record, &record_path) {
                     eprintln!(
                         "cmux-tui: ended terminal host {} of another session ({}): no live \
                          session owned it for {} s",
@@ -563,6 +596,125 @@ mod tests {
         std::fs::create_dir_all(&lone).unwrap();
         assert_eq!(state_roots(&lone), vec![lone]);
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// A state root with an own record root and one free-guarded record
+    /// root per session in `sessions`; returns (own root, other roots).
+    fn state_with_sessions(name: &str, sessions: &[&str]) -> (PathBuf, PathBuf, Vec<PathBuf>) {
+        let dir = std::env::temp_dir().join(format!("unowned-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let own = crate::terminal_host_runtime::terminal_host_root(&dir, "mine");
+        std::fs::create_dir_all(&own).unwrap();
+        std::fs::create_dir_all(dir.join("session-locks")).unwrap();
+        let mut others = Vec::new();
+        for session in sessions {
+            let root = crate::terminal_host_runtime::terminal_host_root(&dir, session);
+            std::fs::create_dir_all(&root).unwrap();
+            let component = crate::workspace_registry::session_guard_component(session);
+            std::fs::write(dir.join("session-locks").join(format!("{component}.lock")), b"")
+                .unwrap();
+            others.push(root);
+        }
+        others.sort();
+        (dir, own, others)
+    }
+
+    fn fake_record(
+        root: &Path,
+        index: usize,
+    ) -> (PathBuf, crate::terminal_host_runtime::TerminalHostRecord) {
+        let terminal_id = format!("t{index:03}");
+        let record = crate::terminal_host_runtime::TerminalHostRecord {
+            record_version: 4,
+            terminal_id: terminal_id.clone(),
+            incarnation: "i".into(),
+            ..Default::default()
+        };
+        (root.join(format!("{terminal_id}.json")), record)
+    }
+
+    const NO_GRACE: Timing =
+        Timing { live_grace: Duration::ZERO, ended_grace: Duration::ZERO, ..Timing::STANDARD };
+
+    #[test]
+    fn hosts_that_fail_to_end_do_not_keep_later_hosts_and_roots_from_their_turn() {
+        // The first root's 6 live hosts never end; the second root's host does.
+        let (dir, own, roots) = state_with_sessions("failing", &["cmux-app-a", "cmux-app-b"]);
+        let (stuck, free) = (roots[0].clone(), roots[1].clone());
+        let records = |root: &Path| -> LoadedRecords {
+            let count = if root == stuck {
+                6
+            } else if root == free {
+                1
+            } else {
+                0
+            };
+            Ok((0..count).map(|index| fake_record(root, index)).collect())
+        };
+        let tried = std::cell::RefCell::new(Vec::<PathBuf>::new());
+        let end = |_: &crate::terminal_host_runtime::TerminalHostRecord, path: &Path| {
+            tried.borrow_mut().push(path.to_path_buf());
+            !path.starts_with(&stuck)
+        };
+        let hosts =
+            HostOps { load: &records, liveness: &|_, _| TerminalHostLiveness::Live, end: &end };
+        let store = dir.join(STORE_FILE);
+        let never = || false;
+        let mut now = 1_000_000;
+        for _ in 0..4 {
+            reap_pass_with(&hosts, &own, &store, now, NO_GRACE, &never);
+            now += CATCH_UP_INTERVAL.as_millis() as u64;
+        }
+        let tried = tried.into_inner();
+        let stuck_tried =
+            tried.iter().filter(|path| path.starts_with(&stuck)).collect::<HashSet<_>>();
+        assert_eq!(stuck_tried.len(), 6, "hosts past the failing ones never tried: {tried:?}");
+        assert!(
+            tried.iter().any(|path| path.starts_with(&free)),
+            "the next root was never reached past the failing hosts: {tried:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn entries_of_gone_and_empty_roots_leave_the_store_before_its_cap_drops_new_hosts() {
+        let (dir, own, _) = state_with_sessions("stale", &["cmux-app-live", "cmux-app-empty"]);
+        let live = crate::terminal_host_runtime::terminal_host_root(&dir, "cmux-app-live");
+        let empty = crate::terminal_host_runtime::terminal_host_root(&dir, "cmux-app-empty");
+        let store_path = dir.join(STORE_FILE);
+        // A full store of hosts in a root since deleted and in one now empty.
+        let mut store = Store::default();
+        for index in 0..MAX_STORE_ENTRIES {
+            let root =
+                if index % 2 == 0 { dir.join("terminal-hosts-deleted") } else { empty.clone() };
+            store.hosts.insert(
+                format!("{}|t{index}|i", root.display()),
+                Seen { first_seen_ms: index as u64, owner_mark: String::new() },
+            );
+        }
+        save_store(&store_path, &store);
+        let records = |root: &Path| -> LoadedRecords {
+            Ok(if root == live { vec![fake_record(root, 0)] } else { Vec::new() })
+        };
+        let hosts = HostOps {
+            load: &records,
+            liveness: &|_, _| TerminalHostLiveness::Live,
+            end: &|_, _| panic!("ended in its grace"),
+        };
+        let never = || false;
+        let first = 10_000_000;
+        reap_pass_with(&hosts, &own, &store_path, first, Timing::STANDARD, &never);
+        reap_pass_with(&hosts, &own, &store_path, first + 60_000, Timing::STANDARD, &never);
+        let saved = load_store(&store_path);
+        let key = format!("{}|t000|i", live.display());
+        assert_eq!(
+            saved.hosts.get(&key).map(|seen| seen.first_seen_ms),
+            Some(first),
+            "the new host's grace did not build up: {} entries kept",
+            saved.hosts.len()
+        );
+        assert_eq!(saved.hosts.len(), 1, "stale entries kept");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
