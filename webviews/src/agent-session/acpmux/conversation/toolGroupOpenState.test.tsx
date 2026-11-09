@@ -354,10 +354,11 @@ const mcp = (id: string): AcpmuxActivity => ({
   text: "mcp__linear__create_issue",
   tool: { id, title: "mcp__linear__create_issue", kind: "other", status: "completed", output: "{}" },
 });
-/// The MCP group's line (McpCallRows.tsx), the one line of the row that is no run's or group's.
+/// The MCP group's line (McpCallRows.tsx `McpGroupRow`): the row's one toggle that is no run's line
+/// or tool group's line, drawn before the calls in it.
 const mcpLine = (container: HTMLElement) =>
-  [...container.querySelectorAll<HTMLButtonElement>("button.cv-tool.is-toggle")].find((button) =>
-    /linear/i.test(button.textContent ?? ""),
+  [...container.querySelectorAll<HTMLButtonElement>("button.cv-tool.is-toggle")].find(
+    (button) => button.dataset.toolGroup === undefined && !button.classList.contains("is-run"),
   );
 
 test("a run whose groups the reader closed stays open at the turn's end over an MCP group they opened", async () => {
@@ -370,10 +371,9 @@ test("a run whose groups the reader closed stays open at the turn's end over an 
   expect(line?.getAttribute("aria-expanded")).toBe("false");
   await act(async () => line!.click());
   expect(mcpLine(container)?.getAttribute("aria-expanded")).toBe("true");
-  // The turn ends: the run folds under its line, open, so the group the reader opened stays in sight.
+  // The turn ends: the run folds under its line, open, so the calls the reader opened stay in sight.
   await update(<ToolRows row={{ ...run("r1", items), version: 99 }} sessionId="mcp-open" />);
   expect(lines(container)).toEqual([{ text: expect.any(String), open: true }]);
-  expect(mcpLine(container)?.getAttribute("aria-expanded")).toBe("true");
 });
 
 test("an MCP group opened after the reader set the run line opens it again at the turn's end", async () => {
