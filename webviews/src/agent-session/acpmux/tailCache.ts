@@ -252,6 +252,82 @@ function newestWithin(events: EventRecord[], maxBytes: number): EventRecord[] {
   return kept;
 }
 
+/// Kinds an agent streams a few words per record (acpmux journals each chunk): a working chat's
+/// records are mostly these, thinking above all (5,906 of one Claude chat's 8,300 transcript
+/// records, beside 227 tool calls).
+const STREAMED_KINDS = new Set(["agent_message_chunk", "agent_thought_chunk"]);
+
+/// The newest records of `events` a tail keeps: at most ``KEPT_EVENTS`` once each run of one
+/// message's streamed chunks is one record, so the tail holds the chat's last turns as they read,
+/// not the last few hundred fragments of one. A run is never cut: the tail starts where one
+/// starts. `start` is where in `events` the kept ones begin (0 when the tail is all of them).
+export function keptEvents(events: EventRecord[]): { start: number; events: EventRecord[] } {
+  let count = 0;
+  let start = events.length;
+  let newerKey: string | undefined;
+  for (let at = events.length - 1; at >= 0; at -= 1) {
+    const key = streamedRun(events[at]!);
+    if (key === undefined || key !== newerKey) {
+      if (count === KEPT_EVENTS) break;
+      count += 1;
+    }
+    start = at;
+    newerKey = key;
+  }
+  return { start, events: coalesceStreamed(events.slice(start)) };
+}
+
+/// `events` with each run of one message's streamed chunks as one record: the run's first chunk
+/// with the whole run's text, its `seq` and `at` (the row the chat draws is named and timed by
+/// them), and `coalescedThrough` naming the run's last seq, so the chat reads on after it and a
+/// page that holds the run's chunks again adds none of them (direct.ts `mergeEventRecords`).
+function coalesceStreamed(events: EventRecord[]): EventRecord[] {
+  const out: EventRecord[] = [];
+  let runKey: string | undefined;
+  let texts: string[] = [];
+  const close = () => {
+    const first = out.at(-1);
+    if (!first || texts.length < 2) return;
+    const update = first.msg.params.update;
+    out[out.length - 1] = {
+      ...first,
+      msg: {
+        ...first.msg,
+        params: { ...first.msg.params, update: { ...update, content: { ...update.content, text: texts.join("") } } },
+      },
+    };
+  };
+  for (const event of events) {
+    const key = streamedRun(event);
+    const last = out.at(-1);
+    if (key !== undefined && key === runKey && last) {
+      texts.push(event.msg.params.update.content.text);
+      out[out.length - 1] = { ...last, coalescedThrough: event.coalescedThrough ?? event.seq };
+      continue;
+    }
+    close();
+    out.push(event);
+    runKey = key;
+    texts = key === undefined ? [] : [event.msg.params.update.content.text];
+  }
+  close();
+  return out;
+}
+
+/// What a streamed chunk shares with the rest of its message's chunks (everything but its text),
+/// or undefined for a record that is no streamed text.
+function streamedRun(event: EventRecord): string | undefined {
+  if (!STREAMED_KINDS.has(event.kind)) return undefined;
+  const update = event.msg?.params?.update;
+  const content = update?.content;
+  if (content?.type !== "text" || typeof content.text !== "string") return undefined;
+  return JSON.stringify([
+    event.dir,
+    event.sessionId,
+    { ...event.msg, params: { ...event.msg.params, update: { ...update, content: { ...content, text: "" } } } },
+  ]);
+}
+
 /// The host's answer as a tail, or undefined when it holds none or answers something else. Only
 /// the shape the page wrote is read back; anything missing leaves the chat to open cold.
 function tailFromHost(value: unknown): KeptTail | undefined {

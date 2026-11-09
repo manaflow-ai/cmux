@@ -86,6 +86,7 @@ import { FORK_OP, servesOperation } from "./operations";
 import { postNative } from "./native";
 import {
   forgetTail,
+  keptEvents,
   keptTail,
   KEPT_EVENTS,
   type KeptTail,
@@ -311,6 +312,10 @@ export function adoptedBy(result: any, adopt: AcpmuxAdopt): boolean {
 export type EventRecord = Pick<SessionEvent, "seq" | "at" | "dir" | "kind"> & {
   sessionId?: string;
   msg: Record<string, any>;
+  /// A kept tail's run of one message's streamed chunks, as one record (tailCache.ts
+  /// `keptEvents`): `seq` and `at` are its first chunk's, this is its last chunk's seq, and the
+  /// records between are this one.
+  coalescedThrough?: number;
 };
 /// The one place the pane takes acpmux's records as `EventRecord`s.
 const records = (events: SessionEvent[] | undefined): EventRecord[] => (events ?? []) as EventRecord[];
@@ -1168,8 +1173,23 @@ export function settleOptimisticPrompt(
 
 export function mergeEventRecords(...batches: EventRecord[][]): EventRecord[] {
   const bySequence = new Map<number, EventRecord>();
-  for (const event of batches.flat()) bySequence.set(event.seq, event);
-  return [...bySequence.values()].sort((left, right) => left.seq - right.seq);
+  for (const event of batches.flat()) {
+    // A kept tail's coalesced run stands for its chunks: the run's first chunk read again (an
+    // attach page, an older page) never takes its place, or the rest of the run's text is lost.
+    if (bySequence.get(event.seq)?.coalescedThrough !== undefined && event.coalescedThrough === undefined) continue;
+    bySequence.set(event.seq, event);
+  }
+  const merged = [...bySequence.values()].sort((left, right) => left.seq - right.seq);
+  if (!merged.some((event) => event.coalescedThrough !== undefined)) return merged;
+  // The run's other chunks, read again, are in it already: kept, they would draw its text twice.
+  let coveredThrough = -Infinity;
+  return merged.filter((event) => {
+    if (event.coalescedThrough !== undefined) {
+      coveredThrough = Math.max(coveredThrough, event.coalescedThrough);
+      return true;
+    }
+    return event.seq > coveredThrough;
+  });
 }
 
 export function applySupersededMessage(
@@ -3445,7 +3465,11 @@ export class AcpmuxDirectClient {
     if (!sessionId || this.events.length === 0 || this.replayThrough !== undefined) return undefined;
     const copy = whole && this.peerCopy?.sessionId === sessionId ? this.peerCopy : undefined;
     if (this.attachedGeneration !== this.selectionGeneration && !copy) return undefined;
-    const events = whole ? this.events : this.events.slice(-KEPT_EVENTS);
+    // The newest `KEPT_EVENTS` records once each message's streamed chunks are one record
+    // (`keptEvents`): counted raw, a working chat's 400 records are a few tool calls' worth of
+    // thinking fragments, and a relaunch drew little but tool calls and prompts (Leo, 2026-11-08).
+    const kept = whole ? { start: 0, events: this.events } : keptEvents(this.events);
+    const events = kept.events;
     // The kept page may start inside a turn whose prompt was in the history we just cut off.
     // Keep that prompt beside the page, as attach does: without it the first cached frame draws
     // the turn's work unfolded, then the identical attach folds it once the prompt comes back.
@@ -3453,7 +3477,7 @@ export class AcpmuxDirectClient {
     let turnOpener: EventRecord | undefined;
     if (first && !startsTurn(first)) {
       turnOpener = this.turnOpener;
-      for (let index = this.events.length - events.length - 1; index >= 0; index -= 1) {
+      for (let index = kept.start - 1; index >= 0; index -= 1) {
         const event = this.events[index]!;
         if (event.seq < first.seq && startsTurn(event)) {
           turnOpener = event;
@@ -3469,7 +3493,7 @@ export class AcpmuxDirectClient {
       summary: this.provenSummary(),
       turnOpener,
       // Only a whole transcript is exhausted: a tail cut at KEPT_EVENTS has older events to read.
-      historyExhausted: this.historyExhausted && events.length === this.events.length,
+      historyExhausted: this.historyExhausted && kept.start === 0,
       queue: this.queue,
       configSeq: this.configSeq,
       usageFromSeq: this.usageFromSeq,
@@ -6341,7 +6365,7 @@ export class AcpmuxDirectClient {
     // Drawn first, but neither firstSeq nor lastSeq moves: older pages still load from the held history.
     else if (opener && opener.seq <= through) this.reduce(opener);
     for (const event of events) {
-      this.lastSeq = Math.max(this.lastSeq, event.seq);
+      this.lastSeq = Math.max(this.lastSeq, event.coalescedThrough ?? event.seq);
       this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
       this.reduce(event);
     }
