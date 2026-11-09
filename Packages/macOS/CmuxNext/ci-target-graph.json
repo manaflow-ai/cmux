@@ -536,10 +536,7 @@
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
-      "packages": [
-        "CmuxHomeCore",
-        "CmuxHomeRender"
-      ]
+      "packages": []
     },
     "CmuxNextAppsTests": {
       "kind": "test",
@@ -551,9 +548,7 @@
         "CmuxNextDesign",
         "CmuxNextWakeups"
       ],
-      "packages": [
-        "CmuxHomeRender"
-      ],
+      "packages": [],
       "reads": []
     },
     "CmuxNextBookmarks": {
