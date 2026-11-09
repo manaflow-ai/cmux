@@ -315,22 +315,32 @@ class FixerFilesNeverRunAsTrustedPython(unittest.TestCase):
                                "-c", "commit.gpgsign=false", *args], check=True, capture_output=True,
                               text=True).stdout
 
-    def test_the_fixer_answer_is_read_without_a_module_the_fixer_added(self):
+    def fixer_checkout(self) -> Path:
+        """A git checkout of main with one tracked Swift file, the real scripts/ beside it (untracked), and the
+        compile report; returns the report's path."""
         (self.checkout / "scripts").symlink_to(ROOT / "scripts")
+        (self.checkout / "Sources").mkdir()
+        (self.checkout / "Sources/A.swift").write_text("let a = 1\n")
+        self.git("init", "-q", "-b", "main")
+        self.git("add", "Sources")
+        self.git("commit", "-qm", "main")
         report = self.tmp / "compile-report.json"
         report.write_text(json.dumps({"head": "a" * 40, "fix": {
             "break": {"errors": ["Sources/A.swift:1:1: error: x"]},
             "culprit": {"pr": 1, "sha": "b" * 40, "title": "t"}}}))
         self.tool("npm", "exit 0\n")
-        # The fixer answers "not mechanical" and leaves json.py at the checkout root, which answers "mechanical".
+        return report
+
+    def test_the_fixer_answer_is_read_without_a_module_the_fixer_added(self):
+        report = self.fixer_checkout()
+        # The fixer answers "not mechanical"; a json.py at the checkout root answers "mechanical".
         planted = ("import sys\n"
                    "def load(stream):\n"
                    "    return {'structured_output': {'mechanical': True, 'summary': 'planted'}}\n")
-        self.tool("claude", "cat > json.py <<'PY'\n" + planted + "PY\n"
-                  "echo '{\"structured_output\": {\"mechanical\": false, \"summary\": \"edited nothing\"}}'\n")
+        (self.checkout / "json.py").write_text(planted)
+        self.tool("claude", "echo '{\"structured_output\": {\"mechanical\": false, \"summary\": \"edited nothing\"}}'\n")
         result = self.run_step("Ask the fixer for a mechanical fix", REPORT=str(report))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertTrue((self.checkout / "json.py").exists(), "the fake fixer did not plant json.py")
         lines = self.output.read_text().splitlines()
         self.assertIn("mechanical=false", lines)
         self.assertIn("summary=edited nothing", lines)
@@ -372,17 +382,14 @@ class FixerFilesNeverRunAsTrustedPython(unittest.TestCase):
         self.assertEqual(self.untracked(), [])
 
     def git_dir_trap(self, marker: Path) -> None:
-        """What a fixer that can write .git could leave: an fsmonitor command in .git/config and a post-checkout
-        hook, each of which runs MARKER's touch inside any later git command that reads the index or checks out."""
+        """What a fixer that could write .git might leave: an fsmonitor command in .git/config, which git runs
+        inside any later command that reads the index (git clean, git diff). The diff step runs no command that
+        calls a hook, so core.hooksPath=/dev/null is not tested here; the pull request step pushes to github.com."""
         hook = self.tmp / "trap.sh"
         hook.write_text(f"#!/bin/sh\ntouch '{marker}'\n")
         hook.chmod(0o755)
         with (self.checkout / ".git/config").open("a") as config:
             config.write(f"[core]\n\tfsmonitor = {hook}\n")
-        post_checkout = self.checkout / ".git/hooks/post-checkout"
-        post_checkout.parent.mkdir(exist_ok=True)
-        post_checkout.write_text(f"#!/bin/sh\ntouch '{marker}'\n")
-        post_checkout.chmod(0o755)
 
     def test_git_after_the_fixer_runs_no_fsmonitor_or_hook(self):
         for mechanical in ("true", "false"):
@@ -397,25 +404,37 @@ class FixerFilesNeverRunAsTrustedPython(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertFalse(marker.exists(), "a git command after the fixer ran a command from .git")
 
-    def test_a_fixer_that_changes_git_decides_nothing(self):
-        # The fixer edits a tracked file, writes an fsmonitor command into .git/config and answers "mechanical".
-        (self.checkout / "scripts").symlink_to(ROOT / "scripts")
-        (self.checkout / "Sources").mkdir()
-        (self.checkout / "Sources/A.swift").write_text("let a = 1\n")
-        self.git("init", "-q", "-b", "main")
-        self.git("add", "Sources")
-        self.git("commit", "-qm", "main")
-        report = self.tmp / "compile-report.json"
-        report.write_text(json.dumps({"head": "a" * 40, "fix": {
-            "break": {"errors": ["Sources/A.swift:1:1: error: x"]},
-            "culprit": {"pr": 1, "sha": "b" * 40, "title": "t"}}}))
-        self.tool("npm", "exit 0\n")
-        self.tool("claude", "echo 'let a = 2' > Sources/A.swift\n"
-                  "printf '[core]\\n\\tfsmonitor = touch planted-fsmonitor\\n' >> .git/config\n"
+    def test_the_fixer_works_in_a_copy_without_git(self):
+        # The fixer sees no .git where it works. It edits the tracked file, writes a .git/config of its own there
+        # and a new file, and answers "mechanical": the edit comes back, nothing else does, and .git is as it was.
+        report = self.fixer_checkout()
+        config = (self.checkout / ".git/config").read_text()
+        self.tool("claude", "test ! -e .git || { echo 'the fixer sees .git' >&2; exit 3; }\n"
+                  "echo 'let a = 2' > Sources/A.swift\n"
+                  "mkdir -p .git && printf '[core]\\n\\tfsmonitor = touch planted\\n' > .git/config\n"
+                  "echo planted > NEW.swift\n"
                   "echo '{\"structured_output\": {\"mechanical\": true, \"summary\": \"fixed\"}}'\n")
         result = self.run_step("Ask the fixer for a mechanical fix", REPORT=str(report))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("decided=true", self.output.read_text().splitlines())
+        self.assertEqual((self.checkout / "Sources/A.swift").read_text(), "let a = 2\n")
+        self.assertFalse((self.checkout / "NEW.swift").exists())
+        self.assertEqual((self.checkout / ".git/config").read_text(), config)
+        check = self.run_step("Check that the fixer left .git alone")
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+        self.assertTrue((self.checkout / ".git").is_dir())
+
+    def test_a_git_changed_while_the_fixer_ran_is_removed(self):
+        # However it got there (the fixer failed or timed out after it), an fsmonitor command in .git/config must
+        # reach no later git command, actions/checkout's post step included: the check fails and removes .git.
+        report = self.fixer_checkout()
+        self.tool("claude", f"printf '[core]\\n\\tfsmonitor = touch planted\\n' >> '{self.checkout}/.git/config'\n"
+                  "exit 1\n")
+        result = self.run_step("Ask the fixer for a mechanical fix", REPORT=str(report))
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertNotIn("decided=true", self.output.read_text().splitlines())
+        check = self.run_step("Check that the fixer left .git alone")
+        self.assertNotEqual(check.returncode, 0, check.stdout + check.stderr)
+        self.assertFalse((self.checkout / ".git").exists())
 
 
 if __name__ == "__main__":
