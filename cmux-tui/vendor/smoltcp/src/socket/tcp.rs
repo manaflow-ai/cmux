@@ -1159,6 +1159,11 @@ impl<'a> Socket<'a> {
             congestion: false,
         };
         let ranges = self.sack_scoreboard.ranges();
+        let high_rxt = if self.sack_recovery_point.is_some() {
+            self.sack_high_rxt.max(self.local_seq_no)
+        } else {
+            self.local_seq_no
+        };
         let mut sacked_above = self.sack_scoreboard.sacked_bytes();
         let mut hole_start = self.local_seq_no;
         for (i, &(start, end)) in ranges.iter().enumerate() {
@@ -1171,7 +1176,7 @@ impl<'a> Socket<'a> {
                     break;
                 };
                 scan.congestion |= congestion;
-                let from = hole_start.max(self.sack_high_rxt);
+                let from = hole_start.max(high_rxt);
                 if from < start {
                     scan.lost_bytes += start - from;
                     if scan.next_retransmit.is_none() {
@@ -1184,7 +1189,7 @@ impl<'a> Socket<'a> {
         }
         if ranges.is_empty()
             && self.sack_hole_is_lost(self.local_seq_no, 0, 0).is_some()
-            && self.sack_high_rxt <= self.local_seq_no
+            && high_rxt == self.local_seq_no
             && self.local_seq_no < self.remote_last_seq
         {
             // Duplicate ACKs without blocks: resend the head segment only.
@@ -1237,7 +1242,10 @@ impl<'a> Socket<'a> {
             net_debug!("SACK recovery done at {}", self.local_seq_no);
             self.sack_recovery_point = None;
         }
-        if self.sack_high_rxt < self.local_seq_no {
+        // Outside recovery nothing was resent yet. (Compared only within a
+        // recovery: sequence numbers are ordered only within half the space,
+        // so a stale value can look ahead of the cumulative ACK.)
+        if self.sack_recovery_point.is_none() || self.sack_high_rxt < self.local_seq_no {
             self.sack_high_rxt = self.local_seq_no;
         }
         let scan = self.sack_scan();
@@ -10737,6 +10745,44 @@ mod test {
         send!(s, time 100, sack_ack(18, [None, None, None]));
         assert!(s.congestion_controller.inner().window() >= window);
         assert_eq!(s.sack_recovery_point, None);
+    }
+
+    #[test]
+    fn test_sack_with_sequence_numbers_past_the_sign_bit() {
+        // An initial sequence number in the upper half of the space, as a
+        // random one is half the time: the scoreboard and the retransmit
+        // mark must compare within the window, not against zero.
+        let mut s = socket_established();
+        s.set_congestion_control(CongestionControl::None);
+        s.remote_mss = 6;
+        s.remote_has_sack = true;
+        s.set_sack_recovery(true);
+        let base = TcpSeqNumber(i32::MIN + 1000);
+        s.local_seq_no = base;
+        s.remote_last_seq = base;
+        s.send_slice(SACK_DATA).unwrap();
+        for offset in (0..36).step_by(6) {
+            recv!(s, time 0, Ok(TcpRepr {
+                seq_number: base + offset,
+                ack_number: Some(REMOTE_SEQ + 1),
+                payload:    &SACK_DATA[offset..offset + 6],
+                ..RECV_TEMPL
+            }));
+        }
+        let at = |n: usize| (base + n).0 as u32;
+        send!(s, time 50, TcpRepr {
+            seq_number: REMOTE_SEQ + 1,
+            ack_number: Some(base + 6),
+            sack_ranges: [Some((at(12), at(36))), None, None],
+            ..SEND_TEMPL
+        });
+        recv!(s, time 50, Ok(TcpRepr {
+            seq_number: base + 6,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload:    &SACK_DATA[6..12],
+            ..RECV_TEMPL
+        }));
+        recv_nothing!(s, time 50);
     }
 
     #[test]
