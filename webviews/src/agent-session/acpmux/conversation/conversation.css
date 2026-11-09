@@ -2728,6 +2728,33 @@ pre.cv-math-source {
   height: 100%;
   align-items: center;
 }
+/* What a background turn's line cites after its words (BackgroundTurnLine.tsx `BackgroundSource`):
+   the helper in the rows' muted tone, a link as the background task row's owner is, then the task's
+   command as typed in the code face. The citation gives way before the words do. */
+.cv-agent-activity__sentence > .cv-background-turn__source {
+  display: flex;
+  flex: 0 4 auto;
+  align-items: center;
+  gap: var(--cv-tool-gap);
+}
+.cv-background-turn__owner {
+  flex: none;
+  color: var(--cv-text-muted);
+}
+.cv-background-turn__owner[role="link"] {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
+}
+.cv-background-turn__command {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--cv-text-muted);
+  font-family: var(--cv-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: inherit;
+}
 .cv-row-shimmer {
   display: none;
 }

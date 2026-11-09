@@ -87,17 +87,24 @@ test("a helper's shell names that helper on the line, which opens it", async () 
       ["mux", "user_message", { text: "Look into the flaky test", turnId: "t1" }],
       ["mux", "turn_started", { turnId: "t1" }],
       ["mux", "turn_result", { turnId: "t1", status: "completed" }],
+      // Tagged as the helper's own update, which goes to its subagent before the chat's rows.
       [
         "in",
         "background_task_update",
-        update({
-          sessionUpdate: "background_task_update",
-          toolCallId: "toolu_step",
-          command: "bun test test/flaky.test.ts",
-          state: "failed",
-          subagentSessionId: "agent-explore-1",
-          subagentTitle: "Explore flaky test",
-        }),
+        {
+          method: "session/update",
+          params: {
+            _meta: { acpmux: { subagent: "agent-explore-1" } },
+            update: {
+              sessionUpdate: "background_task_update",
+              toolCallId: "toolu_step",
+              command: "bun test test/flaky.test.ts",
+              state: "failed",
+              subagentSessionId: "agent-explore-1",
+              subagentTitle: "Explore flaky test",
+            },
+          },
+        },
       ],
       weighed("bg-s", {
         kind: "subagent_step",
