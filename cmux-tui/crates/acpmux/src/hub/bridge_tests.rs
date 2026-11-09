@@ -605,3 +605,20 @@ async fn a_prompt_the_dispatch_gate_refuses_never_reaches_the_app() {
     assert!(!err.message.contains("bridge.undelivered"), "{}", err.message);
     assert_eq!(inbox.load(std::sync::atomic::Ordering::SeqCst), 0, "nothing reached the app");
 }
+
+/// The app answers the chat a verified session message came from, by its name, not the label
+/// the sender gave (a bridged desktop chat's label names no session).
+#[test]
+fn the_reply_goes_to_the_verified_senders_chat_by_name() {
+    let label = "Claude Code desktop on host \u{b7} 75d05154";
+    let bound = crate::prompt_provenance::session_message("chat-1", "work-f5", "chat-2");
+    let agent = Some(label.to_owned());
+    let opts = PromptOptions { agent, provenance: Some(bound), ..Default::default() };
+    assert_eq!(reply_name(&opts).as_deref(), Some("work-f5"));
+    let declared = PromptOptions { agent: Some(label.into()), ..Default::default() };
+    assert_eq!(reply_name(&declared).as_deref(), Some(label));
+    let unverified = json!({"kind": "session_message", "from": "x", "fromName": "forged"});
+    let agent = Some(label.to_owned());
+    let opts = PromptOptions { agent, provenance: Some(unverified), ..Default::default() };
+    assert_eq!(reply_name(&opts).as_deref(), Some(label));
+}

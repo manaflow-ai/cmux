@@ -254,7 +254,7 @@ impl Hub {
         let prompt_id = opts.prompt_id.clone().unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let uuid = uuid::Uuid::now_v7().to_string();
         // The chat shows the prompt as sent (`delivered`); the app also reads how to answer.
-        let wire = with_reply_hint(&text, opts.agent.as_deref());
+        let wire = with_reply_hint(&text, reply_name(opts).as_deref());
         // The gate every prompt passes again at dispatch (`web_control.rs` `check_dispatch`): the
         // chat's mode, policy, device authorization or folder trust may have changed since the
         // request's own check, and a refused prompt never reaches the app.
@@ -317,6 +317,22 @@ fn with_reply_hint(text: &str, agent: Option<&str>) -> String {
         }
         None => text.to_owned(),
     }
+}
+
+/// Who the app's answer goes to: the chat a verified session message came from (a caller token's
+/// session, or a desktop chat's bridged one), by the name `acpmux send` finds it by; else the
+/// label the sender gave. A bridged desktop chat's own label (`Claude Code desktop on <host> ·
+/// <id>`) names no session, so an answer to it would go nowhere.
+fn reply_name(opts: &PromptOptions) -> Option<String> {
+    let verified = opts.provenance.as_ref().filter(|p| {
+        p.get("kind").and_then(Value::as_str) == Some("session_message")
+            && p.get(crate::prompt_provenance::VERIFIED).and_then(Value::as_bool) == Some(true)
+    });
+    verified
+        .and_then(|p| p.get("fromName").and_then(Value::as_str))
+        .filter(|n| !n.trim().is_empty())
+        .map(str::to_owned)
+        .or_else(|| opts.agent.clone())
 }
 
 fn undelivered(e: &str) -> RpcError {
