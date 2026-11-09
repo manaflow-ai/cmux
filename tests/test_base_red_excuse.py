@@ -4845,6 +4845,22 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "changes Packages/macOS/CmuxNext/Package.swift"):
             self.judge()
 
+    def test_a_rust_change_that_also_changes_the_pin_checks_code_is_refused(self):
+        # Review of cmux#39194 (the main copy of this rule): a PR changing the pin check, its workflow or this
+        # classifier could make the pin error print for any change, and the step-A rule would excuse it. Its pin is
+        # the base's own published release and its app compiled, so the published base pin rule must not excuse it
+        # either.
+        self.compiled()
+        for path in ("scripts/cmux-next/check-app-ffi-pin.sh", ".github/workflows/cmux-next.yml",
+                     "scripts/ci/base_red_excuse.py", "scripts/ci/api_call_log/env.sh"):
+            self.pr_files(*self.RUST, path)
+            with self.assertRaisesRegex(excuse.Refused, "changes the app FFI pin check's code", msg=path):
+                self.judge()
+
+    def test_the_ffi_build_script_is_an_input_not_check_code(self):
+        self.pr_files(*self.RUST, "scripts/cmux-next/build-app-ffi.sh")
+        self.assertIn(f"only '{self.PIN}' is red", self.judge()[0])
+
     def test_a_change_with_no_ffi_input_is_refused(self):
         self.pr_files("docs/ci/app-ffi-release.md")
         with self.assertRaisesRegex(excuse.Refused, "changes no app FFI input"):
