@@ -930,6 +930,69 @@ def compile_pass_at(repo: str, sha: str, github) -> str | None:
     return None
 
 
+# An inherited compile red (2026-11-09): cmux#38644 and #38631 branched from feat-cmux-next while #39301 had broken
+# its cmux-tui compile, and the fleet's receipt for each head read "fail" with the base's own error. The fleet Release
+# compile runs only on pull requests, so no base run has its job, and its cmux-next/compile status links the source
+# run, which has no job of that name: both reds were refused with nothing to compare. The fleet's receipts are kept
+# per commit, base pushes included, so the head's red is the base's when the head's receipt is a real "fail" and so is
+# its merge-base's. Every other receipt state (no verdict, unread, another commit) stays the head's.
+COMPILE_RECEIPTS = os.environ.get("BASE_RED_EXCUSE_COMPILE_RECEIPTS", "https://gh-events.cmux.com/compile-checks/v1")
+COMPILE_RECEIPT_SECONDS = 20
+COMPILE_RECEIPT_RECIPE = (2, "release-onone")
+FLEET_COMPILE_JOB = "cmux-next fleet Release compile"
+FLEET_COMPILE_FAIL = re.compile(r"^##\[error\]\s*cmux-next/compile is not a pass for [0-9a-f]{40} \(fail\)")
+
+
+def compile_receipt(repo: str, sha: str) -> dict | None:
+    """The fleet's compile receipt for SHA (one anonymous read, no wait), or None when it has none (404). Any other
+    answer refuses: an unread receipt is no verdict."""
+    import urllib.error
+    import urllib.request
+    url = f"{COMPILE_RECEIPTS}/{sha}?repo={urllib.parse.quote(repo, safe='')}&wait=0"
+    try:
+        with urllib.request.urlopen(url, timeout=COMPILE_RECEIPT_SECONDS) as answer:
+            receipt = json.loads(answer.read(1 << 16))
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return None
+        raise Refused(f"the compile receipt of {sha[:12]}: HTTP {error.code}") from error
+    except (OSError, ValueError) as error:
+        raise Refused(f"the compile receipt of {sha[:12]}: {type(error).__name__}: {error}") from error
+    if not isinstance(receipt, dict) or receipt.get("sha") != sha or receipt.get("repo") != repo:
+        raise Refused(f"the compile receipt of {sha[:12]} names another commit")
+    # The receipt the workflow trusts (cmux-next.yml's compile-status step): recipe 2, Release at -Onone.
+    if (receipt.get("recipe_version"), receipt.get("configuration")) != COMPILE_RECEIPT_RECIPE:
+        raise Refused(f"the compile receipt of {sha[:12]} is of another recipe (recipe_version "
+                      f"{receipt.get('recipe_version')}, configuration {receipt.get('configuration')})")
+    return receipt
+
+
+def inherited_compile_red(repo: str, base: str, sha: str, name: str, github) -> str:
+    """The audit line excusing NAME's compile red at SHA when the head's fleet receipt and its merge-base's both read
+    "fail", else Refused."""
+    head = compile_receipt(repo, sha)
+    if (head or {}).get("state") != "fail":
+        raise Refused(f"'{name}': the compile receipt of {sha[:12]} is {(head or {}).get('state') or 'missing'}, not "
+                      "a fail: no verdict to compare with the base")
+    diff = github.json(f"repos/{repo}/compare/{base}...{sha}?per_page=1")
+    merge_base = (diff.get("merge_base_commit") or {}).get("sha") or ""
+    if not re.fullmatch(r"[0-9a-f]{40}", merge_base):
+        raise Refused(f"'{name}': no merge-base of {sha[:12]} with {base} to compare its compile receipt with")
+    at_base = compile_receipt(repo, merge_base)
+    if (at_base or {}).get("state") != "fail":
+        raise Refused(f"'{name}': the compile receipt of {sha[:12]} is a fail, and its merge-base {merge_base[:12]} "
+                      f"on {base} reads {(at_base or {}).get('state') or 'no receipt'}: the red is this head's")
+    tip = (diff.get("base_commit") or {}).get("sha") or ""
+    now = ""
+    if re.fullmatch(r"[0-9a-f]{40}", tip) and tip != merge_base:
+        try:
+            now = f"; {base} {tip[:12]} reads {(compile_receipt(repo, tip) or {}).get('state') or 'no receipt'}"
+        except Refused:
+            now = ""
+    return (f"excused '{name}': the compile receipt of {sha[:12]} is a fail, and so is its merge-base "
+            f"{merge_base[:12]}'s on {base} (an inherited base red{now}; merge the base for a new verdict)")
+
+
 # The Rust panic ratchet (scripts/cmux-next/rust_panic_ratchet.py, run by .github/scripts/cmux-tui-clippy-changed.py).
 # Its error line names the packages the run checked, and a base run may check the whole workspace while a PR checks
 # only its changed packages, so that line never matches (2026-10-31: cmux#26849's run 41176610742 failed on two rows
@@ -1083,6 +1146,9 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
     state, job_name = status.get("state"), name.removesuffix(SAME_TREE_SUFFIX)
     if state == "pending":
         raise Refused(f"'{name}': its status is still pending on {sha}")
+    if name == COMPILE_PASS_STATUS and base and state in ("failure", "error"):
+        # Its target_url is the source run, with no job of this name (inherited_compile_red).
+        return inherited_compile_red(repo, base, sha, name, github)
     url = status.get("target_url") or ""
     match = re.fullmatch(r"https://github\.com/" + re.escape(repo) + r"/actions/runs/(\d+)(?:/job/\d+)?/?", url)
     if match:
@@ -3163,6 +3229,14 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                               "a no-verdict compile is never a base red; re-run it once the fleet answers")
             audit.append(f"ignored '{name}': it gave no compile verdict, but {proof} compiled {sha} and passed")
             continue
+        if name == FLEET_COMPILE_JOB and any(FLEET_COMPILE_FAIL.match(text) for text in lines_of(head_log)):
+            # A pull-request-only job: the fleet's receipts at the merge-base are its base verdict. When they do not
+            # excuse it, the job is compared with base runs below, as before.
+            try:
+                audit.append(inherited_compile_red(repo, base, sha, name, github))
+                continue
+            except Refused:
+                pass
         head_steps, head_tests, head_errors = signature(job, head_log)
         chromium_without_diagnostics = (name == CHROMIUM_CURRENCY_JOB
                                         and CHROMIUM_CURRENCY_STEP in head_steps

@@ -12,6 +12,7 @@ import sys
 import tempfile
 import tomllib
 import unittest
+import urllib.error
 import urllib.parse
 import unittest.mock
 from pathlib import Path
@@ -3373,10 +3374,140 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
                     self.judge()
 
     def test_a_real_fleet_compile_failure_is_compared_with_the_base(self):
+        """With no receipt to read (InheritedCompileRed), the job is compared with the base run, as before. The
+        receipt read is a fake: the test never reaches the network."""
         line = "##[error]cmux-next/compile is not a pass for {} (fail)"
         self.gh.logs[1] = log(self.FLEET, self.STEP, line.format(HEAD))
         self.gh.logs[2] = log(self.FLEET, self.STEP, line.format(BASE_SHA))
-        self.assertIn(f"excused '{self.FLEET}'", "\n".join(self.judge()))
+        read = []
+        with unittest.mock.patch.object(excuse, "compile_receipt", lambda repo, sha: read.append(sha)):
+            self.assertIn(f"excused '{self.FLEET}'", "\n".join(self.judge()))
+        self.assertEqual(read, [HEAD])
+
+
+class InheritedCompileRed(unittest.TestCase):
+    """cmux#38644 (2026-11-09): its head da05de79 branched from feat-cmux-next at 2ff005b8df, while #39301 had broken
+    the base's cmux-tui compile, so the fleet's receipt for the head read "fail" and so did the merge-base's; the base
+    tip 9cb41fa7 reads "pass" since #39360. The fleet Release compile runs only on pull requests and its
+    cmux-next/compile status links the source run, so neither red had a base job to compare with, and both were
+    refused. The fleet's receipts are its base verdict: a head fail whose merge-base also fails is inherited."""
+
+    PR_HEAD = "da05de79087627d246d2f281c8d49de902c8c7b9"
+    MERGE_BASE = "2ff005b8df2f259ab45f008341f693eb973fc407"
+    TIP = "9cb41fa7e9221ea17d2fae506dc8fa91aa788773"
+    FLEET = "cmux-next fleet Release compile"
+    STEP = "Wait for the fleet Release compile and publish cmux-next/compile"
+    SOURCE_RUN = f"https://github.com/{REPO}/actions/runs/42593346606"
+
+    def setUp(self):
+        self.receipts = {self.PR_HEAD: "fail", self.MERGE_BASE: "fail", self.TIP: "pass"}
+        self.status = {"context": "cmux-next/compile", "state": "failure", "target_url": self.SOURCE_RUN,
+                       "description": "The app did not compile in SwiftPM Release (-Onone); see the log"}
+        self.gh = FakeGitHub()
+        self.gh.jobs = {1: failed_job(1, 10, self.PR_HEAD, self.FLEET, self.STEP)}
+        self.gh.logs = {1: log(self.FLEET, self.STEP, "curl: (22) The requested URL returned error: 524",
+                               "attempt 1: fail",
+                               f"##[error]cmux-next/compile is not a pass for {self.PR_HEAD} (fail)",
+                               "##[error]Process completed with exit code 1.")}
+        original = self.gh.json
+
+        def json(route, *, paginate=False):
+            if f"/compare/feat-cmux-next...{self.PR_HEAD}" in route:
+                self.gh.routes.append(route)
+                return {"merge_base_commit": {"sha": self.MERGE_BASE}, "base_commit": {"sha": self.TIP}}
+            if route.endswith(f"commits/{self.PR_HEAD}/check-runs?filter=all&per_page=100"):
+                self.gh.routes.append(route)
+                return [{"check_runs": []}]
+            if route.endswith(f"commits/{self.PR_HEAD}/status?per_page=100"):
+                self.gh.routes.append(route)
+                return {"statuses": [copy.deepcopy(self.status)]}
+            return original(route, paginate=paginate)
+
+        self.gh.json = json
+
+        def receipt(repo, sha):
+            self.assertEqual(repo, REPO)
+            state = self.receipts.get(sha)
+            return None if state is None else {"repo": repo, "sha": sha, "state": state}
+
+        patch = unittest.mock.patch.object(excuse, "compile_receipt", receipt)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def judge_status(self):
+        return excuse.judge(REPO, "feat-cmux-next", self.PR_HEAD, [], self.gh, checks=["cmux-next/compile"])
+
+    def judge_job(self):
+        return excuse.judge(REPO, "feat-cmux-next", self.PR_HEAD, [10], self.gh)
+
+    def test_the_status_red_of_a_head_whose_merge_base_fails_is_excused(self):
+        audit = "\n".join(self.judge_status())
+        self.assertIn("excused 'cmux-next/compile'", audit)
+        self.assertIn(f"merge-base {self.MERGE_BASE[:12]}", audit)
+        self.assertIn(f"feat-cmux-next {self.TIP[:12]} reads pass", audit)
+
+    def test_the_fleet_job_red_of_a_head_whose_merge_base_fails_is_excused(self):
+        audit = "\n".join(self.judge_job())
+        self.assertIn(f"excused '{self.FLEET}'", audit)
+        self.assertIn("inherited base red", audit)
+
+    def test_a_head_fail_on_a_merge_base_that_passes_is_the_heads(self):
+        self.receipts[self.MERGE_BASE] = "pass"
+        with self.assertRaisesRegex(excuse.Refused, "the red is this head's"):
+            self.judge_status()
+        with self.assertRaises(excuse.Refused):
+            self.judge_job()
+
+    def test_a_head_with_no_verdict_or_no_receipt_is_never_excused(self):
+        for state in ("unavailable", "running", None):
+            with self.subTest(state=state):
+                self.receipts[self.PR_HEAD] = state
+                with self.assertRaisesRegex(excuse.Refused, "not a fail"):
+                    self.judge_status()
+
+    def test_a_merge_base_with_no_receipt_does_not_excuse(self):
+        del self.receipts[self.MERGE_BASE]
+        with self.assertRaisesRegex(excuse.Refused, "reads no receipt"):
+            self.judge_status()
+
+    def test_an_unread_receipt_refuses(self):
+        def unread(repo, sha):
+            raise excuse.Refused(f"the compile receipt of {sha[:12]}: HTTP 524")
+        with unittest.mock.patch.object(excuse, "compile_receipt", unread):
+            with self.assertRaisesRegex(excuse.Refused, "HTTP 524"):
+                self.judge_status()
+
+
+class CompileReceiptRead(unittest.TestCase):
+    """The receipt read: one anonymous GET; a 404 is no receipt, every other failure refuses."""
+
+    def answer(self, body=None, code=None):
+        def urlopen(url, timeout):
+            self.assertIn("?repo=manaflow-ai%2Fcmux&wait=0", url)
+            if code is not None:
+                raise urllib.error.HTTPError(url, code, "x", {}, None)
+            return contextlib.closing(io.BytesIO(json.dumps(body).encode()))
+        return unittest.mock.patch("urllib.request.urlopen", urlopen)
+
+    RECEIPT = {"repo": REPO, "sha": HEAD, "state": "fail", "recipe_version": 2, "configuration": "release-onone"}
+
+    def test_the_receipt_answer_404_and_errors(self):
+        with self.answer(self.RECEIPT):
+            self.assertEqual(excuse.compile_receipt(REPO, HEAD)["state"], "fail")
+        with self.answer(code=404):
+            self.assertIsNone(excuse.compile_receipt(REPO, HEAD))
+        with self.answer(code=524), self.assertRaisesRegex(excuse.Refused, "HTTP 524"):
+            excuse.compile_receipt(REPO, HEAD)
+        with self.answer(dict(self.RECEIPT, sha=BASE_SHA)), self.assertRaisesRegex(excuse.Refused, "another commit"):
+            excuse.compile_receipt(REPO, HEAD)
+
+    def test_a_receipt_of_another_recipe_or_configuration_refuses(self):
+        """The workflow trusts only recipe 2's release-onone receipt (cmux-next.yml's compile-status step): a receipt
+        of another recipe never excuses a red."""
+        for other in ({"recipe_version": 1}, {"configuration": "debug"}, {"recipe_version": None}, {"configuration": None}):
+            with self.subTest(other=other), self.answer(dict(self.RECEIPT, **other)), \
+                    self.assertRaisesRegex(excuse.Refused, "another recipe"):
+                excuse.compile_receipt(REPO, HEAD)
 
 
 CLIPPY = "clippy (changed cmux-tui packages)"
