@@ -1800,6 +1800,20 @@ An empty group now keeps only its header at rest. The header's existing + appear
 - Commits (carried from #30817): 991f4dae1cd, a90551963f2, 6a4ba590061, d052543bd1d, d9cef9ff37d, aa68b42fc71,
   9ba13003412.
 
+## Needs You and Priority rows answer a pending tool permission (2026-11-08, cmuxterm-hq#7794)
+
+- Leo 2026-11-08, on the dealbreakers: "The little minor things where it's like, oh, f***. Like, just because of this,
+  I'm out." The tray and the Priority rows could not answer a permission, so every Allow meant opening the chat.
+- A waiting item or row whose chat (this Mac's acpmux) has exactly one pending tool permission shows Allow (on a
+  `Palette.badgeFill` chip) and Deny (no fill, secondary ink), each with its key in the caption's tertiary ink (Y, N;
+  `SidebarAnswerButtons`). The tray puts them where the reason was, so its height stays; a Priority row gets one more
+  line under its preview (`SidebarPriorityRowView.height(_:)`), which opens on the panel's existing height motion. A
+  focused tray item or Priority row takes y (allow once) and n (deny) (`SidebarAnswerKey`); a tray item takes the
+  focus only while it can answer. Off by default with the tray (`sidebar.sessionTree`) and the Priority view.
+- The App reads and answers through the approval banners' `AcpmuxApprovalAnswerer` (`SidebarApprovals`, in
+  CmuxNextAgentLanes); a question, several prompts or another machine's chat keeps the old row. Tests:
+  `SidebarApprovalAnswerTests`.
+
 ## Reviewed behavior-only commits
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:

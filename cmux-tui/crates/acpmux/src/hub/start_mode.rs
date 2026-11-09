@@ -111,6 +111,11 @@ pub(crate) const FULL_ACCESS_MODES: [&str; 4] =
 /// Mode ids that are a temporary toggle, never inherited by a sub-session.
 const TOGGLE_MODES: [&str; 1] = ["plan"];
 
+/// Whether `mode` is a temporary toggle ([`TOGGLE_MODES`]), which a sub-session never inherits.
+pub(crate) fn is_toggle(mode: &str) -> bool {
+    TOGGLE_MODES.contains(&mode)
+}
+
 /// `agents.defaultPermissionMode`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DefaultMode {

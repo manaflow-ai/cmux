@@ -1,6 +1,5 @@
-import CmuxNextAgentPane
+import CmuxNextRemote
 import Foundation
-@testable import CmuxNextApp
 import Testing
 
 /// Cloud's pre-chat approval preparation follows the same typed safe-to-restart signal as the
@@ -18,13 +17,13 @@ struct CloudApprovalsPrepareTests {
     @Test func anIdleMachineRunsTheKeyedStartOnce() async {
         let machine = "cloud-approvals-idle-\(UUID().uuidString)"
         let starts = Counter()
-        let prepared = await CloudService.prepareRemoteApprovals(
+        let prepared = await RemoteApprovalPreparations.shared.prepare(
             machine: machine,
-            preparation: .daemonSaidSafe,
+            daemonSaidSafe: true, held: false,
             idle: { true },
             restart: {
                 await starts.increment()
-                return nil
+                return true
             })
 
         #expect(prepared)
@@ -34,13 +33,13 @@ struct CloudApprovalsPrepareTests {
     @Test func aBusyMachineDoesNotRestart() async {
         let machine = "cloud-approvals-busy-\(UUID().uuidString)"
         let starts = Counter()
-        let prepared = await CloudService.prepareRemoteApprovals(
+        let prepared = await RemoteApprovalPreparations.shared.prepare(
             machine: machine,
-            preparation: .checkStatus,
+            daemonSaidSafe: false, held: false,
             idle: { false },
             restart: {
                 await starts.increment()
-                return nil
+                return true
             })
 
         #expect(!prepared)
@@ -50,16 +49,28 @@ struct CloudApprovalsPrepareTests {
     @Test func aKeyedStartFailureFallsBackWithoutThrowing() async {
         let machine = "cloud-approvals-failure-\(UUID().uuidString)"
         let starts = Counter()
-        let prepared = await CloudService.prepareRemoteApprovals(
+        let prepared = await RemoteApprovalPreparations.shared.prepare(
             machine: machine,
-            preparation: .daemonSaidSafe,
+            daemonSaidSafe: true, held: false,
             idle: { true },
             restart: {
                 await starts.increment()
-                return .notSingleOwner
+                return false
             })
 
         #expect(!prepared)
         #expect(await starts.read() == 1)
+    }
+
+    /// A start turning approvals on ahead of its chat, on a machine whose run already holds this app's key: nothing restarts.
+    @Test func aMachineThatHoldsTheKeyIsNotRestartedAgain() async {
+        let machine = "cloud-approvals-held-\(UUID().uuidString)"
+        let starts = Counter()
+        let prepared = await RemoteApprovalPreparations.shared.prepare(machine: machine, daemonSaidSafe: false, held: true, idle: { true }) {
+            await starts.increment()
+            return true
+        }
+        #expect(prepared)
+        #expect(await starts.read() == 0)
     }
 }
