@@ -108,6 +108,12 @@ nonisolated final class TerminalEchoPrediction: Sendable {
         askRedraw(changed)
     }
 
+    /// The grid changed under the glyphs with no output lost (a resize): what is drawn goes, and what the engine knows
+    /// of the screen and its pen stays.
+    func layoutChanged() {
+        askRedraw(cmux_terminal_prediction_layout_changed(handle, Self.now()))
+    }
+
     /// A frame of the surface reached its layer: held confirmations retire.
     func presentedFrame() {
         _ = frames.add(1, ordering: .relaxed)

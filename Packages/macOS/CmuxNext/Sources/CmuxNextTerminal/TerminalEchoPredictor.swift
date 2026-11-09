@@ -49,9 +49,9 @@ final class TerminalEchoPredictor {
         refresh()
     }
 
-    /// The grid changed under the glyphs (a new PTY grid): start over.
+    /// The grid changed under the glyphs (a new PTY grid) with no output lost: what is drawn goes.
     func gridChanged() {
-        engine.missedOutput(alternateScreen: surfaceView?.isAlternateScreen)
+        engine.layoutChanged()
     }
 
     func close() {
