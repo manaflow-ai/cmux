@@ -363,7 +363,7 @@ final class TabCell {
             applyProfileDotColors()
             applyPresenceDotColor()
             applyAudioIcon()
-            applyPinIcon(tint: text)
+            applyPinIcon(tint: text, over: fill)
             let indicatorColors = StatusIndicatorLayer.Colors.current(loading: StatusIndicatorAppearance.shared.config.settings.color)
             spinnerLayer?.colors = indicatorColors
             statusGlyphLayer?.colors = indicatorColors

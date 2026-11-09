@@ -40,7 +40,8 @@ public struct TabLayoutSlot: Equatable, Sendable {
     public var groupID: TabGroupID? = nil
     public var isGroupChip = false
     public var isCollapsed = false
-    /// It shares the row's width with the other flexible tabs (``TabRowShare``): unpinned, not collapsed, not content-sized.
+    /// It shares the row's width with the other flexible tabs (``TabRowShare``): not collapsed, not content-sized, and
+    /// unpinned (or pinned while ``TabStripMetrics/pinnedKeepsTitle``).
     public var isFlexible = false
 
     public var maxX: CGFloat { x + width }
@@ -57,7 +58,7 @@ public struct TabLayoutResult: Equatable, Sendable {
     /// How the flexible tabs shared the row: the one input of the slots that depends on ``availableWidth``
     /// (``TabLayoutEngine/resized(_:availableWidth:style:metrics:closingModeWidth:)``).
     public var share: TabRowShare
-    /// The flexible tabs (unpinned, not content-sized, not collapsed) that shared the row.
+    /// The flexible tabs (``TabLayoutSlot/isFlexible``) that shared the row.
     public var flexibleCount: Int
     /// The row's width the flexible tabs did not share: the pinned tabs, their gap and the content-sized items.
     public var reservedWidth: CGFloat

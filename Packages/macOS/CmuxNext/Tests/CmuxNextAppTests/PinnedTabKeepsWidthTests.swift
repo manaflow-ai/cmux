@@ -98,4 +98,17 @@ import Testing
             #expect(pin.intersects(icon.insetBy(dx: -2, dy: -2)), "the pin \(pin) is not on the icon \(icon)")
         }
     }
+
+    /// Titled pinned tabs are as wide as the others, so in Scroll mode three of them could fill most of a
+    /// narrow pane: the fixed band then leaves the other tabs at least half the strip, or fixes nothing.
+    @Test func widePinnedTabsNeverLeaveTheOtherTabsLessThanHalfTheStrip() {
+        var metrics = TabStripMetrics()
+        metrics.pinnedKeepsTitle = true
+        let items = (0..<13).map { TabLayoutItem(id: TabID("t\($0)"), isPinned: $0 < 3) }
+        for viewport in [CGFloat(600), 900, 1400] {
+            let result = TabLayoutEngine.layout(items: items, availableWidth: viewport, style: .chrome, metrics: metrics)
+            let mapping = TabScrollMapping(result: result, viewportWidth: viewport, minimumScrollable: metrics.minActiveTabWidth, offset: 0)
+            #expect(mapping.band * 2 <= viewport, "at \(viewport) pt the pinned band is \(mapping.band) pt")
+        }
+    }
 }

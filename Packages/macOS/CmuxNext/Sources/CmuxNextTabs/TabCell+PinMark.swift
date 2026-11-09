@@ -4,10 +4,11 @@ import CmuxNextIcons
 import QuartzCore
 
 /// The pin of a pinned tab (Aziz 2026-11-09: "The horizontal tab width shrinks when I pin and it lacks a pin
-/// indicator"). A titled pinned tab (`tabs.pinnedStyle` Titled, the default) draws the pin in the trailing
+/// indicator"). A titled pinned tab (`tabs.pinnedKeepsTitle`, the default) draws the pin in the trailing
 /// cluster, left of the unread or status mark, where an unpinned tab shows its x on hover: a pinned tab never
 /// shows an x (Lawrence msg 19392), so the pin takes that place. An icon-only pinned tab (Chrome) draws it on
-/// the icon's bottom leading corner, on a disc of the strip's color so it reads over any favicon.
+/// the icon's bottom leading corner, on a disc of the tab's own color so it reads over any favicon. A titled
+/// tab too crowded for the pin beside its title puts it on the icon's corner too.
 ///
 /// A pinned tab with no icon of its own already draws the pin as its icon (`iconImage`), so it gets no
 /// second one.
@@ -51,20 +52,29 @@ extension TabCell {
     static let pinMarkName = "tabs.pinMark"
 
     /// theme-scoped: callers run it inside `themeScope.perform`.
-    func applyPinIcon(tint: NSColor) {
+    /// `fill`: the tab's own fill (selection, hover), which the disc takes over the window's color.
+    func applyPinIcon(tint: NSColor, over fill: NSColor?) {
         guard let pin = pinLayer else { return }
         pin.contentsScale = scale
         pin.contents = TabPackIconCache.shared.image(name: .statePinned, tint: tint, size: Self.pinMarkSize, scale: scale)
             ?? TabSymbolCache.shared.image(named: "pin.fill", tint: tint, pointSize: Self.pinMarkSize * 0.8,
                                            size: Self.pinMarkSize, scale: scale)
-        pinDiscLayer?.backgroundColor = Palette.windowBackground.cgColor
+        let base = Palette.windowBackground
+        let disc = fill.flatMap { base.blended(withFraction: $0.alphaComponent, of: $0.withAlphaComponent(1)) } ?? base
+        pinDiscLayer?.backgroundColor = disc.cgColor
     }
 
-    /// Places the pin at the end of the title area; returns where the title must end. It always draws
-    /// while the title does: it says what the tab is, as the state mark says what it needs.
-    func layoutTrailingPin(end: CGFloat, midY: CGFloat) -> CGFloat {
+    /// Places the pin at the end of the title area; returns where the title must end. It draws while the
+    /// title keeps a few characters beside it; a tab more crowded than that shows it on the icon's corner.
+    func layoutTrailingPin(titleX: CGFloat, end: CGFloat, midY: CGFloat) -> CGFloat {
         guard let pinLayer else { return end }
+        let m = metrics
         let size = Self.pinMarkSize
+        guard end - titleX - size - Metrics.space2 >= m.titleMinVisibleWidth else {
+            let icon = CGRect(x: titleX - m.iconTitleSpacing - m.iconSize, y: midY - m.iconSize / 2, width: m.iconSize, height: m.iconSize)
+            layoutCornerPin(iconFrame: icon, visible: true)
+            return end
+        }
         pinLayer.frame = CGRect(x: pixel(end - size), y: pixel(midY - size / 2), width: size, height: size)
         pinLayer.opacity = 1
         pinDiscLayer?.opacity = 0

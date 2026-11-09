@@ -44,7 +44,7 @@ extension TabCell {
         for mark in TrailingMark.allCases {
             switch mark {
             case .state: if statusSlot == nil { end = layoutTrailingStateMark(end: end, midY: midY, onPath: onPath) }
-            case .pin: end = layoutTrailingPin(end: end, midY: midY)
+            case .pin: end = layoutTrailingPin(titleX: titleX, end: end, midY: midY)
             case .audio: end = layoutAudioBadge(titleX: titleX, titleEnd: end, midY: midY)
             case .loading: if !spinnerInSlot { end = layoutTrailingSpinner(end: end, midY: midY) }
             case .theme: end = layoutThemeBadge(titleX: titleX, titleEnd: end, midY: midY)
