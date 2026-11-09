@@ -381,6 +381,13 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
         assert!(Path::new(r).join("README.md").is_file(), "{ran}");
         std::fs::write(Path::new(r).join("NOTICE"), format!("run {i}\n")).unwrap();
     }
+    // What the repository's own `info/exclude` leaves out is no change: a run's ignored cache
+    // never counts as added.
+    let exclude = repo.join(".git/info/exclude");
+    std::fs::create_dir_all(exclude.parent().unwrap()).unwrap();
+    std::fs::write(&exclude, "cache/\n").unwrap();
+    std::fs::create_dir_all(Path::new(&run_roots[0]).join("cache")).unwrap();
+    std::fs::write(Path::new(&run_roots[0]).join("cache/blob"), "ignored\n").unwrap();
     let compared =
         app.ok("_acpmux/plan/compare", json!({"sessionId": chat, "buildId": run_id})).await;
     assert!(

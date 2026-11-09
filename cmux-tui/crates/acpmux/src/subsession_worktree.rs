@@ -367,6 +367,19 @@ pub(crate) fn numstat_without_config(
         std::fs::write(scratch.join("config"), config).map_err(|e| e.to_string())?;
         std::fs::write(info.join("alternates"), format!("{}\n", objects.display()))
             .map_err(|e| e.to_string())?;
+        // What the person's git leaves out stays out here: the repository's `info/exclude` and
+        // their global excludes file, carried over as patterns (nothing in them runs), so an
+        // ignored cache is never counted as added nor hashed past the deadline.
+        let mut excludes = String::new();
+        if let Ok(own) = at(&["rev-parse", "--git-path", "info/exclude"]) {
+            excludes.push_str(&std::fs::read_to_string(absolute(own)).unwrap_or_default());
+            excludes.push('\n');
+        }
+        if let Some(global) = global_excludes(by) {
+            excludes.push_str(&std::fs::read_to_string(global).unwrap_or_default());
+        }
+        std::fs::create_dir_all(scratch.join("info")).map_err(|e| e.to_string())?;
+        std::fs::write(scratch.join("info/exclude"), excludes).map_err(|e| e.to_string())?;
         let scratch_index = scratch.join("index");
         let isolated = || {
             let mut cmd = hardened(root.into());
@@ -389,6 +402,30 @@ pub(crate) fn numstat_without_config(
     })();
     let _ = std::fs::remove_dir_all(&scratch);
     result
+}
+
+/// The person's global excludes file: `core.excludesFile` in their own git config, else git's
+/// default (`$XDG_CONFIG_HOME/git/ignore`, `~/.config/git/ignore`). Read from the global config
+/// alone, never a repository's.
+fn global_excludes(by: Instant) -> Option<PathBuf> {
+    let home = dirs::home_dir();
+    let mut cmd = Command::new("git");
+    cmd.current_dir(std::env::temp_dir()).env("GIT_CONFIG_NOSYSTEM", "1");
+    let named = run_by(cmd, &["config", "--global", "--get", "core.excludesFile"], Some(by))
+        .ok()
+        .map(|v| v.trim().to_owned())
+        .filter(|v| !v.is_empty());
+    match named {
+        Some(path) => match (path.strip_prefix("~/"), &home) {
+            (Some(rest), Some(home)) => Some(home.join(rest)),
+            _ => Some(PathBuf::from(path)),
+        },
+        None => std::env::var_os("XDG_CONFIG_HOME")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| home.map(|h| h.join(".config")))
+            .map(|config| config.join("git/ignore")),
+    }
 }
 
 /// The objects of `commit`'s tree that the repository's object store
@@ -1109,8 +1146,7 @@ fn ensure_worktree_under(
             let cwd = Some(root.join(&layout.prefix))
                 .filter(|c| !layout.prefix.is_empty() && c.is_dir())
                 .unwrap_or_else(|| root.clone());
-            let worktree =
-                Worktree {
+            let worktree = Worktree {
                 root: root.clone(),
                 branch,
                 base,
