@@ -51,6 +51,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   let recordFailures = 0;
   /** The next N intent commits fail (the tunnel and its ownership rows exist, the device row does not). */
   let commitFailures = 0;
+  /** The next N intent revocations by a device's delete fail. */
+  let intentOfDeviceFailures = 0;
+  /** While set, the next read of an intent's open attempts waits for this promise after it read them. */
+  let attemptsReadHold: { readonly reached: () => void; readonly gate: Promise<void> } | null = null;
   let inventoryRead: (() => void) | null = null;
   const failingLayer = Layer.effect(
     MeshStore,
@@ -58,6 +62,23 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
       ...inner,
       listDevices: (tenantId: Parameters<typeof inner.listDevices>[0], meshId: string) =>
         inner.listDevices(tenantId, meshId).pipe(Effect.tap(() => Effect.sync(() => { inventoryRead?.(); }))),
+      listOpenAttempts: (...args: Parameters<typeof inner.listOpenAttempts>) =>
+        inner.listOpenAttempts(...args).pipe(
+          Effect.tap(() => {
+            const hold = attemptsReadHold;
+            if (hold === null) return Effect.void;
+            attemptsReadHold = null;
+            hold.reached();
+            return Effect.promise(() => hold.gate);
+          }),
+        ),
+      revokeIntentOfDevice: (...args: Parameters<typeof inner.revokeIntentOfDevice>) => {
+        if (intentOfDeviceFailures > 0) {
+          intentOfDeviceFailures -= 1;
+          return Effect.fail(new StoreError({ operation: "intent.revokeOfDevice", cause: "injected" }));
+        }
+        return inner.revokeIntentOfDevice(...args);
+      },
       commitDeviceIntent: (...args: Parameters<typeof inner.commitDeviceIntent>) => {
         if (commitFailures > 0) {
           commitFailures -= 1;
@@ -403,6 +424,19 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     setProviderConfig(baseUrl = UPSTREAM_URL, apiKey = UPSTREAM_KEY) {
       if (client === null || providerFetch === null) throw new Error("mesh client has not been composed");
       Object.assign(client, makeUpstreamMesh({ baseUrl, apiKey: Redacted.make(apiKey), environment: "local", fetch: providerFetch }));
+    },
+    /** The next read of an intent's open attempts stalls after reading, until `release`; `reached` resolves when it does. */
+    holdNextOpenAttemptsRead(): { readonly reached: Promise<void>; readonly release: () => void } {
+      let release = () => {};
+      let reachedResolve = () => {};
+      const reached = new Promise<void>((resolve) => { reachedResolve = resolve; });
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      attemptsReadHold = { reached: () => reachedResolve(), gate };
+      return { reached, release };
+    },
+    /** The next `times` intent revocations by a device's delete fail. */
+    failIntentOfDeviceRevokes(times: number) {
+      intentOfDeviceFailures = times;
     },
     /** The next `times` intent commits fail after the provider created the tunnel. */
     failIntentCommits(times: number) {
