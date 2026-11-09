@@ -97,8 +97,6 @@ test("a running turn draws its thought from its first line, then keeps it in the
   const run = streaming.find((row) => row.id === "act");
   expect(run?.items?.map((item) => item.text)).toEqual([text]);
   expect(run?.live).toBe(true);
-  // Its run is the running turn's: the thought keeps the shape it streamed in (ThoughtRow `held`).
-  expect(run?.liveRun).toBe(true);
   expect(streaming.at(-1)?.kind).toBe(THINKING);
   // A call after it ends it: it stays in the run, no longer live; the call in flight is the line's.
   const call = {
@@ -114,7 +112,6 @@ test("a running turn draws its thought from its first line, then keeps it in the
   const after = working.find((row) => row.id === "act");
   expect(after?.items?.map((item) => item.kind)).toEqual(["thought"]);
   expect(after?.live).toBeUndefined();
-  expect(after?.liveRun).toBe(true);
   // A thought still shorter than a quiet one draws nothing yet: if it ended that short it would draw
   // no row (thoughts.ts `isQuietThought`), so it would show and then leave.
   const short = turnView(
@@ -176,7 +173,6 @@ test("an inbox notice that lands mid-thought leaves the thought in its run", () 
     const fresh = turnViewFrom(rows, new Set(), options);
     const run = built.rows.find((row) => row.id === "act");
     expect(run?.items?.map((item) => item.text)).toEqual([text]);
-    expect(run?.liveRun).toBe(true);
     expect(built.rows.map((row) => `${row.id}:${row.version}`)).toEqual(
       fresh.rows.map((row) => `${row.id}:${row.version}`),
     );

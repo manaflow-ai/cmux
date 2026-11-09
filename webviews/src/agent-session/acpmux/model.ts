@@ -641,9 +641,6 @@ export type AcpmuxRow = {
   frame?: string;
   /// The live turn's latest row, whose last thought may still stream (conversation/turns.ts).
   live?: boolean;
-  /// A running turn's run (conversation/turns.ts `codexRuns`): a thought drawn in it stays as drawn,
-  /// open in its live viewport, until the turn ends and the turn's one fold takes it.
-  liveRun?: boolean;
   /// A running turn's status line: the title of the call in flight, which it names (WorkingFor.tsx).
   doing?: string;
   /// A running turn's status line before the turn's first output: it reads "Thinking" beside the

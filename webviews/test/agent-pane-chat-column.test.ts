@@ -617,14 +617,16 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const chat = newChat();
     thinks(chat, THOUGHT);
     const page = await open(chat, 900);
-    // Streaming: the Codex-style turn draws no row for the thought yet; the turn's live line at its foot says one of the default
-    // The default status mode is Thinking only, with nothing to open.
+    // Streaming: the thought draws from its first words, in its live viewport, nothing to open yet
+    // (Leo, 2026-11-09: "we can be a bit more optimistic with, like, the displaying of the thinking
+    // ... I only started seeing your thinking bit, like, seven seconds in"). The turn's live line at
+    // its foot says Thinking.
     await page
       .locator(".cv-worked.is-below .cv-thinking", {
         hasText: /^Thinking/,
       })
       .waitFor();
-    expect(await page.getByText("Step 60: check the retry path.", { exact: false }).count()).toBe(0);
+    await page.locator(".cv-thought.is-full.is-live").waitFor();
     expect(await thoughtToggle(page).count()).toBe(0);
     await page.locator(".acpmux-scroll").hover();
     await page.mouse.wheel(0, -1600);

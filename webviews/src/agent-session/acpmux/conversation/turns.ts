@@ -2474,7 +2474,6 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
             items: shown,
             settled: true,
             foldRun: false,
-            liveRun: true,
             version: row.version * RUN_STATES + (lined ? 4 : 2),
           },
         ];
@@ -2503,7 +2502,6 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
         items,
         settled: true,
         foldRun: false,
-        liveRun: true,
         ...(thinking && { live: true }),
         version: row.version * RUN_STATES + (thinking ? 3 : 1),
       },

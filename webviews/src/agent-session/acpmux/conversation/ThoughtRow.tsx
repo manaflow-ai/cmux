@@ -43,19 +43,14 @@ const ThoughtText = memo(function ThoughtText({ text }: { text: string }) {
 /// folds only a long one, and the choice `thoughtHeader` "preview" opens to "Thought" without its
 /// time. The reader's toggle always wins over the fold (`choice ?? !folds`). The fold
 /// snaps; the reader's toggle plays the transcript's fold (fold.ts), except under Reduce Motion.
-/// `held`: a running turn's thought keeps the shape it streamed in once done, its text in the live
-/// viewport, so nothing in the run shrinks or folds under the reader until the turn ends and its one
-/// fold takes the work (Leo, 2026-11-08: "you only do the overarching fold at the very end").
 export const ThoughtRow = memo(function ThoughtRow({
   item,
   id,
   streaming = false,
-  held = false,
 }: {
   item: AcpmuxActivity;
   id?: string;
   streaming?: boolean;
-  held?: boolean;
 }) {
   const t = useT();
   const text = item.text.trim();
@@ -74,8 +69,8 @@ export const ThoughtRow = memo(function ThoughtRow({
   const full = useRef<HTMLSpanElement>(null);
   const toggled = useRef(false);
   const bodyId = useId();
-  const folds = !streaming && !held && (long || threshold === "every");
-  const liveViewport = streaming || held;
+  const folds = !streaming && (long || threshold === "every");
+  const liveViewport = streaming;
   const [tall, setTall] = useState(false);
   const clipped = liveViewport && tall;
   const open = choice ?? (!folds || view !== "normal");
