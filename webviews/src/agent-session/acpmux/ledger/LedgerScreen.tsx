@@ -347,9 +347,9 @@ export function LedgerScreen({
           <span className="cst-head-label">{t(`ledger.group.${group}`)}</span>
           <span>{t("ledger.total.cost")}</span>
           <span>{t("ledger.total.tokensIn")}</span>
-          <span>{t("ledger.column.cacheRead")}</span>
-          <span>{t("ledger.column.cacheWrite")}</span>
-          <span>{t("ledger.column.fromCache")}</span>
+          <span data-col="cacheRead">{t("ledger.column.cacheRead")}</span>
+          <span data-col="cacheWrite">{t("ledger.column.cacheWrite")}</span>
+          <span data-col="fromCache">{t("ledger.column.fromCache")}</span>
           <span>{t("ledger.total.tokensOut")}</span>
           <span>{t("ledger.total.turns")}</span>
           <span>{t("ledger.total.time")}</span>
@@ -464,15 +464,30 @@ const Line = memo(function Line({
   const body =
     look === "table" ? (
       <>
-        <span className="cst-label">{label}</span>
+        {/* The tooltip keeps the cache counts where a narrow page drops their columns. */}
+        <span
+          className="cst-label"
+          title={`${label}\n${t("ledger.row.cache", {
+            read: formatCount(totals.cacheReadTokens, locale),
+            write: formatCount(totals.cacheWriteTokens, locale),
+          })}${cacheShare(totals) === undefined ? "" : ` · ${t("ledger.row.fromCache", { share: fromCacheText(totals, locale) })}`}`}
+        >
+          {label}
+        </span>
         <span className="cst-num" title={source}>
           {cost}
           <SourceMark source={line.source} />
         </span>
         <span className="cst-num">{formatCount(tokensIn(totals), locale)}</span>
-        <span className="cst-num">{formatCount(totals.cacheReadTokens, locale)}</span>
-        <span className="cst-num">{formatCount(totals.cacheWriteTokens, locale)}</span>
-        <span className="cst-num">{fromCacheText(totals, locale)}</span>
+        <span className="cst-num" data-col="cacheRead">
+          {formatCount(totals.cacheReadTokens, locale)}
+        </span>
+        <span className="cst-num" data-col="cacheWrite">
+          {formatCount(totals.cacheWriteTokens, locale)}
+        </span>
+        <span className="cst-num" data-col="fromCache">
+          {fromCacheText(totals, locale)}
+        </span>
         <span className="cst-num">{formatCount(totals.outputTokens, locale)}</span>
         <span className="cst-num">{formatCount(totals.turns, locale)}</span>
         <span className="cst-num">{formatDuration(totals.wallMs, locale)}</span>

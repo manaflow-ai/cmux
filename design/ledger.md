@@ -54,7 +54,10 @@ login and name (`user@machine`), and the group says "Person and machine". Groupi
 across machines belongs to the team view, which reads every member's shared usage.
 - Rows: label and detail on the left, cost on the right with its source mark. The detail ends with
   the row's share of input from cache (`cacheShare`, the note line's number); `table` has columns
-  for cache reads, cache writes and that share. The share against
+  for cache reads, cache writes and that share, by the page's width (a container query on
+  `.cst`): all eight from 640 px; below that the read and write columns go, and below 560 px the
+  share column too, leaving the five the table always had at their old 72 px. The label's
+  tooltip keeps the cache counts at every width. The share against
   the largest row is a tonal fill behind the row (`transform: scaleX`, so it never causes layout).
 - There are no borders anywhere: tonal fills only.
 
@@ -84,7 +87,8 @@ across machines belongs to the team view, which reads every member's shared usag
 3. `stacked`: two-line labels, with the share bar beneath.
 
 Shipped: `bars`. It reads in one glance at 380 px, the ranking is the fill itself, and it uses
-no extra row height. `table` (eight measure columns) stops fitting below about 760 px, and
+no extra row height. `table` sheds its cache columns as the page narrows and still needs about
+420 px for its five, and
 `stacked` doubles the row height for no new information. The gallery also covers Save's menu
 open, a cold cache (bars and table), by-account, by-repo, by-day, no copy, 2,000 sessions,
 loading, empty and older.

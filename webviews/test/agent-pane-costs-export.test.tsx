@@ -1,7 +1,9 @@
 // l10n-allow-file: test fixtures (sample sessions), not shipped UI.
 // Costs' Save (ledger/LedgerScreen.tsx) writes every session of the range, reading again at
 // acpmux's most (5,000) when the page holds only the top ones. A range with more sessions than
-// that still saves, and says so: the status reads "5,000 of 6,001 sessions" beside Saved, and the JSON says `truncated` with `sessionsTotal` (the cmux#39335 review's F1).
+// that still saves, and says so: the status reads "5,000 of 6,001 sessions" beside Saved, and
+// the JSON says `truncated` with `sessionsTotal` (the cmux#39335 review's F1).
+import { readFileSync } from "node:fs";
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -144,4 +146,31 @@ test("a range acpmux returns whole says Saved and nothing more", async () => {
   expect(body.truncated).toBe(false);
   expect(body.sessionsTotal).toBe(300);
   expect(status).toBe(translate("ledger.export.saved"));
+});
+
+test("the table's cache columns are the ones a narrow page drops; the five it always had stay", async () => {
+  const container = installDom();
+  const load = ledger(3);
+  root = createRoot(container);
+  await act(async () => {
+    root!.render(<LedgerScreen load={load} openSession={() => {}} look="table" now={NOW} />);
+  });
+  await act(async () => undefined);
+  const head = [...container.querySelectorAll<HTMLElement>(".cst-head > span")];
+  // The label, then eight measures; only the three cache columns can be dropped.
+  expect(head).toHaveLength(9);
+  expect(head.filter((cell) => cell.dataset.col).map((cell) => cell.dataset.col)).toEqual([
+    "cacheRead",
+    "cacheWrite",
+    "fromCache",
+  ]);
+  // ledger.css drops them by the page's width, to the five-column grid of before at the narrowest.
+  const css = readFileSync(new URL("../src/agent-session/acpmux/ledger/ledger.css", import.meta.url), "utf8");
+  expect(css).toContain("container:cst/inline-size");
+  expect(css).toMatch(
+    /@container cst \(max-width:639\.98px\)\{[^\n]*repeat\(6,64px\)[^\n]*\[data-col="cacheRead"\],\.cst \[data-col="cacheWrite"\]\{display:none\}/,
+  );
+  expect(css).toMatch(/@container cst \(max-width:559\.98px\)\{[^\n]*repeat\(5,72px\)[^\n]*\[data-col="fromCache"\]\{display:none\}/);
+  // The warning tone is the pane's own token, which the agent pane defines.
+  expect(css).not.toMatch(/var\(--warning/);
 });
