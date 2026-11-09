@@ -8,9 +8,15 @@ import Testing
 /// owner's restore progress, then its ready (with the new pid) or the failure. Without it app
 /// health kept the old owner's stuck state and no restore held the next automatic replace.
 @Suite struct ReplaceHealthTests {
+    /// The signals the launcher's health sink received.
+    final class Seen: Sendable {
+        let signals = Mutex<[DaemonHealthSink.Signal]>([])
+        var all: [DaemonHealthSink.Signal] { signals.withLock { $0 } }
+    }
+
     /// A stand-in `cmux-tui` whose `server ensure` prints `lines` (a pause after each, so the runner's
     /// write watch sees the restore line before the result) and exits `status`.
-    static func launcher(lines: [String], status: Int32) throws -> (DaemonLauncher, Mutex<[DaemonHealthSink.Signal]>, URL) {
+    static func launcher(lines: [String], status: Int32) throws -> (DaemonLauncher, Seen, URL) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("replace-health-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let binary = root.appendingPathComponent("cmux-tui")
@@ -21,8 +27,8 @@ import Testing
                                                            binaryIsBundled: true),
                                       environment: { [:] })
         let sink = DaemonHealthSink()
-        let seen = Mutex<[DaemonHealthSink.Signal]>([])
-        sink.bind { signal in seen.withLock { $0.append(signal) } }
+        let seen = Seen()
+        sink.bind { signal in seen.signals.withLock { $0.append(signal) } }
         launcher.health = sink
         return (launcher, seen, root)
     }
@@ -35,16 +41,29 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let ensured = try await launcher.replaceUnresponsive()
         #expect(ensured.pid == 4242)
-        let signals = seen.withLock { $0 }
-        #expect(signals.first == .started && signals.contains(.restoring), "\(signals)")
-        // The new owner's ready ends the replace (a late write report may follow it: #39750).
-        #expect(signals.contains(.ready(pid: 4242)) && !signals.contains(.exited), "\(signals)")
+        let signals = seen.all
+        // The new owner's restore starts it, then its ready ends the replace (a late write report may follow: #39750).
+        let started = try #require(signals.firstIndex(of: .started), "\(signals)")
+        let ready = try #require(signals.firstIndex(of: .ready(pid: 4242)), "\(signals)")
+        #expect(started < ready && signals.contains(.restoring) && !signals.contains(.exited), "\(signals)")
     }
 
-    @Test func aFailedReplaceReportsTheFailure() async throws {
+    @Test func aFailedStartReportsTheFailure() async throws {
         let (launcher, seen, root) = try Self.launcher(lines: [], status: 1)
         defer { try? FileManager.default.removeItem(at: root) }
         await #expect(throws: (any Error).self) { try await launcher.replaceUnresponsive() }
-        #expect(seen.withLock { $0 }.last == .exited)
+        #expect(seen.all.last == .exited)
+    }
+
+    /// A refused replace (`server.replace_*`, exit 3) stopped nothing: the old owner still runs, so its
+    /// restore hold stays.
+    @Test func aRefusedReplaceLeavesTheOldOwnersState() async throws {
+        let (launcher, seen, root) = try Self.launcher(lines: [], status: 3)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let refusal = root.appendingPathComponent("cmux-tui")
+        let script = "#!/bin/sh\nprintf '%s\\n' '{\"code\":\"server.replace_not_stuck\",\"message\":\"the owner answers\"}' >&2\nexit 3\n"
+        try Data(script.utf8).write(to: refusal)
+        await #expect(throws: DaemonLauncher.ReplaceRefusal.self) { try await launcher.replaceUnresponsive() }
+        #expect(seen.all.isEmpty, "\(seen.all)")
     }
 }

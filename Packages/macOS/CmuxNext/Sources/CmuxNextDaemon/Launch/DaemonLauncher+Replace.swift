@@ -35,7 +35,7 @@ extension DaemonLauncher {
         let reports = progress ? ensureOutcome.restoreReporter() : nil
         defer { reports?.end() }
         // App health reads a replace as it reads an ensure (Codex's review of #39247 at 2903cec): the new
-        // owner's restore progress holds the automatic replace, and its ready or failure ends the hold.
+        // owner's restore progress holds the automatic replace, and its ready or a failed start ends the hold.
         let note = health.map(EnsureProgressNote.init)
         do {
             // No progress line while the old owner is probed and stopped: the
@@ -59,7 +59,8 @@ extension DaemonLauncher {
             ensureOutcome.note(nil, pid: ensured.pid)
             return ensured
         } catch {
-            health?.note(.exited)
+            // A refused replace stopped nothing: the old owner (restoring, maybe) still runs.
+            if !(error is ReplaceRefusal) { health?.note(.exited) }
             throw error
         }
     }
