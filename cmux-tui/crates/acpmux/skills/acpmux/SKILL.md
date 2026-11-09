@@ -198,6 +198,11 @@ the person's prompt. What the receiver gets depends on who you are to it:
   with `bg_output`. The receiver reads `From another agent (LEAD's TYPE
   subagent ID)` and ends its turn with its answer; it does not send it to the
   lead.
+  A subagent's send that goes to the send relay (`sendRelay`: no session here
+  or on a peer) names the subagent to the relay as a label only
+  (`ACPMUX_FROM_SUBAGENT`, `ACPMUX_FROM_LABEL`). `ACPMUX_FROM` stays the lead's
+  name, the one reply address the relay has, so the far side's answer reaches
+  the lead, not the subagent.
   `acpmux send LEAD` reaches the lead.
   A Codex subagent is named `LEAD's codex subagent THREAD` (its own
   `CODEX_THREAD_ID`); when acpmux does not know the lead's thread, the line
