@@ -106,7 +106,15 @@ import { screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
 import { startNewTabTransition } from "./newtab/startTransition";
-import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
+import {
+  folderFields,
+  isAgentHome,
+  projectLabel,
+  recentLocalFolders,
+  SessionsBy,
+  sessionTitle,
+  type AcpmuxSessionEntry,
+} from "./sessionList";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
 import {
   composerDraft,
@@ -9895,6 +9903,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const own = newTab?.projects ?? [];
     return projectsAnswered && own.length === 0 && newTab?.home ? null : own;
   }, [directProjects, projectsAnswered, newTab?.projects, newTab?.home]);
+  // The folder lists read only where each chat works and when it was active (sessionList.ts
+  // `folderFields`): another chat's status, unread, title or cost changing leaves them as they are.
+  const folderLists = useRef<{ newTab: SessionsBy; composer: SessionsBy } | null>(null);
+  folderLists.current ??= { newTab: new SessionsBy(folderFields), composer: new SessionsBy(folderFields) };
+  const newTabFolderSessions = folderLists.current.newTab.of(newTabSnapshot.sessions);
+  const composerFolderSessions = folderLists.current.composer.of(composerSnapshot.sessions);
   const newTabProjectList = useMemo(() => {
     const byPath = new Map<string, Project>();
     // A folder the host listed keeps its repository (projectRepos.ts) when a chat names it again.
@@ -9904,15 +9918,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     };
     for (const project of directProjects) byPath.set(project.cwd, project);
     for (const path of newTab?.projects ?? []) byPath.set(path, listed(path));
-    for (const session of newTabSnapshot.sessions) {
+    for (const session of newTabFolderSessions) {
       if (typeof session.cwd !== "string" || !session.cwd) continue;
       if (session.host && session.hostKind !== "local") continue;
       byPath.set(session.cwd, listed(session.cwd));
     }
     if (newTab?.cwd) byPath.set(newTab.cwd, listed(newTab.cwd));
     // The pickers list repositories in the order of their newest folder: the folder of the newest chat first.
-    return byRecentUse([...byPath.values()], recentLocalFolders(newTabSnapshot.sessions));
-  }, [newTabSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
+    return byRecentUse([...byPath.values()], recentLocalFolders(newTabFolderSessions));
+  }, [newTabFolderSessions, newTab?.cwd, newTab?.projects, directProjects]);
   // The same list while it holds the same folders in the same order (session-info/sameValue.ts): it is
   // built again from the chat list, which changes on every event of any chat that runs, and the
   // composer takes it as a prop (`projectChoices`), so a new copy of it drew the composer again four
@@ -9923,7 +9937,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const heroPicker = useMemo<EmptyStateProjects | undefined>(() => {
     if (!freshChat || quick) return undefined;
     const remote = new Map<string, Project>();
-    for (const session of composerSnapshot.sessions) {
+    for (const session of composerFolderSessions) {
       const peer = session.peer ?? (session.hostKind === "cloud" ? session.host : undefined);
       if (!peer || typeof session.cwd !== "string" || !session.cwd || isAgentHome(session.cwd)) continue;
       const project = {
@@ -9963,15 +9977,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           .catch(() => undefined);
       },
     };
-  }, [
-    freshChat,
-    quick,
-    composerSnapshot.sessions,
-    composerSnapshot.summary,
-    newTabProjects,
-    chooseProject,
-    chooseFolder,
-  ]);
+  }, [freshChat, quick, composerFolderSessions, composerSnapshot.summary, newTabProjects, chooseProject, chooseFolder]);
   // The hero's start as it shows (its project, Do not work in a project), first frame to final
   // (perf.ts noteStartState). Only a new chat with no session yet, not under a New Tab page.
   const heroShown =

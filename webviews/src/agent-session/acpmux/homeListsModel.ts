@@ -24,14 +24,15 @@ export function homeLists(
   asks: readonly WatchedAsk[] = [],
   tabs: readonly AttentionTab[] = [],
 ): { waiting: NeedsYouItem[]; review: AcpmuxSessionEntry[] } {
-  const others = withoutChildren(sessions.filter(listed))
-    .filter((session) => session.sessionId !== currentId)
-    .sort((left, right) => (activityTime(right) ?? 0) - (activityTime(left) ?? 0));
+  const others = withoutChildren(sessions.filter(listed)).filter((session) => session.sessionId !== currentId);
   const shown = new Set(others.map((session) => session.sessionId));
   return {
     waiting: needsYouItems({ sessions, asks, tabs }).filter((item) => item.kind === "tab" || shown.has(item.sessionId)),
+    // Only the rows it shows are sorted, newest first: a stable sort of the filtered rows keeps the
+    // order a sort of every chat would, and costs the few with a pull request, not every listed chat.
     review: others
       .filter((session) => session.pullRequest?.state === "open" && session.pullRequest.reviewReady)
+      .sort((left, right) => (activityTime(right) ?? 0) - (activityTime(left) ?? 0))
       .slice(0, HOME_ROWS),
   };
 }

@@ -496,6 +496,65 @@ export function mostRecentProject(
   return firstProject(recentLocalFolders(sessions), home, known);
 }
 
+/// `sessions` as it was when what `fields` reads of them last changed: the same array while only
+/// other fields of a session change (a status dot, unread, a title, a cost), so a projection that
+/// reads only `fields` (a memo over it) runs again only when its input moved, and one session's
+/// change costs one entry's fields here, not the projection over every listed chat. The pane keeps
+/// an unchanged session's entry object (direct.ts `sessionEntryList`), so an entry seen last time is
+/// not read again. A session added, removed or moved in the list counts as a change.
+export class SessionsBy {
+  private kept: readonly AcpmuxSessionEntry[] | undefined;
+  private seen = new Map<string, { entry: AcpmuxSessionEntry; key: string; at: number }>();
+  private count = -1;
+
+  constructor(private readonly fields: (entry: AcpmuxSessionEntry) => readonly unknown[]) {}
+
+  of(sessions: readonly AcpmuxSessionEntry[]): readonly AcpmuxSessionEntry[] {
+    if (sessions === this.kept) return sessions;
+    let moved = this.kept === undefined || sessions.length !== this.count;
+    // Same length: updated in place, as an id not seen before marks the list moved. Another length
+    // starts again, so a session no longer listed leaves nothing behind.
+    if (moved) this.seen = new Map();
+    for (let at = 0; at < sessions.length; at++) {
+      const entry = sessions[at]!;
+      const before = this.seen.get(entry.sessionId);
+      if (before?.entry === entry) {
+        if (before.at !== at) {
+          before.at = at;
+          moved = true;
+        }
+        continue;
+      }
+      const key = JSON.stringify(this.fields(entry));
+      if (key !== before?.key || at !== before.at) moved = true;
+      if (before) {
+        before.entry = entry;
+        before.key = key;
+        before.at = at;
+      } else this.seen.set(entry.sessionId, { entry, key, at });
+    }
+    // A session that left while another came keeps the same length: drop what it left behind.
+    if (this.seen.size > sessions.length) {
+      const listedIds = new Set(sessions.map((entry) => entry.sessionId));
+      for (const id of this.seen.keys()) if (!listedIds.has(id)) this.seen.delete(id);
+    }
+    this.count = sessions.length;
+    if (moved) this.kept = sessions;
+    return this.kept!;
+  }
+}
+
+/// What a session's folder lists read of it (``recentLocalFolders``, the pane's project pickers): its
+/// folder, where it runs, whether it is listed, and when it was last active.
+export const folderFields = (session: AcpmuxSessionEntry): readonly unknown[] => [
+  session.cwd,
+  session.host,
+  session.hostKind,
+  session.peer,
+  listed(session),
+  activityTime(session),
+];
+
 /// This Mac's chat folders, newest chat first, each once: not a private agent-home folder, `~` or a
 /// chat on another machine. `mostRecentProject` picks from it; a New Tab page keeps it for the next
 /// page's first frame (newtab/recentProject.ts).
@@ -505,13 +564,12 @@ export function recentLocalFolders(sessions: readonly AcpmuxSessionEntry[], limi
     if (!cwd || cwd === "~" || isAgentHome(cwd)) return false;
     return !session.peer && (!session.hostKind || session.hostKind === "local") && listed(session);
   });
-  const folders: string[] = [];
+  const folders = new Set<string>();
   for (const session of byRecency(local)) {
-    const cwd = session.cwd!.replace(/\/+$/, "");
-    if (!folders.includes(cwd)) folders.push(cwd);
-    if (folders.length >= limit) break;
+    folders.add(session.cwd!.replace(/\/+$/, ""));
+    if (folders.size >= limit) break;
   }
-  return folders;
+  return [...folders];
 }
 
 /// The first of `folders` (newest first) a New Tab may start in: not the home folder, and with

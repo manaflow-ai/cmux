@@ -29,6 +29,7 @@
 /// <reference types="bun" />
 import path from "node:path";
 import { chromium, type CDPSession, type Page } from "playwright";
+import { SourceMapConsumer, type RawSourceMap } from "source-map-js";
 import { warmViteServer } from "../test/support/warmDevServer";
 import { perfRow, TARGET_MS } from "./perfRow";
 
@@ -165,22 +166,39 @@ async function changeRun(page: Page, cdp: CDPSession, kind: Kind, size: number):
 }
 
 type Profile = {
-  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number } }[];
+  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number; columnNumber: number } }[];
   samples?: number[];
   timeDeltas?: number[];
 };
-/// UPDATE_ONE_PROFILE=1: the 20 functions with the most self time over the largest size's status changes
-/// (served-module lines, not source lines; bench diagnostics, keep it off for timing comparisons).
+/// UPDATE_ONE_PROFILE=1: the 20 source places with the most self time over the largest size's status
+/// changes, mapped back through the dev server's source maps (bench diagnostics; keep it off for timing).
 function printProfile(profile: Profile, size: number) {
   const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const maps = new Map<string, SourceMapConsumer | null>();
+  const mapOf = (url: string) => {
+    if (maps.has(url)) return maps.get(url)!;
+    let consumer: SourceMapConsumer | null = null;
+    try {
+      const map = vite.moduleGraph.urlToModuleMap.get(new URL(url).pathname)?.transformResult
+        ?.map as RawSourceMap | null;
+      if (map?.mappings) consumer = new SourceMapConsumer(map);
+    } catch {
+      consumer = null;
+    }
+    maps.set(url, consumer);
+    return consumer;
+  };
   const self = new Map<string, number>();
   let total = 0;
   (profile.samples ?? []).forEach((id, index) => {
     const frame = byId.get(id)?.callFrame;
     if (!frame || frame.functionName === "(idle)" || frame.functionName === "(program)") return;
     const ms = (profile.timeDeltas?.[index] ?? 0) / 1000;
-    const file = frame.url.split("/").slice(-2).join("/").split("?")[0];
-    const key = `${frame.functionName || "(anonymous)"} ${file}:${frame.lineNumber + 1}`;
+    const original = frame.url
+      ? mapOf(frame.url)?.originalPositionFor({ line: frame.lineNumber + 1, column: frame.columnNumber })
+      : undefined;
+    const file = (original?.source ?? frame.url).split("/").slice(-2).join("/").split("?")[0];
+    const key = `${frame.functionName || "(anonymous)"} ${file}:${original?.line ?? frame.lineNumber + 1}`;
     self.set(key, (self.get(key) ?? 0) + ms);
     total += ms;
   });

@@ -5902,16 +5902,32 @@ export class AcpmuxDirectClient {
     // this page: no snapshot, no read-ahead. Each one drew the whole pane, so an idle pane rebuilt its
     // transcript and list many times a second (Leo, 2026-11-03: "im at 100% cpu rn"). The pane's own
     // chat, the chat it is waiting to reopen and the chats it started still take every change.
+    // One lookup: a change replaces its session in place, so the list keeps acpmux's order and every
+    // other session keeps its object, which the pane's per-session caches key on (`sessionEntryList`).
+    const at = this.sessions.findIndex((item) => item.sessionId === session.sessionId);
     if (
       session.sessionId !== this.selectedSessionId &&
       session.sessionId !== this.missingSession &&
-      this.sessions.some((item) => item.sessionId === session.sessionId && sameJson(item, session)) &&
+      at >= 0 &&
+      sameJson(this.sessions[at], session) &&
       !this.offerChildIds().includes(session.sessionId) &&
       !this.isStartedChild(session)
     )
       return;
-    const added = !this.sessions.some((item) => item.sessionId === session.sessionId);
-    this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), session];
+    const added = at < 0;
+    // `asks.session` above has seen this change: when the list before it had been asked, the new list
+    // has too, and the next snapshot does not walk every listed chat's counts again (`emitNow`).
+    const asked = this.askedSessions === this.sessions;
+    const twice = !added && this.sessions.some((item, index) => index > at && item.sessionId === session.sessionId);
+    if (added) this.sessions = [...this.sessions, session];
+    else if (twice)
+      // A session listed twice (a peer's copy) becomes one row, the changed one, as a change always made it.
+      this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), session];
+    else {
+      this.sessions = this.sessions.slice();
+      this.sessions[at] = session;
+    }
+    if (asked) this.askedSessions = this.sessions;
     const watch = this.attachWatch?.sessionId === session.sessionId ? this.attachWatch : undefined;
     watch?.seen.set(`${String(session.createdAt)} ${String(session.peer)}`, {
       createdAt: session.createdAt,
