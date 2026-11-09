@@ -325,9 +325,11 @@ export function Thinking({
   // "Thinking" past the first step with no thoughts streamed yet: the turn's clock after a dot, named,
   // never bare beside the word, which would read as that long a think (Leo, 2026-11-03).
   const bareTurn = decorative && total && own === undefined && timesLook === "labelled";
-  // The turn's clock after it: named when labelled, only in the step time's tooltip on hover.
-  const turnClock =
-    (own || bareTurn) && turnTime && timesLook === "labelled" ? t("turn.live.turnTime", { time: turnTime }) : turnTime;
+  // The turn's clock after it: named beside a step's own time when labelled, only in the step time's
+  // tooltip on hover. Beside "Thinking" it stands unnamed after the dot, "Thinking · 1m 8s" (Leo,
+  // 2026-11-09: "when thinking dont add the turn ... it's currently going Thinking turn 1m24 or smth
+  // jsut remove the turn").
+  const turnClock = own && turnTime && timesLook === "labelled" ? t("turn.live.turnTime", { time: turnTime }) : turnTime;
   const turnTitle = own && turnTime && timesLook === "hover" ? t("turn.live.turnTime", { time: turnTime }) : undefined;
   // The compaction's own clock alone (`own` arm), never the turn's: the turn did not think that long.
   const elapsed = compacting
