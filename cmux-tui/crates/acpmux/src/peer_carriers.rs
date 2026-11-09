@@ -673,7 +673,7 @@ impl Peer {
     }
 
     /// Whether `open_url` sends the peer token: one is known, and the URL may carry it.
-    fn url_presents_token(&self) -> bool {
+    pub(super) fn url_presents_token(&self) -> bool {
         self.peer_token.is_some() && super::carries_peer_token(&self.url)
     }
 
