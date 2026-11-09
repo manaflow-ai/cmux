@@ -109,6 +109,8 @@ CONTINUE_STATE="${CMUX_NOTARY_CONTINUE_STATE:-}"
 source "$ROOT_DIR/scripts/ci/lib/notary-auth.sh"
 # shellcheck source=lib/notarization-ticket.sh
 source "$ROOT_DIR/scripts/ci/lib/notarization-ticket.sh"
+# shellcheck source=lib/notary-wait-recover.sh
+source "$ROOT_DIR/scripts/ci/lib/notary-wait-recover.sh"
 
 if [ ! -d "$APP_PATH/Contents" ]; then
   echo "Signed app not found: $APP_PATH" >&2
@@ -312,6 +314,22 @@ else
 fi >"$NOTARY_SUBMIT_OUTPUT" 2>&1
 NOTARY_SUBMIT_EXIT=$?
 set -e
+# A submit that never reached Apple (no submission named, a connect failure) is submitted again.
+if [ "$NOTARY_SUBMIT_EXIT" -ne 0 ] && [ -z "$CONTINUE_STATE" ]; then
+  submit_wait=()
+  if [ "$SUBMIT_ONLY" != true ]; then
+    submit_wait=(--wait --timeout "$NOTARY_WAIT_TIMEOUT")
+  fi
+  if notary_submit_retry "$NOTARY_SUBMIT_OUTPUT" "$XCRUN_TOOL" notarytool submit "$DMG_RELEASE" "${NOTARY_AUTH_ARGS[@]}" \
+    --output-format json ${submit_wait[@]+"${submit_wait[@]}"}; then
+    NOTARY_SUBMIT_EXIT=0
+  fi
+fi
+# A connection lost after the upload is not Apple's answer: wait on the submission it made.
+if [ "$NOTARY_SUBMIT_EXIT" -ne 0 ] && [ -z "$CONTINUE_STATE" ] && [ "$SUBMIT_ONLY" != true ] \
+  && notary_wait_recover "$NOTARY_SUBMIT_OUTPUT" "$NOTARY_WAIT_TIMEOUT"; then
+  NOTARY_SUBMIT_EXIT=0
+fi
 # The 6 h stapled-app fallback counts from here, after the upload returned
 # (write_notary_state).
 DMG_SUBMITTED_AT="$(date +%s)"
@@ -675,6 +693,14 @@ elif [ "$STAPLE_APP_IN_DMG" = true ]; then
     --output-format json ${restaple_wait[@]+"${restaple_wait[@]}"} >"$restaple_output" 2>&1
   restaple_exit=$?
   set -e
+  if [ "$restaple_exit" -ne 0 ] && notary_submit_retry "$restaple_output" "$XCRUN_TOOL" notarytool submit "$FINAL_DMG" \
+    "${NOTARY_AUTH_ARGS[@]}" --output-format json ${restaple_wait[@]+"${restaple_wait[@]}"}; then
+    restaple_exit=0
+  fi
+  if [ "$restaple_exit" -ne 0 ] && [ -z "$STAPLED_DMG_HANDOFF_FILE" ] \
+    && notary_wait_recover "$restaple_output" "$STAPLED_DMG_WAIT_TIMEOUT"; then
+    restaple_exit=0
+  fi
   restaple_id="$(extract_notary_value "$restaple_output" id || true)"
   restaple_status="$(extract_notary_value "$restaple_output" status || true)"
   if [ -n "$STAPLED_DMG_HANDOFF_FILE" ]; then

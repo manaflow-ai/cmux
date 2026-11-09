@@ -70,6 +70,10 @@ enum OmnibarStyle {
     /// The star and other trailing address-bar icons, Helium's `kLocationBarTrailingIconSize`
     /// (18 at Standard; Chrome's 20 at Comfortable).
     static var trailingIconSize: CGFloat { metrics.trailingIconSize }
+    /// The bookmark star's drawing side: the toolbar glyph side, so its ink box is the back arrow's
+    /// and the Extensions puzzle's, but never larger than its button (`trailingIconSize + 2`), which a
+    /// short `browser.omnibar.height` shrinks.
+    static var starIconSize: CGFloat { metrics.starIconSize }
     /// Between neighboring toolbar buttons (navigation, extensions, trailing
     /// buttons): Helium's `kToolbarIconDefaultMargin`, the base padding, which
     /// the toolbar's FlexLayout collapses to one gap.
@@ -81,10 +85,13 @@ enum OmnibarStyle {
     // MARK: Omnibox
 
     /// Bar corner radius.
-    static let barCornerRadius: CGFloat = 8
+    /// The default bar radius: the one corner radius itself, whose default is the omnibar's 8 pt
+    /// (Lawrence 2026-11-05: "default roundness should be omnibar roundness");
+    /// `browser.omnibar.cornerRadius` overrides it.
+    static var barCornerRadius: CGFloat { Metrics.cornerRadius }
     /// Page-info chip.
     static var chipSize: CGFloat { barHeight - 4 }
-    static let chipCornerRadius: CGFloat = 6
+    static var chipCornerRadius: CGFloat { Metrics.cornerRadius(nestedIn: cardCornerRadius, inset: chipLeading) }
     /// Chip distance from the bar's leading edge.
     static let chipLeading: CGFloat = 2
     /// Text distance after the chip.

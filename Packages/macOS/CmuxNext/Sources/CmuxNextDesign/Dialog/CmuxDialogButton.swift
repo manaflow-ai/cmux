@@ -22,7 +22,7 @@ public nonisolated struct CmuxDialogButton: Equatable, Sendable {
     /// Only a pointer click presses it: no key (Return, Escape, Space,
     /// Command) and no keyboard focus, so typing that was meant for another
     /// view when the dialog appeared cannot answer it (approvals); nor can a click within half a
-    /// second of it appearing (``CmuxDialogButtonView``).
+    /// second of it appearing (``CmuxDialogClickOnlyArm``).
     public var clickOnly: Bool
 
     public init(id: String, title: String, role: Role = .normal, key: Character? = nil, clickOnly: Bool = false) {

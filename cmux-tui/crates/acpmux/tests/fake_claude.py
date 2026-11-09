@@ -22,7 +22,8 @@ A prompt ending in "settings-probe" replies with the prompt text as Claude
 read it, every `apply_flag_settings` it got, and its argv.
 "slow-stop" runs until the interrupt, then echoes the next prompt line it
 reads before the stopped turn's result (a Stop Claude Code answers late).
-"compact-stop" reports a compaction, ignores its interrupt until the
+"/compact" compacts (with FAKE_CLAUDE_COMPACT_FAIL_IF=<path>, while that file exists, it fails
+on a dropped connection instead). "compact-stop" reports a compaction, ignores its interrupt until the
 compaction finishes, then emits the late result (the Stop path must settle
 before that result arrives).
 "long-step" is one step (a long tool call) that runs until the interrupt, as
@@ -44,16 +45,25 @@ shell still running; FAKE_CLAUDE_BACKGROUND_ERROR=<text> refuses that
 request with the text instead. FAKE_CLAUDE_BACKGROUND_SILENT_MS=<ms> never
 answers it: <ms> later Claude Code moves the shell by itself, then ends the
 turn (with FAKE_CLAUDE_BACKGROUND_SILENT_END=1 the turn ends at once and the
-shell moves <ms> after). FAKE_CLAUDE_BACKGROUND_TWICE waits for two requests,
+shell moves <ms> after; with FAKE_CLAUDE_BACKGROUND_LATE=1 it answers the
+request `backgrounded: false` <ms> late, as Claude Code 2.1.312 answered bg-8
+195.9 s after a 10 s wait). FAKE_CLAUDE_BACKGROUND_TWICE waits for two requests,
 answers the first `backgrounded: true` and the second false, and moves the
 shell before the second answer ("moved") or after it ("answered"); the
-shell's tool result then names its output file. FAKE_CLAUDE_FG_WAIT_S (20
+shell's tool result then names its output file. FAKE_CLAUDE_FG_TIMEOUT_MS gives the
+Bash call that `timeout` (a wait the agent declared). FAKE_CLAUDE_FG_WAIT_S (20
 by default) is how long the shell waits for a control request before the
 turn ends by itself. With FAKE_CLAUDE_FLOOD_GATE=<fifo>, the shell first
 says "before-flood", reads the fifo, then streams FAKE_CLAUDE_FLOOD (8000)
 text deltas and writes <fifo>.done: output the agent's host buffers while no
 daemon reads it; once <fifo>.done exists it floods no more. "flood" is that
 backlog alone, then the turn ends.
+"fg-work KIND MS" (KIND bash or agent) is one foreground Bash or Agent call (toolu_work, task
+w1) that runs MS ms, as Claude Code 2.1.310 runs one: user lines written meanwhile wait for the
+step. A background_tasks for it (or for every task) moves it: its task_updated, then its tool
+result says it runs in the background, and each waiting line, and every later one, is echoed and
+answered ("read: TEXT") at once. At MS the call ends: a foreground one's result comes and then the
+waiting lines are read; a moved one's task_notification says it completed. Then the turn ends.
 FAKE_CLAUDE_AUTH=1 looks for a sign-in the way Claude Code does (the
 environment, then `env` and `apiKeyHelper` in <Claude home>/settings.json,
 then <Claude home>/.credentials.json; the home is CLAUDE_CONFIG_DIR or
@@ -84,11 +94,22 @@ token usage, and `total_cost_usd` as the process's running total (0.25 more
 per cost-probe turn, from 0 at each start). "cost-restore X" first restores
 the running total X, as a resumed Claude Code does; "cost-zero" reports a
 zeroed total, as a crashed one's last result can.
+"calls-probe" is a turn of three model calls, as Claude Code streams them (a real turn's first
+three, from its transcript): each call's message_delta reads the whole context again, a subagent
+call streams beside them, and the result's usage adds the main loop's three up.
 "rate-limits-probe" sends two rate_limit_event lines as Claude Code 2.1.307 does
 (`utilization` a 0-1 fraction): the session and weekly windows, then the
 session window alone, moved. FAKE_CLAUDE_LIMITS=1 sends them on every prompt.
 """
 import json
+
+# "calls-probe"'s three model calls: each reads the context the one before it held, mostly from
+# the prompt cache.
+CALLS_PROBE = [
+    {"input_tokens": 2, "cache_creation_input_tokens": 6246, "cache_read_input_tokens": 125325, "output_tokens": 476},
+    {"input_tokens": 2, "cache_creation_input_tokens": 895, "cache_read_input_tokens": 131571, "output_tokens": 249},
+    {"input_tokens": 2, "cache_creation_input_tokens": 663, "cache_read_input_tokens": 132466, "output_tokens": 392},
+]
 import os
 import sys
 import uuid
@@ -143,6 +164,60 @@ COMMANDS = [
     {"name": "compact", "description": "Clear conversation history but keep a summary in context",
      "argumentHint": "<optional custom summarization instructions>"},
 ]
+# Claude Code lists /rename (2.1.310); only a test that renames asks for it, so other command lists stay as they were.
+if os.environ.get("FAKE_CLAUDE_RENAMED"):
+    COMMANDS.append({"name": "rename", "description": "Rename the current conversation", "argumentHint": "[name]"})
+
+
+def is_cmux_guidance(block):
+    """Identify hidden cmux guidance in the stream-json content Claude receives."""
+    if not isinstance(block, dict):
+        return False
+    source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
+    if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance"}:
+        return True
+    # Only the guidance blocks (`context_inventory::override_block`): the forum's rules, a side
+    # question's chat and attachments are cmux-*-context blocks Claude must read.
+    text = block.get("text", "")
+    return isinstance(text, str) and text.lstrip().startswith(
+        ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>"))
+
+
+def command_text(content):
+    """Match fixture commands on the person's text, retaining wire messages unchanged."""
+    return "".join(b.get("text", "") for b in content
+                    if isinstance(b, dict) and not is_cmux_guidance(b))
+
+
+def without_sender_line(said):
+    """The person's command after acpmux's sender line (#37190): a prompt that is not the
+    person's (a remote caller, another agent) arrives as "From ..., not the person:" first."""
+    import re
+    return re.sub(r"^From [^\n]*?, not the person:\s*", "", said, count=1)
+
+
+def transcript_content(content, said):
+    """Keep raw context blocks in Claude's own transcript, as the real harness does."""
+    if not any(is_cmux_guidance(block) for block in content if isinstance(block, dict)):
+        return said
+    raw = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        copy = dict(block)
+        copy.pop("_meta", None)
+        raw.append(copy)
+    return raw
+
+
+def visible_transcript_text(content):
+    """Read a Claude transcript prompt without exposing cmux-only context to fixture commands."""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    return "".join(b.get("text", "") for b in content
+                   if isinstance(b, dict) and not is_cmux_guidance(b))
 
 
 # Claude Code's get_context_usage answer (detail "summary"), with what acpmux leaves out.
@@ -348,8 +423,7 @@ def long_step(prompt):
     send({"type": "result", "subtype": "error_during_execution", "is_error": True, "result": None,
           "num_turns": 1, "duration_api_ms": 5})
     for msg in waiting:
-        said = "".join(b.get("text", "") for b in (msg.get("message") or {}).get("content") or []
-                       if isinstance(b, dict))
+        said = command_text((msg.get("message") or {}).get("content") or [])
         send({"type": "user", "isReplay": True, "uuid": msg.get("uuid"), "message": msg.get("message")})
         send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
                                                  "delta": {"type": "text_delta", "text": "read: " + said}}})
@@ -382,8 +456,7 @@ def gated(prompt, base):
                       "request_id": msg.get("request_id"), "response": {}}})
         with open(gate) as f:
             how = f.read().strip()
-        said = " | ".join("".join(b.get("text", "") for b in (m.get("message") or {}).get("content") or []
-                                  if isinstance(b, dict)) for m in waiting)
+        said = " | ".join(command_text((m.get("message") or {}).get("content") or []) for m in waiting)
         if how == "fail":
             send({"type": "result", "subtype": "success", "is_error": True, "num_turns": 1,
                   "result": "API Error: Connection error.", "duration_api_ms": 5})
@@ -405,8 +478,7 @@ def gated(prompt, base):
         read = waiting[:1] if how == "end-first" else waiting
         for m in read:
             send({"type": "user", "isReplay": True, "uuid": m.get("uuid"), "message": m.get("message")})
-        said = " | ".join("".join(b.get("text", "") for b in (m.get("message") or {}).get("content") or []
-                                  if isinstance(b, dict)) for m in read)
+        said = " | ".join(command_text((m.get("message") or {}).get("content") or []) for m in read)
         waiting = waiting[len(read):]
         n += 1
         send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
@@ -429,11 +501,85 @@ def flood():
         f.write("done")
 
 
+def fg_work(kind, ms):
+    """The "fg-work" turn (module doc)."""
+    import time
+    agent = kind == "agent"
+    call = ({"description": "Long review", "prompt": "review it", "subagent_type": "general-purpose"}
+            if agent else {"command": "make long", "description": "Long build"})
+    send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_work",
+          "name": "Agent" if agent else "Bash", "input": call}]}})
+    send({"type": "system", "subtype": "task_started", "task_id": "w1", "tool_use_id": "toolu_work",
+          "description": call["description"], "task_type": "local_agent" if agent else "local_bash",
+          "is_backgrounded": False})
+
+    def read(msg):
+        said = "".join(b.get("text", "") for b in (msg.get("message") or {}).get("content") or []
+                       if isinstance(b, dict))
+        send({"type": "user", "isReplay": True, "uuid": msg.get("uuid"), "message": msg.get("message")})
+        send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                 "delta": {"type": "text_delta", "text": "read: " + said}}})
+
+    ends = time.monotonic() + ms / 1000
+    waiting = []
+    moved = False
+    while True:
+        left = ends - time.monotonic()
+        if left <= 0:
+            break
+        try:
+            got = LINES.get(timeout=left)
+        except queue.Empty:
+            break
+        if got is None:
+            sys.exit(0)
+        msg = json.loads(got)
+        if msg.get("type") == "user":
+            if moved:
+                read(msg)
+            else:
+                waiting.append(msg)
+            continue
+        if msg.get("type") != "control_request":
+            continue
+        request = msg.get("request") or {}
+        rid = msg.get("request_id")
+        if request.get("subtype") != "background_tasks":
+            send({"type": "control_response", "response": {"subtype": "success", "request_id": rid,
+                  "response": {}}})
+            continue
+        move = not moved and request.get("tool_use_id") in (None, "toolu_work")
+        send({"type": "control_response", "response": {"subtype": "success", "request_id": rid,
+              "response": {"backgrounded": move}}})
+        if move:
+            moved = True
+            send({"type": "system", "subtype": "task_updated", "task_id": "w1",
+                  "patch": {"is_backgrounded": True}})
+            send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_work",
+                  "content": "Running in the background with ID: w1"}]}})
+            for line in waiting:
+                read(line)
+            waiting = []
+    if moved:
+        send({"type": "system", "subtype": "task_notification", "task_id": "w1", "tool_use_id": "toolu_work",
+              "status": "completed", "summary": "work done"})
+    else:
+        send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_work",
+              "content": "work done"}]}})
+        for line in waiting:
+            read(line)
+    send({"type": "result", "subtype": "success", "result": "work done", "num_turns": 1,
+          "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
+
+
 def fg_shell():
     """The "fg-shell" turn (module doc). Like Claude Code 2.1.305, background_tasks
     answers `backgrounded`: false when its tool_use_id names no foreground task."""
+    shell = {"command": "npm run build", "description": "Build"}
+    if os.environ.get("FAKE_CLAUDE_FG_TIMEOUT_MS"):
+        shell["timeout"] = int(os.environ["FAKE_CLAUDE_FG_TIMEOUT_MS"])
     send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_fg", "name": "Bash",
-          "input": {"command": "npm run build", "description": "Build"}}]}})
+          "input": shell}]}})
     send({"type": "system", "subtype": "task_started", "task_id": "f1", "tool_use_id": "toolu_fg",
           "description": "Build", "task_type": "local_bash", "is_backgrounded": False})
     flood()
@@ -481,6 +627,8 @@ def fg_shell():
                     move()
                     return
                 time.sleep(int(silent) / 1000)
+                if os.environ.get("FAKE_CLAUDE_BACKGROUND_LATE"):
+                    answer(rid, False)
                 move()
                 send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_fg",
                       "content": "Command was moved to the background with ID: f1"}]}})
@@ -528,6 +676,24 @@ while True:
     except ValueError:
         continue
     kind = msg.get("type")
+    # `/rename NAME`, answered as Claude Code 2.1.310 does (a local command, no model call); FAKE_CLAUDE_RENAMED
+    # names a file each name is added to, so a test sees the running process renamed (hub/live_name.rs).
+    content = (msg.get("message") or {}).get("content") if kind == "user" else None
+    if isinstance(content, str) and content.startswith("/rename "):
+        name = content[len("/rename "):].strip()
+        if os.environ.get("FAKE_CLAUDE_RENAMED"):
+            with open(os.environ["FAKE_CLAUDE_RENAMED"], "a") as f:
+                f.write(name + "\n")
+        said = "Session renamed to: " + name
+        send({"type": "user", "isReplay": True, "uuid": msg.get("uuid"), "message": msg.get("message"),
+              "session_id": SESSION})
+        send({"type": "system", "subtype": "session_title_changed", "title": name, "session_id": SESSION})
+        send({"type": "assistant", "message": {"id": "rename", "model": "<synthetic>", "role": "assistant",
+              "content": [{"type": "text", "text": said}]}, "parent_tool_use_id": None, "session_id": SESSION,
+              "local_command_run": {"command": "rename", "args": name}})
+        send({"type": "result", "subtype": "success", "is_error": False, "num_turns": 0, "duration_api_ms": 0,
+              "result": said, "local_command": "rename", "session_id": SESSION})
+        continue
     # The answer to the late subagent's ask: the subagent says what it was answered.
     if kind == "control_response" and (msg.get("response") or {}).get("request_id") == "late-1":
         behavior = ((msg.get("response") or {}).get("response") or {}).get("behavior", "none")
@@ -618,12 +784,30 @@ while True:
                                                ("sidecar", "3599", False))}
             with open(os.environ["FAKE_CLAUDE_IDLE_CHILDREN"], "w") as f:
                 f.write(json.dumps(pids))
+        # FAKE_CLAUDE_RUN_USER_MCP=<file>: the harness starts each stdio server its user config
+        # ($CLAUDE_CONFIG_DIR/.claude.json mcpServers) names, as Claude Code does, and writes their
+        # pids there.
+        if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_RUN_USER_MCP"):
+            import subprocess
+            with open(os.path.join(os.environ["CLAUDE_CONFIG_DIR"], ".claude.json")) as f:
+                servers = json.load(f).get("mcpServers") or {}
+            pids = [subprocess.Popen([s["command"], *s.get("args", [])], stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).pid
+                    for s in servers.values()]
+            with open(os.environ["FAKE_CLAUDE_RUN_USER_MCP"], "w") as f:
+                f.write("".join(f"{pid}\n" for pid in pids))
         answer = {}
-        if request.get("subtype") == "initialize" and SKILLS:
+        # A renaming test needs `rename` listed, as Claude Code lists it (live_name.rs asks only then).
+        if request.get("subtype") == "initialize" and (SKILLS or os.environ.get("FAKE_CLAUDE_RENAMED")):
             answer = {"commands": COMMANDS}
         if (request.get("subtype") == "get_context_usage" and os.environ.get("FAKE_CLAUDE_CONTEXT") == "1"
                 and not LIMITED):
             answer = CONTEXT_USAGE
+        # An idle side_question answers as Claude Code 2.1.310 does: the side answer and whether it
+        # is synthetic; FAKE_CLAUDE_SIDE_ANSWER names its text (the question echoed otherwise).
+        if request.get("subtype") == "side_question":
+            said = os.environ.get("FAKE_CLAUDE_SIDE_ANSWER", "side: " + str(request.get("question")))
+            answer = {"response": said, "synthetic": False}
         send({"type": "control_response", "response": {"subtype": "success", "request_id": msg.get("request_id"), "response": answer}})
         if request.get("subtype") == "apply_flag_settings":
             FLAG_SETTINGS.append(request.get("settings"))
@@ -729,7 +913,9 @@ while True:
         if SKILLS or os.environ.get("FAKE_CLAUDE_INIT_ON_TURN") == "1":
             send(init())
         content = (msg.get("message") or {}).get("content") or []
-        said = "".join(b.get("text", "") for b in content if isinstance(b, dict))
+        # Fixture commands model the person's request. Context blocks remain in the
+        # wire message and replay above, but must not change exact command matches.
+        said = command_text(content)
         # FAKE_CLAUDE_ECHO=1: each prompt line echoed back first, as `--replay-user-messages` does.
         if os.environ.get("FAKE_CLAUDE_ECHO") == "1":
             send({"type": "user", "isReplay": True, "uuid": msg.get("uuid"), "message": msg.get("message")})
@@ -738,7 +924,8 @@ while True:
             import datetime
             at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
             with open(stored(SESSION), "a") as f:
-                f.write(json.dumps({"type": "user", "sessionId": SESSION, "timestamp": at, "message": {"role": "user", "content": said}}) + "\n")
+                f.write(json.dumps({"type": "user", "sessionId": SESSION, "timestamp": at,
+                                    "message": {"role": "user", "content": transcript_content(content, said)}}) + "\n")
                 reply = {"role": "assistant", "stop_reason": "end_turn", "content": [{"type": "text", "text": "ok"}]}
                 # FAKE_CLAUDE_TRANSCRIPT_USAGE=1: the reply carries its call's model and usage, as Claude Code's does.
                 if os.environ.get("FAKE_CLAUDE_TRANSCRIPT_USAGE") == "1":
@@ -775,14 +962,36 @@ while True:
         if said.strip() == "fg-shell":
             fg_shell()
             continue
+        if said.startswith("fg-work "):
+            _, kind, ms = said.split()
+            fg_work(kind, int(ms))
+            continue
         if said.strip() == "flood":
             flood()
             send({"type": "result", "subtype": "success", "result": "flooded", "num_turns": 1,
                   "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
             continue
+        # "burst: N" streams N text deltas, a Read call and its result after every 20th, then
+        # ends the turn: a long chat's log in one prompt (the fork_latency bench).
+        if said.startswith("burst: "):
+            for i in range(int(said[len("burst: "):])):
+                send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                         "delta": {"type": "text_delta", "text": f"word {i} "}}})
+                if i % 20 == 19:
+                    use = {"type": "tool_use", "id": f"toolu_b{i}", "name": "Read", "input": {"file_path": f"/tmp/f{i}.txt"}}
+                    send({"type": "assistant", "message": {"content": [use]}})
+                    send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": f"toolu_b{i}", "content": "read"}]}})
+            send({"type": "result", "subtype": "success", "result": "burst", "num_turns": 1,
+                  "duration_api_ms": 5, "usage": {"input_tokens": 1, "output_tokens": 1}})
+            continue
         # "/compact" runs Claude Code 2.1.303's compaction: the compacting status, the
         # boundary, the summary as a synthetic user line, the command's stdout, a result.
         if said.strip() == "/compact":
+            # FAKE_CLAUDE_COMPACT_FAIL_IF=<path>: while it exists, the connection drops mid-compaction.
+            if os.path.exists(os.environ.get("FAKE_CLAUDE_COMPACT_FAIL_IF") or "\0"):
+                send({"type": "result", "subtype": "success", "is_error": True, "num_turns": 1,
+                      "result": "API Error: Connection error.", "duration_api_ms": 5})
+                continue
             send({"type": "system", "subtype": "status", "status": "compacting", "session_id": SESSION})
             send({"type": "system", "subtype": "status", "status": None, "compact_result": "success",
                   "session_id": SESSION})
@@ -823,12 +1032,15 @@ while True:
             while not os.path.exists(said[len("hold: "):]):
                 time.sleep(0.02)
         text = json.dumps(sys.argv[1:])
+        # Spawn-time and sandbox probes also come from remote callers, whose prompt starts
+        # with acpmux's sender line: match the command after it.
+        asked = without_sender_line(said)
         # "env: NAME" replies with that environment variable, for spawn-time checks.
-        if said.startswith("env:"):
-            name = said[4:].strip()
+        if asked.startswith("env:"):
+            name = asked[4:].strip()
             text = f"{name}={os.environ.get(name, '')}"
-        if said.startswith("envs:"):
-            names = [name.strip() for name in said[5:].split(",") if name.strip()]
+        if asked.startswith("envs:"):
+            names = [name.strip() for name in asked[5:].split(",") if name.strip()]
             text = json.dumps({name: os.environ.get(name, "") for name in names}, sort_keys=True)
         if said.endswith("settings-probe"):
             text = json.dumps({"said": said, "settings": FLAG_SETTINGS, "argv": sys.argv[1:]})
@@ -839,9 +1051,9 @@ while True:
                       if isinstance(b, dict)]
             used = [b["id"] for b in blocks if b.get("type") == "tool_use"]
             answered = {b["tool_use_id"] for b in blocks if b.get("type") == "tool_result"}
-            text = json.dumps({"prompts": [r["message"]["content"] for r in records
-                                           if r.get("type") == "user" and isinstance(r["message"]["content"], str)
-                                           and r["message"]["content"] != "history-probe"],
+            text = json.dumps({"prompts": [visible_transcript_text(r["message"]["content"]) for r in records
+                                           if r.get("type") == "user"
+                                           and visible_transcript_text(r["message"]["content"]) != "history-probe"],
                                "sessions": sorted({r["sessionId"] for r in records}),
                                # Tool calls the conversation holds with no result: Claude's API refuses those.
                                "unresolved": [i for i in used if i not in answered]})
@@ -866,7 +1078,7 @@ while True:
         # write a file at OUTSIDE, connect to 127.0.0.1:PORT, write in its cwd.
         # "keychain-probe": whether this process can retrieve a synthetic
         # generic-password item from the test's temporary keychain.
-        if said.strip() == "keychain-probe":
+        if asked.strip() == "keychain-probe":
             import subprocess
             rc = subprocess.run(
                 [
@@ -879,11 +1091,11 @@ while True:
                 capture_output=True,
             ).returncode
             text = json.dumps({"keychain": "allowed" if rc == 0 else "denied"})
-        if said.startswith("sandbox-probe "):
+        if asked.startswith("sandbox-probe "):
             import os
             import socket
             # The path may hold spaces (a home under Application Support): the port is the last word.
-            outside, port = said[len("sandbox-probe "):].rstrip().rsplit(" ", 1)
+            outside, port = asked[len("sandbox-probe "):].rstrip().rsplit(" ", 1)
             port = int(port)
             result = {}
             try:
@@ -905,10 +1117,10 @@ while True:
                 result["cwd"] = "denied"
             text = json.dumps(result)
         # G2: exercise the actual child boundary, including its HTTP proxy.
-        if said.startswith("linux-sandbox-probe "):
+        if asked.startswith("linux-sandbox-probe "):
             import socket
             import urllib.parse
-            outside, port = said[len("linux-sandbox-probe "):].rstrip().rsplit(" ", 1)
+            outside, port = asked[len("linux-sandbox-probe "):].rstrip().rsplit(" ", 1)
             result = {}
             for key, path in [("outside", outside), ("git", ".git/hooks/x"),
                               ("claude", "CLAUDE.md"), ("cwd", "ok")]:
@@ -941,6 +1153,21 @@ while True:
             send({"type": "stream_event", "event": {"type": "message_delta", "usage": {
                 "input_tokens": 1200, "cache_read_input_tokens": 3000, "cache_creation_input_tokens": 0,
                 "output_tokens": 300}}})
+        if said.strip() == "calls-probe":
+            for u in CALLS_PROBE:
+                send({"type": "stream_event", "event": {"type": "message_delta", "usage": u}})
+            send({"type": "stream_event", "parent_tool_use_id": "toolu_sub", "event": {
+                "type": "message_delta", "usage": {"input_tokens": 5, "cache_read_input_tokens": 9000,
+                                                   "cache_creation_input_tokens": 0, "output_tokens": 70}}})
+        # "cache-probe": a main-loop call that read 150K tokens from the prompt cache and wrote 500
+        # more at the 5 minute tier (cache_creation), as Claude Code 2.1.310 streams them.
+        if said.strip() == "cache-probe":
+            cached = {"input_tokens": 2, "cache_read_input_tokens": 150000, "cache_creation_input_tokens": 500,
+                      "cache_creation": {"ephemeral_5m_input_tokens": 500, "ephemeral_1h_input_tokens": 0},
+                      "output_tokens": 30}
+            send({"type": "stream_event", "event": {"type": "message_start", "message": {
+                "id": "msg-cache", "model": "fake", "usage": cached}}})
+            send({"type": "stream_event", "event": {"type": "message_delta", "usage": cached}})
         # "compact-probe": /compact ran after the turn's message: its context is smaller now.
         if said.strip() == "compact-probe":
             send({"type": "system", "subtype": "compact_boundary",
@@ -1135,6 +1362,29 @@ while True:
                 for word in ("one ", "two ", "three "):
                     send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
                           "delta": {"type": "text_delta", "text": req + " " + word}}})
+        # "auth-retry-probe": the model API refuses the sign-in (401). Claude Code retries it on
+        # its own backoff (0.5 s doubling to 32 s, 10 retries), then fails the turn with the 401.
+        # FAKE_CLAUDE_RETRY_SCALE scales the waits (default 0.01: the whole backoff in 1.6 s).
+        if said.strip() == "auth-retry-probe":
+            import time
+            scale = float(os.environ.get("FAKE_CLAUDE_RETRY_SCALE") or "0.01")
+            for attempt in range(1, 11):
+                delay = min(500 * 2 ** (attempt - 1), 32000)
+                send({"type": "system", "subtype": "api_retry", "attempt": attempt, "max_retries": 10,
+                      "retry_delay_ms": delay, "error_status": 401, "error": "authentication_failed"})
+                time.sleep(delay * scale / 1000)
+            send({"type": "result", "subtype": "success", "is_error": True, "num_turns": 1, "duration_api_ms": 5,
+                  "result": 'Failed to authenticate. API Error: 401 {"type":"error","error":'
+                            '{"type":"authentication_error","message":"invalid x-api-key"}}'})
+            continue
+        # "api-retry-probe": the model gateway fails twice (Claude Code's system/api_retry
+        # lines) before the request goes through and the reply streams.
+        if said.strip() == "api-retry-probe":
+            for attempt in (1, 2):
+                send({"type": "system", "subtype": "api_retry", "attempt": attempt, "max_retries": 10,
+                      "retry_delay_ms": 10, "error_status": 503, "error": "server_error"})
+            send({"type": "stream_event", "event": {"type": "message_start",
+                  "message": {"id": "msg_retry", "model": "fake"}}})
         # "todo-probe": the turn writes its todo list with Claude Code's TodoWrite tool.
         if said.strip() == "todo-probe":
             send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_todo", "name": "TodoWrite",
@@ -1142,11 +1392,26 @@ while True:
                       {"content": "Add retry", "status": "completed", "activeForm": "Adding retry"},
                       {"content": "Cover it", "status": "in_progress", "activeForm": "Covering it"},
                       {"content": "Update docs", "status": "pending", "activeForm": "Updating docs"}]}}]}})
+        # "task-probe": the turn keeps its list with Claude Code 2.1's TaskCreate and TaskUpdate,
+        # which Claude Code offers only with CLAUDE_CODE_ENABLE_TODO_TOOLS=1 (acpmux sets it).
+        if said.strip() == "task-probe" and os.environ.get("CLAUDE_CODE_ENABLE_TODO_TOOLS") == "1":
+            def task_call(tool_id, name, tool_input, result_text, tool_use_result):
+                send({"type": "assistant", "message": {"content": [
+                    {"type": "tool_use", "id": tool_id, "name": name, "input": tool_input}]}})
+                send({"type": "user", "message": {"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": tool_id, "content": result_text}]},
+                      "tool_use_result": tool_use_result})
+            task_call("toolu_tc1", "TaskCreate", {"subject": "Add retry", "description": "Add retry"},
+                      "Task #1 created successfully: Add retry", {"task": {"id": "1", "subject": "Add retry"}})
+            task_call("toolu_tc2", "TaskCreate", {"subject": "Cover it", "description": "Cover it"},
+                      "Task #2 created successfully: Cover it", {"task": {"id": "2", "subject": "Cover it"}})
+            task_call("toolu_tu1", "TaskUpdate", {"taskId": "1", "status": "completed"},
+                      "Updated task #1 status", {"success": True, "taskId": "1", "updatedFields": ["status"]})
         send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
                                                  "delta": {"type": "text_delta", "text": text}}})
         result = {"type": "result", "subtype": "success", "result": text, "num_turns": 1, "duration_api_ms": 1,
                   "usage": {"input_tokens": 1, "output_tokens": 1}}
-        if said.strip() in ("usage-probe", "compact-probe"):
+        if said.strip() in ("usage-probe", "compact-probe", "cache-probe"):
             result["modelUsage"] = {"claude-haiku": {"inputTokens": 50, "contextWindow": 100000},
                                     "fake": {"inputTokens": 1200, "contextWindow": 200000}}
         # "cost-restore X": a process that restored its running total X first.
@@ -1161,6 +1426,10 @@ while True:
             result["total_cost_usd"] = COST
             result["usage"] = {"input_tokens": 100, "output_tokens": 20,
                                "cache_read_input_tokens": 300, "cache_creation_input_tokens": 40}
+        if said.strip() == "calls-probe":
+            keys = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
+            result["usage"] = {k: sum(u[k] for u in CALLS_PROBE) for k in keys}
+            result["num_turns"] = len(CALLS_PROBE)
         if said.strip() == "switched-probe":
             result["modelUsage"] = {"claude-opus-1m": {"inputTokens": 90000, "contextWindow": 1000000},
                                     "claude-sonnet-x": {"inputTokens": 1200, "contextWindow": 200000}}

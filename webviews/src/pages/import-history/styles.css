@@ -1,0 +1,368 @@
+/* Bring your history. The page fills the sheet: one scroll region above a footer that stays put.
+   The footer paints no background of its own (an opaque strip read as a dark band over the glass),
+   only a hairline. Type comes from the scale: the page heading, body rows, detail lines, caption
+   paths. Spacing comes from the 4/8/12/16/24/32 steps. */
+.import-history {
+  /* Three source marks, each overlapping the one before by 8. */
+  --history-marks: var(--ds-space-56);
+  /* The leading edge of a source's title: checkbox, gap, mark, gap. */
+  --history-title-inset: calc(var(--ds-icon-14) + var(--ds-space-2) + var(--ds-control-compact) + var(--ds-space-2));
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  user-select: text;
+}
+.history-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.history-content,
+.history-footer {
+  width: 100%;
+  max-width: 640px;
+  margin-inline: auto;
+  padding-inline: var(--ds-space-6);
+}
+.history-content {
+  padding-block: var(--ds-space-6) var(--ds-space-5);
+}
+
+/* Header */
+.import-history h1 {
+  margin: 0;
+  font-size: var(--text-heading);
+  line-height: var(--text-heading--line-height);
+  letter-spacing: var(--text-heading--letter-spacing);
+  font-weight: var(--weight-emphasis);
+}
+.history-lead {
+  margin: var(--ds-space-2) 0 var(--ds-space-5);
+  color: var(--page-text-2);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+
+/* Groups: one inset list, each group a row with its marks, title, summary, Sources and a switch. */
+.history-groups {
+  border: 1px solid var(--page-separator);
+  border-radius: var(--ds-radius-lg);
+  background: var(--page-elevated);
+}
+.history-group + .history-group {
+  border-top: 1px solid var(--page-separator);
+}
+.history-group-line {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+  min-height: var(--ds-space-56);
+  padding: var(--ds-space-3) var(--ds-space-4);
+}
+.history-group-marks {
+  display: flex;
+  flex: 0 0 auto;
+  width: var(--history-marks);
+}
+.history-group-marks .history-source-icon + .history-source-icon {
+  margin-inline-start: calc(-1 * var(--ds-space-2));
+}
+.history-group-marks .history-source-icon {
+  box-shadow: 0 0 0 2px var(--page-elevated);
+}
+.history-group-text {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--grid-half-step);
+}
+.history-group-title {
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: var(--weight-emphasis);
+}
+.history-group-summary {
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  overflow-wrap: anywhere;
+}
+.history-disclosure {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-1);
+  border: 0;
+  border-radius: 6px;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  background: transparent;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.history-disclosure:hover {
+  background: var(--page-hover);
+  color: var(--page-text);
+}
+.history-chevron {
+  flex: none;
+  transition: rotate var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+:root[dir="rtl"] .history-chevron {
+  rotate: 180deg;
+}
+.history-disclosure[aria-expanded="true"] .history-chevron {
+  rotate: 90deg;
+}
+
+/* Sources, one level deeper: indented to the group title's leading edge. */
+.history-sources {
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--ds-space-4) var(--ds-space-3) calc(var(--ds-space-4) + var(--history-marks) + var(--ds-space-3));
+}
+.history-source {
+  min-width: 0;
+  padding-block: var(--ds-space-2);
+}
+.history-source + .history-source {
+  border-top: 1px solid var(--page-separator);
+}
+.history-source-line {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-control-row);
+}
+.history-source-line input {
+  width: var(--ds-icon-14);
+  height: var(--ds-icon-14);
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--cmux-accent, currentColor);
+}
+.history-source-icon {
+  display: inline-grid;
+  place-items: center;
+  width: var(--ds-control-compact);
+  height: var(--ds-control-compact);
+  flex: 0 0 var(--ds-control-compact);
+  border-radius: 6px;
+  background: var(--page-hover);
+  color: var(--page-text);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
+  line-height: 1;
+}
+.history-source-text {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+.history-source-text label {
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.history-file {
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  overflow-wrap: anywhere;
+}
+.history-report,
+.history-row-status,
+.history-error-detail {
+  display: block;
+  margin-block: var(--ds-space-1) 0;
+  margin-inline-start: var(--history-title-inset);
+  color: var(--page-text-2);
+  overflow-wrap: anywhere;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+.history-find {
+  align-self: flex-start;
+  margin-top: var(--ds-space-1);
+  margin-inline-start: calc(-1 * var(--ds-space-2));
+}
+.history-link {
+  flex: none;
+  border: 0;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.history-link:hover:not(:disabled) {
+  background: var(--page-hover);
+  color: var(--page-text);
+}
+.history-link:disabled,
+.history-button:disabled,
+.history-source-line input:disabled + .history-source-icon,
+.history-source-line input:disabled ~ .history-source-text label {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* A pasted summary opens under its row. */
+.history-paste {
+  margin-block: var(--ds-space-2) var(--ds-space-1);
+  margin-inline-start: calc(var(--ds-icon-14) + var(--ds-space-2));
+}
+.history-paste p {
+  margin: 0 0 var(--ds-space-2);
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.history-paste-label {
+  display: block;
+  margin: var(--ds-space-3) 0 var(--ds-space-2);
+  font-size: var(--text-detail);
+}
+.history-paste textarea {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--page-separator);
+  border-radius: 6px;
+  background: var(--page-hover);
+  color: inherit;
+  padding: var(--ds-space-2);
+  font: inherit;
+  user-select: text;
+}
+
+/* Notes under the list */
+.history-safety {
+  margin: var(--ds-space-3) 0 0;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.history-error {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ds-space-3);
+  margin: var(--ds-space-3) 0 0;
+}
+.history-error p {
+  margin: 0;
+}
+.history-error .history-error-detail {
+  margin-inline-start: 0;
+}
+
+/* Footer: Skip, the live status, then Undo and Import. */
+.history-footer {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--ds-space-3);
+  padding-block: var(--ds-space-3) var(--ds-space-4);
+  border-top: 1px solid var(--page-separator);
+}
+.history-notice {
+  flex: 1;
+  min-width: 0;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  text-align: center;
+}
+.history-primary-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+.history-button {
+  min-height: var(--ds-control-row);
+  border: 1px solid var(--page-separator);
+  border-radius: 6px;
+  background: var(--page-hover);
+  padding: var(--ds-space-1) var(--ds-space-3);
+  color: inherit;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.history-button.is-primary {
+  background: var(--page-text);
+  color: var(--page-elevated);
+  border-color: transparent;
+}
+.history-button:hover:not(:disabled) {
+  filter: brightness(0.94);
+}
+/* The keycap (ui/DialogButton) reads one step quieter than its button's label, on both fills. */
+.history-button .ui-keyhint {
+  color: inherit;
+  opacity: 0.7;
+}
+
+/* Gallery alternative: each group its own card with its sources always listed. */
+.layout-sections .history-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  border: 0;
+  background: transparent;
+}
+.layout-sections .history-group {
+  border: 1px solid var(--page-separator);
+  border-radius: var(--ds-radius-lg);
+  background: var(--page-elevated);
+}
+/* Gallery alternative: the two groups side by side. */
+.layout-tiles .history-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--ds-space-3);
+  border: 0;
+  background: transparent;
+}
+.layout-tiles .history-group,
+.layout-tiles .history-group + .history-group {
+  border: 1px solid var(--page-separator);
+  border-radius: var(--ds-radius-lg);
+  background: var(--page-elevated);
+}
+.layout-tiles .history-group-line {
+  flex-wrap: wrap;
+}
+.layout-tiles .history-group-text {
+  flex-basis: 100%;
+  order: 1;
+}
+.layout-tiles .history-group-marks {
+  flex: 1;
+}
+.layout-tiles .history-sources {
+  padding-inline-start: var(--ds-space-4);
+}
+
+@media (max-width: 560px) {
+  .history-content,
+  .history-footer {
+    padding-inline: var(--ds-space-4);
+  }
+  .history-content {
+    padding-top: var(--ds-space-5);
+  }
+  .history-group-marks {
+    display: none;
+  }
+  .history-sources {
+    padding-inline-start: var(--ds-space-4);
+  }
+  .layout-tiles .history-groups {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

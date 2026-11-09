@@ -57,14 +57,24 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { config
 // Wide enough for the minimap's pane-edge rail in these layout tests.
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1040 });
 const offsets = new WeakMap<object, number>();
-/// The rail's list clamps its offset as a browser does: rows are 10 px, a spacer for rows it does not
+// Read the pitch the mounted rail gives CSS; jsdom does not lay out its rows.
+const railPitch = () =>
+  Number.parseFloat(
+    dom.window.document
+      .querySelector<HTMLElement>(".acpmux-minimap__list")!
+      .style.getPropertyValue("--acpmux-minimap-pitch"),
+  );
+/// The rail's list clamps its offset as a browser does: rows use the mounted pitch, a spacer for rows it does not
 /// draw as tall as its style says (tickWindow.ts), the list as tall as the rail.
 const listRoom = (node: HTMLElement) =>
   Math.max(
     0,
     [...node.children].reduce(
       (sum, child) =>
-        sum + (child.querySelector("[data-tick]") ? 10 : Number.parseFloat((child as HTMLElement).style.height) || 0),
+        sum +
+        (child.querySelector("[data-tick]")
+          ? railPitch()
+          : Number.parseFloat((child as HTMLElement).style.height) || 0),
       0,
     ) - Number.parseFloat(node.parentElement?.style.height ?? "0"),
   );
@@ -149,7 +159,7 @@ for (let height = 96; height <= 336; height += 16)
             Number(tick.dataset.tick),
           );
           // Prompts whose rows could not all be on screen together are not a band the rail can owe.
-          if (lit.length * 10 > viewport) continue;
+          if (lit.length * railPitch() > viewport) continue;
           const from = list.hasAttribute("data-fade-top") ? fade : 0;
           const to = railHeight - (list.hasAttribute("data-fade-bottom") ? fade : 0);
           // The transcript's faded edges, where the pane has room for the rail clear of them.
@@ -157,12 +167,12 @@ for (let height = 96; height <= 336; height += 16)
           const maskFrom = scroller.hasAttribute("data-fade-top") ? 18 : 0;
           const maskTo = viewport - (scroller.hasAttribute("data-fade-bottom") ? 18 : 0);
           for (const index of lit) {
-            const y = index * 10 - list.scrollTop;
-            if (y < from || y + 10 > to)
+            const y = index * railPitch() - list.scrollTop;
+            if (y < from || y + railPitch() > to)
               clipped.push(
-                `${count} prompts at ${at} px: tick ${index} at ${y}..${y + 10} of ${from}..${to} in ${railHeight} px`,
+                `${count} prompts at ${at} px: tick ${index} at ${y}..${y + railPitch()} of ${from}..${to} in ${railHeight} px`,
               );
-            else if (roomy && (railTop + y < maskFrom || railTop + y + 10 > maskTo))
+            else if (roomy && (railTop + y < maskFrom || railTop + y + railPitch() > maskTo))
               clipped.push(
                 `${count} prompts at ${at} px: tick ${index} at ${railTop + y} px, under the transcript's fade`,
               );

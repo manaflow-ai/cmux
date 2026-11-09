@@ -17,6 +17,8 @@ public final class RegistryPaletteProvider: PaletteProvider {
     public var effectOverrides: [ActionID: @MainActor () -> PaletteEffect?] = [:]
     /// Lists objects for target arguments (workspace, tab group, ...).
     public var targets: (any PaletteTargetSource)?
+    /// Makes a target from a typed name on an argument page (`PaletteSources.targetCreators`).
+    public var targetCreators: [ActionTargetKind: PaletteTargetCreator] = [:]
     /// Objects captured when the palette opened; argument-taking actions
     /// target them (`PaletteArgumentFlow`).
     public var capturedTargets: [ActionTargetRef] = []
@@ -60,46 +62,85 @@ public final class RegistryPaletteProvider: PaletteProvider {
     /// the one `rows` kept is not built again, and when no listed row changed the last arrangement is listed as it
     /// was (`RegistryPaletteRows`).
     public func makeItems() -> [PaletteItem] {
-        let kept = rows
-        kept.context.update(from: self)
-        var items: [PaletteItem] = []
-        var tiers: [PaletteTier] = []
-        var listed: [RegistryPaletteRows.Listed] = []
-        var eligible = Set<ActionID>()
-        // Localized once per open, not once per action (hundreds of rows).
-        let unbound = PaletteStrings.unbound
-        var labels: RowLabels?
-        var sections: [ActionCategory: PaletteSection] = [:]
-        for entry in registry.entries {
+        let pass = ItemsPass(self)
+        _ = pass.read { true }
+        return pass.finish()
+    }
+
+    /// One ``makeItems()`` that can run in pieces: ``read(while:)`` reads catalog actions while its condition
+    /// holds, ``finish()`` arranges what was read. The palette's own open reads them all at once; a list no one
+    /// sees this frame (the New Tab page's bar, ``PaletteCommandListing``) reads a few per display frame, so the
+    /// main thread never holds every catalog action's state read in one task (PACING TRIAGE #32910: 7-10 ms).
+    final class ItemsPass {
+        private let provider: RegistryPaletteProvider
+        private let kept: RegistryPaletteRows
+        /// The catalog as the pass started; each action's state is read when its turn comes.
+        private let entries: [ActionEntry]
+        private var next = 0
+        private var items: [PaletteItem] = []
+        private var tiers: [PaletteTier] = []
+        private var listed: [RegistryPaletteRows.Listed] = []
+        private var eligible = Set<ActionID>()
+        // Localized once per pass, not once per action (hundreds of rows).
+        private let unbound = PaletteStrings.unbound
+        private var labels: RowLabels?
+        private var sections: [ActionCategory: PaletteSection] = [:]
+
+        init(_ provider: RegistryPaletteProvider) {
+            self.provider = provider
+            kept = provider.rows
+            kept.context.update(from: provider)
+            entries = provider.registry.entries
+        }
+
+        // Released with a listing, which a task can release off the main actor.
+        nonisolated deinit {}
+
+        /// Reads the next actions while `more()` holds (it is asked before each one). Returns whether every action is read.
+        func read(while more: () -> Bool) -> Bool {
+            while next < entries.count, more() {
+                readEntry(entries[next])
+                next += 1
+            }
+            return next == entries.count
+        }
+
+        private func readEntry(_ entry: ActionEntry) {
+            let registry = provider.registry
             let descriptor = entry.descriptor
             let actionID = descriptor.id
-            guard descriptor.isPaletteVisible, !hiddenIDs.contains(actionID), registry.isAvailable(actionID) else { continue }
+            guard descriptor.isPaletteVisible, !provider.hiddenIDs.contains(actionID), registry.isAvailable(actionID) else { return }
             // An override is decided when its row runs (`PaletteEffect.deferred`), never on open:
             // Rename Tab and Rename Workspace read every tab and workspace, an action page builds
             // its page. Declining there (nothing to rename) falls back to the action itself.
-            let overridden = effectOverrides[actionID] != nil
-            guard entry.isBound || overridden || includeUnbound else { continue }
-            let face = face(of: entry, overridden: overridden, unbound: unbound)
+            let overridden = provider.effectOverrides[actionID] != nil
+            guard entry.isBound || overridden || provider.includeUnbound else { return }
+            let face = provider.face(of: entry, overridden: overridden, unbound: unbound)
             if !descriptor.isDebugOnly && (entry.isBound || overridden) { eligible.insert(actionID) }
             listed.append(RegistryPaletteRows.Listed(id: actionID, face: face))
             tiers.append(descriptor.paletteTier)
             if let row = kept.rows[actionID], row.face == face {
                 items.append(row.item)
-                continue
+                return
             }
             if labels == nil { labels = RowLabels() }
-            let section = sections[descriptor.category] ?? Self.section(for: descriptor.category)
+            let section = sections[descriptor.category] ?? RegistryPaletteProvider.section(for: descriptor.category)
             sections[descriptor.category] = section
-            let item = makeRow(descriptor, face: face, section: section, labels: labels ?? RowLabels(), context: kept.context)
+            let item = provider.makeRow(descriptor, face: face, section: section, labels: labels ?? RowLabels(), context: kept.context)
             kept.rows[actionID] = (face, item)
-            builtRows += 1
+            provider.builtRows += 1
             items.append(item)
         }
-        if let last = kept.arranged[curatesEmptyRoot], last.listed == listed { return last.items }
-        let arranged = Self.arranged(items, tierList: tiers)
-        let result = curatesEmptyRoot ? curatedRootItems(arranged, eligible: eligible) : arranged
-        kept.arranged[curatesEmptyRoot] = (listed, result)
-        return result
+
+        /// The rows read, in the palette's order (the last arrangement when the same rows list with the same faces).
+        func finish() -> [PaletteItem] {
+            let curates = provider.curatesEmptyRoot
+            if let last = kept.arranged[curates], last.listed == listed { return last.items }
+            let arranged = RegistryPaletteProvider.arranged(items, tierList: tiers)
+            let result = curates ? provider.curatedRootItems(arranged, eligible: eligible) : arranged
+            kept.arranged[curates] = (listed, result)
+            return result
+        }
     }
 
     /// What `entry`'s row shows now: its title, why it cannot run, its shortcut.
@@ -112,16 +153,24 @@ public final class RegistryPaletteProvider: PaletteProvider {
         // A row a person can run past its reason (Sign In, then the action: ``ActionRecovery``) stays enabled.
         let recovery = runs || paletteReason != nil ? nil : registry.personRecovery(for: descriptor.id)
         let isEnabled = runs || recovery != nil
+        // An on/off command's state, read now, every open (Lawrence 2026-11-03: "we don't know the current state").
+        let isOn = action?.paletteState?()
+        // A toggle that opts in (`ActionTargetTitles.setPaletteTitle`) reads as the change it makes.
+        // The state shows the one way every row that flips a state shows it (`PaletteToggleStyle.apply`).
+        let shown = PaletteTunables.toggleStyle.value.apply(title: action?.paletteTitle?() ?? descriptor.title,
+                                                            symbol: descriptor.symbol, isOn: isOn)
         return RegistryPaletteRows.Face(
-            // A toggle that opts in (`ActionTargetTitles.setPaletteTitle`) reads as the change it makes.
-            title: action?.paletteTitle?() ?? descriptor.title,
-            // A disabled row says why (Chromium without a CEF runtime).
-            subtitle: recovery?.note ?? (isEnabled ? nil : registry.unavailableReason(for: descriptor.id) ?? paletteReason),
+            title: shown.title,
+            // A disabled row says why (Chromium without a CEF runtime); one that runs, what it does when
+            // its title alone does not (``ActionDescriptor/hint``).
+            subtitle: recovery?.note ?? (isEnabled ? descriptor.hint : registry.unavailableReason(for: descriptor.id) ?? paletteReason),
             accessory: entry.isBound || overridden ? nil : unbound,
-            // A toggle that opts in (`ActionTargetTitles.setPaletteState`) shows a check while it is on.
-            symbol: action?.paletteState?() == true ? "checkmark.circle.fill" : descriptor.symbol,
+            symbol: shown.symbol,
+            isOn: isOn,
+            flipsInPlace: isOn != nil && Self.flipsInPlace(descriptor, action: action),
             keycaps: registry.shortcutKeycaps(for: descriptor.id),
-            keywords: descriptor.keywords,
+            // A row named by its setting ("Focus Ring") is still found by the verb people type.
+            keywords: isOn == nil ? descriptor.keywords : descriptor.keywords + ["toggle"],
             isEnabled: isEnabled,
             isBound: entry.isBound,
             overridden: overridden,
@@ -142,7 +191,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
     private func makeRow(_ descriptor: ActionDescriptor, face: RegistryPaletteRows.Face, section: PaletteSection, labels: RowLabels,
                          context: RegistryPaletteRows.RunContext) -> PaletteItem {
         let actionID = descriptor.id
-        let fallback = Self.defaultEffect(for: descriptor, registry: registry, context: context)
+        let fallback = Self.defaultEffect(for: descriptor, registry: registry, context: context, flipsInPlace: face.flipsInPlace)
         let effect = face.overridden ? PaletteEffect.deferred { context.effectOverrides[actionID]?() ?? fallback } : fallback
         var item = PaletteItem(
             id: "action:\(actionID.rawValue)",
@@ -174,6 +223,12 @@ public final class RegistryPaletteProvider: PaletteProvider {
             frecencyKey: "action:\(actionID.rawValue)",
             actionID: actionID
         )
+        item.toggleState = face.isOn
+        if face.isOn != nil {
+            let registry = registry
+            item.readsToggleState = { registry.action(for: actionID)?.paletteState?() ?? false }
+            item.toggleBase = (registry.action(for: actionID)?.paletteTitle?() ?? descriptor.title, descriptor.symbol)
+        }
         item.actionRefs = [PaletteActionRef(actionID, isDestructive: descriptor.isDestructive)]
         item.ball = PaletteGroupColor.ball(forAction: actionID)
         item.suggestedRank = descriptor.paletteSuggestionRank
@@ -186,16 +241,28 @@ public final class RegistryPaletteProvider: PaletteProvider {
     /// with arguments builds its argument page, target list included, only
     /// then, never for every row on open, with the targets of the open it runs from.
     private static func defaultEffect(for descriptor: ActionDescriptor, registry: ActionRegistry,
-                                      context: RegistryPaletteRows.RunContext) -> PaletteEffect {
+                                      context: RegistryPaletteRows.RunContext, flipsInPlace: Bool = false) -> PaletteEffect {
         let id = descriptor.id
         guard descriptor.arguments.contains(where: \.isRequired) else {
+            // A setting's on/off row flips in place: the palette stays open and the row reads its new state.
+            if flipsInPlace { return .performKeepingOpen { registry.perform(id, invocation: ActionInvocation()) } }
             return .perform { registry.perform(id, invocation: ActionInvocation()) }
         }
         return .deferred {
             PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: context.targets, captured: context.capturedTargets,
-                                preview: context.argumentPreview, swatches: context.argumentSwatches)
+                                preview: context.argumentPreview, swatches: context.argumentSwatches,
+                                creators: context.targetCreators)
                 .effect(collected: ActionInvocation())
         }
+    }
+
+    /// Whether `descriptor`'s row flips an on/off setting, which Return or a click flips without closing
+    /// the palette (Leo 2026-11-07: "just unify"), as a Settings row does: only an action that says so
+    /// (`ActionTargetTitles.setPaletteSettingState`: Focus Ring, Pane Borders, the animation switches).
+    /// A preset with a state (Density: Compact) picks a value and closes, and so does an on/off command
+    /// on what is in front (Left Sidebar, Copy Mode, Dictation).
+    static func flipsInPlace(_ descriptor: ActionDescriptor, action: Action?) -> Bool {
+        !descriptor.arguments.contains(where: \.isRequired) && action?.paletteStateIsSetting == true
     }
 
     static func primaryTitle(for descriptor: ActionDescriptor) -> String {

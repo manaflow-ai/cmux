@@ -18,6 +18,8 @@ public nonisolated enum MenuFolder: String, CaseIterable, Sendable, Hashable {
     case copy
     case tools
     case close
+    /// Bulk archive rows (Archive Others, Below, Above), after Close's rows.
+    case archive
     /// Every row a crowded menu keeps off its top level (`ContextMenuEssentials`).
     case more
 
@@ -32,7 +34,7 @@ public nonisolated enum MenuFolder: String, CaseIterable, Sendable, Hashable {
         case .layout: .layout
         case .connection: .connection
         case .copy, .tools: .inspect
-        case .close, .more: .close
+        case .close, .archive, .more: .close
         }
     }
 
@@ -53,6 +55,7 @@ public nonisolated enum MenuFolder: String, CaseIterable, Sendable, Hashable {
         case .copy: "doc.on.doc"
         case .tools: "wrench.and.screwdriver"
         case .close: "xmark.square"
+        case .archive: "archivebox"
         case .more: "ellipsis.circle"
         }
     }
@@ -74,6 +77,7 @@ public nonisolated enum MenuFolder: String, CaseIterable, Sendable, Hashable {
         case .copy: String(localized: "menu.folder.copy", defaultValue: "Copy", bundle: .module)
         case .tools: String(localized: "menu.folder.tools", defaultValue: "Tools", bundle: .module)
         case .close: String(localized: "menu.folder.close", defaultValue: "Close", bundle: .module)
+        case .archive: String(localized: "menu.folder.archive", defaultValue: "Archive", bundle: .module)
         case .more: String(localized: "menu.folder.more", defaultValue: "More", bundle: .module)
         }
     }

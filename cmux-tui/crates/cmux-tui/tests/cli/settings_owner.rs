@@ -15,6 +15,71 @@ mod keybindings_owner;
 
 const COMMENTED: &str = "// my cmux settings\n{\n  // the tab bar stays on top\n  \"tabs\": {\n    \"barPosition\": \"top\" /* inline */\n  },\n  \"unknownKey\": 1,\n}\n";
 
+#[test]
+fn settings_list_reads_the_daemon_without_an_app() {
+    use serde_json::json;
+    use std::os::unix::process::CommandExt as _;
+
+    let daemon = SettingsDaemon::start_with(
+        "settings-list",
+        r#"{"sidebar":{"side":"right","density":"invalid"},"credentials":{"token":"private-fixture-token"}}"#,
+    );
+    let list = |args: &[&str]| {
+        Command::new(bin())
+            .arg0("cmux")
+            .args(["--json", "--socket"])
+            .arg(&daemon.server.socket)
+            .args(["--app-socket"])
+            .arg(daemon.server.dir.join("no-app.sock"))
+            .args(args)
+            .env("HOME", &daemon.server.dir)
+            .env("CFFIXED_USER_HOME", &daemon.server.dir)
+            .env("CMUX_NEXT_CONFIG_FILE", &daemon.config)
+            .env("LC_ALL", "C")
+            .env_remove("CMUX_TUI_SOCKET")
+            .env_remove("CMUX_SOCKET_PATH")
+            .env_remove("CMUX_TUI_TERMINAL_ID")
+            .env_remove("CMUX_BUNDLE_ID")
+            .env_remove("CMUX_TAG")
+            .output()
+            .unwrap()
+    };
+    let output = list(&["settings", "list"]);
+    assert_success(&output);
+    let rows = json_output(&output);
+    assert_eq!(rows, daemon.ok("settings.list", json!({}), false));
+    let keys: Vec<_> =
+        rows.as_array().unwrap().iter().map(|row| row["key"].as_str().unwrap()).collect();
+    let schema = cmux_config::Schema::embedded();
+    assert_eq!(keys, schema.rows.iter().map(|row| row.key.as_str()).collect::<Vec<_>>());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("private-fixture-token"));
+    let row = |key: &str| rows.as_array().unwrap().iter().find(|row| row["key"] == key).unwrap();
+    assert_eq!(row("sidebar.side")["value"], "right");
+    assert_eq!(row("sidebar.side")["customized"], true);
+    assert_eq!(row("sidebar.density")["value"], row("sidebar.density")["default"]);
+    assert_eq!(row("window.titlebar")["value"], "standard");
+    assert!(!row("window.titlebar")["managed"].is_null());
+    let filtered = list(&["config", "list", "--section", "appearance"]);
+    assert_success(&filtered);
+    assert_eq!(
+        json_output(&filtered),
+        daemon.ok("settings.list", json!({"section":"appearance"}), false)
+    );
+    assert_eq!(json_output(&list(&["settings", "list"])), rows, "stable order");
+
+    for args in [
+        vec!["settings", "list", "--section"],
+        vec!["settings", "list", "--section", ""],
+        vec!["settings", "list", "--section", "unknown-section"],
+        vec!["settings", "list", "--section", "browser", "--section", "appearance"],
+        vec!["settings", "list", "--bogus"],
+        vec!["settings", "list", "extra"],
+    ] {
+        let output = list(&args);
+        assert_eq!(output.status.code(), Some(2), "{args:?}: {output:?}");
+    }
+}
+
 struct SettingsDaemon {
     server: HeadlessServer,
     config: PathBuf,
@@ -304,14 +369,13 @@ fn settings_owner_reports_a_hand_edit_of_the_file_on_the_subscribe_stream() {
     // after the burst reports both keys (one settings-changed when the saves
     // fall into one burst, as they do unless the runner stalls between them).
     let first = COMMENTED.replace("\"top\"", "\"bottom\"");
-    let second = first.replace("/* inline */", "/* inline */,\n    \"cmdWClosesPinnedTabs\": true");
+    let second = first.replace("/* inline */", "/* inline */,\n    \"swapCmdTAndCmdN\": true");
     for text in [&first, &second] {
         fs::write(&temporary, text).unwrap();
         fs::rename(&temporary, &daemon.config).unwrap();
     }
     let mut reported = std::collections::BTreeSet::new();
-    while !(reported.contains("tabs.barPosition") && reported.contains("tabs.cmdWClosesPinnedTabs"))
-    {
+    while !(reported.contains("tabs.barPosition") && reported.contains("tabs.swapCmdTAndCmdN")) {
         let event = next_settings_event("the burst of two saves");
         assert_eq!(event["origin"], "file", "{event}");
         reported.extend(
@@ -323,5 +387,5 @@ fn settings_owner_reports_a_hand_edit_of_the_file_on_the_subscribe_stream() {
         );
     }
     assert_eq!(daemon.get("tabs.barPosition")["value"], "bottom");
-    assert_eq!(daemon.get("tabs.cmdWClosesPinnedTabs")["value"], true);
+    assert_eq!(daemon.get("tabs.swapCmdTAndCmdN")["value"], true);
 }

@@ -5,8 +5,8 @@ import CmuxNextFloating
 
 /// The chat header's Terminal and Browser splits, its Changes diff and its Preview page (acpmux
 /// header/quickActions.ts), each the panel its button owns, as in Claude Code desktop's top right (cx-00n1). Toggling (`mode:
-/// "toggle"`, the default, as in T3 Chat and ChatGPT): the first click opens its split beside the
-/// chat, the second closes that split, and a click after the user closed it opens a new one. Every
+/// "toggle"`, as in T3 Chat and ChatGPT): the first click opens its split, the second closes it, and a click after
+/// the user closed it opens a new one; Terminal adds one per click (``AgentChatTerminalAdds``, on by default). Every
 /// button opens on the chat's right by ``RightColumnPlacement``, never in a third column: Terminal
 /// and Browser as a tab in the pane already holding that kind, else a split below the right pane
 /// (Leo, 2026-10-31: "you only need the rightmost botom auto split when there's a terminal that gets
@@ -49,7 +49,7 @@ final class AgentChatSplitToggles {
 
     /// Toggles header action `id` on chat tab `chat` (in `store`): closes the split it opened while it is in the chat's
     /// workspace, else opens one (an untracked kind just runs; Terminal always opens one with `terminalButtonAdds` on).
-    /// `extra`: more arguments for the action (Changes' chat turn, ``DiffTurnArgument``).
+    /// `extra`: more arguments for the action (Changes' chat turn or patch, ``AgentPaneDiffTurn/actionArguments``).
     func toggle(_ id: String, cwd: String?, url: String? = nil, extra: [String: ActionValue] = [:], chat: String, store: DaemonStore?,
                 actions: AgentChatTabActions) {
         if AgentChatTerminalAdds().adds(id) { return open(id, cwd: cwd, url: url, extra: extra, chat: chat, store: store, actions: actions) }

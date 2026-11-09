@@ -112,23 +112,6 @@ impl Overlay for FakeOverlay {
     async fn sync_peers(&self, _pairings: &Pairings) -> std::io::Result<()> {
         Ok(())
     }
-
-    async fn set_cloud_peer(
-        &self,
-        _host: &str,
-        _key: [u8; 32],
-        _info: &cmux_link::connect_info::ConnectInfo,
-    ) -> std::io::Result<()> {
-        Ok(())
-    }
-
-    async fn forget_cloud_peer(&self, _host: &str) -> std::io::Result<()> {
-        Ok(())
-    }
-
-    async fn path_state(&self, _key: &[u8; 32]) -> cmux_link::dial::PathState {
-        cmux_link::dial::PathState::Direct
-    }
 }
 
 async fn reply_line(caller: &mut DuplexStream) -> String {
@@ -237,7 +220,7 @@ async fn a_socket_that_is_not_a_remote_entry_never_gets_the_peer_stream() {
 }
 
 /// RED (security): the link entry's gate admits exactly the seven `fs-v1`
-/// ops and the two `git-seed-v1` ops; every other frame (identify, admin
+/// ops, the two `fs-symlink-v1` ops and the two `git-seed-v1` ops; every other frame (identify, admin
 /// commands, unknown fs or seed ops) is denied before anything parses it.
 #[test]
 fn the_link_entry_gate_admits_only_the_fs_ops() {
@@ -247,12 +230,17 @@ fn the_link_entry_gate_admits_only_the_fs_ops() {
         user: "42".into(),
         team: "team_a".into(),
     };
-    for cmd in cmux_tui_core::fs_ops::FS_COMMANDS {
+    let fs_ops = cmux_tui_core::fs_ops::FS_COMMANDS;
+    for cmd in fs_ops.iter().chain(&cmux_tui_core::fs_ops::FS_SYMLINK_COMMANDS) {
         let frame = serde_json::json!({ "id": 1, "cmd": cmd, "path": "/home/cmux" }).to_string();
         assert!(gate.admit(&peer, &frame), "{cmd}");
     }
     for cmd in cmux_tui_core::git_seed::GIT_SEED_COMMANDS {
         let frame = serde_json::json!({ "id": 1, "cmd": cmd, "job": "seed_1" }).to_string();
+        assert!(gate.admit(&peer, &frame), "{cmd}");
+    }
+    for cmd in cmux_tui_core::blob_fetch::BLOB_FETCH_COMMANDS {
+        let frame = serde_json::json!({ "id": 1, "cmd": cmd, "job": "fetch_1" }).to_string();
         assert!(gate.admit(&peer, &frame), "{cmd}");
     }
     for frame in [
@@ -429,8 +417,9 @@ async fn a_revoked_pairing_closes_an_open_owner_session_and_refuses_a_redial() {
                 [2; 32],
                 peer_addr("inst_b"),
                 &pairings(),
-                &session_socket,
+                Some(session_socket.as_path()),
                 Some(&config),
+                &super::acpmux::AcpmuxTarget::Off,
                 Some(super::inbound::Revocations {
                     view: receiver,
                     open: std::sync::Arc::default(),

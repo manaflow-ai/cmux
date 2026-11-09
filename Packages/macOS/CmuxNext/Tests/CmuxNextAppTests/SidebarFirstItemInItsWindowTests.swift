@@ -31,6 +31,9 @@ struct SidebarFirstItemInItsWindowTests {
         case cmdOneKey
         /// A click on window B's Home item (the sidebar's activate intent), in window B's dispatch.
         case homeItemClick
+        /// A click on window B's Home item that runs after its click's dispatch, while the key window record names
+        /// window A (cmux#37371: Home showed in window A, which came forward and switched the macOS Space).
+        case homeItemClickAfterDispatch
         /// The Cmd-1 action run by name for window B (the palette, the menu): no event, B is the active window.
         case selectNumberAction
         /// Cmd-1 as the journey sends it (`debug.key` with `window` B) in an app that is not active: no
@@ -140,6 +143,8 @@ struct SidebarFirstItemInItsWindowTests {
                 #expect(taken, "the key router did not take Cmd-1 in window B")
             case .homeItemClick:
                 services.windows.dispatching(eventFrom: windowNS) { windowB.sidebar.handle(.activateItem(homeItem)) }
+            case .homeItemClickAfterDispatch:
+                windowB.sidebar.handle(.activateItem(homeItem))
             case .selectNumberAction:
                 services.keyWindowSource = { [weak windowB] in windowB?.window }
                 #expect(services.registry.perform("selectWorkspaceByNumber", argument: "1"))
@@ -165,6 +170,40 @@ struct SidebarFirstItemInItsWindowTests {
             #expect(windowB.state.profileID == roomB, "Home moved window B off its space \(roomB): \(report())")
             #expect(windowA.state.workspaceID == shownA && windowA.state.page == pageA, "\(entry) in window B changed window A: \(report())")
             #expect(services.windows.registry.members(of: windowA.state.id) == membersA, "window A's workspaces changed: \(report())")
+        }
+    }
+    /// cmux#37371: a tab row clicked in window B's sidebar (or in a workspace row's hover card) for a workspace window
+    /// A lists shows that tab in window B, as a click on the workspace row does. It went to window A, which came
+    /// forward and could switch the macOS Space. The key window record names window A, as after Cmd-Tab.
+    @Test func aTabRowClickedInWindowBShowsTheTabInWindowB() async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let keyWindow = services.keyWindowSource
+            defer { services.keyWindowSource = keyWindow }
+            let (windowA, _) = try await HomeSplitKeysTests.showHome(services, connection)
+            services.keyWindowSource = { [weak windowA] in windowA?.window }
+            let ownA = try await services.windows.createWorkspace(WorkspaceSpawn(cwd: NSTemporaryDirectory(), name: "37371-tab-row"),
+                                                                  into: windowA.state.id)
+            let firstTab = { services.workspace(id: ownA)?.screens.flatMap(\.panes).flatMap(\.tabs).first?.id }
+            try await PinnedPageTests.until({ firstTab() != nil && services.windows.registry.value.owner(of: ownA) == windowA.state.id },
+                                            within: .seconds(30))
+            services.windows.show(workspaceID: ownA, in: windowA.state, from: .thisWindow)
+            let before = Set(services.windows.controllers.map(\.state.id))
+            _ = services.windows.newWindow()
+            let opened = { services.windows.controllers.first { !before.contains($0.state.id) && !services.windows.registry.members(of: $0.state.id).isEmpty } }
+            try await PinnedPageTests.until({ opened()?.state.workspaceID != nil }, within: .seconds(60))
+            let windowB = try #require(opened())
+            let tab = try #require(firstTab())
+            let membersA = services.windows.registry.members(of: windowA.state.id)
+
+            windowB.sidebar.handle(.selectTab(workspace: CmuxNextSidebar.WorkspaceID(ownA), tab: CmuxNextSidebar.TabID(tab)))
+
+            try await PinnedPageTests.until({ windowB.state.workspaceID == ownA }, within: .seconds(30), report: {
+                "window B shows \(windowB.state.workspaceID ?? "nil"), window A \(windowA.state.workspaceID ?? "nil"); "
+                    + "\(ownA) in \(services.windows.registry.value.owner(of: ownA) ?? "none")"
+            })
+            #expect(services.windows.registry.value.owner(of: ownA) == windowB.state.id, "the tab's workspace stayed in window A")
+            #expect(windowA.state.workspaceID != ownA, "window A shows the workspace whose tab was clicked in window B")
+            #expect(services.windows.registry.members(of: windowA.state.id) == membersA.filter { $0 != ownA })
         }
     }
 }

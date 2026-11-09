@@ -7,6 +7,11 @@
 //! refresh token, so a script asks again. Text output is the bare token, so
 //! `export CMUX_TOKEN=$(cmux auth token)` works; `--json` adds its team,
 //! user, expiry and the API origin that issued it. Nothing here logs it.
+//!
+//! The account verbs live at the top level too: `cmux login` and `cmux logout` are the
+//! app's `cloud sign-in` and `cloud sign-out` (which `cmux vm sign-in` and `cmux cloud
+//! sign-in` still run), and `cmux whoami` names the signed-in user and team from the same
+//! `auth.token` answer, never printing the token.
 
 use std::io::Write;
 use std::time::Duration;
@@ -35,6 +40,102 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             super::app::failure("usage.invalid", &format!("cmux: {error}"), global.output, 2)
         }
     })
+}
+
+/// `args` with a top-level `login` or `logout` spelled as `vm sign-in` or `vm sign-out`, which
+/// `vm::cloud_alias` then runs as the app's Cloud verb; `None` for any other command.
+pub(super) fn account_alias(args: &[String]) -> Option<Vec<String>> {
+    let index = (0..args.len()).find(|&end| {
+        args.get(..=end)
+            .and_then(|through| super::parse_globals(through).ok())
+            .is_some_and(|(_, command)| command.len() == 1 && args.get(end) == command.first())
+    })?;
+    let verb = match args.get(index)?.as_str() {
+        "login" => "sign-in",
+        "logout" => "sign-out",
+        _ => return None,
+    };
+    let mut rewritten = args.get(..index)?.to_vec();
+    rewritten.extend(["vm".to_owned(), verb.to_owned()]);
+    rewritten.extend(args.get(index + 1..)?.iter().cloned());
+    Some(rewritten)
+}
+
+/// `cmux whoami [--json]`. `None` for any other command.
+pub(super) fn whoami_if_requested(args: &[String]) -> Option<i32> {
+    let (global, command_args) = super::parse_globals(args).ok()?;
+    let (first, rest) = command_args.split_first()?;
+    if first != "whoami" {
+        return None;
+    }
+    let messages = &crate::localization::catalog().auth_token;
+    if rest.iter().any(|arg| arg == "--help" || arg == "-h") {
+        let mut stdout = std::io::stdout().lock();
+        let _ = stdout.write_all(messages.whoami_usage.as_bytes());
+        let _ = stdout.flush();
+        return Some(0);
+    }
+    if let Some(extra) = rest.first() {
+        let app = &crate::localization::catalog().app_control;
+        let message = app.unexpected_argument.replace("{value}", extra);
+        return Some(super::app::failure(
+            "usage.invalid",
+            &format!("cmux: {message}"),
+            global.output,
+            2,
+        ));
+    }
+    let mut stream = match super::app::connect_command(&global) {
+        Ok(stream) => stream,
+        Err(error) => return Some(super::wire::print_local_error(&error, global.output, 3)),
+    };
+    let answer = super::app::request(&mut stream, "auth.token", json!({}), AUTH_TOKEN_TIMEOUT);
+    Some(match answer {
+        Ok(Ok(value)) => print_identity(&identity(Some(&value)), global.output),
+        Ok(Err(error)) => match error.get("code").and_then(Value::as_str) {
+            Some("not_signed_in") => {
+                super::app::failure("not_signed_in", messages.whoami_signed_out, global.output, 3)
+            }
+            // Signed in with no team chosen: the user is known to the app, not to this answer.
+            Some("no_team") => print_identity(&identity(None), global.output),
+            _ => super::wire::print_local_error(&error, global.output, exit_code(&error)),
+        },
+        Err(message) => super::app::failure("app.transport", &message, global.output, 3),
+    })
+}
+
+/// Who `auth.token` says is signed in: its user and team, never the token. `None` is signed in
+/// with no team.
+pub(super) fn identity(token: Option<&Value>) -> Value {
+    let field = |key: &str| token.and_then(|token| token.get(key)).cloned().unwrap_or(Value::Null);
+    json!({"signed_in": true, "user": field("user"), "team": field("team")})
+}
+
+fn print_identity(identity: &Value, output: OutputMode) -> i32 {
+    match output {
+        OutputMode::Quiet => 0,
+        OutputMode::Json | OutputMode::JsonLines => {
+            super::wire::print_local_success(identity, output)
+        }
+        OutputMode::Human => {
+            let line = identity_line(identity);
+            let mut stdout = std::io::stdout().lock();
+            let _ = writeln!(stdout, "{line}");
+            let _ = stdout.flush();
+            0
+        }
+    }
+}
+
+pub(super) fn identity_line(identity: &Value) -> String {
+    let messages = &crate::localization::catalog().auth_token;
+    let text = |key: &str| identity.get(key).and_then(Value::as_str).unwrap_or("?").to_owned();
+    match identity.get("team").and_then(Value::as_str) {
+        Some(team) => {
+            messages.whoami_signed_in.replace("{user}", &text("user")).replace("{team}", team)
+        }
+        None => messages.whoami_no_team.to_owned(),
+    }
 }
 
 /// `Some(args after "auth")` when `args` (after the global options) start

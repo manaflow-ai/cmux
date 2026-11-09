@@ -15,9 +15,12 @@ mod effects;
 mod mouse;
 mod open_url;
 mod owner;
+pub(crate) mod palette_rank;
 mod revision_conflict;
 mod session;
 mod topology;
+mod wait_text;
+pub(crate) use wait_text::WaitText;
 
 pub(crate) use open_url::CAPABILITY as OPEN_URL_CAPABILITY;
 pub(crate) use open_url::is_web_url;
@@ -271,6 +274,13 @@ fn dispatch_resource_request(
         OperationOwner::Config => config::dispatch(mux, request),
         OperationOwner::OpenUrl => open_url::dispatch(mux, request),
         OperationOwner::Stash => crate::state::stash_router::dispatch(mux, request),
+        OperationOwner::ClassicImport => {
+            crate::state::classic_import_router::dispatch(mux, request)
+        }
+        OperationOwner::ConductorImport => {
+            crate::state::conductor_import_router::dispatch(mux, request)
+        }
+        OperationOwner::PaletteRank => palette_rank::dispatch(mux, request),
         OperationOwner::Machine => {
             mux.resource_machine_service().dispatch(&ResourceMachineRequest {
                 operation,
@@ -724,6 +734,12 @@ fn finish_notification_effect(
             ResourceEffectOutcome::Failure(error) => Err(error),
         },
         ResourceEffectPreparation::Indeterminate => {
+            effects::report_indeterminate_cause(
+                mux,
+                idempotency_key,
+                "notification.create",
+                crate::resource_api::EARLIER_ATTEMPT_CAUSE,
+            );
             Err(indeterminate_error(idempotency_key, "notification.create"))
         }
         ResourceEffectPreparation::Execute { .. } => {
@@ -787,16 +803,19 @@ fn execute_notification_effect(
     };
     if let Some(error) = missing {
         let outcome = ResourceEffectOutcome::Failure(error.clone());
-        if mux
-            .commit_resource_effect(
+        if let Err(commit_error) = mux.commit_resource_effect(
+            idempotency_key,
+            "notification.create",
+            fingerprint,
+            &outcome,
+            None,
+        ) {
+            effects::report_indeterminate_cause(
+                mux,
                 idempotency_key,
                 "notification.create",
-                fingerprint,
-                &outcome,
-                None,
-            )
-            .is_err()
-        {
+                &format!("the failure outcome commit failed: {commit_error:#}"),
+            );
             let _ = mux.mark_resource_effect_indeterminate(idempotency_key);
             return Err(indeterminate_error(idempotency_key, "notification.create"));
         }
@@ -897,7 +916,13 @@ fn execute_notification_effect(
         numeric_id,
     ) {
         Ok(revision) => revision,
-        Err(_) => {
+        Err(error) => {
+            effects::report_indeterminate_cause(
+                mux,
+                idempotency_key,
+                "notification.create",
+                &format!("the outcome commit failed: {error:#}"),
+            );
             let _ = mux.mark_resource_effect_indeterminate(idempotency_key);
             return Err(indeterminate_error(idempotency_key, "notification.create"));
         }
@@ -950,13 +975,28 @@ fn clear_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
         })
         .transpose()?;
     let workspace_id = notification_workspace(mux, &request.fields)?;
-    let scope = match (&terminal_id, &workspace_id) {
-        (Some(_), Some(_)) => {
-            return Err(validation_error("give terminal_id or workspace_id, not both", json!({})));
+    let notification_id = request
+        .fields
+        .get("notification_id")
+        .map(|value| {
+            // The catalog validates resource ids as strings; a non-string
+            // parses as "" and fails as a validation error, never a panic.
+            NotificationPublicId::parse(value.as_str().unwrap_or_default().to_string())
+        })
+        .transpose()?;
+    let scope = match (&terminal_id, &workspace_id, &notification_id) {
+        (Some(terminal), None, None) => crate::mux::NotificationClearScope::Terminal(terminal),
+        (None, Some(workspace), None) => crate::mux::NotificationClearScope::Workspace(workspace),
+        (None, None, Some(notification)) => {
+            crate::mux::NotificationClearScope::Notification(notification)
         }
-        (Some(terminal), None) => crate::mux::NotificationClearScope::Terminal(terminal),
-        (None, Some(workspace)) => crate::mux::NotificationClearScope::Workspace(workspace),
-        (None, None) => crate::mux::NotificationClearScope::Session,
+        (None, None, None) => crate::mux::NotificationClearScope::Session,
+        _ => {
+            return Err(validation_error(
+                "give at most one of terminal_id, workspace_id and notification_id",
+                json!({}),
+            ));
+        }
     };
     let mutation = request.mutation().map_err(resource_operation_error)?;
     let commit = mux

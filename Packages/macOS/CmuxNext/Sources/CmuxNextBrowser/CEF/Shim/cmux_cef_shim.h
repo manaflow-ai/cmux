@@ -175,7 +175,8 @@ typedef enum {
   CMUX_SHIM_BEFORE_UNLOAD_DISMISSED = 45,
   // A cmux-page:// page asks for one of its dynamic paths
   // (cmux_shim_page_scheme_add_first_party_dynamic). request = token,
-  // s1 = the full URL. Chromium waits for cmux_shim_page_resource_respond
+  // s1 = the full URL, s2 = the request's Range header (empty when none).
+  // Chromium waits for cmux_shim_page_resource_respond (or _respond_ranged)
   // (during the event or later); a request the page cancels drops it.
   CMUX_SHIM_PAGE_RESOURCE = 46,
   // A drag of files from outside the app entered a page (CefDragHandler::
@@ -188,6 +189,12 @@ typedef enum {
   // line (MIME types and ".ext"); s2 = the default path or file name. Chromium
   // shows no panel; a closed or crashed browser cancels it.
   CMUX_SHIM_FILE_DIALOG = 48,
+  // 49 (PAGE_MESSAGE) and 50 (EVALUATE_RESULT) come from the fork (API 29).
+  // The text Chromium shows for the hovered link (CefDisplayHandler::
+  // OnStatusMessage): s1 = the text, "" when the pointer left the link. The
+  // shim turns Chrome's own status bubble off (chrome_status_bubble), so the
+  // host draws this inside the tab's pane.
+  CMUX_SHIM_STATUS_MESSAGE = 51,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -435,6 +442,9 @@ CMUX_SHIM_EXPORT void cmux_shim_set_focus_request_handler(cmux_shim_focus_reques
 // the key goes on to Chromium.
 CMUX_SHIM_EXPORT void cmux_shim_set_unhandled_key_handler(cmux_shim_key_fn handler);
 CMUX_SHIM_EXPORT void cmux_shim_set_zoom_level(int browser_id, double level);
+// CefBrowserHost::SetAudioMuted: 1 mutes every sound of the page (media, Web Audio, every
+// frame and process; Chrome's Mute site), 0 unmutes it. Kept across navigations.
+CMUX_SHIM_EXPORT void cmux_shim_set_audio_muted(int browser_id, int muted);
 // CefBrowserHost::SetAccessibilityState: 1 builds the page's accessibility tree (an assistive
 // client asked for the app's), 0 turns it off.
 CMUX_SHIM_EXPORT void cmux_shim_set_accessibility(int browser_id, int enabled);
@@ -620,6 +630,12 @@ CMUX_SHIM_EXPORT void cmux_shim_close_all(void);
 CMUX_SHIM_EXPORT int cmux_shim_live_browser_count(void);
 CMUX_SHIM_EXPORT int cmux_shim_window_count(void);  // -1 when the fork API is missing
 CMUX_SHIM_EXPORT void cmux_shim_shutdown(void);
+// Quit, before cmux_shim_shutdown: commits every request context's cookie
+// store to disk (CefCookieManager::FlushStore), so CefShutdown has no cookie
+// write left and a quit its deadline ends inside CefShutdown keeps them. REPLY
+// with `reply` and browser 0 follows once every store answered (at once when
+// there is none): a = stores flushed. Returns 1 when started.
+CMUX_SHIM_EXPORT int cmux_shim_flush_cookie_stores(int reply);
 
 // Site state for Page Info (ABI 3). Content types are named as
 // SitePermissionKind raw values ("location", "popups", "thirdPartySignIn",
@@ -895,6 +911,22 @@ CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add_first_party_dynamic(const char* i
 // Returns 1 when the request was waiting, 0 when it ended or was answered.
 CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond(int token, int status, const char* mime, const void* body,
                                                      size_t length);
+// The same for a byte range of a video or audio file: status (200, 206, 416,
+// 404) and range_headers, newline-separated `Name: value` lines of which only
+// Content-Range and Accept-Ranges are kept (NULL = none).
+CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond_ranged(int token, int status, const char* mime,
+                                                            const char* range_headers, const void* body,
+                                                            size_t length);
+
+// The same with the page's CSP for this answer (NULL or empty = the page's own; a value with a CR or
+// LF is dropped). The live web loop sends a dev server's policy with each file it serves.
+CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond_page(int token, int status, const char* mime,
+                                                          const char* range_headers, const char* csp,
+                                                          const void* body, size_t length);
+// While live is 1, every request of a first-party cmux-page:// page reaches the page host as
+// CMUX_SHIM_PAGE_RESOURCE, as a dynamic path does, instead of being read from the page's folder
+// (the live web loop, web-dev.json). Any thread; applies to the next request.
+CMUX_SHIM_EXPORT void cmux_shim_page_scheme_set_live(int live);
 
 #ifdef __cplusplus
 }

@@ -12,22 +12,14 @@ export function isVisiblyEmptyText(text: string | undefined): boolean {
   return true;
 }
 
-/// Whether an agent's words say nothing: empty, blank, or only punctuation (".", "·", "…"). Claude
-/// often answers another agent's message with "." alone, which drew as a stray dot on its own line
-/// under the received line (Leo, 2026-11-02, on that capture: "these are all so stupid looking"),
-/// and ends a background turn it had nothing to say in with "·" (Leo, 2026-11-02, on a column of
-/// them: "why do you still do these"). Only an agent's words: a person's own "." or "?" is what they
-/// sent and still draws. Blank words of any length are bare; punctuation is looked for only in words
-/// of at most 64 characters, so a streamed token costs no more than reading it blank did.
-const PUNCTUATION = /\p{P}/u;
+/// Whether an agent's words say nothing: empty, blank or a lone period. Claude often answers another
+/// agent's message with "." alone, which drew as a stray dot on its own line under the received line
+/// (Leo, 2026-11-02, on that capture: "these are all so stupid looking"). Only an agent's words:
+/// a person's own "." prompt is what they sent and still draws, and so does an agent's "." answering
+/// it (`answersPerson`, turns.ts; Leo, 2026-11-03: "well there are cases (rare) that you would want
+/// to see it...").
 export function isBareAgentText(text: string | undefined): boolean {
-  if (text === undefined || isVisiblyEmptyText(text)) return true;
-  if (text.length > 64) return false;
-  for (const character of text) {
-    if (character.trim() === "" || ZERO_WIDTH_MESSAGE_CHARS.has(character)) continue;
-    if (!PUNCTUATION.test(character)) return false;
-  }
-  return true;
+  return isVisiblyEmptyText(text) || text!.trim() === ".";
 }
 
 /// Whether a message row has no drawn content. Attachments, incoming cards, status metadata and
@@ -40,6 +32,11 @@ export function isVisiblyEmptyMessage(row: AcpmuxRow): boolean {
     row.kind === "user" &&
     row.incoming?.kind === "message" &&
     !row.incoming.message.fromPerson &&
+    // A tool's notice always has its title to show, whatever its body.
+    !row.incoming.message.notice &&
+    // An inbox thread's line reads its messages from acpmux (`_acpmux/inbox_thread`), so a preview
+    // that holds none of them (one cut inside the broker's label: relayEnvelope.ts) still draws.
+    !row.inboxThread &&
     isBareAgentText(row.incoming.message.text)
   )
     return (
@@ -54,11 +51,10 @@ export function isVisiblyEmptyMessage(row: AcpmuxRow): boolean {
       !row.pasted?.length &&
       !row.retryAttachments?.length
     );
-  if (!(row.kind === "assistant" ? isBareAgentText(row.text) : isVisiblyEmptyText(row.text))) return false;
+  const empty = row.kind === "assistant" && !row.answersPerson ? isBareAgentText : isVisiblyEmptyText;
+  if (!empty(row.text)) return false;
   const inlineVisible = row.inlineParts?.some(
-    (part) =>
-      part.kind !== "text" ||
-      !(row.kind === "assistant" ? isBareAgentText : isVisiblyEmptyText)("text" in part ? part.text : undefined),
+    (part) => part.kind !== "text" || !isVisiblyEmptyText("text" in part ? part.text : undefined),
   );
   return (
     // Empty prompts can still carry recovery or delivery affordances. Keep the row so

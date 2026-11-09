@@ -80,25 +80,29 @@ struct CloudAgentChatTests {
     }
 
     /// The GUI's default first send: the page names no folder (a fresh Cloud workspace's New Tab
-    /// page has none of its own), so the chat starts in the folder the machine's workspace
-    /// reports there, and once the person trusts it the agent runs on the machine.
-    @Test func aFirstSendWithNoFolderStartsInTheWorkspacesFolderOnTheMachine() async throws {
+    /// page has none of its own). On the owner's Cloud machine the app sends no folder and the
+    /// machine's daemon starts the chat at once in a fresh folder of its own, `~/chats/<chat>` on
+    /// the machine (#31186: never the workspace's folder, which could reopen an earlier chat, and
+    /// never a folder of this Mac); the machine's own chat folder needs no trust question.
+    @Test func aFirstSendWithNoFolderStartsInAFreshChatFolderOnTheMachine() async throws {
         try await Self.withMachine { world in
             let chat = try await world.openChat()
             let wire = try #require(try await world.page(chat.key).wire)
             let frames = try await Frames.open(wire)
             let newChat: [String: Any] = ["mcpServers": [Any](), "_meta": ["acpmux": ["harness": "sample"]]]
-            let first = try await frames.call(wire, "session/new", newChat)
-            #expect(first.errorCode == "agent_session.untrusted_folder", "the default first send: \(first.raw)")
-            // The folder the machine's workspace reports there (its terminal's), never one of this Mac.
-            let folder = try #require(first.errorData?["cwd"] as? String, "\(first.raw)")
-            #expect(folder == world.workspace.firstTabFolder, "the chat's folder is not its workspace's on the machine")
-            #expect(folder == world.work.path, "the chat's folder is not the machine's work folder")
-            let trusted = try await frames.call(wire, "acp.trust.set", ["cwd": folder, "level": "trusted"])
-            #expect(trusted.errorCode == nil, "\(trusted.raw)")
             let started = try await frames.call(wire, "session/new", newChat)
-            #expect(started.result?["sessionId"] is String, "\(started.raw)")
-            #expect(world.agentSessions().count == 1)
+            #expect(started.errorCode == nil, "the default first send: \(started.raw)")
+            let session = try #require(started.result?["sessionId"] as? String, "the chat did not start: \(started.raw)")
+            #expect(world.agentSessions() == [session], "the session does not run in the machine's acpmux")
+            let folder = try #require(world.agentSessionFolder(session), "the machine's acpmux lists no folder for \(session)")
+            let chats = world.home.appendingPathComponent("chats", isDirectory: true).path + "/"
+            #expect(folder.hasPrefix(chats), "the chat's folder \(folder) is not a fresh chat folder under the machine's \(chats)")
+            #expect(folder != world.workspace.firstTabFolder, "the chat started in its workspace's folder")
+            var isFolder: ObjCBool = false
+            #expect(FileManager.default.fileExists(atPath: folder, isDirectory: &isFolder) && isFolder.boolValue,
+                    "the machine has no chat folder at \(folder)")
+            let bound = await world.until { world.machineTab(chat.surface)?.agentSession?.session == session }
+            #expect(bound, "the machine's store did not bind the started session to the chat's tab")
             wire.cancel(code: 1000, reason: "test")
         }
     }
@@ -191,7 +195,7 @@ struct CloudAgentChatTests {
 
         /// The chat's pane host as the agent pane gets it, and its handshake.
         func page(_ key: String) async throws -> (machineName: String?, wire: (any AcpmuxPaneWire)?) {
-            let host = try #require(services.agentTabs.remoteHost(key), "the chat has no pane host")
+            let host = try #require(services.agentTabs.host(for: services.agentTabs.tabKey(key, machine: machine.daemon.machineID)), "the chat has no pane host")
             #expect(host is AgentTabRemoteHost, "the chat's host is \(type(of: host)), not the machine's")
             let handshake = try await host.handshake(sessionId: nil)
             return (handshake.machineName, handshake.connection?.remote?.makeWire())
@@ -205,6 +209,15 @@ struct CloudAgentChatTests {
         /// The sessions the machine's acpmux holds (`cmux acp --json ls` on its home). No acpmux
         /// socket is none; an answer that is not a session list is an issue, never an empty list.
         func agentSessions() -> [String] {
+            sessionList().compactMap { ($0["sessionId"] ?? $0["id"]) as? String }
+        }
+
+        /// The folder the machine's acpmux runs `session` in, as `cmux acp --json ls` lists it.
+        func agentSessionFolder(_ session: String) -> String? {
+            sessionList().first { (($0["sessionId"] ?? $0["id"]) as? String) == session }?["cwd"] as? String
+        }
+
+        private func sessionList() -> [[String: Any]] {
             guard FileManager.default.fileExists(atPath: acpmuxHome.appendingPathComponent("acpmux.sock").path) else { return [] }
             let output = CloudAgentChatTests.run(binary, ["acp", "--json", "ls"], environment: ["ACPMUX_HOME": acpmuxHome.path])
             let object = (try? JSONSerialization.jsonObject(with: output)) as Any
@@ -212,7 +225,7 @@ struct CloudAgentChatTests {
                 Issue.record("`cmux acp --json ls` gave no session list: \(String(decoding: output, as: UTF8.self))")
                 return []
             }
-            return list.compactMap { ($0["sessionId"] ?? $0["id"]) as? String }
+            return list
         }
 
         /// True once `condition` holds, false after 30 seconds.
@@ -303,7 +316,7 @@ struct CloudAgentChatTests {
         let macHome = root.appendingPathComponent("mac-home", isDirectory: true)
         let home = root.appendingPathComponent("vm-home", isDirectory: true)
         // HOME/work is automatically trusted for an owner. A project folder keeps the first
-        // two tests on the explicit trust path; the owner-on-team test selects work itself.
+        // test on the explicit trust path; the owner-on-team test selects work itself.
         let work = home.appendingPathComponent(workFolder, isDirectory: true)
         let acpmuxHome = root.appendingPathComponent("vm-acpmux", isDirectory: true)
         try FileManager.default.createDirectory(at: macHome, withIntermediateDirectories: true)
@@ -341,7 +354,6 @@ struct CloudAgentChatTests {
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         var cloudMachine: CloudMachineSession?
-        var hub: CloudTunnelHub?
 
         let result: Result<Void, any Error>
         do {
@@ -350,15 +362,14 @@ struct CloudAgentChatTests {
                 DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: mac.endpointProvider)
             }
             services.windows.restoreWhenLoaded()
-            let (machine, machineHub) = try Self.machine(root: root)
+            let machine = Self.machine(owns: ownerLink)
             cloudMachine = machine
-            hub = machineHub
             services.machines.add(machine)
             machine.daemon.start(remote: { vmSocket })
-            // The link's attach answer: the app starts a chat on a Cloud machine only on its owner word.
+            // The link's connect answer: the app starts a chat on a Cloud machine only on its owner word.
             if ownerLink {
-                _ = try await machine.link?.socketPath()
-                try #require(await machine.link?.ownerLink != nil, "the machine's link gave no owner answer")
+                _ = try await machine.appLink.connect(origin: .script)
+                try #require(await machine.appLink.ownerLink != nil, "the machine's link gave no owner answer")
             }
 
             let deadline = ContinuousClock.now + .seconds(60)
@@ -393,9 +404,8 @@ struct CloudAgentChatTests {
         await CloudMoveTests.end(services.daemon)
         if let cloudMachine {
             await CloudMoveTests.end(cloudMachine.daemon)
-            await cloudMachine.link?.stop()
+            await cloudMachine.appLink.close()
         }
-        await hub?.stop()
         _ = run(binary, ["acp", "daemon", "shutdown", "--end-agents"], environment: ["ACPMUX_HOME": acpmuxHome.path, "HOME": home.path])
         // A chat that wrongly ran on this Mac would have started its acpmux here.
         _ = run(binary, ["acp", "daemon", "shutdown", "--end-agents"], environment: ["ACPMUX_HOME": macAcpmux, "HOME": macHome.path])
@@ -404,41 +414,9 @@ struct CloudAgentChatTests {
     }
 
     /// The Cloud machine "Move VM", whose daemon each test starts on the second daemon's socket.
-    /// Its link is a stand-in `cmux-tui` (`wg hub` ready, `remote connect` connected) over the
-    /// `/api/vm` stand-in, whose attach answer says the caller owns the machine
-    /// (``CloudLinkReconnectingTests/StandInVMAPI``); it carries no traffic, only that answer.
-    static func machine(root: URL) throws -> (CloudMachineSession, CloudTunnelHub) {
-        let tui = root.appendingPathComponent("link-tui")
-        try """
-            #!/bin/sh
-            case "$1" in
-            wg)
-              while [ $# -gt 0 ]; do [ "$1" = --socket ] && H=$2; shift; done
-              : > "$H"
-              printf '{"event":"hub-ready","socket":"%s","routes":[]}\\n' "$H"
-              exec sleep 600 ;;
-            remote)
-              while [ $# -gt 0 ]; do [ "$1" = --local-socket ] && S=$2; shift; done
-              : > "$S"
-              printf '{"event":"connection-snapshot","local_socket":"%s","connection":{"session_id":"s","generation":1,"state":"connected","lane_bindings":[],"physical_link_count":1,"transport":{"provider":"cloud","route":"ws://10.9.0.2:1337/v1/link"}}}\\n' "$S"
-              exec sleep 600 ;;
-            esac
-            exit 64
-
-            """.write(to: tui, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tui.path)
-        let configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "http://vm-api.standin.invalid"],
-                                                       process: [:], isDebugBuild: true)
-        let urlSession = URLSessionConfiguration.ephemeral
-        urlSession.protocolClasses = [CloudLinkReconnectingTests.StandInVMAPI.self]
-        let api = CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { nil },
-                                 session: URLSession(configuration: urlSession))
-        let paths = CloudPaths(root: root.appendingPathComponent("cloud", isDirectory: true))
-        let hub = CloudTunnelHub(api: api, paths: paths, binary: tui, deviceName: "cn-chat-test")
-        let link = CloudMachineLink(machineID: "vm-move", api: api, hub: hub, paths: paths, binary: tui, deviceName: "cn-chat-test")
-        let session = CloudMachineSession(machine: CloudMachine(id: "vm-move", displayName: "Move VM"), link: link,
-                                          mainWork: MainWorkScheduler(budget: MainFrameBudget()))
-        return (session, hub)
+    /// Its app link's connect answers `owns` as the owner answer; it carries no traffic, only that answer.
+    static func machine(owns: Bool) -> CloudMachineSession {
+        CloudTestLink.session(id: "vm-move", name: "Move VM", owns: owns)
     }
 
     /// `binary arguments` with `environment` over a plain PATH; its standard output.

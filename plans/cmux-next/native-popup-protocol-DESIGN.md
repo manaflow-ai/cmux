@@ -25,6 +25,38 @@ disabled reasons. Editable search and text fields, toggles, segmented choices, s
 borderless accessory actions, sections, status text and child menus are native controls.
 The model's optional rail and footer keep the existing model picker's columns and
 inline effort/actions; a harness choice does not become a different layout.
+`railPlacement` draws the rail as each of the web picker's four harness placements
+(`agentPane.display.harnessPlacement`, leo-workspace `design/model-picker.md`): `symbols`
+(the default: a wrapping row of marks across the top, names only as tooltips and
+accessible names, three rows then it scrolls), `top` (a wrapping strip with names),
+`left` (a column with names, `railWidth` wide) and `compact` (a narrow column, each
+name under its mark). A tab's `mark` is an agent brand id, drawn in the theme's text
+colour in the symbols row and in the brand's colours elsewhere; `monogram` is the text
+mark of a harness with no symbol. The page chooses the placement, the tabs, their marks
+and the checked one; native only lays them out. Up and Down stay in the list; Left and
+Right (on the list, or on an empty search field) send `navigate` with `next` or
+`previous`, and the page picks the tab, except that Right on a highlighted submenu row
+opens it. An action row with `children` is a model row with its effort side dropdown:
+a click or Return picks it, while its trailing item (`sideLabel` and a chevron) or Right
+opens the levels beside it; a row's trailing column reads controls, that item,
+accessory actions, then its key. An update that would rebuild the rows while AppKit tracks a slider waits for
+the release, so a drag never loses its control.
+
+`columns` lays the popup out as columns instead of a rail (never both): the model picker's
+columns menu (cmux #32980, leo-workspace `design/model-picker.md`), harness rail, models, then
+the shown model's effort, providers and Fast, side by side under the search row. Each column has
+an id, an accessible `label`, an optional fixed `width` (the last column without one takes what
+is left), and `rail: true` to draw its rows as the rail's marks (`mark`, `monogram` or `icon`, the
+checked one lit, no accent bar). `rows` span the popup between the search row and the columns
+(the chat's readiness note); `footer` sits under them. The columns' band is as tall as its
+tallest column up to `columnsHeight` (220 by default), each column scrolls on its own, and the
+band never shrinks while the popup is open, so a tab or a search with fewer rows never moves the
+edge away from the chip. `searchAccessory` is a control at the search row's leading edge over the
+first column (the account avatar: a `monogram`, `mark` or `icon`); as a `submenu` its children
+(the account card) open beside the popup. In columns, Up and Down move the highlight within its
+column and stop at the ends, and Left and Right (on the list, or an empty search field) move it to
+the next column's checked row, else its first, sending `highlight`; the page decides what a
+highlighted model shows in the next column. Return activates the highlighted row as elsewhere.
 
 The shared `Glass.makeOverlayPanel` owns the material. A popup's transparent child
 window samples behind the window on the vibrancy fallback. macOS 26 uses real Liquid

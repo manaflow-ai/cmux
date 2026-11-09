@@ -52,10 +52,3 @@ final class ClassicMigrationRunState {
         progress?(Double(handledCount) / Double(max(plan.workspaces.count, 1)))
     }
 }
-
-/// Classic's session as read, the save it came from, and the files to back up.
-struct ClassicSnapshotRead {
-    var snapshot: ClassicSessionSnapshot
-    var source: ClassicMigrationSource
-    var backups: [URL]
-}

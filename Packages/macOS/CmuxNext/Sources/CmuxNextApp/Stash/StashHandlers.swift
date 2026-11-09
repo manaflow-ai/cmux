@@ -74,12 +74,13 @@ enum StashHandlers {
             _ = try show(services, focus: invocation.allowsViewChange)
         })
         registry.bind("stash.importOneTab", unavailable: { stash.unavailableReason() }, run: { invocation in
-            stash.draft(for: try show(services, focus: invocation.allowsViewChange)).open()
+            guard let page = services.pages.provider(.stashed) as? StashTopPage else { return }
+            try page.openImport { try show(services, focus: invocation.allowsViewChange) }
         })
     }
 
     /// Shows the Stashed Tabs page: a person's run as the active window's top page, automation
-    /// as a background tab. Returns the page's key (its own search and OneTab paste box).
+    /// as a background tab. Returns the page's key.
     @discardableResult
     static func show(_ services: AppServices, focus: Bool) throws -> String {
         let key = focus ? TopPages.show(.page(.stashed), services: services)
@@ -200,8 +201,7 @@ enum StashHandlers {
     /// task-owner: a CLI or MCP run awaits `work` (`track`); a palette, menu or toast run nobody
     /// waits on shows its failure as a refusal.
     private static func report(_ registry: ActionRegistry, _ work: ActionWork) {
-        if registry.isCapturingWork { return registry.track(work) }
-        Task { @MainActor [weak registry] in if let failure = await work.value, !failure.shown { registry?.refuse(failure.message) } }
+        registry.trackOrRefuse(work)
     }
 }
 

@@ -112,7 +112,7 @@ def read_attempts(directory: Path) -> list[tuple[int, dict]]:
 ENCLOSURE = re.compile(r'<enclosure\s[^>]*?url="([^"]+\.dmg)"[^>]*?length="(\d+)"[^>]*>')
 ED_SIGNATURE = re.compile(r'\ssparkle:edSignature="([^"]*)"')
 DMG_PREFIXES = ("https://github.com/manaflow-ai/cmux/releases/download/nightly-next/",
-                "https://files-next.cmux.com/nightly-next/next/")
+                "https://files-next.cmux.com/nightly-next/")
 
 
 def nightly_offered(item: str) -> bool:

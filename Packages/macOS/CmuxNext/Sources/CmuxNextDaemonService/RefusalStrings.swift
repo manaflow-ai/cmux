@@ -74,6 +74,8 @@ public nonisolated enum RefusalStrings {
     }
     /// A tab action (Cmd-W) while a top page shows: pages have no tabs and do not close.
     public static var topPageHasNoTabs: String { text("handlers.refusal.topPageHasNoTabs", "This page has no tabs.") }
+    /// A new tab or pane refused over a top page (automation, or classic Home's page that stays).
+    public static var topPageHasNoPanes: String { text("handlers.refusal.topPageHasNoPanes", "This page has no panes.") }
     /// Close Workspace with no target while a top page shows (HomeRules).
     public static var topPageIsNotAWorkspace: String { text("handlers.refusal.topPageIsNotAWorkspace", "This page is not a workspace.") }
     /// A close of the store's home workspace (`home_not_closable`).
@@ -133,6 +135,12 @@ public nonisolated enum RefusalStrings {
     /// Why a change or a start did not happen: the disk under cmux-tui's state is full (restore fuzz h2, h3).
     /// A reason after "<action> did not apply: " and inside cmux-tui's start notice.
     public static var diskFull: String { text("refusal.daemon.diskFull", "the disk is full") }
+    /// Why a change did not happen: cmux-tui did not answer within the request's deadline. A reason after
+    /// "<action> did not apply: ", in place of the raw command names (Leo, 2026-11-03, on "Move did not apply:
+    /// set-personal-workspace: timed out: workspace.place (no reply within 2.0 seconds)": "idk what happened here").
+    public static var daemonTimedOut: String {
+        text("refusal.daemon.timedOut", "cmux’s background service was busy and did not answer in time, so it may still apply.")
+    }
     /// The local daemon is alive but has spent over 2 minutes restoring the
     /// session's terminals (`server.restore_timeout`); cmux keeps trying.
     public static var daemonRestoreTimedOut: String {
@@ -224,7 +232,6 @@ public nonisolated enum RefusalStrings {
     public static var sessionLocalHasNoName: String { text("handlers.refusal.sessionLocalHasNoName", "session-local tabs have no name") }
     /// A Close Tab press aimed at a pane the press before it emptied (`PaneCloseAim` in the app).
     public static var closeAimedAtClosedPane: String { text("handlers.refusal.closeAimedAtClosedPane", "That pane closed. Press again to close a tab in this pane.") }
-    public static var pinnedTabKept: String { text("handlers.refusal.pinnedTabKept", "Pinned tabs stay open. Right-click the tab and choose Close Tab to close it.") }
     public static var sessionLocalCannotPin: String { text("handlers.refusal.sessionLocalCannotPin", "session-local tabs cannot be pinned") }
     public static var neverHibernateNoSite: String { text("handlers.refusal.neverHibernateNoSite", "This tab shows no website.") }
     public static var hibernateVisibleTab: String { text("handlers.refusal.hibernateVisibleTab", "Only a hidden tab can hibernate.") }

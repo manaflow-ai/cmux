@@ -25,6 +25,25 @@ Status 2026-10-14: partly built. What exists:
 - `process/background` (Ctrl-B): Claude Code's `background_tasks` control
   request moves a chat's foreground work to the background; the shells it
   moved are listed with origin `user_backgrounded`.
+- Auto-background (`hub/auto_background.rs`): a Claude Code shell still in
+  the foreground of the chat's own turn after 60 s goes to the background
+  through the same `background_tasks` request, so the turn goes on while it
+  runs; it is listed with origin `auto_backgrounded`. The daemon's env
+  `ACPMUX_AUTO_BACKGROUND_SECS` sets the wait, `0` turns it off. Before a
+  call starts, the session plugin's PreToolUse hook (`bg_hook.rs`) turns away
+  a known-slow foreground command (builds, test runs, CI waits, dev servers)
+  with the background call that runs it instead; the same call again runs as
+  asked, and so does one with a `# fg-ok` comment. Codex needs neither: its
+  unified exec hands a long command back as a running background terminal.
+- The person's message (`hub/auto_background.rs`): while the person's steer
+  waits for Claude Code's step to end, each Bash or Agent call of the chat's
+  own turn that has run 30 s in the foreground goes to the background with
+  `background_tasks` for that call, a declared `timeout` and a foreground
+  subagent included, so the agent reads the message and answers it at once.
+  The hub asks the translator which calls run in the foreground and for how
+  long (`_acpmux/claude/foreground_work`), and sleeps only until the next one
+  reaches 30 s, until the message is read. Another agent's message moves
+  nothing.
 
 Not built yet: `process/watch`, Codex's output and its
 `thread/backgroundTerminals/list` at session load, and the per-session
@@ -64,6 +83,7 @@ Process {
   toolCallId    // the Bash / exec call that started it
   harness       // "claude" | "codex"
   command, cwd
+  description?  // what the call says it does (Claude's Bash `description`)
   startedAt, endedAt?
   state         // running | exited | failed | killed | lost
   exitCode?, signal?
@@ -71,8 +91,11 @@ Process {
                 // later "budget_memory", "harness_time_limit"
   detail?       // the harness's own words on its end (Claude's summary)
   origin        // background | auto_backgrounded | user_backgrounded
+                // (auto_backgrounded: Claude Code moved it at its timeout,
+                // or acpmux did after a minute in the foreground)
   outputBytes   // the output file's length when listed; null with no file
   outputFile?   // the file the harness writes its output to
+  preview?      // {url, port}: the dev server it runs, while it runs
 }
 ```
 
@@ -80,6 +103,20 @@ As built (#20724), `subagentSessionId` names the subagent whose call started
 it, and a task id a later harness reuses gets `-2`, `-3`. Each change is
 logged once as a mux `process_update` record, which is how a daemon rebuilds
 the table.
+
+`preview` is the local server a running process serves, so the chat can
+offer it as a link (`hub/process_preview.rs`). When a process with an output
+file runs, the daemon reads the file's last 64 KiB 0.5, 1.5, 3.5, 7.5, 15.5,
+31.5 and 59.5 s after, strips its terminal escapes, and takes the loopback
+URLs it names (`localhost:5173`, `127.0.0.1:3000`, `0.0.0.0:8080`; the
+`cmux-local-url` crate the daemon's `terminal-ports` uses too), newest first.
+The first whose port accepts a TCP connect on 127.0.0.1 or ::1 is logged as
+`preview: {url, port}` in one `process_update`, and the checks stop; they
+also stop once the process ends, and after the last. A wildcard host reads
+`localhost`, and an API path (`/api`, `/v1`, `/graphql`, `/rpc`, `/health`)
+reads `/`. A process that ends drops its preview. Only the chat's own output
+files are read: no process scanning, no ports table. Codex names no output
+file, so its processes have no preview.
 
 `lost` means the process ended without anyone seeing how, for example when the
 harness itself exited. Its last output is kept and its command is shown with

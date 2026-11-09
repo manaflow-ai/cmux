@@ -25,10 +25,18 @@
 //! - `drag_begin`: `{items:[id]}` (or a bare array): the acceptance table
 //!   `{row_key: {before, into, after, refusal?}}` over the rows of the last
 //!   view.
+//! - `project`: a view request's rows on the shown document as the sections
+//!   the app's list draws (`sidebar_doc::project`); its rows become the last
+//!   view's, as `view`'s do.
+//! - `plan`: the ops of New Subgroup or of a remote group on the shown
+//!   document (`sidebar_doc::plan`): `{"ok":true,"ops":[...]}` or
+//!   `{"refusal":"<code>"}`.
 
 use crate::typed::{CAcceptanceTable, CReply, CRows, Out};
 use cmux_layout_reducer::sidebar_doc::{
-    Doc, Item, Op, Section, accept, reduce,
+    Doc, Item, Op, Section, accept,
+    plan::{self, PlanRequest},
+    project, reduce,
     view::{self, Row, ViewRequest},
 };
 use serde::Deserialize;
@@ -311,6 +319,24 @@ impl Mirror {
         match self.view_rows(input) {
             Ok(()) => json!(self.rows),
             Err(e) => e,
+        }
+    }
+
+    pub fn project(&mut self, input: &[u8]) -> Value {
+        match self.view_rows(input) {
+            Ok(()) => json!(project::project(&self.shown, &self.rows)),
+            Err(e) => e,
+        }
+    }
+
+    pub fn plan(&mut self, input: &[u8]) -> Value {
+        let request: PlanRequest = match serde_json::from_slice(input) {
+            Ok(request) => request,
+            Err(e) => return error(e),
+        };
+        match plan::plan(&self.shown, &request) {
+            Ok(ops) => json!({"ok": true, "ops": ops}),
+            Err(reason) => json!({"refusal": reason}),
         }
     }
 

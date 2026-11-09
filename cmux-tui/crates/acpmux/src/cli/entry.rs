@@ -50,11 +50,13 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     // Agent work yields CPU and disk to the app (`qos.rs`): before any thread
     // starts, since on macOS this re-executes the host in place under a clamp.
     if args.first().is_some_and(|a| a == crate::agent_host::HOST_ARG) {
+        crate::oom_rank::raise_agent();
         crate::qos::enter(crate::qos::Role::AgentHost);
         return crate::agent_host::host::main();
     }
     // A background task's runner (`bg_run.rs`): one task, no CLI.
     if args.first().is_some_and(|a| a == crate::bg_run::RUN_ARG) {
+        crate::oom_rank::raise_agent();
         crate::qos::enter(crate::qos::Role::BackgroundTaskRunner);
         return crate::bg_run::main();
     }
@@ -195,6 +197,25 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             crate::cli::codex_auth_broker::run(home, codex).await
         }
         Some(Command::Gh { args }) => crate::cli::gh_shim::run(args).await,
+        // Before anything that reads or writes the home: this runs as root.
+        #[cfg(target_os = "linux")]
+        Some(Command::DaemonEnroll { person_key_fd }) => {
+            let status = crate::daemon::provision::enroll_running(person_key_fd).await?;
+            if json_out {
+                crate::cli::output::print_json(&status);
+            } else {
+                println!(
+                    "enrolled: personKey {} personInstance {}",
+                    status.get("personKey").and_then(serde_json::Value::as_bool).unwrap_or(false),
+                    status.get("personInstance").and_then(serde_json::Value::as_str).unwrap_or("")
+                );
+            }
+            Ok(())
+        }
+        #[cfg(not(target_os = "linux"))]
+        Some(Command::DaemonEnroll { .. }) => {
+            Err(anyhow::anyhow!("daemon enroll runs only on Linux"))
+        }
         None => {
             let client = connect(true).await?;
             crate::tui::run(client, None).await
@@ -221,6 +242,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             person_key_fd,
             allow_dev_origin,
             dev,
+            take_over,
         }) => {
             tracing_subscriber::fmt()
                 .with_env_filter(
@@ -228,7 +250,14 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 )
                 .with_target(false)
                 .init();
-            crate::qos::enter(crate::qos::Role::Daemon);
+            // An acknowledged reply waits on the event journal's sync, which a utility disk tier
+            // throttles 15-30x under another app's disk work (STATUS 11554): the daemon stays at
+            // the default tier, and only its background threads yield.
+            crate::qos::enter_daemon();
+            // Agents before the daemon for the OOM killer and earlyoom (`oom_rank.rs`).
+            if let Some(p) = crate::oom_rank::protect_daemon() {
+                tracing::info!("{}", crate::oom_rank::describe(p));
+            }
             let result = crate::daemon::run(DaemonOptions {
                 ws_listen: listen,
                 ws_token: token,
@@ -238,6 +267,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 person_key_fd,
                 dev_origins: allow_dev_origin,
                 dev,
+                take_over,
             })
             .await;
             if let Err(error) = result {
@@ -245,7 +275,9 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 // this home. Keep its lock refusal a distinct, prevented
                 // restart status; detached clients still use the readiness
                 // line and retry through `connect`.
-                if error.to_string().starts_with("another acpmux daemon holds ") {
+                // A supervised owner (`--take-over`) exits 1 instead: the unit restarts it
+                // (`Restart=always`) until the home is its own, never leaving the unit failed.
+                if !take_over && error.to_string().starts_with("another acpmux daemon holds ") {
                     let error: anyhow::Error = crate::cli::errors::AppError::new(
                         crate::cli::errors::Code::Runtime,
                         "daemon_lock_held",
@@ -259,8 +291,9 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             }
             // The daemon has stopped its agents and synced its store. Exit
             // now rather than wait for the runtime to drain blocking tasks
-            // (a launcher `--version` check can take 20 s).
-            std::process::exit(0)
+            // (a launcher `--version` check can take 20 s); 74 when its store
+            // asked for a restart (`daemon::EXIT_REPAIR`).
+            std::process::exit(crate::daemon::exit_status())
         }
         Some(Command::CliAgent {
             last_block,
@@ -305,6 +338,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             })
             .await
         }
+        Some(Command::Race(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::race::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::Task(cmd)) => {
             let json_out = cli.json;
             match crate::cli::task::run(cmd, json_out).await {
@@ -319,6 +359,20 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+        Some(Command::WhoElse(args)) => {
+            let json_out = cli.json;
+            match crate::cli::who_else::run(args, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
+        Some(Command::Ledger(args)) => {
+            let json_out = cli.json;
+            match crate::cli::ledger::run(args, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::Bead(cmd)) => {
             let json_out = cli.json;
             match crate::cli::beads::run(cmd, json_out).await {
@@ -329,6 +383,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::Forum(cmd)) => {
             let json_out = cli.json;
             match crate::cli::forum::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
+        Some(Command::Watch(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::watch::run(cmd, json_out).await {
                 Ok(()) => Ok(()),
                 Err(e) => errors::exit_with(&e, json_out),
             }

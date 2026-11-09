@@ -11,12 +11,20 @@ const NON_TRANSCRIPT_UPDATES: &[&str] = &[
     "config_option_update",
     // A compaction's summary is context a handoff carries, not a chat row.
     "compaction_summary",
+    // A suggested next prompt is composer state, not a chat row (`claude_stdio/prompt_suggestions.rs`).
+    "prompt_suggestion",
 ];
+
+/// Updates a `transcript` stream hears live but a page leaves out (`matches_live`): a
+/// suggested next prompt is valid only until the next turn (`claude_stdio/prompt_suggestions.rs`).
+const LIVE_TRANSCRIPT_UPDATES: &[&str] = &["prompt_suggestion"];
 
 /// Mux records a chat client renders. `turn_end` and `turn_error` are left
 /// out because every turn also records `turn_result`.
 pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "_acpmux/message",
+    // A fork whose agent did not start says so in its transcript (`fork.rs` `start_later`).
+    "fork_start_failed",
     "user_message",
     "queued",
     "dequeued",
@@ -24,6 +32,14 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "prompt_retracted",
     // A steer taken back before the agent read it (`queue_edit.rs` `withdraw`).
     "steer_withdrawn",
+    // A steer the agent read (`steer_end.rs`): its row offers no take-back from then on.
+    "steer_read",
+    // Another agent's steer a Stop ended the turn of before its agent read it: it starts the
+    // next turn (`steer_end.rs`).
+    "steer_returned",
+    // A Stop began ending the turn (`cancel.rs`): a message logged after it draws after the
+    // stop line, not above it (#33754).
+    "stopping",
     // Edit queued prompt, Move up / Move down, and a queue a failed turn holds:
     // the queue a chat client shows changes with them.
     "queue_updated",
@@ -34,6 +50,8 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "queue_approved",
     "queue_declined",
     "turn_started",
+    // Where a send says it came from, beside its prompt (`sender_harness.rs`): its row's chip.
+    "sender_claim",
     // Where a chat seeded from a Claude Code transcript's newest page has older turns
     // (`hub/native_history.rs`): the pane that pages back to it reads on from the transcript.
     "native_history",
@@ -41,6 +59,11 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     // (`silent_turn.rs`).
     "turn_silent",
     "turn_heard",
+    // A bounded tool-call loop started or made progress (`loop_detector.rs`).
+    "loop_detected",
+    "loop_cleared",
+    // The harness retries the turn's failed model request (`turn_retry.rs`).
+    "turn_retrying",
     "turn_result",
     // A turn the person did not start, around its rows (`background_turn.rs`).
     "background_turn",
@@ -71,6 +94,11 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "reopened",
     "host_started",
     "host_ended",
+    // A plan built in new worktrees, and the build kept (`plan_build.rs`): the chat's card.
+    "plan_build",
+    // A model race snapshot updates the parent's compare view and must travel with transcript
+    // subscriptions, including reconnect paging.
+    "race",
 ];
 
 /// Which records a page or a live event stream carries. `kinds` entries are
@@ -82,6 +110,11 @@ pub struct EventFilter {
     /// A page read newest first leaves out what newer tool call updates in it make moot
     /// (`store/superseded.rs`). Pages only; a live stream ignores it.
     omit_superseded: bool,
+    /// Only one subagent's own records (`_acpmux/events` `subagent`): the updates acpmux tagged
+    /// with it (`_meta.acpmux.subagent`, its own words and calls) and those that start or change
+    /// it (`_meta.acpmux.subagents[].id`, its spawn and its end). A subagent pane reads its
+    /// subagent with it when the chat's loaded page no longer holds that subagent.
+    subagent: Option<String>,
 }
 
 impl EventFilter {
@@ -116,6 +149,12 @@ impl EventFilter {
         self
     }
 
+    /// Only subagent `id`'s own records (``subagent_owns``); `None` or a blank id keeps them all.
+    pub fn of_subagent(mut self, id: Option<&str>) -> Self {
+        self.subagent = id.filter(|id| !id.is_empty()).map(str::to_owned);
+        self
+    }
+
     pub fn is_all(&self) -> bool {
         match &self.kinds {
             None => true,
@@ -129,6 +168,10 @@ impl EventFilter {
     /// except for the kinds that never are (raw harness lines, responses, load
     /// replays and bookkeeping updates).
     pub fn surely_skips(&self, dir: &[u8], kind: &[u8]) -> bool {
+        // A subagent's records are agent updates, never mux records.
+        if self.subagent.is_some() && dir != b"in" {
+            return true;
+        }
         let Some(kinds) = &self.kinds else { return false };
         !kinds.iter().any(|k| match k.as_str() {
             "all" | "wire" => true,
@@ -138,7 +181,22 @@ impl EventFilter {
         })
     }
 
+    /// `matches` for a record as it happens, sent to a client's event stream: a `transcript`
+    /// subscription also hears a live suggested next prompt (`LIVE_TRANSCRIPT_UPDATES`), which
+    /// a page never holds, so a local, remote or peer chat's composer gets it with no extra kind.
+    pub fn matches_live(&self, rec: &EventRecord) -> bool {
+        self.matches(rec)
+            || (is_agent_update(rec)
+                && LIVE_TRANSCRIPT_UPDATES.contains(&rec.kind.as_str())
+                && self.kinds.as_ref().is_some_and(|k| k.iter().any(|k| k == "transcript")))
+    }
+
     pub fn matches(&self, rec: &EventRecord) -> bool {
+        if let Some(id) = &self.subagent
+            && !subagent_owns(rec, id)
+        {
+            return false;
+        }
         let Some(kinds) = &self.kinds else { return true };
         kinds.iter().any(|k| match k.as_str() {
             "all" => true,
@@ -148,6 +206,19 @@ impl EventFilter {
             exact => rec.kind == exact,
         })
     }
+}
+
+/// Whether `rec` is one of subagent `id`'s own records: an agent update acpmux tagged with it, or
+/// one that starts or changes it (`subagents.rs` writes both into `_meta.acpmux`).
+fn subagent_owns(rec: &EventRecord, id: &str) -> bool {
+    if !is_agent_update(rec) {
+        return false;
+    }
+    let Some(mux) = rec.msg.pointer("/params/_meta/acpmux") else { return false };
+    mux.get("subagent").and_then(Value::as_str) == Some(id)
+        || mux.get("subagents").and_then(Value::as_array).is_some_and(|changes| {
+            changes.iter().any(|change| change.get("id").and_then(Value::as_str) == Some(id))
+        })
 }
 
 fn is_agent_update(rec: &EventRecord) -> bool {
@@ -537,21 +608,24 @@ pub fn prompt_index_msg(msg: &Value) -> Value {
 impl Hub {
     /// Every prompt (`user_message`) of a session's log before `before`, oldest first, each cut to
     /// [`prompt_index_msg`]: the thread rail lays out a long chat's every turn from its first frame
-    /// instead of growing as history pages in (Leo, 2026-10-31). One pass that parses only prompt
-    /// lines (the store skips the rest by kind), so it stays fast however much tool output the
-    /// chat has.
+    /// instead of growing as history pages in (Leo, 2026-10-31). It reads the log's copies of its
+    /// prompts (`store/kind_index.rs`, which the log load already made), and the log only past
+    /// them: a scan of the whole log for its prompts took 10 s on a 566 MB chat and held the
+    /// rail's pending ticks blank (Leo, 2026-11-03: "the hover previews ... aren't loading past
+    /// the first bits").
     pub fn prompt_index(&self, id: &str, before: Option<u64>) -> Result<Vec<EventRecord>> {
         let before = before.unwrap_or(u64::MAX);
         let mut out = Vec::new();
-        let skip = |dir: &[u8], kind: &[u8]| !(dir == b"mux" && kind == b"user_message");
-        self.store.scan_back(id, 0, before, &skip, &mut |mut rec| {
-            if rec.dir == "mux" && rec.kind == "user_message" {
+        self.store.scan_kinds(id, &["user_message"], &mut |mut rec| {
+            if rec.seq >= before {
+                return false;
+            }
+            if rec.dir == "mux" {
                 rec.msg = prompt_index_msg(&rec.msg);
                 out.push(rec);
             }
             true
         })?;
-        out.reverse();
         Ok(out)
     }
 }
@@ -611,5 +685,73 @@ mod transcript_kind_tests {
         assert!(is_transcript(&mux("policy_unenforced")));
         let transcript = EventFilter::parse(Some(&json!(["transcript"]))).unwrap();
         assert!(!transcript.surely_skips(b"mux", b"policy_unenforced"));
+    }
+
+    /// A suggested next prompt reaches a `transcript` stream live, but no page holds it: pages
+    /// read with `matches` and `surely_skips`, the live stream with `matches_live`.
+    #[test]
+    fn a_prompt_suggestion_is_heard_live_but_never_paged() {
+        let rec = EventRecord {
+            seq: 1,
+            at: 0,
+            dir: "in".into(),
+            kind: "prompt_suggestion".into(),
+            msg: json!({"method": method::SESSION_UPDATE, "params": {"sessionId": "s", "update": {"sessionUpdate": "prompt_suggestion", "suggestion": "go on"}}}),
+            host_seq: None,
+        };
+        let transcript = EventFilter::parse(Some(&json!(["transcript"]))).unwrap();
+        assert!(!transcript.matches(&rec), "a page must leave it out");
+        assert!(transcript.surely_skips(b"in", b"prompt_suggestion"));
+        assert!(transcript.matches_live(&rec), "the live stream must send it");
+        let usage = EventFilter::parse(Some(&json!(["usage_update"]))).unwrap();
+        assert!(!usage.matches_live(&rec), "only a transcript stream hears it");
+        // A raw harness line of that name is not an agent update.
+        let mut raw = rec.clone();
+        raw.msg = json!({});
+        assert!(!transcript.matches_live(&raw));
+    }
+
+    /// A subagent pane opened on a subagent the chat's page no longer holds reads that subagent's
+    /// records alone: its spawn and end (`subagents[].id`) and its own updates (`subagent`), never
+    /// the chat's own words, another subagent's, or a mux record.
+    #[test]
+    fn a_subagent_filter_keeps_only_that_subagents_records() {
+        let update = |seq: u64, mux: Value, text: &str| EventRecord {
+            seq,
+            at: 0,
+            dir: "in".into(),
+            kind: "agent_message_chunk".into(),
+            msg: json!({"method": method::SESSION_UPDATE, "params": {"sessionId": "s",
+                "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}},
+                "_meta": {"acpmux": mux}}}),
+            host_seq: None,
+        };
+        let spawn = update(
+            1,
+            json!({"subagents": [{"id": "s/t1", "parent": null, "state": "running"}]}),
+            "",
+        );
+        let own = update(2, json!({"subagent": "s/t1"}), "the child's words");
+        let other = update(3, json!({"subagent": "s/t2"}), "another child's words");
+        let chat = update(4, json!({}), "the chat's own words");
+        let end = update(
+            5,
+            json!({"subagents": [{"id": "s/t1", "parent": null, "state": "completed"}]}),
+            "",
+        );
+        let filter =
+            EventFilter::parse(Some(&json!(["transcript"]))).unwrap().of_subagent(Some("s/t1"));
+        let kept: Vec<u64> = [&spawn, &own, &other, &chat, &end]
+            .iter()
+            .filter(|r| filter.matches(r))
+            .map(|r| r.seq)
+            .collect();
+        assert_eq!(kept, [1, 2, 5]);
+        assert!(!filter.matches(&mux("turn_result")));
+        assert!(filter.surely_skips(b"mux", b"turn_result"));
+        assert!(!filter.surely_skips(b"in", b"agent_message_chunk"));
+        // No id, or a blank one, filters nothing.
+        let all = EventFilter::parse(Some(&json!(["transcript"]))).unwrap().of_subagent(Some(""));
+        assert!(all.matches(&chat));
     }
 }

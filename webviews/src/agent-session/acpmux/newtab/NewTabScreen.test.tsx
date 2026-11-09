@@ -2,9 +2,12 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act, StrictMode, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { noChat } from "../../../gallery/fixtures/acpmux";
+import { noChat, session } from "../../../gallery/fixtures/acpmux";
+import { showsFirstRunStarters } from "./FirstRunStarters";
+import { translateNewTab } from "./strings";
 import { ClosedList } from "./ClosedList";
 import { NewTabScreen } from "./NewTabScreen";
+import { CloudStartView } from "../CloudStartView";
 import { registerHarnessesPage } from "../harnesses/harnessesPage";
 import type { SavedEnvironment } from "../environments";
 import type { RunMode } from "../sandboxRun";
@@ -12,6 +15,12 @@ import type { MarkdownFieldElement } from "../MarkdownField";
 import { proseMirrorGlobals } from "../promptFieldTesting";
 import { inlineToken, type ComposerAttachment } from "../attachments";
 import { translate } from "../i18n";
+import { seedLastPicks } from "../lastPick";
+import { EMPTY_OMNIBAR } from "../omnibar";
+import { CloudTypingPrewarm, CLOUD_TYPING_PREWARM_REFRESH_MS, cloudTypingMachineID } from "../cloudTypingPrewarm";
+import type { CloudMachine } from "../cloudMachines";
+import { setNativeHost } from "../native";
+import { resetToastAvoidanceReports } from "../toastAvoidance";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -135,7 +144,7 @@ test("New Tab exposes the chat composer attachment menu", async () => {
   const add = container.querySelector<HTMLButtonElement>(".nt-pickers .acpmux-newtab-plus .acpmux-picker-button");
   expect(add).toBeTruthy();
   await act(async () => add!.click());
-  expect(container.querySelector('.acpmux-newtab-plus [data-value="add.files"]')).toBeTruthy();
+  expect(document.querySelector('[data-value="add.files"]')).toBeTruthy();
 });
 
 test("New Tab + offers Search chats and Search pages as app actions, and no Search files", async () => {
@@ -159,20 +168,26 @@ test("New Tab + offers Search chats and Search pages as app actions, and no Sear
   await render();
   const add = () => container.querySelector<HTMLButtonElement>(".acpmux-newtab-plus .acpmux-picker-button")!;
   await act(async () => add().click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   // A host that cannot run them gets no rows that would do nothing.
-  expect(container.querySelector('.acpmux-newtab-plus [data-value="history.search"]')).toBeNull();
+  expect(document.querySelector('[data-value="history.search"]')).toBeNull();
   await act(async () => add().click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 
   await render(async (id) => ran.push(id));
   for (const id of ["agentPane.searchChats", "history.search"]) {
     await act(async () => add().click());
-    expect(container.querySelector('.acpmux-newtab-plus [data-value="searchFiles"]')).toBeNull();
-    expect(container.querySelector('.acpmux-newtab-plus [data-value="files.search"]')).toBeNull();
-    const row = container.querySelector<HTMLElement>(`.acpmux-newtab-plus [data-value="${id}"]`);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    if (add().getAttribute("aria-expanded") !== "true") {
+      await act(async () => add().click());
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    }
+    expect(document.querySelector('[data-value="searchFiles"]')).toBeNull();
+    expect(document.querySelector('[data-value="files.search"]')).toBeNull();
+    const row = document.querySelector<HTMLElement>(`[data-value="${id}"]`);
     expect(row).toBeTruthy();
-    await act(async () => {
-      row!.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-    });
+    await act(async () => row!.click());
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   }
   expect(ran).toEqual(["agentPane.searchChats", "history.search"]);
   expect(container.querySelector(".acpmux-switch-notice")).toBeNull();
@@ -180,10 +195,9 @@ test("New Tab + offers Search chats and Search pages as app actions, and no Sear
   // The app refused it: the page says so instead of nothing happening (New Tab shows no transcript).
   await render(() => Promise.reject(new Error("unavailable")));
   await act(async () => add().click());
-  const pages = container.querySelector<HTMLElement>('.acpmux-newtab-plus [data-value="history.search"]')!;
-  await act(async () => {
-    pages.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-  });
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const pages = document.querySelector<HTMLElement>('[data-value="history.search"]')!;
+  await act(async () => pages.click());
   await act(async () => new Promise<void>((resolve) => setTimeout(resolve, 0)));
   expect(container.querySelector(".acpmux-switch-notice [role=alert]")?.textContent).toBe(
     "Search pages isn't available for this chat",
@@ -202,6 +216,65 @@ const firstRunProps = {
   onOpenSession: () => {},
   onShowAll: () => {},
 };
+
+/// What the page told the host about toasts (`pane.toastAvoidance`), with the composer card drawn
+/// 90 px tall at the page's foot.
+function watchToastReports() {
+  resetToastAvoidanceReports();
+  const reports: unknown[] = [];
+  setNativeHost(async (method, params) => {
+    if (method === "pane.toastAvoidance") reports.push(params.rects);
+    return undefined;
+  });
+  Object.assign(dom!.window, {
+    requestAnimationFrame: scope.requestAnimationFrame,
+    cancelAnimationFrame: scope.cancelAnimationFrame,
+  });
+  const drawn = dom!.window.Element.prototype.getBoundingClientRect;
+  dom!.window.Element.prototype.getBoundingClientRect = function (this: Element) {
+    if (!this.classList.contains("nt-composer")) return drawn.call(this);
+    return { left: 40, top: 620, right: 860, bottom: 710, width: 820, height: 90, x: 40, y: 620 } as DOMRect;
+  };
+  return reports;
+}
+
+/// A few macrotask turns: the composer's measure runs on the next frame (a 0 ms timer here).
+const nextTurns = () =>
+  act(async () => {
+    for (let turn = 0; turn < 3; turn++) await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  });
+
+test("in the stage layout the composer card at the page's foot is what the app's toasts avoid", async () => {
+  const reports = watchToastReports();
+  try {
+    await act(async () => root!.render(<NewTabScreen {...firstRunProps} />));
+    await nextTurns();
+    expect(container.querySelector('[data-layout="stage"] .nt-composer')).toBeTruthy();
+    expect(reports.at(-1)).toEqual([{ left: 40, top: 620, right: 860, bottom: 710 }]);
+    // The page goes: the toasts stop avoiding a composer that left.
+    act(() => root!.unmount());
+    root = undefined;
+    await nextTurns();
+    expect(reports.at(-1)).toEqual([]);
+  } finally {
+    setNativeHost(undefined);
+    resetToastAvoidanceReports();
+  }
+});
+
+test("away from the page's foot (Minimal) the composer card asks the toasts for nothing", async () => {
+  const reports = watchToastReports();
+  try {
+    await act(async () => root!.render(<NewTabScreen {...firstRunProps} template="minimal" />));
+    await nextTurns();
+    expect(container.querySelector('[data-layout="stage"]')).toBeNull();
+    expect(container.querySelector(".nt-composer")).toBeTruthy();
+    expect(reports).toEqual([]);
+  } finally {
+    setNativeHost(undefined);
+    resetToastAvoidanceReports();
+  }
+});
 
 test("cancelling a saved environment browse keeps the New Tab project", async () => {
   let resolveBrowse!: (folder: string | undefined) => void;
@@ -318,7 +391,77 @@ test("a fresh New Tab exposes the no-project path in its environment card", asyn
   expect(container.querySelector('.nt-env .nt-stage-row[aria-pressed="true"]')).toBeTruthy();
 });
 
-test("Do not work in a project, then a remote machine with a folder: headline, location and send name that folder", async () => {
+test("first run: the starters show only once acpmux answered with an agent and no chat exists", () => {
+  expect(showsFirstRunStarters(noChat([]), { allChats: false })).toBe(true);
+  // Before acpmux answers, an empty chat list proves nothing about a first run.
+  expect(showsFirstRunStarters(noChat([], { catalog: [] }), { allChats: false })).toBe(false);
+  expect(showsFirstRunStarters(noChat([session({ sessionId: "s1" })]), { allChats: false })).toBe(false);
+  expect(showsFirstRunStarters(noChat([]), { allChats: true })).toBe(false);
+  // A cached catalog can come before the chats are listed: no starters until they are.
+  expect(showsFirstRunStarters(noChat([]), { allChats: false, chatsPending: true })).toBe(false);
+  // Chats the host indexed on this device show as recent chats: that Mac is not on a first run.
+  expect(showsFirstRunStarters(noChat([]), { allChats: false, deviceChats: 2 })).toBe(false);
+});
+
+test("while the chats are still being listed, New Tab draws no starters", async () => {
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} chatsPending />);
+  });
+  await promptField();
+  expect(container.querySelector(".nt-starters")).toBeNull();
+});
+
+test("a starter picked in shell mode leaves shell mode, so Return asks the agent", async () => {
+  let shellRuns = 0;
+  await act(async () => {
+    root!.render(
+      <NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} onShell={() => void shellRuns++} />,
+    );
+  });
+  const field = await typePrompt("!");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(container.querySelector(".nt-screen[data-shell]")).toBeTruthy();
+  const fix = container.querySelector<HTMLButtonElement>('.nt-starter[data-starter="fix"]')!;
+  await act(async () => fix.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(container.querySelector(".nt-screen[data-shell]")).toBeNull();
+  expect(promptValue(field)).toBe(translateNewTab("starters.fix"));
+  await press(field, "Enter");
+  expect(shellRuns).toBe(0);
+});
+
+test("a first-run starter fills the composer, sends nothing, and the rows stay while it is edited", async () => {
+  let asked = 0;
+  await act(async () => {
+    root!.render(
+      <NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([])} onAsk={() => void asked++} />,
+    );
+  });
+  const field = await promptField();
+  const rows = [...container.querySelectorAll<HTMLButtonElement>(".nt-starters .nt-starter")];
+  expect(rows.map((row) => row.textContent)).toEqual([
+    translateNewTab("starters.explain"),
+    translateNewTab("starters.fix"),
+    translateNewTab("starters.review"),
+  ]);
+  await act(async () => rows[1]!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(promptValue(field)).toBe(translateNewTab("starters.fix"));
+  expect(asked).toBe(0);
+  expect(container.querySelectorAll(".nt-starters .nt-starter")).toHaveLength(3);
+});
+
+test("with a chat on this Mac, New Tab draws no starters", async () => {
+  await act(async () => {
+    root!.render(
+      <NewTabScreen {...firstRunProps} template="minimal" snapshot={noChat([session({ sessionId: "s1" })])} />,
+    );
+  });
+  await promptField();
+  expect(container.querySelector(".nt-starters")).toBeNull();
+});
+
+test("No folder, then a remote machine with a folder: headline, location and send name that folder", async () => {
   const remoteFolder = "/remote/project";
   const asks: unknown[][] = [];
   await act(async () => {
@@ -357,7 +500,7 @@ test("Do not work in a project, then a remote machine with a folder: headline, l
   expect(folder).toBeTruthy();
   await act(async () => folder!.click());
   const noProject = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
-    row.textContent?.includes("Do not work in a project"),
+    row.textContent?.includes("No folder"),
   );
   expect(noProject).toBeTruthy();
   await act(async () => noProject!.click());
@@ -371,7 +514,7 @@ test("Do not work in a project, then a remote machine with a folder: headline, l
   expect(headline).toContain("project");
   expect(headline).toContain("build-box");
   expect(container.querySelector(".nt-location")?.textContent).toContain("project");
-  expect(container.querySelector(".nt-location")?.textContent).not.toContain("No project");
+  expect(container.querySelector(".nt-location")?.textContent).not.toContain("No folder");
   await typePrompt("fix it");
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
   expect(asks.length).toBe(1);
@@ -454,6 +597,39 @@ test("Return on a typed address still opens it without a harness", async () => {
   } finally {
     unregister();
   }
+});
+
+// A last pick names the chip's harness before acpmux lists its harnesses (or when that read failed
+// and nothing has read again), so the chip read "Opus 5.5" over a list with no Ask row, and Return
+// took the prompt to Google. Whatever the chip names, Return asks.
+test("with a remembered pick and no catalog, the Ask row leads and Return asks instead of searching", async () => {
+  const asked: string[] = [];
+  const searched: string[] = [];
+  saved.set("localStorage", scope.localStorage);
+  Object.assign(scope, { localStorage: dom!.window.localStorage });
+  seedLastPicks({ global: { harness: "claude", model: "claude-opus-5-5" } });
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        omnibar={EMPTY_OMNIBAR}
+        onAsk={(harness, text, _cwd, model) => void asked.push(`${harness} ${model}: ${text}`)}
+        onSearch={(text) => void searched.push(text)}
+      />,
+    );
+  });
+  const field = await promptField();
+  await act(async () => {
+    field.acpmuxMarkdownField!.focus();
+    field.acpmuxMarkdownField!.type("look at the ios connection failures");
+  });
+  const rows = [...document.querySelectorAll(".nt-row")].map((row) => row.textContent ?? "");
+  expect(rows[0]).toContain("Claude Code");
+  expect(rows.some((row) => row.includes("Search the web"))).toBe(true);
+  await press(field, "Enter");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(searched).toEqual([]);
+  expect(asked).toEqual(["claude claude-opus-5-5: look at the ios connection failures"]);
 });
 
 test("the `/` menu opens mid-prompt with the skills and writes the pick in place, as in chat", async () => {
@@ -645,6 +821,67 @@ test("an Escape on the list is forgotten once the text changes: the same word ty
   expect(menu()).not.toBeNull();
 });
 
+test("a lone GitHub issue URL offers an explicit fix worktree action", async () => {
+  const fixes: Array<{ url: string; cwd?: string }> = [];
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const asks: unknown[][] = [];
+  const opened: string[] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat([], { summary: { sessionId: "seed", harness: "claude" } })}
+        onAsk={(...args) => asks.push(args)}
+        onOpen={(url) => opened.push(url)}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        onFixFromLink={(url, cwd) => {
+          fixes.push({ url, cwd });
+          return pending;
+        }}
+        lastAgent="claude"
+        cwd="/tmp/picked-checkout"
+      />,
+    );
+  });
+  const field = await typePrompt("https://github.com/manaflow-ai/cmux/issues/123");
+  const chip = container.querySelector<HTMLButtonElement>(".nt-fix-chip");
+  expect(chip?.textContent).toContain("Fix in a new worktree");
+  await act(async () => chip!.click());
+  await act(async () => chip!.click());
+  expect(fixes).toEqual([{ url: "https://github.com/manaflow-ai/cmux/issues/123", cwd: "/tmp/picked-checkout" }]);
+  expect(chip!.disabled).toBe(true);
+  await act(async () => finish());
+  expect(chip!.disabled).toBe(false);
+  await press(field, "Enter");
+  expect(asks).toEqual([]);
+  expect(opened).toEqual(["https://github.com/manaflow-ai/cmux/issues/123"]);
+});
+
+for (const mode of ["sandboxed", "cloud"] as const) {
+  test(`an issue URL never offers a local fix in ${mode} mode`, async () => {
+    await act(async () => {
+      root!.render(
+        <NewTabScreen
+          {...firstRunProps}
+          snapshot={noChat()}
+          onFixFromLink={() => {
+            throw new Error("local fix must not run");
+          }}
+          runMode={{ mode, onMode: () => {} }}
+          location="https://github.com/manaflow-ai/cmux/issues/123"
+        />,
+      );
+    });
+    expect(container.querySelector(".nt-fix-chip")).toBeNull();
+  });
+}
+
 test("a chosen document uses the New Tab upload path and becomes sendable", async () => {
   const uploaded: File[][] = [];
   const asks: unknown[][] = [];
@@ -746,7 +983,7 @@ test("with Cloud picked, a send goes to onCloud with its prompt, not a new chat;
   expect(promptValue()).toBe("fix the flaky test");
 });
 
-test("with Cloud picked and Do not work in a project, a send names no folder: not even the tab's inherited one", async () => {
+test("with Cloud picked and No folder, a send names no folder: not even the tab's inherited one", async () => {
   const clouded: unknown[][] = [];
   await act(async () => {
     root!.render(
@@ -768,10 +1005,10 @@ test("with Cloud picked and Do not work in a project, a send names no folder: no
       />,
     );
   });
-  // Do not work in a project, from the card's chooser (the tab inherited /repo/A).
+  // No folder, from the card's chooser (the tab inherited /repo/A).
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button")!.click());
   const noProject = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
-    row.textContent?.includes("Do not work in a project"),
+    row.textContent?.includes("No folder"),
   );
   expect(noProject).toBeTruthy();
   await act(async () => noProject!.click());
@@ -798,6 +1035,7 @@ test("while a Cloud start is out the box takes no edits, and takes them again on
       environments
       runMode={{ mode: "cloud", onMode: () => {} }}
       onCloud={() => false}
+      cloudStatus={<output data-testid="cloud-shell">Preparing machine</output>}
       cloudStarting={cloudStarting}
     />
   );
@@ -809,15 +1047,53 @@ test("while a Cloud start is out the box takes no edits, and takes them again on
   const field = () => promptValue();
   await act(async () => root!.render(page(true)));
   await promptField();
+  expect(container.querySelector('[data-testid="cloud-shell"]')?.textContent).toBe("Preparing machine");
+  expect(container.querySelector(".nt-composer")?.getAttribute("data-cloud-starting")).toBe("true");
+  // The box keeps its space while the shell is visible, so sending does not move the page.
+  expect(container.querySelector(".nt-box")).toBeTruthy();
   expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(true);
   // Typing on the page (outside the field) goes nowhere while the start is out.
   await typeOnPage("x");
   expect(field()).toBe("");
   // A failed start keeps the prompt here to edit and send again.
   await act(async () => root!.render(page(false)));
+  expect(container.querySelector(".nt-composer")?.getAttribute("data-cloud-starting")).toBeNull();
   expect(container.querySelector(".nt-box")!.hasAttribute("inert")).toBe(false);
   await typeOnPage("x");
   expect(field()).toBe("x");
+});
+
+test("a failed Cloud start leaves one retry send in the composer", async () => {
+  const clouded: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        environments
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        cloudStarting={false}
+        cloudStatus={
+          <CloudStartView
+            start={{ key: "retry", task: "first attempt", state: "failed", message: "No machine free" }}
+            bubble={false}
+          />
+        }
+        onCloud={(...args) => (clouded.push(args), false)}
+      />,
+    );
+  });
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("No machine free");
+  await typePrompt("retry once");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(clouded).toHaveLength(1);
+  expect(clouded[0]?.[1]).toBe("retry once");
 });
 
 test("picking Cloud drops a saved environment picked before: the send names the folder chip's folder, not the tab's inherited one", async () => {
@@ -1050,7 +1326,7 @@ test("keeps a changed machine choice while browse settles, then permits retry", 
   expect(container.querySelector('[role="alert"]')).toBeNull();
 });
 
-test("keeps the project chooser open when a second Add Project browse is already pending", async () => {
+test("Add folder… is the host's folder panel: a second one while it is open asks nothing, and its pick lands", async () => {
   let resolveBrowse!: (folder: string | undefined) => void;
   let calls = 0;
   await act(async () => {
@@ -1060,6 +1336,7 @@ test("keeps the project chooser open when a second Add Project browse is already
         pageWidgets={new Set(["projects"])}
         projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
         onBrowseProject={(request) => {
+          // The folder menu commits the pick itself (deferPick), so a folder picked meanwhile wins.
           expect(request?.deferPick).toBe(true);
           calls += 1;
           return new Promise<string | undefined>((resolve) => {
@@ -1069,30 +1346,23 @@ test("keeps the project chooser open when a second Add Project browse is already
       />,
     );
   });
-  await act(async () => container.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button")!.click());
-  const add = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
-    row.textContent?.includes("New project"),
-  );
-  expect(add).toBeTruthy();
-  await act(async () => add!.click());
-  const pick = async (label: string) => {
-    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
-      row.textContent?.includes(label),
+  const addFolder = async () => {
+    await act(async () => container.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button")!.click());
+    const options = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((row) => row.textContent ?? "");
+    expect(options.some((text) => text.includes("New project") || text.includes("Add project"))).toBe(false);
+    const add = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) =>
+      row.textContent?.includes("Add folder…"),
     );
-    expect(option).toBeTruthy();
-    await act(async () => option!.click());
+    expect(add).toBeTruthy();
+    await act(async () => add!.click());
   };
-  await pick("This Mac");
-  await pick("Local folder");
+  await addFolder();
   expect(calls).toBe(1);
-  expect(document.querySelector('[data-add-project-step="source"]')).toBeTruthy();
-  // Back and re-enter while the first native chooser remains pending. Busy is not cancellation.
-  await act(async () => document.querySelector<HTMLButtonElement>(".acpmux-add-project-heading button")!.click());
-  await pick("This Mac");
-  await pick("Local folder");
+  // The first panel is still open: busy is not a second ask, nor a cancellation.
+  await addFolder();
   expect(calls).toBe(1);
-  expect(document.querySelector('[data-add-project-step="source"]')).toBeTruthy();
   await act(async () => resolveBrowse("/Users/you/src/new"));
+  expect(container.querySelector(".nt-env")?.textContent).toContain("new");
 });
 
 test("a closed agent chat uses the semantic agent glyph and preserves its title", async () => {
@@ -1129,4 +1399,195 @@ test("a project picked on the page is reported on its click (onProjectPicked), s
   expect(option).toBeTruthy();
   await act(async () => option!.click());
   expect(picked).toEqual(["/Users/you/src/cmux"]);
+});
+
+test.each(["project", "saved"] as const)(
+  "a direct %s selection clears the prior Cloud typing target",
+  async (selection) => {
+    // The App retains the account-machine choice outside NewTabScreen. A direct project/card
+    // or saved-environment pick must clear that same target before the next prompt edit.
+    let target: CloudMachine | null | undefined = {
+      id: "cloud-draft",
+      name: "Draft machine",
+      stage: "paused",
+    };
+    let now = 0;
+    const wakes: string[] = [];
+    const prewarm = new CloudTypingPrewarm(
+      {
+        prewarm: (id) => {
+          wakes.push(id);
+          return true;
+        },
+      },
+      () => now,
+    );
+    const environment: SavedEnvironment = {
+      id: "local-worktree",
+      name: "Local worktree",
+      kind: "local",
+      folder: "/repo/local",
+      worktree: true,
+      updatedAt: 1,
+    };
+    await act(async () => {
+      root!.render(
+        <NewTabScreen
+          {...firstRunProps}
+          snapshot={noChat()}
+          cwd="/repo/original"
+          pageWidgets={new Set(["projects"])}
+          projects={[{ cwd: "/repo/local", label: "Local project" }]}
+          environments
+          savedEnvironments={{
+            list: async () => [environment],
+            save: async () => environment,
+            remove: async () => {},
+          }}
+          onCloudMachinePicked={(machine) => {
+            target = machine ?? null;
+          }}
+          onPromptTyped={(text) => {
+            const machineID = cloudTypingMachineID(target === null ? null : target?.id, "previous-cloud");
+            prewarm.typed(text, machineID ? { machineID } : undefined);
+          }}
+        />,
+      );
+    });
+    await typePrompt("first edit");
+    expect(wakes).toEqual(["cloud-draft"]);
+    now += CLOUD_TYPING_PREWARM_REFRESH_MS;
+
+    if (selection === "project") {
+      await act(async () => container.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button")!.click());
+      const row = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((item) =>
+        item.textContent?.includes("Local project"),
+      );
+      expect(row).toBeTruthy();
+      await act(async () => row!.click());
+    } else {
+      const button = container.querySelector<HTMLButtonElement>(
+        '.acpmux-location-picker[data-kind="computer"] button',
+      )!;
+      await openMachines(button);
+      const row = document.querySelector<HTMLElement>(".acpmux-env-popover .acpmux-env-saved")!;
+      expect(row).toBeTruthy();
+      await act(async () => (row.closest<HTMLElement>('[role="option"]') ?? row).click());
+    }
+
+    expect(target).toBeNull();
+    await typePrompt("edit on the local destination");
+    expect(wakes).toEqual(["cloud-draft"]);
+  },
+);
+
+// Lawrence 2026-11-05: a typed URL opens in a chosen browser profile (all listed, searchable) or in a
+// brand-new one, from the keyboard.
+const profileOmnibar = {
+  ...EMPTY_OMNIBAR,
+  profiles: [
+    { id: "default", name: "Default" },
+    { id: "p-work", name: "Work" },
+    { id: "p-austin", name: "Austin Test" },
+  ],
+};
+
+test("Open in Profile…: Down, Return, a search and Return open the URL in that profile", async () => {
+  const opened: [string, string][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        omnibar={profileOmnibar}
+        onOpenInProfile={(url, id) => opened.push([url, id])}
+        onOpenInNewProfile={() => {}}
+      />,
+    );
+  });
+  let field = await typePrompt("example.com");
+  const types = () =>
+    [...container.ownerDocument.querySelectorAll<HTMLElement>(".nt-row")].map((row) => row.dataset.type);
+  expect(types().slice(0, 3)).toEqual(["open", "inProfile", "newProfile"]);
+  await press(field, "ArrowDown");
+  await press(field, "Enter");
+  // The field searches the profiles: every one is listed, then a new one.
+  expect(promptValue()).toBe("");
+  expect(types()).toEqual(["profile", "profile", "profile", "newProfile"]);
+  field = await typePrompt("aus");
+  expect(types()).toEqual(["profile", "newProfile"]);
+  await press(field, "Enter");
+  expect(opened).toEqual([["https://example.com", "p-austin"]]);
+});
+
+test("Open in Profile…: a search no profile is named makes one with that name; Escape goes back", async () => {
+  const made: [string, string | undefined][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        omnibar={profileOmnibar}
+        onOpenInProfile={() => {}}
+        onOpenInNewProfile={(url, name) => made.push([url, name])}
+      />,
+    );
+  });
+  let field = await typePrompt("example.com");
+  await press(field, "ArrowDown");
+  await press(field, "Enter");
+  field = await typePrompt("Client X");
+  await press(field, "Escape");
+  // Back on the address, as typed.
+  expect(promptValue()).toBe("example.com");
+  await press(field, "ArrowDown");
+  await press(field, "Enter");
+  field = await typePrompt("Client X");
+  await press(field, "Enter");
+  expect(made).toEqual([["https://example.com", "Client X"]]);
+});
+
+test("a first-run starter picked in the profile search leaves it, so Return asks the agent", async () => {
+  const made: unknown[] = [];
+  let asked = 0;
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        template="minimal"
+        snapshot={noChat([])}
+        omnibar={profileOmnibar}
+        onAsk={() => void asked++}
+        onOpenInProfile={(url, id) => made.push([url, id])}
+        onOpenInNewProfile={(url, name) => made.push([url, name])}
+      />,
+    );
+  });
+  const field = await typePrompt("example.com");
+  await press(field, "ArrowDown");
+  await press(field, "Enter");
+  const fix = container.querySelector<HTMLButtonElement>('.nt-starter[data-starter="fix"]')!;
+  await act(async () => fix.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(promptValue(field)).toBe(translateNewTab("starters.fix"));
+  await press(field, "Enter");
+  expect(made).toEqual([]);
+  expect(asked).toBe(1);
+});
+
+test("Open in New Profile from the address's rows makes a profile with the default name", async () => {
+  const made: [string, string | undefined][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        omnibar={profileOmnibar}
+        onOpenInProfile={() => {}}
+        onOpenInNewProfile={(url, name) => made.push([url, name])}
+      />,
+    );
+  });
+  const field = await typePrompt("example.com");
+  await press(field, "ArrowDown");
+  await press(field, "ArrowDown");
+  await press(field, "Enter");
+  expect(made).toEqual([["https://example.com", undefined]]);
 });

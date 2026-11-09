@@ -4,7 +4,6 @@
     "agent-pane.access-offer#turn-no-credits": [],
     "agent-pane.access-offer#turn-no-offer": [],
     "agent-pane.acpmux-batch-send#batch-raw": [],
-    "agent-pane.acpmux-batch-send#batch-sending": [],
     "agent-pane.acpmux-batch-send#batches": [],
     "agent-pane.add-project-panel#browse-error": [],
     "agent-pane.add-project-panel#directory": [],
@@ -121,7 +120,9 @@
     "agent-pane.artifact-panel#replace-complete": [],
     "agent-pane.artifact-panel#svg": [],
     "agent-pane.artifact-panel#versions": [],
-    "agent-pane.auth-health#expired": [],
+    "agent-pane.auth-health#expired": [
+      "menu-fit:div[aria-label=\"Model\"]"
+    ],
     "agent-pane.auth-health#signed-in": [
       "menu-fit:div[aria-label=\"Model\"]"
     ],
@@ -671,7 +672,7 @@
     ],
     "agent-pane.composer#agent-home-path": [],
     "agent-pane.composer#attach-screenshot": [],
-    "agent-pane.composer#attach-screenshot-too-large": [],
+    "agent-pane.composer#attach-screenshot-oversized": [],
     "agent-pane.composer#attach-window-cancelled": [],
     "agent-pane.composer#attachment-failed": [],
     "agent-pane.composer#attachment-inline-caret": [],
@@ -971,13 +972,13 @@
     "agent-pane.effort-track#picked-medium": [],
     "agent-pane.empty-state#closed": [],
     "agent-pane.empty-state#no-project": [
-      "menu-fit:div[aria-label=\"Project\"]"
+      "menu-fit:div[aria-label=\"Folder\"]"
     ],
     "agent-pane.empty-state#open": [
-      "menu-fit:div[aria-label=\"Project\"]"
+      "menu-fit:div[aria-label=\"Folder\"]"
     ],
     "agent-pane.empty-state#search": [
-      "menu-fit:div[aria-label=\"Project\"]"
+      "menu-fit:div[aria-label=\"Folder\"]"
     ],
     "agent-pane.environment-save#granted": [],
     "agent-pane.environment-save#granted-hover": [],
@@ -1270,11 +1271,7 @@
       "center-line:row user-8",
       "center-line:row user-9"
     ],
-    "agent-pane.incoming-message#minimal-open": [
-      "center-line:row user-10",
-      "center-line:row user-8",
-      "center-line:row user-9"
-    ],
+    "agent-pane.incoming-message#minimal-open": [],
     "agent-pane.incoming-message#notice": [],
     "agent-pane.incoming-message#opened": [
       "center-line:row user-52"
@@ -1417,6 +1414,7 @@
       "menu-row:div[aria-label=\"Model\"] \"EffortHigh\"",
       "menu-row:div[aria-label=\"Model\"] \"Fable 5.1⌘4\"",
       "menu-row:div[aria-label=\"Model\"] \"Haiku 5.5⌘3\"",
+      "menu-row:div[aria-label=\"Model\"] \"More models\"",
       "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Fast mode\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Opus 5.5\""
@@ -1433,6 +1431,7 @@
       "menu-row:div[aria-label=\"Model\"] \"EffortHigh\"",
       "menu-row:div[aria-label=\"Model\"] \"Fable 5.1⌘4\"",
       "menu-row:div[aria-label=\"Model\"] \"Haiku 5.5⌘3\"",
+      "menu-row:div[aria-label=\"Model\"] \"More models\"",
       "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Fast mode\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Opus 5.5\""
@@ -1455,6 +1454,7 @@
       "menu-row:div[aria-label=\"Model\"] \"EffortHigh\"",
       "menu-row:div[aria-label=\"Model\"] \"Fable 5.1⌘4\"",
       "menu-row:div[aria-label=\"Model\"] \"Haiku 5.5⌘3\"",
+      "menu-row:div[aria-label=\"Model\"] \"More models\"",
       "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Fast mode\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Opus 5.5\""
@@ -1465,6 +1465,7 @@
       "menu-row:div[aria-label=\"Model\"] \"EffortHigh\"",
       "menu-row:div[aria-label=\"Model\"] \"Fable 5.1⌘4\"",
       "menu-row:div[aria-label=\"Model\"] \"Haiku 5.5⌘3\"",
+      "menu-row:div[aria-label=\"Model\"] \"More models\"",
       "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Fast mode\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Opus 5.5\""
@@ -1474,6 +1475,7 @@
       "menu-row:div[aria-label=\"Model\"] \"EffortHigh\"",
       "menu-row:div[aria-label=\"Model\"] \"Fable 5.1⌘4\"",
       "menu-row:div[aria-label=\"Model\"] \"Haiku 5.5⌘3\"",
+      "menu-row:div[aria-label=\"Model\"] \"More models\"",
       "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Fast mode\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Opus 5.5\""
@@ -1490,6 +1492,7 @@
       "menu-row:div[aria-label=\"Model\"] \"EffortHigh\"",
       "menu-row:div[aria-label=\"Model\"] \"Fable 5.1⌘4\"",
       "menu-row:div[aria-label=\"Model\"] \"Haiku 5.5⌘3\"",
+      "menu-row:div[aria-label=\"Model\"] \"More models\"",
       "menu-row:div[aria-label=\"Model\"] \"Sonnet 5.5⌘2\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Fast mode\"",
       "menu-row:div[aria-label=\"Model\"] \"✓Opus 5.5\""
@@ -1672,7 +1675,6 @@
       "menu-row:\"CLI login✓Claude MaxAnthropic API key\" \"CLI login\"",
       "menu-row:\"CLI login✓Claude MaxAnthropic API key\" \"✓Claude Max\""
     ],
-    "agent-pane.model-picker#started-chat-fork": [],
     "agent-pane.model-picker#started-chat-quick-menu": [
       "menu-fit:div[aria-label=\"Model\"]"
     ],
@@ -1739,7 +1741,7 @@
     "agent-pane.new-tab-headline#on": [],
     "agent-pane.new-tab-headline#picked": [],
     "agent-pane.new-tab-headline#picker-open": [
-      "menu-fit:div[aria-label=\"Project\"]"
+      "menu-fit:div[aria-label=\"Folder\"]"
     ],
     "agent-pane.new-tab-page#escape-clear": [],
     "agent-pane.new-tab-page#folder-chooser": [],
@@ -2015,27 +2017,27 @@
     "agent-pane.preview-card#open-in-menu": [],
     "agent-pane.project-chooser#closed": [],
     "agent-pane.project-chooser#lane-worktrees": [
-      "menu-fit:div[aria-label=\"Project\"]"
+      "menu-fit:div[aria-label=\"Folder\"]"
     ],
     "agent-pane.project-chooser#lane-worktrees-search": [
-      "menu-fit:div[aria-label=\"Project\"]"
+      "menu-fit:div[aria-label=\"Folder\"]"
     ],
     "agent-pane.project-chooser#long-names": [],
     "agent-pane.project-chooser#long-no-actions": [
-      "menu-fit:div[aria-label=\"Project\"]"
+      "menu-fit:div[aria-label=\"Folder\"]"
     ],
     "agent-pane.project-chooser#machine-tags": [
-      "menu-fit:div[aria-label=\"Project\"]"
+      "menu-fit:div[aria-label=\"Folder\"]"
     ],
     "agent-pane.project-chooser#no-matches": [],
     "agent-pane.project-chooser#open-app-icons": [
-      "menu-fit:div[aria-label=\"Project\"]"
+      "menu-fit:div[aria-label=\"Folder\"]"
     ],
     "agent-pane.project-chooser#open-current": [
-      "menu-fit:div[aria-label=\"Project\"]"
+      "menu-fit:div[aria-label=\"Folder\"]"
     ],
     "agent-pane.project-chooser#open-path-titled": [
-      "menu-fit:div[aria-label=\"Project\"]"
+      "menu-fit:div[aria-label=\"Folder\"]"
     ],
     "agent-pane.project-chooser#press-drag-release": [],
     "agent-pane.project-chooser#remote-completion": [],
@@ -2205,7 +2207,6 @@
     "agent-pane.sent-message-rows#look-arrow": [],
     "agent-pane.sent-message-rows#look-quote": [],
     "agent-pane.sent-message-rows#recorded-file": [],
-    "agent-pane.sent-message-rows#running-row": [],
     "agent-pane.sent-message-rows#sent": [],
     "agent-pane.sent-message-rows#with-preview": [],
     "agent-pane.session-hover#chip": [],
@@ -2706,6 +2707,7 @@
       "center-line:row spacing-received-a",
       "center-line:row spacing-received-b"
     ],
+    "agent-pane.transcript-type#claude-approve": [],
     "agent-pane.transcript-type#claude-code-entry": [],
     "agent-pane.transcript-type#codex-code": [],
     "agent-pane.transcript-type#reading": [],
@@ -2843,7 +2845,6 @@
     "agent-pane.transcript#thought-find": [],
     "agent-pane.transcript#thought-quiet": [],
     "agent-pane.transcript#thought-row": [],
-    "agent-pane.transcript#thought-streaming-short": [],
     "agent-pane.transcript#thoughts-merged": [],
     "agent-pane.transcript#token-link": [],
     "agent-pane.transcript#tool-calls": [],
@@ -2880,7 +2881,6 @@
     "agent-pane.transcript#working-counts": [
       "center-line:row subagentDone:agent-errors"
     ],
-    "agent-pane.transcript#working-line-above": [],
     "agent-pane.transcript#working-thinking": [],
     "agent-pane.transcript#working-tokens": [],
     "agent-pane.transcript#working-tokens-total": [],
@@ -3339,7 +3339,7 @@
     ],
     "pages.home-channels#switcher-empty": [],
     "pages.home-channels#switcher-filtered": [
-      "menu-fit:\"ConversationsRReviewer9:00 AM##design8:0\""
+      "menu-fit:\"Conversations##release9:21 AMRReviewer9:\""
     ],
     "pages.home-channels#teammates": [],
     "pages.home-channels#thread": [],
@@ -3966,17 +3966,7 @@
     "viewer-empty.path-picker#recent-file": [],
     "viewer-empty.path-picker#recent-folders": [],
     "viewer-empty.path-picker#rtl": [
-      "menu-fit:div[aria-label=\"/Users/demo/Projects/cmux\"]",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-001\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-010\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-011\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-012\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-013\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-014\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-015\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-016\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-017\"",
-      "menu-label:div[aria-label=\"/Users/demo/Projects/cmux\"] \"surface-018\""
+      "menu-fit:div[aria-label=\"/Users/demo/Projects/cmux\"]"
     ],
     "viewer-empty.path-picker#virtualized": [
       "menu-fit:div[aria-label=\"/Users/demo/Projects/cmux/surfac"

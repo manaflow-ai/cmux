@@ -148,15 +148,19 @@ final class DeclarativePopupHost {
         _ = show(next, screenAnchor: screenAnchor ?? (parent == nil ? nil : shownAnchor), in: shownParent,
                  sideBySide: sideBySide, preserveKey: preserveKey)
         guard let next = model else { return }
-        let enabled = Self.enabledRows((next.rail ?? []) + next.rows + (next.footer ?? []))
+        let enabled = Self.enabledRows(next.allRows)
         if let child, let childRowID,
-           let row = enabled.first(where: { $0.id == childRowID && $0.kind == .submenu }),
+           let row = enabled.first(where: { $0.id == childRowID && $0.opensChildren }),
            let rows = row.children, !rows.isEmpty,
            let view = content.rowView(id: childRowID) {
             var submenu = next
             submenu.rows = rows
             submenu.rail = nil
+            submenu.railPlacement = nil
             submenu.footer = nil
+            submenu.columns = nil
+            submenu.columnsHeight = nil
+            submenu.searchAccessory = nil
             submenu.search = nil
             submenu.title = row.label
             submenu.parentId = next.id
@@ -208,7 +212,7 @@ final class DeclarativePopupHost {
     private func event(_ type: NativePopupEventType, id: String?, value: String?, reason: String? = nil) {
         guard let model, popup.isShown,
               let current = root.model, current.id == model.id, current.revision == model.revision else { return }
-        let rows = Self.enabledRows((current.rail ?? []) + current.rows + (current.footer ?? []))
+        let rows = Self.enabledRows(current.allRows)
         let row = rows.first { $0.id == id }
         let actionParent = rows.first { $0.actions?.contains(where: { $0.id == id }) == true }
         let action = actionParent?.actions?.first { $0.id == id }
@@ -230,6 +234,8 @@ final class DeclarativePopupHost {
             if row.kind == .choice, row.options?.contains(where: { $0.id == value && $0.disabled != true }) != true { return }
         case .highlight:
             guard let row, row.disabled != true else { return }
+        case .navigate:
+            guard current.rail?.isEmpty == false, id == nil, value == "next" || value == "previous" else { return }
         case .dismiss: return
         }
         let opening = root.openingGeneration
@@ -255,8 +261,8 @@ final class DeclarativePopupHost {
 
     private func open(_ row: NativePopupRow, from view: NSView) {
         guard let model, let current = root.model, let webView,
-              let row = Self.enabledRows((current.rail ?? []) + current.rows + (current.footer ?? []))
-                .first(where: { $0.id == row.id && $0.kind == .submenu }),
+              let row = Self.enabledRows(current.allRows)
+                .first(where: { $0.id == row.id && $0.opensChildren }),
               let rows = row.children, !rows.isEmpty else { return }
         child?.hide()
         let submenu = DeclarativePopupHost(webView: webView, zoom: zoom, send: send, isAppActive: isAppActive)
@@ -267,7 +273,11 @@ final class DeclarativePopupHost {
         // Events retain the root popup identity/revision; consumers need no second listener.
         next.rows = rows
         next.rail = nil
+        next.railPlacement = nil
         next.footer = nil
+        next.columns = nil
+        next.columnsHeight = nil
+        next.searchAccessory = nil
         next.title = row.label
         next.search = nil
         next.highlighted = nil
@@ -286,7 +296,7 @@ final class DeclarativePopupHost {
 
     private static func enabledRows(_ rows: [NativePopupRow]) -> [NativePopupRow] {
         rows.filter { $0.disabled != true }.flatMap { row in
-            [row] + (row.kind == .submenu ? enabledRows(row.children ?? []) : [])
+            [row] + (row.opensChildren ? enabledRows(row.children ?? []) : [])
         }
     }
 }

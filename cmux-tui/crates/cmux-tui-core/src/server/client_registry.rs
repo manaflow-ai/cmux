@@ -3,9 +3,11 @@
 //! surfaces and view leases) and the daemon handoff reservation. Attach and
 //! view-lease methods are in `client_registry_views`.
 
+mod facts;
 #[cfg(unix)]
 pub(super) mod machine_catalog;
 mod record;
+pub(super) use facts::ClientFacts;
 pub(super) use record::ClientRecord;
 
 use super::CREATION_ATTEMPT_KEYS_CAPABILITY;
@@ -324,6 +326,10 @@ pub(super) struct ClientRegistryState {
     /// Shares the registry lock with registration so accepting a handoff and
     /// admitting a new owner cannot pass each other.
     pub(super) daemon_handoff: Option<DaemonHandoffReservation>,
+    /// The handoff requester's `restart` (a replacement follows, or the
+    /// session stops); `None` when it did not say. Cleared with the
+    /// reservation.
+    pub(super) daemon_handoff_restart: Option<bool>,
 }
 
 pub(crate) struct ClientRegistry {
@@ -331,8 +337,14 @@ pub(crate) struct ClientRegistry {
     /// reaper starts that terminal's unattached period).
     pub(super) detach_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     /// Called after any client connects or leaves (orphan_shutdown.rs): the
-    /// DEV orphan exit and the lost-paths exit each add one.
+    /// DEV orphan exit, the lost-paths exit and the keepers watch each add
+    /// one. Also called once a connection's role-main hello makes it the
+    /// app's frontend.
     pub(super) client_presence_observers: Mutex<Vec<Box<dyn Fn() + Send + Sync>>>,
+    /// A role-main `client-hello` (the app's frontend) came since this owner
+    /// started: from then on nothing but its keepers holds an app session's
+    /// owner (owner_keepers.rs).
+    pub(super) frontend_seen: AtomicBool,
     pub(super) url_opens: url_open::URLRequests,
     pub(crate) clipboard_reads: clipboard_read::ClipboardReads,
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
@@ -347,17 +359,25 @@ pub(crate) struct ClientRegistry {
     pub(super) agent_sessions: agent_session_attach::AgentSessions,
     pub(crate) snapshot_viewers: terminal_snapshot::SnapshotViewers,
     pub(super) apps: crate::apps::AppsSlot,
+    /// The local Tasks owner link of the routed `tasks` namespace (tasks_link.rs).
+    pub(crate) tasks: crate::tasks_link::TasksLink,
     /// Script sessions by connection (`script-*`, crate::scripts).
     pub(crate) scripts: crate::scripts::ScriptsSlot,
     pub(super) origin_clock: crate::request_origin::OriginClock,
     pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
+    pub(crate) remote_host: crate::remote_host::RemoteHostSupervisor,
     pub(super) app_trust: app_trust::AppTrust,
     /// The binary's page listener opener (`ws-listen-v1`).
     pub(super) page_listener: Mutex<Option<super::PageListenerOpener>>,
     pub(super) next_id: AtomicU64,
     pub(super) resource_stream_admission: Arc<ResourceWorkerAdmission>,
     pub(super) resource_wait_admission: Arc<ResourceWorkerAdmission>,
-    pub(super) state: Mutex<ClientRegistryState>,
+    /// Every connection's record. A change publishes the [`ClientFacts`] projection, which a connection's
+    /// own line and key paths read without this lock (R-DAEMON-STATE stage S1).
+    pub(super) state: crate::published::Published<ClientRegistryState, ClientFacts>,
+    /// R-DAEMON-STATE stage S1 (`CMUX_TUI_RDS_INPUT`): the line and key paths read [`ClientFacts`] and the
+    /// session's published routes instead of taking the registry and session locks.
+    pub(crate) input_lane: crate::rds_switch::InputLaneSwitch,
     /// Who created each live incognito workspace (incognito_orphans.rs).
     pub(super) incognito_creators: super::incognito_orphans::IncognitoCreators,
 }
@@ -398,10 +418,13 @@ fn validate_resource_client_label(
 }
 
 impl ClientRegistry {
-    pub(crate) fn new() -> Self {
+    /// `input_lane` is the mux's stage S1 switch (R-DAEMON-STATE): on, the registry publishes [`ClientFacts`].
+    pub(crate) fn new(input_lane: crate::rds_switch::InputLaneSwitch) -> Self {
+        let publishing = input_lane.on();
         Self {
             detach_waker: Mutex::new(None),
             client_presence_observers: Mutex::new(Vec::new()),
+            frontend_seen: AtomicBool::new(false),
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
             clipboard_reads: Default::default(),
@@ -410,12 +433,14 @@ impl ClientRegistry {
             browser_runtimes: Default::default(),
             size_leases: Default::default(),
             #[cfg(unix)]
-            agent_sessions: Default::default(),
+            agent_sessions: agent_session_attach::AgentSessions::new(publishing),
             snapshot_viewers: Default::default(),
             apps: crate::apps::AppsSlot::default(),
+            tasks: crate::tasks_link::TasksLink::default(),
             scripts: crate::scripts::ScriptsSlot::default(),
             origin_clock: Default::default(),
             browser_host: Default::default(),
+            remote_host: Default::default(),
             app_trust: app_trust::AppTrust::default(),
             page_listener: Mutex::new(None),
             resource_stream_admission: ResourceWorkerAdmission::new(
@@ -426,7 +451,12 @@ impl ClientRegistry {
                 RESOURCE_WAITS_PER_CLIENT_CAPACITY,
                 RESOURCE_WAITS_SERVER_CAPACITY,
             ),
-            state: Mutex::new(ClientRegistryState::default()),
+            state: crate::published::Published::new(
+                ClientRegistryState::default(),
+                ClientFacts::of,
+                publishing,
+            ),
+            input_lane,
             incognito_creators: Default::default(),
         }
     }
@@ -483,6 +513,8 @@ impl ClientRegistry {
                 owner_plugin,
                 #[cfg(unix)]
                 machine_catalog: None,
+                #[cfg(unix)]
+                started_tabs: HashSet::new(),
             },
         );
         drop(state);
@@ -499,11 +531,28 @@ impl ClientRegistry {
         self.state.lock().recover_poison().daemon_handoff.is_some()
     }
 
+    /// Turns stage S1 on or off for this registry (tests): the switch, and the publications it reads (the facts, the
+    /// proxy authors). Only part of the stage: tests call `Mux::set_input_lane_for_test`, which also publishes the
+    /// session's routes and the link peers and switches the admission budget.
+    #[cfg(test)]
+    pub(crate) fn set_input_lane_for_test(&self, on: bool) {
+        self.state.set_publishing_for_test(on);
+        #[cfg(unix)]
+        self.agent_sessions.set_publishing_for_test(on);
+        self.input_lane.set_for_test(on);
+    }
+
     pub(crate) fn daemon_handoff_in_progress(&self) -> bool {
+        if self.input_lane.on() {
+            return self.state.load().recover_poison().handoff.is_some();
+        }
         self.state.lock().recover_poison().daemon_handoff.is_some()
     }
 
     pub(crate) fn daemon_handoff_committed(&self) -> bool {
+        if self.input_lane.on() {
+            return self.state.load().recover_poison().handoff == Some(true);
+        }
         matches!(
             self.state.lock().recover_poison().daemon_handoff,
             Some(DaemonHandoffReservation::Committed(_))
@@ -712,6 +761,8 @@ impl ClientRegistry {
                     || capability == crate::state::sidebar_doc_store::CAPABILITY
                     || capability == super::participant_avatars::PARTICIPANT_AVATARS_CAPABILITY
                     || capability == super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY
+                    // `restart` on the daemon-shutdown notice (disconnect.rs).
+                    || capability == super::DAEMON_SHUTDOWN_RESTART_CAPABILITY
                     || capability == "cloud-mobile-chat-v1"
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
@@ -935,6 +986,25 @@ impl ClientRegistry {
         })
     }
 
+    /// Records that `client`'s own `agent-session-start` bound a chat to `surface`.
+    #[cfg(unix)]
+    pub(super) fn remember_started_tab(&self, client: u64, surface: SurfaceId) {
+        if let Some(record) = self.state.lock().recover_poison().clients.get_mut(&client) {
+            record.started_tabs.insert(surface);
+        }
+    }
+
+    /// Whether `client`'s own `agent-session-start` bound a chat to `surface`.
+    #[cfg(unix)]
+    pub(super) fn started_tab(&self, client: u64, surface: SurfaceId) -> bool {
+        self.state
+            .lock()
+            .recover_poison()
+            .clients
+            .get(&client)
+            .is_some_and(|record| record.started_tabs.contains(&surface))
+    }
+
     pub(crate) fn supports_capability(&self, client: u64, capability: &str) -> bool {
         self.state
             .lock()
@@ -1006,6 +1076,8 @@ impl ClientRegistry {
             anyhow::bail!("daemon handoff is already in progress");
         }
         state.daemon_handoff = Some(DaemonHandoffReservation::Pending(requesting_client));
+        // A new reservation starts with no `restart`; only its own request sets one.
+        state.daemon_handoff_restart = None;
         Ok(())
     }
 
@@ -1031,7 +1103,23 @@ impl ClientRegistry {
         let mut state = self.state.lock().recover_poison();
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(requesting_client)) {
             state.daemon_handoff = None;
+            state.daemon_handoff_restart = None;
         }
+    }
+
+    /// Records whether a replacement follows the handoff `requesting_client`
+    /// reserved. Ignored when that client holds no reservation.
+    pub(crate) fn set_daemon_handoff_restart(&self, requesting_client: u64, restart: Option<bool>) {
+        let mut state = self.state.lock().recover_poison();
+        if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(requesting_client)) {
+            state.daemon_handoff_restart = restart;
+        }
+    }
+
+    /// The `restart` of the reserved handoff, for the shutdown notice.
+    pub(crate) fn daemon_handoff_restart(&self) -> Option<bool> {
+        let state = self.state.lock().recover_poison();
+        state.daemon_handoff.and(state.daemon_handoff_restart)
     }
 
     pub(crate) fn list_json(&self, requesting_client: u64) -> Value {

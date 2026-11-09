@@ -4,7 +4,7 @@
 // color that stays the same for its name. Every layout shows them when they are on.
 import { expect, test } from "bun:test";
 import { machineColor } from "../src/agent-session/acpmux/machineColor";
-import { newTabHost } from "../src/agent-session/acpmux/NewTabPage";
+import { newTabHost } from "../src/agent-session/acpmux/newTabModel";
 import {
   WEATHER_MAX_AGE_MS,
   degrees,
@@ -78,4 +78,23 @@ test("weather and machines are widgets on every layout, the old layouts keep wha
   expect(cards.has("greeting")).toBe(false);
   expect(shownPageWidgets("cards").has("weather")).toBe(false);
   expect(shownPageWidgets("cards").has("chats")).toBe(true);
+});
+
+test("a listed peer whose link acpmux says is down is not online (a Cloud machine that paused keeps its entry)", () => {
+  const machines = newTabMachines(
+    {
+      sessions: [],
+      peers: ["box", "cloud-dev", "old"],
+      peerStates: { box: "connected", "cloud-dev": "reconnecting" },
+      peerConnected: { old: false },
+    },
+    { box: "ssh", "cloud-dev": "cloud", old: "ssh" },
+    "air-blue",
+  );
+  expect(machines.map((machine) => [machine.id, machine.online])).toEqual([
+    ["local", true],
+    ["box", true],
+    ["cloud-dev", false],
+    ["old", false],
+  ]);
 });

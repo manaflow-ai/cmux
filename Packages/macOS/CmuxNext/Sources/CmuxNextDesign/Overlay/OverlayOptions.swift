@@ -50,8 +50,15 @@ public struct OverlayOptions: Equatable, Sendable {
     /// Window coordinates: mouse input inside this rect is blocked (a
     /// tab-region modal), the rest of the window stays usable.
     public var modalRegion: NSRect?
+    /// The overlay content's own coordinates: an overlay that takes clicks takes them only here, not across
+    /// its whole frame (a tab dialog's card, in a region grown past a narrow tab); empty takes none.
+    /// ``modalRegion`` still blocks. Placed where the host put the content, which it may clamp inside the window.
+    public var mouseRect: NSRect?
     /// Nil: `.modal` for dialogs, `.window` otherwise (`effectiveLayer`).
     public var layer: OverlayLayer?
+    /// A dialog that stays at its transparent first frame until ``OverlayHandle/beginEntrance()``: its
+    /// content draws in the panel first (a web page paints its card), then fades in drawn.
+    public var holdsEntrance = false
 
     public var effectiveLayer: OverlayLayer { layer ?? (kind == .dialog ? .modal : .window) }
 
@@ -87,6 +94,8 @@ public final class OverlayHandle {
     public var onWindowGeometryChange: (() -> Void)?
     public private(set) var isDismissed = false
     weak var host: WindowOverlayHost?
+    /// The scrim of a dialog whose entrance waits (``OverlayOptions/holdsEntrance``); nil once it began.
+    var heldEntrance: (scrim: NSView?, waiting: Bool) = (nil, false)
     let id: Int
     /// The clip of a `.pane` overlay (its pane minus the occluders).
     var clipView: OverlayClipView?
@@ -105,15 +114,37 @@ public final class OverlayHandle {
     }
 
     /// Moves the overlay to a new anchor (window coordinates).
+    /// A held dialog's content has drawn: it fades in now. Nothing for one that did not hold or ended.
+    public func beginEntrance() {
+        guard heldEntrance.waiting, !isDismissed else { return }
+        let scrim = heldEntrance.scrim
+        heldEntrance = (nil, false)
+        host?.animateIn(content, scrim: scrim)
+    }
+
     public func update(anchor: NSRect) {
         options.anchor = anchor
         host?.layout(self)
     }
 
-    /// Moves the overlay and its blocked region (a tab dialog after a tab resize).
-    public func update(anchor: NSRect, modalRegion: NSRect?) {
+    /// Where the overlay takes clicks (window coordinates), when that is less than its frame: a
+    /// transparent page that draws small things over the window (the toast stack) takes clicks only
+    /// on them, and the window under the rest stays usable. Nil: its whole visible frame.
+    public private(set) var hitRegions: [NSRect]?
+
+    /// Sets ``hitRegions`` (nil: the whole frame again).
+    public func update(hitRegions regions: [NSRect]?) {
+        guard regions != hitRegions else { return }
+        hitRegions = regions
+        host?.cachedRegions = nil
+        host?.updateMouseRouting()
+    }
+
+    /// Moves the overlay and its blocked region (a tab dialog after a tab resize), and where it takes clicks.
+    public func update(anchor: NSRect, modalRegion: NSRect?, mouseRect: NSRect?) {
         options.anchor = anchor
         options.modalRegion = modalRegion
+        options.mouseRect = mouseRect
         host?.layout(self)
         host?.onBlockingChange?()
     }
@@ -130,6 +161,26 @@ public final class OverlayHandle {
     public func stopTakingMouse() {
         guard !options.passesThroughClicks else { return }
         options.passesThroughClicks = true
+        host?.cachedRegions = nil
+        host?.updateMouseRouting()
+    }
+
+    /// From now on the overlay takes clicks again, in place: no dismiss and present, which moves
+    /// its content to another view and makes a web page draw a blank frame (the cookie import
+    /// card's first click, and its tab getting the keyboard back).
+    public func startTakingMouse() {
+        guard options.passesThroughClicks else { return }
+        options.passesThroughClicks = false
+        host?.cachedRegions = nil
+        host?.updateMouseRouting()
+    }
+
+    /// Hides the overlay where it is, or shows it again, and takes no clicks while hidden: a card
+    /// that waits off screen keeps its place and its drawn content for when it shows again.
+    public func setHiddenInPlace(_ hidden: Bool) {
+        let view = clipView ?? content
+        guard view.isHidden != hidden else { return }
+        view.isHidden = hidden
         host?.cachedRegions = nil
         host?.updateMouseRouting()
     }

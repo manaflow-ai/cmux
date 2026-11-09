@@ -4,6 +4,7 @@ import { type Artifact } from "./artifactPreview";
 import { rowUpdates, type RowUpdates } from "../rowUpdates";
 import type { AcpmuxRow } from "../model";
 import { artifactForIdentity, artifactVersions, type ArtifactSourceRow } from "./artifactVersions";
+import { latestWrittenArtifacts, type LatestWrite } from "./writtenArtifactsModel";
 
 const VERSION_LIMIT = 64;
 
@@ -74,6 +75,56 @@ export class ArtifactLiveSource {
   dispose() {
     this.disposed = true;
   }
+}
+
+/// An opened written file follows the file's later completed writes: the panel's live choice moves
+/// to each rewrite that ends after the one it shows, and a chosen older version stays put
+/// (ArtifactPanel). Failed or partial writes never replace it (toolArtifacts reads completed ones).
+/// Its versions are the transcript scan's (App.tsx), so it lists none of its own.
+export class WrittenArtifactLive {
+  private accepted: Artifact;
+  private seen?: LatestWrite;
+  private disposed = false;
+
+  constructor(opened: Artifact, rows: readonly AcpmuxRow[]) {
+    this.accepted = { ...opened, identity: `file:${opened.path}`, revision: 0 };
+    // Opening an earlier write shows it; only writes that end after opening move the panel on.
+    this.seen = latestWrittenArtifacts(rows).get(opened.path!);
+  }
+
+  read(rows: readonly AcpmuxRow[]): { artifact: Artifact; versions: readonly Artifact[] } {
+    if (this.disposed) return { artifact: this.accepted, versions: [] };
+    const latest = latestWrittenArtifacts(rows).get(this.accepted.path!);
+    const seen = this.seen;
+    if (latest && latest.artifact.code !== seen?.artifact.code) {
+      // Never move back: a replayed tail after a reconnect can end before the write already shown,
+      // and an older end time never replaces a newer one, whatever produced the rows.
+      const older = seen?.endedAt !== undefined && (latest.endedAt === undefined || latest.endedAt < seen.endedAt);
+      if (!older) {
+        this.seen = latest;
+        if (latest.artifact.code !== this.accepted.code)
+          this.accepted = {
+            ...latest.artifact,
+            identity: this.accepted.identity,
+            revision: (this.accepted.revision ?? 0) + 1,
+          };
+      }
+    }
+    return { artifact: this.accepted, versions: [] };
+  }
+  dispose() {
+    this.disposed = true;
+  }
+}
+
+/// The live source for an opened document: a streamed fence follows its row, a written file its
+/// later completed writes. Others (a render card, a pasted document) have none.
+export function artifactLiveSource(
+  opened: Artifact,
+  rows: readonly AcpmuxRow[],
+): ArtifactLiveSource | WrittenArtifactLive | undefined {
+  if (opened.path) return new WrittenArtifactLive(opened, rows);
+  return opened.identity ? new ArtifactLiveSource(opened, rows) : undefined;
 }
 
 /// The live source's versions plus any finished versions a transcript scan found that it lacks: a

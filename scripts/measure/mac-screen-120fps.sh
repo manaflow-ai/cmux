@@ -42,7 +42,7 @@ run_at() {
 if [[ -n "$before" ]]; then
   work="$root/.build/mac-screen-120fps-before"
   git worktree remove --force "$work" 2>/dev/null || true
-  git fetch --quiet origin "$before" 2>/dev/null || true
+  git fetch --quiet origin "$before" 2>/dev/null || git fetch --quiet https://github.com/manaflow-ai/cmux.git "$before" || true
   set +e
   if git worktree add --detach "$work" "$before" >/dev/null; then
     run_at before "$work"

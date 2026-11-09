@@ -1,3 +1,4 @@
+import CmuxNextDesignTokens
 import CmuxNextWakeups
 public import Foundation
 
@@ -44,11 +45,6 @@ public nonisolated struct AgentPaneSpareReadiness: Sendable, Equatable {
         (self.handshake, self.painted, self.clientReady, self.lowPower, self.thermal) = (handshake, painted, clientReady, lowPower, thermal)
     }
 
-    /// Whether a tab opening an existing chat may take the spare at all. Off until the adopted page
-    /// draws its chat (HQ#5914): with #31033 it showed an empty transcript on a sidebar open and never
-    /// painted on a reopen, so every such tab opens cold, as before #31033.
-    public static let adoptsExistingChats = false
-
     public var servesChat: Bool {
         handshake && painted && clientReady && !lowPower && thermal.rawValue < ProcessInfo.ThermalState.serious.rawValue
     }
@@ -58,8 +54,8 @@ extension AgentPaneModel {
     /// Whether this page, parked as the spare, may serve a tab opening an existing chat now
     /// (``AgentPaneSpareReadiness``, with this Mac's power and thermal state read now).
     public var servesExistingChat: Bool {
-        AgentPaneSpareReadiness.adoptsExistingChats && AgentPaneSpareReadiness(handshake: hasHandshake, painted: hasPainted, clientReady: clientReady,
-                                lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled,
+        AgentPaneSpareReadiness(handshake: hasHandshake, painted: hasPainted, clientReady: clientReady,
+                                lowPower: LowPowerMode.system.isEnabled,
                                 thermal: ProcessInfo.processInfo.thermalState).servesChat
     }
 
@@ -90,31 +86,42 @@ public enum AgentPaneSpareOutcome: Sendable {
     }
 }
 
-/// One window's spare page (CmuxNextApp's `NewTabSparePool`), as a pure slot: at most one spare,
-/// handed out once; only an empty slot asks for a new one.
+/// The spare pool's pages (CmuxNextApp's `NewTabSparePool`), as a pure queue of at most ``capacity``: the oldest is
+/// handed out first (``peek``, ``take()``); only a queue with room asks for a new one. Two, so a second Cmd-T right
+/// after the first also adopts a page that is loaded, as Chrome keeps a spare renderer ready for the next navigation.
 public nonisolated struct AgentPaneSpareSlot<Spare> {
-    private var spare: Spare?
+    private var spares: [Spare] = []
+    /// At least 1. Lowering it keeps the spares already parked until they are handed out.
+    public var capacity: Int { didSet { capacity = max(1, capacity) } }
 
-    public init() {}
+    public init(capacity: Int = 1) {
+        self.capacity = max(1, capacity)
+    }
 
-    public var shouldWarm: Bool { spare == nil }
-    public var count: Int { spare == nil ? 0 : 1 }
+    public var shouldWarm: Bool { spares.count < capacity }
+    public var count: Int { spares.count }
 
-    /// Callers park only when ``shouldWarm``; a second spare is refused.
+    /// Callers park only when ``shouldWarm``; a spare past ``capacity`` is refused.
     public mutating func parked(_ value: Spare) {
-        guard spare == nil else { return }
-        spare = value
+        guard shouldWarm else { return }
+        spares.append(value)
     }
 
+    /// The next spare to hand out, out of the queue.
     public mutating func take() -> Spare? {
-        defer { spare = nil }
-        return spare
+        spares.isEmpty ? nil : spares.removeFirst()
     }
 
-    public mutating func drop() -> Spare? { take() }
+    /// Every spare, out of the queue (memory pressure, the last window closing).
+    public mutating func dropAll() -> [Spare] {
+        defer { spares.removeAll() }
+        return spares
+    }
 
-    /// The spare, left in the slot.
-    public var peek: Spare? { spare }
+    /// The next spare to hand out, left in the queue.
+    public var peek: Spare? { spares.first }
+    /// Every spare, the next to hand out first.
+    public var all: [Spare] { spares }
 }
 
 /// When the spare pool makes the next spare after it handed one out.
@@ -125,4 +132,8 @@ public nonisolated enum AgentPaneSpareRefill: Sendable {
     /// still attaching that chat. A new page's load on the main thread would land in that open,
     /// and in the next clicks of someone going down the sidebar.
     case whenQuiet
+    /// After the frame commit and the settle, with no open to wait for: idle work took it (the next Cmd-N's
+    /// reserved workspace), and its page shows nowhere until that key. Mounted hidden, it draws no frame, so a
+    /// wait for its next frame would hold the refill until the idle-input backstop, which typing pushes back.
+    case idle
 }

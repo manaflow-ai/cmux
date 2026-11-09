@@ -61,6 +61,8 @@
 //!   ([`retry_turn`]).
 //! - A chat's first send that a revoked OAuth token failed is sent again once, 2 s later, through
 //!   the same mark ([`first_send`]).
+//! - A turn that failed because the chat outgrew its model's context window (`context`) is
+//!   compacted first, at once and once, where its harness can compact ([`compact_first`]).
 
 use cmux_json::JsonSet as _;
 
@@ -108,6 +110,9 @@ pub(crate) mod retry_turn;
 /// A first send a revoked OAuth token failed goes again once, 2 s later.
 mod first_send;
 
+/// A chat past its context window: `/compact`, then the continuation.
+mod compact_first;
+
 /// The loop as Settings > Agents > Retry After Errors sets it (`agents.autoRetry.*`).
 mod settings;
 pub(in crate::hub) use settings::effective_delays;
@@ -145,13 +150,16 @@ const SUFFIX: &str = "~resume-";
 /// Longest error text quoted to the agent, in characters.
 const MAX_ERROR_CHARS: usize = 300;
 
-/// The prompt a continuation answers for, and the attempt it is (0 for a prompt of its own).
+/// The prompt a continuation (or an attempt's compaction, `compact_first::SUFFIX`) answers
+/// for, and the attempt it is (0 for a prompt of its own).
 fn split_attempt(prompt_id: &str) -> (&str, usize) {
-    if let Some((root, n)) = prompt_id.rsplit_once(SUFFIX)
-        && let Ok(n) = n.parse::<usize>()
-        && !root.is_empty()
-    {
-        return (root, n);
+    for suffix in [SUFFIX, compact_first::SUFFIX] {
+        if let Some((root, n)) = prompt_id.rsplit_once(suffix)
+            && let Ok(n) = n.parse::<usize>()
+            && !root.is_empty()
+        {
+            return (root, n);
+        }
     }
     (prompt_id, 0)
 }
@@ -163,6 +171,7 @@ fn continue_text(error: &str, reason: &str) -> String {
         "agent_exited" => "an agent process exit",
         "capacity" => "a capacity error upstream (the provider or the gateway was full)",
         "transport" => "a connection error",
+        "context" => "the chat's context filling up; it was compacted",
         _ => "an error",
     };
     format!(
@@ -252,6 +261,11 @@ enum Mark {
 /// The retry state of one session instance; returning imports have their own mark.
 pub(crate) struct Pending {
     mark: Mutex<Option<Mark>>,
+    /// Loaded once from the journal; checked under `mark` before a prompt gets a turn.
+    stopped_prompts: Mutex<Option<HashSet<String>>>,
+    /// The compaction an attempt runs before its continuation ([`compact_first`]). Taken
+    /// after `mark` when both are, never before it.
+    compacting: Mutex<Option<compact_first::Compaction>>,
     #[cfg(test)]
     stop_locked: Mutex<Option<std::sync::mpsc::Sender<()>>>,
     #[cfg(test)]
@@ -265,6 +279,8 @@ impl Default for Pending {
     fn default() -> Self {
         Self {
             mark: Mutex::default(),
+            stopped_prompts: Mutex::default(),
+            compacting: Mutex::default(),
             released: tokio::sync::watch::channel(0).0,
             #[cfg(test)]
             stop_locked: Mutex::default(),
@@ -529,12 +545,18 @@ impl Hub {
         // Once a shutdown began none waits here to fire: a cut it hands on is the next daemon's
         // to continue (`restart_resume.rs`), and Quit Everything continues nothing.
         let cut = cut.filter(|_| !self.shutting_down());
+        let compaction = Self::take_compaction(session, turn_id);
         let mut pending = session.auto_resume.lock();
         let ending = match pending.as_ref() {
             Some(Mark::Ending(t)) if t == turn_id => Some(true),
             Some(Mark::Stopped(t)) if t == turn_id => Some(false),
             _ => None,
         };
+        // An attempt's compaction ended: its continuation follows, or the attempt settles.
+        if let Some(step) = compaction {
+            self.compaction_ended(session, pending, turn_id, ending, cut.is_some(), step);
+            return;
+        }
         let reason = cut.as_ref().and_then(|c| super::turn_errors::resume_cause(c.error, c.error));
         let reason = reason.and_then(RetryReason::from_cause);
         // A first send a revoked token failed: sent again once, its wait this mark's.
@@ -575,6 +597,15 @@ impl Hub {
         tokio::spawn(async move {
             let configured = hub.config.read().await.auto_resume_delays_ms.clone();
             let delays = effective_delays(configured);
+            // A chat past its context window goes on only once compacted, and at once.
+            let context = reason == RetryReason::Context;
+            if context && !hub.can_compact(&session).await {
+                if hub.take_pending(&session, &turn_id) {
+                    hub.settled_unretried(&session, &turn_id, "not_retried");
+                }
+                return;
+            }
+            let delays = if context { compact_first::waits(&delays) } else { delays };
             let Some(&delay) = delays.get(done) else {
                 let ours = hub.take_pending(&session, &turn_id);
                 if done > 0 {
@@ -642,7 +673,7 @@ impl Hub {
                 error: &error,
                 not_before: None,
             };
-            hub.auto_resume(&session, cut, attempt).await;
+            hub.resume_or_compact(&session, cut, attempt).await;
         });
     }
 
@@ -710,6 +741,174 @@ impl Hub {
     /// ending now gets none, however it ends.
     pub(super) fn stop_auto_resume(&self, session: &Session) {
         self.stop_auto_resume_by(session, None);
+    }
+
+    /// Read durable exact-prompt tombstones once per restored session. Callers hold
+    /// the retry mark lock, serializing cancellation with turn admission.
+    fn prompt_stop_set<'a>(
+        &self,
+        session: &'a Session,
+    ) -> Result<std::sync::MutexGuard<'a, Option<HashSet<String>>>, RpcError> {
+        let mut stopped = session
+            .auto_resume
+            .stopped_prompts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if stopped.is_none() {
+            let mut roots = HashSet::new();
+            self.store
+                .scan_kinds(&session.id, &["prompt_stop_requested"], &mut |event| {
+                    if event.dir == "mux"
+                        && event.kind == "prompt_stop_requested"
+                        && let Some(prompt) = event.msg.get("promptId").and_then(Value::as_str)
+                    {
+                        roots.insert(prompt.to_owned());
+                    }
+                    true
+                })
+                .map_err(|error| {
+                    RpcError::internal(format!("cannot read prompt stop boundaries: {error}"))
+                })?;
+            *stopped = Some(roots);
+        }
+        Ok(stopped)
+    }
+
+    fn prompt_stop_recorded(&self, session: &Session, root: &str) -> Result<bool, RpcError> {
+        let mut found = false;
+        self.store
+            .scan_kinds(&session.id, &["prompt_stop_requested"], &mut |event| {
+                found = event.dir == "mux"
+                    && event.msg.get("promptId").and_then(Value::as_str) == Some(root);
+                !found
+            })
+            .map_err(|error| {
+                RpcError::internal(format!("cannot read back prompt stop boundary: {error}"))
+            })?;
+        Ok(found)
+    }
+
+    /// Fence only the automatic continuation chain belonging to this accepted prompt.
+    /// Lock order matches retry admission: retry state, append, then turn identity. An
+    /// unrelated person's next turn and its retry mark are never replaced or stopped.
+    /// Returns the exact running descendant, when the original already auto-resumed.
+    pub(super) fn stop_prompt_retry(
+        &self,
+        session: &Session,
+        prompt_id: &str,
+    ) -> Result<Option<String>, RpcError> {
+        let root = split_attempt(prompt_id).0;
+        let mut pending = session.auto_resume.lock();
+        {
+            let mut stopped = self.prompt_stop_set(session)?;
+            if !stopped.as_ref().is_some_and(|roots| roots.contains(root)) {
+                let mut recorded = false;
+                for _ in 0..2 {
+                    if !self.append_stored(
+                        session,
+                        "mux",
+                        "prompt_stop_requested",
+                        json!({"promptId":root}),
+                    ) {
+                        return Err(RpcError::internal("cannot persist prompt stop boundary"));
+                    }
+                    self.store.flush_session(&session.id).map_err(|error| {
+                        RpcError::internal(format!("cannot flush prompt stop boundary: {error}"))
+                    })?;
+                    if self.prompt_stop_recorded(session, root)? {
+                        recorded = true;
+                        break;
+                    }
+                    // A pre-existing unterminated line can swallow the first record.
+                    // That append ends the line; one more marker is independently readable.
+                    // Never alter history or acknowledge an unverified cancellation.
+                }
+                if !recorded {
+                    return Err(RpcError::internal("prompt stop boundary is not readable"));
+                }
+                // Never cache or acknowledge a boundary until it is on stable storage:
+                // a failed write must be retried, including by this same daemon.
+                stopped.get_or_insert_with(HashSet::new).insert(root.to_owned());
+            }
+        }
+        let mut turns = std::collections::BTreeSet::new();
+        let mut latest = None;
+        let scanned = self.store.scan_kinds(
+            &session.id,
+            &["queued", "user_message", "turn_started", "turn_result", "auto_resume_scheduled"],
+            &mut |event| {
+                if event.dir == "mux"
+                    && matches!(
+                        event.kind.as_str(),
+                        "queued"
+                            | "user_message"
+                            | "turn_started"
+                            | "turn_result"
+                            | "auto_resume_scheduled"
+                    )
+                    && event
+                        .msg
+                        .get("promptId")
+                        .and_then(Value::as_str)
+                        .is_some_and(|id| split_attempt(id).0 == root)
+                    && let Some(turn) = event.msg.get("turnId").and_then(Value::as_str)
+                {
+                    turns.insert(turn.to_owned());
+                    latest = Some(turn.to_owned());
+                }
+                true
+            },
+        );
+        scanned
+            .map_err(|error| RpcError::internal(format!("cannot fence prompt retry: {error}")))?;
+        let active = session.turn().filter(|turn| split_attempt(&turn.prompt_id).0 == root);
+        if let Some(active) = &active {
+            turns.insert(active.turn_id.clone());
+            latest = Some(active.turn_id.clone());
+        }
+        let marked = match pending.as_ref() {
+            Some(
+                Mark::Waiting { turn, .. }
+                | Mark::Firing(turn)
+                | Mark::Ending(turn)
+                | Mark::Stopped(turn)
+                | Mark::Stopping(turn),
+            ) => Some(turn.clone()),
+            None => None,
+        };
+        if let Some(turn) = marked.filter(|turn| turns.contains(turn)) {
+            let fired = matches!(pending.as_ref(), Some(Mark::Firing(_) | Mark::Stopping(_)));
+            pending.replace(if fired {
+                Mark::Stopping(turn.clone())
+            } else {
+                Mark::Stopped(turn.clone())
+            });
+            self.append(
+                session,
+                "mux",
+                "auto_resume_stopped",
+                json!({"turnId":turn,"promptId":root}),
+            );
+            self.append(
+                session,
+                "mux",
+                "auto_resume_settled",
+                json!({"turnId":turn,"promptId":root,"why":"stopped"}),
+            );
+        } else if let Some(turn) = latest {
+            // Persist a boundary even in the crash window between terminal result and
+            // schedule. Restore and a late schedule both consult this exact turn.
+            self.append(
+                session,
+                "mux",
+                "turn_stop_requested",
+                json!({"turnId":turn,"promptId":root}),
+            );
+            if pending.is_none() {
+                pending.replace(Mark::Stopped(turn));
+            }
+        }
+        Ok(active.map(|turn| turn.prompt_id))
     }
 
     /// [`Hub::stop_auto_resume`], reading the journal only until `by`: the scan checks it on
@@ -830,6 +1029,16 @@ impl Hub {
     /// or with `None` nothing pending.
     /// Tests: whether a Stop holds for the chat's turn `turn` (`Mark::Stopped`).
     #[cfg(test)]
+    pub(super) fn clear_prompt_stop_cache_for_test(&self, session: &Session) {
+        session
+            .auto_resume
+            .stopped_prompts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+    }
+
+    #[cfg(test)]
     pub(super) fn stopped_for_test(&self, session: &Session, turn: &str) -> bool {
         matches!(session.auto_resume.lock().as_ref(), Some(Mark::Stopped(t)) if t == turn)
     }
@@ -856,12 +1065,21 @@ impl Hub {
         subagent_retry: bool,
         turn: super::TurnInfo,
     ) -> Result<(), RpcError> {
+        self.resume_before_turn();
         let mut pending = session.auto_resume.lock();
         // Transfer replacement seals the old instance before staging its store. Reject before
         // installing a TurnInfo so a fired retry cannot start against the incoming journal.
         if session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(superseded());
         }
+        if self
+            .prompt_stop_set(session)?
+            .as_ref()
+            .is_some_and(|roots| roots.contains(split_attempt(&turn.prompt_id).0))
+        {
+            return Err(super::turns::stopped_before_prompt());
+        }
+        Self::compaction_started(session, &turn);
         let continuation = is_pending(pending.as_ref());
         if exclusive
             && (continuation || session.harness_turn.load(std::sync::atomic::Ordering::SeqCst))
@@ -1149,99 +1367,8 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn retry(turn: &str) -> RetrySummary {
-        RetrySummary {
-            attempt: 1,
-            of: 4,
-            reason: RetryReason::Capacity,
-            next_at: 9,
-            prompt_id: "p".into(),
-            turn_id: turn.into(),
-        }
-    }
-
-    /// Stop settles a turn whose retry is being decided or waits, with or without its time:
-    /// with retries off, nothing else records that decision (Codex review, round 3).
-    #[test]
-    fn stop_settles_an_ending_or_waiting_turn() {
-        let wake = || Wake(Arc::new(Notify::new()));
-        let unset = Mark::Waiting { turn: "t1".into(), retry: None, _wake: wake() };
-        assert_eq!(settled_by_stop(Some(&unset)).as_deref(), Some("t1"));
-        let set = Mark::Waiting { turn: "t1".into(), retry: Some(retry("t1")), _wake: wake() };
-        assert_eq!(settled_by_stop(Some(&set)).as_deref(), Some("t1"));
-        assert_eq!(settled_by_stop(Some(&Mark::Ending("t1".into()))).as_deref(), Some("t1"));
-        for mark in
-            [Mark::Firing("t1".into()), Mark::Stopped("t1".into()), Mark::Stopping("t1".into())]
-        {
-            assert_eq!(settled_by_stop(Some(&mark)), None);
-        }
-        assert_eq!(settled_by_stop(None), None);
-    }
-
-    /// A row reads its chat's mark again when the retry it read is gone by the time it checks
-    /// it (the retry fired and its turn started meanwhile), so it shows that retry's decision,
-    /// never neither (Codex review, round 2).
-    #[test]
-    fn a_row_reads_the_mark_again_when_its_retry_moved_on() {
-        let mut reads = vec![(None, true), (Some(("t1".to_owned(), retry("t1"))), false)];
-        let row = settled_retry_row(|| reads.pop().unwrap(), |_| false);
-        assert_eq!(row, (None, true), "the retry started: it is being decided");
-        let row =
-            settled_retry_row(|| (Some(("t1".to_owned(), retry("t1"))), false), |t| t == "t1");
-        assert_eq!(row, (Some(retry("t1")), false));
-        // Superseded every time (a person's prompt took the chat): no retry, nothing deciding.
-        let mut count = 0;
-        let row = settled_retry_row(
-            || {
-                count += 1;
-                (Some(("t1".to_owned(), retry("t1"))), false)
-            },
-            |_| false,
-        );
-        assert_eq!((row, count), ((None, false), ROW_READS));
-        assert_eq!(settled_retry_row(|| (None, true), |_| unreachable!()), (None, true));
-    }
-
-    #[test]
-    fn the_configured_waits_say_how_many_attempts_run() {
-        assert_eq!(configured_attempts(None), DEFAULT_DELAYS_MS.len());
-        assert_eq!(configured_attempts(Some(&vec![])), 0);
-        assert_eq!(configured_attempts(Some(&vec![1_000])), 1);
-        assert_eq!(configured_attempts(Some(&vec![1_000; 9])), 9);
-        // The ceiling bounds what a configured loop may set, never the default.
-        assert!(DEFAULT_DELAYS_MS.len() <= MAX_CONFIGURED_ATTEMPTS);
-        assert_eq!(
-            checked_delays(&json!(vec![1000; MAX_CONFIGURED_ATTEMPTS + 1])).unwrap().len(),
-            MAX_CONFIGURED_ATTEMPTS
-        );
-    }
-
-    #[test]
-    fn attempts_are_counted_from_the_prompt_id() {
-        assert_eq!(split_attempt("p1"), ("p1", 0));
-        assert_eq!(split_attempt("p1~resume-1"), ("p1", 1));
-        assert_eq!(split_attempt("p1~resume-3"), ("p1", 3));
-        assert_eq!(split_attempt("~resume-2"), ("~resume-2", 0));
-        assert_eq!(split_attempt("p1~resume-x"), ("p1~resume-x", 0));
-    }
-
-    #[test]
-    fn configured_waits_are_checked() {
-        assert_eq!(checked_delays(&json!([])), Some(vec![]));
-        assert_eq!(checked_delays(&json!([5000, 60000])), Some(vec![5000, 60000]));
-        assert_eq!(checked_delays(&json!([0, 99_999_999])), Some(vec![1_000, 3_600_000]));
-        // A loop longer than the default's four is kept: the key configures the whole loop.
-        assert_eq!(checked_delays(&json!(vec![1000; 5])).unwrap().len(), 5);
-        assert_eq!(checked_delays(&json!(vec![1000; 12])).unwrap().len(), 12);
-        assert_eq!(checked_delays(&json!([1000, -5])), None);
-        assert_eq!(checked_delays(&json!([1.5])), None);
-        assert_eq!(checked_delays(&json!("10s")), None);
-        assert_eq!(staggered(u64::MAX, "s"), u64::MAX);
-    }
-}
+#[path = "auto_resume/tests.rs"]
+mod tests;
 
 #[cfg(test)]
 #[path = "auto_resume/turn_completion_tests.rs"]

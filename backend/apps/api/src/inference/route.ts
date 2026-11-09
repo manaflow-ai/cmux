@@ -103,7 +103,7 @@ export const resolveCaller = async (env: Env, request: Request): Promise<Caller 
   if (p.kind === "install" && !(p.grant_classes ?? []).some(spends)) return err(403, "auth.forbidden", "this install's grant cannot spend on AI models")
   // A machine install acts in its bound team without team selection's lookup: check the member's role there now (review P2).
   if (p.kind === "install" && isMachineInstallKind(p.install_kind) && p.team !== personalTeamIdFor(p.user)) {
-    const role = await (env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team)) as unknown as { memberRole(entity: string, user: string): Promise<string | null> }).memberRole(p.team, p.user).catch(() => undefined)
+    const role = await env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team)).memberRole(p.team, p.user).catch(() => undefined)
     if (role === undefined) return err(503, "owner.unreachable", "team membership could not be checked; retry", { retryable: true })
     if (!roleHas(role ?? undefined, "team.resources")) return err(403, "team.not_member", "not a member of this team")
   }

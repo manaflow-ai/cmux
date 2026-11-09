@@ -9,6 +9,7 @@ import { user as homeUser } from "@cmux/home-core"
 import { confirmEnv, PREVIOUS_EMAIL_WINDOW_MS, reduceConfirm, revokePresenceKey, USER_CONFIRM_OPS } from "./user-confirm.ts"
 import { chiefActive, CHIEF_OPS, reduceChief, type ChiefsState } from "./user-chief.ts"
 import { withInstallAuthority, type InstallAuthorityState } from "./user-authority.ts"
+import { DEFAULT_CHIEF_OPS, defaultChiefAllowed, reduceDefaultChief, signupChiefOutbox } from "./user-chief-default.ts"
 
 type UserProfile = typeof UserProfileSchema.Type
 type Mutable<T> = { -readonly [K in keyof T]: T[K] }
@@ -235,6 +236,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => withInst
   initial: () => ({ user: null, installs: {}, grants: {} }),
 
   authorize: (state, op, _params, principal) => {
+    if (DEFAULT_CHIEF_OPS.has(op)) return defaultChiefAllowed(state, principal) ? undefined : { code: "auth.forbidden", message: "only this user's signup outbox provisions its default Chief" }
     // A system principal is built only by server code (a DO, or the Worker for pairing's install.register_server, sent by DO RPC that only Worker code reaches); internal ops only. Also push.target.drop.
     const confirm = USER_CONFIRM_OPS.has(op)
     const confirmRefused = () =>
@@ -242,13 +244,14 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => withInst
     if (principal.kind === "system") return admit("cloud:UserDO", op, principal, () => undefined, Date.now()) ?? confirmRefused()
     if (state.user && principal.user !== state.user.id) return { code: "auth.forbidden", message: "not this user" }
     // A Chief's create or rename from its Cloud brain (UserDO.chiefManage, server code only); user-chief.ts narrows the params.
-    if (principal.kind === "agent" && principal.identity === `agent:${principal.agent} via chief`) return (op === "chief.create" || op === "chief.update") && principal.agent !== undefined && chiefActive(state, principal.agent) ? undefined : { code: "auth.forbidden", message: "a Chief creates chiefs and renames other chiefs only" }
+    if (principal.kind === "agent" && principal.identity === `agent:${principal.agent} via chief`) return (op === "chief.create" || op === "chief.update" || op === "channel.create") && principal.agent !== undefined && chiefActive(state, principal.agent) ? undefined : { code: "auth.forbidden", message: "a Chief creates chiefs and renames other chiefs only" }
     if (!userPathAllowed(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
     return admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now()) ?? confirmRefused()
   },
 
   reduce: (state, op, params, ctx) => {
     const p = ctx.principal
+    if (DEFAULT_CHIEF_OPS.has(op)) return reduceDefaultChief(state, op, params, ctx)
     if (CHIEF_OPS.has(op)) return reduceChief(state, op, (params ?? {}) as Record<string, unknown>, ctx)
     if (USER_CONFIRM_OPS.has(op)) return reduceConfirm(state, op, params, { ...ctx, principal: withInstallKind(state, p) }, appIdHash)
     switch (op) {
@@ -297,7 +300,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => withInst
           state: next,
           value: profile,
           changed: !same,
-          outbox: same ? [] : [{ kind: "user.upsert", entity: profile.id, payload: profile }, ...notices]
+          outbox: same ? [] : [{ kind: "user.upsert", entity: profile.id, payload: profile }, ...notices, ...(state.user === null ? signupChiefOutbox(profile.id) : [])]
         }
       }
       case "install.register":

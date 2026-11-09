@@ -19,8 +19,10 @@ from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/defaults_guard.py"
+RISK_TIER = ROOT / "scripts/ci/risk_tier.py"
 AUTHOR = "teamleaderleo"
 OWNERS = {"cmux-next": ["lawrencecchen", "austinywang", "teamleaderleo"]}
+REVIEWER = "austinywang"  # a member account other than the author: a receipt from it keeps the rule from before Author-agent
 PRIVATE_MEMBER = "hq-reviewer"  # a private org member with write access who is no call owner
 
 
@@ -82,6 +84,7 @@ class DefaultsGuardTests(unittest.TestCase):
         self.repo = Repo(pathlib.Path(self.tmp.name))
         self.repo.git("init", "-q")
         self.repo.write("scripts/ci/defaults_guard.py", SCRIPT.read_text(encoding="utf-8"))
+        self.repo.write("scripts/ci/risk_tier.py", RISK_TIER.read_text(encoding="utf-8"))
         self.repo.write(".github/defaults-call-owners.json", json.dumps(OWNERS))
         self.repo.sources(BASE_ACTIONS, BASE_SETTINGS)
         self.base = self.repo.commit("base")
@@ -98,8 +101,8 @@ class DefaultsGuardTests(unittest.TestCase):
         self.repo.git("checkout", "-q", self.base)  # the workflow runs the base's guard and owners
         return head
 
-    def check(self, head, reviews=(), author=AUTHOR, comments=()):
-        pull = {"author": {"login": author}, "headRefOid": head, "merged": False,
+    def check(self, head, reviews=(), author=AUTHOR, comments=(), body=""):
+        pull = {"author": {"login": author}, "body": body, "headRefOid": head, "merged": False,
                 "reviews": {"nodes": [{"author": {"login": who}, "state": state, "commit": {"oid": oid}}
                                       for who, state, oid in reviews]},
                 "comments": {"nodes": [self.comment_node(n, item)
@@ -283,6 +286,123 @@ enum BrowserResize { static let `default` = true }
                 self.assertEqual(result.returncode, 1, result.stdout)
                 self.assertIn("DEFAULTS tunable-source.CmuxNextDesign/Surface.swift:" + expected, result.stdout)
 
+    def test_a_member_that_only_shares_a_helpers_name_is_not_a_tunable_source(self):
+        # #32983 and #32979: `toggle` and `make` are Tunable helpers, so every declaration with a token of that name
+        # (`model.toggle()`, a closure named `make`) was fingerprinted, and through them every `static func bind`:
+        # 6182 tunable-source entries, and almost every app pull request "changed a default".
+        tunables = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DropTunables.swift"
+        handlers = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers.swift"
+        tunables_source = """enum DropTunables {
+    private static func toggle(_ name: String, _ value: Bool) -> Tunable<Bool> { .toggle(name, .status, name, default: value) }
+    static let animated = toggle("animated", true)
+}
+enum MetricTunable {
+    static func make(_ name: String, _ value: Double) -> Tunable<Double> { .number(name, .status, name, default: value) }
+}
+"""
+        handlers_source = """enum AppActions {
+    static func bindApp(_ registry: Registry) {
+        registry.bind("toggleSidebar") { services.sidebar.model.toggle() }
+        OnboardingHandlers.bind(registry)
+    }
+}
+enum OnboardingHandlers {
+    static func bind(_ registry: Registry) {
+        for (id, make) in pages { registry.bind(id) { make(services) } }
+        print("before")
+    }
+}
+"""
+        self.repo.write(tunables, tunables_source)
+        self.repo.write(handlers, handlers_source)
+        self.base = self.repo.commit("name collisions")
+        head = self.head(extra={tunables: tunables_source, handlers: handlers_source.replace('"before"', '"after"')})
+        result = self.check(head)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("tunable-source.CmuxNextApp", result.stdout)
+        head = self.head(extra={tunables: tunables_source.replace('toggle("animated", true)', 'toggle("animated", false)'),
+                                handlers: handlers_source})
+        result = self.check(head)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("DEFAULTS tunable-source.CmuxNextDesign/DropTunables.swift:animated", result.stdout)
+
+    def test_a_helper_called_from_an_extension_or_by_its_type_is_still_a_tunable_source(self):
+        helper = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Chrome.swift"
+        extension = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Chrome+Tabs.swift"
+        caller = "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Sizes.swift"
+        helper_source = """enum Chrome {
+    static func points(_ name: String, _ value: Double) -> Tunable<Double> { .number(name, .status, name, default: value) }
+}
+"""
+        extension_source = "extension Chrome {\n    static let tabGap = points(\"tabGap\", 2)\n}\n"
+        caller_source = "enum Sizes {\n    static let rowGap = Chrome.points(\"rowGap\", 4)\n}\n"
+        self.repo.write(helper, helper_source)
+        self.repo.write(extension, extension_source)
+        self.repo.write(caller, caller_source)
+        self.base = self.repo.commit("helper callers")
+        for path, changed, expected in (
+            (extension, extension_source.replace("2)", "3)"), "CmuxNextDesign/Chrome+Tabs.swift:tabGap"),
+            (caller, caller_source.replace("4)", "5)"), "CmuxNextTabs/Sizes.swift:rowGap"),
+        ):
+            with self.subTest(expected=expected):
+                files = {helper: helper_source, extension: extension_source, caller: caller_source, path: changed}
+                result = self.check(self.head(extra=files))
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("DEFAULTS tunable-source." + expected, result.stdout)
+
+    def test_self_typealias_subclass_and_protocol_helper_calls_are_tunable_sources(self):
+        # Review of #33161: these reach a Tunable (or its helper) with no Tunable token and no `Type.helper` of a
+        # type declared in the helper's file. The guard caught each before #33161 and must still.
+        base_files = {
+            "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Chrome.swift": """enum Chrome {
+    static func points(_ name: String, _ value: Double) -> Tunable<Double> { .number(name, .status, name, default: value) }
+    static let viaSelf = Self.points("viaSelf", 1)
+}
+""",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Alias.swift": """typealias TD = Tunable<Double>
+enum Alias {
+    static let qualified = TD.number("qualified", .status, "Q", default: 1)
+    static let implicit: TD = .number("implicit", .status, "I", default: 1)
+}
+""",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Base.swift": """class BaseTunables {
+    static func gap(_ name: String, _ value: Double) -> Tunable<Double> { .number(name, .status, name, default: value) }
+}
+protocol TunableFactory {}
+extension TunableFactory {
+    static func flag(_ name: String, _ value: Bool) -> Tunable<Bool> { .toggle(name, .status, name, default: value) }
+}
+""",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Sub.swift": """final class SubTunables: BaseTunables {
+    static let inherited = gap("inherited", 1)
+    static let qualified = SubTunables.gap("subQualified", 1)
+}
+struct Flags: TunableFactory {
+    static let conformed = flag("conformed", true)
+}
+""",
+        }
+        for path, text in base_files.items():
+            self.repo.write(path, text)
+        self.base = self.repo.commit("reachable helper forms")
+        for path, old, new, expected in (
+            ("CmuxNextDesign/Chrome.swift", '"viaSelf", 1', '"viaSelf", 2', "Chrome.swift:viaSelf"),
+            ("CmuxNextDesign/Alias.swift", 'default: 1)\n    static let implicit', 'default: 2)\n    static let implicit',
+             "Alias.swift:qualified"),
+            ("CmuxNextDesign/Alias.swift", '"I", default: 1', '"I", default: 2', "Alias.swift:implicit"),
+            ("CmuxNextTabs/Sub.swift", '"inherited", 1', '"inherited", 2', "Sub.swift:inherited"),
+            ("CmuxNextTabs/Sub.swift", '"subQualified", 1', '"subQualified", 2', "Sub.swift:qualified"),
+            ("CmuxNextTabs/Sub.swift", '"conformed", true', '"conformed", false', "Sub.swift:conformed"),
+        ):
+            with self.subTest(expected=expected):
+                full = "Packages/macOS/CmuxNext/Sources/" + path
+                files = dict(base_files)
+                files[full] = files[full].replace(old, new)
+                self.assertNotEqual(files[full], base_files[full], expected)
+                result = self.check(self.head(extra=files))
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("DEFAULTS tunable-source." + path.split("/")[0] + "/" + expected, result.stdout)
+
     def test_two_flags_with_one_name_are_judged_apart(self):
         two = "enum A {\n    static let isEnabled = false\n}\nenum B {\n    static let isEnabled = true\n}\n"
         self.repo.write("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Trace.swift", two)
@@ -438,7 +558,7 @@ enum BrowserResize { static let `default` = true }
     # An independent review receipt on the head passes any change (Leo 2026-10-21).
 
     def receipt(self, text, at="2026-10-21T10:00:00Z", association="MEMBER", kind="User",
-                login=AUTHOR, node_id=None):
+                login=REVIEWER, node_id=None):
         return (text, at, association, kind, login, node_id)
 
     def test_a_ship_receipt_on_the_head_passes_without_a_teammate(self):
@@ -449,10 +569,13 @@ enum BrowserResize { static let `default` = true }
 
     def test_a_ship_receipt_posted_as_a_review_body_passes(self):
         head = self.changed_head()
-        pull = {"author": {"login": AUTHOR}, "headRefOid": head, "merged": False, "comments": {"nodes": []},
+        # From the author's own account, so it names the reviewer agent and its starter (risk_tier.py).
+        pull = {"author": {"login": AUTHOR}, "body": "Author-agent: claude-author", "headRefOid": head,
+                "merged": False, "comments": {"nodes": []},
                 "reviews": {"nodes": [{"author": {"login": AUTHOR, "__typename": "User"}, "authorAssociation": "MEMBER",
                                        "state": "COMMENTED", "submittedAt": "2026-10-21T10:00:00Z",
-                                       "body": f"Review (subagent): SHIP at {head}", "commit": {"oid": head}}]}}
+                                       "body": f"Review (subagent, started by lead): SHIP at {head}",
+                                       "commit": {"oid": head}}]}}
         path = self.repo.root.parent / f"{self.repo.root.name}-review-pull.json"
         path.write_text(json.dumps(pull), encoding="utf-8")
         result = self.repo.guard("check", "--base", self.base, "--head", head, "--pull-json", str(path))
@@ -484,6 +607,51 @@ enum BrowserResize { static let `default` = true }
                                      login="outsider"),
                         self.receipt(f"Review (subagent): SHIP at {head}", kind="Bot")):
             self.assertEqual(self.check(head, comments=[receipt]).returncode, 1, receipt)
+
+    # cmux-ad m25 item 7: a SHIP from the author's own account names its reviewer agent and who started it, neither
+    # of them the description's `Author-agent:` (risk_tier.py). #36311: the author agent's own subagent posted
+    # `Review (claude-review-subagent): SHIP at ...` from the author's account and the guard read it as independent.
+
+    def same_account(self, head, text, body="Author-agent: claude-author", extra=()):
+        return self.check(head, body=body, comments=[self.receipt(text, login=AUTHOR), *extra])
+
+    def test_the_author_agent_as_its_own_reviewer_is_refused(self):
+        head = self.changed_head()
+        for text in (f"Review (claude-author, started by lead): SHIP at {head}",
+                     f"Review (claude-review-subagent): SHIP at {head}"):
+            result = self.same_account(head, text)
+            self.assertEqual(result.returncode, 1, text)
+            self.assertIn("Needs a review", result.summary)
+
+    def test_a_reviewer_the_author_agent_started_is_refused(self):
+        head = self.changed_head()
+        result = self.same_account(head, f"Review (claude-review-subagent, started by claude-author): SHIP at {head}")
+        self.assertEqual(result.returncode, 1, result.stdout)
+
+    def test_an_independent_agent_the_lead_started_counts(self):
+        head = self.changed_head()
+        result = self.same_account(head, f"Review (codex-reviewer-7, started by lead): SHIP at {head}")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Signed off on this commit by `review (codex-reviewer-7, started by lead)`", result.summary)
+        refused = self.same_account(head, f"Review (codex-reviewer-7, started by claude-author): SHIP at {head}")
+        self.assertEqual(refused.returncode, 1, refused.stdout)
+
+    def test_a_same_account_ship_without_an_author_agent_line_is_refused_and_a_block_still_holds(self):
+        head = self.changed_head()
+        result = self.same_account(head, f"Review (codex-reviewer-7, started by lead): SHIP at {head}", body="no agent")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        ship = self.receipt(f"Review (codex): SHIP at {head}", at="2026-10-21T09:00:00Z")
+        blocked = self.same_account(head, f"Review (claude-review-subagent): BLOCK at {head}", body="no agent",
+                                    extra=[ship])
+        self.assertEqual(blocked.returncode, 1, blocked.stdout)
+        self.assertIn("BLOCK from `review (claude-review-subagent)`", blocked.summary)
+
+    def test_a_receipt_from_another_account_keeps_the_old_rule(self):
+        head = self.changed_head()
+        line = f"Review (claude-review-subagent): SHIP at {head}"
+        other = self.check(head, body="Author-agent: claude-author", comments=[self.receipt(line)])
+        self.assertEqual(other.returncode, 0, other.stdout)
+        self.assertEqual(self.same_account(head, line).returncode, 1)
 
     # A SHIP carried across base merges (2026-11-02: #30961, #31798, #27745 waited on a SHIP one base merge back).
 
@@ -559,6 +727,43 @@ enum BrowserResize { static let `default` = true }
                                kind="Bot", login="cmux-bot[bot]", node_id="BOT_kgDOFMYsLQ")
         result = self.check(head, comments=[receipt])
         self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_needs_a_review_ends_with_the_one_review_request_command(self):
+        # #38430: the author lane's own router-review receipt (`started by` its Author-agent) was refused, and the
+        # comment named no way to get one it could run. The plain form now ends with that command.
+        head = self.changed_head()
+        result = self.same_account(head, f"Review (codex, router-review, started by claude-author): SHIP at {head}")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("Needs a review", result.summary)
+        self.assertEqual(result.summary.strip().splitlines()[-1], "next: router-review OWNER/REPO N --request")
+        self.assertIn("next: router-review OWNER/REPO N --request", result.stdout)
+        # The service's receipt, which cmux-bot posts, passes the same head and prints no next line.
+        service = self.receipt(f"Review (codex gpt-6.1-sol xhigh, next-review): SHIP at {head}",
+                               kind="Bot", login="cmux-bot[bot]", node_id="BOT_kgDOFMYsLQ")
+        passed = self.check(head, body="Author-agent: claude-author", comments=[service])
+        self.assertEqual(passed.returncode, 0, passed.stdout)
+        self.assertNotIn("next:", passed.summary)
+
+    def test_a_cmux_bot_approval_body_never_counts_but_its_plain_review_does(self):
+        head = self.changed_head()
+        line = f"Review (codex gpt-6.1-sol xhigh, next-review): SHIP at {head}"
+        for state, code in (("APPROVED", 1), ("COMMENTED", 0)):
+            pull = {"author": {"login": AUTHOR}, "body": "Author-agent: claude-author", "headRefOid": head,
+                    "merged": False, "comments": {"nodes": []},
+                    "reviews": {"nodes": [{"author": {"login": "cmux-bot", "__typename": "Bot", "id": "BOT_kgDOFMYsLQ"},
+                                           "authorAssociation": "NONE", "state": state,
+                                           "submittedAt": "2026-10-21T10:00:00Z", "body": line,
+                                           "commit": {"oid": head}}]}}
+            path = self.repo.root.parent / f"{self.repo.root.name}-bot-review-{state}.json"
+            path.write_text(json.dumps(pull), encoding="utf-8")
+            result = self.repo.guard("check", "--base", self.base, "--head", head, "--pull-json", str(path))
+            self.assertEqual(result.returncode, code, (state, result.stdout))
+
+    def test_a_block_says_push_a_fix_before_a_new_request(self):
+        head = self.changed_head()
+        result = self.check(head, comments=[self.receipt(f"Review (subagent): BLOCK at {head}")])
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertTrue(result.summary.strip().splitlines()[-1].startswith("next: none (address the BLOCK and push"))
 
     def test_the_cmux_bot_receipt_at_an_old_head_fails(self):
         head = self.changed_head()
@@ -658,7 +863,7 @@ enum BrowserResize { static let `default` = true }
         head = self.changed_head()
         result = self.private_member_check(head, {PRIVATE_MEMBER: "RATE_LIMIT"})
         self.assertEqual(result.returncode, 1, result.stdout)
-        self.assertIn(f"the receipt by {PRIVATE_MEMBER} was not counted", result.stdout)
+        self.assertIn(f"the receipt by {PRIVATE_MEMBER} was not checked", result.stdout)
         self.assertIn("API rate limit exceeded", result.stdout)
 
     def test_a_contributor_without_write_access_still_does_not_pass(self):
@@ -680,6 +885,31 @@ enum BrowserResize { static let `default` = true }
         result = self.private_member_check(head, {PRIVATE_MEMBER: "write"},
                                            body=f"Review (subagent): BLOCK at {head}", extra_comments=[ship])
         self.assertEqual(result.returncode, 1, result.stdout)
+
+    def test_an_unchecked_block_after_an_owners_ship_keeps_the_guard_red(self):
+        # Review of #33111: a BLOCK whose author could not be looked up was dropped, so an owner's earlier SHIP passed.
+        head = self.changed_head()
+        ship = {"databaseId": 1, "body": f"Review (subagent): SHIP at {head}", "createdAt": "2026-10-28T20:00:00Z",
+                "authorAssociation": "CONTRIBUTOR", "author": {"login": "lawrencecchen", "__typename": "User"}}
+        result = self.private_member_check(head, {PRIVATE_MEMBER: "RATE_LIMIT"},
+                                           body=f"Review (second): BLOCK at {head}", extra_comments=[ship])
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn(f"the receipt by {PRIVATE_MEMBER} was not checked", result.stdout)
+
+    def test_an_unchecked_ship_still_does_not_pass(self):
+        head = self.changed_head()
+        result = self.private_member_check(head, {PRIVATE_MEMBER: "RATE_LIMIT"})
+        self.assertEqual(result.returncode, 1, result.stdout)
+
+    def test_an_unchecked_receipt_one_base_merge_back_is_named_in_the_error(self):
+        # Review of #33111: a failed lookup at the earlier head of a carried SHIP gave only a warning.
+        reviewed = self.changed_head()
+        tip, merge = self.merged_base(reviewed)
+        self.base = tip
+        result = self.private_member_check(merge, {PRIVATE_MEMBER: "RATE_LIMIT"},
+                                           body=f"Review (subagent): SHIP at {reviewed}")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn(f"the receipt by {PRIVATE_MEMBER} was not checked", result.stdout)
 
     def carried_private_check(self, body, extra_comments=()):
         """private_member_check's pull request one base merge after `reviewed`, with the receipts at `reviewed`."""

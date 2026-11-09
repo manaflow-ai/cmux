@@ -1,13 +1,14 @@
 #if os(iOS)
 import CmuxMobileArtifacts
 import CmuxMobileDesign
+import CmuxMobileRealtime
 import CmuxMobileTransport
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
 /// SPEC 4.3 composer for agent chat: glass card with a text row over a
-/// controls row (`+` menu, model pill, mic, send/stop), attachment previews,
+/// controls row (`+` menu, model pill, voice mode, send/stop), attachment previews,
 /// queue rows, slash-command suggestions, and the collapsed capsule (same placeholder as the field).
 struct ChatComposer: View {
     let store: AgentChatStore
@@ -35,6 +36,7 @@ struct ChatComposer: View {
     var cmuxCommands: [CmuxSlashCommand] = []
     var runCmuxCommand: (@MainActor (CmuxSlashCommand, String) async -> String?)?
     @State private var showPhotos = false
+    private let voice = AgentVoiceLauncher.shared
     @State private var showFiles = false
     @State private var showCamera = false
     @State private var photoItems: [PhotosPickerItem] = []
@@ -74,8 +76,8 @@ struct ChatComposer: View {
             }
             card
         }
-        .animation(.cmuxMobileSmooth, value: collapsed)
-        .animation(.cmuxMobileSnappy, value: attachments)
+        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: collapsed)
+        .animation(.cmuxMobileSnappy.unlessReduceMotion, value: attachments)
         .filePreview($preview)
         // Photos and videos, as the Mac's composer takes both (a video goes with its frames).
         .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 10, matching: .any(of: [.images, .videos]))
@@ -146,7 +148,7 @@ struct ChatComposer: View {
                 transaction.disablesAnimations = true
                 withTransaction(transaction) { shownCollapsed = target }
             } else {
-                withAnimation(.cmuxMobileSmooth) { shownCollapsed = target }
+                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { shownCollapsed = target }
             }
         }
     }
@@ -246,9 +248,11 @@ struct ChatComposer: View {
                     Spacer(minLength: 0)
                     if let usage = store.contextUsage { ContextUsageRing(usage: usage) }
                 }
-                // No mic button: iOS has no API to start keyboard dictation, and the
-                // keyboard's own mic dictates into this field (SPEC open decision).
-                primaryButton
+                // Voice mode instead of a dictation mic (the keyboard's own mic still
+                // dictates into the field): with no draft, the send circle is the voice
+                // button (ChatGPT's composer); while the agent runs it sits beside Stop.
+                if primaryState == .empty || primaryState == .stop, voice.isAvailable { voiceButton }
+                if primaryState != .empty || !voice.isAvailable { primaryButton }
             }
             .padding(.horizontal, 8)
             .padding(.bottom, collapsed ? 6 : 8)
@@ -265,7 +269,7 @@ struct ChatComposer: View {
 
     /// Expands the capsule, then focuses the field once it exists.
     private func expand() {
-        withAnimation(.cmuxMobileSmooth) { expandRequested = true }
+        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { expandRequested = true }
         Task { @MainActor in
             await Task.yield()
             focus.wrappedValue = true
@@ -436,6 +440,29 @@ struct ChatComposer: View {
         return hasContent ? .send : .empty
     }
 
+    /// Voice mode on this chat: the agent's words read aloud, the user's
+    /// speech sent as prompts. On while it runs here; a tap ends it.
+    private var voiceButton: some View {
+        let source = AgentChatVoiceSource(store: store)
+        let active = voice.isActive(source.voiceSourceID)
+        return Button {
+            voice.toggle(source)
+        } label: {
+            Image(systemName: "waveform")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(active ? Color.cmuxMobileOnAccent : Color.primary)
+                .symbolEffect(.variableColor.iterative, isActive: active)
+                .frame(width: 36, height: 36)
+                .background(active ? Color.cmuxMobileAccent : Color.cmuxMobileFill, in: .circle)
+                .padding(4)
+                .contentShape(.circle)
+                .padding(-4)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
+        .accessibilityIdentifier("agentChat.composer.voice")
+    }
+
     private var primaryButton: some View {
         let state = primaryState
         return Button {
@@ -464,7 +491,7 @@ struct ChatComposer: View {
         }
         .buttonStyle(.plain)
         .disabled(state == .empty)
-        .animation(.cmuxMobileSnap, value: state)
+        .animation(.cmuxMobileSnap.unlessReduceMotion, value: state)
         .contextMenu {
             if state == .queue {
                 Button("Queue (send after this turn)", systemImage: "text.line.last.and.arrowtriangle.forward") { send(steer: false) }

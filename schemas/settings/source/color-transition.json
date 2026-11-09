@@ -77,6 +77,9 @@
             "text": "How a color change moves over its duration. Spring uses Spring Response and Spring Damping; Custom uses the four Bezier values."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "ColorTransitionCurveSetting"
+          },
           "choices": [
             {
               "value": "easeOut",
@@ -304,6 +307,9 @@
             "text": "OKLab blends with even lightness. sRGB mixes the red, green and blue channels."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "ColorTransitionSpaceSetting"
+          },
           "choices": [
             {
               "value": "oklab",
@@ -344,6 +350,9 @@
             "text": "What color changes do while Reduce Motion is on in macOS."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "ColorTransitionReduceMotionSetting"
+          },
           "choices": [
             {
               "value": "crossfade",

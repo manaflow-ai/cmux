@@ -55,7 +55,9 @@ priority = 50
 # beside it and it fails, but it passes alone (2026-10-21 full runs: startup
 # 160 ms of a 100 ms budget, a hung login shell 6.0 s of 6 s, an adoption 5.4
 # s of 4 s; terminal #8 created in 1.05 s of 1 s, 100 closes in 10.4 s of 10
-# s, a restart with 60 terminals answering in 5.3 s). The terminal tests wait
+# s, a restart with 60 terminals answering in 5.3 s; 2026-11-04 census run
+# 41882425209: a person's chat tab under busy sessions p95 394 ms of 200 ms,
+# its idle baseline 16 ms of about 9 ms). The terminal tests wait
 # on F_FULLFSYNC, which macOS runs one at a time for the whole device, so
 # every other test daemon's commits queue in front of theirs. They run in the
 # timing-alone group and take every test thread, so no other test runs beside
@@ -74,6 +76,7 @@ filter = '''
 | (binary_id(cmux-tui::terminal_host_recovery) & test(=close_path::kitty_create::terminals_created_across_kitty_budget_buckets_start_fast_with_kitty_enabled))
 | (binary_id(cmux-tui::terminal_host_recovery) & test(=close_path::closing_one_hundred_terminals_updates_the_tree_at_once_and_ends_every_host))
 | (binary_id(cmux-tui::terminal_host_recovery) & test(=restart_with_many_live_terminals_answers_within_budget))
+| (binary_id(cmux-tui-core) & test(=state::group_update_latency_tests::a_persons_requests_answer_while_busy_sessions_saturate_the_registry))
 '''
 test-group = 'timing-alone'
 threads-required = 'num-test-threads'

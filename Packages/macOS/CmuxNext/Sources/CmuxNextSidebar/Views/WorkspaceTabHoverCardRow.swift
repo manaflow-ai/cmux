@@ -17,6 +17,10 @@ final class WorkspaceTabHoverCardRow: NSView {
 
     private let style: WorkspaceTabHoverCardStyle
     private let icon = NSImageView()
+    /// The tab's favicon as the sidebar's favicon style draws it (the one favicon path, `SidebarFaviconRenditions`).
+    private let faviconRenditions = SidebarFaviconRenditions()
+    /// The favicon shown, drawn again when the theme or the favicon style changes.
+    private var favicon: SidebarFavicon?
     private let title = ChromeLabel(labelWithString: "")
     /// The muted line: place, state and time (`WorkspaceTabHoverCardLine`).
     private let detail = ChromeLabel(labelWithString: "")
@@ -36,11 +40,11 @@ final class WorkspaceTabHoverCardRow: NSView {
         }
     }
     var isKeyboardSelected = false { didSet { paint() } }
-    var onRelease: (() -> Void)?
+    /// Focuses this row's tab: run on the press (u2819), as a pane tab and a sidebar row do, and by VoiceOver's press.
+    var onActivate: (() -> Void)?
     /// The ✕ was pressed: close this row's tab (the card stays open).
     var onClose: (() -> Void)? { didSet { updateCloseButton() } }
     private var pressed = false
-    private var pressedTabID: TabID?
     private(set) var reportedLine = ""
     private var currentTabID: TabID?
     private var state: StatusIndicatorState = .idle
@@ -56,13 +60,10 @@ final class WorkspaceTabHoverCardRow: NSView {
         layer?.cornerRadius = Metrics.itemCornerRadius
         layer?.cornerCurve = .continuous
         icon.imageScaling = .scaleProportionallyDown
-        title.font = Typography.body
         title.lineBreakMode = .byTruncatingTail
-        detail.font = Typography.caption
         // The line fits itself (`WorkspaceTabHoverCardLine.detail(fitting:font:)`): the place shortens first, and
         // a line still too long ends in an ellipsis, never cut off at the card's edge.
         detail.lineBreakMode = .byTruncatingTail
-        trailingLabel.font = Typography.system(.monospacedDigit, size: Typography.caption.pointSize, weight: .regular)
         activity.tracksWindowOcclusion = true
         unreadDot.wantsLayer = true
         unreadDot.isHidden = true
@@ -87,11 +88,18 @@ final class WorkspaceTabHoverCardRow: NSView {
         // nothing on the row redraws.
         if !sameTab {
             pressed = false
-            pressedTabID = nil
             isHovered = false
         }
+        // The card's text at the sidebar's density and text size, taken again on every configure (the rows are reused).
+        let card = WorkspaceHoverCardView.tokens
+        title.font = Typography.system(.default, size: card.titleSize, weight: .regular)
+        detail.font = Typography.system(.default, size: card.captionSize, weight: .regular)
+        trailingLabel.font = Typography.system(.monospacedDigit, size: card.captionSize, weight: .regular)
         let side = WorkspaceHoverCardView.iconSize
-        icon.image = tab.favicon.map { NSImage(cgImage: $0.image, size: NSSize(width: side, height: side)) }
+        favicon = tab.favicon
+        icon.image = tab.favicon.map(faviconImage)
+            // A site with no favicon (yet): the workspace rows' placeholder globe (`WorkspaceIcon.pagePlaceholder`).
+            ?? (tab.host != nil ? NSImage.icon(symbol: WorkspaceIcon.pagePlaceholderSymbol, size: side) : nil)
             ?? tab.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: side) }
             ?? NSImage.icon(tab.kind.icon, size: side)
         let line = WorkspaceTabHoverCardLine(tab, style: style, now: now, machine: machine)
@@ -116,6 +124,13 @@ final class WorkspaceTabHoverCardRow: NSView {
         needsLayout = true
     }
 
+    /// The row shows a detail line under (or after) its title; a two-line row without one is one row tall.
+    var hasDetail: Bool { !detail.isHidden }
+
+    /// The title's font and the icon's frame, as drawn (tests).
+    var titleFont: NSFont? { title.font }
+    var iconFrame: CGRect { icon.frame }
+
     /// The width the row needs to show its title and its whole detail line, fill outsets included.
     var preferredWidth: CGFloat {
         let outset = Self.fillOutset
@@ -129,7 +144,7 @@ final class WorkspaceTabHoverCardRow: NSView {
     }
 
     private func detailWidth(_ text: String) -> CGFloat {
-        ceil((text as NSString).size(withAttributes: [.font: detail.font ?? Typography.caption]).width) + 2 * detail.alignmentRectInsets.left
+        ceil((text as NSString).size(withAttributes: [.font: detail.font ?? Typography.system(.default, size: WorkspaceHoverCardView.tokens.captionSize, weight: .regular)]).width) + 2 * detail.alignmentRectInsets.left
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -204,10 +219,22 @@ final class WorkspaceTabHoverCardRow: NSView {
             // Secondary, the token the card's facts use: tertiary washed the paths out on dark glass.
             detail.textColor = style.tintsState ? Self.stateTone(state) ?? Palette.textSecondary : Palette.textSecondary
             trailingLabel.textColor = Palette.textSecondary
-            icon.contentTintColor = Palette.textSecondary
+            // A low-contrast mono favicon draws in the card's label colour (Lawrence msg 19869); a glyph in the secondary ink.
+            if let favicon { icon.image = faviconImage(favicon) }
+            icon.contentTintColor = favicon == nil ? Palette.textSecondary : Palette.textPrimary
             unreadDot.layer?.backgroundColor = Palette.statusUnread.cgColor
         }
         paint()
+    }
+
+    /// `favicon` as the sidebar's favicon style draws it on the card (its glass over the window background), in this
+    /// row's theme. Its bitmap is made once per image and style and kept.
+    private func faviconImage(_ favicon: SidebarFavicon) -> NSImage {
+        faviconRenditions.onStyleChange = { [weak self] in self?.applyColors() }
+        return performWithTheme {
+            faviconRenditions.drawing(favicon, side: WorkspaceHoverCardView.iconSize, scale: window?.backingScaleFactor ?? 2,
+                                      ground: SidebarFaviconRenditions.groundLuminance(Palette.windowBackground)).image
+        }
     }
 
     /// A needs-you or failed tab's status color (the sidebar's status colors); nil otherwise.
@@ -232,10 +259,12 @@ final class WorkspaceTabHoverCardRow: NSView {
         unreadDot.alphaValue = closeButton.isHidden ? 1 : 0
     }
     override func mouseExited(with event: NSEvent) { isHovered = false }
+    /// The press focuses the tab at once (Lawrence u2819: "why is mouse-down tab focus unimplemented?");
+    /// the pressed fill stays until the release, which acts on nothing.
     override func mouseDown(with event: NSEvent) {
         pressed = true
-        pressedTabID = currentTabID
         paint()
+        onActivate?()
     }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -243,11 +272,10 @@ final class WorkspaceTabHoverCardRow: NSView {
         // The ✕ takes its own click; anywhere else the row is one button.
         return hit === closeButton || hit.isDescendant(of: closeButton) ? hit : self
     }
-    override func accessibilityPerformPress() -> Bool { onRelease?(); return onRelease != nil }
+    override func accessibilityPerformPress() -> Bool { onActivate?(); return onActivate != nil }
     override func mouseUp(with event: NSEvent) {
-        defer { pressed = false; paint() }
-        guard pressed, bounds.contains(convert(event.locationInWindow, from: nil)), pressedTabID == currentTabID else { return }
-        onRelease?()
+        pressed = false
+        paint()
     }
 
     private func addTrackingArea() {

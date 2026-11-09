@@ -9,6 +9,7 @@ import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextServer
 import CmuxNextSettingsWindow
+import CmuxNextUpdater
 import CmuxNextWebUpdates
 
 /// What the React Settings page shows beside the schema rows (R82 commit 2): `cmux.settings.host.lists`.
@@ -67,6 +68,7 @@ extension SettingsWindowService {
             "server": services.serverUpdates.settingsPageJSON,
             "import_suggestions": ImportSuggestionsCenter.shared.settingsJSON,
             "web_updates": WebUpdates.shared.pageJSON,
+            "app_update": services.updater.settingsPageJSON,
             // Chief > Voice input: home.voiceInput, null where the tunable does not exist (Release).
             "voice_input": ChiefVoiceInputPageRoute().hostJSON,
             // Chief > Credential Vault: names, scopes and last uses, never a value (cmux issue 26412).
@@ -161,7 +163,7 @@ extension SettingsWindowService {
     func vmHostRow(_ row: JSONValue, id: String) -> JSONValue {
         guard case .object(var members) = row, let reach = vmHostReach(id) else { return row }
         let session = services.machines.session(id)
-        let owns = (session?.link?.ownership ?? session?.appLink?.ownership)?.callerOwnsVM == true
+        let owns = session?.appLink.ownership.callerOwnsVM == true
         let store = services.cloudVmHost
         let entry = owns ? store.state(id, readable: reach) : nil
         guard let vm = Self.vmHostSwitch(entry, callerOwnsVM: owns, busy: !reach || store.setting.contains(id)) else { return row }

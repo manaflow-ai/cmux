@@ -1,6 +1,8 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
 import CmuxHomeCore
+import CmuxHomeRender
+import CmuxAgentQuestion
 #if DEBUG
 public import MessagesLabHome
 #endif
@@ -13,6 +15,10 @@ public import CmuxNextDesign
 @MainActor
 public final class HomeNativeFixture {
     public let container = NSView()
+    /// With `compose`, the Home split's chat column the transcript sits in, under its compose button.
+    private let column: HomeChatColumnView?
+    /// The view the transcript fills: the container, or with `compose` the chat column's content.
+    private var host: NSView { column?.content ?? container }
     /// The fixture tab's title.
     public static var title: String { HomeStrings.conversations }
     /// No latency; the Chief types for 1.5 s before it answers (the typing
@@ -20,6 +26,11 @@ public final class HomeNativeFixture {
     private let source = MockHomeSource(options: .init(chiefHistory: 300, latency: .zero, replyDelay: .milliseconds(1500)))
     private let store: HomeStore
     private var view: HomeNativeTranscriptView?
+    /// Each transcript this fixture shows (the one shown now too), once its `onStartAgent` is set: the fixture page and
+    /// the Agent Messages Playground hand it the pill menu's registered Start now row (HomeChiefHomes's `startsOwnAgents`).
+    public var onShow: ((HomeNativeTranscriptView) -> Void)? {
+        didSet { if let view { onShow?(view) } }
+    }
     /// The shown conversation and its Chief (set once the view shows).
     private var shown: (conversation: ConversationID, chief: ParticipantID)?
     /// The Chief's streamed turn (`debugStream`) and its last draft seq.
@@ -29,6 +40,9 @@ public final class HomeNativeFixture {
     private var lastAgentRun: (turn: IdempotencyKey, notes: Bool)?
     /// When the last `debugAgentMessages` run started (its steps keep their times as it grows).
     private var agentRunStart = Date()
+    private var approvalDecider: HomeFixtureApprovalDecider?
+    // task-owner: one fixture post; cancelled when the fixture closes or is replaced.
+    private var approvalPost: Task<Void, Never>?
     // task-owner: kept and cancelled in `close()`
     private var loading: Task<Void, Never>?
 
@@ -41,6 +55,8 @@ public final class HomeNativeFixture {
     #if DEBUG
     /// DEBUG Agent Messages Playground: the header style, folds open, and the team chat (nil: not a playground).
     private var playground: (style: HomeAgentFoldStyle, expanded: Bool, team: Bool)?
+    /// The playground's click on an agent's pill (the agent's id and its row's message id).
+    var onPill: (@MainActor @Sendable (String, String) -> Void)?
 
     /// The Agent Messages Playground's fixture: it shows `playground`'s header style, folds and chat, with the
     /// playground's run, once it loads (``debugPlayground(style:expanded:team:)`` changes them later).
@@ -50,10 +66,18 @@ public final class HomeNativeFixture {
     }
     #endif
 
-    public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil) {
+    /// With `compose`, the transcript sits in the Home split's chat column (`HomeChatColumnView`) under its
+    /// round compose button, as in the real Home tab (captures of what floats over the chat's top-left).
+    public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil, compose: Bool = false) {
+        column = compose ? HomeChatColumnView(content: NSView(), compose: HomeChatComposeButton(label: HomeConversationStrings.newMessage)) : nil
         self.attachments = attachments
         self.openPanel = openPanel
         store = HomeStore(source: source)
+        if let column {
+            column.autoresizingMask = [.width, .height]
+            column.showsCompose = true
+            container.addSubview(column)
+        }
         store.start()
         loading = Task { [weak self] in await self?.load() }
     }
@@ -61,6 +85,7 @@ public final class HomeNativeFixture {
     /// Stops the store and the binding (the fixture tab closed).
     public func close() {
         loading?.cancel()
+        approvalPost?.cancel()
         view?.stop()
         store.stop()
     }
@@ -74,7 +99,7 @@ public final class HomeNativeFixture {
         if attachments { await addAttachments(in: id) }
         #if DEBUG
         if let playground {
-            view?.transcript.debugSetAgentFoldStyle(playground.style)
+            view?.transcript.debugSetAgentFoldStyle(playground.style, onPill: onPill)
             _ = postAgentRun(Self.agentPlayground, notes: false, team: playground.team, step: 0, expanded: playground.expanded)
         }
         #endif
@@ -85,9 +110,13 @@ public final class HomeNativeFixture {
         view?.stop()
         view?.removeFromSuperview()
         let view = HomeNativeTranscriptView(store: store, conversation: id, me: me, openPanel: openPanel)
-        view.frame = container.bounds
+        view.frame = host.bounds
         view.autoresizingMask = [.width, .height]
-        container.addSubview(view)
+        host.addSubview(view)
+        // Start now on a queued agent: the mock Chief starts it at once (its session shows, so it says Working).
+        let store = store
+        view.onStartAgent = { peer in store.agentsStarted([peer]); return true }
+        onShow?(view)
         self.view = view
         shown = (id, chief)
         await view.binding.opened()
@@ -124,6 +153,48 @@ public final class HomeNativeFixture {
             if done { await source.receive(text, from: shown.chief, in: shown.conversation) }
         }
         return true
+    }
+
+    /// Posts one mock permission through the real Home store and renderer. It can only use
+    /// this fixture's mock decider; a socket call cannot send a permission response.
+    /// `result` is what a later native pointer click receives: answered, refused or expired.
+    public func debugApproval(result: String) -> Bool {
+        guard let shown, let decision = HomeFixtureApprovalDecider.result(result) else { return false }
+        approvalPost?.cancel()
+        let decider = HomeFixtureApprovalDecider(decision)
+        approvalDecider = decider
+        view?.approvals = decider
+        // This isolated fixture's decider only updates mock state, never acpmux.
+        view?.isPersonApprovalEvent = { _ in true }
+        let permission = "fixture-" + UUID().uuidString
+        let snapshot = #"{"toolCall":{"title":"Bash","rawInput":{"command":"printf 'Hello from the subagent'"}},"options":[{"optionId":"yes","kind":"allow_once"},{"optionId":"no","kind":"reject_once"}]}"#
+        let question = AgentQuestion(id: permission,
+                                     source: .init(harness: .chief, session: "local/fixture-subagent", permission: permission),
+                                     items: [.init(id: "approval:" + String(repeating: "a", count: 64), prompt: "a1: Bash",
+                                                   options: [.init(id: "allow", label: "Allow once", preview: .init(text: snapshot)),
+                                                             .init(id: "deny", label: "Deny")], allowsOther: false)])
+        let source = self.source
+        approvalPost = Task {
+            await source.setOwner(.local, in: shown.conversation)
+            guard !Task.isCancelled else { return }
+            await source.post([.question(question)], from: shown.chief, in: shown.conversation, key: IdempotencyKey(permission))
+        }
+        return true
+    }
+
+    /// The mock decider's actual calls, for a real-pointer capture's oracle. Reading sends nothing.
+    public var debugApprovalAttempts: [Bool] { approvalDecider?.attempts ?? [] }
+
+    /// Foundation-compatible wire data, confined to this mock fixture. Reading sends nothing.
+    public func debugApprovalState() -> [String: Any] {
+        guard let view, let window = view.window else { return ["error": "no mock Home fixture is shown"] }
+        let cards: [[String: Any]] = view.debugApprovalCards().map { card in
+            ["id": card.id, "text": card.text, "pending": card.pending, "busy": card.busy, "ended": card.ended,
+             "allow": HomeNativeTranscriptView.debugBox(card.allow), "deny": HomeNativeTranscriptView.debugBox(card.deny)]
+        }
+        return ["ok": !cards.isEmpty, "mock": true, "cards": cards,
+                "attempts": debugApprovalAttempts.map { $0 ? "allow" : "deny" },
+                "windowHeight": Double(window.frame.height), "scale": Double(window.backingScaleFactor)]
     }
 
     /// The mock's people `debug.home.drive` `presence` shows by default (made-up fixture people).
@@ -180,19 +251,36 @@ public final class HomeNativeFixture {
     /// Home folds into one row under the reply (a click expands it). False before the conversation shows.
     /// With `notes`, the run is instead five agents that stopped with no report (their session
     /// Disconnected, the Chief producer's note) and one real report.
-    /// With `open`, nothing is posted: the fold (or, after a notes run, the notes row) of the last such
-    /// run opens or closes, as a click on it does.
+    /// With `open`, nothing is posted: the agents row of the last such run (its stopped agents are in it
+    /// too) opens or closes, as a click on it does.
     /// With `group`, the run goes to the mock's group with the Chief and two teammates (shown first).
+    /// With `pill`, nothing is posted: agent `pill`'s pill is clicked (its workspace opens through the host;
+    /// Home never splits).
     /// With `step` N, the run brings only its first N messages: step 1 posts the question, the reply and
     /// one message; each next step adds one, as a live run does (0: all at once).
-    public func debugAgentMessages(notes: Bool = false, open: Bool = false, group: Bool = false, step: Int = 0) -> Bool {
+    /// With `queued`, the run is one working agent and three told while the Chief's cap was full (queued, with no
+    /// session or workspace yet; user 2026-11-07, msg 23835).
+    public func debugAgentMessages(notes: Bool = false, open: Bool = false, group: Bool = false, step: Int = 0, pill: String? = nil,
+                                   queued: Bool = false) -> Bool {
         guard let shown else { return false }
+        if let pill {
+            guard let view else { return false }
+            // As a click on it: over its drawn pill when it shows. The pill's frame is MessagesLab's DEBUG-only
+            // hit test; a CMUX_BENCH_HOOKS release build opens the agent without a point.
+            #if DEBUG
+            view.openAgent(pill, at: view.transcript.debugAgentPillFrame(pill).map { view.convert($0, from: nil) })
+            #else
+            view.openAgent(pill, at: nil)
+            #endif
+            return true
+        }
         if open {
             guard let last = lastAgentRun else { return false }
             let group = HomeAgentMessageRow.groupID(author: shown.chief, anchor: last.turn)
-            store.toggleAgentMessages(last.notes ? HomeAgentMessageRow.notesGroup(group) : group, in: shown.conversation)
+            store.toggleAgentMessages(group, in: shown.conversation)
             return true
         }
+        if queued { return postAgentRun(Self.agentQueue, notes: false, team: group ? true : nil, step: 0, queued: true) }
         return postAgentRun(notes ? Self.agentNotes : Self.agentMessages, notes: notes, team: group ? true : nil, step: step)
     }
 
@@ -200,7 +288,7 @@ public final class HomeNativeFixture {
     /// team chat (`team` true), the Chief's own chat (false) or the one shown (nil); then with `expanded`
     /// opens or closes every fold of the run. False before the conversation shows.
     private func postAgentRun(_ all: [(peer: String, outgoing: Bool, text: String)], notes: Bool, team: Bool?, step: Int,
-                              expanded: Bool? = nil) -> Bool {
+                              expanded: Bool? = nil, queued: Bool = false) -> Bool {
         guard let shown else { return false }
         let source = self.source
         // Step 2 and on grow the last run; anything else starts a new one.
@@ -221,7 +309,9 @@ public final class HomeNativeFixture {
             }
             let messages = all.prefix(count).enumerated().map { index, m in
                 HomeAgentRun.Message(id: "step-\(index)", sequence: UInt64(index + 1), revision: 1, peer: m.peer,
-                                     outgoing: m.outgoing, text: m.text, date: start.addingTimeInterval(Double(index)))
+                                     outgoing: m.outgoing, text: m.text, date: start.addingTimeInterval(Double(index)),
+                                     // The queued run: every agent but the first waits for a slot.
+                                     queued: queued && m.outgoing && index > 0)
             }
             // Each step is a newer revision of the run (one more message each).
             var revision: UInt64 = 0
@@ -235,14 +325,14 @@ public final class HomeNativeFixture {
         return true
     }
 
-    /// Opens or closes every agent fold of the last run (its messages and its stopped agents), as a click
-    /// on each does. False before a run.
+    /// Opens or closes the agents row of the last run (its messages and its stopped agents), as a click
+    /// on it does. False before a run.
     @discardableResult
     public func debugAgentFolds(expanded: Bool) -> Bool {
         guard let shown, let last = lastAgentRun else { return false }
         let group = HomeAgentMessageRow.groupID(author: shown.chief, anchor: last.turn)
-        for fold in [group, HomeAgentMessageRow.notesGroup(group)] where store.isAgentMessagesExpanded(fold, in: shown.conversation) != expanded {
-            store.toggleAgentMessages(fold, in: shown.conversation)
+        if store.isAgentMessagesExpanded(group, in: shown.conversation) != expanded {
+            store.toggleAgentMessages(group, in: shown.conversation)
         }
         return true
     }
@@ -255,7 +345,7 @@ public final class HomeNativeFixture {
         let was = playground
         playground = (style, expanded, team)
         guard shown != nil else { return }
-        if was?.style != style { view?.transcript.debugSetAgentFoldStyle(style) }
+        if was?.style != style { view?.transcript.debugSetAgentFoldStyle(style, onPill: onPill) }
         if was?.team != team || lastAgentRun == nil {
             _ = postAgentRun(Self.agentPlayground, notes: false, team: team, step: 0, expanded: expanded)
         } else if was?.expanded != expanded {
@@ -265,14 +355,37 @@ public final class HomeNativeFixture {
 
     /// The playground's run: three agents told, one of them reporting back, and two that stopped with no report.
     private static let agentPlayground: [(peer: String, outgoing: Bool, text: String)] = [
-        ("a959", true, "Fix the sidebar alignment: the header and the New Workspace row share one left edge."),
-        ("a931", true, "Rebuild the nightly appcast on an owned Mac mini, then plain push."),
-        ("a940", true, "Audit every button for first-click response, active and inactive window."),
-        ("a959", false, "Done: both rows now start at 12 pt. [631d310](https://github.com/manaflow-ai/cmux/commit/631d310)"),
+        ("a959", true, """
+        Sidebar alignment fix
+
+        Fix the sidebar alignment: the header and the New Workspace row share one left edge. Measure both in \
+        the real app at 100% and 200%, light and dark. Root cause first, then a failing test, then the fix. \
+        cmux-ci urgent, rebase, plain push to feat-cmux-next. Report OLD..NEW with before and after shots.
+        """),
+        ("a931", true, """
+        Nightly appcast rebuild
+
+        Rebuild the nightly appcast on an owned Mac mini (never Blacksmith), check the feed and the installed \
+        NIGHTLY are on the same build, then plain push.
+        """),
+        ("a940", true, """
+        First-click button audit
+
+        Audit every button for first-click response, active and inactive window. Fix the causes and add a CI guard.
+        """),
+        ("a959", false, "Done: both rows now start at 12 pt. Landed 41f05ff..631d310 on feat-cmux-next."),
         ("a933", false, "(stopped without a report: its session is Disconnected)"),
         ("a936", false, "(stopped without a report: its session is Disconnected)"),
     ]
     #endif
+
+    /// The queued fixture run: one agent at work, then three the Chief queued behind its cap (in its real wording).
+    private static let agentQueue: [(peer: String, outgoing: Bool, text: String)] = [
+        ("a1031", true, "Title: Zoom indicator top-right\n\nMove the zoom badge to the pane's top-right corner; a click unzooms."),
+        ("a1032", true, "Title: Workspace favicon follows focus\n\nEach workspace's icon follows the last tab focused there."),
+        ("a1033", true, "Title: Swift new tab page\n\nBuild a native new tab page for browser tabs."),
+        ("a1034", true, "Title: Custom sidebar JS backend\n\nA JS backend drives a native sidebar through declarative rows; example preset from the last 24h of PRs."),
+    ]
 
     /// The notes fixture run: five status notes in the Chief producer's words, a real report.
     private static let agentNotes: [(peer: String, outgoing: Bool, text: String)] =
@@ -295,6 +408,22 @@ public final class HomeNativeFixture {
             guard let prepared = try? await store.prepareAttachment(fileURL: file, keepLocation: false) else { continue }
             try? await store.send(conversation: id, text: "", attachments: [prepared])
         }
+    }
+}
+/// No acpmux connection or app-person proof exists in this mock. The production pointer gate
+/// still has to accept the gesture before a successful decision can be recorded by Home.
+@MainActor private final class HomeFixtureApprovalDecider: HomeApprovalDeciding {
+    let decision: HomeApprovalDecision
+    private(set) var attempts: [Bool] = []
+    init(_ decision: HomeApprovalDecision) { self.decision = decision }
+    static func result(_ value: String) -> HomeApprovalDecision? {
+        switch value { case "answered": .answered; case "refused": .refused; case "expired": .expired; default: nil }
+    }
+    func decide(_ request: HomeApprovalRequest, allow: Bool,
+                through gate: @escaping @Sendable (() -> Void) -> Bool) async -> HomeApprovalDecision {
+        attempts.append(allow)
+        if decision == .answered, !gate({}) { return .refused }
+        return decision
     }
 }
 #endif

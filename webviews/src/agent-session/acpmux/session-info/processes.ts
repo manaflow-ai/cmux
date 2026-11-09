@@ -2,8 +2,9 @@
 // background-processes.md): `_acpmux/process/list {sessionId}` when Session Info shows, then each
 // `_acpmux/process_update`. One record per command a harness ran in the background (Claude Code's
 // background shells, Codex's background terminals), so Session Info's Servers and Background
-// tasks read the same thing for every harness. A dev server is told apart by its command alone
-// (`serverOf`): cmux-next never scans processes or ports.
+// tasks read the same thing for every harness. A dev server is told apart by its command, or by the
+// page acpmux saw it serve (`preview`: an address its own output printed that accepted a loopback
+// connect, hub/processes.rs); cmux-next never scans the machine's processes or ports.
 //
 // The transcript knows commands too: Claude's background Bash calls, those Ctrl-B moved there
 // included (conversation/runInBackground.ts), and their `background_task_update` ends
@@ -16,6 +17,7 @@ import type { Translate } from "../i18n";
 import { useEffect, useState } from "react";
 import type { SummaryBackgroundTask } from "../summary/sessionSummary";
 import { replayProcessUpdates } from "./processUpdateReplay";
+import { commandWorkLabel } from "./commandWorkLabel";
 
 export type SessionInfoProcess = {
   /// acpmux's id, `<sessionId>/<task id>`: what `_acpmux/process/kill` takes.
@@ -24,12 +26,44 @@ export type SessionInfoProcess = {
   /// this process (`backgroundCommands`), and its terminal opens by it (processTerminal.ts).
   toolCallId?: string;
   command: string;
+  /// What the call that started it says it does (Claude's Bash `description`), as acpmux kept it:
+  /// a client that never loaded the call still names the command by it. None from Codex.
+  description?: string;
+  /// The subagent whose call started it (acpmux's `subagentSessionId`), when a subagent's did.
+  subagent?: string;
+  /// The workflow agent whose call started it, by Claude's agent id (acpmux's `workflowAgentId`),
+  /// when an agent of a workflow did: Session Info lists it under that agent
+  /// (summary/workflowView.ts `attributeCommands`).
+  workflowAgent?: string;
   /// Unix ms.
   startedAt: number;
   endedAt?: number;
   /// `running`, `exited`, `failed`, `killed` or `lost`.
   state: string;
+  /// The page it serves, as acpmux found it: a loopback address its own output printed that
+  /// accepted a connect (hub/processes.rs). Only while it runs.
+  preview?: ProcessPreview;
 };
+
+/// A dev server's page: `http://localhost:5173/` and its port.
+export type ProcessPreview = { url: string; port: number };
+
+/// `value` as a page this Mac's preview opens (a loopback http address, URL+AgentPanePreview.swift),
+/// else undefined.
+function previewOf(value: unknown): ProcessPreview | undefined {
+  const raw = (value ?? {}) as Record<string, unknown>;
+  const port = raw.port;
+  if (typeof raw.url !== "string" || typeof port !== "number" || !Number.isInteger(port) || port < 1 || port > 65_535)
+    return undefined;
+  try {
+    const url = new URL(raw.url);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    if (url.hostname !== "localhost" && url.hostname !== "127.0.0.1") return undefined;
+    return { url: url.href, port };
+  } catch {
+    return undefined;
+  }
+}
 
 /// One wire record for chat `sessionId`, or undefined for another chat's or a malformed one.
 function processOf(value: unknown, sessionId: string): SessionInfoProcess | undefined {
@@ -37,13 +71,18 @@ function processOf(value: unknown, sessionId: string): SessionInfoProcess | unde
   if (typeof raw.id !== "string" || raw.sessionId !== sessionId) return undefined;
   if (typeof raw.command !== "string" || typeof raw.state !== "string" || typeof raw.startedAt !== "number")
     return undefined;
+  const preview = raw.state === "running" ? previewOf(raw.preview) : undefined;
   return {
     id: raw.id,
     ...(typeof raw.toolCallId === "string" && raw.toolCallId ? { toolCallId: raw.toolCallId } : {}),
     command: raw.command,
+    ...(typeof raw.description === "string" && raw.description.trim() ? { description: raw.description.trim() } : {}),
+    ...(typeof raw.subagentSessionId === "string" && raw.subagentSessionId ? { subagent: raw.subagentSessionId } : {}),
+    ...(typeof raw.workflowAgentId === "string" && raw.workflowAgentId ? { workflowAgent: raw.workflowAgentId } : {}),
     startedAt: raw.startedAt,
     ...(typeof raw.endedAt === "number" ? { endedAt: raw.endedAt } : {}),
     state: raw.state,
+    ...(preview ? { preview } : {}),
   };
 }
 
@@ -162,6 +201,10 @@ export type BackgroundCommand = {
   /// What the call that started it says it does (Claude's Bash `description`): the tray names the
   /// command by it (`commandLabel`).
   description?: string;
+  /// The subagent whose call started it, from the registry: the tray names it on the line.
+  subagent?: string;
+  /// The workflow agent whose call started it, from the registry (Claude's agent id).
+  workflowAgent?: string;
   /// A registry process acpmux lost track of (its daemon restarted) is `lost`; the transcript
   /// never says so.
   state: SummaryBackgroundTask["state"] | "lost";
@@ -172,6 +215,8 @@ export type BackgroundCommand = {
   /// Epoch ms, for its elapsed time.
   startedAt?: number;
   endedAt?: number;
+  /// The page it serves, from the registry (`SessionInfoProcess.preview`).
+  preview?: ProcessPreview;
 };
 
 /// The key a command enters its list under (ui/presence.ts `useArrivals`): the call that started it,
@@ -203,12 +248,17 @@ export function backgroundCommands(
     command: process.command,
     ...(process.toolCallId && described.has(process.toolCallId)
       ? { description: described.get(process.toolCallId) }
-      : {}),
+      : process.description
+        ? { description: process.description }
+        : {}),
+    ...(process.subagent ? { subagent: process.subagent } : {}),
+    ...(process.workflowAgent ? { workflowAgent: process.workflowAgent } : {}),
     state: PROCESS_STATE[process.state] ?? "stopped",
     processId: process.id,
     startedAt: process.startedAt,
     ...(process.toolCallId ? { toolCallId: process.toolCallId } : {}),
     ...(process.endedAt !== undefined ? { endedAt: process.endedAt } : {}),
+    ...(process.preview ? { preview: process.preview } : {}),
   }));
   const known = new Set(processes.flatMap((process) => (process.toolCallId ? [process.toolCallId] : [])));
   const fromTranscript = transcript
@@ -261,6 +311,8 @@ const ASSIGNMENT = /^[A-Za-z_]\w*=/;
 export function commandLabel(command: BackgroundCommand): string {
   if (command.description) return command.description;
   const text = command.command.trim();
+  const work = commandWorkLabel(text);
+  if (work) return work;
   let from = 0;
   for (;;) {
     const { words, end } = leadingWords(text, from);
@@ -330,17 +382,23 @@ const PORTS = [
 ];
 const SHORT_PORT = /(?:^|\s)-p\s+(\d{2,5})\b/g;
 
+/// Whether `command` serves something, as `serverOf` tells a server: a server command, or one that
+/// names a port.
+export const servesCommand = (command: string): boolean =>
+  SERVER_COMMAND.test(command) || PORTS.some((pattern) => command.match(pattern) !== null);
+
 export type SessionInfoServer = SessionInfoProcess & {
-  /// The ports the command names, in the order named; empty when it names none (the default port
-  /// is never guessed).
+  /// The port acpmux saw it serve first (`preview`), then the ports the command names, in the order
+  /// named; empty when it knows none (the default port is never guessed).
   readonly ports: readonly number[];
 };
 
-/// `process` as a server, or undefined for any other background command.
+/// `process` as a server, or undefined for any other background command. A process acpmux saw
+/// serve a page is one whatever its command.
 export function serverOf(process: SessionInfoProcess): SessionInfoServer | undefined {
   const command = process.command;
-  const server = SERVER_COMMAND.test(command);
-  const ports = new Set<number>();
+  const server = SERVER_COMMAND.test(command) || process.preview !== undefined;
+  const ports = new Set<number>(process.preview ? [process.preview.port] : []);
   for (const pattern of server ? [...PORTS, SHORT_PORT] : PORTS)
     for (const match of command.matchAll(pattern)) {
       const port = Number(match[1]);
@@ -348,6 +406,12 @@ export function serverOf(process: SessionInfoProcess): SessionInfoServer | undef
     }
   if (!server && ports.size === 0) return undefined;
   return { ...process, ports: [...ports] };
+}
+
+/// The address `port` of `server` opens: the page acpmux saw it serve when that is the port (its
+/// scheme and path kept), else the port on localhost.
+export function serverUrl(server: SessionInfoServer, port: number): string {
+  return server.preview?.port === port ? server.preview.url : `http://localhost:${port}`;
 }
 
 /// The chat's processes split into the running servers and every other process; a server that

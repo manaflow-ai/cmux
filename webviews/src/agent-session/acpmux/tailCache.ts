@@ -4,11 +4,12 @@
 // The page keeps its own tails (`keptTails`), which is all a chat switch inside one pane needs.
 // A chat opened in a NEW TAB lands on a new page, whose map starts empty, so the page also hands
 // each tail to the app host (`chat.tail`) and asks it for one before it attaches
-// (`chat.tail.get`). The host holds them IN MEMORY ONLY: nothing is written to disk, so there is
-// no new place a transcript persists, and quitting the app forgets them (AgentPaneTailCache.swift).
+// (`chat.tail.get`). On a memory miss the host forwards the local daemon's bounded persisted
+// peer snapshot, so restarting the app does not make a remote chat wait for its connection.
 //
 // A host that does not serve these ops (the page outside the app, the gallery, an older app) is no
 // failure: the chat opens cold, as it did before.
+import { peerCopyTail, type PeerCopy } from "./peerCopy";
 import { postNative } from "./native";
 import type { EventRecord } from "./direct";
 import type { QueuedPrompt } from "./model";
@@ -16,6 +17,8 @@ import type { QueuedPrompt } from "./model";
 /// A chat as the page last read it. What it says about the chat's *past* is drawn on the next
 /// open; what it says about what the chat is *doing* is not (direct.ts `drawKeptTail`).
 export type KeptTail = {
+  /// Provenance of a persisted peer copy, retained until a live attach reconciles it.
+  peerCopy?: PeerCopy;
   events: EventRecord[];
   summary: Record<string, any> | undefined;
   turnOpener: EventRecord | undefined;
@@ -23,6 +26,9 @@ export type KeptTail = {
   queue: QueuedPrompt[];
   configSeq: number;
   usageFromSeq: number;
+  /// A fork's tail drawn from the chat it forked (forkTail.ts): the seq it branched at, through
+  /// which its attach checks these rows against acpmux's own page of the fork.
+  forkedThrough?: number;
 };
 
 /// Chats whose tail is kept, and the events kept of each: the newest ones, as many as an attach
@@ -120,6 +126,9 @@ export function forgetTail(sessionId: string): void {
   readAheadTails.delete(sessionId);
   reading.delete(sessionId);
   void callHost("chat.tail", { sessionId }).catch(() => undefined);
+  // Its drawn copy (chatSnapshot/) goes with it: the next launch draws no frame of it either. When
+  // it went (`savedAt`): a copy captured before it and arriving after is never kept.
+  void callHost("chat.snapshot.put", { sessionId, savedAt: Date.now() }).catch(() => undefined);
 }
 
 /// Asks the app host for this chat's tail and keeps what it answers, so a cold page can draw the
@@ -138,12 +147,30 @@ export function readHostTail(sessionId: string): Promise<KeptTail | undefined> {
   ]);
 }
 
+/// Keeps the tail the app host handed this page with an adopt event (AgentPaneView+SessionAdopt.swift):
+/// the tail `chat.tail.get` would answer, read the same way, without its round trip, so the adopted
+/// page draws the chat in the event's own turn. A page that read the chat itself keeps its own, newer
+/// tail. True when it kept the handed one.
+export function keepHandedTail(sessionId: string, value: unknown): boolean {
+  if (keptTails.has(sessionId)) return false;
+  const tail = tailFromHost(value);
+  if (!tail) return false;
+  readAheadTails.delete(sessionId);
+  keptTails.set(sessionId, tail);
+  while (keptTails.size > KEPT_TAILS) keptTails.delete(keptTails.keys().next().value!);
+  return true;
+}
+
 function startHostRead(sessionId: string): Promise<KeptTail | undefined> {
   const already = reading.get(sessionId);
   if (already) return already;
   const read: Promise<KeptTail | undefined> = callHost<unknown>("chat.tail.get", { sessionId })
     .then((value) => {
-      const tail = tailFromHost(value);
+      const envelope = value as { stale?: unknown; sessionId?: unknown; qualifiedSessionId?: unknown } | null;
+      const snapshot = envelope?.stale === true;
+      const named = envelope?.sessionId === sessionId || envelope?.qualifiedSessionId === sessionId;
+      const copy = snapshot && named ? peerCopyTail(value, sessionId) : undefined;
+      const tail = snapshot ? copy?.tail : tailFromHost(value);
       // Only when this page read nothing of its own meanwhile (its own tail is the newer one) and
       // only while this read is still the chat's: `forgetTail` drops the entry for a chat this page
       // no longer stands behind, and an answer already in flight must not put it back.
@@ -244,6 +271,7 @@ function tailFromHost(value: unknown): KeptTail | undefined {
     queue: Array.isArray(tail.queue) ? (tail.queue as QueuedPrompt[]) : [],
     configSeq: typeof tail.configSeq === "number" ? tail.configSeq : 0,
     usageFromSeq: typeof tail.usageFromSeq === "number" ? tail.usageFromSeq : 0,
+    ...(typeof tail.forkedThrough === "number" ? { forkedThrough: tail.forkedThrough } : {}),
   };
 }
 

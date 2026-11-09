@@ -7,27 +7,9 @@ use super::*;
 #[path = "agent_session_shares.rs"]
 pub(super) mod shares;
 
-/// A teammate's verbs: the shared chat's own, never start, trust, media, children, permission,
-/// typing or view, whatever the proxy forwards.
-const TEAMMATE_VERBS: [&str; 6] = [
-    "agent-session-attach",
-    "agent-session-observe",
-    "agent-session-events",
-    "agent-session-prompt",
-    "agent-session-cancel",
-    "agent-session-detach",
-];
-/// A link guest's verbs: watch and write (every prompt held for the owner), its typing and view.
-/// Never cancel, permission, children or media. An attach is the guest's writable observe.
-const GUEST_VERBS: [&str; 7] = [
-    "agent-session-attach",
-    "agent-session-observe",
-    "agent-session-events",
-    "agent-session-prompt",
-    "agent-session-typing",
-    "agent-session-view",
-    "agent-session-detach",
-];
+// The verbs of a teammate, a talking guest and a viewer: one source with acpmux's Cloud carrier
+// rules (`cmux_agent_pane_policy::share_roles`).
+use cmux_agent_pane_policy::share_roles::{GUEST_VERBS, TEAMMATE_VERBS, VIEWER_VERBS};
 
 /// Whether `author` is a link guest's (`guest:<share_id>.<guest_id>`).
 pub(super) fn is_guest(author: &Value) -> bool {
@@ -54,7 +36,11 @@ pub(super) fn scope(
     let cmd = object.get("cmd").and_then(Value::as_str).unwrap_or_default().to_owned();
     if let Some(author) = author {
         let guest = is_guest(author);
-        let verbs: &[&str] = if guest { &GUEST_VERBS } else { &TEAMMATE_VERBS };
+        let verbs: &[&str] = match (guest, shares::view_only(author)) {
+            (true, true) => &VIEWER_VERBS,
+            (true, false) => &GUEST_VERBS,
+            (false, _) => &TEAMMATE_VERBS,
+        };
         if !verbs.contains(&cmd.as_str()) {
             let refusal = if guest { Refusal::ScopeNotGranted } else { Refusal::NotTrusted };
             return Some(refuse(writer, object.remove("id"), refusal));
@@ -71,13 +57,12 @@ pub(super) fn scope(
 }
 
 pub(super) fn author(mux: &Mux, client: u64) -> Option<Value> {
-    mux.control_clients
-        .agent_sessions
-        .proxy_authors
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(&client)
-        .cloned()
+    let authors = &mux.control_clients.agent_sessions.proxy_authors;
+    if authors.publishing() {
+        // The published binds (R-DAEMON-STATE stage S1): every line asks, and none waits for a bind or a disconnect.
+        return authors.load().unwrap_or_else(|e| e.into_inner()).get(&client).cloned();
+    }
+    authors.lock().unwrap_or_else(|e| e.into_inner()).get(&client).cloned()
 }
 
 pub(super) fn bind(
@@ -258,6 +243,10 @@ mod tests {
             "prompt_id":"p1", "text":"hello", "_host_author":author, "_host_session":SESSION});
         assert_eq!(client.request(prompt)["ok"], true);
         assert_eq!(fake.frame()["params"]["_meta"]["acpmux"]["author"], author);
+        let media = json!({"cmd":"agent-session-prompt", "surface":surface, "prompt_id":"media",
+            "content":[{"type":"resource_link", "uri":"file:///etc/passwd", "name":"passwd"}],
+            "_host_author":author, "_host_session":SESSION});
+        assert_code(&client.request(media), "agent_session.not_trusted");
         let mut other = Client::connect(&mux, "proxy-unbound");
         assert_code(
             &other.request(json!({"cmd":"agent-session-observe", "surface":surface,
@@ -483,6 +472,10 @@ mod tests {
         assert_code(&client.request(answer), "agent_session.not_trusted");
         // Its typing or view would count as the owner's: refused, and nothing reaches acpmux.
         for frame in [
+            json!({"cmd":"agent-session-context", "surface":surface, "op":"get",
+                "_host_author":author, "_host_session":SESSION}),
+            json!({"cmd":"agent-session-context", "surface":surface, "op":"set", "scope":"user", "text":"edit",
+                "_host_author":author, "_host_session":SESSION}),
             json!({"cmd":"agent-session-typing", "surface":surface, "on":true,
                 "_host_author":author, "_host_session":SESSION}),
             json!({"cmd":"agent-session-view", "surface":surface, "visible":true,

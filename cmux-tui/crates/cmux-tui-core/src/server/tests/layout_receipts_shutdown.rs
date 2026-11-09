@@ -176,6 +176,138 @@ fn viewport_width_failures_have_stable_error_codes() {
     assert_eq!(response["error_code"], ViewportWidthError::OUT_OF_RANGE_CODE);
 }
 
+/// `set-layout-sizes` (`layout-sizes-batch-v1`, R-DAEMON-STATE DESIGN 2.10.1): a key trade's two widths go as one
+/// request; a refused value answers with its single command's error code and index, and nothing changes.
+#[test]
+fn set_layout_sizes_applies_a_trade_whole_or_refuses_it_whole() {
+    let mux = test_mux();
+    let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+    let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+    let right = mux.new_pane_right(pane, 0.5, Some((38, 22))).unwrap();
+    let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let widths = |mux: &Arc<Mux>| {
+        mux.with_state(|state| {
+            state.workspaces[0].screens[0]
+                .layout_columns
+                .iter()
+                .map(|column| column.width)
+                .collect::<Vec<_>>()
+        })
+    };
+    let before = widths(&mux);
+
+    handle_message(
+        &mux,
+        mux.local_test_client(7),
+        &json!({
+            "id": 41,
+            "cmd": "set-layout-sizes",
+            "values": [{"pane": pane, "width": 0.4}, {"pane": right_pane, "width": 1.5}],
+            "transaction": 3
+        })
+        .to_string(),
+        &writer,
+    );
+    let refused: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+    assert_eq!(refused["id"], 41);
+    assert_eq!(refused["ok"], false);
+    assert_eq!(refused["error_code"], ViewportWidthError::OUT_OF_RANGE_CODE);
+    assert!(refused["error"].as_str().unwrap().starts_with("value 1: "), "{refused}");
+    assert_eq!(widths(&mux), before, "a refused batch changed a width");
+
+    handle_message(
+        &mux,
+        mux.local_test_client(7),
+        &json!({
+            "id": 42,
+            "cmd": "set-layout-sizes",
+            "values": [{"pane": pane, "width": 0.4}, {"split_or_pane": 1}],
+            "transaction": 3
+        })
+        .to_string(),
+        &writer,
+    );
+    let malformed: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+    assert_eq!(malformed["id"], 42);
+    assert_eq!(malformed["ok"], false, "a value that is neither a ratio nor a width was taken");
+    assert_eq!(widths(&mux), before);
+
+    handle_message(
+        &mux,
+        mux.local_test_client(7),
+        &json!({
+            "id": 43,
+            "cmd": "set-layout-sizes",
+            "values": [{"pane": pane, "width": 0.4}, {"pane": right_pane, "width": 0.6}],
+            "transaction": 3
+        })
+        .to_string(),
+        &writer,
+    );
+    let applied: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+    assert_eq!(applied["id"], 43);
+    assert_eq!(applied["ok"], true, "{applied}");
+    assert_eq!(widths(&mux), vec![0.4, 0.6]);
+
+    // A ratio value: the second column's split at 0.5 makes it as wide as the column left of it (0.4).
+    let split = mux.with_state(|state| state.workspaces[0].screens[0].layout_columns[1].id);
+    handle_message(
+        &mux,
+        mux.local_test_client(7),
+        &json!({
+            "id": 44,
+            "cmd": "set-layout-sizes",
+            "values": [{"split": split, "ratio": 0.5}],
+            "transaction": 3
+        })
+        .to_string(),
+        &writer,
+    );
+    let ratio: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+    assert_eq!(ratio["id"], 44);
+    assert_eq!(ratio["ok"], true, "{ratio}");
+    let after_ratio = widths(&mux);
+    assert!(
+        after_ratio.len() == 2 && (after_ratio[1] - after_ratio[0]).abs() < 1e-5,
+        "a ratio of 0.5 must make the second column as wide as the first: {after_ratio:?}"
+    );
+
+    // #34928 review A and #35261 review: a value that is not exactly one pair (both pairs, or an array) is refused as
+    // a malformed request, not half applied.
+    for (id, value) in [
+        (45, json!({"split": split, "ratio": 0.6, "pane": right_pane, "width": 0.3})),
+        (46, json!([split, 0.6])),
+    ] {
+        handle_message(
+            &mux,
+            mux.local_test_client(7),
+            &json!({"id": id, "cmd": "set-layout-sizes", "values": [value], "transaction": 3})
+                .to_string(),
+            &writer,
+        );
+        let refused: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(refused["id"], id);
+        assert_eq!(
+            refused["ok"], false,
+            "a value that is not exactly one pair was taken: {refused}"
+        );
+        assert!(
+            refused["error"].as_str().is_some_and(|error| error.starts_with("bad request: ")),
+            "{refused}"
+        );
+        assert!(refused.get("error_code").is_none(), "{refused}");
+        assert_eq!(widths(&mux), after_ratio, "a refused value changed a width");
+    }
+}
+
+/// #34928 review C: identify advertises the batch command.
+#[test]
+fn identify_advertises_the_layout_sizes_batch() {
+    assert!(advertised_capabilities(false).contains(&LAYOUT_SIZES_BATCH_CAPABILITY));
+}
+
 #[test]
 fn create_terminal_rejects_partial_dimensions() {
     let mux = test_mux();
@@ -737,6 +869,52 @@ fn daemon_shutdown_is_local_fenced_and_queues_ack_first() {
     assert_eq!(shutdown["event"], DAEMON_SHUTDOWN_EVENT);
 }
 
+/// `restart` on `shutdown-daemon` reaches every client that negotiated
+/// `daemon-shutdown-restart-v1` on the shutdown notice, so an attached TUI
+/// reconnects after `server restart` and exits after `server stop`. A client
+/// without the capability (a strict older SDK) gets the bare event, and a
+/// requester that does not say leaves it out.
+#[test]
+fn daemon_reconnect_shutdown_notice_carries_restart() {
+    for (restart, expected) in
+        [(Some(true), json!(true)), (Some(false), json!(false)), (None, Value::Null)]
+    {
+        let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let requester = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let (tui_writer, tui_outbound) = captured_writer();
+        let tui = mux.control_clients.register(ClientTransport::Unix, tui_writer);
+        let capabilities = Some(vec![DAEMON_SHUTDOWN_RESTART_CAPABILITY.to_string()]);
+        mux.control_clients.set_info(tui, None, Some("tui".into()), capabilities).unwrap();
+        let (sdk_writer, sdk_outbound) = captured_writer();
+        let sdk = mux.control_clients.register(ClientTransport::Unix, sdk_writer);
+        let (_, generation) = mux.registry_identity();
+        let mut request = json!({
+            "id": 95,
+            "cmd": "shutdown-daemon",
+            "pid": std::process::id(),
+            "generation": generation,
+        });
+        if let Some(restart) = restart {
+            request["restart"] = json!(restart);
+        }
+        assert!(handle_message(&mux, requester, &request.to_string(), &writer));
+        assert!(mux.daemon_shutdown_requested(), "{restart:?}");
+        assert!(!mux.control_clients.contains(tui));
+        assert!(!mux.control_clients.contains(sdk));
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        let requester_notice = pop_json(&outbound);
+        assert_eq!(requester_notice, json!({"event": DAEMON_SHUTDOWN_EVENT}));
+        let notice = pop_json(&tui_outbound);
+        assert_eq!(notice["event"], DAEMON_SHUTDOWN_EVENT);
+        assert_eq!(notice["restart"], expected, "{notice}");
+        assert_eq!(pop_json(&sdk_outbound), json!({"event": DAEMON_SHUTDOWN_EVENT}));
+    }
+}
+
 #[test]
 fn daemon_shutdown_waits_for_ack_flush_before_disconnecting_the_owner() {
     let mux = test_mux();
@@ -1052,6 +1230,7 @@ fn daemon_shutdown_atomically_fences_native_browser_ownership() {
             force: false,
             end_terminals: false,
             keep_layout: false,
+            restart: None,
         },
         &requester_writer,
     )
@@ -1075,6 +1254,7 @@ fn daemon_shutdown_atomically_fences_native_browser_ownership() {
             force: false,
             end_terminals: false,
             keep_layout: false,
+            restart: None,
         },
         &requester_writer,
     )
@@ -1212,4 +1392,24 @@ fn pane_and_screen_close_detach_views_without_closing_terminal_hosts() {
         mux.close_terminal(TERMINAL, INCARNATION).unwrap();
         assert!(mux.surface(surface).is_none());
     }
+}
+
+/// A requester that leaves while its reservation is pending takes its
+/// `restart` along: a later handoff that names none (session.shutdown, the
+/// orphan stop) must not announce the old one.
+#[test]
+fn daemon_reconnect_restart_does_not_outlive_its_reservation() {
+    let mux = test_mux();
+    mux.mark_server_lifecycle_ready();
+    let (writer, _outbound) = captured_writer();
+    let first = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    mux.begin_daemon_handoff(first, DaemonHandoffRequest::unfenced(false)).unwrap();
+    mux.control_clients.set_daemon_handoff_restart(first, Some(true));
+    assert_eq!(mux.control_clients.daemon_handoff_restart(), Some(true));
+    mux.control_clients.remove(first);
+    assert_eq!(mux.control_clients.daemon_handoff_restart(), None);
+
+    let second = mux.control_clients.register(ClientTransport::Unix, writer);
+    mux.begin_daemon_handoff(second, DaemonHandoffRequest::unfenced(false)).unwrap();
+    assert_eq!(mux.control_clients.daemon_handoff_restart(), None);
 }

@@ -26,6 +26,8 @@ enum Strings {
     static var pinned: String { String(localized: "sidebar.section.pinned", defaultValue: "Pinned", bundle: .module) }
     static var moveToGroup: String { String(localized: "sidebar.group.moveTo", defaultValue: "Move to Group", bundle: .module) }
     static var projects: String { String(localized: "sidebar.section.projects", defaultValue: "Projects", bundle: .module) }
+    /// Projects and Recents' header over workspaces in no group (`ListHeaderRowView`).
+    static var recents: String { String(localized: "sidebar.section.recents", defaultValue: "Recents", bundle: .module) }
     static var noFolder: String { String(localized: "sidebar.folder.none", defaultValue: "No Folder", bundle: .module) }
     static var pinnedEmpty: String { String(localized: "sidebar.section.pinned.empty", defaultValue: "Drop here to pin", bundle: .module) }
     /// An open empty group's row (`EmptyGroupRowView`).
@@ -89,6 +91,8 @@ enum Strings {
     }
     static func unreadCount(_ value: Int) -> String { String(localized: "sidebar.a11y.unread", defaultValue: "\(value) unread", bundle: .module) }
     static func progressPercent(_ value: Int) -> String { String(localized: "sidebar.a11y.progress", defaultValue: "\(value)% done", bundle: .module) }
+    /// The hover card's line for a workspace whose idle terminals were freed (`workspaces.freeing.*`).
+    static func freedTerminals(_ value: Int) -> String { String(localized: "sidebar.hoverCard.freedTerminals", defaultValue: "Freed terminals: \(value). They start again when you open this workspace.", bundle: .module) }
     static func tabCount(_ value: Int) -> String { String(localized: "sidebar.a11y.tabCount", defaultValue: "Tabs: \(value)", bundle: .module) }
     /// The hover card's machine line on a workspace the Chief started for a subagent.
     /// Status entries a row folds past its limit.
@@ -134,6 +138,13 @@ enum Strings {
     static var newProfileName: String { String(localized: "sidebar.room.newName", defaultValue: "New Space", bundle: .module) }
     static var newProfile: String { String(localized: "sidebar.space.new", defaultValue: "New Space", bundle: .module) }
     static var profiles: String { String(localized: "sidebar.a11y.rooms", defaultValue: "Spaces", bundle: .module) }
+    // The switcher's window marks (design/spaces.md "The switcher (PR 3)").
+    static var goToSpaceWindow: String { String(localized: "sidebar.space.goToWindow", defaultValue: "Go to Window", bundle: .module) }
+    static var moveSpaceHere: String { String(localized: "sidebar.space.moveHere", defaultValue: "Move Here", bundle: .module) }
+    static var newIncognitoSpace: String { String(localized: "sidebar.space.newIncognito", defaultValue: "New Incognito Space", bundle: .module) }
+    static func spaceInAnotherWindow(_ name: String) -> String {
+        String(localized: "sidebar.space.inAnotherWindow", defaultValue: "\(name), in another window", bundle: .module)
+    }
     /// The Now Playing card's scrubber (its value says the position and the length).
     static var nowPlayingPosition: String {
         String(localized: "sidebar.a11y.nowPlaying.position", defaultValue: "Playback Position", bundle: .module)

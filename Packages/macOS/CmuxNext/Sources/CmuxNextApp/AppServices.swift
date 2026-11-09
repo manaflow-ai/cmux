@@ -20,6 +20,7 @@ import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextMacScreen
 import CmuxNextDaemonRecovery
 public import CmuxNextDictation
 import CmuxNextFeed
@@ -28,6 +29,7 @@ import CmuxNextFavicons
 import CmuxNextHibernation
 import CmuxNextHomeEngine
 import CmuxNextIcons
+import CmuxNextLiveCode
 import CmuxNextPalette
 import CmuxNextAccounts
 import CmuxNextAppCore
@@ -47,6 +49,7 @@ import CmuxNextWakeups
 import CmuxNextWorkspaceNaming
 import CmuxNextWorkspaceRepair
 import os
+import CmuxNextFocus
 import CmuxNextFocusUI
 import CmuxNextTabs
 /// Process-wide services the window controllers share. Model state is not
@@ -105,6 +108,8 @@ final class AppServices {
     /// Restart CLI Listener: binds the control socket again. Set once the
     /// app's control socket starts; nil while it has none (tests, socket off).
     var restartControlListener: (@MainActor () throws -> Void)?
+    /// One Cloud environment apply at a time.
+    let cloudEnvironmentSwitch = CloudEnvironmentSwitch()
     /// This build's error journal (AppControl starts it): Help > Copy Logs reads it.
     var errorJournal: ErrorJournalService?
     /// Agents' and scripts' Cloud machine creates waiting on the person in every window's sidebar card.
@@ -117,8 +122,8 @@ final class AppServices {
     private(set) lazy var windowHomes = WindowHomes(host: self)
     /// Hibernates idle workspaces (plans/cmux-next/workspace-hibernation-DESIGN.md).
     private(set) lazy var workspaceHibernation = WorkspaceHibernation(host: self, keepAwake: WorkspaceKeepAwakeStore(defaults: .standard),
-                                                                  deadline: DemandTimer(owner: "workspace-hibernation"))
-    private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild, mainWork: mainWork, work: work, loginKeychain: loginKeychain, authCaptureFixture: environment.authCaptureFixture)  // first read in init (no IUO)
+                                                                  deadline: DemandTimer(owner: "workspace-hibernation"), memoryPressure: memoryPressure, terminals: LocalTerminalFreeing(DaemonParkableTerminals(store: machines.local.store, connection: { [machines] in machines.local.connection })))
+    private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild, mainWork: mainWork, work: work, loginKeychain: loginKeychain, authCaptureFixture: environment.authCaptureFixture, configuration: environment.cloudConfiguration)  // first read in init (no IUO)
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
     private(set) lazy var feed: FeedService = FeedService(
         auth: cloud.auth,
@@ -133,7 +138,7 @@ final class AppServices {
     private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID, mainWork: mainWork)  // first read in init (no IUO)
     private(set) lazy var serverReach = ServerReachService.app(services: self)
     /// Add Machine and Check Machine (plans/cmux-next/add-machine-DESIGN.md); each machine's last check.
-    private(set) lazy var addMachine = AddMachineCard(services: .app(self))
+    private(set) lazy var addMachine = AddMachineCard(services: .app(self), panel: { [weak self] in self?.serverMenuBar.cardPanel() })
     /// Add Device and Settings > Devices (plans/cmux-next/add-device-DESIGN.md): one entry, one list, one remove.
     private(set) lazy var addDevice = AddDeviceCard(services: .app(self))
     private(set) lazy var devices = DeviceDirectory.app(self)
@@ -155,15 +160,15 @@ final class AppServices {
         weak var objectMenu: NSMenu?
     }
     #endif
-    /// The Machines section's joined machines (Labs `labs.machineJoin`); empty while it is off.
+    /// The Machines section's hub-joined machines (`cmux machine list`); signed out or switched account or team: emptied, then read.
     private(set) lazy var joinedMachines = JoinedMachineStore(service: { [weak self] in
-        guard let self, self.settings?.snapshot.machineJoin == true else { return nil }
+        guard let self else { return nil }
         #if DEBUG
         if let fixture = self.debugFixtures.joinedMachines { return fixture }
         #endif
-        return MachineJoinService.app(self)
-    })
-    /// This Mac's one-line join consent (Settings > Devices' switches, the one-time sheet), behind labs.machineJoin.
+        return self.cloud.auth.isSignedIn ? MachineJoinService.app(self) : nil
+    }).following(account: { [weak self] in self?.cloud.auth.accountKey })
+    /// This Mac's join consent (Settings > Devices' switches, the one-time sheet): all labs.machineJoin still gates.
     private(set) lazy var joinConsent = JoinConsentModel.app(self)
     /// The app's latest key or mouse input and whether it was the person's (HID system), over the app's one
     /// table of posting processes (`personInput.sources`): backs a consent grant made in a page. Started at launch.
@@ -189,12 +194,14 @@ final class AppServices {
     let updater: UpdaterService
     /// The file picker made ahead of the click, the app's one: agent panes, page file inputs and Home's "+" take it.
     let openPanel = MadeAheadOpenPanel()
+    /// Live code's watcher (Debug and bench, CMUX_LIVE_CODE_DIR or Labs > Live Code); windows show its badge.
+    let liveCode = LiveCode.fromEnvironment()
     /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md).
     private(set) lazy var serverUpdates = ServerUpdatePresenter(daemon: daemon, defaults: .standard,
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
     private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
-    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { onboarding.followImportSetting(settings); madeAgentTabs?.follow(settings); browserHost?.follow(settings); cloud.hostReplica.follow(settings, local: machines.local, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil }) } } }
+    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { cloud.codexBroker.consent = CloudStartChat.codexConsent(self); onboarding.followImportSetting(settings); madeAgentTabs?.follow(settings); browserHost?.follow(settings); cloud.hostReplica.follow(settings, local: machines.local, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil }) } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
     var paletteShortcutEditor: PaletteShortcutEditor?
     /// Where Chromium comes from: embedded, or downloaded on first use (bundle-size-DESIGN.md section 6).
@@ -203,11 +210,11 @@ final class AppServices {
     let browserStores: BrowserSharedStores
     /// Chromium sign-in tabs: the engine's runtime and the sign-in windows share it.
     let signInCallbacks = CEFSignInCallbacks()
-    /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
+    /// Every terminal's grid sender: a view's reported grid in its turn, one in flight, a held one on a frame.
     let resizes = ResizeCoordinator()
     /// Browser tabs each pane also lists (`browser.page.mirror`): one live page shown in a second pane.
     let tabMirrors = TabMirrors()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus), fileInput: openPanel, resizes: resizes)  // first read in init (no IUO)
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus), fileInput: openPanel, resizes: resizes, memoryPressure: memoryPressure)  // first read in init (no IUO)
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.window_record` and `--record-launch`'s recordings.
     let windowRecord = DebugWindowRecord()
@@ -257,6 +264,10 @@ final class AppServices {
         return ModelRouterLease(tokens: cloud.auth, apiBaseURL: feed.apiBaseURL, acpmuxHome: acpmux.home,
                                 logger: Logger(subsystem: "com.cmuxterm.next", category: "model-router"))
     }()
+    /// The cmux sign-in lent to acpmux for GitHub App tokens (CmuxNextHomeEngine GitHubAppLease).
+    private(set) lazy var githubAppLease = GitHubAppLease(identity: cloud.installIdentity,
+                                                          apiBaseURL: cloud.configuration.ownerAPIBaseURL(),
+                                                          environment: { [weak self] in self.flatMap(QuitAgents.environment) })
     /// Where agent cursors draw (plans/cmux-next/agent-cursor.md section 3).
     private(set) lazy var agentCursorVisibility = AgentCursorWiring.makeVisibility(services: self)
     /// What agent cursor tags say and where a click on one goes.
@@ -283,7 +294,7 @@ final class AppServices {
     /// The live preview card of computer use in agent chats (`computerUse.livePreview`); its live
     /// view runs only while the person can see the chat's page.
     private(set) lazy var computerUsePreview = ComputerUseLivePreview(
-        host: self, sight: ComputerUsePreviewViewSight { [weak self] in self?.agentTabs.views[$0] })
+        host: self, sight: ComputerUsePreviewViewSight { [weak self] in self?.agentTabs.views[AgentTabKey(relaunchStorageKey: $0)] })
     /// `cmux://screenshots`: the Screenshots pane (its detection, thumbnail cache and pages).
     private(set) lazy var screenshotsPage = ScreenshotsPageService(services: self)
     private(set) lazy var remoteViewPages = RemoteViewPageService()
@@ -293,6 +304,8 @@ final class AppServices {
     private(set) lazy var macScreenTabs = MacScreenPageService(services: self)
     /// The device hub (built in; `deviceHub.url` overrides it in DEV builds): the user's devices for Mac Screen and Settings > Devices.
     private(set) lazy var deviceHub = AppServices.makeDeviceHub(self)
+    /// cmux Remote: the daemon's signed host for Computer Use and Screen Sharing (docs/cmux-remote.md).
+    private(set) lazy var cmuxRemote = CmuxRemoteService(daemon: daemon)
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
     /// The user's keybindings.json, owned by the home daemon, as the binding table's user layer.
@@ -344,7 +357,7 @@ final class AppServices {
     /// Sleepy Mode, the keep-awake screensaver (`palette.sleepyMode`); tests set one with fake seams.
     lazy var sleepyMode = SleepyModeController(
         keepAwake: SleepyKeepAwakeActivity(),
-        overlay: SleepyOverlayWindows(workingAgents: { [weak self] in self?.workingAgentTabCount() ?? 0 },
+        overlay: SleepyOverlayWindows(workingAgents: { [weak self] in self?.menuBarAgentsWorking ?? 0 },
                                       lockMac: { SleepyMacLock().lock() })
     )
     /// Share Screen with Chief (docs/chief-screen-share.md), read by the Computer Use helper; journal in `optchat/screen`.
@@ -367,6 +380,9 @@ final class AppServices {
     let newTabWeather = NewTabWeather()
     /// The models picked per harness in the Chief card's Model menu (its Recent section).
     let chiefModelRecents = HomeChiefModelRecents(defaults: .standard)
+    /// Where this Mac's Chief runs and its running move (the Home header's location chip, the Chief
+    /// card's Runs On row); `ChiefMoveHandlers` wires its menu to `chief.moveTo` and `chief.moveRollback`.
+    private(set) lazy var chiefTeleport = ChiefTeleportModel(home: ChiefHome.resolve(tag: environment.tag).root)
     let newTabTypeAhead = NewTabTypeAhead()
     /// Home's first-run Switching card: Hide memory and the Mission Control check.
     let homeSwitchKeys = HomeSwitchKeysSource()
@@ -374,10 +390,14 @@ final class AppServices {
     let memoryPressure = MemoryPressureEvents(source: KernelMemoryPressureSource())
     /// One prewarmed new tab page per window (instant open).
     private(set) lazy var newTabSpares = NewTabSparePool(services: self, memoryPressure: memoryPressure)
+    /// The New Tab bar's palette actions, read as background work after the page shows (``NewTabPage/fillPaletteActions(_:)``).
+    private(set) lazy var newTabActions = AgentPaneNewTabActions(on: mainWork, measure: { BenchSpans.measure("newTab.paletteActions", $0) }) { [palette = self.palette] in palette.commandListing() }
     /// The spare React page hosts for Settings, History and Cloud.
     private(set) lazy var pageHostPool = PageHostPool(memoryPressure: memoryPressure)
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
     private(set) lazy var iconPicker = IconPickerService(services: self)
+    /// The sidebar's workspace group editor: one warm page in a glass panel (GroupEditorService).
+    private(set) lazy var groupEditor = GroupEditorService(overlayProcess: overlayProcess)
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
     private(set) lazy var configActions: ConfigActionsController = ConfigActionsController(context: AppActionContext(services: self))  // first read in init (no IUO)
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
@@ -403,10 +423,11 @@ final class AppServices {
     /// The input event being dispatched now (``InputDispatchContext``): `sendEvent` and the router's own dispatches.
     /// Each scroll event it dispatches is timed to its frame (`key.scroll_frame`).
     let inputDispatch = InputDispatchContext(scrollFrames: ScrollFrameSignpost())
+    let focusInput = FocusInput() // the one input router: every window's focus (R-INPUT S2)
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch, heldKeyReplay: heldKeyReplay)  // first read in init (no IUO)
     /// Where a creation hold's keys run again (``HeldKeyReplay``): `AppDelegate` passes `NSApp.sendEvent`.
     private let heldKeyReplay: HeldKeyReplay
-    private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef)  // first read in init (no IUO)
+    private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef, memoryPressure: memoryPressure)  // first read in init (no IUO)
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
     /// The wallpaper choices, built off main and kept current by folder events (BackdropCatalogStore).
@@ -416,6 +437,11 @@ final class AppServices {
     let chiefMascotPicks = ChiefMascotPicks(defaults: .standard, defaultChief: HomeChiefAvatars.defaultChief)
     /// Each Chief's own uploaded avatar, kept on this Mac only (Application Support/<bundle id>/AvatarUploads).
     let chiefAvatarUploads = ChiefAvatarUploads(folder: ChiefAvatarUploads.defaultFolder)
+    let chiefSidebarPictures = ChiefSidebarPictures()  // the sidebar Chief item's picture, one per upload
+    /// The chat the Chief pet (the floating mini) stands for: the Chief, or one Show in Mini picked.
+    private(set) lazy var chiefPetMini = ChiefPetMini(uploads: chiefAvatarUploads, localHost: { [weak self] in self?.agentTabs.localHost },
+                                                      settings: { [weak self] in self?.settings }, pet: { [weak self] in self?.notifications.chiefPet },
+                                                      acpmux: feed.acpmuxEnvironment)
     /// The Chief vault (`cmux vault`, Settings > Credential Vault): named secrets in this build's Keychain.
     private(set) lazy var credentialVault = CredentialVault.forApplication(bundleID: environment.launch.bundleID)
     /// Settings > Chief > Credential Vault's names, scopes and last uses (the host lists' `credential_vault`).
@@ -442,7 +468,7 @@ final class AppServices {
     private(set) lazy var background = BackgroundActivation(registry: registry, icon: MenuBarIcon().image(), mayEnter: { [weak self] in
         guard let self else { return false }
         return AppProcessRoot.shared.services === self && self.windows.controllers.isEmpty && !self.quit.isQuitting
-            && self.settings?.snapshot.hideDockIconWithoutWindows ?? CmuxConfigSnapshot.hideDockIconWithoutWindowsFallback
+            && self.settings?.snapshot.hideDockIconWithoutWindows ?? CmuxConfigSnapshot.hideDockIconWithoutWindowsDefault
     }, menuBarItemShown: { [weak self] in self?.menuBarExtra.isShown ?? false })
     /// The cmux menu bar item (`app.showMenuBarIcon`): account, agents, help, community, updates, logs, Quit.
     private(set) lazy var menuBarExtra = MenuBarExtra(registry: registry, icon: MenuBarIcon().image(), host: self)
@@ -450,6 +476,7 @@ final class AppServices {
     private(set) lazy var onboarding = OnboardingService(services: self)
     /// Agent permission requests (`permissions.request`): the card, the store and the TCC reads.
     private(set) lazy var agentPermissions = AgentPermissionsService(services: self)
+    private(set) lazy var imessage = AgentPaneIMessageConnector(host: self)
     /// Provider sign-ins and CodeRouter accounts (Settings > Accounts, onboarding).
     private(set) lazy var accounts = AccountsService(services: self)
     /// Agent harness profiles (Settings > Agents, `agent.harness.*`), through acpmux.
@@ -463,6 +490,8 @@ final class AppServices {
     private(set) lazy var externalOpen = ExternalOpenController(services: self)
     /// The `cmux://session/<id>` question before a link opens a new agent tab.
     private(set) lazy var sessionLinks = SessionLinkGate.app(self)
+    /// The Dock icon's menu: New Chat, Continue, Unread and Recent chats, built from cached rows only.
+    private(set) lazy var dockMenu = DockMenuController(host: self)
     let terminalTheme = TerminalThemeSetting(backdropScope: .app)
     /// This Mac's layout templates (Save Layout as Template, New Workspace from Template).
     private(set) lazy var layoutTemplates = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: environment.layoutTemplatesFile))
@@ -525,6 +554,9 @@ final class AppServices {
     /// The one owner of hover cards in the app: at most one card, ever
     /// (plans/cmux-next/hovercards.md).
     let hoverCards = HoverCardCoordinator()
+    let overlayProcess = PageOverlayProcess() // the overlay pages' one web content process, handed to each page's owner
+    let dialogs: OverlayDialogDrawing // the shared center's dialogs draw on the overlay page
+    let toasts: CmuxToastWebHost // the shared center's toasts draw on the overlay page
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
@@ -564,8 +596,9 @@ final class AppServices {
          work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil), peerApprover: AgentPanePeerApprover? = nil,
          agentPaneStateFiles: AgentPaneStateFiles = AgentPaneStateFiles()) {
+        (dialogs, toasts) = (OverlayDialogDrawing(drawing: .shared, overlayProcess: overlayProcess), CmuxToastWebHost(drawing: .shared, overlayProcess: overlayProcess))
         self.work = work
-        bundledCLI = BundledExecutable(resources: Bundle.main.resourceURL, name: "cmux", work: work)
+        bundledCLI = BundledExecutable.cli(resources: Bundle.main.resourceURL, work: work)
         (iphone, browserStores) = (IPhoneHostService(loginKeychain: loginKeychain), .application(loginKeychain: loginKeychain))
         (self.launchImages, self.relaunchWake, self.keyWindowSource, self.appActiveSource, self.peerApprover, self.heldKeyReplay) = (launchImages, relaunchWake, keyWindowSource, appActiveSource, peerApprover, heldKeyReplay)
         self.agentPaneStateFiles = agentPaneStateFiles
@@ -578,7 +611,7 @@ final class AppServices {
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget), warmingOn: mainWork)
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
-        daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
+        daemon = DaemonService(echoesPlacementShift: true, mainWork: mainWork)
         // The automatic restart's toggle, and Restart cmux-tui over content while the daemon is gone (restore fuzz h2).
         daemon.installRecovery()
         self.launchReveal = launchReveal
@@ -612,7 +645,9 @@ final class AppServices {
         }
         _ = remoteLocalhost  // built here, as before
         cache.configureBrowser = { [weak self] tab, url, base in  // a Cloud proxied tab's store first (ProxiedBrowserTabs)
-            let base = self?.cache.pageRequests.closedHistories.restoring(base, url: url, local: self?.machines.daemon(forTab: tab).isLocal == true, tab: tab.id) ?? base  // cx-d0d.59
+            // cx-d0d.59; a person's new tab (a stand-in) is never a reopen (#37384).
+            let base = ProvisionalTab.isProvisional(surface: tab.surface) ? base
+                : self?.cache.pageRequests.closedHistories.restoring(base, url: url, local: self?.machines.daemon(forTab: tab).isLocal == true, tab: tab.id) ?? base
             // Nil (a blocked proxied tab, a remote-localhost route that cannot start) leaves the page
             // blank (TabContentCache.chromiumConfiguration), never on this Mac's localhost.
             return await self?.cache.pageRequests.proxiedTabs.configuration(for: tab.id, url: url, base: base) { await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) }
@@ -628,7 +663,7 @@ final class AppServices {
         cache.onRestoredPageStart = { [weak crashRecovery] key in crashRecovery?.marker?.notePageStarted(key) }
         // Any browser tab, by any path, is a use of the browser: its tip never shows (feature tips).
         cache.onBrowserTab = { AgentPaneFeatureTipRecords().noteFeatureUsed(AgentPaneFeatureTipRecords.browserFeature) }
-        crashRecovery.observe(cache.cef.crashLog)
+        crashRecovery.observe(cache.cef, reporter: crashReporting.reporter)
         AppRunMarker.keepSignalHandlers(crashRecovery.marker, across: cache.cef, reporter: crashReporting.reporter)
         cache.cef.openURLWithoutWindow = { [weak self] url, disposition, profile in
             // Chromium wanted a window and has none for that profile (a
@@ -681,7 +716,7 @@ final class AppServices {
             bookmarks.attach(entry)
             onboarding.browserImportOffer.attach(entry)
             attachMachineBadgeMenu(entry)
-            entry.chrome.onContentFullscreenChange = { [weak self, weak entry] on in
+            entry.state.onContentFullscreenChange = { [weak self, weak entry] on in
                 if let entry { self?.pageContentFullscreenChanged(entry, on: on) }
             }
         }
@@ -704,10 +739,9 @@ final class AppServices {
             if self.sleepyMode.consumesKeyDown() { return true }
             return self.keyRouter.interceptKeyDown(event, in: window)
         }
+        (NSApp as? CmuxApplication)?.keyUpOrClickInterceptor = { [weak self] in self?.linkHints.inputWillDispatch($0) ?? false }
         (NSApp as? CmuxApplication)?.crossWindowKeyGuard = { [weak self] event, keyWindow in
-            // Keys typed after New Window follow its new window on purpose (NewTabInputCoordinator).
-            guard let self, !keyRouter.newTabInputCoordinator.followsNewWindow else { return false }
-            return CrossWindowInputGuard(windows: windows).dropsKey(event, keyWindow: keyWindow)
+            CrossWindowInputGuard.drops(keyTypedInto: event.window, keyWindow: keyWindow, router: self?.keyRouter)
         }
         (NSApp as? CmuxApplication)?.dispatchScope = { [weak self] event, body in
             guard let self else { return body() }
@@ -745,12 +779,12 @@ final class AppServices {
         daemon.onPaneNotReady = { [weak registry] reason in registry?.refuse(reason) }
         _ = palette  // built here, as before
         terminalDelegate.services = self
-        _ = configActions  // built here, as before
+        _ = (configActions, uiInspector)  // built here; uiInspector alone hears the chat's Inspect Element row (no monitor until it picks)
         let updateSheet = self.updateSheet  // built here, as before
         updater.attach(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
         serverUpdates.start(registry: registry)
         cache.onBrowserReady = { [weak self] key in
-            self?.keyRouter.creationInputCoordinator.holdEnds.pageArrived(key); for controller in self?.windows.controllers ?? [] {
+            self?.keyRouter.creationInputCoordinator.pageArrived(key); for controller in self?.windows.controllers ?? [] {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }
             }
         }
@@ -884,9 +918,9 @@ final class AppServices {
         agentPaneStateLoss.deadlineEnd(files: agentPaneStateFiles, alsoCutOff: { [watch = iphone.pairedQuitWatch] in watch.markCutOffIfSaving() })
     }
 
-    /// The quit's state-file saves (the agent panes' drafts and scroll places, the paired phones' list),
-    /// awaited together holding no thread and with no limit of their own: the quit awaits them after its
-    /// deadline is armed, and that deadline records what was still saving (``quitDeadlineEnd()``).
+    /// The quit's state-file saves (the agent panes' drafts, scroll places and chat tails (`AgentPaneStateFiles.tails(in:)`),
+    /// the paired phones' list), awaited together holding no thread and with no limit of their own: the quit awaits them after
+    /// its deadline is armed, and that deadline records what was still saving (``quitDeadlineEnd()``).
     func stateFilesDrained() async {
         let files = agentPaneStateFiles
         async let panes: Void = files.drained()

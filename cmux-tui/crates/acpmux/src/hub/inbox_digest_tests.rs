@@ -30,6 +30,7 @@ fn part(prompt_id: &str, name: &str, class: Class, at: u64, text: &str) -> Part 
         class,
         received_at: at,
         text: text.into(),
+        notice: None,
     }
 }
 
@@ -179,6 +180,12 @@ fn only_other_agents_text_messages_go_into_a_digest() {
     run.provenance = Some(json!({"kind": KIND}));
     digest.run = Arc::new(run);
     assert!(!digestible(&digest));
+    // A goal's continuation runs alone, checked against its goal (Codex review of #36666).
+    let mut continuation = queued("p6g", Some("acpmux"), None, "Keep going");
+    let mut run = continuation.run.clone_run();
+    run.provenance = Some(json!({"kind": "notice", "from": "acpmux", "goalMark": "41"}));
+    continuation.run = Arc::new(run);
+    assert!(!digestible(&continuation));
     let mut web = queued("p7", Some("lane-a"), None, "from the web");
     let mut run = web.run.clone_run();
     run.control = Control::Web;
@@ -236,4 +243,18 @@ fn a_renamed_sender_still_folds_and_groups_by_its_address() {
     assert_eq!(text.matches("### from ").count(), 1, "{text}");
     assert_eq!(text.matches("\n\n[result]").count(), 2, "{text}");
     assert!(text.contains("promptId p2 (×2)"), "{text}");
+}
+
+/// A tool's notice in a digest keeps its structure on its part (`prompt_provenance::notice`).
+#[test]
+fn a_digest_part_keeps_its_tools_notice() {
+    let notice = json!({"sender": "base-red-watch", "severity": "fire", "title": "t"});
+    let mut fire = part("p-1", "base-red-watch", Class::Block, 1, "red");
+    fire.notice = Some(notice.clone());
+    let plain = part("p-2", "lane", Class::Result, 2, "merged");
+    let rendered = render("d-1", &[fire, plain]);
+    let parts = rendered.provenance["parts"].as_array().unwrap();
+    let by_id = |id: &str| parts.iter().find(|p| p["promptId"] == id).unwrap();
+    assert_eq!(by_id("p-1")["notice"], notice);
+    assert!(by_id("p-2").get("notice").is_none());
 }

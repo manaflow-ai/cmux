@@ -20,21 +20,32 @@ extension NSWindow {
     /// pane's strip (its tabs slide) is left out of those and of `intermediate`; `strip_intermediate`
     /// counts its frames equal to neither, and `desync` those where one of strip and content shows the
     /// new tab and the other the old one. Motion proof knobs and fields: ``MotionFrameProgress``.
+    ///
+    /// `panes`: every pane's content area at the key (`before`) and now (`final`), as ``frameStripUnitRects(of:)``
+    /// gives them. A split, close or side panel moves panes other than the focused one, and any of them may show blank:
+    /// each rect (both sets, deduplicated, at most 16) is judged like the content area in every frame, `blank_panes` a
+    /// row's count of blank ones, and the row's `blank` is true when the content area or any pane is.
     public func frameStripReport(_ frames: [WindowFrame], sentAt: Double, sentTime: CFTimeInterval,
-                                 content contentHost: NSView?, strip stripView: NSView?, tolerance: Double, jump: Double?,
+                                 content contentHost: NSView?, strip stripView: NSView?,
+                                 panes: (before: [CGRect], final: [CGRect]) = ([], []), tolerance: Double, jump: Double?,
                                  dir: String) async -> [String: Any]? {
         guard let first = frames.first, let last = frames.last, let before = frames.last(where: { $0.milliseconds < sentAt }) else { return nil }
         let content = contentHost.flatMap { pixelRect(of: $0, frame: first) }
         // The pane's strip, apart: its own motion (tabs sliding over) is not content.
         let strip = stripView.flatMap { $0.isHiddenOrHasHiddenAncestor ? nil : pixelRect(of: $0, frame: first) }
-        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        func pixels(_ unit: CGRect) -> CGRect {
+            CGRect(x: unit.minX * Double(first.width), y: unit.minY * Double(first.height),
+                   width: unit.width * Double(first.width), height: unit.height * Double(first.height))
+        }
+        let paneRects = WindowFrame.paneRects(before: panes.before.map(pixels), final: panes.final.map(pixels))
         var rows: [[String: Any]] = []
-        var intermediate = 0, blank = 0, contentIntermediate = 0, desync = 0, stripIntermediate = 0
+        var intermediate = 0, blank = 0, blankPaneFrames = 0, contentIntermediate = 0, desync = 0, stripIntermediate = 0
         var settledAt: Double?, firstChange: Double?
         var progress = MotionFrameProgress(jump: jump)
+        var writes: [(frame: WindowFrame, path: String)] = []
         let shown = frames.firstIndex { $0.milliseconds >= before.milliseconds } ?? frames.endIndex
         // Off the main actor: six comparisons a frame stalled it past the watchdog in a Debug build.
-        let measures = await WindowFrame.measure(Array(frames[shown...]), before: before, last: last, content: content, strip: strip)
+        let measures = await WindowFrame.measure(Array(frames[shown...]), before: before, last: last, content: content, strip: strip, panes: paneRects)
         for (offset, m) in measures.enumerated() {
             let index = shown + offset, frame = frames[index]
             let (insideBefore, insideFinal, stripBefore, stripFinal) = (m.insideBefore, m.insideFinal, m.stripBefore, m.stripFinal)
@@ -44,7 +55,13 @@ extension NSWindow {
                 && ((stripFinal <= tolerance && stripBefore > tolerance && insideBefore <= tolerance && insideFinal > tolerance)
                     || (insideFinal <= tolerance && insideBefore > tolerance && stripBefore <= tolerance && stripFinal > tolerance))
             // Neither the content before the key nor the settled one; blank: flat too (an empty terminal is flat).
-            let isBlank = content != nil && m.flatness > 0.995 && insideBefore > tolerance && insideFinal > tolerance
+            let isContentBlank = content != nil
+                && WindowFrame.PaneMeasure.isBlank(flatness: m.flatness, vsBefore: insideBefore, vsFinal: insideFinal,
+                                                   settledInk: m.settledInk, tolerance: tolerance)
+            // Every pane's content area too: a split or close may blank a pane that is not the focused one.
+            let blankPanes = m.panes.count(where: { $0.isBlank(tolerance: tolerance) })
+            let isBlank = isContentBlank || blankPanes > 0
+            if blankPanes > 0 { blankPaneFrames += 1 }
             let isContentIntermediate = frame.milliseconds > sentAt && insideBefore > tolerance && insideFinal > tolerance
             if isIntermediate { intermediate += 1 }
             progress.add(outsideBefore: m.outsideBefore, outsideFinal: m.outsideFinal)
@@ -57,17 +74,21 @@ extension NSWindow {
                 if insideFinal > tolerance { settledAt = nil } else if settledAt == nil { settledAt = frame.milliseconds - sentAt }
             }
             let name = String(format: "frame-%03d.png", index)
-            frame.write(to: (dir as NSString).appendingPathComponent(name))
+            writes.append((frame, (dir as NSString).appendingPathComponent(name)))
             rows.append([
                 "ms": (frame.milliseconds - sentAt).rounded(), "file": name,
                 "outside_vs_before": m.outsideBefore, "outside_vs_final": m.outsideFinal, "intermediate": isIntermediate,
-                "blank": isBlank, "desync": isDesync, "content_intermediate": isContentIntermediate,
+                "blank": isBlank, "blank_panes": Double(blankPanes), "content_blank": isContentBlank, "desync": isDesync, "content_intermediate": isContentIntermediate,
+                // The content area's own differences, for a script's first-content and final-frame times.
+                "content_vs_before": insideBefore, "content_vs_final": insideFinal, "flatness": m.flatness,
             ])
         }
-        WindowFrame.writeStrip(frames.filter { $0.milliseconds >= before.milliseconds }, to: (dir as NSString).appendingPathComponent("strip.png"))
+        await WindowFrame.writeAll(writes, strip: frames.filter { $0.milliseconds >= before.milliseconds },
+                                   stripPath: (dir as NSString).appendingPathComponent("strip.png"), in: dir)
         let motion = progress.fields(moving: intermediate, tabs: MotionTravelSummary("tabs.travel", after: sentTime))
         let report: [String: Any] = [
             "dir": dir, "frames": rows, "intermediate": Double(intermediate), "blank": Double(blank), "frame_count": Double(rows.count),
+            "pane_rects": Double(paneRects.count), "blank_pane_frames": Double(blankPaneFrames),
             "content_intermediate": Double(contentIntermediate), "desync": Double(desync), "strip_intermediate": Double(stripIntermediate),
             "settled_ms": settledAt.map { $0.rounded() as Any } ?? NSNull(), "first_change_ms": firstChange.map { $0.rounded() as Any } ?? NSNull(),
             "mean_interval_ms": frames.count > 1 ? (last.milliseconds - first.milliseconds) / Double(frames.count - 1) : 0,
@@ -80,6 +101,12 @@ extension NSWindow {
     public var frameStripBounds: CGRect? {
         guard let screen = NSScreen.screens.first else { return nil }
         return CGRect(x: frame.minX, y: screen.frame.maxY - frame.maxY, width: frame.width, height: frame.height)
+    }
+
+    /// Each shown host's rect as fractions of the window's captured image (top-left origin), at most 16: the `panes`
+    /// of ``frameStripReport(_:sentAt:sentTime:content:strip:panes:tolerance:jump:dir:)``, read at the key and at the report.
+    public func frameStripUnitRects(of hosts: [NSView]) -> [CGRect] {
+        Array(hosts.lazy.filter { !$0.isHiddenOrHasHiddenAncestor }.compactMap { self.unitRect(of: $0) }.prefix(16))
     }
 
     /// `host`'s rect as fractions of the window's captured image (top-left origin), for `WindowFrame.record(crop:)`.

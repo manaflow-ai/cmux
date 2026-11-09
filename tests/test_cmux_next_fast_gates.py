@@ -3,7 +3,7 @@
 
 Four base reds landed on 2026-10-21 through checks that only warn on a pull request or run only
 on push: webviews lint/format and switch-fetches (ci-web's react-apps-check is warn-only on a PR;
-cmux-next-web.yml's `web lint (fast)` fails only on push), a self-merge past its own red
+cmux-next-web-lint.yml's `web lint (fast)` fails only on push), a self-merge past its own red
 `defaults-snapshot`, and direct pushes that tripped the crash ratchet. feat-cmux-next has no
 required checks. cmux-next-fast-gates.yml runs those gates on BASE..merge for every pull request
 into feat-cmux-next (and on dispatch, against the current tip) and posts `cmux-next/fast-gates`
@@ -77,12 +77,12 @@ class WorkflowShape(unittest.TestCase):
     def test_name_job_and_runner(self):
         doc = workflow()
         self.assertEqual(doc["name"], "cmux-next fast gates")
-        self.assertEqual(list(doc["jobs"]), ["resolve", "fast-gates", "panic-ratchet", "post"])
+        self.assertEqual(list(doc["jobs"]), ["portable-placement", "resolve", "fast-gates", "panic-ratchet", "post"])
         self.assertEqual(job(doc)["name"], "fast gates")
         # The reconciled Linux pool is the default for every trusted job; fork
         # pull requests retain their ephemeral Blacksmith branch, and reruns
         # accept bounded overflow explicitly.
-        guards_runner = yaml.safe_load(GUARDS.read_text(encoding="utf-8"))["jobs"]["crash-ratchet"]["runs-on"]
+        guards_runner = yaml.safe_load(GUARDS.read_text(encoding="utf-8"))["jobs"]["own-change-checks"]["runs-on"]
         self.assertNotEqual(doc["jobs"]["resolve"]["runs-on"], guards_runner)
         self.assertNotEqual(doc["jobs"]["post"]["runs-on"], guards_runner)
         fast_runner = doc["jobs"]["fast-gates"]["runs-on"]
@@ -102,7 +102,7 @@ class WorkflowShape(unittest.TestCase):
                     "|| github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}"), runner)
                 self.assertNotIn("vars.LINUX_RUNNER", runner)
         for key, each in doc["jobs"].items():
-            if key in light:
+            if key in light or key == "portable-placement":
                 continue
             with self.subTest(runner=key):
                 runner = str(each["runs-on"])
@@ -310,7 +310,7 @@ class WorkflowShape(unittest.TestCase):
     def test_status_context_and_description(self):
         doc = workflow()
         poster = job(doc, "post")
-        self.assertEqual(poster["needs"], ["resolve", "fast-gates", "panic-ratchet"])
+        self.assertEqual(poster["needs"], ["resolve", "fast-gates", "panic-ratchet", "portable-placement"])
         self.assertIn("!cancelled()", poster["if"])
         self.assertIn("needs.resolve.result == 'success'", poster["if"])
         # Fork pull requests have no write token: resolve says post=false, the gates still pass or fail.
@@ -834,6 +834,48 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(git(work, "rev-list", "--no-merges", f"{self.tip}..{merge}").split(), [own])
         self.assertEqual(git(work, "diff-tree", "--no-commit-id", "--name-only", "-r", "--root", own).split(),
                          ["pr8.txt"])
+
+    def test_pull_request_deepens_until_the_base_reaches_below_the_pull_requests_fork(self):
+        # #37015 at 5f689d98 (run 42236372118): the PR forked from an old base commit and later merged a newer tip
+        # M. Deepening stopped once both sides met at M with no cut ahead of it, but the base's cut sat above the
+        # fork while the PR side reached the root, so base..merge held every base commit under the cut and the
+        # Sidebar-Look check refused about 620 of them.
+        seed = self.seed
+        git(seed, "checkout", "-q", "-b", "pr9", self.root)
+        first = commit(seed, {"pr9.txt": "one\n"}, "the pull request's first change")
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        for n in range(250):  # past the first deepen step, so the base's cut lands between M and the fork
+            git(seed, "commit", "-q", "--allow-empty", "-m", f"base moves on {n}")
+        merged_in = commit(seed, {"shared.txt": "two\n"}, "M: the tip the pull request merges in")
+        git(seed, "checkout", "-q", "pr9")
+        git(seed, "-c", "user.name=t", "-c", "user.email=t@example.com", "merge", "-q", "--no-ff", "--no-edit",
+            merged_in)
+        second = commit(seed, {"pr9.txt": "two\n"}, "the pull request's second change")
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        for n in range(10):
+            git(seed, "commit", "-q", "--allow-empty", "-m", f"base moves on after M {n}")
+        base = git(seed, "rev-parse", "HEAD")
+        git(seed, "checkout", "-q", "--detach", base)
+        git(seed, "-c", "user.name=t", "-c", "user.email=t@example.com", "merge", "-q", "--no-ff", "--no-edit",
+            second)
+        git(seed, "push", "-q", "-f", str(self.remote), f"{base}:refs/heads/feat-cmux-next",
+            f"{second}:refs/pull/9/head", "HEAD:refs/pull/9/merge")
+        git(seed, "checkout", "-q", "feat-cmux-next")
+        git(self.remote, "config", "uploadpack.allowReachableSHA1InWant", "true")  # as GitHub allows
+        work = self.tmp / "work9"
+        work.mkdir()
+        git(work, "init", "-q")
+        git(work, "remote", "add", "origin", f"file://{self.remote}")
+        git(work, "fetch", "-q", "--depth=2", "origin", "refs/pull/9/merge")  # what actions/checkout does
+        git(work, "checkout", "-q", "--detach", "FETCH_HEAD")
+
+        result = self.script(work, "prepare", "--event", "pull_request", "--head", second, "--base", base,
+                             "--output", str(self.tmp / "out.txt"))
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        merge = git(work, "rev-parse", "HEAD")
+        self.assertEqual(git(work, "rev-list", "--reverse", "--no-merges", f"{base}..{merge}").split(),
+                         [first, second])
 
     def test_pull_request_in_a_full_clone_fetches_nothing_more(self):
         work = self.clone(shallow=False)

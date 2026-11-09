@@ -21,8 +21,8 @@ use super::turn::TurnWatch;
 use super::{ChatTarget, GlobalArgs, Input, Session, json_output};
 
 /// The verbs this module runs (`cmux chief WORD`).
-pub(super) const WORDS: [&str; 9] =
-    ["chats", "read", "send", "react", "amend", "retract", "mark-read", "wait", "events"];
+pub(super) const WORDS: [&str; 10] =
+    ["chats", "read", "runs", "send", "react", "amend", "retract", "mark-read", "wait", "events"];
 
 /// The tapback reaction names; any other reaction is an emoji.
 const TAPBACKS: [&str; 6] = ["love", "like", "dislike", "laugh", "emphasize", "question"];
@@ -132,6 +132,14 @@ pub(super) struct Request {
     pub idle: bool,
     pub tail: Option<usize>,
     pub count: Option<usize>,
+    /// `send --as NAME`: the agent this send is from (default: `caller.rs`).
+    pub sender_name: Option<String>,
+    /// `send --class C`: what the sending agent asks (`acpmux send --class`).
+    pub class: Option<String>,
+    /// `runs --agent ID`: whose runs a Cloud chat lists (default: its Chief).
+    pub agent: Option<String>,
+    /// `runs --page N`: summaries per owner read (default: the owner's most).
+    pub page: Option<u32>,
 }
 
 /// Parses `cmux chief WORD …`.
@@ -164,6 +172,12 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
             "--chat" | "--cloud" | "--cloud-api" | "--cloud-token-file" | "--cloud-auth" => {
                 request.target.flag(flag, &mut value)?;
             }
+            // `--to NAME` and `--chief NAME`: a chat by its Chief's name or id (`pick_chat`).
+            "--to" | "--chief" => request.target.chat = Some(value()?),
+            "--as" => request.sender_name = Some(value()?),
+            "--agent" => request.agent = Some(value()?),
+            "--page" => request.page = Some(number(flag, &value()?)?.clamp(1, 200) as u32),
+            "--class" => request.class = Some(value()?),
             "--chief-home" => request.chief_home = Some(value()?.into()),
             "--last" => request.last = Some(number(flag, &value()?)?.min(500) as usize),
             "--before" => request.before = Some(number(flag, &value()?)?),
@@ -282,6 +296,12 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         println!("{}", text().usage);
         return 0;
     }
+    execute(global, &request)
+}
+
+/// Runs one parsed verb (`cmux chief WORD`, and `cmux chat send|read|wait|list`
+/// for Chief chats, chat_scope.rs); the exit code.
+pub(super) fn execute(global: &GlobalArgs, request: &Request) -> i32 {
     let json = request.json || json_output(global.output);
     let target = match request.target.resolve() {
         Ok(target) => target,
@@ -302,14 +322,15 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         word => match session.select(target.chat.as_deref()) {
             Err(error) => Err(error),
             Ok(()) => match word {
-                "read" => read(&mut session, &request, json),
-                "send" => send(&mut session, &request, json),
-                "react" => react(&mut session, &request, json),
-                "amend" => amend(&mut session, &request, json),
-                "retract" => retract(&mut session, &request, json),
-                "mark-read" => mark_read(&mut session, &request, json),
-                "wait" => wait(&mut session, &request, json),
-                "events" => events(&mut session, &request),
+                "read" => read(&mut session, request, json),
+                "runs" => runs(&mut session, request, json),
+                "send" => send(&mut session, request, json),
+                "react" => react(&mut session, request, json),
+                "amend" => amend(&mut session, request, json),
+                "retract" => retract(&mut session, request, json),
+                "mark-read" => mark_read(&mut session, request, json),
+                "wait" => wait(&mut session, request, json),
+                "events" => events(&mut session, request),
                 _ => Err((2, text().usage.to_owned())),
             },
         },
@@ -472,6 +493,152 @@ fn read(session: &mut Session, request: &Request, json: bool) -> Outcome {
     Ok(())
 }
 
+/// Run summaries this many at most per `runs` unless `--last` says otherwise.
+const RUNS_DEFAULT: usize = 50;
+
+/// `runs [RUN]`: the chat's run summaries, newest first (`--last N`,
+/// `--before MS`), paged with the summary pager's rule (conversation_rules);
+/// with RUN, that run and every one of its steps.
+fn runs(session: &mut Session, request: &Request, json: bool) -> Outcome {
+    let conversation = session.conversation.clone();
+    let agent = request.agent.clone().unwrap_or_else(|| session.chief.clone());
+    if let Some(run) = request.words.first() {
+        return run_steps(session, &conversation, &agent, run, json);
+    }
+    let limit = request.last.unwrap_or(RUNS_DEFAULT).max(1);
+    let cloud = session.client.owner == backend::Owner::Cloud;
+    let mut all: Vec<Value> = Vec::new();
+    let mut before = request.before;
+    loop {
+        let (page, has_more) = session
+            .client
+            .runs(&conversation, &agent, before, request.page)
+            .map_err(|e| session.failed(e))?;
+        let started_at: Vec<f64> =
+            page.iter().filter_map(|run| run.get("started_at").and_then(Value::as_f64)).collect();
+        all.extend(page);
+        if all.len() >= limit {
+            break;
+        }
+        let rule = cmux::conversation_rules::RunsPage {
+            cloud,
+            has_more,
+            started_at: &started_at,
+            turns: &[],
+            before,
+            oldest_started_at: 0.0,
+            unresolved: &[],
+        };
+        match cmux::conversation_rules::runs_next(&rule).0 {
+            Some(next) => before = Some(next),
+            None => break,
+        }
+    }
+    all.truncate(limit);
+    if json {
+        print_json(&json!(all));
+    } else if all.is_empty() {
+        println!("{}", text().no_runs);
+    } else {
+        for run in &all {
+            println!("{}", run_row_text(run));
+        }
+    }
+    Ok(())
+}
+
+/// The plain text of one run summary: id, status, start, steps and title,
+/// with terminal controls an agent wrote made inert.
+pub(super) fn run_row_text(run: &Value) -> String {
+    let field = |key: &str| run.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
+    let number = |key: &str| run.get(key).and_then(Value::as_u64).unwrap_or(0);
+    let row = format!(
+        "{}  {}  started {}  steps {}  {}",
+        field("id"),
+        field("status"),
+        number("started_at"),
+        number("step_count"),
+        field("title"),
+    );
+    crate::cli::wire::sanitize_remote_text(row.trim_end())
+}
+
+/// The plain text of one run step: kind, status and its text's first line,
+/// with terminal controls an agent wrote made inert.
+pub(super) fn step_line(step: &Value) -> String {
+    let field = |key: &str| step.get(key).and_then(Value::as_str).unwrap_or("");
+    let first = field("text").lines().next().unwrap_or("");
+    let line = format!("  {}  {}  {first}", field("kind"), field("status"));
+    crate::cli::wire::sanitize_remote_text(&line)
+}
+
+/// Adds a page's steps to `steps`: a step already there (the same id,
+/// updated between reads) is replaced by the copy with the newer `key`
+/// (`rev` or `seq`), in its first place.
+pub(super) fn merge_steps(steps: &mut Vec<Value>, page: Vec<Value>, key: &str) {
+    let order = |step: &Value| step.get(key).and_then(Value::as_u64).unwrap_or(0);
+    for step in page {
+        let id = step.get("id").and_then(Value::as_str);
+        match steps
+            .iter_mut()
+            .find(|known| id.is_some() && known.get("id").and_then(Value::as_str) == id)
+        {
+            Some(known) if order(&step) >= order(known) => *known = step,
+            Some(_) => {}
+            None => steps.push(step),
+        }
+    }
+}
+
+/// `runs RUN`: the run and all of its steps, read page after page while the
+/// owner has more and the cursor moves (conversation_rules `run_steps_next`).
+fn run_steps(
+    session: &mut Session,
+    conversation: &str,
+    agent: &str,
+    run: &str,
+    json: bool,
+) -> Outcome {
+    let key = session.client.step_key();
+    let mut page =
+        session.client.run_steps(conversation, agent, run, 0).map_err(|e| session.failed(e))?;
+    let mut steps = Vec::new();
+    merge_steps(
+        &mut steps,
+        page.get("steps").and_then(Value::as_array).cloned().unwrap_or_default(),
+        key,
+    );
+    let mut cursor = 0;
+    loop {
+        let has_more = page.get("has_more").and_then(Value::as_bool).unwrap_or(false);
+        let keys: Vec<u64> =
+            steps.iter().filter_map(|step| step.get(key).and_then(Value::as_u64)).collect();
+        let Some(after) = cmux::conversation_rules::run_steps_next(has_more, cursor, &keys) else {
+            break;
+        };
+        cursor = after;
+        page = session
+            .client
+            .run_steps(conversation, agent, run, after)
+            .map_err(|e| session.failed(e))?;
+        merge_steps(
+            &mut steps,
+            page.get("steps").and_then(Value::as_array).cloned().unwrap_or_default(),
+            key,
+        );
+    }
+    let summary = page.get("run").cloned().unwrap_or(Value::Null);
+    if json {
+        print_json(&json!({"run": summary, "steps": steps}));
+        return Ok(());
+    }
+    println!("{}", run_row_text(&summary));
+    for step in &steps {
+        println!("{}", step_line(step));
+    }
+    Ok(())
+}
+
 /// The text `send` sends: its words, or stdin for `-`.
 fn send_text(words: &[String]) -> Result<String, (i32, String)> {
     if words.len() == 1 && words.first().is_some_and(|w| w == "-") {
@@ -521,9 +688,10 @@ fn send(session: &mut Session, request: &Request, json: bool) -> Outcome {
         // The stream opens first, so no reply can come before it.
         session.reopen(WAIT_TAIL).map_err(|e| session.failed(e))?;
     }
-    // An agent's `cmux chief send` is that agent's message, not the owner's.
+    // An agent's `cmux chief send` is that agent's message, not the owner's:
+    // under acpmux and in any coding agent's terminal (`caller.rs`).
     session.sender =
-        super::acpmux_session().and_then(|name| super::AgentSender::new(&name, None, None));
+        super::caller::current(request.sender_name.as_deref(), request.class.as_deref(), None);
     let (seq, id) = session
         .send_parts(parts, reply_to, thread_root.as_deref())
         .map_err(|e| session.failed(e))?;

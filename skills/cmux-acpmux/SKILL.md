@@ -64,7 +64,9 @@ Write a small work ledger before starting parallel work:
 
 Give each branch and file set one owner. A review or measurement worker must not edit the same
 files as the implementation worker. Prefer a few independent slices with explicit boundaries over
-many tiny prompts. Name and tag sessions for the task, for example:
+many tiny prompts. Name and tag sessions for the task: the name is a short readable title of it,
+2-5 words, because people read it in the cmux sidebar; never an id or a counter (`cloud-item-14`,
+`optchat-sub-6b68ac4a-a26`). Ids, item numbers and bead ids go in a tag. For example:
 
 ```bash
 acpmux ensure mailbox-auth-review -m codex --cwd "$PWD"
@@ -94,6 +96,10 @@ cmux agent inbox
 ```
 
 The agent-room path stores, delivers, and records delivery state for provider-neutral messages.
+Its messages are text only. To hand another session an image, attach the file with
+`acpmux send <target> --no-wait "..." --attach /abs/shot.png` (or `attach` in the acpmux MCP `send`
+tool) so it shows as a preview. Never pass a provider's own file id (ChatGPT's `libfile_...`, an
+upload id): nobody here can open one.
 Do not emulate it with raw `session/prompt` or `_acpmux/mail/*` calls. Use the low-level
 daemon-local mailbox only for a caller that has a local daemon connection and a clear need for its
 internal inter-session primitives. It is not a second user-facing message store.
@@ -131,7 +137,9 @@ actions through the repository's normal review and approval path.
 
 ## Run and close work deterministically
 
-Use the lifecycle primitives deliberately:
+Use the lifecycle primitives deliberately. In a chat, message with the acpmux `send` tool
+(`cmux.acpmux_send` in a cmux_exec script), not `acpmux send` in a shell; the commands below are
+for shells and scripts:
 
 ```bash
 acpmux send NAME --no-wait "..."

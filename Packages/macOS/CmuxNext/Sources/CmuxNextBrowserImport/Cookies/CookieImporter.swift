@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// The cookie step of an import: read one source profile's cookies with its
 /// own reader (decrypting Chromium values with the source's Keychain key)
@@ -54,7 +55,7 @@ public struct CookieImporter: Sendable {
                 return CookieReadResult(cookies: [])
             }
             // The cookie crypto takes `Data` (one short-lived copy of the key, freed after this read).
-            let password = try keys.password(service: service).withUnsafeBytes { Data($0) }
+            let password = try keys.password(service: service, account: browser.safeStorageAccount).withUnsafeBytes { Data($0) }
             return try ChromiumCookieReader().read(file, crypto: ChromiumCookieCrypto(safeStoragePassword: password), now: now)
         case .firefox:
             return try FirefoxCookieReader().read(profile.path.appending(path: "cookies.sqlite"), now: now)
@@ -69,7 +70,13 @@ public struct CookieImporter: Sendable {
             case .readable: return try SafariBinaryCookies().parse(Data(contentsOf: file), now: now)
             }
         case .webkit, .other:
-            throw CookieImportError.malformed(browser.displayName)
+            // WebKit apps (Orion, ChatGPT Classic): the cookie store detection found for the app.
+            guard let file = profile.cookiesFile else { throw CookieImportError.malformed(browser.displayName) }
+            switch FileAccess.probe(file) {
+            case .denied: throw CookieImportError.needsFullDiskAccess
+            case .missing: return CookieReadResult(cookies: [])
+            case .readable: return try SafariBinaryCookies().parse(Data(blockingContentsOf: file), now: now)
+            }
         }
         #endif
     }

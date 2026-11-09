@@ -141,8 +141,22 @@ await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
       // A running turn lists a run's calls one line each; a finished one folds them ("Sent 3 messages").
       const sends = rowLines("Take the one-line row pitch");
       const short = paragraph("Briefs are out");
-      const commands = rowLines("gh pr checks 2210").length ? rowLines("gh pr checks 2210") : rowLines("Checked #2210");
-      const live = lineIn("Sending message to", "thinking");
+      // The run of commands, found by its command rows rather than their words: a command row reads
+      // as what the command did (commandActions.ts), not as its line.
+      const commands = lines(
+        [...document.querySelectorAll<HTMLElement>(".acpmux-activity")].find(
+          (row) => shown(row) && row.querySelector(".cv-command"),
+        ),
+      );
+      /** The first line of the shown row of kind `kind` whose words read `text`, across spans: the
+       * live line draws its verb in its own span ("Sending" | " message to …", #33241). */
+      const rowLine = (text: string, kind: string) => {
+        const row = [...document.querySelectorAll(`.acpmux-${kind}`)].find(
+          (element) => shown(element) && element.textContent?.includes(text),
+        );
+        return lines(row)[0] ?? null;
+      };
+      const live = rowLine("Sending message to", "thinking");
       const waiting = lineIn("2 messages from 2 sessions", "pendingMessages");
 
       const diff = (a: number | null | undefined, b: number | null | undefined) =>
@@ -159,8 +173,18 @@ await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
         "step-to-prose": diff(at(sends.at(-1)), at(short[0])),
         "prose-to-step": diff(at(short.at(-1)), at(commands[0])),
         "run-to-step": diff(at(commands.at(-1)), at(inboxes[1])),
-        "step-to-live": diff(at(inboxes[1]), at(live)),
-        "live-to-step": diff(at(live), at(waiting)),
+        "step-to-waiting": diff(at(inboxes[1]), at(waiting)),
+        // Closed, the group draws its first message's line under its head (stacked): the live line
+        // is a row under that line (as transcript-spacing-kinds.test.ts `after`).
+        "step-to-live": ((gap) =>
+          gap == null
+            ? null
+            : Math.round(
+                (gap -
+                  (document.querySelector(".acpmux-pendingMessages .cv-msgline__preview")?.getBoundingClientRect()
+                    .height ?? 0)) *
+                  100,
+              ) / 100)(diff(at(waiting), at(live))),
       };
 
       const bubbleElement = holding("Hand the three polish lanes")?.closest<HTMLElement>(".cv-user__bubble");

@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -38,6 +39,10 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// The New Chief name prompt is up.
     @State private var namingChief = false
     @State private var newChiefName = ""
+    /// Delete Conversation from List and Show Hidden Conversations (this account, this phone).
+    @State private var hiddenRows = HomeHiddenConversations.shared
+    /// Delete Conversation…'s question is up for this row.
+    @State private var deleting: MacHomeRow?
 
     /// `open` pushes a conversation New Message opened onto Home's stack.
     public init(store: AppStore, sources: ChiefSources = .shared, feed: MacHomeFeed = .shared, macFilter: MacFilter = MacFilter(),
@@ -80,7 +85,15 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     }
 
     /// The Mac's list as its sidebar lays it out, under the search and the Unread toggle.
-    private var list: MacHomeList { listMemo.list(feed.rows ?? [], query: query, unreadOnly: unreadOnly) }
+    private var list: MacHomeList { listMemo.list(hiddenRows.visible(feed.rows ?? []), query: query, unreadOnly: unreadOnly) }
+
+    /// The rows Delete Conversation from List hid that no newer message brought back.
+    private var hiddenCount: Int { hiddenRows.hiddenCount(in: feed.rows ?? []) }
+
+    /// Delete Conversation from List, for a row's menu: asks first, as the Mac does.
+    private func askToDelete(_ id: String) {
+        deleting = feed.rows?.first { $0.id == id }
+    }
 
     /// The Cloud Chief (the Mac lists it as its Main Chief, "Main · Cloud", among the rows by its
     /// newest message), while it answers and passes the filters.
@@ -208,16 +221,24 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 case let .row(row):
                     // Plain values: SwiftUI skips the rows that did not change.
                     // The list-row traits outside the Equatable view, where List sees them.
-                    HomeListRow(model: rowModel(row, stamp: stamp), open: open, feed: feed)
+                    let model = rowModel(row, stamp: stamp)
+                    HomeListRow(model: model, open: open, feed: feed, delete: askToDelete)
                         .equatable()
                         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
                         .listRowBackground(theme.colors.bg.color)
+                        // Trailing only, as Workspaces' rows: a rightward swipe belongs to the
+                        // team drawer, and while these are open it closes them instead
+                        // (SidebarContainer finds the slid List row, RowSwipeActions).
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            HomeRowSwipeButtons(swipe: HomeRowSwipe(isPinned: model.isPinned, isUnread: model.isUnread),
+                                                id: model.id, feed: feed)
+                        }
                 case .cloud:
                     sessionRow(sources.cloud, name: primaryName, tag: chiefTag(main: true, place: String(localized: "Cloud")),
                                stamp: stamp, identifier: "home.chief", place: .cloud) { cloudTileMenu }
                 case .macChief:
                     sessionRow(sources.mac, name: String(localized: "Chief"), tag: chiefTag(main: !sources.isCloudReady, place: macTag),
-                               stamp: stamp, identifier: "home.chief.mac", place: .mac) { callChiefItem }
+                               stamp: stamp, identifier: "home.chief.mac", place: .mac) { CallChiefItem(chief: sources.mac) }
                 }
             }
             if !searching, feed.problem != nil || homeIsOffline {
@@ -238,6 +259,24 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .accessibilityIdentifier("home.note.problem")
             } else if feed.rows == nil, homeMacID != nil, !searching {
                 note(String(localized: "Connecting to \(macTag ?? String(localized: "your Mac"))…"), identifier: "home.note.connecting")
+            }
+            if !searching, hiddenCount > 0 {
+                // The Mac's Show Hidden Conversations: what Delete Conversation from List hid lists again.
+                Button {
+                    theme.haptics.selection()
+                    withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { hiddenRows.showAll() }
+                } label: {
+                    Text(hiddenCount == 1 ? String(localized: "Show 1 Hidden Conversation")
+                        : String(localized: "Show \(hiddenCount) Hidden Conversations"))
+                        .font(.footnote.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderless)
+                .padding(.vertical, 8)
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(theme.colors.bg.color)
+                .accessibilityIdentifier("home.showHidden")
             }
             if tiles.isEmpty, entries.isEmpty, feed.rows != nil || searching || unreadOnly {
                 Text(unreadOnly ? "No Unread Conversations" : searching ? "No Results" : "No Conversations")
@@ -269,7 +308,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 // The Mac's Unread toggle: all or unread only, the filled glyph while on.
                 Button {
                     theme.haptics.selection()
-                    withAnimation(theme.motion.smooth.animation) { unreadOnly.toggle() }
+                    withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { unreadOnly.toggle() }
                 } label: {
                     Label("Unread", systemImage: unreadOnly ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                 }
@@ -290,6 +329,20 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         }
         .navigationDestination(for: MacConversationRoute.self) { route in
             MacConversationScreen(route: route, feed: feed, macID: homeMacID, reconnect: reconnect)
+        }
+        // This account's hidden conversations (a sign-in as someone else reads theirs).
+        .onChange(of: sources.activeUserID, initial: true) { _, account in hiddenRows.use(account: account) }
+        .confirmationDialog(String(localized: "Are you sure you want to delete this conversation?"),
+                            isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+                            titleVisibility: .visible, presenting: deleting) { row in
+            Button(String(localized: "Delete"), role: .destructive) {
+                theme.haptics.selection()
+                withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { hiddenRows.hide(row) }
+            }
+            .accessibilityIdentifier("home.delete.confirm")
+            Button(String(localized: "Cancel"), role: .cancel) {}
+        } message: { _ in
+            Text("It leaves your Home list on this iPhone. A new message brings it back, and Show Hidden Conversations lists it again.")
         }
         // Back on Home: read the Cloud Chiefs again (one may be archived or deleted elsewhere), and the Mac's list.
         .task {
@@ -313,7 +366,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             Text("A new Cloud Chief with its own conversation and memory.")
         }
         // The memo's revision moves only when the shown list does (no comparison of every row per pass).
-        .animation(theme.motion.smooth.animation, value: listMemo.revision)
+        .animation(theme.motion.smooth.animation.unlessReduceMotion, value: listMemo.revision)
     }
 
     private func rowModel(_ row: MacHomeRow, stamp: MessagesStamp) -> HomeListRow.Model {
@@ -352,6 +405,17 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .buttonStyle(.plain)
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
         .listRowBackground(theme.colors.bg.color)
+        // Trailing only, as every Home row (the drawer keeps the rightward swipe).
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if chief.conversationID != nil {
+                Button(chief.isMuted ? "Show Alerts" : "Hide Alerts", systemImage: chief.isMuted ? "bell" : "bell.slash") {
+                    theme.haptics.selection()
+                    chief.setMuted(!chief.isMuted)
+                }
+                .tint(.indigo)
+                .accessibilityIdentifier("\(identifier).swipe.alerts")
+            }
+        }
         .contextMenu { menu() }
         .accessibilityIdentifier(identifier)
     }
@@ -359,18 +423,24 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// The Mac's row menu, the actions that are the person's list state:
     /// Pin or Unpin, Mark as Read or Mark as Unread; Chief's row also calls Chief.
     private func rowMenu(_ row: MacHomeRow) -> some View {
-        HomeRowMenu(id: row.id, isMacChief: isMacChief(row), isPinned: row.isPinned, isUnread: row.unreadCount > 0, feed: feed)
+        HomeRowMenu(id: row.id, isMacChief: isMacChief(row), macChief: sources.mac, isPinned: row.isPinned, isUnread: row.unreadCount > 0, feed: feed,
+                    delete: askToDelete)
     }
-
-    private var callChiefItem: some View { CallChiefItem() }
 
     @ViewBuilder private var cloudTileMenu: some View {
         let cloud = sources.cloud
-        callChiefItem
+        CallChiefItem(chief: cloud)
         if cloud.conversationID != nil {
             Button(cloud.isMuted ? "Show Alerts" : "Hide Alerts", systemImage: cloud.isMuted ? "bell" : "bell.slash") {
                 cloud.setMuted(!cloud.isMuted)
             }
+        }
+        // The Mac's Make Primary Chief: texts to the cmux line reach this Chief (an account write).
+        if let chief = sources.cloudChief, !chief.isDefault {
+            Button(String(localized: "Make Primary Chief"), systemImage: "star") {
+                Task { await sources.makePrimary(chief) }
+            }
+            .accessibilityIdentifier("home.chief.makePrimary")
         }
         ChiefPickerItems(sources: sources, newChief: newChiefAction)
     }
@@ -419,7 +489,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     private func selectHome(_ id: String) {
         guard let team = store.activeTeam, id != homeMacID else { return }
         theme.haptics.selection()
-        withAnimation(theme.motion.smooth.animation) { macFilter.select(.mac(id), in: team.id) }
+        withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { macFilter.select(.mac(id), in: team.id) }
         // The chosen Mac is linked and focused: its Chief and its Home show.
         if macs.contains(where: { $0.id == id && $0.isOnline }) { selectMac?(id) }
     }
@@ -464,7 +534,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .buttonStyle(.borderless)
         .disabled(sources.isChanging)
         if sources.isChanging {
-            ProgressView().controlSize(.small)
+            CmuxSpinner().controlSize(.small)
         }
         if let error = sources.changeError {
             Text(error)
@@ -499,6 +569,8 @@ struct HomeListRow: View, Equatable {
     let model: Model
     let open: (HomeConversationRoute) -> Void
     let feed: MacHomeFeed
+    /// Delete Conversation from List (asks first).
+    var delete: ((String) -> Void)?
 
     nonisolated static func == (a: Self, b: Self) -> Bool { a.model == b.model }
 
@@ -512,9 +584,58 @@ struct HomeListRow: View, Equatable {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            HomeRowMenu(id: model.id, isMacChief: model.isMacChief, isPinned: model.isPinned, isUnread: model.isUnread, feed: feed)
+            HomeRowMenu(id: model.id, isMacChief: model.isMacChief, isPinned: model.isPinned, isUnread: model.isUnread, feed: feed,
+                        delete: delete)
         }
         .accessibilityIdentifier(model.isMacChief ? "home.chief.mac" : "home.row.\(model.id)")
+    }
+}
+
+/// A Home row's trailing swipe actions, the Mac's list-state actions of its
+/// row menu (``HomeRowMenu``): Read or Unread outermost, then Pin or Unpin.
+/// As on Workspaces' rows they are trailing only and a full swipe runs none
+/// (`allowsFullSwipe: false`): the rightward swipe stays the team drawer's,
+/// and closes the actions first while they are open.
+struct HomeRowSwipe: Equatable {
+    enum Action: Hashable {
+        case markRead, markUnread, pin, unpin
+    }
+
+    /// Outermost (the row's trailing edge) first, as `.swipeActions` lays them out.
+    let actions: [Action]
+
+    init(isPinned: Bool, isUnread: Bool) {
+        actions = [isUnread ? .markRead : .markUnread, isPinned ? .unpin : .pin]
+    }
+}
+
+/// The buttons of ``HomeRowSwipe`` for one row.
+struct HomeRowSwipeButtons: View {
+    let swipe: HomeRowSwipe
+    let id: String
+    let feed: MacHomeFeed
+
+    var body: some View {
+        ForEach(swipe.actions, id: \.self) { action in
+            switch action {
+            case .markRead:
+                Button("Read", systemImage: "message") { feed.markRead(id) }
+                    .tint(.blue)
+                    .accessibilityIdentifier("home.row.swipe.read")
+            case .markUnread:
+                Button("Unread", systemImage: "message.badge") { feed.setMarkedUnread(true, id) }
+                    .tint(.blue)
+                    .accessibilityIdentifier("home.row.swipe.unread")
+            case .pin, .unpin:
+                let pin = action == .pin
+                Button(pin ? "Pin" : "Unpin", systemImage: pin ? "pin" : "pin.slash") {
+                    theme.haptics.selection()
+                    feed.setPinned(pin, id)
+                }
+                .tint(.orange)
+                .accessibilityIdentifier(pin ? "home.row.swipe.pin" : "home.row.swipe.unpin")
+            }
+        }
     }
 }
 
@@ -523,28 +644,45 @@ struct HomeListRow: View, Equatable {
 struct HomeRowMenu: View {
     let id: String
     let isMacChief: Bool
+    /// The Mac Chief its Call Chief calls (the row is the Mac Chief's).
+    var macChief: ChiefSession = ChiefSources.shared.mac
     let isPinned: Bool
     let isUnread: Bool
     let feed: MacHomeFeed
+    /// Delete Conversation from List (the Mac's row menu); nil where the row has none.
+    var delete: ((String) -> Void)?
 
     var body: some View {
-        if isMacChief { CallChiefItem() }
-        Button(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash" : "pin") {
-            theme.haptics.selection()
-            feed.setPinned(!isPinned, id)
+        // Settings → Long-Press Menus: the items the person hid stay out.
+        let hidden = CmuxMobileMenuCustomization.hidden()
+        if isMacChief { CallChiefItem(chief: macChief) }
+        if !hidden.contains("homeRow.pin") {
+            Button(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash" : "pin") {
+                theme.haptics.selection()
+                feed.setPinned(!isPinned, id)
+            }
         }
-        if isUnread {
-            Button("Mark as Read", systemImage: "message") { feed.markRead(id) }
-        } else {
-            Button("Mark as Unread", systemImage: "message.badge") { feed.setMarkedUnread(true, id) }
+        if !hidden.contains("homeRow.read") {
+            if isUnread {
+                Button("Mark as Read", systemImage: "message") { feed.markRead(id) }
+            } else {
+                Button("Mark as Unread", systemImage: "message.badge") { feed.setMarkedUnread(true, id) }
+            }
+        }
+        if let delete, !hidden.contains("homeRow.delete") {
+            Divider()
+            Button("Delete Conversation from List", systemImage: "trash", role: .destructive) { delete(id) }
+                .accessibilityIdentifier("home.row.delete")
         }
     }
 }
 
-/// A live voice call with Chief (``ChiefCallLauncher``).
+/// A live voice call with this row's Chief, and only it (``ChiefCallLauncher``).
 struct CallChiefItem: View {
+    let chief: ChiefSession
+
     var body: some View {
-        Button("Call Chief", systemImage: "phone") { ChiefCallLauncher.shared.call() }
+        Button("Call Chief", systemImage: "phone") { ChiefCallLauncher.shared.call(chief) }
             .accessibilityIdentifier("home.chief.call")
     }
 }
@@ -584,8 +722,8 @@ struct HomeTile: View, Identifiable {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityIdentifier(identifier)
-        .animation(theme.motion.snappy.animation, value: working)
-        .animation(theme.motion.snappy.animation, value: bubble)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: working)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: bubble)
     }
 
     private var accessibilityLabel: Text {
@@ -677,7 +815,7 @@ struct MacConversationScreen: View {
                     .accessibilityIdentifier("home.conversation.retry")
                 }
             } else {
-                ProgressView().accessibilityIdentifier("home.conversation.loading")
+                CmuxSpinner().accessibilityIdentifier("home.conversation.loading")
             }
         }
         // Owned by the screen: a retry button disappearing cannot cancel the load it requested.

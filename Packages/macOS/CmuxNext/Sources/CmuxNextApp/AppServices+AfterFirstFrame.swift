@@ -20,10 +20,11 @@ extension AppServices {
         if let feed = chatsFeed { AgentPageChats.wire(agentTabs, to: feed, opener: chatsOpener) }
         NewTabPlacesFeed.wire(agentTabs, services: self)
         NewTabWeather.wire(agentTabs, services: self)
+        dockMenu.start()
         DebugTimings.markLaunch("launch.post_frame_feeds")
     }
 
-    /// The free-tier attest, SSH, server reach, the updater (Sparkle) and the marked-tab watch.
+    /// The free-tier attest, SSH, server reach, the updater (Sparkle), the marked-tab watch and the link places.
     func startNonPaintServices() {
         FreeTierAttestStarter(build: environment.build, bundle: .main, apiBaseURL: feed.apiBaseURL, settings: settings, signedIn: { [weak self] in self.map { $0.cloud.isSignedIn || $0.cloud.auth.isRestoring } ?? true }).start()
         ssh.start()
@@ -47,6 +48,7 @@ extension AppServices {
         }, onChange: { [weak self] items, eligibleRequests in
             self?.notifications.attention.marksChanged(items, eligibleRequests: eligibleRequests)
         })
+        attentionTabs.places.follow({ [weak self] in self?.linkPlaceWorkspaces() }, titles: .init(workspace: { [weak self] in self?.shownWorkspaceName($0) ?? $0.displayName }, tabs: { [weak self] in self.map(SidebarBridge.tabTitle) ?? { $1.displayTitle } }))
         DebugTimings.markLaunch("launch.non_paint_services")
     }
 

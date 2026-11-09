@@ -36,12 +36,6 @@ public nonisolated enum ChromeTunables {
         "chrome.tabs.compact", .tabs, "Compact tabs",
         help: "A tighter tab strip at compact density: 26 pt strip, 22 pt tabs, the icon 6 pt in and 4 pt from its title. Off: 28, 24, 8 and 6.",
         default: false, code: "ChromeTunables.compactTabs")
-    // @intent no top bar (Leo 2026-10-14; on by default 2026-10-20, "I thought we moved that all the way up
-    // to the top right"): a chat's header tools sit in its pane's tab row, not a second row under it.
-    public static let tabRowTools = Tunable<Bool>.toggle(
-        "chrome.tabs.rowTools", .tabs, "Chat tools in the tab row",
-        help: "A chat's header tools sit at the right end of its pane's tab row instead of a row of their own; the tabs make room. Off: the chat header is its own row under the tabs.",
-        default: true, code: "ChromeTunables.tabRowTools")
     /// Native content-supplied controls in the shared tab row; off while the migration series lands.
     public static let nativeRowTools = Tunable<Bool>.toggle(
         "chrome.tabs.nativeRowTools", .tabs, "Native chat tools in the tab row",
@@ -79,7 +73,7 @@ public nonisolated enum ChromeTunables {
     static var fixed: [TunableDescriptor] {
         [space1, space2, space3, space4, space5, space6, trafficLightInset, sidebarMinWidth, sidebarMaxWidth, tabBackgroundInset,
          tabContentLeadingInset].map(\.descriptor)
-            + [compactTabs.descriptor, compactTabContentLeadingInset.descriptor, tabRowTools.descriptor, nativeRowTools.descriptor, interfaceSize.descriptor]
+            + [compactTabs.descriptor, compactTabContentLeadingInset.descriptor, nativeRowTools.descriptor, interfaceSize.descriptor]
             + [panePadding.descriptor, opaqueOverlayLift.descriptor, glassOverlayTintStrength.descriptor, cardOpacity.descriptor, scrollFadeMaxFraction.descriptor]
     }
 }
@@ -89,7 +83,20 @@ public nonisolated enum ChromeTunables {
 public nonisolated enum DesignTunables {
     public static var all: [TunableDescriptor] {
         MotionTunables.all + MetricTunables.metrics.map(\.descriptor) + ChromeTunables.fixed + [Borders.tunable.descriptor] + FocusIndicatorTunables.all
-            + StatusIndicatorTunables.all + [LaunchMarkStyle.tunable.descriptor, AttentionHighlightLook.tunable.descriptor, GlassLensMode.tunable.descriptor] + MotionTunables.launchDelays.map(\.descriptor)
-            + ChromeTunables.mainPane + [HoverCardEscapeGeometry.escapeSlotTunable.descriptor] + TerminalDragTunables.all
+            + StatusIndicatorTunables.all + [LaunchMarkStyle.tunable.descriptor, AttentionHighlightLook.tunable.descriptor, GlassLensMode.tunable.descriptor, TopRowLineLook.tunable.descriptor] + MotionTunables.launchDelays.map(\.descriptor)
+            + ChromeTunables.mainPane + TerminalDragTunables.all + frameOwnerTunables
+            + ThemeDecorations.tunables
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The film fixture of the FRAME OWNER REFACTOR (DEV and bench builds only): a 1 device-pixel #FFFF00 border on every
+    /// tab, so a 120 Hz film finds each tab's edges in each frame. It changes no frame or layout.
+    public static let frameOwnerTabOutline = Tunable<Bool>.toggle(
+        "motion.frameOwner.tabOutline", .springs, "Outline tabs (pixel film fixture)",
+        help: "A 1 device-pixel yellow border on every tab, for frame-by-frame films. Changes no frame or layout.",
+        default: false, code: "DesignTunables.frameOwnerTabOutline")
+    private static var frameOwnerTunables: [TunableDescriptor] { [frameOwnerTabOutline.descriptor] }
+    #else
+    private static var frameOwnerTunables: [TunableDescriptor] { [] }
+    #endif
 }

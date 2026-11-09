@@ -35,9 +35,12 @@ from pathlib import Path
 # The Swift exports compile their module and its dependencies: a setting can be
 # declared in CmuxNextDesign (SidebarNavigationSettings, AttentionSettings), so
 # any CmuxNext source is an input, not only CmuxNextSettings or CmuxNextActions.
+# The Rust action catalog (cmux-action-catalog) is one too: the app reads its catalog from it, and the
+# crate's swift_parity test holds action-surfaces.json to it, so a catalog change carries the export.
 ACTIONS_INPUTS = (
     r"Packages/macOS/CmuxNext/Sources/"
     r"|Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/|Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LinkExportTests\.swift"
+    r"|cmux-tui/crates/cmux-action-catalog/"
     r"|scripts/cmux-next/regenerate-action-exports\.sh"
 )
 SETTINGS_INPUTS = (
@@ -100,7 +103,8 @@ OUTPUTS: tuple[tuple[tuple[str, ...], str, str], ...] = (
       "cmux-tui/bindings/cpp/src/raw/generated/*", "cmux-tui/bindings/go/raw/generated_*.go",
       "cmux-tui/bindings/typescript/src/raw/generated/*", "cmux-tui/bindings/rust/src/generated/*",
       "cmux-tui/bindings/zig/src/raw/generated/*", "cmux-tui/bindings/java/src/com/cmux/raw/*"),
-     SDK_INPUTS, "cmux-tui/bindings/codegen/generate.py and sync-resource-api.py"),
+     SDK_INPUTS, "python3 cmux-tui/bindings/codegen/generate.py --write and "
+     "python3 cmux-tui/bindings/rust/scripts/sync-resource-api.py (the autofix)"),
     (("clients/ts/cloud/src/generated.ts", "cmux-tui/crates/cmux-cloud-wire/src/generated/*"),
      r"backend/catalog/cloud-operations\.json$|backend/packages/protocol/(scripts/export-(rust-)?client\.ts|src/automation-caps\.ts)$",
      "backend/packages/protocol/scripts/export-client.ts"),

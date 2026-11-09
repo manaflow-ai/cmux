@@ -27,7 +27,7 @@ package struct CmuxDialogDebug {
         }
     }
 
-    package func report(_ record: CmuxDialogCenter.Record, view: CmuxDialogView?) -> [String: Any] {
+    package func report(_ record: CmuxDialogCenter.Record, dialog: CmuxDialogPresentation?) -> [String: Any] {
         var values: [String: Any] = [:]
         let secure = secureFields(record.spec)
         for (field, value) in record.values {
@@ -53,8 +53,8 @@ package struct CmuxDialogDebug {
             options[id] = choices.map { ["label": $0.label, "value": $0.value] }
         }
         if !options.isEmpty { object["options"] = options }
-        if let view, view.window != nil {
-            let frame = view.convert(view.bounds, to: nil)
+        if let dialog, let view = dialog.view, view.window != nil {
+            let frame = view.convert(dialog.cardRect ?? view.bounds, to: nil)
             object["frame"] = [frame.minX, frame.minY, frame.width, frame.height].map(Double.init)
             object["window"] = view.window?.windowNumber ?? 0
         }

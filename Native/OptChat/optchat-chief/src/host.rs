@@ -9,6 +9,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use optchat_host::{AnthropicModel, CompactModel, Config, OptChat, Report, SystemClock};
+use serde_json::json;
 
 use crate::acpmux::{Acpmux, AgentEvent, AgentPort, Family, Preset};
 use crate::brain::{Brain, Engine, Input, Settings, parent_tag};
@@ -256,7 +257,7 @@ pub fn turn_preset(
         BTreeMap::new()
     };
     if family == Family::Claude {
-        env.extend(session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
+        env.extend(session_dir::claude_session_env());
     }
     // Only acpmux's cmux MCP server (cx-4a5w2), as acpmux's built-in turn
     // presets set it for a Chief that sends no env.
@@ -391,7 +392,7 @@ pub fn subagent_preset(
     };
     env.insert(session_dir::SUBAGENT_ENV.to_owned(), "1".to_owned());
     if family == Family::Claude {
-        env.extend(session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
+        env.extend(session_dir::claude_session_env());
     }
     // Subagents' cmux calls reach the same app daemon as the Chief's.
     env.extend(pinned.clone());
@@ -701,6 +702,46 @@ fn load_chief_tools(
     })
 }
 
+/// The port to the subagents a move handed to this machine's default acpmux
+/// daemon (placed_agents.rs). Its link runs beside the home daemon's, never
+/// before it: the brain takes their sessions from this link only
+/// (`Brain::set_reported_elsewhere`), so a slow or absent machine daemon
+/// neither delays the host nor ends them. None when this home placed none, or
+/// when its own daemon is the machine's default one.
+fn place_moved_subagents(
+    home: &std::path::Path,
+    acpmux_socket: &std::path::Path,
+    agents: &Arc<Acpmux>,
+    tx: &std::sync::mpsc::Sender<Input>,
+) -> Option<Arc<crate::placed_agents::PlacedPort>> {
+    let placed = crate::placed_agents::placed_sessions(home);
+    let machine = crate::placed_agents::machine_socket();
+    if placed.is_empty() || machine == acpmux_socket {
+        return None;
+    }
+    let here = Acpmux::joining(machine.clone());
+    let port = crate::placed_agents::PlacedPort::new(agents.clone(), here.clone(), placed.clone());
+    {
+        let tx = tx.clone();
+        let port = port.clone();
+        let link_log: crate::brain::Log = Arc::new(|line: &str| log(format!("machine {line}")));
+        here.spawn_link(
+            Arc::new(move |event| {
+                for event in port.here_events(event) {
+                    let _ = tx.send(Input::from(event));
+                }
+            }),
+            link_log,
+        );
+    }
+    log(format!(
+        "{} subagent session(s) a move handed to this machine run on its acpmux at {}",
+        placed.len(),
+        machine.display(),
+    ));
+    Some(port)
+}
+
 fn start(
     paths: &Paths,
     home: &std::path::Path,
@@ -783,7 +824,13 @@ fn start(
     // (and compactions') system text after everything above; subagents keep
     // the text without it (they are not this Chief). Its grant limits the
     // turn's tools (chief_profile.rs).
-    let chief_tools = Arc::new(load_chief_tools(&source, daemon_socket, &membership)?);
+    // `chiefs` create_channel goes through the app's control socket
+    // (chief_channel.rs): the daemon holds no cloud session.
+    let chief_tools = Arc::new(
+        load_chief_tools(&source, daemon_socket, &membership)?.with_channels(
+            crate::chief_channel::ChannelMaker::from_env(&|k: &str| env(k)),
+        ),
+    );
     let sub_instructions = instructions.clone();
     let instructions = chief_tools.instructions(instructions);
     // The optional coordinator contact belongs only to this Chief's turns;
@@ -827,6 +874,21 @@ fn start(
             crate::trace::Trace::off()
         }
     };
+    let (person, team, chief) = match &source {
+        Source::Cloud { install } => (
+            install.user.clone(),
+            install.team.clone(),
+            install.chief.clone(),
+        ),
+        Source::Local { .. } => (Some("unknown".to_owned()), None, None),
+    };
+    trace.emit(
+        "usage.identity",
+        json!({
+            "person": person, "team": team,
+            "chief": chief.unwrap_or_else(|| crate::paths::home_id(home)),
+        }),
+    );
     // Spec 4 (gist 3c190e0): a compaction sends the turns' own system
     // prompt, so it reads it from the turns' cache entry.
     let claude_text =
@@ -969,6 +1031,16 @@ fn start(
     if let Err(e) = crate::skills::install_builtin(&crate::skills::shared_dir(&paths.home)) {
         eprintln!("optchat-chief: installing the shipped Chief skills: {e}");
     }
+    // The person's Claude Code skills cmux.json names (`chief.claudeSkills`,
+    // default every `emil-*` skill) join the shared Chief skills
+    // (slash_skills.rs).
+    let linked = crate::slash_skills::link_default_claude_skills(&paths.home);
+    if !linked.is_empty() {
+        eprintln!(
+            "optchat-chief: linked Claude skills into the Chief skills: {}",
+            linked.join(", ")
+        );
+    }
     // The tool packs cmux ships (toolpacks.rs); their skills reach each
     // Chief through session_dir::write (toolpacks::sync_skills).
     if let Err(e) = crate::toolpacks::install_builtin(&crate::toolpacks::shared_dir(&paths.home)) {
@@ -989,6 +1061,11 @@ fn start(
         .map_err(|e| format!("writing the subagent directory: {e}"))?;
 
     let (base_url, api_key) = (config.base_url.clone(), config.api_key.clone());
+    let (payer, provider) = crate::usage::payer_provider("native", Some(&base_url));
+    trace.emit(
+        "usage.native_route",
+        json!({"payer": payer, "provider": provider}),
+    );
 
     // acpmux first: the compactor's acpmux route needs the connection before
     // the memory opens and starts building nodes. Its events wait in the
@@ -1128,6 +1205,18 @@ fn start(
         required.push(other);
     }
     let agents = Acpmux::new(acpmux_socket.clone(), preset, required);
+    // A Chief that moved here reaches the subagents its move handed to this
+    // machine's default acpmux daemon (placed_agents.rs); the brain and the
+    // spawner use that port, the rest the home daemon's.
+    let placed = place_moved_subagents(home, &acpmux_socket, &agents, &tx);
+    let reported_elsewhere = placed
+        .as_ref()
+        .map(|port| port.placed().clone())
+        .unwrap_or_default();
+    let brain_agents: Arc<dyn AgentPort> = match &placed {
+        Some(port) => port.clone(),
+        None => agents.clone(),
+    };
     let first_link = Arc::new((Mutex::new(false), Condvar::new()));
     {
         let tx = tx.clone();
@@ -1135,6 +1224,10 @@ fn start(
         let link_log: crate::brain::Log = Arc::new(|line: &str| log(line));
         agents.spawn_link(
             Arc::new(move |event| {
+                let event = match &placed {
+                    Some(port) => port.home_event(event),
+                    None => event,
+                };
                 if matches!(event, AgentEvent::Up(_) | AgentEvent::Down) {
                     *first_link
                         .0
@@ -1298,6 +1391,19 @@ fn start(
                     .map(|v| format!("{v:#}"))
                     .map_err(late)
             }
+            ControlRequest::RightsHook { phase, payload } => {
+                let (reply, answer) = channel();
+                tx.send(Input::RightsHook {
+                    phase,
+                    payload,
+                    reply,
+                })
+                .map_err(stopping)?;
+                answer
+                    .recv_timeout(Duration::from_secs(10))
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
             ControlRequest::SpawnPolicy => {
                 let (reply, answer) = channel();
                 tx.send(Input::SpawnPolicy { reply }).map_err(stopping)?;
@@ -1309,6 +1415,15 @@ fn start(
             ControlRequest::Engine(request) => {
                 let (reply, answer) = channel();
                 tx.send(Input::Engine { request, reply })
+                    .map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
+            ControlRequest::StartSubagent(name) => {
+                let (reply, answer) = channel();
+                tx.send(Input::StartSubagent { name, reply })
                     .map_err(stopping)?;
                 answer
                     .recv_timeout(wait)
@@ -1464,7 +1579,7 @@ fn start(
     let orchestrator = uses_acpmux.then(|| {
         let spawner = crate::subagents::Spawner::new(
             chat.clone(),
-            agents.clone(),
+            brain_agents.clone(),
             crate::subagents::SubagentSettings {
                 harness: sub_harness.clone(),
                 policy: env("MUX_POLICY").unwrap_or_else(|| "approve-all".into()),
@@ -1545,13 +1660,32 @@ fn start(
             Arc::new(|line: &str| log(line)),
         );
     }
+    // The memory's one change book: the inspector's edits and the chat's
+    // deleted messages (brain/inbox.rs) share its journal and rebuild worker.
+    let memory_editor = crate::inspect::edit::Editor::open(chat.clone(), &paths.root);
+    // The MCP hub (mcp_hub): servers the Chief adds itself; a task's result
+    // and a subscribed event reach the brain as a note, as a peer Chief's do.
+    let mcp_hub = crate::mcp_hub::McpHub::new(
+        paths.root.join("mcp"),
+        Some(crate::skills::chief_dir(home)),
+        {
+            let tx = Mutex::new(tx.clone());
+            Arc::new(move |text: String| {
+                let _ = tx
+                    .lock()
+                    .expect("mcp tx")
+                    .send(Input::PeerChiefNote { text });
+            })
+        },
+    );
+    mcp_hub.start();
     crate::tools::serve_all(
         &paths.tools_socket,
         crate::tools::Served {
             memory: chat.clone(),
             orchestrator,
             control: Some(control),
-            inspector: start_inspector(paths, &chat, &claude_text),
+            inspector: start_inspector(paths, &chat, &claude_text, &memory_editor),
             chief: Some(chief_tools.clone()),
             // The turn names of `Settings::turn_prefix`, the subagent names
             // of the sub preset (`optchat-sub-<home id>-<id>`).
@@ -1560,6 +1694,19 @@ fn start(
                 &crate::paths::home_id(home),
             )),
             peers,
+            fork: Some(Arc::new(crate::migrate_fork::ForkPeer::new(
+                home.to_path_buf(),
+                {
+                    let tx = Mutex::new(tx.clone());
+                    Arc::new(move |text| {
+                        tx.lock()
+                            .expect("fork tx")
+                            .send(Input::PeerChiefNote { text })
+                            .is_ok()
+                    })
+                },
+            ))),
+            mcp: Some(mcp_hub.clone()),
         },
     )
     .map_err(|e| format!("serving the memory tools: {e}"))?;
@@ -1705,7 +1852,7 @@ fn start(
     .map_err(|e| format!("starting the persister: {e}"))?;
     let brain = Brain::new(
         chat.clone(),
-        agents.clone(),
+        brain_agents.clone(),
         settings,
         StateFile::new(&paths.state),
         tx.clone(),
@@ -1713,14 +1860,35 @@ fn start(
     )
     .on_turn_end(Arc::new(move |key: &str| persister.turn_ended(key)))
     .with_trace(trace.clone())
+    .with_memory_editor(Some(memory_editor.clone()))
     .with_settle_status(crate::settle_status::SettleStatus::new(
         &paths.settle_status,
     ))
     // The app watches only the default Chief's state/ (cx-oqnw3 review): another
     // Chief still hears a compactor fault as its message until the app watches its home.
     .with_compactor_messages(membership.participant != crate::chief_profile::DEFAULT_CHIEF)
-    .with_workspaces(workspaces);
+    .with_workspaces(workspaces)
+    // Sign-ins that wait on the person go to the app's Feed (Needs you).
+    .with_feed(
+        crate::needs_you_feed::ControlSocketFeed::from_env(&|k: &str| env(k))
+            .map(|f| Arc::new(f) as Arc<dyn crate::needs_you_feed::FeedPort>),
+    );
+    // The rights table and the audit log (rights.rs, audit.rs);
+    // OPTCHAT_RIGHTS=0 turns both off.
+    let brain = if env("OPTCHAT_RIGHTS").as_deref() == Some("0") {
+        brain
+    } else {
+        brain.with_rights(crate::brain::RightsCtx::new(
+            paths.root.clone(),
+            // The turns' login is the harness's, not this process's: only
+            // the owner's declaration (`/auth`) counts, else personal.
+            None,
+            host_name(),
+            Some(paths.session.display().to_string()),
+        ))
+    };
     let mut brain = brain;
+    brain.set_reported_elsewhere(reported_elsewhere);
     brain.set_sub_starter(sub_starter);
     let idle = brain.cloud_auto_pause_idle();
     brain.set_cloud_vms(cloud_vms, idle);
@@ -2156,6 +2324,25 @@ pub fn probe_until_ready(
     }
 }
 
+/// Whether `error` is a harness start that ran out of time: acpmux's start
+/// deadline (`agent_start did not finish within 90s; ...`, its
+/// `deadline_exceeded` error) or Chief's own wait on its `session/new`. Any
+/// other request that went unanswered is not a start, and stays a fault.
+/// A harness acpmux saw stop working says "did no work", which is not this:
+/// no wait cures it, though a fresh harness may start (`turn::is_hung_start`:
+/// the reply ledger tries again, with no cuts). A loaded or
+/// memory-starved machine (2026-11-04: swap full, the harness in page-in
+/// waits) is a wait, never a fault to post: the start works when it can.
+pub fn start_stall(error: &str) -> bool {
+    [
+        "did not finish within",
+        "did not start within",
+        "session/new: no answer within",
+    ]
+    .iter()
+    .any(|t| error.contains(t))
+}
+
 /// How long the start-up probe waits before it tries again after `error`
 /// (its `attempt`-th failure, from 0); None: no retry (a real fault).
 pub fn probe_retry_wait(error: &str, attempt: u32) -> Option<std::time::Duration> {
@@ -2163,6 +2350,9 @@ pub fn probe_retry_wait(error: &str, attempt: u32) -> Option<std::time::Duration
     const MAX: Duration = Duration::from_secs(120);
     if let Some(wait) = optchat_host::capacity_wait(error) {
         return Some(wait.min(MAX));
+    }
+    if start_stall(error) {
+        return Some(Duration::from_secs(1u64 << attempt.min(16)).min(MAX));
     }
     let lower = error.to_ascii_lowercase();
     let transient = [
@@ -2217,12 +2407,12 @@ fn start_inspector(
     paths: &Paths,
     chat: &Arc<OptChat>,
     system_text: &str,
+    editor: &Arc<crate::inspect::edit::Editor>,
 ) -> Option<Arc<crate::inspect::Inspector>> {
     let _ = std::fs::remove_file(&paths.inspector);
     if env("OPTCHAT_INSPECTOR").as_deref() == Some("0") {
         return None;
     }
-    let editor = crate::inspect::edit::Editor::open(chat.clone(), &paths.root);
     let inspector = Arc::new(
         crate::inspect::Inspector::new(
             chat.clone(),
@@ -2230,7 +2420,7 @@ fn start_inspector(
             paths.settle_status.clone(),
             system_text.to_owned(),
         )
-        .with_editor(editor),
+        .with_editor(editor.clone()),
     );
     if env("OPTCHAT_INSPECTOR_WEB").as_deref() != Some("1") {
         log("memory inspector: native (through the daemon); web page off");
@@ -2269,4 +2459,17 @@ fn native_env(setup: &SessionSetup, paths: &Paths) -> BTreeMap<String, String> {
 /// socket's turn binding, turn_caller.rs): `optchat-<home id>`.
 fn turn_prefix(home: &std::path::Path) -> String {
     format!("optchat-{}", crate::paths::home_id(home))
+}
+
+/// This machine's name, for the audit log.
+fn host_name() -> String {
+    let mut buf = [0u8; 256];
+    // SAFETY: gethostname writes at most buf.len() bytes into our buffer.
+    let ok = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0;
+    let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
+    if ok && end > 0 {
+        String::from_utf8_lossy(&buf[..end]).into_owned()
+    } else {
+        "unknown-host".to_owned()
+    }
 }

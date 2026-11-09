@@ -178,6 +178,39 @@ pub(crate) fn shown_attention(stored: &str) -> anyhow::Result<Value> {
     Ok(value)
 }
 
+/// A live tab's attention mark as frontends draw it (`tab-attention-v1`):
+/// the reason the person reads and when the agent asked (Unix ms). Loaded
+/// into the presentation snapshot so the raw tree carries it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TabAttentionRecord {
+    pub reason: String,
+    pub at_ms: u64,
+}
+
+/// The attention mark of every live tab, by public tab id. A row whose JSON
+/// does not hold a reason is skipped, as `extra.attention` would show none.
+pub(crate) fn read_tab_attention(
+    connection: &Connection,
+) -> anyhow::Result<std::collections::HashMap<String, TabAttentionRecord>> {
+    let mut statement = connection.prepare(
+        "SELECT s.tab_id, s.attention_json FROM tab_state AS s
+         JOIN resource_tabs AS t ON t.public_id = s.tab_id
+         WHERE s.attention_json IS NOT NULL AND t.deleted_revision IS NULL",
+    )?;
+    let rows = statement
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(tab, stored)| {
+            let value: Value = serde_json::from_str(&stored).ok()?;
+            let reason = value.get("reason")?.as_str()?.to_string();
+            let at_ms = value.get("at_ms").and_then(Value::as_u64).unwrap_or(0);
+            Some((tab, TabAttentionRecord { reason, at_ms }))
+        })
+        .collect())
+}
+
 /// A partial tab state update: `None` keeps a field, `Some(None)` clears
 /// the zoom or the icon.
 #[derive(Debug, Clone, Default, PartialEq)]

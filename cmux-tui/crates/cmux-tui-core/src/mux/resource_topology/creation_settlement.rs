@@ -116,6 +116,11 @@ impl Mux {
                 ResourcePatchCommit { revision, result: created_path, replayed: true }
             }
             ResourceCreationPreparation::Blocked { idempotency_key, operation } => {
+                self.report_resource_effect_indeterminate(
+                    &idempotency_key,
+                    &operation,
+                    BLOCKED_CREATION_CAUSE,
+                );
                 return Err(anyhow::Error::new(resource_effect_indeterminate(
                     &idempotency_key,
                     &operation,
@@ -228,7 +233,7 @@ impl Mux {
     ) -> anyhow::Result<ResourcePatchCommit> {
         match self.settle_resource_creation(recovery, Some(failure.clone())) {
             Ok(settlement) => {
-                creation_settlement_result(settlement, idempotency_key, operation_name)
+                creation_settlement_result(self, settlement, idempotency_key, operation_name)
             }
             Err(error) => {
                 eprintln!(
@@ -240,23 +245,48 @@ impl Mux {
         }
     }
 
+    /// Release the launch barrier of the terminal a creation made: its host
+    /// sends none of the shell's output until then, with no deadline.
+    ///
+    /// The barrier belongs to the terminal's runtime, not to the tab that
+    /// made it. A tab strip change takes no creation fence, so the new tab
+    /// can leave before this runs while its terminal keeps running (closing
+    /// a view never ends a terminal). The runtime is therefore found in the
+    /// terminal catalog; a lookup through the tab missed it and left the
+    /// host waiting for ever, an empty screen wherever the terminal showed
+    /// again (open-P0 close-then-type, build dd832e31).
     pub(super) fn activate_created_terminal_launch(&self, result: &Value) -> anyhow::Result<()> {
-        if result.get("terminal_id").and_then(Value::as_str).is_none() {
-            return Ok(());
-        }
-        let Some(tab_id) = result.get("tab_id").and_then(Value::as_str) else {
+        let Some(terminal_id) = result.get("terminal_id").and_then(Value::as_str) else {
             return Ok(());
         };
-        let tab_id = TabPublicId::parse(tab_id.to_string()).map_err(anyhow::Error::new)?;
-        let Some(surface_id) =
-            self.state.lock().unwrap().resource_indexes.tabs.get(&tab_id).copied()
-        else {
-            // A replay can outlive its detached terminal view. There is no
-            // launch barrier to release in that case.
+        let terminal_id =
+            TerminalPublicId::parse(terminal_id.to_string()).map_err(anyhow::Error::new)?;
+        let (runtime, tab_left) = {
+            let state = self.state.lock().unwrap();
+            let tab_left = result
+                .get("tab_id")
+                .and_then(Value::as_str)
+                .and_then(|tab| TabPublicId::parse(tab.to_string()).ok())
+                .is_some_and(|tab| !state.resource_indexes.tabs.contains_key(&tab));
+            (state.terminal_catalog.get(&terminal_id).cloned(), tab_left)
+        };
+        let Some(runtime) = runtime else {
+            // The terminal ended or was closed (its close ends the host), or
+            // a replay outlived it: no host waits for this barrier.
+            if tab_left {
+                eprintln!(
+                    "cmux-tui: created terminal {terminal_id} has no runtime at its launch \
+                     activation; nothing to release"
+                );
+            }
             return Ok(());
         };
-        if let Some(surface) = self.surface(surface_id) {
-            surface.activate_hosted_launch_stream()?;
+        let released = runtime.activate_hosted_launch_stream()?;
+        if released && tab_left {
+            eprintln!(
+                "cmux-tui: created terminal {terminal_id} lost its tab before its launch \
+                 activation; activated through its runtime"
+            );
         }
         Ok(())
     }
@@ -319,19 +349,27 @@ impl Mux {
                     None,
                 ) {
                     Ok(_) => Ok(ResourceCreationSettlement::NotApplied(error)),
-                    Err(_) => {
+                    Err(commit_error) => {
                         if let Some(settlement) = self.persisted_creation_settlement(&recovery)? {
                             return Ok(settlement);
                         }
-                        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                        Ok(ResourceCreationSettlement::Indeterminate)
+                        self.indeterminate_creation(
+                            &recovery,
+                            &format!(
+                                "the creation did not apply ({}: {}) and its failure outcome \
+                                 commit failed: {commit_error:#}",
+                                error.code, error.message
+                            ),
+                        )
                     }
                 }
             }
             ResourceCreationEvidence::Ambiguous => {
                 self.rollback_interrupted_workspace_creation(&recovery.intent)?;
-                self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                Ok(ResourceCreationSettlement::Indeterminate)
+                self.indeterminate_creation(
+                    &recovery,
+                    &creation_cause("the creation evidence is ambiguous", failure.as_ref()),
+                )
             }
             ResourceCreationEvidence::AmbiguousLive => {
                 // The terminal's outcome is unknown, but the creation did not
@@ -350,15 +388,22 @@ impl Mux {
                     );
                 }
                 self.rollback_interrupted_workspace_creation(&recovery.intent)?;
-                self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                Ok(ResourceCreationSettlement::Indeterminate)
+                self.indeterminate_creation(
+                    &recovery,
+                    &creation_cause(
+                        "the live state does not show whether the creation applied",
+                        failure.as_ref(),
+                    ),
+                )
             }
             ResourceCreationEvidence::Pending => Ok(ResourceCreationSettlement::Pending),
             ResourceCreationEvidence::TerminalClosedAfterFailure => {
                 let Some(error) = failure else {
                     self.rollback_interrupted_workspace_creation(&recovery.intent)?;
-                    self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                    return Ok(ResourceCreationSettlement::Indeterminate);
+                    return self.indeterminate_creation(
+                        &recovery,
+                        "the created terminal closed and the failure that closed it is unknown",
+                    );
                 };
                 self.rollback_interrupted_workspace_creation(&recovery.intent)?;
                 match self.commit_resource_effect(
@@ -369,16 +414,38 @@ impl Mux {
                     None,
                 ) {
                     Ok(_) => Ok(ResourceCreationSettlement::NotApplied(error)),
-                    Err(_) => {
+                    Err(commit_error) => {
                         if let Some(settlement) = self.persisted_creation_settlement(&recovery)? {
                             return Ok(settlement);
                         }
-                        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                        Ok(ResourceCreationSettlement::Indeterminate)
+                        self.indeterminate_creation(
+                            &recovery,
+                            &format!(
+                                "the creation did not apply ({}: {}) and its failure outcome \
+                                 commit failed: {commit_error:#}",
+                                error.code, error.message
+                            ),
+                        )
                     }
                 }
             }
         }
+    }
+
+    /// Marks a creation indeterminate and logs `cause`, so the daemon log
+    /// says why the creation answers `mutation.indeterminate`.
+    pub(super) fn indeterminate_creation(
+        &self,
+        recovery: &ResourceCreationRecovery,
+        cause: &str,
+    ) -> anyhow::Result<ResourceCreationSettlement> {
+        self.report_resource_effect_indeterminate(
+            &recovery.idempotency_key,
+            &recovery.operation,
+            cause,
+        );
+        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
+        Ok(ResourceCreationSettlement::Indeterminate)
     }
 
     /// Roll back the workspace a creation staged, when it is not public.

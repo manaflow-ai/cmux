@@ -33,6 +33,9 @@ impl Hub {
         }
         let own = if names_hosts { crate::pairing::machine_name() } else { "local".into() };
         let shown = names_hosts.then_some(own.as_str());
+        if !bead_only && let Some(id) = crate::opaque_agent_id::find(query) {
+            return self.locate_opaque(query, &id, &own, shown);
+        }
         let parsed = if bead_only { None } else { crate::agent_link::find(query) };
         let named = parsed.as_ref().and_then(|link| link.as_ref().ok());
         let names = Names::new(query, named, bead_only);
@@ -74,6 +77,16 @@ impl Hub {
                     let exact_all = by_key_exact(&summaries, query, &own);
                     if !exact_all.is_empty() {
                         (None, exact_all)
+                    } else if names_hosts
+                        && (!crate::beads::is_bead_id(query)
+                            || by_bead(&summaries, query).is_empty())
+                        && let Some(route) = self.key_route(query)?.filter(|route| route != query)
+                    {
+                        // No exact name or id, and no session carries it as a bead (`by_key`
+                        // reads those first): the one session every other command finds for it
+                        // (`hub/key_route.rs`: another case before a prefix, a prefix here before
+                        // a name without separators); several are refused, never picked.
+                        return self.locate(&route, false, names_hosts);
                     } else {
                         (None, by_key(&summaries, query, &own))
                     }
@@ -119,6 +132,19 @@ impl Hub {
             return Err(RpcError::not_found(format!("{}; close matches: {list}", e.message))
                 .with_data(json!({"candidates": shown_close})));
         }
+        self.answer(found, all, &own, shown, link)
+    }
+
+    /// `locate`'s answer for the sessions it found (newest first; `all`: read with closed chats
+    /// too): each chat that moved after where it went (`follow_moves`), as cards, and the link.
+    fn answer(
+        &self,
+        found: Vec<&Value>,
+        all: bool,
+        own: &str,
+        shown: Option<&str>,
+        link: Option<AgentLink>,
+    ) -> Result<Value, RpcError> {
         // Where moved chats went: those rows only, from the list the matches came from.
         let targets: Vec<&str> =
             found.iter().filter_map(|s| s.pointer("/movedTo/sessionId")?.as_str()).collect();
@@ -128,7 +154,7 @@ impl Hub {
             let to = |r: &RemoteSession| targets.contains(&r.receipt.mux_session_id.as_str());
             self.located_summaries(&to, all)
         };
-        let found = follow_moves(found, &moved, &own);
+        let found = follow_moves(found, &moved, own);
         let matches: Vec<Value> = found.iter().map(|s| card(s, shown)).collect();
         Ok(json!({
             "session": matches.first(),
@@ -141,6 +167,56 @@ impl Hub {
                 "message": l.message,
             })),
         }))
+    }
+
+    /// The session opaque id `id` (`opaque_agent_id.rs`, the `?id=aid-...` link of a public PR)
+    /// stands for: the one listed here or on a peer whose host, harness and session hash to it
+    /// under this machine's key, live chats before closed ones. Without the key, or with no
+    /// session that hashes to it, the same not-found as any unknown session (the caller opens
+    /// the web page). A peer row is hashed in place and copied only when it matches, so a
+    /// lookup copies no other peer row (`may_name`). Its answer names no link: the id is all a
+    /// reader has.
+    fn locate_opaque(
+        &self,
+        query: &str,
+        id: &str,
+        own: &str,
+        shown: Option<&str>,
+    ) -> Result<Value, RpcError> {
+        let unfound = || RpcError::not_found(self.unfound(query, None, shown));
+        let Some(key) = crate::opaque_agent_id::Key::load(&crate::config::home()) else {
+            return Err(unfound());
+        };
+        // The names this machine's sessions are minted under: its peer name, and the host an
+        // agent here was told it runs on.
+        let mut here = vec![crate::pairing::machine_name()];
+        if let Ok(host) = std::env::var("CMUX_AGENT_HOST")
+            && !host.is_empty()
+            && !here.iter().any(|h| h.eq_ignore_ascii_case(&host))
+        {
+            here.push(host);
+        }
+        let hashes = |s: &Value, hosts: &[&str]| {
+            s["agentSessionId"]
+                .as_str()
+                .is_some_and(|session| hosts.iter().any(|h| key.id(h, family_of(s), session) == id))
+        };
+        let keep = |r: &RemoteSession| hashes(&r.summary, &[r.peer.as_str()]);
+        let here: Vec<&str> = here.iter().map(String::as_str).collect();
+        for all in [false, true] {
+            let summaries = self.located_summaries(&keep, all);
+            let found: Vec<&Value> = summaries
+                .iter()
+                .filter(|s| match s["peer"].as_str() {
+                    Some(peer) => hashes(s, &[peer]),
+                    None => hashes(s, &here),
+                })
+                .collect();
+            if !found.is_empty() {
+                return self.answer(found, all, own, shown, None);
+            }
+        }
+        Err(unfound())
     }
 
     /// The sessions `locate` reads, newest first: this daemon's (with `closed`, its closed ones
@@ -366,17 +442,34 @@ fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
     by_short_name(summaries.iter().collect(), key)
 }
 
+/// The sessions `key` names exactly: an id first, then a whole name on any host before
+/// `HOST/NAME` is read as a host and a name on it, as `by_key` reads them (a local `coord/lane`
+/// is never peer `coord`'s `lane-extra`, which the loose `key_route` would find next, and a
+/// session named `hb/ID` never hides peer `hb`'s session `ID`).
 fn by_key_exact<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
     if let Some((host, rest)) = key.split_once('/') {
+        let ids: Vec<&Value> = summaries
+            .iter()
+            .filter(|s| {
+                s["qualifiedSessionId"].as_str() == Some(key)
+                    || (s["sessionId"].as_str() == Some(rest)
+                        && host_of(s, own).eq_ignore_ascii_case(host))
+            })
+            .collect();
+        if !ids.is_empty() {
+            return ids;
+        }
+        let whole: Vec<&Value> = summaries
+            .iter()
+            .filter(|s| s["name"].as_str() == Some(key) || bare_name(s) == key)
+            .collect();
+        if !whole.is_empty() {
+            return whole;
+        }
         return summaries
             .iter()
             .filter(|s| host_of(s, own).eq_ignore_ascii_case(host))
-            .filter(|s| {
-                s["sessionId"].as_str() == Some(rest)
-                    || s["qualifiedSessionId"].as_str() == Some(key)
-                    || bare_name(s) == rest
-                    || s["name"].as_str() == Some(key)
-            })
+            .filter(|s| bare_name(s) == rest || s["name"].as_str() == Some(key))
             .collect();
     }
     summaries

@@ -154,6 +154,11 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
 
   const open = async (theme: string, variant = VARIANT) => {
     const page = await browser.newPage({ viewport: { width: 1200, height: 1200 }, deviceScaleFactor: 2 });
+    // Leo's capture of a Claude chat, as Claude's in-place runs draw it (claudeTurnFold.experiment.ts
+    // arm "runs"); by default a finished Claude turn folds under Worked for (Codex parity).
+    await page.addInitScript(() => {
+      globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "claude-turn-fold": "runs" };
+    });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
       `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: 1100, theme, reducedMotion: "true" })}`,
@@ -229,8 +234,20 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
         const first = lines(row)[0];
         return first ? (first.top + first.bottom) / 2 : null;
       };
+      const tail = (row: Element | undefined) => {
+        const last = lines(row).at(-1);
+        return last ? (last.top + last.bottom) / 2 : null;
+      };
       const diff = (a: number | null | undefined, b: number | null | undefined) =>
         a == null || b == null ? null : Math.round((b - a) * 100) / 100;
+      // A stacked row's first line sits on its own line under the row: the pitch from it to the row under it is one
+      // row line plus that line (#34370 measures the closed waiting group this way).
+      const below = (row: Element | undefined) => {
+        const first = row?.querySelector(".cv-msgline__preview")?.getBoundingClientRect();
+        return first && first.height > 0 ? first.height : 0;
+      };
+      const after = (row: Element | undefined, gap: number | null) =>
+        gap == null ? null : Math.round((gap - below(row)) * 100) / 100;
       const live = rows.find(
         (row) => row.classList.contains("acpmux-thinking") || row.classList.contains("acpmux-working"),
       );
@@ -238,15 +255,27 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
         .querySelector('[data-row-id="received-footer"] .cv-turn-actions button svg')
         ?.getBoundingClientRect();
       const received = document.querySelector('[data-row-id="received-line"]') ?? undefined;
+      const bubble = document.querySelector('[data-row-id="sp-prompt"] .cv-user__bubble')?.getBoundingClientRect();
       const sent = byText(/^Sent to/m) ?? document.querySelector('[data-row-id="received-sent"]') ?? undefined;
       const gaps: Record<string, number | null> = {
-        "work-to-subagent": diff(head(byText(/Sent a message/)), head(byClass("acpmux-subagentDone"))),
-        "subagent-to-live": diff(head(byClass("acpmux-subagentDone")), head(live)),
-        "live-to-waiting": diff(head(live), head(byClass("acpmux-pendingMessages"))),
+        // A running turn keeps its work in sight (cmux#38339): its last call's row over the subagent's.
+        "work-to-subagent": diff(
+          tail(document.querySelector('[data-row-id="status-work"]') ?? undefined),
+          head(byClass("acpmux-subagentDone")),
+        ),
+        "subagent-to-waiting": diff(head(byClass("acpmux-subagentDone")), head(byClass("acpmux-pendingMessages"))),
+        // The closed group draws its first line under its head (stacked): the live line is a row under that.
+        "waiting-to-live": after(
+          byClass("acpmux-pendingMessages"),
+          diff(head(byClass("acpmux-pendingMessages")), head(live)),
+        ),
         "reply-footer-to-received":
           footer && footer.height > 0 ? diff((footer.top + footer.bottom) / 2, head(received)) : null,
         "received-to-sent": diff(head(received), head(sent)),
         "sent-to-live": diff(head(sent), head(live)),
+        "status-to-prompt": diff(head(byClass("acpmux-subagentDone")), bubble?.top),
+        "prompt-to-sent": diff(bubble?.bottom, head(document.querySelector('[data-row-id="sp-sent"]') ?? undefined)),
+        "note-to-live": diff(head(document.querySelector('[data-row-id="notes-last"]') ?? undefined), head(live)),
       };
       const chips = [...document.querySelectorAll<HTMLElement>(".cv-agent-tag")].filter(shown).map((chip) => {
         const label = lines(chip)[0];

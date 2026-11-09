@@ -1,7 +1,9 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextDaemon
+import CmuxNextTabs
 import Foundation
 
 /// Another machine picked for a Cloud chat whose first send has not run (`cloud.repickChat`,
@@ -19,18 +21,18 @@ extension CloudStartChat {
     static func repickRunner(_ tabs: AgentTabStore, services: AppServices) -> @MainActor (AgentPaneView?, AgentPaneCloudRepick) async -> [String: Any] {
         { [weak tabs, weak services] view, repick in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
-            guard let view, let tabs, let key = tabs.views.first(where: { $0.value === view })?.key,
-                  let started = tabs.pageChats.cloudStarted[key], let (tab, _) = services.locateTab(key) else {
+            guard let view, let tabs, let scoped = tabs.views.entries.first(where: { $0.value === view })?.key,
+                  let started = tabs.pageChats.cloudStarted[scoped], let (tab, _) = services.locateTab(scoped.key, onMachine: scoped.machine) else {
                 // No chat a start opened: the page does what a pick did before.
                 return AgentPaneReply.failure(code: "not_a_cloud_start", message: "not_a_cloud_start")
             }
-            return await CloudStartChat(services: services).repick(repick, started: started, key: key, tab: tab)
+            return await CloudStartChat(services: services).repick(repick, started: started, key: scoped.key, machine: scoped.machine, tab: tab)
         }
     }
 
     /// Moves the chat a start opened (tab `key`, `tab`) to the machine `repick` names and sends its
     /// first prompt there; the page's reply.
-    func repick(_ repick: AgentPaneCloudRepick, started: AgentPaneCloudStarted, key: String, tab: TabModel) async -> [String: Any] {
+    func repick(_ repick: AgentPaneCloudRepick, started: AgentPaneCloudStarted, key: String, machine: String, tab: TabModel) async -> [String: Any] {
         if let refusal = Self.refusal(services) { return AgentPaneReply.failure(code: refusal, message: refusal) }
         let listed = services.cloud.listedMachineIDs
         let machines = services.machines.cloud.filter { listed.contains($0.machineID) }
@@ -41,19 +43,19 @@ extension CloudStartChat {
         // The machine it is on already: nothing moves.
         guard target != started.machineID else { return AgentPaneReply.success(["machine": services.machines.session(target)?.machine.title ?? ""]) }
         let toastID = "cloud-start-" + tab.id
-        CloudMove.toast(services, toastID, CloudMoveStrings.moving, duration: .seconds(600))
+        CloudMove.toast(services, toastID, CloudMoveStrings.moving, duration: CloudMove.working)
         do {
             // Only under the account the send began in (+Machine).
             try Self.checkAccount(started.account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
             let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
             // The pick wins over the send's first machine: the plan now names the picked one.
-            _ = try Self.checked(await cli.startChatPin(key: started.start.key, account: Self.accountText(started.account),
+            _ = try Self.checked(await cli.startChatPin(key: started.start.key, account: CloudStartCore().accountText(started.account),
                                                         machine: target, workspace: started.workspace))
             let old = services.machines.daemon(forTab: tab)
             let origin = Origin(tab: tab, chat: started.chat, workspace: started.workspace, account: started.account) { [services] in
                 // The chat's tab on the machine it was on, whose first send never ran.
-                services.agentTabs.pageChats.cloudStarted[key] = nil
+                services.agentTabs.pageChats.cloudStarted[AgentTabKey(machine: machine, key: key)] = nil
                 do {
                     try await old.connection?.closeTabs([tab.surface], endTerminals: false, reason: .sessionEnd)
                 } catch {

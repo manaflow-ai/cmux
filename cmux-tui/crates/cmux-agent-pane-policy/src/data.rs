@@ -15,12 +15,16 @@ pub const POLICY_JSON: &str = include_str!("../policy.json");
 pub enum GestureRule {
     /// Every frame of the method (the user pressed send, picked a mode or an option).
     Always,
-    /// `acp.trust.set` that trusts (`level` not one of `non_trusting_levels`).
+    /// Every peer `acp.trust.set`, or a local set that trusts
+    /// (`level` not one of `non_trusting_levels`).
     WhenTrusting,
     /// `_acpmux/permission_respond` whose option is not a known deny.
     WhenOptionAllows,
     /// `_acpmux/permission_group_respond` whose `decision` is not `deny`.
     WhenDecisionAllows,
+    /// `_acpmux/side_chat` that sends the side chat a first prompt (`prompt`), as
+    /// `session/prompt` does.
+    WhenPrompting,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -105,6 +109,8 @@ struct Raw {
     #[serde(default)]
     scoped_session_params: BTreeMap<String, BTreeSet<String>>,
     #[serde(default)]
+    primary_session_params: BTreeMap<String, String>,
+    #[serde(default)]
     optional_scoped_session_params: BTreeMap<String, BTreeSet<String>>,
     source_scoped: BTreeSet<String>,
     gesture_rules: BTreeMap<String, GestureRule>,
@@ -115,6 +121,8 @@ struct Raw {
     history_replies: BTreeSet<String>,
     path_keys: BTreeSet<String>,
     question_answers: QuestionAnswers,
+    #[serde(default)]
+    act_as_me_covers: BTreeSet<String>,
 }
 
 /// The rules.
@@ -143,6 +151,9 @@ pub struct Policy {
     /// Params beside `sessionId` that name a session, which must be the pane's
     /// too (`_acpmux/side`'s `chat`).
     pub scoped_session_params: BTreeMap<String, BTreeSet<String>>,
+    /// The primary session key for methods whose pane-scoped session reference is not named
+    /// `sessionId` (model races use `parent`).
+    pub primary_session_params: BTreeMap<String, String>,
     /// Params beside `sessionId` that may name a session: none is fine, a
     /// named one must be a string the pane holds (`_acpmux/offer_respond`'s
     /// `childSessionId`, which only an accepted offer names).
@@ -150,7 +161,7 @@ pub struct Policy {
     /// Methods that copy a session into a new one the pane controls.
     pub source_scoped: BTreeSet<String>,
     pub gesture_rules: BTreeMap<String, GestureRule>,
-    /// `acp.trust.set` levels that do not trust (no gesture).
+    /// Local `acp.trust.set` levels that do not trust (no gesture).
     pub non_trusting_levels: BTreeSet<String>,
     /// The methods that set a mode or an option (P1).
     pub setting_methods: BTreeSet<String>,
@@ -162,6 +173,10 @@ pub struct Policy {
     /// (`AcpmuxPathPolicy.keys`): such a frame waits for the host's path check.
     pub path_keys: BTreeSet<String>,
     pub question_answers: QuestionAnswers,
+    /// The only frames input another process posts may grant while "Computer use can act as me"
+    /// is on ([`crate::act_as_me`]): Send and Retry (`session/prompt`) and Approve
+    /// (`_acpmux/queue_approve`). Empty (a policy that did not parse) covers nothing.
+    pub act_as_me_covers: BTreeSet<String>,
 }
 
 pub fn policy() -> &'static Policy {
@@ -191,6 +206,7 @@ pub fn policy() -> &'static Policy {
             session_scoped: raw.session_scoped,
             optionally_session_scoped: raw.optionally_session_scoped,
             scoped_session_params: raw.scoped_session_params,
+            primary_session_params: raw.primary_session_params,
             optional_scoped_session_params: raw.optional_scoped_session_params,
             source_scoped: raw.source_scoped,
             gesture_rules: raw.gesture_rules,
@@ -201,6 +217,7 @@ pub fn policy() -> &'static Policy {
             history_replies: raw.history_replies,
             path_keys: raw.path_keys,
             question_answers: raw.question_answers,
+            act_as_me_covers: raw.act_as_me_covers,
         }
     })
 }

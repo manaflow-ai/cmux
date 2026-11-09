@@ -9,22 +9,20 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// Leo 2026-10-20: "when you open up a new tab ... if you came from a split workspace pane session,
-/// then it goes, like, the layout shifts and splits." Since 2026-10-19 what a New Tab page opened
-/// beside another tab (a terminal, a browser, a chat card) went through ``LinkOpener``: to the pane
-/// on the right, else a new split, and the page's pane fell back to its old tab. The New Tab page
-/// is the tab the person opened in this pane: its pick takes the page's place there, whatever
-/// `layout.linkPlacement` says, and no pane or divider moves. The Debug toggle `newTab.picksFollowLinks`
-/// opts back into the link rule (Lawrence 2026-10-19). Serialized: the toggle is the shared store's.
+/// Lawrence 2026-10-19 (restated 2026-11-05): "New Tab page click opens in the pane to the right, not the
+/// same pane." What a New Tab page opens beside another tab (a terminal, a browser, a chat card) goes
+/// through ``LinkOpener``: to the pane on the right, else a new split, and the page's pane falls back to
+/// its old tab. A lone page is replaced in place. The Debug toggle `newTab.picksFollowLinks` off keeps
+/// every pick in the page's place (Leo 2026-10-20). Serialized: the toggle is the shared store's.
 @MainActor @Suite(.serialized) struct NewTabPagePickInPlaceTests {
     /// A pane holding a terminal (surface 1) and the New Tab page (surface 2), or the page alone, with
-    /// the Debug toggle `newTab.picksFollowLinks` on (`optedIn`) or at its default.
-    private static func pane(withTerminal: Bool, optedIn: Bool = false) throws -> (AppServices, PaneController, String) {
+    /// the Debug toggle `newTab.picksFollowLinks` set to `followsLinks`, or at its default (nil).
+    private static func pane(withTerminal: Bool, followsLinks: Bool? = nil) throws -> (AppServices, PaneController, String) {
         _ = NSApplication.shared
         let store = TunableStore.shared
         store.activate(file: nil)
         store.register(AgentPaneTunables.all)
-        _ = store.set(AgentPaneTunables.newTabPicksFollowLinks.key, optedIn ? .bool(true) : nil)
+        _ = store.set(AgentPaneTunables.newTabPicksFollowLinks.key, followsLinks.map { .bool($0) })
         let services = AppServices(environment: AppEnvironment.current([:]))
         let surfaces: [UInt64] = withTerminal ? [1, 2] : [2]
         let snapshot = PaneSnapshot(id: PaneID(rawValue: 1), tabs: surfaces.map { TabSnapshot(surface: SurfaceID(rawValue: $0), title: "~") })
@@ -41,8 +39,9 @@ import Testing
 
     /// Runs the page's terminal pick and reports whether it asked where links go (a pick routed
     /// through ``LinkOpener`` reads `layout.linkPlacement` to find the pane on the right or split).
-    private static func pickConsultsLinkPlacement(_ placement: LinkPlacement, withTerminal: Bool, optedIn: Bool = false) throws -> Bool {
-        let (services, pane, page) = try Self.pane(withTerminal: withTerminal, optedIn: optedIn)
+    private static func pickConsultsLinkPlacement(_ placement: LinkPlacement, withTerminal: Bool, followsLinks: Bool? = nil,
+                                                  request: AgentPaneOpenTab = AgentPaneOpenTab(kind: .terminal, text: "", run: false)) throws -> Bool {
+        let (services, pane, page) = try Self.pane(withTerminal: withTerminal, followsLinks: followsLinks)
         defer {
             pane.teardown()
             _ = TunableStore.shared.set(AgentPaneTunables.newTabPicksFollowLinks.key, nil)
@@ -52,15 +51,33 @@ import Testing
             consulted = true
             return placement
         }
-        NewTabPage.replace(page, with: AgentPaneOpenTab(kind: .terminal, text: "", run: false), cwd: nil, in: pane)
+        NewTabPage.replace(page, with: request, cwd: nil, in: pane)
         return consulted
     }
 
-    @Test func aPickOnANewTabPageBesideAnotherTabTakesThePagesPlace() throws {
-        #expect(try !Self.pickConsultsLinkPlacement(.splitRight, withTerminal: true),
+    @Test func aPickOnANewTabPageBesideAnotherTabOpensWhereLinksDo() throws {
+        #expect(try Self.pickConsultsLinkPlacement(.splitRight, withTerminal: true),
+                "the page's pick replaced the page in its pane instead of opening in the pane on the right")
+        let (_, pane, page) = try Self.pane(withTerminal: true)
+        defer { pane.teardown() }
+        #expect(NewTabPage.opensBeside(page, in: pane))
+    }
+
+    /// The Debug toggle off: the pick takes the page's place, whatever `layout.linkPlacement` says.
+    @Test func optedOutThePickTakesThePagesPlace() throws {
+        #expect(try !Self.pickConsultsLinkPlacement(.splitRight, withTerminal: true, followsLinks: false),
                 "the page's pick went to the pane on the right or a new split instead of the page's tab")
-        #expect(try !Self.pickConsultsLinkPlacement(.newColumn, withTerminal: true),
+        #expect(try !Self.pickConsultsLinkPlacement(.newColumn, withTerminal: true, followsLinks: false),
                 "the page's pick went to a new column instead of the page's tab")
+    }
+
+    /// The page's New terminal and New browser tab buttons (`inPlace`) take the page's tab, never a
+    /// split, also beside another tab with picks following links (Lucas 2026-11-07).
+    @Test(arguments: [AgentPaneOpenTab(kind: .terminal, text: "", run: false, inPlace: true),
+                      AgentPaneOpenTab(kind: .browser, text: "", inPlace: true)])
+    func theCreateButtonsTakeThePagesPlace(request: AgentPaneOpenTab) throws {
+        #expect(try !Self.pickConsultsLinkPlacement(.splitRight, withTerminal: true, request: request),
+                "a New Tab page create button opened in the pane on the right or a new split instead of the page's tab")
     }
 
     /// Nothing else in the pane: the page becomes what it opened, as it always did.
@@ -68,9 +85,9 @@ import Testing
         #expect(try !Self.pickConsultsLinkPlacement(.splitRight, withTerminal: false))
     }
 
-    /// The Debug toggle is off unless someone turns it on.
-    @Test func followingLinksIsOptIn() {
-        #expect(!AgentPaneTunables.newTabPicksFollowLinks.defaultValue)
+    /// The Debug toggle is on unless someone turns it off.
+    @Test func followingLinksIsTheDefault() {
+        #expect(AgentPaneTunables.newTabPicksFollowLinks.defaultValue)
     }
 
     @Test(arguments: AgentPaneTabKind.allCases) func refusedNativePairingLinkDoesNotAcceptTheSubmission(kind: AgentPaneTabKind) throws {
@@ -173,17 +190,27 @@ import Testing
         services.linkOpener.placement = { consultedPlacement = true; return .splitRight }
         #expect(NewTabPage.submitNative(kind == .terminal ? "echo hello" : "!echo hello", kind: kind,
                                        search: false, cwd: "/project", in: pane))
-        #expect(!consultedPlacement, "ordinary native picks replace the page without splitting")
+        #expect(!consultedPlacement, "a native submit with no page key replaces the page without splitting")
     }
 
-    /// `newTab.picksFollowLinks` on: the pick goes where links go, beside the page.
-    @Test func optedInThePickFollowsLinkPlacement() throws {
-        #expect(try Self.pickConsultsLinkPlacement(.splitRight, withTerminal: true, optedIn: true))
-        let (_, pane, page) = try Self.pane(withTerminal: true, optedIn: true)
-        defer {
-            pane.teardown()
-            _ = TunableStore.shared.set(AgentPaneTunables.newTabPicksFollowLinks.key, nil)
-        }
-        #expect(NewTabPage.opensBeside(page, in: pane))
+    /// The native page's own submit (its tab key passed) beside another tab goes where links do, like the web page's.
+    @Test(arguments: [AgentPaneTabKind.terminal, .browser]) func nativePicksBesideAnotherTabFollowLinkPlacement(kind: AgentPaneTabKind) throws {
+        let (services, pane, page) = try Self.pane(withTerminal: true)
+        defer { pane.teardown() }
+        var consultedPlacement = false
+        services.linkOpener.placement = { consultedPlacement = true; return .splitRight }
+        _ = NewTabPage.submitNative(kind == .terminal ? "echo hello" : "!echo hello", kind: kind,
+                                    search: false, cwd: "/project", in: pane, page: page)
+        #expect(consultedPlacement, "the native page's pick replaced the page instead of opening in the pane on the right")
+    }
+
+    /// A lone native page has nothing to keep in view: its pick replaces it in place.
+    @Test func aLoneNativePageIsReplacedInPlace() throws {
+        let (services, pane, page) = try Self.pane(withTerminal: false)
+        defer { pane.teardown() }
+        var consultedPlacement = false
+        services.linkOpener.placement = { consultedPlacement = true; return .splitRight }
+        _ = NewTabPage.submitNative("echo hello", kind: .terminal, search: false, cwd: "/project", in: pane, page: page)
+        #expect(!consultedPlacement)
     }
 }

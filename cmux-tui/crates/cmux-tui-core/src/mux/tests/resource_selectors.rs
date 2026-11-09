@@ -370,3 +370,58 @@ fn selector_rename_and_concurrent_rename_share_one_locked_snapshot() {
         assert_eq!(state.workspaces[state.workspace_index(second).unwrap()].name, "target");
     });
 }
+
+/// W3-H (bench round 3): `cmux tab alpha show` sends `current` workspace,
+/// screen and pane selectors above the name, so a tab named in another pane
+/// (an agent's split) was not found. A name the current pane lacks is now
+/// looked up in the current screen, then wider; a name the current pane has
+/// still resolves there, and two matches outside it are ambiguous.
+#[test]
+fn w3h_a_tab_name_outside_the_current_pane_resolves_under_current_selectors() {
+    let mux = test_mux();
+    let root = mux.new_workspace(Some("w3h".into()), None).unwrap();
+    let root_pane = mux.with_state(|state| state.pane_of(root.id).unwrap());
+    let agent = mux.split(root_pane, SplitDir::Right, None).unwrap();
+    let agent_pane = mux.with_state(|state| state.pane_of(agent.id).unwrap());
+    assert!(mux.rename_surface(agent.id, "alpha".into()));
+    assert!(mux.focus_pane(root_pane));
+    let tab_id = |surface: SurfaceId| {
+        mux.with_state(|state| state.resource_indexes.tab_ids.get(&surface).cloned())
+    };
+    let pane_id =
+        |pane: PaneId| mux.with_state(|state| state.resource_indexes.pane_ids.get(&pane).cloned());
+    let selectors = crate::ResourceSelectors {
+        workspace: Some("current".into()),
+        screen: Some("current".into()),
+        pane: Some("current".into()),
+        tab: Some("alpha".into()),
+        ..Mux::ordinary_resource_selectors()
+    };
+    let path = mux.resolve_resource_path(crate::ResourceTarget::Tab, &selectors).unwrap();
+    assert_eq!(path.tab, tab_id(agent.id));
+    assert_eq!(path.pane, pane_id(agent_pane));
+    let prefixed = crate::ResourceSelectors { tab: Some("name:alpha".into()), ..selectors.clone() };
+    let path = mux.resolve_resource_path(crate::ResourceTarget::Tab, &prefixed).unwrap();
+    assert_eq!(path.tab, tab_id(agent.id));
+
+    // A name the current pane has resolves there, as before.
+    assert!(mux.rename_surface(root.id, "alpha".into()));
+    let path = mux.resolve_resource_path(crate::ResourceTarget::Tab, &selectors).unwrap();
+    assert_eq!(path.tab, tab_id(root.id));
+
+    // Two tabs with the name outside the current pane are ambiguous.
+    assert!(mux.rename_surface(root.id, "root".into()));
+    let other = mux.split(agent_pane, SplitDir::Down, None).unwrap();
+    assert!(mux.rename_surface(other.id, "alpha".into()));
+    assert!(mux.focus_pane(root_pane));
+    let error = mux.resolve_resource_path(crate::ResourceTarget::Tab, &selectors).unwrap_err();
+    assert_eq!(error.code, "selector.ambiguous");
+
+    // An explicit pane still scopes the name to that pane.
+    let pinned = crate::ResourceSelectors {
+        pane: pane_id(root_pane).map(|pane| pane.to_string()),
+        ..selectors
+    };
+    let error = mux.resolve_resource_path(crate::ResourceTarget::Tab, &pinned).unwrap_err();
+    assert_eq!(error.code, "selector.not_found");
+}

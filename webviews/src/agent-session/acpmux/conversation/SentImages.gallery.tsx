@@ -1,14 +1,15 @@
 // l10n-allow-file: gallery fixtures (sample prompts and image names), not shipped UI.
 // The images a sent prompt carries, above its bubble (UserBubble.tsx SentImages): each a rounded
-// thumbnail cropped to fill a fixed height, its slot held while acpmux reads it, named on hover by
+// thumbnail of the whole image at most 120px tall, its slot held while acpmux reads it, named on hover by
 // its file name or, for a pasted screenshot, its size; one that cannot be drawn says so.
 import { useEffect, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
-import type { PromptImage } from "../model";
+import type { AcpmuxRow, PromptImage } from "../model";
 import { primeSentImages } from "./imageEntries";
 import { ImageViewerContext } from "./imageViewerContext";
-import { TurnActionsContext } from "./turnActions";
-import { SentImages } from "./UserBubble";
+import { PresentationContext } from "./presentationContextModel";
+import { TurnActionsContext, type TurnActions } from "./turnActions";
+import { SentImages, UserBubble } from "./UserBubble";
 
 type Shot = { width: number; height: number; hue: number };
 type Props = {
@@ -17,6 +18,9 @@ type Props = {
   /// The pane's own paste: acpmux's echo names each image (by the SHA-256 of its bytes) before
   /// the pane has primed it, and acpmux's read never answers; the pane's priming draws it.
   primedLate?: boolean;
+  attachmentOnly?: "sending" | "actions";
+  /// Also sends the first image inside a prompt's text (InlinePromptContent.tsx).
+  inline?: boolean;
 };
 
 /// A screenshot-like image `shot.width`×`shot.height`: a title bar, a sidebar and lines of text.
@@ -73,12 +77,60 @@ function GalleryPrimedLate({ images }: Props) {
   return named ? <GallerySentImages images={named} pending /> : null;
 }
 
-function GallerySentImages({ images, pending = false, primedLate = false }: Props) {
+function GallerySentImages({ images, pending = false, primedLate = false, inline = false, attachmentOnly }: Props) {
   if (primedLate) return <GalleryPrimedLate images={images} />;
-  return <GalleryShownImages images={images} pending={pending} />;
+  if (attachmentOnly) return <GalleryAttachmentOnly images={images} state={attachmentOnly} />;
+  return <GalleryShownImages images={images} pending={pending} inline={inline} />;
 }
 
-function GalleryShownImages({ images, pending = false }: Props) {
+function GalleryAttachmentOnly({ images, state }: { images: Props["images"]; state: "sending" | "actions" }) {
+  const [actions] = useState<TurnActions>(() => {
+    const urls = new Map(images.map((image) => [image.id, image.shot && paint(image.shot)]));
+    return {
+      promptImage: (id: string) => Promise.resolve(urls.get(id)),
+      ...(state === "actions" && {
+        retry: () => {},
+        fork: () => {},
+        forkSeq: 7,
+        promptTurns: new Map([["attachment-only", 7]]),
+        branches: {
+          of: new Map([["attachment-only", { index: 0, sessions: ["session-1", "session-2"] }]]),
+          open: () => {},
+        },
+      }),
+    };
+  });
+  const row: AcpmuxRow = {
+    id: "attachment-only",
+    version: 1,
+    kind: "user",
+    at: Date.now() - 10_000,
+    images,
+    ...(state === "sending" && {
+      delivery: {
+        state: "sending" as const,
+        slow: true,
+        promptId: "prompt-attachment-only",
+        sessionId: "session-1",
+        sentAt: Date.now() - 10_000,
+      },
+    }),
+  };
+  return (
+    <ImageViewerContext.Provider value={() => {}}>
+      <TurnActionsContext.Provider value={actions}>
+        {/* The Messages view, where a delivered prompt draws its own Retry (MessageActions.tsx PromptActions). */}
+        <PresentationContext.Provider value={state === "actions" ? "messages" : "transcript"}>
+          <div className="cv-user" style={{ padding: 16 }}>
+            <UserBubble row={row} text="" />
+          </div>
+        </PresentationContext.Provider>
+      </TurnActionsContext.Provider>
+    </ImageViewerContext.Provider>
+  );
+}
+
+function GalleryShownImages({ images, pending = false, inline = false }: Props) {
   const [actions] = useState(() => {
     const urls = new Map(
       images.map((image) => [image.id, image.broken ? "data:image/png;base64,AAAA" : image.shot && paint(image.shot)]),
@@ -94,6 +146,24 @@ function GalleryShownImages({ images, pending = false }: Props) {
           <SentImages images={images} />
           <div className="ui-glass cv-user__bubble">Why does the sidebar overlap the toolbar here?</div>
         </div>
+        {inline && (
+          <div className="cv-user" style={{ padding: 16 }}>
+            <UserBubble
+              row={{
+                id: "inline",
+                version: 1,
+                kind: "user",
+                at: 1,
+                inlineParts: [
+                  { kind: "text" as const, text: "This strip " },
+                  { kind: "image" as const, ...images[0]!, placed: true as const },
+                  { kind: "text" as const, text: " runs past the bubble." },
+                ],
+              }}
+              text="This strip runs past the bubble."
+            />
+          </div>
+        )}
       </TurnActionsContext.Provider>
     </ImageViewerContext.Provider>
   );
@@ -115,8 +185,21 @@ export default componentEntry<Props>({
   load: async () => GallerySentImages,
   variants: {
     pasted: {
-      note: "Three pasted screenshots (square, wide, tall): each fills a fixed-height rounded thumbnail; hover names its size.",
+      note: "Three pasted screenshots (square, wide, tall): each the whole image at most 120px tall; hover names its size.",
       props: { images: pasted },
+    },
+    "wide-strip": {
+      note: "A strip cut from a chat (1568×74, Leo's 2026-11-05 capture): the whole strip at 320px wide, never a magnified crop of its middle.",
+      props: {
+        images: [{ id: "w", mimeType: "image/png", name: "image.png", shot: { width: 1568, height: 74, hue: 250 } }],
+      },
+    },
+    narrow: {
+      note: "The wide strip in a narrow chat, above a prompt and inside one: each scales down to the bubble, whole, never past its edge.",
+      props: {
+        images: [{ id: "w", mimeType: "image/png", name: "image.png", shot: { width: 1568, height: 74, hue: 250 } }],
+        inline: true,
+      },
     },
     named: {
       note: "Dropped files keep their names on hover.",
@@ -156,6 +239,15 @@ export default componentEntry<Props>({
         })),
         pending: true,
       },
+    },
+    "attachment-only-sending": {
+      note: "An image-only prompt keeps its Still sending clock beside the attachment without drawing an empty glass bubble.",
+      props: { images: pasted.slice(0, 2), attachmentOnly: "sending" },
+    },
+    "attachment-only-actions": {
+      note: "A delivered image-only prompt keeps its action row: Copy, Retry, Fork and version arrows under the attachment.",
+      props: { images: pasted.slice(0, 2), attachmentOnly: "actions" },
+      play: async (ctx) => ctx.hover({ selector: ".cv-user" }),
     },
   },
 });

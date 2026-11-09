@@ -8,8 +8,10 @@
 // Members: a quiet background turn's line that has ended (backgroundTurns.ts), and a background
 // shell's end noted where it ended (BackgroundTaskNote.tsx), finished or stopped. A failed shell stays
 // on its own row, in sight. Between members, a reply that draws nothing (visibleMessage.ts: empty or
-// only punctuation, the "·" an agent sends to end a turn) and the rows of a member line the reader
-// opened on its own (`inBackground`) go with the run. Anything else ends it.
+// a lone period) and the rows of a member line the reader
+// opened on its own (`inBackground`) go with the run. Anything else ends it. A line acpmux weighed
+// (backgroundTurns.ts `backgroundWeight`: a result its call could not carry, a failure) names its
+// own task and is no member either.
 //
 // The line reuses the background turn's row kind, so it takes that line's height, spacing and look
 // everywhere (model.ts, App.tsx); it carries `backgroundRun` instead of `background`. Its open state
@@ -18,7 +20,7 @@
 // turn shaping already does.
 import type { AcpmuxBackgroundRun, AcpmuxRow } from "../model";
 import type { Translate } from "../i18n";
-import { BACKGROUND_TURN } from "./backgroundTurns";
+import { BACKGROUND_TURN, backgroundWeight } from "./backgroundTurns";
 import type { Folds } from "./viewFolds";
 import { isVisiblyEmptyMessage } from "./visibleMessage";
 
@@ -30,7 +32,7 @@ export const backgroundRunRowId = (firstId: string) => `${BACKGROUND_RUN}-${firs
 function memberKind(row: AcpmuxRow): "finished" | "stopped" | "scheduled" | "other" | undefined {
   if (row.kind === BACKGROUND_TURN) {
     const turn = row.background;
-    if (!turn || turn.running || turn.quiet !== true) return undefined;
+    if (!turn || turn.running || turn.quiet !== true || backgroundWeight(turn)) return undefined;
     if (turn.trigger === "task_notification") return "finished";
     return turn.trigger === "scheduled" ? "scheduled" : "other";
   }
@@ -87,8 +89,12 @@ export function foldBackgroundRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRo
     }
     out ??= rows.slice(0, index);
     const folded = rows.slice(index, end);
-    const id = backgroundRunRowId(first.id);
-    const open = expanded.has(id);
+    // Open under any member's key, as a message run is (messageRuns.ts): two runs a reply that draws
+    // nothing joins, or a run whose first member changed, keep the open the reader gave one of them.
+    // Its id is that key, so a click closes it by the same key. Keyed lookups, one per member.
+    const opened = folded.find((row) => expanded.has(backgroundRunRowId(row.id)));
+    const id = backgroundRunRowId((opened ?? first).id);
+    const open = opened !== undefined;
     const run: AcpmuxBackgroundRun = { ...counts, rows: folded.map((row) => row.id) };
     out.push({
       id,
@@ -107,7 +113,7 @@ export function foldBackgroundRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRo
 }
 
 /// The open background-run lines among a turn's rows `rows[start..end)`, which a cached turn
-/// compares. A line's id is its first member's.
+/// compares. A line's id is the member's it was opened under (`foldBackgroundRuns`).
 export function openBackgroundRuns(rows: readonly AcpmuxRow[], start: number, end: number, expanded: Folds): string {
   if (expanded.size === 0) return "";
   let open = "";

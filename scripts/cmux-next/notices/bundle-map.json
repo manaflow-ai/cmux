@@ -92,6 +92,11 @@
       "notices": ["first-party", "section:rust-cmux-browser-host", "section:manual-cmux-browser-host-runtime-javascript", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
+      "path": "Contents/Resources/bin/cmux-agent-screen-detection",
+      "what": "the agent screen-detection plugin the daemon runs by default from beside its own executable (cmux-tui/bindings/examples/rust-agent-screen-detection, its own Cargo workspace; GPL-3.0-or-later AND Apache-2.0): cmux code with the cmux-sdk crate, and detector manifests and sources adapted from herdr (Apache-2.0)",
+      "notices": ["first-party", "section:rust-cmux-agent-screen-detection", "section:manual-herdr-agent-detection-plugin", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
+    },
+    {
       "path": "Contents/Resources/bin/cmux-cloud",
       "what": "first-party Cloud app server (first-party-apps/cloud/server)",
       "notices": ["first-party", "section:rust-cmux-cloud", "rust-std", "section:manual-rust-and-zig-standard-libraries"]

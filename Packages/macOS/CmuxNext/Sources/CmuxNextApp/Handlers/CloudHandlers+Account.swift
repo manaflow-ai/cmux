@@ -29,7 +29,7 @@ extension CloudHandlers {
                 // now. An ended app link connects again on this gesture, and
                 // a paused machine resumes (idle auto-pause).
                 target?.attach(origin: connectOrigin(for: invocation))
-                let creation = creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession,
+                let creation = creationFlow(context, startedByPerson: invocation.origin == .user, capCard: invocation.isPersonsOwnRun, askedBy: invocation.callerAgentSession,
                                             reveals: invocation.allowsViewChange).start(in: window, existing: target)
                 guard let target else {
                     // A CLI or agent hears the new machine's id and target once the server has it
@@ -47,8 +47,8 @@ extension CloudHandlers {
             result("new cloud workspace", context) {
                 // Made in the window it was asked from, like a local New Workspace; a CLI or agent
                 // run without focus leaves every window's view as it is.
+                // Placed as any new workspace (`workspaces.newPlacement`), in no group of its machine's (Leo 2026-11-06).
                 let id = await context.services.windows.createWorkspace(on: session.daemon, into: window?.id)
-                RemoteGroupHandlers.mark(session: session.daemon.store.registryID, doc: context.services.sidebarDoc) // one group per Cloud machine
                 guard let id else { throw ActionFailure(message: CloudStrings.notConnected) }
                 if invocation.allowsViewChange { show(id, context) }
                 return machineFields(session.machineID, ["workspace_id": .string(id)])
@@ -62,36 +62,34 @@ extension CloudHandlers {
         guard let chat else { return nil }
         if let cwd = chat.cwd, cwd.hasPrefix("/") { return cwd }
         let tabs = services.agentTabs
-        guard let session = tabs.sessions[tabs.resolve(chat.id)] ?? chat.agentSession?.session else { return nil }
+        guard let session = tabs.sessions[tabs.tabKey(of: chat)] ?? chat.agentSession?.session else { return nil }
         let host = tabs.localSessionHost ?? tabs.host
         guard let folder = try? await host.sessionFolder(sessionId: session), folder.isLocal, folder.cwd.hasPrefix("/") else { return nil }
         return folder.cwd
     }
 
-    static func beginWorkspaceSetup(_ context: AppActionContext, window: WindowState?, askedBy: String?, chat: TabModel? = nil) {
+    static func beginWorkspaceSetup(_ context: AppActionContext, window: WindowState?, askedBy: String?, chat: TabModel? = nil, environment: String? = nil) {
         runTracked("new Cloud workspace", context) {
             let cloud = context.services.cloud, services = context.services
             let userID = cloud.auth.user?.id, teamID = cloud.auth.teamID
+            // Release: read the remote switch now, so the offer below reflects it (DEV and NIGHTLY skip it).
+            if !DevTools.isEnabled { await cloud.readHarnessLoginCopySwitch() }
             let availability = CloudWorkspaceSetupWizard.CredentialAvailability.resolve(
-                teamID: cloud.auth.teamID, supportsFileRoute: AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: cloud.configuration.linkSource, isSignedIn: true, passesLogin: true),
-                passesLogin: CloudStartChat.passesHarnessLoginHere)
+                teamID: cloud.auth.teamID, supportsFileRoute: AgentTabStore.cloudCredentialTransferIsAvailable(isSignedIn: true, passesLogin: true),
+                passesLogin: CloudCredentialTransfer.passesHarnessLogin(isDogfoodBuild: DevTools.isEnabled, defaults: .standard, remoteSwitch: cloud.harnessLoginCopySwitch.current))
             let present: (CmuxDialogSpec) async -> CmuxDialogAnswer = { spec in
                 let scope: CmuxDialogScope = services.windows.active?.window.map(CmuxDialogScope.window) ?? .app
                 return await CmuxDialogCenter.shared.present(spec, in: scope)
             }
             let wizard = CloudWorkspaceSetupWizard(), pick = await CloudChatPick(services: services).read(folder: await chatFolder(chat, services), tab: chat)
-            // Environments live in the cmux-next backend's CloudDO: only its Cloud path lists them.
-            let supportsEnvironments = cloud.configuration.linkSource == .appServer
-            let environments = supportsEnvironments ? await cloud.appServerEnvironmentOptions() : []
-            // The plan's sizes, from the last machine list: only the `/api/vm` create takes a size
-            // (the app server's create refuses one for now), so its path shows no size choice.
-            let sizes = cloud.configuration.linkSource == .legacy
-                ? cloud.planSizes : []
+            // Environments live in the cmux-next backend's CloudDO.
+            let environments = (try? await cloud.appServerEnvironmentOptions()) ?? []
             guard let plan = try await wizard.choosePlan(availability: availability,
                 scopeIsCurrent: { cloud.auth.user?.id == userID && cloud.auth.teamID == teamID },
-                supportsRepository: cloud.configuration.linkSource == .legacy, suggested: pick?.repo,
-                environments: environments, supportsEnvironments: supportsEnvironments,
-                sizes: sizes, autosized: pick?.autosize != nil && pick?.repo != nil, present: present) else { return }
+                // The app server's create takes no repository and no size for now.
+                supportsRepository: false, suggested: pick?.repo,
+                environments: environments, supportsEnvironments: true, selectedEnvironment: environment,
+                sizes: [], autosized: pick?.autosize != nil && pick?.repo != nil, present: present) else { return }
             var request = CloudChatPick.request(plan, sizedFor: pick)
             if let new = plan.newEnvironment {
                 // Saved first, then booted: the first machine starts cold and runs the setup itself.
@@ -162,23 +160,29 @@ extension CloudHandlers {
                     throw CancellationError()
                 }
                 if provider == .codex {
+                    // The Release consent covers the Claude login only; the Codex broker stays DEV and NIGHTLY.
+                    guard DevTools.isEnabled else { return }
                     guard let windowID = window?.id, let originalWindow = services.windows.controller(for: windowID)?.window else {
                         throw CancellationError()
                     }
                     try await cloud.codexBroker.run(machineID: session.machineID,
                         scope: .init(userID: userID, teamID: teamID), confirmed: true,
+                        askLocalSignIn: { await CloudStartChat.askCodexSignIn(services, mayAsk: true, in: .window(originalWindow)) },
                         presentDeviceCode: { prompt in
                             await CloudPresenter.presentCodexDeviceCode(prompt, in: .window(originalWindow))
                         })
                     return
                 }
+                guard await CloudStartChat.loginCopyGate(services).copyAllowed() else { return } // the transfer checks it again last
                 let transfer = CloudCredentialTransfer(provider: .claude,
-                    machineID: session.machineID, teamID: teamID, userID: userID, openTerminal: { [weak services] line in
+                    machineID: session.machineID, teamID: teamID, userID: userID,
+                    otherTeams: cloud.auth.loginScopes, openTerminal: { [weak services] line in
                         await services?.openLocalProviderLogin(line) ?? false
                     })
                 try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID },
                                        currentUserID: { cloud.auth.user?.id }, confirmed: true,
-                                       callerOwnsVM: { [machineID = session.machineID] in try await cloud.callerOwnsVM(machineID) })
+                                       callerOwnsVM: { [machineID = session.machineID] in try await cloud.callerOwnsVM(machineID) },
+                                       stillAllowed: CloudStartChat.loginCopyGate(services).stillAllowed)
             }
         }
     }
@@ -221,8 +225,9 @@ extension CloudHandlers {
     static func newMachineRequest(_ invocation: ActionInvocation) throws -> CloudMachineRequest {
         // A text flag given with no value (`--bootstrap-script` last on the line) arrives as `true`:
         // refuse it rather than make a machine without what was asked.
-        for name in ["name", "size", "bootstrap", "bootstrapScript", "machineConfig", "repo"] where invocation[name] != nil && invocation[name]?.stringValue == nil {
+        for name in ["name", "size", "bootstrap", "bootstrapScript", "machineConfig", "repo", "environment"] where invocation[name] != nil && invocation[name]?.stringValue == nil {
             switch name {
+            case "environment": throw CloudWorkspaceSetupWizard.EnvironmentOption.Unknown()
             case "machineConfig": throw ActionFailure(message: CloudStrings.machineConfigUnreadable("--machine-config"))
             case "size": throw ActionFailure(message: CloudStrings.sizeMustBeOneOf(createSizes.keys.sorted().joined(separator: ", ")))
             case "name": throw ActionFailure(message: CloudStrings.laneNeedsName)
@@ -246,14 +251,15 @@ extension CloudHandlers {
         if kind == "lane" || path != nil {
             // A script alone runs as a plain bootstrap; `lane` also names the lane host.
             guard let path, !path.isEmpty else { throw ActionFailure(message: CloudStrings.bootstrapScriptRequired) }
-            request.bootstrapPath = expandingHome(path)
+            request.bootstrapPath = CloudMachineRequest.expandingHome(path)
             request.bootstrapKind = kind == "lane" ? .lane : .plain
         }
         if let config = invocation["machineConfig"]?.stringValue {
             guard !config.isEmpty else { throw ActionFailure(message: CloudStrings.machineConfigUnreadable(config)) }
-            request.machineConfigPath = expandingHome(config)
+            request.machineConfigPath = CloudMachineRequest.expandingHome(config)
         }
         if request.bootstrapKind == .lane, request.name == nil { throw ActionFailure(message: CloudStrings.laneNeedsName) }
+        request.environment = try invocation["environment"]?.stringValue.map(CloudWorkspaceSetupWizard.EnvironmentOption.word) // an env_ id, or a name createRequested reads
         if let spec = invocation["repo"]?.stringValue {
             do { request.repo = try CloudMachineRepo.parse(spec) } catch let invalid as CloudMachineRepo.Invalid {
                 // The spec is never echoed: it may carry a token.
@@ -265,11 +271,6 @@ extension CloudHandlers {
             }
         }
         return request
-    }
-
-    /// A quoted `~/boot.sh` reaches the app unexpanded.
-    static func expandingHome(_ path: String) -> String {
-        path == "~" || path.hasPrefix("~/") ? NSHomeDirectory() + String(path.dropFirst()) : path
     }
 
     /// The `machine_config` answer of a start (``CloudMachineConfig``): its status and how to read it.
@@ -289,7 +290,7 @@ extension CloudHandlers {
     /// `pending`, and the create and the bootstrap go on (`cloud list-machines` shows the
     /// machine; its bootstrap status file says how far it got).
     static func createRequested(_ request: CloudMachineRequest, flow: CloudCreationFlow, window: WindowState?, _ context: AppActionContext) {
-        let creations = context.services.cloud.creations, work = context.services.work
+        let cloud = context.services.cloud, creations = cloud.creations, work = context.services.work
         result("new Cloud machine", context, pendingAfter: createdMachineWait, pending: newMachineFields(request, nil).merging(["status": .string("creating")]) { _, new in new }) {
             var request = request
             do { request.script = try await request.loadScript(work: work) } catch let unreadable as CloudMachineRequest.ScriptUnreadable {
@@ -298,6 +299,8 @@ extension CloudHandlers {
             do { request.machineConfig = try await request.loadMachineConfig(work: work) } catch let unreadable as CloudMachineRequest.ScriptUnreadable {
                 throw ActionFailure(message: CloudStrings.machineConfigUnreadable(unreadable.path))
             }
+            if let wanted = request.environment { request.environment = try await CloudWorkspaceSetupWizard.EnvironmentOption.id(for: wanted, loading: { try await cloud.appServerEnvironmentOptions() }) }
+            try CloudWorkspaceSetupWizard.EnvironmentOption.NameRefused.check(request.name, await request.namedCreate(listCurrent: { cloud.hasCurrentList(within: CloudStartSession.listFresh) }, refresh: { await cloud.refresh() }, machines: { context.services.machines.cloud.map(\.machine.title) }, creating: { name in cloud.creations.all.filter { $0.session == nil }.compactMap(\.request.name) + (cloud.startSessionRuns.isCreating(name, account: cloud.account) ? [name] : []) }))
             let creation = flow.start(in: window, existing: nil, request: request)
             if case .failed(let reason)? = await settledCreation(creation, in: creations) { throw ActionFailure(message: "new Cloud machine: \(reason)") }
             guard let session = creation.session else { throw ActionFailure(message: CloudStrings.createDeclined) }
@@ -353,13 +356,10 @@ extension CloudHandlers {
         return fields
     }
 
-    /// What is left to make a lane machine a fleet host: the ssh route and acpmux peer from the
-    /// Mac that drives it (`cloud enroll-machine`), and the registry entries leo-workspace keeps
+    /// What is left to make a lane machine a fleet host: the registry entries leo-workspace keeps
     /// (`tools/lane-vm-enroll`).
     static func newMachineEnrollment(_ request: CloudMachineRequest, _ machine: CloudMachine) -> [String: ActionResultValue] {
-        var answer: [String: ActionResultValue] = ["done": .array([]), "pending": .array([.string("ssh-route"), .string("acpmux-peer"), .string("fleet-registry")])]
-        let named = request.name.map { " --name \($0)" } ?? ""
-        answer["enroll_command"] = .string("cmux cloud enroll-machine --target machine:\(machine.id)\(named)")
+        var answer: [String: ActionResultValue] = ["done": .array([]), "pending": .array([.string("fleet-registry")])]
         guard request.bootstrapKind == .lane, request.bootstrapPath != nil, let name = request.name else { return answer }
         let address = machine.address?.ipv4.map { " --address \($0)" } ?? ""
         answer["registry_command"] = .string("tools/lane-vm-enroll \(name) \(machine.id)\(address) --apply")
@@ -367,23 +367,23 @@ extension CloudHandlers {
     }
 
     /// The New Cloud Workspace flow over this app's services (cx-lu8f).
-    /// `startedByPerson`: true only for an action invoked with origin user;
-    /// any other create (a Retry or Dismiss button of the progress view,
-    /// which carries no gesture origin) asks the person first.
+    /// `startedByPerson`: true only for an action invoked with origin user; any other create (a Retry or Dismiss
+    /// button of the progress view, which carries no gesture origin) asks the person first. `capCard`: a refusal at
+    /// the plan's cap shows its card; false for a CLI's or agent's run, which hears the refusal at once (cmux#32725).
     /// `reveals`: the run may change the view (a person's, or one with `--focus`): a machine made with no
     /// window showing its creation still opens its workspace in one. Without it the workspace waits,
     /// out of the sidebar, until the person opens the machine (`unopenedCloudWorkspaces`).
-    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = false, askedBy: String? = nil, reveals: Bool = false,
+    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = false, capCard: Bool = true, askedBy: String? = nil, reveals: Bool = false,
                              proceed: @escaping (CloudMachineCreation) throws -> Void = { _ in }) -> CloudCreationFlow {
         let cloud = context.services.cloud
         let windows = context.services.windows
         return CloudCreationFlow(
             creations: cloud.creations,
             create: { creation in
-                try await cloud.createMachine(name: nil, creation: creation, startedByPerson: startedByPerson, askedBy: askedBy,
+                try await cloud.createMachine(name: nil, creation: creation, startedByPerson: startedByPerson, capCard: capCard, askedBy: askedBy,
                                                request: creation.request, proceed: { try proceed(creation) })
             },
-            open: { session in defer { RemoteGroupHandlers.mark(session: session.daemon.store.registryID, doc: context.services.sidebarDoc) }; return try await firstWorkspace(on: session, context) },
+            open: { session in try await firstWorkspace(on: session, context) },
             show: { id, creation in
                 let after = creation.readyAfter.map { String(format: "%.1f s", Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18) } ?? "?"
                 cloud.logger.info("new cloud workspace \(id, privacy: .public) on \(creation.session?.machineID ?? "?", privacy: .public) ready after \(after, privacy: .public)")
@@ -496,7 +496,7 @@ extension CloudHandlers {
         var rows: [CmuxNextSettings.JSONValue] = []
         for session in machines.cloud {
             var row = AppControl.cloudMachineRow(session, machines)
-            row["link_pid"] = .string(await session.link?.pid.map(String.init) ?? (session.appLink == nil ? "none" : "app server"))
+            row["link_pid"] = .string("app server")
             // The daemon's whole handshake (ghostty commit, capabilities, pid, registry id, generation).
             row.merge(CloudDiagnosticsReport.daemonDetails(session.daemon.store.connectionState, last: session.daemon.store.identity)) { kept, _ in kept }
             rows.append(.object(row))
@@ -534,8 +534,8 @@ extension CloudHandlers {
     /// can show its progress; otherwise asks for nothing and says why New Workspace stays here.
     static func startNewWorkspaceInCloud(_ invocation: ActionInvocation, cwd: String?, window: WindowState?, _ services: AppServices) -> CloudNewWorkspacePlan.Outcome {
         let cloud = services.cloud, setting = CloudNewWorkspaceSetting(), root = services.settings?.snapshot.root ?? .object([:])
-        let canCopy = cloud.move.cli != nil && cloud.configuration.linkSource == .legacy
-        guard let plan = CloudNewWorkspacePlan(inCloud: setting.inCloud(in: root), inheritsFolder: canCopy && setting.folder(in: root) == .inherit, cwd: cwd,
+        // The app server's create copies no folder: the workspace opens in the machine's empty folder.
+        guard let plan = CloudNewWorkspacePlan(inCloud: setting.inCloud(in: root), inheritsFolder: false, cwd: cwd,
                                                byPerson: invocation.isPersonsOwnRun, namesMachineOrCommand: invocation["machine"] != nil || invocation["command"] != nil)
         else { return .thisMac(notice: nil) }
         switch CloudNewWorkspacePlan.route(unavailableReason: cloud.unavailableReason, signedIn: cloud.isSignedIn, hasWindow: window != nil) {
@@ -564,7 +564,6 @@ extension CloudHandlers {
                                    currentUserID: cloud.auth.user?.id, currentTeamID: cloud.auth.teamID)
         }).start(in: window, existing: nil) { session in
             try checkScope(session)
-            defer { RemoteGroupHandlers.mark(session: session.daemon.store.registryID, doc: services.sidebarDoc) } // one group per Cloud machine
             let name = session.machine.title
             guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudMoveStrings.notConnected(name)) }
             var cwd: String?

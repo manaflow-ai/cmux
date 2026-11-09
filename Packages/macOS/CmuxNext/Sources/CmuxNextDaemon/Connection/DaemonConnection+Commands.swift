@@ -76,7 +76,8 @@ extension DaemonConnection {
 
     /// ``closeWorkspace(_:endTerminals:reason:ifEmpty:)`` answered by the daemon: its reply or refusal, the connection's
     /// end (``LineTransport`` fails every pending request on close), or `bound` (``closeReplyBound``) with no answer
-    /// (`DaemonError.timedOut`), never the 2 s client deadline. A busy daemon still commits a close it answers late (a
+    /// (`DaemonError.timedOut`), never the client request deadline (2 s then, 30 s since #35075). A busy daemon still
+    /// commits a close it answers late (a
     /// batch of 50 under load took 11.7 s), so a close that gave up on the 2 s clock called a closed workspace refused:
     /// its row came back, "The workspace could not be closed." showed, and Undo missed it. Sent once: a close waiting on
     /// a slow daemon adds no re-sends to its load.
@@ -164,24 +165,30 @@ extension DaemonConnection {
     }
 
     /// Splits `pane` with a new terminal. With `tab`, moves that existing tab
-    /// into the new pane instead (`move-tab-to-split`, right or bottom edge)
-    /// and returns it; `options` then do not apply.
+    /// into the new pane instead (`move-tab-to-split`: the right or bottom edge, the left or top one with `before`)
+    /// and returns it; `options` then do not apply. `before` puts the new pane
+    /// before `pane` on the split axis (`split-before-v1`; callers check the
+    /// capability, a daemon without it refuses the field).
     @discardableResult
-    public func split(_ pane: PaneID, direction: SplitDirection, movingTab tab: SurfaceID? = nil,
+    public func split(_ pane: PaneID, direction: SplitDirection, before: Bool = false, movingTab tab: SurfaceID? = nil,
                       options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
         if let tab {
-            let moved = try await moveTabToSplit(tab, pane: pane, edge: direction == .right ? .right : .bottom)
+            // `before` puts the moved tab's pane on the near edge, as it does a new pane (#38602 review F2).
+            let edge: PaneEdge = direction == .right ? (before ? .left : .right) : (before ? .top : .bottom)
+            let moved = try await moveTabToSplit(tab, pane: pane, edge: edge)
             return SurfaceCreated(surface: moved.surface ?? tab)
         }
         if supportsPlacementEnv {
             let options = await placed(options)
             // The client-minted terminal id keys the split: a late start is waited for, not taken back.
-            return Self.created(try await requestPaneCreation(SplitRequest(pane: pane, direction: direction, options: options)), options: options)
+            return Self.created(try await requestPaneCreation(SplitRequest(pane: pane, direction: direction, options: options, before: before)),
+                                options: options)
         }
-        if let placed = try await spawnPlacedByMove(options, into: .split(pane, direction)) { return placed }
+        // The move lands the tab on the right or bottom edge only, so a before split skips it (#38602 review F1).
+        if !before, let placed = try await spawnPlacedByMove(options, into: .split(pane, direction)) { return placed }
         var options = served(options)
         options.env = await terminalEnvironment(options.env)
-        return try await request(SplitRequest(pane: pane, direction: direction, options: options))
+        return try await request(SplitRequest(pane: pane, direction: direction, options: options, before: before))
     }
 
     /// New pane in `pane`'s column. `cwd`, `env`, and `keep` reach the
@@ -240,9 +247,16 @@ extension DaemonConnection {
 
     /// App-rendered browser tab (`frontend-browser-tabs-v1`); `activate: false` keeps the pane's active tab, `after` puts it right after that tab.
     @discardableResult
+    /// `split` opens it in a new pane split from `pane` instead (`frontend-browser-tab-split-v1`); a daemon
+    /// without that capability gets `missingCapabilities` and no request, never a tab in `pane`.
     public func newFrontendBrowserTab(url: String, engine: BrowserEngine, in pane: PaneID?, title: String? = nil, profileID: String? = nil,
-                                      activate: Bool? = nil, after: SurfaceID? = nil) async throws -> NewFrontendBrowserTabRequest.Response {
-        try await NewFrontendBrowserTabRequest(url: url, engine: engine, pane: pane, title: title, profileID: profileID, activate: activate, after: after).send(on: self)
+                                      activate: Bool? = nil, after: SurfaceID? = nil,
+                                      split: ConversationTabSplit? = nil) async throws -> NewFrontendBrowserTabRequest.Response {
+        if split != nil, identity?.supports(DaemonCapability.frontendBrowserTabSplit.rawValue) != true {
+            throw DaemonError.missingCapabilities([DaemonCapability.frontendBrowserTabSplit.rawValue])
+        }
+        return try await NewFrontendBrowserTabRequest(url: url, engine: engine, pane: pane, title: title, profileID: profileID,
+                                                      activate: activate, after: after, split: split).send(on: self)
     }
 
     @discardableResult

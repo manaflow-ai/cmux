@@ -64,6 +64,9 @@ class Classify(unittest.TestCase):
             PANE: "web",
             "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/settings/locales/ko.js": "web",
             "webviews/src/pages/settings/generated/strings.json": "web",
+            "web/data/next-docs/settings-reference.generated.json": "web",
+            "web/data/next-docs/cli-reference.generated.json": "web",
+            "web/data/next-docs/pages.ts": "source",
             "schemas/settings/settings-schema.json": "swift",
             "plans/cmux-next/action-surfaces.json": "swift",
             "cmux-tui/bindings/python/cmux/raw/_generated/models.py": "sdk",
@@ -845,6 +848,17 @@ class BaseReds(unittest.TestCase):
         controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, crashed, "")
         result = controller.expand_job("cmux app scheme compile (Debug)", 6, {"steps": steps})
         self.assertTrue(any("never a base red" in item for item in result), result)
+
+    def test_a_lost_runner_is_infra_keyed_by_its_own_job_with_no_log_read(self):
+        """cmux#33162's react-apps-base-check (3), job 126154996598: a step left in_progress, none failed."""
+        controller = self.controller()
+        steps = [{"name": "Set up job", "status": "completed", "conclusion": "success"},
+                 {"name": "Run base reds and compare", "status": "in_progress", "conclusion": None}]
+        controller.gh.gh.side_effect = AssertionError("a lost runner's log is never read")
+        name = "web / react-apps-base-check (3)"
+        (only,) = controller.expand_job(name, 8, {"conclusion": "failure", "steps": steps})
+        self.assertTrue(only.startswith(f"{name}: infra, not a verdict (job 8: "), only)
+        self.assertIn("re-run it", only)
 
     def test_an_unreadable_no_verdict_compile_log_is_keyed_by_its_own_job(self):
         controller = self.controller()
@@ -1643,6 +1657,16 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(tools["with"]["ref"], "${{ github.sha }}")
         regen = next(step for step in steps if step.get("id") == "regen")
         self.assertIn(".next-batch-tools/scripts/cmux-next/regenerate-swift-exports.sh", regen["run"])
+
+    def test_swift_regeneration_provisions_bun_before_the_generator(self):
+        """regenerate-swift-exports.sh ends with export-next-docs.ts, which needs bun (or Node 22.18+): a mini
+        without either would fail every Swift regeneration before its patch."""
+        steps = self.jobs["regen"]["steps"]
+        setup = next(n for n, step in enumerate(steps) if str(step.get("uses", "")).startswith("oven-sh/setup-bun@"))
+        regen = next(n for n, step in enumerate(steps) if step.get("id") == "regen")
+        self.assertLess(setup, regen)
+        self.assertTrue(steps[setup]["with"]["bun-version"])
+        self.assertTrue(any("private-bun.sh" in step.get("run", "") for step in steps[setup:regen]))
 
     def test_regen_linux_runs_the_web_formatter_and_lint_autofix(self):
         script = "\n".join(step.get("run", "") for step in self.jobs["regen-linux"]["steps"])

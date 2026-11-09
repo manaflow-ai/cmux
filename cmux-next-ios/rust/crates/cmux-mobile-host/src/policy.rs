@@ -860,6 +860,9 @@ mod tests {
         for line in [
             br#"{"cmd":"identify","id":"m1"}"#.as_slice(),
             br#"{"cmd":"attach-surface","id":"m2","surface":7}"#,
+            // Latest screen first (attach-replay-history-rows-v1): screen only, then a chunk more.
+            br#"{"cmd":"attach-surface","cols":80,"id":"m2","replay_history_rows":0,"rows":24,"surface":7}"#,
+            br#"{"cmd":"attach-surface","id":"m2","replay_history_rows":2000,"surface":7}"#,
             br#"{"bytes":"bHMK","cmd":"send","id":"m3","surface":7}"#,
             br#"{"cmd":"resize-surface","cols":80,"id":"m4","rows":24,"surface":7}"#,
             br#"{"cmd":"release-surface-size","id":"m5","surface":7}"#,

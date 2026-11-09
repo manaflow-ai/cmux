@@ -32,7 +32,9 @@
   },
   "NSApplication call:accessibilityAttributeValue/1": {
    "27.0.1": true,
-   "27.0": true
+   "27.0": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSApplication call:accessibilityFocusedWindow/0": {
    "26.5.2": true,
@@ -42,7 +44,9 @@
   },
   "NSApplication call:accessibilityIsAttributeSettable/1": {
    "27.0.1": true,
-   "27.0": true
+   "27.0": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSApplication call:accessibilityMainWindow/0": {
    "26.5.2": true,
@@ -52,7 +56,9 @@
   },
   "NSApplication call:accessibilitySetValue/2:forAttribute": {
    "27.0.1": true,
-   "27.0": true
+   "27.0": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSApplication call:activate/0": {
    "26.5.2": true,
@@ -92,11 +98,15 @@
   },
   "NSBrowser call:tile/0": {
    "27.0": true,
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSButton call:acceptsFirstMouse/1": {
    "27.0": true,
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSButton call:accessibilityPerformPress/0": {
    "26.5.2": true,
@@ -111,7 +121,9 @@
    "27.0.1": true
   },
   "NSButton call:didCloseMenu/2:with": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSButton call:keyDown/1": {
    "26.5.2": true,
@@ -139,7 +151,9 @@
   },
   "NSButton call:performKeyEquivalent/1": {
    "27.0.1": true,
-   "27.0": true
+   "27.0": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSButton call:resignFirstResponder/0": {
    "26.5.2": true,
@@ -161,7 +175,9 @@
   },
   "NSButton call:setFrameSize/1": {
    "27.0.1": true,
-   "27.0": true
+   "27.0": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSButton call:updateTrackingAreas/0": {
    "26.5.2": true,
@@ -181,6 +197,11 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSButton call:viewDidMoveToSuperview/0": {
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
+  },
   "NSButton call:viewDidMoveToWindow/0": {
    "26.5.2": true,
    "26.7": true,
@@ -194,7 +215,9 @@
    "27.0.1": true
   },
   "NSButton call:willOpenMenu/2:with": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSButton get:acceptsFirstResponder/0": {
    "26.5.2": true,
@@ -227,10 +250,14 @@
    "27.0.1": true
   },
   "NSClipView call:setBoundsOrigin/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSClipView call:setFrameSize/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSCollectionView call:concludeDragOperation/1": {
    "26.5.2": true,
@@ -264,7 +291,9 @@
   },
   "NSCollectionView call:selectAll/1": {
    "27.0": true,
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSCollectionViewItem call:prepareForReuse/0": {
    "26.5.2": true,
@@ -280,32 +309,45 @@
   },
   "NSControl call:keyDown/1": {
    "27.0.1": true,
-   "27.0": true
+   "27.0": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSControl call:layout/0": {
    "27.0.1": true,
-   "27.0": true
-  },
-  "NSControl call:viewDidChangeEffectiveAppearance/0": {
-   "27.0.1": true
+   "27.0": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSGlassEffectView call:layout/0": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSGlassEffectView call:updateConstraints/0": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSGlassEffectView call:viewDidChangeEffectiveAppearance/0": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSGlassEffectView call:viewDidMoveToWindow/0": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSGlassEffectView call:viewWillDraw/0": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSGlassEffectView call:viewWillMove/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSImageView call:viewDidChangeEffectiveAppearance/0": {
    "26.5.2": true,
@@ -318,6 +360,11 @@
    "26.7": true,
    "27.0": true,
    "27.0.1": true
+  },
+  "NSImageView call:viewDidUnhide/0": {
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSImageView call:viewWillMove/1": {
    "26.5.2": true,
@@ -447,15 +494,21 @@
   },
   "NSScroller call:mouseDown/1": {
    "27.0": true,
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSScroller call:viewDidMoveToSuperview/0": {
    "27.0": true,
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSScroller call:viewWillMove/1": {
    "27.0": true,
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSSecureTextField call:becomeFirstResponder/0": {
    "26.5.2": true,
@@ -500,10 +553,14 @@
    "27.0.1": true
   },
   "NSSlider call:keyDown/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSSlider call:mouseDown/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSSplitView call:layout/0": {
    "26.5.2": true,
@@ -518,20 +575,30 @@
    "27.0.1": true
   },
   "NSSplitView call:mouseEntered/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSSplitView call:mouseExited/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSSplitView call:updateTrackingAreas/0": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSSplitView call:viewDidChangeEffectiveAppearance/0": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSSplitView call:viewDidMoveToWindow/0": {
    "27.0.1": true,
-   "27.0": true
+   "27.0": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSStackView call:viewDidChangeEffectiveAppearance/0": {
    "26.5.2": true,
@@ -541,7 +608,9 @@
   },
   "NSStackView call:viewDidHide/0": {
    "27.0": true,
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSStackView call:viewDidMoveToWindow/0": {
    "26.5.2": true,
@@ -553,6 +622,9 @@
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
+   "27.0.1": true
+  },
+  "NSSwitch call:performClick/1": {
    "27.0.1": true
   },
   "NSTableCellView call:layout/0": {
@@ -580,7 +652,9 @@
    "27.0.1": true
   },
   "NSTableRowView call:mouseDown/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSTableRowView call:prepareForReuse/0": {
    "26.5.2": true,
@@ -589,7 +663,9 @@
    "27.0.1": true
   },
   "NSTableRowView call:updateTrackingAreas/0": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSTableView call:keyDown/1": {
    "26.5.2": true,
@@ -598,10 +674,14 @@
    "27.0.1": true
   },
   "NSTableView call:otherMouseDown/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSTableView call:otherMouseUp/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSTableView call:updateTrackingAreas/0": {
    "26.5.2": true,
@@ -617,7 +697,9 @@
   },
   "NSTextField call:layout/0": {
    "27.0.1": true,
-   "27.0": true
+   "27.0": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSTextField call:mouseDown/1": {
    "26.5.2": true,
@@ -638,7 +720,9 @@
    "27.0.1": true
   },
   "NSTextField call:textDidChange/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSTextField call:textDidEndEditing/1": {
    "26.5.2": true,
@@ -665,16 +749,24 @@
    "27.0.1": true
   },
   "NSTextField get:placeholderAttributedString/0": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSTextField get:placeholderString/0": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSTextField set:placeholderAttributedString/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSTextField set:placeholderString/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSTextFieldCell call:accessibilityAttributeNames/0": {
    "26.5.2": true,
@@ -689,7 +781,9 @@
    "27.0.1": true
   },
   "NSTextFieldCell call:drawInterior/2:in": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSTextView call:copy/1": {
    "26.5.2": true,
@@ -710,10 +804,14 @@
    "27.0.1": true
   },
   "NSTextView call:draggingEntered/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSTextView call:draggingUpdated/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSTextView call:keyDown/1": {
    "26.5.2": true,
@@ -740,7 +838,9 @@
    "27.0.1": true
   },
   "NSTextView call:performDragOperation/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSTextView call:resignFirstResponder/0": {
    "26.5.2": true,
@@ -810,7 +910,9 @@
   },
   "NSView call:addCursorRect/2:cursor": {
    "27.0": true,
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSView call:addSubview/3:positioned,relativeTo": {
    "26.5.2": true,
@@ -824,6 +926,11 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSView call:cursorUpdate/1": {
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
+  },
   "NSView call:didAddSubview/1": {
    "26.5.2": true,
    "26.7": true,
@@ -831,10 +938,14 @@
    "27.0.1": true
   },
   "NSView call:draw/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSView call:flagsChanged/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSView call:hitTest/1": {
    "26.5.2": true,
@@ -864,6 +975,10 @@
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
+   "27.0.1": true
+  },
+  "NSView call:layoutSubtreeIfNeeded/0": {
+   "26.7": true,
    "27.0.1": true
   },
   "NSView call:menu/1": {
@@ -921,6 +1036,12 @@
    "27.0.1": true
   },
   "NSView call:performKeyEquivalent/1": {
+   "26.5.2": true,
+   "26.7": true,
+   "27.0": true,
+   "27.0.1": true
+  },
+  "NSView call:prepareContent/1": {
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
@@ -1066,7 +1187,9 @@
   },
   "NSView get:firstBaselineOffsetFromTop/0": {
    "27.0.1": true,
-   "27.0": true
+   "27.0": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSView get:mouseDownCanMoveWindow/0": {
    "26.5.2": true,
@@ -1081,7 +1204,9 @@
    "27.0.1": true
   },
   "NSViewController call:viewDidLoad/0": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSWindow call:addChildWindow/2:ordered": {
    "26.5.2": true,
@@ -1163,11 +1288,15 @@
   },
   "NSWindow call:zoom/1": {
    "27.0": true,
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "NSWindow get:isZoomed/0": {
    "27.0": true,
-   "27.0.1": true
+   "27.0.1": true,
+   "26.5.2": true,
+   "26.7": true
   },
   "WKWebView call:acceptsFirstMouse/1": {
    "26.5.2": true,

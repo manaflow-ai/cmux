@@ -13,6 +13,9 @@
 // Long tasks (count, total) and the layout-shift sum cover the whole load; the transcript's scroll drift
 // after `latest` says how much the page still moved after the newest messages appeared.
 //   [LATENCY=ms] [HOST_LATENCY=ms] bun bench/chat-open.bench.ts [rounds=7] [turns=300]
+// REMOTE_TAIL=present|absent uses a cold remote chat, with PEER_CONNECT_MS=2000 delaying
+// initialize independently of ordinary RPC latency. The native host snapshot is available before
+// that handshake. Measures navigation and tail-request origins separately; neither is a Mac click.
 // REVEAL=1 also opens an offscreen message after the chat settles, then records scroll drift
 // from its first visible frame, delayed scrollIntoView calls and transcript-wide row scans.
 // PROFILE=1 adds a CPU profile of one load and prints the functions with the most self time between
@@ -34,6 +37,11 @@ const LATENCY = Number(process.env.LATENCY ?? 0);
 /// HOST_LATENCY=ms answers the app host's read of where the chat opens (`chat.scrollAnchor.get`)
 /// that late, as the app's host does over its bridge (the browser dev host refuses it at once).
 const HOST_LATENCY = Number(process.env.HOST_LATENCY ?? 0);
+const REMOTE_TAIL = process.env.REMOTE_TAIL;
+if (REMOTE_TAIL !== undefined && REMOTE_TAIL !== "present" && REMOTE_TAIL !== "absent")
+  throw new Error("REMOTE_TAIL must be present or absent");
+const PEER_CONNECT_MS = REMOTE_TAIL ? Number(process.env.PEER_CONNECT_MS ?? 2000) : 0;
+if (!Number.isFinite(PEER_CONNECT_MS) || PEER_CONNECT_MS < 0) throw new Error("PEER_CONNECT_MS must be non-negative");
 const REVEAL = process.env.REVEAL === "1";
 const REVEAL_MESSAGE = "bench-reveal";
 const REVEAL_TURN = Math.max(1, TURNS - 40);
@@ -41,7 +49,11 @@ const REVEAL_ROW = `assistant-${(REVEAL_TURN - 1) * 4 + 3}`;
 const webviews = path.resolve(import.meta.dir, "..");
 const LATEST = `Answer ${TURNS}:`;
 
-const { events, session } = papercutEvents({ turns: TURNS, running: false });
+const { events, session } = papercutEvents({
+  turns: TURNS,
+  running: false,
+  ...(REMOTE_TAIL ? { session: { peer: "bench-vm", createdAt: 100 } } : {}),
+});
 if (REVEAL) {
   const event = events.find((event) => event.seq === (REVEAL_TURN - 1) * 4 + 3)!;
   const update = (event.msg.params as { update: Record<string, unknown> }).update;
@@ -61,10 +73,27 @@ const newest = (limit: number, beforeSeq = Infinity) => {
   const older = events.filter((event) => event.seq < beforeSeq);
   return { page: older.slice(-limit), hasMore: older.length > limit };
 };
+const peerSnapshot = () => ({
+  sessionId: PAPERCUT_CHAT,
+  qualifiedSessionId: `bench-vm/${PAPERCUT_CHAT}`,
+  peer: "bench-vm",
+  generation: 100,
+  capturedAt: Date.UTC(2026, 10, 3),
+  stale: true,
+  summary: session,
+  events: REMOTE_TAIL === "present" ? newest(400).page : [],
+  hasMore: REMOTE_TAIL === "present" && events.length > 400,
+  lastSeq: REMOTE_TAIL === "present" ? (events.at(-1)?.seq ?? 0) : 0,
+});
 const answer = (method: string, params: Record<string, unknown> = {}): unknown => {
   switch (method) {
     case "initialize":
-      return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+      return {
+        protocolVersion: 1,
+        _meta: { acpmux: { origin: "local", extensions: [], operations: [] } },
+      };
+    case "_acpmux/peer_snapshot":
+      return peerSnapshot();
     case "_acpmux/watch":
       return { sessions: [session] };
     case "_acpmux/attach": {
@@ -82,7 +111,10 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
         const before = params.beforeSeq === undefined ? Infinity : Number(params.beforeSeq);
         const prompts = events
           .filter((event) => event.kind === "user_message" && event.seq < before)
-          .map((event) => ({ ...event, msg: { text: String((event.msg as { text?: string }).text ?? "") } }));
+          .map((event) => ({
+            ...event,
+            msg: { text: String((event.msg as { text?: string }).text ?? "") },
+          }));
         return { events: prompts, hasMore: false, lastSeq: events.at(-1)?.seq ?? 0 };
       }
       if (params.beforeSeq !== undefined) {
@@ -105,7 +137,10 @@ function sourceMapper(dir: string) {
   function load(file: string): Mapped | null {
     const mapFile = path.join(dir, "assets", `${file}.map`);
     if (!fs.existsSync(mapFile)) return null;
-    const raw = JSON.parse(fs.readFileSync(mapFile, "utf8")) as { sources: string[]; mappings: string };
+    const raw = JSON.parse(fs.readFileSync(mapFile, "utf8")) as {
+      sources: string[];
+      mappings: string;
+    };
     let source = 0;
     let line = 0;
     let column = 0;
@@ -155,6 +190,7 @@ const release = async () => {
 };
 
 try {
+  const delayedReplies = new Set<ReturnType<typeof setTimeout>>();
   const daemon = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -166,7 +202,11 @@ try {
         socketOpenedAt ||= Date.now();
       },
       message(ws, raw) {
-        const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, unknown> };
+        const message = JSON.parse(String(raw)) as {
+          id?: number;
+          method: string;
+          params?: Record<string, unknown>;
+        };
         if (!arrivals.has(message.method)) arrivals.set(message.method, Date.now());
         calls.push(`${message.method} ${Date.now() - socketOpenedAt}`);
         if (message.id === undefined) return;
@@ -175,12 +215,26 @@ try {
           if (message.method === "_acpmux/attach") attachedAt = Date.now();
           ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
         };
-        if (LATENCY > 0) setTimeout(reply, LATENCY);
-        else reply();
+        const delay = LATENCY + (message.method === "initialize" ? PEER_CONNECT_MS : 0);
+        // fixed-wait: controlled peer handshake latency; the daemon stops at the end of the run.
+        if (delay > 0) {
+          const timer = setTimeout(() => {
+            delayedReplies.delete(timer);
+            reply();
+          }, delay);
+          delayedReplies.add(timer);
+        } else reply();
       },
     },
   });
-  releases.push(["stand-in acpmux", () => daemon.stop(true)]);
+  releases.push([
+    "stand-in acpmux",
+    () => {
+      for (const timer of delayedReplies) clearTimeout(timer);
+      delayedReplies.clear();
+      return daemon.stop(true);
+    },
+  ]);
 
   const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "chat-open-bench-"));
   releases.push(["pane build", () => fs.rmSync(out, { recursive: true, force: true })]);
@@ -213,9 +267,28 @@ try {
   });
   releases.push(["browser", () => browser.close()]);
 
-  type Reveal = { first: number; settled: number; drift: number; driftPx: number; centers: number; scans: number };
+  type Reveal = {
+    first: number;
+    settled: number;
+    drift: number;
+    driftPx: number;
+    centers: number;
+    scans: number;
+  };
   type Round = {
     reveal: Reveal;
+    remote: {
+      tailRequested: number;
+      attachReceived: number;
+      reconciled: number;
+      earlyTop: number;
+      earlyHeight: number;
+      finalTop: number;
+      finalHeight: number;
+      maxTopDrift: number;
+      maxHeightDrift: number;
+      staleAtFirstPaint: boolean;
+    };
     attach: number;
     firstRow: number;
     latest: number;
@@ -240,17 +313,68 @@ try {
     };
   };
   const open = async (rail = "compact"): Promise<Round> => {
-    const page = await browser.newPage({ viewport: { width: 1200, height: 800 }, deviceScaleFactor: REVEAL ? 2 : 1 });
+    const page = await browser.newPage({
+      viewport: { width: 1200, height: 800 },
+      deviceScaleFactor: REVEAL ? 2 : 1,
+    });
     await page.addInitScript((rail) => {
       localStorage.setItem("cmux.experiments", JSON.stringify({ "thread-minimap-layout": rail }));
     }, rail);
     await page.addInitScript(
-      ([latestText, instrument, hostLatency]) => {
+      ([latestText, instrument, hostLatency, remoteTail, diskSnapshot]) => {
         if (hostLatency > 0)
           (window as unknown as { cmuxAcpmuxActions: Record<string, () => Promise<unknown>> }).cmuxAcpmuxActions = {
             // fixed-wait: the stand-in host's answer latency is what this run measures.
             "chat.scrollAnchor.get": () => new Promise((resolve) => setTimeout(() => resolve(null), hostLatency)),
           };
+        const remote = {
+          tailRequested: 0,
+          attachReceived: 0,
+          reconciled: 0,
+          earlyTop: 0,
+          earlyHeight: 0,
+          finalTop: 0,
+          finalHeight: 0,
+          maxTopDrift: 0,
+          maxHeightDrift: 0,
+          staleAtFirstPaint: false,
+        };
+        (window as unknown as { __remoteTail: typeof remote }).__remoteTail = remote;
+        if (remoteTail) {
+          const host = window as unknown as {
+            cmuxAcpmuxActions: Record<string, () => Promise<unknown>>;
+          };
+          host.cmuxAcpmuxActions = {
+            ...host.cmuxAcpmuxActions,
+            "chat.tail.get": async () => {
+              remote.tailRequested ||= performance.now();
+              return diskSnapshot;
+            },
+            "chat.tail": async () => null,
+          };
+          const Socket = window.WebSocket;
+          window.WebSocket = class extends Socket {
+            private attaches = new Set<string | number>();
+            constructor(url: string | URL, protocols?: string | string[]) {
+              super(url, protocols);
+              this.addEventListener("message", (event) => {
+                const reply = JSON.parse(String(event.data)) as {
+                  id?: string | number;
+                  result?: unknown;
+                };
+                if (reply.id !== undefined && this.attaches.delete(reply.id) && reply.result)
+                  remote.attachReceived = performance.now();
+              });
+            }
+            override send(data: Parameters<WebSocket["send"]>[0]): void {
+              if (typeof data === "string") {
+                const request = JSON.parse(data) as { id?: string | number; method?: string };
+                if (request.method === "_acpmux/attach" && request.id !== undefined) this.attaches.add(request.id);
+              }
+              super.send(data);
+            }
+          } as typeof WebSocket;
+        }
         const forced = {
           writes: 0,
           writeMs: 0,
@@ -307,7 +431,16 @@ try {
             return fetched(input, init).finally(() => trace.push(`${performance.now().toFixed(0)} fetched ${what}`));
           }, fetched);
         }
-        const state = { firstRow: 0, latest: 0, activity: 0, longTasks: 0, longMs: 0, shift: 0, top: -1, drift: 0 };
+        const state = {
+          firstRow: 0,
+          latest: 0,
+          activity: 0,
+          longTasks: 0,
+          longMs: 0,
+          shift: 0,
+          top: -1,
+          drift: 0,
+        };
         (window as unknown as { __open: typeof state }).__open = state;
         const afterPaint = (done: () => void) => requestAnimationFrame(() => setTimeout(done, 0));
         new PerformanceObserver((list) => {
@@ -340,9 +473,29 @@ try {
                 `${now.toFixed(0)} drawn: ${count("[data-row-id]")} rows, ${count(".acpmux-minimap__entry")} rail entries, ${count("*")} elements, ${count(".acpmux-composer *, .acpmux-header *")} in composer and header`,
               );
             }
-            afterPaint(() => (state.latest ||= performance.now()));
+            afterPaint(() => {
+              if (state.latest) return;
+              state.latest = performance.now();
+              const scroll = document.querySelector<HTMLElement>(".acpmux-scroll");
+              remote.earlyTop = scroll?.scrollTop ?? 0;
+              remote.earlyHeight = scroll?.scrollHeight ?? 0;
+              remote.staleAtFirstPaint = !!document.querySelector(".acpmux-peer-copy");
+            });
           }
           const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+          if (remoteTail && state.latest && scroller) {
+            remote.finalTop = scroller.scrollTop;
+            remote.finalHeight = scroller.scrollHeight;
+            remote.maxTopDrift = Math.max(remote.maxTopDrift, Math.abs(remote.finalTop - remote.earlyTop));
+            remote.maxHeightDrift = Math.max(remote.maxHeightDrift, Math.abs(remote.finalHeight - remote.earlyHeight));
+            if (
+              !remote.reconciled &&
+              remote.attachReceived &&
+              !document.querySelector(".acpmux-peer-copy") &&
+              document.body.textContent?.includes(latestText)
+            )
+              afterPaint(() => (remote.reconciled ||= performance.now()));
+          }
           const top = scroller ? scroller.scrollTop + scroller.scrollHeight : -1;
           if (top !== state.top) {
             if (state.latest) state.drift += 1;
@@ -353,7 +506,13 @@ try {
         };
         requestAnimationFrame(tick);
       },
-      [LATEST, process.env.TRACE === "1" ? "trace" : process.env.INSTRUMENT === "1", HOST_LATENCY] as const,
+      [
+        LATEST,
+        process.env.TRACE === "1" ? "trace" : process.env.INSTRUMENT === "1",
+        HOST_LATENCY,
+        REMOTE_TAIL,
+        peerSnapshot(),
+      ] as const,
     );
     attachedAt = 0;
     arrivals = new Map();
@@ -362,11 +521,16 @@ try {
     const started = Date.now();
     await page.goto(url);
     await page.waitForFunction(
-      () => {
+      (remoteTail) => {
         const state = (window as unknown as { __open: { latest: number; activity: number } }).__open;
-        return state.latest > 0 && performance.now() - Math.max(state.latest, state.activity) > 400;
+        const remote = (window as unknown as { __remoteTail: { reconciled: number } }).__remoteTail;
+        return (
+          state.latest > 0 &&
+          (!remoteTail || remote.reconciled > 0) &&
+          performance.now() - Math.max(state.latest, state.activity, remote.reconciled) > 400
+        );
       },
-      undefined,
+      REMOTE_TAIL,
       { timeout: 120_000, polling: 100 },
     );
     const got = await page.evaluate(() => {
@@ -395,6 +559,7 @@ try {
       );
       return {
         ...state,
+        remote: (window as unknown as { __remoteTail: Round["remote"] }).__remoteTail,
         trace: [...(window as unknown as { __trace: string[] }).__trace, ...loads].sort(
           (a, b) => Number.parseFloat(a) - Number.parseFloat(b),
         ),
@@ -411,7 +576,14 @@ try {
       ? await page.evaluate(
           async ({ message, rowId }): Promise<Reveal> => {
             const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-            const result: Reveal = { first: 0, settled: 0, drift: 0, driftPx: 0, centers: 0, scans: 0 };
+            const result: Reveal = {
+              first: 0,
+              settled: 0,
+              drift: 0,
+              driftPx: 0,
+              centers: 0,
+              scans: 0,
+            };
             const intoView = Element.prototype.scrollIntoView;
             const query = Document.prototype.querySelectorAll;
             const elementQuery = Element.prototype.querySelectorAll;
@@ -432,7 +604,10 @@ try {
             let firstTop = top;
             let activity = started;
             try {
-              window.cmuxAcpmuxBridge!.revealTurn!(`message:${message}`);
+              // The page's bridge (App.tsx declares it on Window); this file doesn't import App.
+              (window as unknown as { cmuxAcpmuxBridge: { revealTurn(id: string): void } }).cmuxAcpmuxBridge.revealTurn(
+                `message:${message}`,
+              );
               await new Promise<void>((resolve, reject) => {
                 const tick = () => {
                   const now = performance.now();
@@ -490,6 +665,7 @@ try {
     void started;
     return {
       reveal,
+      remote: got.remote,
       attach,
       firstRow: got.firstRow,
       latest: got.latest,
@@ -521,7 +697,12 @@ try {
       profile: {
         nodes: {
           id: number;
-          callFrame: { functionName: string; url: string; lineNumber: number; columnNumber: number };
+          callFrame: {
+            functionName: string;
+            url: string;
+            lineNumber: number;
+            columnNumber: number;
+          };
           children?: number[];
         }[];
         samples: number[];
@@ -637,6 +818,40 @@ try {
         median((r) => r.drift).toFixed(0),
       ].join(" | "),
     );
+    if (REMOTE_TAIL) {
+      console.log(
+        `remote tail ${REMOTE_TAIL}: initialize delayed ${PEER_CONNECT_MS} ms; origins are navigation and native tail request, not a native Mac click`,
+      );
+      console.log(
+        "tail request ms | request to latest paint ms | attach received ms | reconciled paint ms | first paint before attach | stale at first paint | max scrollTop drift px | max scrollHeight drift px | final scrollTop px | final scrollHeight px",
+      );
+      console.log(
+        [
+          median((r) => r.remote.tailRequested).toFixed(1),
+          median((r) => r.latest - r.remote.tailRequested).toFixed(1),
+          median((r) => r.remote.attachReceived).toFixed(1),
+          median((r) => r.remote.reconciled).toFixed(1),
+          rounds.every((r) => r.latest < r.remote.attachReceived),
+          rounds.every((r) => r.remote.staleAtFirstPaint),
+          median((r) => r.remote.maxTopDrift).toFixed(1),
+          median((r) => r.remote.maxHeightDrift).toFixed(1),
+          median((r) => r.remote.finalTop).toFixed(1),
+          median((r) => r.remote.finalHeight).toFixed(1),
+        ].join(" | "),
+      );
+      for (const [metric, pick, unit] of [
+        ["request_to_paint", (r: Round) => r.latest - r.remote.tailRequested, "ms"],
+        ["reconciled", (r: Round) => r.remote.reconciled, "ms"],
+        ["scroll_top_drift", (r: Round) => r.remote.maxTopDrift, "px"],
+        ["scroll_height_drift", (r: Round) => r.remote.maxHeightDrift, "px"],
+      ] as const)
+        perfRow({
+          name: `chat_open.${arm}.remote_${REMOTE_TAIL}.${metric}`,
+          p50: median(pick),
+          p95: median(pick),
+          unit,
+        });
+    }
     if (REVEAL) {
       console.log(
         "reveal: first visible ms | settled ms | moves after visible | max drift px | scrollIntoView calls | row scans",

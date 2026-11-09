@@ -81,3 +81,54 @@ struct AppSceneTap: ViewModifier {
     }
 }
 
+/// `Panel`: a group on the app's own card surface, with the card's padding
+/// and radius (`Metrics.space3`) and an optional title in the card's eyebrow
+/// style. `glass` (the default) is the sidebar cards' surface
+/// (`CardSurfaceView`, the shared neutral glass veil with its rim, tinted with
+/// the theme); `card` is the opaque elevated fill with a separator hairline.
+/// Both follow the theme live.
+struct AppScenePanel<Content: View>: View {
+    @Environment(\.appSceneColors) private var colors
+    let node: AppSceneNode
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        let radius = Metrics.surfaceCornerRadius
+        VStack(alignment: .leading, spacing: node.number("spacing").map { CGFloat($0) } ?? Metrics.space2) {
+            if let title = node.string("title"), !title.isEmpty {
+                Text(title)
+                    .font(Font(Typography.caption))
+                    .foregroundStyle(colors.secondary)
+                    .lineLimit(1)
+            }
+            content()
+        }
+        .padding(Metrics.space3)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            if node.string("style") == "card" {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .fill(colors.elevated)
+                    .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(colors.separator, lineWidth: 1))
+            } else {
+                GlassSurface(cornerRadius: radius)
+            }
+        }
+        .padding(.horizontal, Metrics.space3)
+    }
+
+    /// The sidebar cards' surface (`CardSurfaceView`) behind a `Panel`.
+    struct GlassSurface: NSViewRepresentable {
+        let cornerRadius: CGFloat
+
+        func makeNSView(context: Context) -> CardSurfaceView {
+            let view = CardSurfaceView(cornerRadius: cornerRadius)
+            view.takesThemeTint = true
+            return view
+        }
+
+        func updateNSView(_ view: CardSurfaceView, context: Context) {
+            view.cornerRadius = cornerRadius
+        }
+    }
+}

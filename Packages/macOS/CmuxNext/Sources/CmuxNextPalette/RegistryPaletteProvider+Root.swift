@@ -25,7 +25,7 @@ extension RegistryPaletteProvider {
         "tab.muteAudio", "tab.unmuteAudio", "tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab",
         "tabGroup.rename", "hibernateTab", "wakeTab", "terminal.resetFontSize", "terminal.clear",
         "terminalCopy", "terminalPaste", "terminal.selectAll", "findNext", "findPrevious",
-        "toggleTerminalCopyMode", "palette.terminalOpenDirectory", "resetTerminal", "browserBack", "browserForward",
+        "toggleTerminalCopyMode", "palette.terminalOpenDirectory", "terminal.runLastCommandAgain", "resetTerminal", "browserBack", "browserForward",
         "browserReload", "browserStop", "browserZoomIn", "browserZoomOut", "browserZoomReset",
         "browser.copyURL", "browser.downloads.show", "browserShowHistory", "agentPane.searchChats", "agentPane.searchFiles",
         "agentPane.switchModel", "agentPane.archiveChat", "agentPane.continueIn", "agentPane.createCheckpoint", "agentPane.git.commit",

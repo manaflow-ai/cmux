@@ -17,28 +17,13 @@ extension ScreenContentView {
         guard hasMotion || reportScrollOnSettle else {
             scrollRidesFrames = false
             // At rest (a user pan holds the camera, so hasMotion leaves it out): what a close retired goes now.
-            context.releaseRetired(of: screenID)
+            releaseClosing()
+            releasePaneFrameNoticesIfSettled()
             return false
         }
-        var moving = false
-        let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)
-        // The panes and dividers are one motion: none settles on its own (an edge with a shorter
-        // travel would snap frames before the others and change the gap beside it); they all land
-        // in the frame the last one comes within a quarter point of rest.
-        for key in Array(paneFrames.keys) {
-            let token = zoomMotion.spring(for: key, fallback: motionState.frameSpring)
-            if paneFrames[key]?.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token),
-                                                 alphaParameters: appear) == true { moving = true }
-        }
-        for key in Array(dividerFrames.keys) {
-            if dividerFrames[key]?.advanceUnsettled(dt, parameters: frameSpring) == true { moving = true }
-        }
-        if paneFrames.values.allSatisfy(\.geometryNearRest) && dividerFrames.values.allSatisfy(\.geometryNearRest) {
-            for key in Array(paneFrames.keys) { paneFrames[key]?.snapGeometry() }
-            for key in Array(dividerFrames.keys) { dividerFrames[key]?.snapGeometry() }
-        } else {
-            moving = true
-        }
+        let frameSpring = policy.spring(motionState.frameSpring)
+        var moving = advancePaneAndDividerSprings(dt, policy: policy)
+        if let clamp = activeDrag?.clampHold { clamp.push(on: self) } // a clamp's anchor pushes its line, before this frame shows
         // A close's camera shift (strip and rows) stays on the close spring until it rests, not only while
         // the panes move: closing the last column moves no pane, and a switch to the scroll spring
         // when the panes land changes the curve mid-motion (Lawrence 2026-10-20).
@@ -58,30 +43,111 @@ extension ScreenContentView {
                 reportLeadingColumn()
             }
         }
+        // Right after its frame's `layout.travel` (no sample in between): the strip camera's points left after this
+        // frame's step, as `travelLeft` is for the panes (New Column moves only the camera).
+        if MotionTrace.isEnabled { MotionTrace.sample("layout.camera", Double(abs(scroll.target - scroll.value))) }
         if !moving { scrollRidesFrames = false }
         applyPresentation()
+        if moving, let window { drawAhead(MotionClock.forWindow(window).nextFrameInterval, policy: policy) }
         // The key resize's spring landed (the hosts laid their content out at rest in this pass): the next motion
         // resizes content live again unless another key press holds it.
         if !moving { holdsContentForKeyResize = false }
         // The motion landed: the hosts a close retired are torn down in this frame, not in its first.
-        if !moving { context.releaseRetired(of: screenID) }
+        if !moving { releaseClosing() }
+        // The motion landed with no drag and no zoom left: the pane views post again.
+        if !moving { releasePaneFrameNoticesIfSettled() }
         return moving
     }
-    /// A close's first frame of the pane, divider and (riding them) camera springs, the strip's and
-    /// each row column's, in the change that starts them, once `syncScroll` placed the camera: the
-    /// frame that drops the closed pane already shows its neighbours covering some of its space,
-    /// and the shift the close needs (the last column or row closed) already under way.
+    /// The key's turn (T-KEYS 3, `LayoutRootView.keyboardResizeDidChange`): the press's first refresh is drawn ahead as
+    /// each later refresh is, from the springs the press's targets just set, so the frame that shows the press shows each
+    /// terminal at its pane's size in it (keys bench 8554d26b: that frame was the only one a terminal showed off its pane).
+    /// No presentation, no layout and no bounds in the key's turn (S1B); the size drawn ahead takes its grid to the
+    /// program then, so it redraws before the frame shows (RESIZE P0 11).
+    func drawAheadOfKeyPress() {
+        guard let window, hasMotion else { return }
+        drawAhead(MotionClock.forWindow(window).nextFrameInterval, policy: Motion.panes.policy)
+    }
+
+    /// Draw ahead (cmux-ad m26, the Chromium model: the renderer gets the size before the compositor needs its frame):
+    /// each pane its key hold's spring still moves hears how much its size changes at the next refresh, from a copy of
+    /// its spring stepped once more by `dt`, the display link's interval to the next frame's target time (one refresh).
+    /// A terminal in it asks Ghostty for that size after this refresh's commit, so the next commit presents the frame
+    /// drawn at it with its bounds. A drag, a Reduce Motion jump (no spring frame after it) and hidden panes draw nothing
+    /// ahead.
+    private func drawAhead(_ dt: Double, policy: MotionPolicy) { // perf-hot: 1ms motion-frame
+        guard holdsContentForKeyResize, !policy.reduceMotion, !isHiddenOrHasHiddenAncestor else { return }
+        let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear), scale = self.scale
+        let strip = stripShift
+        for (pane, frame) in paneFrames where frame.rect != frame.targetRect {
+            guard let host = context.hosts[pane], host.superview === self else { continue }
+            // Placed as `applyPresentation` places it, so the two sizes round to the pixel grid the same way.
+            let offset = CGVector(dx: (geometry.scrolls(pane: pane) ? strip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
+            var next = frame
+            let token = zoomMotion.spring(for: pane, fallback: motionState.frameSpring)
+            _ = next.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token),
+                                      alphaParameters: appear)
+            let nextRect = next.geometryNearRest ? next.targetRect : next.rect
+            let now = frame.rect.offsetBy(dx: offset.dx, dy: offset.dy).pixelEdges(scale)
+            let then = nextRect.offsetBy(dx: offset.dx, dy: offset.dy).pixelEdges(scale)
+            let change = CGSize(width: then.width - now.width, height: then.height - now.height)
+            if change != .zero { host.drawAhead(sizeChange: change, keyPress: true) }
+        }
+    }
+
+    /// Steps every pane and divider spring by `dt`, no presentation (`step`'s first part). The panes and dividers are
+    /// one motion: none settles on its own (an edge with a shorter travel would snap frames before the others and
+    /// change the gap beside it); they all land in the frame the last one comes within a quarter point of rest.
+    /// True while any of them still moves.
+    func advancePaneAndDividerSprings(_ dt: Double, policy: MotionPolicy) -> Bool { // perf-hot: 4ms motion-frame
+        var moving = false
+        let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)
+        // Each spring is read, stepped and written back: an in-place `dict[key]?.advance(...)` goes through
+        // `Dictionary.subscript._modify`, whose coroutine frame the runtime allocates on the heap, one per spring.
+        let panes = Array(paneFrames.keys), dividers = Array(dividerFrames.keys)
+        for key in panes {
+            guard var frame = paneFrames[key] else { continue }
+            let token = zoomMotion.spring(for: key, fallback: motionState.frameSpring)
+            if frame.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token),
+                                      alphaParameters: appear) { moving = true }
+            paneFrames[key] = frame
+        }
+        for key in dividers {
+            guard var frame = dividerFrames[key] else { continue }
+            if frame.advanceUnsettled(dt, parameters: frameSpring) { moving = true }
+            dividerFrames[key] = frame
+        }
+        if paneFrames.values.allSatisfy(\.geometryNearRest) && dividerFrames.values.allSatisfy(\.geometryNearRest) {
+            for key in panes { if var frame = paneFrames[key] { frame.snapGeometry(); paneFrames[key] = frame } }
+            for key in dividers { if var frame = dividerFrames[key] { frame.snapGeometry(); dividerFrames[key] = frame } }
+        } else {
+            moving = true
+        }
+        return moving
+    }
+
+    /// A close's first step of the pane, divider and (riding them) camera springs, the strip's and
+    /// each row column's, in the change that starts them, once `syncScroll` placed the camera. A pane
+    /// close's key turn (`LayoutRootView.syncWithModelForNextFrame`) holds the presentation: the
+    /// step is shown by the first frame tick, which steps again and presents once, so the first
+    /// frame that shows the close already shows its neighbours covering some of the closed pane's
+    /// space and the shift the close needs (the last column or row closed) under way. A change
+    /// that does not hold presentations shows the step in its own turn.
     func leadIfPending(_ dt: Double = 1.0 / 120, policy: MotionPolicy = Motion.panes.policy) {
         guard leadsFrame else { return }
         leadsFrame = false
         let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)
         // The same springs `step` uses: unsettled (no edge lands alone), each pane on its zoom spring token.
         for key in Array(paneFrames.keys) {
+            guard var frame = paneFrames[key] else { continue }
             let token = zoomMotion.spring(for: key, fallback: motionState.frameSpring)
-            _ = paneFrames[key]?.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token),
-                                                  alphaParameters: appear)
+            _ = frame.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token), alphaParameters: appear)
+            paneFrames[key] = frame
         }
-        for key in Array(dividerFrames.keys) { _ = dividerFrames[key]?.advanceUnsettled(dt, parameters: frameSpring) }
+        for key in Array(dividerFrames.keys) {
+            guard var frame = dividerFrames[key] else { continue }
+            _ = frame.advanceUnsettled(dt, parameters: frameSpring)
+            dividerFrames[key] = frame
+        }
         if scrollRidesFrames {
             if !isUserScrolling { _ = scroll.advance(dt, parameters: frameSpring, epsilon: 0.25) }
             _ = stepRows(dt, spring: frameSpring)
@@ -99,11 +165,11 @@ extension ScreenContentView {
     /// pass and commit of the moved panes) per frame. The frame's first event still shows in its
     /// own turn, so a pan of about one event per frame shows each event as soon as before.
     func presentPan() {
-        panTicksLeft = Self.panTickTail
-        if panPresentedInFrame {
-            panPresentationPending = true
+        frameInput.panTicksLeft = Self.panTickTail
+        if frameInput.panPresentedInFrame {
+            frameInput.panPresentationPending = true
         } else {
-            panPresentedInFrame = true
+            frameInput.panPresentedInFrame = true
             applyPresentation()
         }
         // The tick that opens the next frame (and shows a waiting event).
@@ -114,20 +180,20 @@ extension ScreenContentView {
     /// that waited in the last frame show now. Returns true while a pan in progress keeps the frame
     /// ticks (``panTickTail`` frames after its last event).
     func displayFrameBegan() -> Bool {
-        panPresentedInFrame = false
-        if panPresentationPending { applyPresentation() }
-        guard panTicksLeft > 0, isUserScrolling else {
-            panTicksLeft = 0
+        frameInput.panPresentedInFrame = false
+        if frameInput.panPresentationPending { applyPresentation() }
+        guard frameInput.panTicksLeft > 0, isUserScrolling else {
+            frameInput.panTicksLeft = 0
             return false
         }
-        panTicksLeft -= 1
+        frameInput.panTicksLeft -= 1
         return true
     }
 
-    /// Sets `frame`'s target (opaque); without animation it snaps there. During a pointer gesture (a divider drag)
-    /// only a frame the gesture retargets snaps: a spring already running elsewhere (a close landing in another
-    /// column) keeps going (M3). Reduce Motion snaps every frame.
+    /// Sets `frame`'s target (opaque); without animation it snaps there. During a divider drag only a frame it retargets moves
+    /// (its edges with their targets, `SharedEdgeMotion`): a spring elsewhere (a close in another column) goes on (M3). Reduce Motion snaps all.
     func place(_ frame: inout AnimatedFrame, at target: CGRect, animated: Bool) {
+        guard !SharedEdgeMotion.place(&frame, at: target, animated: animated, on: self) else { return }
         let retargeted = frame.targetRect != target
         frame.setTarget(target, alpha: 1)
         if !animated, retargeted || !context.model.isGestureActive || context.reduceMotion { frame.snap() }
@@ -144,8 +210,15 @@ extension ScreenContentView {
     /// nothing asks for no overlay sync and no hover refresh (`PaneMotionBench`, perf-lead issue 3).
     /// `force` (or a structural change's `forcesPresentation`): everything is re-placed and the overlay syncs.
     func applyPresentation(force: Bool = false) { // perf-hot: 4ms motion-frame
-        // Every presentation shows the latest pan: no pan event waits after it.
-        panPresentationPending = false
+        // The frame tick's input: the pass waits for the frame's one presentation (`LayoutFrameInput`).
+        // A snap held for its terminals' frames shows at the next tick (`ScreenContentView+SnapFrame`).
+        if context.holdsPresentations || frameInput.snapWaitsForContent {
+            (frameInput.presentationWaiting, forcesPresentation) = (true, forcesPresentation || force)
+            return
+        }
+        releaseSnapDeparted()
+        // Every presentation shows the latest pan and the frame's input: nothing waits after it.
+        (frameInput.panPresentationPending, frameInput.presentationWaiting) = (false, false)
         presentationPasses += 1
         let force = force || forcesPresentation
         forcesPresentation = false
@@ -170,14 +243,23 @@ extension ScreenContentView {
             let rest = frame.targetRect.offsetBy(dx: (scrolls ? restStrip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
                 .pixelEdges(scale)
             let restOffset = CGVector(dx: rest.minX - placed.minX, dy: rest.minY - placed.minY)
-            if host.restOffset != restOffset { host.restOffset = restOffset }
+            // On a spring until the frame it lands at is laid out (`PaneHostView.isOnLayoutSpring`).
+            let springing = frame.rect != frame.targetRect
+            // A key hold begins in the press's first tick (S1B), which may step far (a late tick): the host picks the edges it
+            // holds on from its rest offset against the frame it shows now, not the stepped one (Codex review of #34380).
+            let startsKeyHold = springing && holdsContentForKeyResize && !host.isOnLayoutSpring
+            let shownOffset = CGVector(dx: rest.minX - host.frame.minX, dy: rest.minY - host.frame.minY)
+            if startsKeyHold, host.restOffset != shownOffset { host.restOffset = shownOffset }
             // A new rest size (a split's new pane has none before its first one) on a running spring.
             let restChanged = host.restSize != rest.size
             if host.restSize != rest.size { host.restSize = rest.size }
-            // On a spring until the frame it lands at is laid out (`PaneHostView.isOnLayoutSpring`).
-            let springing = frame.rect != frame.targetRect
             if springing { host.isOnLayoutSpring = true }
             defer { if !springing { host.isOnLayoutSpring = false } }
+            // A key press's rest size reaches the content before its host moves (S1B: the press's first tick, where the key's
+            // turn used to do it): the content takes its final size once, at the edge that stays, never the frame's first.
+            let announcesFirst = restChanged && springing && holdsContentForKeyResize
+            if announcesFirst { host.announceRest() }
+            if host.restOffset != restOffset { host.restOffset = restOffset }
             if host.frame.size != placed.size {
                 host.frame = placed
                 // Its tab strip and content lay out in this frame's step, with the frame: never a
@@ -196,7 +278,7 @@ extension ScreenContentView {
             }
             // A spring that starts or retargets (a press during the motion) to a new size: the content
             // hears the size it will rest at now, once (a terminal sends its final grid at the start).
-            if restChanged, springing { host.announceRest() }
+            if restChanged, springing, !announcesFirst { host.announceRest() }
             if host.alphaValue != frame.alpha.value {
                 host.alphaValue = frame.alpha.value
                 changed = true
@@ -206,10 +288,16 @@ extension ScreenContentView {
             zoomMotion.track(pane, frame)
             clips.append((host, scrolls && pane != zoomMotion.pane))
         }
+        // The panes a close took out, each with its own ground on what its neighbours have not covered (FRAME OWNER S3c).
+        let closing = presentClosingPanes(strip: strip, restStrip: restStrip, scale: scale)
+        clips += closing.hosts
+        if closing.changed { changed = true }
         // A zoom that landed gives its pane back its place in the stacking order (`rank`).
         if zoomMotion.pane != zooming {
             ensureStacking()
             changed = true
+            // Each pane view the zoom moved posts its one frame notice now (`FrameNoticeHold`).
+            releasePaneFrameNoticesIfSettled()
         }
         // Once every frame is placed: a pane is clipped by the panes in front of it, the panes a
         // zoom covers too (they stay where they were, opaque, `zoomMotion.covered`). A host whose
@@ -272,7 +360,6 @@ extension ScreenContentView {
         covered.compactMap { pane in context.hosts[pane].flatMap { $0.superview === self ? $0 : nil } }
     }
     var dividerMouseAreas: [LayoutMouseArea] { ScreenDividers(screen: self).mouseAreas }
-    var dividerLineRects: [CGRect] { ScreenDividers(screen: self).lineRects }
 }
 
 extension CGRect {

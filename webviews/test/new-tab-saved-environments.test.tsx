@@ -132,7 +132,7 @@ async function mount({
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const { SignInContext } = await import("../src/agent-session/acpmux/signIn");
   const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
-  const { newWorktree, pickFolder } = await import("../src/agent-session/acpmux/startFolder");
+  const { newWorktree, pickFolder } = await import("../src/agent-session/acpmux/startFolderModel");
   const calls: Call[] = [];
   const callNative = async (method: string, params?: Record<string, unknown>) => {
     calls.push({ method, ...(params ? { params } : {}) });
@@ -330,7 +330,9 @@ test("a saved SSH environment names the strip and asks on its machine, in its fo
   expect(calls.filter((call) => call.method === "session.auth").at(-1)?.params).toEqual({
     target: { harness: "claude", host: "devbox", cwd: "/srv/api" },
   });
-  expect(environmentButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: Devbox API`);
+  expect(environmentButton()?.getAttribute("aria-label")).toBe(
+    `${t("composer.environment")}: ${t("composer.anotherMachine")} · Devbox API`,
+  );
   // The environment names where the chat starts: no folder control beside it.
   expect(folderButton()).toBeNull();
   await ask("tail the logs");
@@ -400,7 +402,9 @@ test("picking another machine acpmux lists starts the chat there", async () => {
   expect(calls.filter((call) => call.method === "session.auth").at(-1)?.params).toEqual({
     target: { harness: "claude", host: "devbox" },
   });
-  expect(environmentButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: devbox`);
+  expect(environmentButton()?.getAttribute("aria-label")).toBe(
+    `${t("composer.environment")}: ${t("composer.anotherMachine")} · devbox`,
+  );
   // The prompt takes the keyboard back, as after a folder pick.
   expect(doc().activeElement).toBe(host.querySelector(".nt-field [contenteditable]"));
   await ask("tail the logs");
@@ -483,7 +487,9 @@ test("Create environment saves where the page would start and picks it", async (
     environment: { name: "Sandbox", kind: "local", folder: API, worktree: true },
   });
   expect($(".acpmux-env-panel")).toBeNull();
-  expect(environmentButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: Sandbox`);
+  expect(environmentButton()?.getAttribute("aria-label")).toBe(
+    `${t("composer.environment")}: ${t("composer.thisMac")} · Sandbox`,
+  );
   // Picked: Edit environment opens it again, with Remove.
   await click(await moreItem(t("environment.edit")));
   expect($<HTMLInputElement>(".acpmux-env-panel input")?.value).toBe("Sandbox");

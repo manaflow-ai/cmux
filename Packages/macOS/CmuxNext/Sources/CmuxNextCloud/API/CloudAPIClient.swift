@@ -71,192 +71,19 @@ public struct CloudAPIClient: Sendable {
         sendsStackSession = false
     }
 
-    // MARK: Machines
-
-    public func listMachines() async throws -> [CloudMachine] {
-        try await listMachinesAndLimits().machines
-    }
-
-    /// `GET /api/vm`: the machines and the account's machine cap (`limits`;
-    /// nil when the server sent none or sent one this client cannot read).
-    public func listMachinesAndLimits() async throws -> (machines: [CloudMachine], limits: CloudMachineLimits?) {
-        let list = try await send("GET", "/api/vm", as: CloudMachineList.self)
-        return (list.vms, list.limits)
-    }
-
-    public func machine(_ id: String) async throws -> CloudMachine {
-        try await send("GET", "/api/vm/\(id)", as: CloudMachine.self)
-    }
-
-    /// `POST /api/vm`. The server provisions for up to 600 s; the key makes a
-    /// retry after a lost response return the same machine.
-    /// `onSent` runs once the request goes on the wire (sign-in token and
-    /// team resolved), so a caller can tell its request stage from the
-    /// server's create.
-    /// `idlePauseMinutes`: the machine's idle auto-pause from its create (0 is Off, a persistent
-    /// machine); a server that does not store it answers without it (or with its default). `autosize`: ``CloudAutosizeRequest``.
-    public func createMachine(displayName: String?, memoryMb: Int? = nil, autosize: CloudAutosizeRequest? = nil,
-                              idlePauseMinutes: Int? = nil, idempotencyKey: String = UUID().uuidString,
-                              onSent: (@Sendable () async -> Void)? = nil) async throws -> CloudMachine {
-        var body: [String: any Sendable] = [:]
-        if let displayName, !displayName.isEmpty { body["displayName"] = displayName }
-        if let memoryMb { body["memoryMb"] = memoryMb } else if let autosize { body["autosize"] = autosize.body }
-        if let idlePauseMinutes {
-            let value: any Sendable = idlePauseMinutes == 0 ? "off" : idlePauseMinutes
-            body["idlePauseMinutes"] = value
-        }
-        return try await send("POST", "/api/vm", body: body, idempotencyKey: idempotencyKey, timeout: .seconds(620),
-                              onSent: onSent, as: CloudMachine.self)
-    }
-
-    public func renameMachine(_ id: String, to name: String?) async throws {
-        let body: [String: any Sendable] = ["displayName": name ?? NSNull()]
-        _ = try await send("PATCH", "/api/vm/\(id)", body: body, as: Ignored.self)
-    }
-
-    public func deleteMachine(_ id: String) async throws {
-        _ = try await send("DELETE", "/api/vm/\(id)", timeout: .seconds(120), as: Ignored.self)
-    }
-
-    /// Parks the machine while preserving its disk and session.
-    public func pauseMachine(_ id: String) async throws {
-        _ = try await send("POST", "/api/vm/\(id)/pause", timeout: .seconds(960), as: Ignored.self)
-    }
-
-    /// Resume can wait up to the route's 16-minute provider readiness budget.
-    public func resumeMachine(_ id: String) async throws {
-        _ = try await send("POST", "/api/vm/\(id)/resume", timeout: .seconds(960), as: Ignored.self)
-    }
-
-    /// `PUT /api/vm/{id}/idle-pause`: minutes of idle before the server
-    /// pauses the machine, one of ``CloudMachine/idlePauseChoices``; 0 is Off.
-    public func setIdlePause(_ id: String, minutes: Int) async throws {
-        let value: any Sendable = minutes == 0 ? "off" : minutes
-        _ = try await send("PUT", "/api/vm/\(id)/idle-pause", body: ["minutes": value], timeout: .seconds(30), as: Ignored.self)
-    }
-
-    public func attachEndpoint(_ id: String, deviceFingerprint: String? = nil) async throws -> CloudAttachEndpoint {
-        var body: [String: any Sendable] = ["transport": "cmux-remote"]
-        if let deviceFingerprint { body["deviceFingerprint"] = deviceFingerprint }
-        return try await send("POST", "/api/vm/\(id)/attach-endpoint", body: body, timeout: .seconds(30),
-                       as: CloudAttachEndpoint.self)
-    }
-
-    public func approveCmuxRemoteEnrollment(_ id: String, invitationID: String) async throws -> CloudEnrollmentApproval {
-        try await send("POST", "/api/vm/\(id)/cmux-remote/approve", body: ["invitationId": invitationID],
-                       timeout: .seconds(60), as: CloudEnrollmentApproval.self)
-    }
-
-    public func stats(_ id: String) async throws -> CloudMachineStats {
-        try await send("GET", "/api/vm/\(id)/stats", as: CloudMachineStats.self)
-    }
-
-    /// `POST /api/vm/{id}/resize`: cpu 1-32, memory 4096-65536 MiB in whole GiB, storage in 4 GiB
-    /// steps up to 256 GiB (grow-only). Only the given dimensions are sent; the server checks them.
-    public func resize(_ id: String, cpu: Int? = nil, memoryMb: Int? = nil, storageMb: Int? = nil) async throws {
-        var body: [String: any Sendable] = [:]
-        if let cpu { body["cpu"] = cpu }
-        if let memoryMb { body["memoryMb"] = memoryMb }
-        if let storageMb { body["storageMb"] = storageMb }
-        _ = try await send("POST", "/api/vm/\(id)/resize", body: body, timeout: .seconds(120), as: Ignored.self)
-    }
-
-    public func snapshot(_ id: String, name: String?, idempotencyKey: String = UUID().uuidString) async throws -> CloudSnapshot {
-        var body: [String: any Sendable] = [:]
-        if let name { body["name"] = name }
-        return try await send("POST", "/api/vm/\(id)/snapshot", body: body, idempotencyKey: idempotencyKey,
-                              timeout: .seconds(300), as: CloudSnapshot.self)
-    }
-
-    public func snapshots(_ id: String) async throws -> [CloudSnapshot] {
-        struct List: Decodable { var snapshots: [CloudSnapshot] }
-        return try await send("GET", "/api/vm/\(id)/snapshots", as: List.self).snapshots
-    }
-
-    /// Deletes a snapshot scoped to the machine that owns it.
-    public func deleteSnapshot(_ id: String, snapshotID: String) async throws {
-        _ = try await send("DELETE", "/api/vm/\(id)/snapshots/\(snapshotID)", timeout: .seconds(960), as: Ignored.self)
-    }
-
-    public func restore(snapshotID: String, idempotencyKey: String = UUID().uuidString) async throws -> CloudMachine {
-        try await send("POST", "/api/vm/restore", body: ["snapshotId": snapshotID], idempotencyKey: idempotencyKey,
-                       timeout: .seconds(620), as: CloudMachine.self)
-    }
-
-    public func fork(_ id: String, name: String?, idempotencyKey: String = UUID().uuidString) async throws -> CloudMachine {
-        var body: [String: any Sendable] = [:]
-        if let name { body["name"] = name }
-        return try await send("POST", "/api/vm/\(id)/fork", body: body, idempotencyKey: idempotencyKey, timeout: .seconds(620),
-                              as: CloudMachine.self)
-    }
-
-    public func openPort(_ id: String, port: Int) async throws -> CloudPortLink {
-        try await send("POST", "/api/vm/\(id)/open-port", body: ["port": port], timeout: .seconds(30), as: CloudPortLink.self)
-    }
-
-    // MARK: Remote approvals (cx-psxg)
-
-    /// `POST /api/vm/{id}/acpmux/keyed-start`: restarts the machine's acpmux with this app's
-    /// person key. `writeKey` writes the key line (``keyLineLength`` bytes) into the request
-    /// body from the caller's own zeroed buffer: the body is a stream, so this code makes no
-    /// `Data` or `String` copy of the key, and URLSession cannot send it a second time (a stream
-    /// body is never resent). Copies that nobody zeroes still exist in the bound stream pair's
-    /// buffer and in URLSession's and TLS's buffers; they stay on this Mac, inside the trusted
-    /// delivery boundary (#13742 D16 update 4). No Idempotency-Key and no retry: a request that
-    /// did not answer is the person's to send again, with a new key. Answers the new daemon run
-    /// (`personInstance`).
-    public func acpmuxKeyedStart(_ id: String, keyLineLength: Int, writeKey: (OutputStream) -> Bool) async throws -> String {
-        var input: InputStream?
-        var output: OutputStream?
-        Stream.getBoundStreams(withBufferSize: keyLineLength * 2, inputStream: &input, outputStream: &output)
-        guard let input, let output else { throw CloudAPIError.transport("no request body stream") }
-        output.open()
-        let wrote = writeKey(output)
-        output.close()
-        guard wrote else { throw CloudAPIError.transport("the key did not reach the request body") }
-        struct Started: Decodable { var personInstance: String }
-        let started = try await send("POST", "/api/vm/\(id)/acpmux/keyed-start",
-                                     bodyStream: (input, keyLineLength, "application/octet-stream"),
-                                     timeout: .seconds(100), as: Started.self)
-        return started.personInstance
-    }
-
-    /// `POST /api/vm/{id}/acpmux/person-holds {nonce}`: what the machine's acpmux answers to
-    /// `_acpmux/person_holds`. The caller checks the proof against its own key.
-    public func acpmuxPersonHolds(_ id: String, nonce: String) async throws -> (instance: String, proof: String) {
-        struct Holds: Decodable { var instance: String; var proof: String }
-        let holds = try await send("POST", "/api/vm/\(id)/acpmux/person-holds", body: ["nonce": nonce],
-                                   timeout: .seconds(40), as: Holds.self)
-        return (holds.instance, holds.proof)
-    }
-
     // MARK: Files and SCP
 
-    /// Mints a short-lived private SCP route. The public key is the only key
-    /// material sent to the backend; the caller owns the corresponding secret.
+    /// Mints a short-lived private SCP route: cmux-platform's `POST /v1/cloud/machines/{id}/ssh-endpoint` on a
+    /// Worker machines client (``workerMachines(baseURL:accessToken:teamID:session:appVersion:machineIO:)``). The
+    /// public key is the only key material sent; the caller owns the secret.
     public func prepareSCP(_ id: String, publicKey: String) async throws -> CloudSCPEndpoint {
-        let endpoint = try await send("POST", "/api/vm/\(id)/scp-endpoint", body: ["publicKey": publicKey],
-                                      timeout: .seconds(100), as: CloudSCPEndpoint.self)
-        guard endpoint.port == 22, endpoint.username == "cmux",
-              endpoint.hostPublicKey.hasPrefix("ssh-ed25519 "),
-              endpoint.expiresAtUnix > Int64(Date().timeIntervalSince1970) else {
-            throw CloudAPIError.decoding("/api/vm/\(id)/scp-endpoint returned an unsafe endpoint")
-        }
-        return endpoint
+        // cmux-cloud-machine reads only a safe route (port 22, user cmux, an ed25519 host key, not
+        // expired); any other answer throws ``CloudAPIError/decoding(_:)``.
+        try await send("POST", "\(machinePath)/\(id)/ssh-endpoint", body: ["publicKey": publicKey],
+                       timeout: .seconds(100), as: CloudSCPEndpoint.self)
     }
 
     // MARK: Tunnel
-
-    /// `POST /api/vm/tunnel`: enrolls this Mac's WireGuard public key. The
-    /// private key never leaves the Mac.
-    public func enrollTunnel(_ request: CloudTunnelEnrollment.Request) async throws -> CloudTunnelEnrollment {
-        try await send("POST", "/api/vm/tunnel", body: request.body, timeout: .seconds(60), as: CloudTunnelEnrollment.self)
-    }
-
-    /// `DELETE /api/vm/tunnel?deviceId=…`: revokes this Mac's peer.
-    public func revokeTunnel(deviceID: String) async throws {
-        _ = try await send("DELETE", "/api/vm/tunnel?deviceId=\(deviceID)", as: Ignored.self)
-    }
 
     public func attachTunnelNetwork(deviceFingerprint: String, networkID: String, tunnelPurpose: String = "browser") async throws -> CloudTunnelNetworkMutation {
         try await send("POST", "/api/vm/tunnel/network/attach", body: ["deviceFingerprint": deviceFingerprint, "networkId": networkID, "tunnelPurpose": tunnelPurpose], timeout: .seconds(60), as: CloudTunnelNetworkMutation.self)
@@ -312,39 +139,56 @@ public struct CloudAPIClient: Sendable {
 
     // MARK: Domains and publications
 
-    /// Lists custom domains owned by the signed-in account. Provider
-    /// credentials and certificate material are never returned by this route.
+    // cmux-platform's previews (docs/cloud-previews.md) on a preview client (``previewClient(baseURL:)``): a
+    // publication is one machine port's preview, `vm_…:port`. A classic client answers 501 and sends nothing.
+
+    /// `GET /v1/cloud/domains`: the domains Cloud publications are served on (the platform's managed one).
     public func listDomains() async throws -> [CloudDomain] {
         struct List: Decodable { var domains: [CloudDomain] }
-        return try await send("GET", "/api/vm/domains", as: List.self).domains
+        return try await sendPreviews("GET", "/v1/cloud/domains", as: List.self).domains
     }
 
-    /// Lists redacted VM publications owned by the signed-in account.
+    /// `GET /v1/cloud/previews`: the signed-in person's publications in the current team.
     public func listPublications() async throws -> [CloudPublication] {
-        struct List: Decodable { var publications: [CloudPublication] }
-        return try await send("GET", "/api/vm/publications", as: List.self).publications
+        struct List: Decodable { var previews: [CloudPublication] }
+        return try await sendPreviews("GET", "/v1/cloud/previews", as: List.self).previews
     }
 
-    /// `POST /api/vm/apis`: publishes `port` of the machine behind cmux sign-in and mints an
-    /// API key for it in one call. Calling it again for the same port reuses the publication
-    /// and mints another key.
-    public func provisionAPI(machineID: String, port: Int, accessMode: String? = nil, keyName: String? = nil) async throws -> CloudProvisionedAPI {
-        var body: [String: any Sendable] = ["vmId": machineID, "port": port]
-        if let accessMode { body["accessMode"] = accessMode }
-        if let keyName { body["name"] = keyName }
-        return try await send("POST", "/api/vm/apis", body: body, timeout: .seconds(120), as: CloudProvisionedAPI.self)
+    /// `POST /v1/cloud/machines/{id}/previews/{port}/api-keys`: publishes `port` of the machine behind
+    /// cmux sign-in (a refresh, when it has no preview yet) and mints an API key for it in one call.
+    /// Calling it again for the same port reuses the publication and mints another key.
+    public func provisionAPI(machineID: String, port: Int, keyName: String? = nil) async throws -> CloudProvisionedAPI {
+        let body: [String: any Sendable] = keyName.map { ["name": $0] } ?? [:]
+        return try await sendPreviews("POST", "\(machinePath)/\(queryComponent(machineID))/previews/\(port)/api-keys", body: body,
+                                      timeout: .seconds(120), as: CloudProvisionedAPI.self)
     }
 
     /// The live API keys of a publication, named by its id or hostname.
     public func listPublicationAPIKeys(_ publication: String) async throws -> [CloudPublicationAPIKey] {
         struct List: Decodable { var apiKeys: [CloudPublicationAPIKey] }
-        return try await send("GET", "/api/vm/publications/\(queryComponent(publication))/api-keys", as: List.self).apiKeys
+        return try await sendPreviews("GET", "\(try await publicationPath(publication))/api-keys", as: List.self).apiKeys
     }
 
     /// Revokes one key; its next request is refused at the edge.
     public func revokePublicationAPIKey(_ publication: String, keyID: String) async throws -> CloudPublicationAPIKey {
         struct Revoked: Decodable { var apiKey: CloudPublicationAPIKey }
-        return try await send("DELETE", "/api/vm/publications/\(queryComponent(publication))/api-keys/\(queryComponent(keyID))", as: Revoked.self).apiKey
+        let path = "\(try await publicationPath(publication))/api-keys/\(queryComponent(keyID))"
+        return try await sendPreviews("DELETE", path, as: Revoked.self).apiKey
+    }
+
+    /// `/v1/cloud/machines/{id}/previews/{port}` of the publication whose id or hostname is `publication`.
+    private func publicationPath(_ publication: String) async throws -> String {
+        guard let found = try await listPublications().first(where: { $0.id == publication || $0.hostname == publication }),
+              let machine = found.vmId, let port = found.port else {
+            throw CloudAPIError.http(status: 404, code: "cloud.preview.not_found", message: "no such publication: \(publication)")
+        }
+        return "\(machinePath)/\(queryComponent(machine))/previews/\(port)"
+    }
+
+    private func sendPreviews<T: Decodable>(_ method: String, _ path: String, body: [String: any Sendable]? = nil,
+                                            timeout: Duration = .seconds(20), as type: T.Type) async throws -> T {
+        guard !sendsStackSession else { throw CloudAPIError.http(status: 501, code: "machine.previews_unsupported", message: nil) }
+        return try await send(method, path, body: body, timeout: timeout, as: type)
     }
 
     func query(_ value: String) -> String {
@@ -512,11 +356,7 @@ public struct CloudAPIClient: Sendable {
         }
         if T.self == Ignored.self, let ignored = Ignored() as? T { return ignored }
         if T.self == RawBody.self, let raw = RawBody(data: data) as? T { return raw }
-        do {
-            return try JSONDecoder().decode(T.self, from: data)
-        } catch {
-            throw CloudAPIError.decoding("\(path): \(error)")
-        }
+        return try CloudMachineRules().answer(data, as: T.self, context: path)
     }
 }
 
@@ -533,6 +373,12 @@ nonisolated final class SandboxDeadline<T: Sendable>: Sendable {
     private let state = Mutex(State())
 
     static func race(_ bound: Duration, _ work: @escaping @Sendable () async throws -> T) async throws -> T {
+        try await race(bound, timeout: { CloudAPIError.timedOut("/api/runs") }, work)
+    }
+
+    /// ``race(_:_:)`` with the error the bound throws (`timeout`): a Cloud link step names itself.
+    static func race(_ bound: Duration, timeout: @escaping @Sendable () -> any Error,
+                     _ work: @escaping @Sendable () async throws -> T) async throws -> T {
         let gate = SandboxDeadline<T>()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -548,7 +394,7 @@ nonisolated final class SandboxDeadline<T: Sendable>: Sendable {
                 let timer = Task {
                     // wakeup-allow: one-shot deadline for a sandbox run (stops at the bound or the answer)
                     try? await Task.sleep(for: bound)
-                    gate.finish(.failure(CloudAPIError.timedOut("/api/runs")))
+                    gate.finish(.failure(timeout()))
                 }
                 gate.onFinish { job.cancel(); timer.cancel() }
             }

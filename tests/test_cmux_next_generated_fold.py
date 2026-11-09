@@ -11,7 +11,11 @@ from __future__ import annotations
 
 import itertools
 import math
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -157,9 +161,10 @@ REPO = "manaflow-ai/cmux"
 NEXT = "refs/heads/feat-cmux-next"
 
 
-def route_ctx(event, ref, generated, swift, targets, daemon, tree, marker):
+def route_ctx(event, ref, generated, swift, targets, daemon, tree, marker, labels=()):
     """path_route's own expression context: its route step, the tree probes and the marker upload."""
-    return {"github": {"event_name": event, "ref": ref},
+    return {"github": {"event_name": event, "ref": ref,
+                       "event": {"pull_request": {"labels": [{"name": label} for label in labels]}}},
             "steps": {"route": {"outputs": {"generated": generated, "swift": swift, "swift_targets": targets,
                                             "daemon": daemon}},
                       "tree": {"outputs": {"tree_state": tree}}, "tree-final": {"outputs": {}},
@@ -216,18 +221,19 @@ class GeneratedFoldTest(unittest.TestCase):
         events = [("push", NEXT), ("push", "refs/heads/main"),
                   ("pull_request", "refs/pull/1/merge"), ("workflow_dispatch", NEXT)]
         cases = pr_single = 0
-        for (event, ref), generated, swift, targets, daemon, tree, marker, web, current, fork in itertools.product(
+        for (event, ref), generated, swift, targets, daemon, tree, marker, web, current, fork, labels in itertools.product(
                 events, ("true", "false"), ("true", "false"), ("all", ""), ("true", "false"),
                 ("ready", "deferred", "failed", ""), ("", "failure"), ("success", "failure"), ("true", "false"),
-                (False, True)):
-            rctx = route_ctx(event, ref, generated, swift, targets, daemon, tree, marker)
+                (False, True), ((), ("full-ci",))):
+            rctx = route_ctx(event, ref, generated, swift, targets, daemon, tree, marker, labels)
             host = Expr(host_expr, rctx).value()
             tree_state = Expr(tree_expr, rctx).value()
             outputs = {"generated": generated, "swift": swift, "swift_targets": targets, "daemon": daemon,
                        "tree_state": tree_state, "generated_host": host}
             head = "someone/fork" if fork else REPO
             ctx = {"github": {"event_name": event, "ref": ref, "repository": REPO,
-                              "event": {"pull_request": {"head": {"repo": {"full_name": head}}, "labels": []}}},
+                              "event": {"pull_request": {"head": {"repo": {"full_name": head}},
+                                                         "labels": [{"name": label} for label in labels]}}},
                    "inputs": {}, "cancelled": False,
                    "needs": {"path_route": {"outputs": outputs}, "web-bundles": {"result": web},
                              "push-head-preflight": {"outputs": {"current": current}}}}
@@ -247,9 +253,13 @@ class GeneratedFoldTest(unittest.TestCase):
             verdict = truthy(Expr(self.verdict["if"], ctx).value())
             # The generated-files job's condition before generated_host: its shared prerequisites.
             gen_routed = (generated == "true" and web == "success" and current == "true"
-                          and not (event == "pull_request" and fork))
+                          and not (event == "pull_request" and fork and not labels))
             with self.subTest(event=event, ref=ref, generated=generated, swift=swift, targets=targets, daemon=daemon,
-                              tree=tree, marker=marker, web=web, current=current, fork=fork, host=host):
+                              tree=tree, marker=marker, web=web, current=current, fork=fork, labels=labels, host=host):
+                # A pull request runs swift-test only with full-ci (2026-11-05).
+                if event == "pull_request" and not labels:
+                    self.assertFalse(runs["swift-test"])
+                    self.assertNotEqual(host, "swift-test")
                 checked_by = [job_id for job_id in HOSTS if folds[job_id]] + (
                     ["generated-files"] if runs["generated-files"] else [])
                 self.assertEqual(len(checked_by), 1 if gen_routed else 0, checked_by)
@@ -269,15 +279,19 @@ class GeneratedFoldTest(unittest.TestCase):
                     self.assertEqual(producers, 1)
                     pr_single += 1
             cases += 1
-        self.assertEqual(cases, 4 * 2 * 2 * 2 * 2 * 4 * 2 * 2 * 2 * 2)
+        self.assertEqual(cases, 4 * 2 * 2 * 2 * 2 * 4 * 2 * 2 * 2 * 2 * 2)
         self.assertGreater(pr_single, 0)
 
     def test_a_pull_request_with_daemon_or_swift_and_generated_inputs_has_one_build_producer(self):
         """HQ#4724's case, spelled out: before, swift-test (or daemon-test) and generated-files both built."""
         pr = ("pull_request", "refs/pull/1/merge")
-        self.assertEqual(self.host(*pr, "true", "true", "all", "false", "", ""), "swift-test")
+        # A pull request runs swift-test only with full-ci (2026-11-05), so without it the daemon tests
+        # or the generated-files job's own build check the generated files.
+        self.assertEqual(self.host(*pr, "true", "true", "all", "false", "", ""), "generated-files")
+        self.assertEqual(self.host(*pr, "true", "true", "all", "true", "ready", ""), "daemon-test")
+        self.assertEqual(self.host(*pr, "true", "true", "all", "false", "", "", ("full-ci",)), "swift-test")
         self.assertEqual(self.host(*pr, "true", "false", "", "true", "ready", ""), "daemon-test")
-        self.assertEqual(self.host(*pr, "true", "true", "all", "true", "ready", ""), "swift-test")
+        self.assertEqual(self.host(*pr, "true", "true", "all", "true", "ready", "", ("full-ci",)), "swift-test")
         # No targets: swift-test does not build, so the daemon tests or the job's own build check them.
         self.assertEqual(self.host(*pr, "true", "true", "", "true", "ready", ""), "daemon-test")
         self.assertEqual(self.host(*pr, "true", "true", "", "false", "", ""), "generated-files")
@@ -407,10 +421,53 @@ class GeneratedFoldTest(unittest.TestCase):
 
     def test_the_check_script_skips_the_build_only_when_asked(self):
         script = (ROOT / "scripts/cmux-next/check-action-surfaces.sh").read_text()
-        self.assertRegex(script, re.escape('[[ "${CMUX_ACTION_SURFACES_SKIP_BUILD:-}" != 1 ]] || skip_build=(--skip-build)'))
+        skip, _, built = script.partition('if [[ "${CMUX_ACTION_SURFACES_SKIP_BUILD:-}" == 1 ]]; then')
+        self.assertTrue(built, "check-action-surfaces.sh has no CMUX_ACTION_SURFACES_SKIP_BUILD=1 branch")
+        asked, _, otherwise = built.partition("\nfi\n")
+        # Asked: no build, only the tests of the build the CI job already made.
+        self.assertIn("--skip-build", asked)
+        self.assertNotIn("cmux_next_warm_build", asked)
+        # Otherwise it builds (under the warm-slot contract) before it tests that build.
+        self.assertIn('cmux_next_warm_build "$root"', otherwise)
         # bash 3.2 (macOS /bin/bash) treats an empty "${a[@]}" as unbound under set -u.
-        self.assertIn('${skip_build[@]+"${skip_build[@]}"}', script)
+        self.assertIn('${jobs[@]+"${jobs[@]}"}', otherwise)
 
+
+    def test_the_check_script_takes_a_relative_package_root(self):
+        # judge-action-exports.sh passes an absolute root; a person may pass Packages/macOS/CmuxNext. The script
+        # enters the root, so every later path must not resolve it again from inside (review of #33886).
+        work = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, work, True)
+        repo, bin_dir = work / "repo", work / "bin"
+        for rel in ("scripts/cmux-next/check-action-surfaces.sh", "scripts/cmux-next/lib/fleet-only.sh",
+                    "scripts/cmux-next/lib/warm-swiftpm.sh", "scripts/ci/swift-test-debug-info.sh",
+                    "scripts/ci/swiftpm-binary-module-guard.sh"):
+            (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(ROOT / rel, repo / rel)
+        (repo / "Packages/macOS/CmuxNext").mkdir(parents=True)
+        (repo / "Packages/macOS/CmuxNext/Package.swift").write_text("")
+        bin_dir.mkdir()
+        # A swift that refuses a --package-path that is not a package, as SwiftPM does.
+        (bin_dir / "swift").write_text(
+            "#!/usr/bin/env bash\n"
+            "args=(\"$@\"); for ((i = 0; i < ${#args[@]}; i++)); do\n"
+            "  if [[ ${args[i]} == --package-path ]]; then\n"
+            "    [[ -f ${args[i + 1]}/Package.swift ]] || { echo \"no package at ${args[i + 1]}\" >&2; exit 1; }\n"
+            "  fi\n"
+            "done\n"
+            "[[ $1 != test || -f Package.swift ]] || { echo 'swift test outside the package' >&2; exit 1; }\n")
+        (bin_dir / "swift").chmod(0o755)
+        git = ["git", "-C", str(repo)]
+        subprocess.run(git + ["init", "-q"], check=True)
+        subprocess.run(git + ["add", "-A"], check=True)
+        subprocess.run(git + ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base"], check=True)
+        env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "CMUX_CI_STEP_KEY": "test",
+               "CMUX_SWIFTPM_RESOLVE_RETRY_DELAYS": ""}
+        env.pop("CMUX_ACTION_SURFACES_SKIP_BUILD", None)
+        result = subprocess.run(["bash", "scripts/cmux-next/check-action-surfaces.sh", "Packages/macOS/CmuxNext"],
+                                cwd=repo, env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((repo / "Packages/macOS/CmuxNext/.build/.cmux-ci-built-ref").is_file(), result.stdout)
 
 if __name__ == "__main__":
     unittest.main()

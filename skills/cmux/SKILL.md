@@ -71,7 +71,26 @@ To run a prompt on a Cloud machine and read the reply, use one command, `cmux cl
 
 To start another agent on a task and show it, use one command, `acpmux new -n NAME --worktree REPO@BASE --prompt-file BRIEF.md --report-to ME --group G -d` (the `acpmux` skill): it makes the worktree, starts the session, sends the brief and opens its chat in group G; running it again changes nothing.
 
+To give a new chat on this Mac files (a screenshot, a log), add `--attach FILE` once per file to `cmux chat TEXT` or `cmux agents chat new -- TEXT` (MCP `agents_chat_new` with `attachments`, absolute paths): the first prompt carries them as `acpmux send --attach` does, any type and size. A missing or unreadable file starts nothing (`attach.not_found`, `attach.not_a_file`, `attach.unreadable`). A message to a running chat (`cmux agents chat send`) carries text only and refuses `--attach` (`chat.attach_send_unsupported`); a Cloud chat refuses it too.
+
 To open a link, the MCP tool `workspace_open_url` loads it on the workspace's right side, but it navigates a browser tab already there; `cmux browser profile open URL --profile default --background true` (MCP `browser_profile_open` with `activate: false`) adds a tab and keeps the pane's selected tab. `tab focus`, `workspace focus`, `agents tab select` and `focus: true` do move the person's focus: use them only when asked. `current` is the workspace the person looks at, not yours: from a cmux terminal `status set` without a selector targets that terminal's workspace, but an agent chat has no terminal, so name the workspace (`$CMUX_WORKSPACE_ID` when set).
+
+## Messaging a Chief or a person
+
+Any coding agent (Claude Code, Codex, OpenCode, pi, an acpmux session) can message the person's Chief, another Chief, or a person or group chat in Home. Use `cmux chat`, or the MCP tools `chat_send`, `chat_read` and `chat_list` (same arguments):
+
+```bash
+cmux chat list                                              # the Chief chats: Chief, Codex Chief, Muse Chief…
+cmux chat send --to chief --text "a12 is blocked on CI" --class blocker
+cmux chat send --to codex --text "Is PR 33023 safe to land?" --wait --timeout 600 --json   # waits for that Chief's reply
+cmux chat send --to "Leo" --text "The build is green"       # a person or a group chat, by its Home name
+cmux chat read --to chief --last 10 --json
+cmux chat wait --to chief --from chief --timeout 300        # the Chief's next message
+```
+
+`--to chief` is the person's own Chief; a Chief's name (`codex` is "Codex Chief") or id is that Chief; any other name is a person or a group chat. Your message is always yours, never the person's: the chat shows `[from NAME]`, where NAME is your acpmux session, else `HARNESS-SESSION@HOST` (for example `claude-3fa9c1d2@mini-7`), or `--as NAME`. A Chief reads it as an agent's words, so it will not run local actions on it the way it would for the person. `--wait` prints a Chief's reply when its turn ends; a person's reply arrives in Home, and an acpmux session also gets a Chief's reply back as an acpmux message. `--class` says what you ask (`question`, `block`, `blocker`, `action`, `result`, `fyi`).
+
+From another machine (a fleet Mac, a cloud VM), the Chief is the acpmux session `chief` on the person's Mac: `acpmux send HOST/chief "…" --class question --wait` (or the `acpmux` MCP `send` tool) reaches it over the peer link, as your session, and its reply comes back to your session.
 
 ## Asking the person
 
@@ -106,6 +125,7 @@ Terminal rendering (cursor style, scrollback) belongs in Ghostty config; font fa
 | [references/windows-workspaces.md](references/windows-workspaces.md) | Window and workspace lifecycle, order, and context-menu actions |
 | [references/panes-surfaces.md](references/panes-surfaces.md) | Splits, tabs, moves, focus |
 | [references/trigger-flash-and-health.md](references/trigger-flash-and-health.md) | Flash cue; surface health was removed |
+| [references/automations.md](references/automations.md) | Automations: timers, `--if` conditions, `--watch` triggers, `test` before you say it works |
 | [../cmux-workspace/SKILL.md](../cmux-workspace/SKILL.md) | Current caller workspace rules and non-disruptive automation |
 | [../cmux-settings/SKILL.md](../cmux-settings/SKILL.md) | Safe settings edits |
 | [../cmux-browser/SKILL.md](../cmux-browser/SKILL.md) | Browser tabs |

@@ -23,7 +23,7 @@ import Testing
         #expect(Self.features(forkAPIVersion: forkAPIVersion).contains("AsyncLiveResize"))
     }
 
-    /// Debug Settings "Synced live" drag resize (`BrowserDragResize.synced`) lets Chromium wait for the page again.
+    /// A Synced live drag resize (removed from Debug Settings 2026-11-06) lets Chromium wait for the page again.
     @Test func syncedLiveDragResizeTurnsTheAsyncSwitchOff() {
         let switches = CEFSwitches.current(forkAPIVersion: 24, bundleIdentifier: "com.cmuxterm.app.next", environment: [:],
                                            asyncLiveResize: false)

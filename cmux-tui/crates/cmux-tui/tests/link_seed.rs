@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use cmux_tui_core::fs_ops::{FsService, Roots, stream};
 use cmux_tui_core::git_seed::{self, GitSeedService};
 use serde_json::{Value, json};
+use sha2::Digest as _;
 
 const URL: &str = "https://github.com/acme/widget.git";
 
@@ -236,12 +237,17 @@ fn a_full_seed_then_deltas_carry_the_working_state() {
     let mut expected = files(&w.work);
     expected.retain(|path, _| path != ".env" && !path.starts_with("node_modules/"));
     assert_eq!(files(&remote), expected);
-    // No bundle is left beside the folder.
-    let left: Vec<_> = std::fs::read_dir(w.home.join("work"))
+    // No bundle is left beside the folder; only the folder's repository sync barrier stays
+    // (`cmux_git::sync_barrier`: never unlinked, so a later seed and agent writes share its lock),
+    // with its head and owner locks (#38084), never unlinked either.
+    let mut left: Vec<_> = std::fs::read_dir(w.home.join("work"))
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
-    assert_eq!(left, ["widget"], "{left:?}");
+    left.sort();
+    let barrier = format!(".cmux-sync-{:x}", sha2::Sha256::digest(b"widget"));
+    let (head, owner) = (format!("{barrier}.head"), format!("{barrier}.owner"));
+    assert_eq!(left, [barrier.as_str(), head.as_str(), owner.as_str(), "widget"], "{left:?}");
 
     // A change since: only it goes.
     write(&w.work.join("notes/todo.md"), "untracked, edited\n");
@@ -262,6 +268,47 @@ fn a_full_seed_then_deltas_carry_the_working_state() {
     assert_eq!(same["unchanged"], json!(true), "{same}");
     assert_eq!(same["bundle_bytes"], json!(0));
     assert_eq!(w.writes.load(Ordering::SeqCst), before, "an unchanged delta uploaded");
+}
+
+#[test]
+fn a_stash_only_delta_moves_both_creation_and_deletion_without_touching_work() {
+    let w = World::new(Serves::Seed);
+    let remote = w.remote("widget");
+    let (ok, first, _) = w.push(&w.work, &remote, false);
+    assert!(ok && first["mode"] == "seed", "{first}");
+
+    // Neither HEAD, index, nor worktree changes: only refs/stash does.
+    write(&w.work.join("README.md"), "stashed on the mac\n");
+    git(&w.work, &["stash", "push", "-q", "-m", "move-me"]);
+    let stash = git(&w.work, &["rev-parse", "refs/stash"]);
+    let (ok, delta, _) = w.push(&w.work, &remote, true);
+    assert!(ok && delta["mode"] == "delta" && delta["unchanged"] == false, "{delta}");
+    assert!(delta["bundle_bytes"].as_u64().unwrap() > 0, "{delta}");
+    assert_eq!(git(&remote, &["rev-parse", "refs/stash"]), stash);
+    let (ok, stable, _) = w.push(&w.work, &remote, true);
+    assert!(ok && stable["unchanged"] == true && stable["bundle_bytes"] == 0, "{stable}");
+
+    // Stash deletion also needs a bundle, even though Git has no new object
+    // after the deletion. The synthetic marker is transient on the machine.
+    git(&w.work, &["update-ref", "-d", "refs/stash"]);
+    let (ok, removed, _) = w.push(&w.work, &remote, true);
+    assert!(ok && removed["unchanged"] == false, "{removed}");
+    assert!(removed["bundle_bytes"].as_u64().unwrap() > 0, "{removed}");
+    let ref_exists = |name: &str| {
+        Command::new("git")
+            .arg("-C")
+            .arg(&remote)
+            .args(["show-ref", "--verify", "--quiet", name])
+            .status()
+            .unwrap()
+            .success()
+    };
+    assert!(!ref_exists("refs/stash"), "the Cloud machine kept a removed stash");
+    assert!(!ref_exists("refs/cmux-seed-incoming/stash-cleared"), "the marker was retained");
+    assert_eq!(git(&remote, &["rev-parse", "HEAD"]), git(&w.work, &["rev-parse", "HEAD"]));
+    assert_eq!(std::fs::read(remote.join("README.md")).unwrap(), b"widget\n");
+    let (ok, stable, _) = w.push(&w.work, &remote, true);
+    assert!(ok && stable["unchanged"] == true && stable["bundle_bytes"] == 0, "{stable}");
 }
 
 #[test]
@@ -338,6 +385,50 @@ fn a_repository_the_machine_cannot_clone_is_copied_and_leaves_nothing_behind() {
     assert_eq!(copied["mode"], json!("copy"), "{copied}");
     assert_eq!(copied["fallback_code"], json!("seed.clone_failed"), "{copied}");
     assert_eq!(std::fs::read_to_string(remote.join("README.md")).unwrap(), "widget\n");
+}
+
+#[test]
+fn a_clone_failure_fallback_does_not_copy_newly_skipped_secret_blobs() {
+    let w = World::new(Serves::Seed);
+    write(&w.work.join(".env.local"), "FAKE_UNTRACKED_SECRET_FOR_TEST_ONLY\n");
+    write(&w.work.join("README.md"), "staged\n");
+    git(&w.work, &["add", "README.md"]);
+    write(&w.work.join("README.md"), "unstaged\n");
+    write(&w.work.join("notes.txt"), "ordinary untracked file\n");
+
+    let secret_id = git(&w.work, &["hash-object", ".env.local"]);
+    let has_secret = |folder: &Path| {
+        Command::new("git")
+            .arg("-C")
+            .arg(folder)
+            .args(["cat-file", "-e", &format!("{secret_id}^{{blob}}")])
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap()
+            .success()
+    };
+    assert!(!has_secret(&w.work), "the fixture started with the excluded blob");
+
+    // Force a clone failure after Mac-side seed planning. It then uses the
+    // real fs-v1 fallback copy, including the copied Git object directory.
+    std::fs::rename(w.github.join("acme"), w.github.join("gone")).unwrap();
+    let remote = w.remote("secrets-fallback");
+    let (ok, copied, _) = w.push(&w.work, &remote, false);
+    assert!(ok, "{copied}");
+    assert_eq!(copied["mode"], json!("copy"), "{copied}");
+    assert_eq!(copied["fallback_code"], json!("seed.clone_failed"), "{copied}");
+    assert!(!remote.join(".env.local").exists(), "secret worktree file copied");
+    assert!(!has_secret(&w.work), "planning wrote an excluded local Git blob");
+    assert!(!has_secret(&remote), "fallback transferred an excluded Git blob");
+
+    assert_eq!(git(&remote, &["diff", "--cached", "--name-only"]), "README.md");
+    assert_eq!(std::fs::read_to_string(remote.join("README.md")).unwrap(), "unstaged\n");
+    assert_eq!(
+        std::fs::read_to_string(remote.join("notes.txt")).unwrap(),
+        "ordinary untracked file\n"
+    );
 }
 
 #[test]

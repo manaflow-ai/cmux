@@ -19,34 +19,25 @@ extension WindowRootView {
 
     /// The badge's frame in window coordinates while it shows.
     var titlebarBadgeFrame: CGRect? {
-        guard let badge = titlebarBadge, !badge.isHidden else { return nil }
-        return badge.convert(badge.bounds, to: nil)
+        titlebarBadge.flatMap { $0.isHidden ? nil : $0.convert($0.bounds, to: nil) }
     }
 
     /// What strips under the top row keep clear (window coordinates): the
-    /// toolbar band and, while they show, the badge and the host pressure
-    /// indicator after it.
+    /// toolbar band and, while they show, the badge, the host pressure
+    /// indicator and the live mode badge (while the sidebar is hidden) after it.
     var titlebarAccessoryFrame: CGRect {
         let band = toolbarBand.convert(toolbarBand.bounds, to: nil)
-        let shown = [titlebarBadgeFrame, hostPressureIndicator.flatMap { $0.isHidden ? nil : $0.convert($0.bounds, to: nil) }]
+        let shown = [titlebarBadgeFrame] + [hostPressureIndicator, liveModeBadge].map { $0.flatMap { $0.isHidden ? nil : $0.convert($0.bounds, to: nil) } }
         return shown.compactMap(\.self).reduce(band) { $0.union($1) }
     }
 
     /// After the band, the badge while `showsTitlebarBadge`, then the host
     /// pressure indicator while it shows, `space2` apart, centered on `midY`.
     func layoutTitlebarAccessories(midY: CGFloat) {
-        var x = toolbarBand.frame.maxX + Metrics.space2
-        if let badge = titlebarBadge {
-            badge.isHidden = !showsTitlebarBadge || presentsPage
-            if showsTitlebarBadge {
-                let size = badge.fittingSize
-                badge.frame = CGRect(x: x, y: (midY - size.height / 2).rounded(), width: size.width, height: size.height)
-                x = badge.frame.maxX + Metrics.space2
-            }
-        }
-        guard let indicator = hostPressureIndicator, !indicator.isHidden else { return }
-        let side = TitlebarBandButton.side
-        let width = (indicator as? HostPressureIndicatorView)?.width ?? side
-        indicator.frame = CGRect(x: x, y: (midY - side / 2).rounded(), width: width, height: side)
+        titlebarBadge?.isHidden = !showsTitlebarBadge || presentsPage
+        WindowTitlebar.layoutAccessories(after: toolbarBand.frame, badge: showsTitlebarBadge ? titlebarBadge : nil,
+                                        indicator: hostPressureIndicator,
+                                        indicatorWidth: (hostPressureIndicator as? HostPressureIndicatorView)?.width ?? TitlebarBandButton.side,
+                                        centeredOn: midY, scale: window?.backingScaleFactor ?? 1, trailing: liveModeBadge, showsTrailing: sidebarHidden)
     }
 }

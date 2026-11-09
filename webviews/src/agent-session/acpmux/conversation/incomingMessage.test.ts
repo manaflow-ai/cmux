@@ -60,7 +60,8 @@ test("a report whose sender acpmux recorded by name is that agent's, from the ma
   const named = { kind: "agent_message", from: "fromAgent", fromName: "codex-lane", to: "s-1" };
   expect(incomingPrompt("#24927 merged.", { _meta: { provenance: named }, client: "acpmux-peer#01a16e" })).toEqual({
     kind: "message",
-    message: { name: "codex-lane", remote: true, text: "#24927 merged.", raw: "#24927 merged." },
+    // It only named itself: the line marks it unverified (senderIdentity.ts).
+    message: { name: "codex-lane", remote: true, text: "#24927 merged.", raw: "#24927 merged.", unverified: true },
   });
   // The same record with no sender is the person's.
   expect(incomingPrompt("#24927 merged.", { client: "acpmux-peer#01a16e" })).toBeUndefined();
@@ -376,25 +377,23 @@ test("`acpmux send` from a shell is the message of the agent named first in brac
     "[coord-deputy]",
   ])
     expect(incomingPrompt(text, { client: "acpmux-cli#a1b2c3" })).toBeUndefined();
-  // Provenance, when the record has it, gives the sending chat to open; the agent's own name first
-  // still names it.
+  // Provenance, when the record has it, gives the sending chat and its canonical name.
   const provenance = { kind: "session_message", from: "lane-7", fromName: "app-store-features", to: "coordinator-1" };
   expect(incomingPrompt(sent, { _meta: { provenance }, client: "acpmux-cli#a1b2c3" })).toEqual({
     kind: "message",
-    message: { name: "coord-deputy", sessionId: "lane-7", text: "Merged #1", raw: sent },
+    message: { name: "app-store-features", sessionId: "lane-7", text: "Merged #1", raw: sent },
   });
 });
 
-// Each way another agent's message reaches a chat, signed by the agent first in brackets or after
-// "From": the signature names the chip and leaves the message's text, on every path.
-test("an agent's signature names its message on every path, and leaves the text", () => {
+// Recorded sender identity is separate from the optional signature removed from message text.
+test("recorded identity wins over signatures, which still leave the message text", () => {
   // `acpmux send` run in the sending chat: session_message provenance keeps that chat to open.
   const session = { kind: "session_message", from: "acp:deputy-2", fromName: "deputy-2", to: "acp:parent" };
   const laned = "[land-and-ci-c9] Not idle. #22674 is in the merge queue.";
   expect(incomingPrompt(laned, { _meta: { provenance: session }, client: "acpmux-cli#a1b2c3" })).toEqual({
     kind: "message",
     message: {
-      name: "land-and-ci-c9",
+      name: "deputy-2",
       sessionId: "deputy-2",
       text: "Not idle. #22674 is in the merge queue.",
       raw: laned,
@@ -406,7 +405,7 @@ test("an agent's signature names its message on every path, and leaves the text"
   expect(incomingPrompt(fromCoord, { _meta: { provenance: family } })).toEqual({
     kind: "message",
     message: {
-      name: "claude-sr2",
+      name: "deputy-2",
       sessionId: "deputy-2",
       relation: "parent",
       text: "still live in the nightly.",
@@ -433,7 +432,7 @@ test("an agent's signature names its message on every path, and leaves the text"
   expect(incomingPrompt(delivered, { _meta: { provenance } })).toEqual({
     kind: "message",
     message: {
-      name: "coord-deputy",
+      name: "Grid fix",
       sessionId: "child-3",
       msgId: "m-1",
       threadId: "t-1",
@@ -448,6 +447,17 @@ test("an agent's signature names its message on every path, and leaves the text"
     expect(incomingPrompt(text, { _meta: { provenance: session } })).toEqual({
       kind: "message",
       message: { name: "deputy-2", sessionId: "deputy-2", text, raw: text },
+    });
+});
+
+// With no recorded name, the sender's raw address is no name to show: its signature names the line,
+// as before, until the session metadata names it (IncomingMessageCard.tsx `useSenderSessionName`).
+test("a sender with no recorded name reads by its signature, not its raw address", () => {
+  const text = "[design-check] Ready.";
+  for (const kind of ["agent_message", "session_message"])
+    expect(incomingPrompt(text, { _meta: { provenance: { kind, from: "acp:child-3", to: "acp:p" } } })).toEqual({
+      kind: "message",
+      message: { name: "design-check", sessionId: "child-3", text: "Ready.", raw: text },
     });
 });
 
@@ -717,7 +727,7 @@ test("a signature that names the sending chat is one in any case or spacing", ()
   const session = { kind: "session_message", from: "acp:c-3", fromName: "Grid fix", to: "acp:p" };
   expect(incomingPrompt("[Grid Fix] Tests pass.", { _meta: { provenance: session } })).toEqual({
     kind: "message",
-    message: { name: "Grid Fix", sessionId: "c-3", text: "Tests pass.", raw: "[Grid Fix] Tests pass." },
+    message: { name: "Grid fix", sessionId: "c-3", text: "Tests pass.", raw: "[Grid Fix] Tests pass." },
   });
   // A tag that is not the chat's name stays text.
   expect(incomingPrompt("[WIP] Tests pass.", { _meta: { provenance: session } })).toMatchObject({
@@ -920,4 +930,168 @@ test("hub inbox notices keep thread identity and participants without inventing 
   expect(incoming.notice.threads[0]).toMatchObject({ threadId: "from:review/pr:7", from: ["review", "builder"] });
   expect(incoming.notice.threads[0]?.fromSession).toBeUndefined();
   expect(incomingPrompt(text, { client: "app" })).toBeUndefined();
+});
+
+test("Claude Code's SendMessage ([from NAME]) draws as that session's message, signed once", () => {
+  const raw = "[from claude-sr2-coord] From claude-sr2-coord: Leo's screenshot is saved.\n**Do** this next.";
+  for (const client of ["adopt", "watch"]) {
+    expect(incomingPrompt(raw, { client })).toEqual({
+      kind: "message",
+      message: { name: "claude-sr2-coord", text: "Leo's screenshot is saved.\n**Do** this next.", raw },
+    });
+  }
+  expect(incomingPrompt("[from lane-a] rebase when free", { client: "acpmux-cli#a1b2c3" })).toMatchObject({
+    kind: "message",
+    message: { name: "lane-a", text: "rebase when free" },
+  });
+  // The person's own prompt in a live chat stays theirs.
+  expect(incomingPrompt("[from lane-a] rebase when free", { client: "app" })).toBeUndefined();
+  // Not a sender: no name, or no message after it.
+  expect(incomingPrompt("[from] hi", adopted)).toBeUndefined();
+  expect(incomingPrompt("[from lane-a]", adopted)).toBeUndefined();
+  expect(unsigned("[from lane-a] From lane-a: done", "lane-a")).toBe("done");
+});
+
+// u20190: a sender that names its app and persona (`cmux chat send --from "Grok bot › Ada"`) is
+// shown as both, with no label left in its words; one with no persona names its app alone.
+test("a sender's [from APP › PERSONA] label names the app and the persona", () => {
+  const cli = incomingPrompt("[from Grok bot › Ada] Muse, can you take the review?", {
+    client: "acpmux-cli#01a2f3",
+  });
+  expect(cli?.kind === "message" && cli.message).toMatchObject({
+    name: "Grok bot › Ada",
+    app: "Grok bot",
+    persona: "Ada",
+    text: "Muse, can you take the review?",
+  });
+  const relayed = incomingPrompt(rendered("[from Muse] Yes, on it."), { _meta: { provenance } });
+  expect(relayed?.kind === "message" && relayed.message).toMatchObject({
+    name: "Muse",
+    app: "Muse",
+    text: "Yes, on it.",
+  });
+});
+
+test("a plain send from a Codex or Claude Code shell is that agent's message, with its harness", () => {
+  // acpmux cli/sender.rs: an agent harness's own shell outside acpmux names `<harness>@<host>` and
+  // its harness (Leo, 2026-11-05: "why is it sending it as if it were me?").
+  const sent = {
+    kind: "agent_message",
+    from: "fromAgent",
+    fromName: "codex@workstation",
+    to: "s-1",
+    fromHarness: "codex",
+  };
+  const text = "Message from an audit agent: scope corrected.";
+  // Its name and harness are only its own word (prompt_provenance.rs `named_sender`, verified
+  // false): the line marks it unverified, as any sender that only named itself.
+  expect(incomingPrompt(text, { _meta: { provenance: sent }, client: "acpmux-cli#01a2f3@workstation" })).toEqual({
+    kind: "message",
+    message: { name: "codex@workstation", harness: "codex", unverified: true, text, raw: text },
+  });
+});
+
+test("a harness a local sender only claims still draws its mark", () => {
+  const sent = {
+    kind: "agent_message",
+    from: "fromAgent",
+    fromName: "codex@workstation",
+    to: "s-1",
+    claimed: { fromHarness: "codex" },
+  };
+  const incoming = incomingPrompt("scope corrected", { _meta: { provenance: sent } });
+  expect(incoming?.kind === "message" && incoming.message.harness).toBe("codex");
+});
+
+test("a prompt acpmux could not attribute is an unverified sender's card, never the person's", () => {
+  const unverified = { kind: "unverified", to: "s-1", transport: "unix", verified: false };
+  const text = "Merged the fix";
+  expect(incomingPrompt(text, { _meta: { provenance: unverified }, client: "acpmux-cli#01a2f3@workstation" })).toEqual({
+    kind: "message",
+    message: { name: "", unverified: true, text, raw: text },
+  });
+  // A name it puts first is only its claim: the card names it, still marked unverified.
+  const named = "[coord-deputy] Merged the fix";
+  expect(incomingPrompt(named, { _meta: { provenance: unverified } })).toEqual({
+    kind: "message",
+    message: { name: "coord-deputy", unverified: true, text: "Merged the fix", raw: named },
+  });
+});
+
+test("an edited agent's message stays the agent's and says it was edited", () => {
+  const sent = {
+    kind: "agent_message",
+    from: "fromAgent",
+    fromName: "lane-a",
+    to: "s-1",
+    editedBy: { actor: "owner" },
+  };
+  const incoming = incomingPrompt("rebase first", { _meta: { provenance: sent } });
+  expect(incoming?.kind === "message" && incoming.message.name).toBe("lane-a");
+  expect(incoming?.kind === "message" && incoming.message.edited).toBe(true);
+});
+
+test("a record with no provenance and no origin keeps the person's bubble, with no mark", () => {
+  // Every person's prompt before acpmux's `_meta.origin` mark was recorded so: it stays theirs.
+  expect(incomingPrompt("rebase first", {})).toBeUndefined();
+  expect(incomingPrompt("rebase first", { _meta: {} })).toBeUndefined();
+});
+
+test("a relayed or session-stamped sender with no sender record is verified, as acpmux reads it", () => {
+  // Review of cmux#37653: a direct transcript record carries the daemon's own proof (a relay's
+  // `fromRelay`, a proven session's `fromSessionId`, prompt_provenance.rs `sender_record_with_auth`)
+  // but no `sender` projection; it is no sender that only named itself.
+  const relayed = {
+    kind: "agent_message",
+    from: "fromAgent",
+    fromName: "vm-1/lane",
+    to: "s-1",
+    fromRelay: { by: "lane-gh", machine: "vm-1", session: "lane" },
+    fromHarness: "codex",
+  };
+  const text = "Merged the fix.";
+  const relayedPrompt = incomingPrompt(text, { _meta: { provenance: relayed } });
+  expect(relayedPrompt?.kind === "message" && relayedPrompt.message.unverified).toBeFalsy();
+  const stamped = { kind: "agent_message", from: "fromAgent", fromName: "lane-a", to: "s-1", fromSessionId: "s-9" };
+  const stampedPrompt = incomingPrompt(text, { _meta: { provenance: stamped } });
+  expect(stampedPrompt?.kind === "message" && stampedPrompt.message.unverified).toBeFalsy();
+  // A relay record that is no relay's (no machine) proves nothing: still the sender's own word.
+  const forged = { ...relayed, fromRelay: { by: "lane-gh" } };
+  const forgedPrompt = incomingPrompt(text, { _meta: { provenance: forged } });
+  expect(forgedPrompt?.kind === "message" && forgedPrompt.message.unverified).toBe(true);
+});
+
+// cmux#38642 review: acpmux names a relayed sender by its `MACHINE/SESSION` cut to `fromAgent`'s 64
+// characters (prompt_provenance.rs `relayed_label`), so two sessions whose names share their first
+// 64 characters read as one label. The relay record (`fromRelay`, or the sender record's `relay`)
+// keeps the whole name, and the sender's chat is asked for by that: each opens its own.
+test("a relayed sender's chat is asked for by its whole relay address, not the cut label", () => {
+  const stem = "a-lane-session-whose-name-runs-past-the-sender-label-limit";
+  const relayed = (session: string, where: "provenance" | "record") => {
+    const address = `vm-1/${session}`;
+    const relay = { by: "lane-gh", machine: "vm-1", session };
+    const named = { kind: "agent_message", from: "fromAgent", fromName: address.slice(0, 64), to: "s-1" };
+    const provenance =
+      where === "provenance"
+        ? { ...named, fromRelay: relay }
+        : { ...named, sender: { verification: "verified", label: "coord", relay } };
+    const prompt = incomingPrompt("Merged the fix.", { _meta: { provenance } });
+    return prompt?.kind === "message" ? prompt.message : undefined;
+  };
+  for (const where of ["provenance", "record"] as const) {
+    const a = relayed(`${stem}-alpha`, where);
+    const b = relayed(`${stem}-bravo`, where);
+    expect(a?.name).toBe(b?.name ?? "");
+    expect(a?.lookup).toBe(`vm-1/${stem}-alpha`);
+    expect(b?.lookup).toBe(`vm-1/${stem}-bravo`);
+  }
+  // A relay record that is no relay's (no machine) names no address: the name is asked for.
+  const forged = {
+    kind: "agent_message",
+    from: "fromAgent",
+    fromName: "vm-1/x",
+    fromRelay: { by: "lane-gh", session: "x" },
+  };
+  const prompt = incomingPrompt("Merged the fix.", { _meta: { provenance: forged } });
+  expect(prompt?.kind === "message" && prompt.message.lookup).toBeFalsy();
 });

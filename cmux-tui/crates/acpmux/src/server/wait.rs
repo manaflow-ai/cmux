@@ -12,6 +12,10 @@ use crate::no_panic::JsonExt;
 use std::collections::HashMap;
 use std::time::Duration;
 
+/// On a wait's row: a turn still comes for the session with nothing more sent
+/// (`Hub::work_coming`), so it is not ready yet.
+pub const WORK_COMING: &str = "workComing";
+
 /// What a caller can wait for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Until {
@@ -47,11 +51,16 @@ impl Until {
         // A sub-session whose prompt waits for a run slot (`hub/subsession_runs.rs`) has work
         // to do: it is not ready, nor done.
         let slot = s.get("waitsForSlot").and_then(Value::as_bool).unwrap_or(false);
+        // A turn still comes for it with nothing more sent (`Hub::work_coming`: a message the
+        // outbox has not delivered, an inbox message that wakes it): not ready, nor done.
+        let coming = s.get(WORK_COMING).and_then(Value::as_bool).unwrap_or(false);
         match self {
-            Self::Ready => status != "running" && status != "waiting" && !pending && !turn && !slot,
+            Self::Ready => {
+                status != "running" && status != "waiting" && !pending && !turn && !slot && !coming
+            }
             Self::Permission => pending || status == "waiting",
             Self::Closed => status == "closed",
-            Self::Done => unread && status != "running" && status != "waiting" && !slot,
+            Self::Done => unread && status != "running" && status != "waiting" && !slot && !coming,
             Self::Running => status == "running" || status == "waiting" || turn,
         }
     }
@@ -154,8 +163,12 @@ pub(super) async fn wait(
             match hub.resolve(k) {
                 Ok(s) => ids.push(s.id.clone()),
                 Err(_) => {
-                    let (_, id, _) = hub
+                    // A peer's, else a chat the hub lists for another machine of this person
+                    // (`hub/mesh_book.rs`), whose state each heartbeat's book read updates.
+                    let id = hub
                         .resolve_remote(k)
+                        .map(|(_, id, _)| id)
+                        .or_else(|| hub.mesh_book_resolve(k))
                         .ok_or_else(|| RpcError::not_found(format!("no session matches {k:?}")))?;
                     ids.push(id);
                 }
@@ -193,16 +206,20 @@ pub(super) async fn wait(
     // Since when each chat's row has said its failed turn's retry is being decided.
     let mut deciding: HashMap<String, tokio::time::Instant> = HashMap::new();
     let mut evaluate = |hub: &Hub| -> (Vec<Value>, Vec<Value>) {
+        hub.wait_evaluations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let now = tokio::time::Instant::now();
         let summaries = hub.session_summaries_of(&ids);
         let mut rows = Vec::new();
         let mut resolved = Vec::new();
         for id in &ids {
             // `get`, not `remove`: two keys can name one chat (its name and its id).
-            let s = summaries
+            let mut s = summaries
                 .get(id)
                 .cloned()
                 .unwrap_or_else(|| json!({"sessionId": id, "status": "closed", "missing": true}));
+            if hub.work_coming(id) {
+                s.set(WORK_COMING, json!(true));
+            }
             let seq_ok = after
                 .get(id)
                 .map(|a| s.get("stateSeq").and_then(Value::as_u64).unwrap_or(0) > *a)
@@ -260,7 +277,8 @@ pub(super) async fn wait(
                     r = events.recv() => match r {
                         // Another chat's record changes none of these: the poll still
                         // catches a change that logs no record.
-                        Ok(ev) if !concerns(&ev, &ids) => continue,
+                        // A chunk of streamed output changes no row a wait reads.
+                        Ok(ev) if !concerns(&ev, &ids) || streamed(&ev) => continue,
                         Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => break,
                         Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                             // Daemon shutting down.
@@ -321,6 +339,21 @@ fn concerns(ev: &crate::hub::HubEvent, ids: &[String]) -> bool {
     ids.iter().any(|id| *id == ev.session_id || Some(id.as_str()) == row)
 }
 
+/// Whether `ev` is a chunk of a chat's streamed output (its reply, its thinking, a replayed
+/// prompt). It changes none of the fields a wait reads (status, pending permissions, unread, the
+/// running and the last turn, the waited slot): every such change logs a record of its own
+/// (`status`, `turn_result`, `background_turn`, ...), and the 1 s poll reads one that logs none.
+/// So a streaming chat costs its waiters nothing per token (HOT PATH AUDIT area F, row A1).
+// perf-hot: 0.1us acpmux-wait-wake (every record any chat logs, per open wait)
+fn streamed(ev: &crate::hub::HubEvent) -> bool {
+    let kind = ev.record.kind.as_str();
+    ev.remote.is_none()
+        && matches!(
+            kind.strip_suffix(".replay").unwrap_or(kind),
+            "agent_message_chunk" | "agent_thought_chunk" | "user_message_chunk"
+        )
+}
+
 /// One `_acpmux/wait` in `Hub::open_waits` while it lives.
 struct OpenWait<'a>(&'a std::sync::atomic::AtomicUsize);
 
@@ -370,6 +403,31 @@ mod retry_deciding_tests {
 }
 
 #[cfg(test)]
+mod agent_messaging_tests {
+    use super::*;
+
+    /// A `wait` right after `send --no-wait` read the receiver's idle state from before the
+    /// message reached it (round-2 eval, A4: exit 0 `idle` in 0.5 s). With a turn still coming
+    /// (`Hub::work_coming`) the idle row is neither ready nor done; a permission still answers.
+    #[test]
+    fn an_idle_session_with_a_turn_coming_is_not_ready_yet() {
+        let idle = json!({"status": "ready", "turn": null, "unread": true});
+        assert!(Until::Ready.matches(&idle));
+        assert!(Until::Done.matches(&idle));
+        let mut coming = idle.clone();
+        coming.set(WORK_COMING, json!(true));
+        assert!(!Until::Ready.matches(&coming), "the message has not started its turn yet");
+        assert!(!Until::Done.matches(&coming));
+        assert!(!Until::Running.matches(&coming));
+        let mut asks = coming.clone();
+        asks.set("pendingPermissions", json!(1));
+        assert!(Until::Permission.matches(&asks));
+        let closed = json!({"status": "closed", WORK_COMING: true});
+        assert!(Until::Closed.matches(&closed));
+    }
+}
+
+#[cfg(test)]
 mod turn_ended_tests {
     use super::*;
 
@@ -407,3 +465,7 @@ mod turn_ended_tests {
         assert!(TurnEnded::parse(None).is_none());
     }
 }
+
+#[cfg(test)]
+#[path = "wait_stream_tests.rs"]
+mod wait_stream_tests;

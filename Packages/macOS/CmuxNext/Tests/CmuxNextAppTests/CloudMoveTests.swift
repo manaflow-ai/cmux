@@ -2,10 +2,15 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextBridge
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextControl
 import CmuxNextDaemon
-import CmuxNextSettings
+import CmuxNextDesign
+@testable import CmuxNextSettings
+@testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -50,6 +55,49 @@ struct CloudMoveTests {
             #expect(!moved.macStillHasTab)
             #expect(move.services.cloud.moveRetries[move.key] == nil)
         }
+    }
+
+    /// Move to Cloud's new Cloud workspace is placed like every new workspace (`workspaces.newPlacement`, here
+    /// After Current): right below the workspace the window shows, not at the slot the machine's daemon gives it
+    /// (Leo 2026-11-06: "there should just be one behavior"; the review of #37328, F1).
+    @Test func theMovedChatsCloudWorkspaceGoesRightBelowTheSelectedOne() async throws {
+        try await Self.withMove("moves") { move in
+            let services = move.services
+            let url = move.project.deletingLastPathComponent().appendingPathComponent("cmux.json")
+            try Data(#"{"workspaces":{"newPlacement":"afterCurrent"}}"#.utf8).write(to: url)
+            let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                              managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+            await settings.reload()
+            services.settings = settings
+            try #require(services.settings?.snapshot.newWorkspacePlacement == .afterCurrent)
+            let controller = try #require(services.windows.active)
+            @MainActor func rows() -> [String] {
+                controller.sidebar.container.sidebarView.list.displayed.rows.compactMap { if case let .workspace(id) = $0.key { id.rawValue } else { nil } }
+            }
+            // A second workspace here, so a row placed at the end differs from one right below the selected one.
+            let connection = try #require(services.daemon.connection)
+            try await connection.createWorkspace(name: "Second", key: WorkspaceKey.generate())
+            @MainActor func locals() -> [String] { services.daemon.store.workspaces.filter { $0.kind != SidebarMapping.homeKind }.map(\.id) }
+            try await Self.waitUntil { locals().count >= 2 && locals().allSatisfy(rows().contains) }
+            let selected = try #require(locals().first { rows().last != $0 }, "rows: \(rows())")
+            _ = services.windows.reveal(workspaceID: selected)
+            try await Self.waitUntil { controller.state.workspaceID == selected && controller.state.page == nil }
+
+            if let error = await move.run() { Issue.record("cmux cloud move: \(error.code) \(error.message)") }
+            let moved = try await move.read()
+            let tab = try #require(moved.machineTab, "no chat tab on the machine")
+            let cloud = try #require(move.machine.daemon.store.workspaces.first { $0.screens.flatMap(\.panes).contains { $0.tabs.contains { $0.id == tab.id } } }).id
+            try await Self.waitUntil { rows().contains(cloud) && PendingWorkspaceRows.shared.rows(in: controller.state.id).isEmpty }
+            let shown = rows()
+            #expect(shown.firstIndex(of: cloud) == shown.firstIndex(of: selected).map { $0 + 1 },
+                    "the Cloud workspace is not right below the selected one: \(shown), selected \(selected), cloud \(cloud)")
+        }
+    }
+
+    /// Waits up to 30 seconds for `condition`.
+    private static func waitUntil(_ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(30)
+        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
     }
 
     /// A CLI run whose daemon command reports an event sequence (here a rename of the chat tab) answers once a
@@ -292,6 +340,24 @@ struct CloudMoveTests {
         }
     }
 
+    /// The person's own Move to Cloud on a machine too old for it updates the machine, then moves the
+    /// chat, with no stop asking them to press "Update Machine" (lens review of the UI ceremony audit,
+    /// 2026-11-05: the app does the step it would ask for).
+    @Test func thePersonsMoveUpdatesAnOutdatedMachineFirstThenMoves() async throws {
+        try await Self.withMove("updates") { move in
+            let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: move.key),
+                                              arguments: ["path": .string(move.project.path), "machine": .string("vm-move")], origin: .user)
+            #expect(move.services.registry.perform(CloudMove.action, invocation: invocation))
+            let moved = try await move.read()
+            let calls = moved.calls.map { Array($0.prefix(3)) }
+            #expect(calls == [["link", "seed", "push"], ["link", "agent", "move"], ["link", "machine", "update"], ["link", "seed", "push"], ["link", "agent", "move"]],
+                    "\(moved.calls)")
+            #expect(moved.machineTab?.agentSession?.session == "chat-on-vm", "the chat did not move after the update")
+            #expect(!moved.macStillHasTab)
+            #expect(move.services.cloud.moveRetries[move.key] == nil)
+        }
+    }
+
     /// A machine too old to update in place says so and offers no button: retrying can't help.
     @Test func aMachineTooOldToUpdateSaysSoAndKeepsTheChat() async throws {
         try await Self.withMove("updateUnsupported") { move in
@@ -321,11 +387,28 @@ struct CloudMoveTests {
         }
     }
 
-    /// An agent's Move to Cloud (cmuxterm-hq#1874 slice 5): `cmux cloud move` from the chat's own
+    /// By default an agent's Move to Cloud moves its chat at once, with no card asking first (Leo, 2026-11-04:
+    /// "just auto/bypass permissions by default"): the person lets agents use Cloud without asking
+    /// (`cloud.agentsStartWithoutAsking`, on unless they turn it off).
+    @Test func anAgentsMoveMovesItsChatWithNoCardByDefault() async throws {
+        try await Self.withMove("moves") { move in
+            #expect(CloudAgentStartSetting().delegated(in: move.services.settings?.snapshot.root ?? .object([:])))
+            if let error = await move.runAsAgent() { Issue.record("the agent's move was refused: \(error.code) \(error.message)") }
+            let moved = try await move.read()
+            #expect(moved.calls.count == 2, "\(moved.calls)")
+            #expect(moved.machineTab?.agentSession?.session == "chat-on-vm", "the agent's move did not move the chat")
+            #expect(!moved.macStillHasTab)
+            let cards = await move.toolCards(waiting: false) ?? []
+            #expect(!cards.contains { Self.text($0, "state") == "ask" }, "the agent's move asked first: \(cards)")
+        }
+    }
+
+    /// With asking turned on, an agent's Move to Cloud (cmuxterm-hq#1874 slice 5): `cmux cloud move` from the chat's own
     /// agent moves nothing. It shows a card in that chat (Move, Not now, Always); a click that is no
     /// real gesture in the pane moves nothing either, and the person's Move runs the move above.
     @Test func anAgentsMoveAsksInItsChatAndOnlyThePersonsMoveMovesIt() async throws {
         try await Self.withMove("moves") { move in
+            try await CloudStartSessionTests.askingFirst(move.services)
             if let error = await move.runAsAgent() { Issue.record("the agent's ask was refused: \(error.code) \(error.message)") }
             let cards = try #require(await move.toolCards(), "the chat has no page")
             let card = try #require(cards.first, "no card in the chat")
@@ -353,6 +436,7 @@ struct CloudMoveTests {
         try await Self.withMove("moves") { move in
             let refused = await move.runAsAgent("cloud bring-back")
             #expect(refused?.message.contains(CloudMoveAskStrings.bringBackIsPersons) == true, "an agent's Bring Back Local was not refused as one: \(String(describing: refused?.message))")
+            try await CloudStartSessionTests.askingFirst(move.services)
             if let error = await move.runAsAgent() { Issue.record("the agent's ask was refused: \(error.code) \(error.message)") }
             let card = try #require(await move.toolCards()?.first, "no card in the chat")
             let id = try #require(Self.text(card, "id"))
@@ -575,7 +659,7 @@ struct CloudMoveTests {
         _ = NSApplication.shared
         // The app's own defaults, as the app keeps them, for this run only.
         let suite = "cn-move-\(UUID().uuidString.prefix(8).lowercased())"
-        let ledger = try #require(UserDefaults(suiteName: suite))
+        let ledger = try #require(UserDefaults(testSuiteName: suite))
         defer { ledger.removePersistentDomain(forName: suite) }
         let vmSocket = try await vm.endpointProvider().socketPath
         func app() async throws -> (AppServices, CloudMachineSession) {
@@ -693,14 +777,9 @@ struct CloudMoveTests {
     }
 
     /// A Cloud machine whose link this test replaces: its daemon is started on the second
-    /// daemon's socket, so the link process never runs.
+    /// daemon's socket, and its app link answers `owner` with a socket no connect reaches.
     static func machine(_ services: AppServices, cli: URL, root: URL) -> CloudMachineSession {
-        let paths = CloudPaths(root: root.appendingPathComponent("cloud", isDirectory: true))
-        let api = services.cloud.api
-        let hub = CloudTunnelHub(api: api, paths: paths, binary: cli, deviceName: "cn-move-test")
-        let link = CloudMachineLink(machineID: "vm-move", api: api, hub: hub, paths: paths, binary: cli, deviceName: "cn-move-test")
-        return CloudMachineSession(machine: CloudMachine(id: "vm-move", displayName: "Move VM"), link: link,
-                                   mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        CloudTestLink.session(id: "vm-move", name: "Move VM")
     }
 
     /// Ends `daemon`'s connection and its daemon with its terminals, so no host outlives the test.

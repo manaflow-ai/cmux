@@ -26,6 +26,9 @@ where
     );
     #[cfg(target_vendor = "apple")]
     fatal_faults_end_the_owner();
+    // Under `dx serve --hot-patch`, take patches for this process.
+    #[cfg(feature = "hotpatch")]
+    cmux_tui_core::hotpatch::connect();
     // The daemon is ready: apps with an `always` server start off this path.
     #[cfg(unix)]
     cmux_tui_core::server::start_apps_when_ready(mux);
@@ -69,6 +72,12 @@ where
     // running (dev_orphan_exit.rs).
     #[cfg(unix)]
     let orphan_exit = dev_orphan_exit::start_for_owner(mux);
+    // An app session's or its Chief session's owner stops once its app has
+    // left and nothing keeps it (R-LIFECYCLE stage 1, on unless its switch
+    // is 0; owner_keepers.rs). Only an owner that clients reach through its
+    // socket alone, as below.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    let keepers = start_owner_keepers(mux, reachable.is_some());
     // An owner whose socket or state directory is gone, with no client
     // connected, stops: nothing can reach it again (lost_paths.rs).
     #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -76,8 +85,10 @@ where
     // `--exit-with-pid`: armed once startup work has begun, so the stop
     // ends every terminal that work made (a starter already gone stops the
     // owner at once).
+    // Under a test, the test process when no `--exit-with-pid` names one
+    // (cx-leo45).
     #[cfg(any(target_vendor = "apple", target_os = "linux"))]
-    local_owner::exit_with(mux, exit_with);
+    local_owner::exit_with(mux, exit_with.or_else(local_owner::test_owner_exit_with));
     #[cfg(not(any(target_vendor = "apple", target_os = "linux")))]
     let _ = exit_with;
     let (lock, wake) = &HEADLESS_WAKE;
@@ -108,7 +119,58 @@ where
     if let Some(lost_paths) = lost_paths {
         lost_paths.stop();
     }
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    if let Some(keepers) = keepers {
+        keepers.stop();
+    }
     Ok(())
+}
+
+/// Whether `session` is an app's: its session (`cmux-app`, `cmux-app-*`,
+/// BuildIdentity+AppNames.swift) or its Chief session (`cmux-chief-<home
+/// hash>`, ChiefHome.swift; `cmux chief` starts the same one). Both are
+/// started detached by `ensure` and connected to with a role-main hello.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn app_owned_session(session: &str) -> bool {
+    session == "cmux-app" || session.starts_with("cmux-app-") || session.starts_with("cmux-chief-")
+}
+
+/// The keepers watch for an app's owner ([`app_owned_session`]) that
+/// clients reach only through its socket. R-LIFECYCLE stage 1 has no switch
+/// (PERF FLAGS deleted `CMUX_TUI_OWNER_KEEPERS`): the rule always runs.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn start_owner_keepers(
+    mux: &Arc<Mux>,
+    reached_only_by_socket: bool,
+) -> Option<cmux_tui_core::server::OwnerKeepersWatch> {
+    if !(app_owned_session(&mux.session) && reached_only_by_socket) {
+        return None;
+    }
+    let watched = cmux_tui_core::server::watch_owner_keepers(mux, |mux, keepers| {
+        crate::client_log::stderr_log!(
+            "lifecycle",
+            "{BIN}: stopped the owner of session {}: its app left and nothing keeps it \
+             (clients {}, terminals {:?}, browser host {}, app servers {}, Chief brains {}); its \
+             terminals and state stay for the next owner",
+            mux.session,
+            keepers.clients,
+            keepers.terminals,
+            keepers.browser_host,
+            keepers.app_servers,
+            keepers.chief_brains
+        );
+    });
+    match watched {
+        Ok(watch) => Some(watch),
+        Err(error) => {
+            // No watch thread: the owner runs on until something stops it.
+            crate::client_log::stderr_log!(
+                "lifecycle",
+                "{BIN}: cannot start the owner keepers watch: {error}"
+            );
+            None
+        }
+    }
 }
 
 /// macOS: a memory fault ends a headless owner at once, with no handler.

@@ -64,6 +64,14 @@ instructions, personality, the lock (`locked`) or a grant field (`tools`, `harne
 avatar. Chief messages render links and rich text in this page, so injected content must not plant
 behavior a Chief acts on, widen its grant or delete it without the person's click. The page may call nothing else of the catalog.
 
+With `chief-work-v1`, the authenticated owner WebSocket of `home-channels` may
+also send the raw `chief-work {chief}` command to read that Chief's owned
+subagents and harness background commands on its configured machine. It uses the
+Chief registry's owner-page admission, independently of the catalog allow list:
+other pages, paired devices, remote connections and bound agents gain no read.
+The command does not admit a page relay or start a subscription; see
+`commands.md` for its source scope, bounds and errors.
+
 ## Events (`page-events-v1`)
 
 A page entry's `events` names the subscribe events (events.md) that page hears. A page relay's
@@ -89,6 +97,19 @@ map each one to its owner, so the same v2 envelope works on every host:
 | --- | --- | --- | --- |
 | `agent_session` | `agent_session.trust` (the folder trust of a chat of this machine, `agent-session-trust` in commands.md; Unix socket only) | `agent_session.trust.get` | `agent_session.trust.set` (page `agent`: `gesture`) |
 | `apps` | `apps.store` (the app supervisor's App Store, raw `apps-store {op, args}`) | `apps.catalog.list`, `apps.catalog.get`, `apps.installed.list`, `apps.grants.get`, `apps.logs`, `apps.asset.get` | `apps.set`, `apps.install`, `apps.uninstall`, `apps.grant.set` (page `apps`: `confirm`); `apps.hidden.set`, `apps.grant.revoke` (page `apps`: `gesture`) |
+| `bookmarks` | `bookmarks.tree` (the bookmark tree of each browser profile in the home session, `bookmarks-v1`; `server/bookmarks_routed.rs`) | `bookmarks.list`, `bookmarks.search`, `bookmarks.rank`, `bookmarks.export` | `bookmarks.apply` (page `bookmarks`: `gesture`); `bookmarks.import_html`, `bookmarks.import_source` (the app only) |
+| `tasks` | `tasks.local` (the local Tasks owner, `cmux-tasks serve`, over its Unix socket; the daemon relays and keeps no copy) | `tasks.snapshot` | `tasks.create`, `tasks.update`, `tasks.move`, `tasks.archive`, `tasks.delegate` (page `tasks`: `gesture`) |
+
+The Tasks page (plans/cmux-next/tasks.md): `tasks.snapshot {}` answers the owner's subscribe
+snapshot as the local person sees it (`{seq, me, settings, statuses, labels, projects, tasks,
+sessions}`). `tasks.<verb> {...}` runs the owner op `task.<verb>` with the request's idempotency key
+and origin `user` and answers `{result, seq}`, `seq` being the owner's committed sequence after the
+request: the page keeps its optimistic copy of the intent until its mirror reaches `seq`. The first
+snapshot also starts the daemon's subscription on the owner, so every later commit reaches the page
+as `tasks-changed {change: Event}`; `tasks-changed {lost: true}` says the owner link ended and the
+page reads the snapshot again. With no owner running every call is `operation.failed` with
+`extra.code` `tasks.owner_unreachable`; an owner refusal carries `tasks.<code>` (`not_found`,
+`invalid`, `conflict`, `forbidden`, `usage`, ...). The daemon never starts the owner.
 
 The installed-app panels (cx-hnmbt.13): `apps.grants.get {app}` answers `{app, sandboxed, scopes:
 [{scope, reason, risk, optional, granted}]}` for an installed app (`apps.not_installed` otherwise);
@@ -100,6 +121,22 @@ scope}` revokes a scope: neither widens what an app may do, so the Apps page nee
 person's gesture. `apps.grant.set {app, scope, granted}` sets a scope and needs the native sheet (a
 host shows it for an allow; a page revokes with `apps.grant.revoke`). Opening an app is a host verb (the page runs the host action `app.open`), never a
 daemon operation.
+
+The Bookmarks page reads `bookmarks.list {browser_profile_id}` (`{bookmarks_revision,
+bookmarks}` in listing order) and `bookmarks.search {browser_profile_id, text, limit?}` (nodes whose title or
+URL holds every folded term, tree order), and makes every edit with one `bookmarks.apply {ops}` on the
+person's gesture: `ops` are the bookmark ops in their replay-fingerprint JSON (`{"op": "create" | "update" |
+"move" | "delete" | "import", ...}`), run in turn, each keyed `<idempotency_key>.<n>` so a retry replays them
+all; a refusal stops the batch, the ops before it stay applied, and `details.extra` carries `code`
+(`bookmarks.invalid_params`, `bookmarks.not_found`), `reason` (the rule: `cycle`, `too_deep`, ...) and
+`applied`. One click that renames and moves a bookmark is one call, so one gesture backs it. The page hears
+`bookmarks-changed`. The app also reads `bookmarks.rank {browser_profile_id, text, limit?}` (the omnibar's
+order: `{matches: [{bookmark, score}]}`) and `bookmarks.export {browser_profile_id, bar_title}` (`{html,
+count}`, the Netscape file), and writes `bookmarks.import_html {browser_profile_id, html, folder_title,
+bar_title}` (one new folder at the end of the bar; a file without bookmarks is `bookmarks.empty`) and
+`bookmarks.import_source {browser_profile_id, title, source_key, items: [{title, url, folder_path,
+created_ms?}]}` (one browser source's folder, replaced in place; no items removes it; `{root_ids, count,
+added, duplicates}`).
 
 A routed request is `{protocol, type: "request", id, operation, params, idempotency_key?,
 origin?}`; the response is the normal `cmux.protocol/2` response. The origin rules are the

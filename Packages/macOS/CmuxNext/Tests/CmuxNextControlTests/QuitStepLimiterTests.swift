@@ -103,13 +103,13 @@ import Testing
         }
     }
 
-    /// Review of #22919 at c0756ab, finding 1: if every step hangs, the quit mark (500 ms), the
-    /// "Don't ask again" write and every save step still end inside the keep quit's deadline, with
+    /// Review of #22919 at c0756ab, finding 1: if every step hangs, the quit mark (500 ms) and
+    /// every save step still end inside the keep quit's deadline, with
     /// room left for the engines' stop to begin.
     @Test func everyStepHungStillEndsInsideTheKeepQuitDeadline() {
         let steps = Self.steps { _ in }
         let margin: Duration = .milliseconds(400)
-        #expect(QuitDeadline.quitMarkLimit + QuitSaveSteps.rememberLimit + steps.worstCase + QuitDeadline.replyMargin + margin
+        #expect(QuitDeadline.quitMarkLimit + steps.worstCase + QuitDeadline.replyMargin + margin
                     <= QuitDeadline.keepQuitLimit,
                 "the step limits (\(steps.worstCase)) do not fit the \(QuitDeadline.keepQuitLimit) deadline")
     }
@@ -146,7 +146,6 @@ import Testing
     static func quit(_ limiter: QuitStepLimiter, timeLeft: TimeLeft, step name: String = "agent_composers",
                      order: @escaping @MainActor (String) -> Void, save: @escaping @MainActor () async -> Void) -> QuitSteps {
         QuitSteps(
-            remember: { _ in },
             prepareWindows: { await limiter.run(name, limit: .milliseconds(400), save) },
             endLocalSessions: { order("end_sessions"); return [] },
             confirmFailures: { _ in .quitAnyway },
@@ -175,7 +174,7 @@ import Testing
             await Self.quit(limiter, timeLeft: TimeLeft(.seconds(3)), step: step, order: { order.append($0) }, save: {
                 for await _ in release { break }
                 order.append("written")
-            }).run(ends: false, remember: nil)
+            }).run(ends: false)
             order.append("replied")
         }
         try await clock.waitForSleeper()
@@ -201,7 +200,7 @@ import Testing
         let (release, releaser) = AsyncStream<Void>.makeStream()
         let quit = Task { @MainActor in
             await Self.quit(limiter, timeLeft: timeLeft, order: { order.append($0) },
-                            save: { for await _ in release { break } }).run(ends: false, remember: nil)
+                            save: { for await _ in release { break } }).run(ends: false)
             order.append("replied")
         }
         try await clock.waitForSleeper()
@@ -229,7 +228,7 @@ import Testing
             await Self.quit(limiter, timeLeft: TimeLeft(nil), step: "windows", order: { order.append($0) }, save: {
                 for await _ in release { break }
                 order.append("windows_written")
-            }).run(ends: true, remember: nil)
+            }).run(ends: true)
         }
         try await clock.waitForSleeper()
         clock.advance(by: .milliseconds(400))
@@ -256,7 +255,7 @@ import Testing
         let (release, releaser) = AsyncStream<Void>.makeStream()
         let quit = Task { @MainActor in
             await Self.quit(limiter, timeLeft: timeLeft, step: "windows", order: { order.append($0) },
-                            save: { for await _ in release { break } }).run(ends: false, remember: nil)
+                            save: { for await _ in release { break } }).run(ends: false)
             order.append("replied")
         }
         try await clock.waitForSleeper()

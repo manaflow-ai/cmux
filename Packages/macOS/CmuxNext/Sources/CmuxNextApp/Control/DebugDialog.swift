@@ -28,7 +28,7 @@ enum DebugDialog {
     /// an ssh:// link from another app (it connects to a host a web page chose), and a cmux://session
     /// link's new tab (any page or app can open the link), and a guest link an agent or script asked for
     /// (it exposes the chat's transcript, #30263).
-    static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentShareConsentSheet.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier, CloudPresenter.environmentConfirmIdentifier, CloudPresenter.credentialRecoveryIdentifier, CloudPresenter.firstLoginIdentifier, CloudPresenter.codexDeviceCodeIdentifier,
+    static let userOnly: Set<String> = [ClipboardReadStrings.identifier, AgentShareConsentSheet.identifier, AgentPaneView.harnessEnableIdentifier, CloudPresenter.createConfirmIdentifier, CloudPresenter.environmentConfirmIdentifier, CloudPresenter.credentialRecoveryIdentifier, CloudPresenter.firstLoginIdentifier, CloudLoginCopyConsent.identifier, CloudChangeRequest.identifier, CloudCodexSignInConsent.identifier, CloudPresenter.codexDeviceCodeIdentifier,
                                         CloudWorkspaceSetupWizard.credentialDialogIdentifier, DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, IPhoneHostService.phoneAccessDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
                                         SessionLinkGate.dialogIdentifier, CredentialVault.entrySheetIdentifier,
                                         CredentialVault.approvalSheetIdentifier, CredentialVaultPageRoute.deleteDialogIdentifier]
@@ -99,7 +99,7 @@ enum DebugDialog {
             if let button = params["press"]?.stringValue { result["pressed"] = .bool(center.press(target, button: button)) }
             if params["dismiss"]?.boolValue == true { result["dismissed"] = .bool(center.dismiss(target)) }
         }
-        result["dialogs"] = .array(center.records.map { JSONValue(foundation: CmuxDialogDebug().report($0, view: center.view($0.id))) ?? .null })
+        result["dialogs"] = .array(center.records.map { JSONValue(foundation: CmuxDialogDebug().report($0, dialog: center.dialog($0.id))) ?? .null })
         return .object(result)
     }
 
@@ -128,7 +128,8 @@ enum DebugDialog {
     private static func fixtures(origin: String?) -> [String: CmuxDialogSpec] {
         CmuxDialogDebug().fixtures(origin: origin).merging([
             // Inert native auth fixtures: no account, VM, browser, or credentials are accessed.
-            "cloudCodexDevice": CloudPresenter.codexDeviceDialogSpec(code: "DEMO-CODE"),
+            "cloudCodexDevice": AgentPaneCloudAsker.spec(CloudPresenter.codexDeviceAsk(CloudCodexLoginPrompt(
+                verificationURL: URL(string: "https://example.com/device") ?? URL(fileURLWithPath: "/"), userCode: "DEMO-CODE"))),
             "cloudCodexRecovery": codexRecoveryFixture(body: CloudPresenter.codexBrokerDisclosure),
             "cloudCodexRecoveryBefore": codexRecoveryFixture(body: "cmux will start a fresh Codex device login in a visible local terminal for this VM. Codex refresh credentials are never copied between VMs; Codex requires a separate sign-in for each VM."),
             // Gallery variants keep the setup surface reviewable without provisioning a VM.

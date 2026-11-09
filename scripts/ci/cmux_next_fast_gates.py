@@ -19,7 +19,7 @@ result is fresh for the tip they merge into.
                                                   when any gate fails, after running all of them
 
 The gates, each the same invocation as its push-time job:
-  web lint        scripts/web_lint_prepush.py --base BASE --head MERGE --new-only (cmux-next-web.yml's
+  web lint        scripts/web_lint_prepush.py --base BASE --head MERGE --new-only (cmux-next-web-lint.yml's
                   web lint (fast); only findings the PR adds, per error)
   crash ratchet   scripts/ci/crash_ratchet_compare.py on the merge and BASE's exported tree (cmux-next-guards.yml)
   prepush gate    scripts/cmux-next/prepush-gate.py --base BASE --head MERGE (only violations the PR adds)
@@ -174,11 +174,19 @@ def deep_enough(repo: Path, head: str, base: str) -> bool:
     merge ref's depth 2, so the Sidebar-Look check saw it add 162 sidebar files. One found base is the true one once
     every cut either side reaches lies behind it. Several can be stale even then (a cut at one hides that it
     descends from another), and git merges them into a virtual base from their own history, so they count only
-    once no cut is reachable at all."""
+    once no cut is reachable at all.
+
+    Meeting at the true base is not enough when the head forked below the base's cut and merged the base in
+    later: the head side then walks past the cut to the root, and base..head holds every base commit under the
+    cut (#37015 at 5f689d98: about 620 sidebar commits refused for a missing Sidebar-Look trailer). A pull
+    request's own commits never end at a parentless commit (a root, or a cut, which reads as one), so
+    base..head may hold none."""
     if not rev(repo, base) or not rev(repo, head):
         return False
     bases = git(repo, "merge-base", "--all", head, base, check=False).stdout.split()
     if not bases:
+        return False
+    if git(repo, "rev-list", "--max-parents=0", head, "--not", base).stdout.split():
         return False
     shallow = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path", "shallow").stdout.strip())
     cuts = set(shallow.read_text().split()) if shallow.exists() else set()

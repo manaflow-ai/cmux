@@ -64,7 +64,7 @@ TEST_NAME = re.compile(r"((?:^|[._-])[Mm]ocks?[._-]|^mock[A-Z]|(?:^|[._-])fixtur
 CAP_WORDS = {"max", "maximum", "limit", "cap"}
 SIZE_WORDS = {"bytes", "byte", "size", "len", "length", "chars", "characters", "kib", "mib", "kb", "mb",
               "body", "payload", "prompt"}
-COUNT_WORDS = {"attachments", "files", "uploads", "images"}
+COUNT_WORDS = {"attachment", "attachments", "files", "uploads", "images"}
 # A cap on an identifier, a label or a derived preview never refuses a user's message or file.
 METADATA_WORDS = {"name", "names", "id", "ids", "title", "key", "keys", "token", "tokens", "secret", "url", "urls",
                   "uri", "label", "labels", "emoji", "stamp", "header", "headers", "error", "errors", "query",
@@ -371,9 +371,14 @@ def problems(found: dict[str, list[tuple[int, str]]], allow: dict) -> list[str]:
 def grown(base: dict, allow: dict) -> list[str]:
     """Entries added or raised since the base whose reason is debt; and a send path that shrank."""
     out = []
-    old = base.get("files", {})
-    for rel, entry in sorted(allow.get("files", {}).items()):
+    old, now = base.get("files", {}), allow.get("files", {})
+    for rel, entry in sorted(now.items()):
         was = old.get(rel, {}).get("count", 0)
+        # Debt that moved with its code (Swift to Rust): the reason names the old file, which had
+        # at least this count at the base and is gone now, so the total debt does not rise.
+        moved = re.search(r"moved from (\S+?)[,;)]?(?:\s|$)", str(entry.get("reason", "")))
+        if moved and moved.group(1) not in now and moved.group(1) != rel:
+            was += old.get(moved.group(1), {}).get("count", 0)
         if entry.get("count", 0) > was and not str(entry.get("reason", "")).startswith(GROWABLE):
             out.append(f"{rel}: allowlist {was} -> {entry.get('count')} since the base: a new cap is not debt "
                        f"(remove it, or give a reason starting \"platform:\" or \"safe:\" that names why)")
@@ -509,6 +514,21 @@ class Matcher(unittest.TestCase):
         self.assertEqual(len(problems({"a.rs": hit}, {"files": {"a.rs": {"count": 1, "reason": "because"}}})), 1)
         self.assertEqual(len(problems({"a.rs": hit}, {"files": {"a.rs": {"count": 1}}})), 1)
 
+    def test_removed_chief_caps_are_in_scope_and_have_no_exemption(self):
+        allow = json.loads(ALLOWLIST.read_text())
+        for rel, source in (
+            ("cmux-tui/crates/cmux-tui/src/cli/chief/backend.rs", "const MAX_ATTACHMENT: u64 = 100_000_000;"),
+            ("Native/OptChat/chief-kernel/src/tools.rs", "pub const MAX_SEND_ATTACHMENTS: usize = 10;"),
+            ("Native/OptChat/optchat-chief/src/brain/media.rs", "pub const MAX_MEDIA_BYTES: u64 = 50_000_000;"),
+            ("backend/apps/api/src/chief-brain-cc/attachments.ts", "export const MAX_FILES = 12"),
+        ):
+            with self.subTest(path=rel):
+                self.assertTrue(in_send_path(rel, config(allow)))
+                hits = matches(source, rel)
+                self.assertEqual(len(hits), 1, hits)
+                self.assertNotIn(rel, allow["files"])
+                self.assertTrue(problems({rel: hits}, {"files": {}}))
+
     def test_base_ratchet_refuses_new_debt(self):
         base = {"paths": {"include": ["a/"], "exclude": []},
                 "files": {"a/x.rs": {"count": 2, "reason": "debt: pre-existing"}}}
@@ -523,6 +543,12 @@ class Matcher(unittest.TestCase):
         self.assertEqual(grown(base, now({"a/y.rs": {"count": 1, "reason": "platform: Cloudflare 100 MB body"}})), [])
         self.assertEqual(len(grown(base, now({}, include=()))), 1)  # the send path shrank
         self.assertEqual(len(grown(base, now({}, exclude=("a/x",)))), 1)
+        moved = {"a/z.rs": {"count": 2, "reason": "debt: pre-existing; moved from a/x.rs with its rules"}}
+        self.assertEqual(grown(base, now(moved)), [], "debt that moved with its code is not new")
+        self.assertEqual(len(grown(base, now(moved | {"a/x.rs": base["files"]["a/x.rs"]}))), 1,
+                         "a move whose old entry stays counts the debt twice")
+        self.assertEqual(len(grown(base, now({"a/z.rs": {"count": 3, "reason": "debt: moved from a/x.rs"}}))), 1,
+                         "a move does not grow the count")
 
 
 if __name__ == "__main__":

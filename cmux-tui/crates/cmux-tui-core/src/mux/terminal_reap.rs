@@ -33,7 +33,7 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::thread::JoinHandle;
 
 use super::*;
-use crate::state::kept_tab_store::{KeptTab, kept_title};
+use crate::state::kept_tab_store::{KeptTab, LastCommand, kept_title};
 
 /// Default reap grace period for a terminal with no placement.
 pub const DEFAULT_TERMINAL_REAP_GRACE: Duration = Duration::from_secs(30);
@@ -62,6 +62,10 @@ pub(crate) enum ReapOutcome {
 #[derive(Debug, Default)]
 pub(crate) struct ReapSchedule {
     deadlines: HashMap<String, Instant>,
+    /// Terminals an attempt left running (`Retained`) or still listed
+    /// (`Reaped`): the earliest the next attempt may come, kept while each
+    /// stays reapable.
+    retry_floors: HashMap<String, Instant>,
     /// Consecutive failed reapable-set scans (retry spacing).
     scan_failures: u32,
     /// The registry holds no unplaced time (the last pass removed or found
@@ -100,10 +104,13 @@ impl ReapSchedule {
     ) {
         self.scan_failures = 0;
         self.deadlines.retain(|terminal_id, _| reapable.contains_key(terminal_id));
+        self.retry_floors.retain(|terminal_id, _| reapable.contains_key(terminal_id));
         for (terminal_id, unplaced_for) in reapable {
-            self.deadlines
-                .entry(terminal_id.clone())
-                .or_insert_with(|| deadline_after(now, grace.saturating_sub(*unplaced_for)));
+            let floor = self.retry_floors.get(terminal_id).copied();
+            self.deadlines.entry(terminal_id.clone()).or_insert_with(|| {
+                let deadline = deadline_after(now, grace.saturating_sub(*unplaced_for));
+                floor.map_or(deadline, |floor| deadline.max(floor))
+            });
         }
     }
 
@@ -134,6 +141,33 @@ impl ReapSchedule {
 
     pub(crate) fn forget(&mut self, terminal_id: &str) {
         self.deadlines.remove(terminal_id);
+    }
+
+    /// A reap of a due terminal was attempted at `now`; `outcome` is `None`
+    /// when the attempt failed.
+    pub(crate) fn tried(
+        &mut self,
+        terminal_id: &str,
+        outcome: Option<ReapOutcome>,
+        now: Instant,
+        grace: Duration,
+    ) {
+        let retry = deadline_after(now, grace.max(MIN_RETRY));
+        match outcome {
+            // The deadline goes, so a terminal placed again and closed
+            // again gets a fresh grace from its new unplaced time. The floor
+            // stays: a terminal the attempt left reapable is otherwise
+            // re-added at its durable unplaced time, already past the grace,
+            // due at once, and the reaper thread waited zero and ran pass
+            // after pass (the app's headless owner at 150% CPU).
+            Some(ReapOutcome::Reaped | ReapOutcome::Retained) => {
+                self.forget(terminal_id);
+                self.retry_floors.insert(terminal_id.to_string(), retry);
+            }
+            // An attached client keeps the terminal for another full grace
+            // period; its detach does not emit a topology event.
+            Some(ReapOutcome::Attached) | None => self.postpone(terminal_id, retry),
+        }
     }
 
     pub(crate) fn next_deadline(&self) -> Option<Instant> {
@@ -397,23 +431,16 @@ impl Mux {
         };
         let mut reaped = Vec::new();
         for (terminal_id, outcome) in due.into_iter().zip(outcomes) {
-            match outcome {
-                Ok(ReapOutcome::Reaped) => {
-                    schedule.forget(&terminal_id);
-                    reaped.push(terminal_id);
-                }
-                Ok(ReapOutcome::Retained) => schedule.forget(&terminal_id),
-                // An attached client keeps the terminal for another full
-                // grace period; its detach does not emit a topology event.
-                Ok(ReapOutcome::Attached) => {
-                    schedule.postpone(&terminal_id, deadline_after(now, grace.max(MIN_RETRY)));
-                }
-                Err(error) => {
+            let outcome = outcome
+                .inspect_err(|error| {
                     self.report_internal_diagnostic(format!(
                         "reap of unplaced terminal {terminal_id} failed: {error}"
                     ));
-                    schedule.postpone(&terminal_id, deadline_after(now, grace.max(MIN_RETRY)));
-                }
+                })
+                .ok();
+            schedule.tried(&terminal_id, outcome, now, grace);
+            if outcome == Some(ReapOutcome::Reaped) {
+                reaped.push(terminal_id);
             }
         }
         reaped
@@ -592,11 +619,25 @@ impl Mux {
             // The title the tab shows now; the next owner has no surface to
             // ask once the terminal ended.
             let title = runtime.as_ref().and_then(|surface| kept_title(&surface.title()));
+            // The command it runs (a park ends it; the freed shell types it
+            // again) or last finished, for the restored marker line; an
+            // incognito terminal keeps none.
+            let last_command = runtime
+                .as_ref()
+                .filter(|surface| {
+                    surface
+                        .terminal_public_id()
+                        .is_some_and(|id| !self.output_store.is_private(self, id))
+                })
+                .and_then(|surface| surface.kept_command())
+                .as_ref()
+                .and_then(LastCommand::from_finished);
             rows.extend(tab_ids.into_iter().map(|tab_id| KeptTab {
                 tab_id,
                 cwd: cwd.clone(),
                 title: title.clone(),
                 on_show,
+                last_command: last_command.clone(),
             }));
             kept.insert(terminal_id);
         }
@@ -714,6 +755,23 @@ impl Mux {
             ),
         }
         Ok(())
+    }
+
+    /// Of `ids`, the parked terminals (`output_store/parked_trim.rs`): the workspace store keeps a tab of
+    /// each (`kept_tabs`) and no shell of it runs (no catalog surface, as after a daemon restart, or a dead one).
+    /// A terminal whose facts cannot be read is not parked.
+    pub(crate) fn parked_terminal_ids(
+        &self,
+        ids: impl IntoIterator<Item = TerminalPublicId>,
+    ) -> HashSet<TerminalPublicId> {
+        // Registry, then connection, then state (`lock_rank`): the kept-tab
+        // read below queries the registry database while state is held.
+        let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        let state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
+        ids.into_iter()
+            .filter(|id| state.terminal_catalog.get(id).is_none_or(|surface| surface.is_dead()))
+            .filter(|id| Self::terminal_tabs_kept_locked(&registry, &state, id).unwrap_or(false))
+            .collect()
     }
 
     /// Whether the workspace store keeps any tab of `public_id`

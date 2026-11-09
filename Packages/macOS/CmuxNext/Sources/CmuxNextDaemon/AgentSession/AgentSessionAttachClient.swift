@@ -50,8 +50,8 @@ public actor AgentSessionAttachClient {
     }
 
     public static let capability = DaemonCapability.agentSessionAttach.rawValue
-    /// A Cloud machine's running link id while its attach answer says the caller owns it, else nil
-    /// (`CloudMachineLink.ownerLink`).
+    /// A Cloud machine's running link id while its connect answer says the caller owns it, else nil
+    /// (`CloudLinkSession.ownerLink`).
     public typealias OwnerLink = @Sendable () async -> Int?
     /// Whether a Cloud machine's link says it is a teammate's (`CloudMachineLinks.teammate`).
     public typealias Teammate = @Sendable () async -> Bool
@@ -100,6 +100,10 @@ public actor AgentSessionAttachClient {
         var trustVMKind = false
         /// `agent-session-children-v1`.
         var children = false
+        /// `agent-session-fork-v1`.
+        var fork = false
+        /// `agent-session-side-v1`.
+        var side = false
         /// `agent-session-presence-v1`.
         var presence = false
         /// `agent-session-folders-v1`.
@@ -108,6 +112,10 @@ public actor AgentSessionAttachClient {
         var settings = false
         /// `agent-session-login-v1`.
         var login = false
+        /// `agent-session-content-v1`.
+        var content = false
+        /// `agent-session-context-v1`.
+        var context = false
     }
 
     /// A start that needs the app's person key in that machine's acpmux (cx-0w0jj): `instance`
@@ -302,9 +310,26 @@ public actor AgentSessionAttachClient {
 
     /// The code ``start(cwd:harness:)`` throws for a daemon without `agent-session-start-v1`.
     public static let startUnsupported = "agent_session.start_unsupported"
+    public static let forkUnsupported = "agent_session.fork_unsupported"
 
     public func prompt(id: String, text: String) async throws -> Data {
         try await call("agent-session-prompt", ["prompt_id": id, "text": text])
+    }
+
+    /// Ordered ACP blocks; the owning daemon pins their session and validates their shape.
+    public func prompt(id: String, content: Data) async throws -> Data {
+        let (transport, served) = try await liveConnection()
+        guard served.content else {
+            // Older daemons still accept pasted text as plain text. Never discard media to
+            // make a prompt fit the legacy contract, and never send a field they would refuse.
+            guard let blocks = try JSONSerialization.jsonObject(with: content) as? [[String: Any]],
+                  !blocks.isEmpty, blocks.allSatisfy({ $0["type"] as? String == "text" && $0["text"] is String }) else {
+                throw AgentSessionAttachError(code: "agent_session.content_unsupported", message: "Update cmux on that machine to send attachments.")
+            }
+            let text = blocks.compactMap { $0["text"] as? String }.joined(separator: "\n\n")
+            return try await call("agent-session-prompt", ["prompt_id": id, "text": text], on: transport)
+        }
+        return try await call("agent-session-prompt", ["prompt_id": id], json: ["content": content], on: transport)
     }
 
     public func cancel() async throws {
@@ -359,6 +384,65 @@ public actor AgentSessionAttachClient {
         return try await call("agent-session-children", [:])
     }
 
+    /// `agent-session-fork` (`agent-session-fork-v1`): fork this attached chat through its
+    /// latest completed turn. The daemon pins the source session from the attachment and the
+    /// acpmux fork copies its transcript without changing the parent.
+    public func fork(throughSeq: Int, name: String? = nil) async throws -> (session: String, data: Data) {
+        guard mode == .attach else {
+            throw AgentSessionAttachError(code: Self.forkUnsupported, message: "a read-only agent session cannot fork a chat")
+        }
+        guard throughSeq > 0 else {
+            throw AgentSessionAttachError(code: "agent_session.refused", message: "throughSeq must be positive")
+        }
+        _ = try await liveTransport()
+        guard served.fork else {
+            throw AgentSessionAttachError(code: Self.forkUnsupported, message: "the daemon does not serve agent session fork")
+        }
+        var params: [String: any Sendable] = ["through_seq": throughSeq]
+        if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { params["name"] = name }
+        let data = try await call("agent-session-fork", params)
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let session = object["sessionId"] as? String, !session.isEmpty else {
+            throw AgentSessionAttachError(code: "agent_session.refused", message: "agent-session-fork answered no session")
+        }
+        return (session, data)
+    }
+
+    /// Whether the daemon opens a side chat of this attached chat on its machine
+    /// (`agent-session-side-v1`); an observation never does.
+    public func servesSide() async -> Bool {
+        guard mode == .attach else { return false }
+        return (try? await liveConnection())?.1.side ?? false
+    }
+
+    /// `agent-session-side` (`agent-session-side-v1`): New side chat and `/side [prompt]` of this
+    /// attached chat. That machine's acpmux forks the tab's own session (`throughSeq` nil: as it is
+    /// now, its turn going on), tags the fork the chat's side chat and sends it `prompt`; answers
+    /// the daemon's `{sessionId, prompted, notSent?}` (`notSent`: why acpmux did not take `prompt`).
+    public func side(throughSeq: Int?, prompt: String? = nil, promptID: String = UUID().uuidString.lowercased()) async throws -> Data {
+        guard mode == .attach else {
+            throw AgentSessionAttachError(code: Self.forkUnsupported, message: "a read-only agent session cannot open a side chat")
+        }
+        if let throughSeq, throughSeq <= 0 {
+            throw AgentSessionAttachError(code: "agent_session.refused", message: "throughSeq must be positive")
+        }
+        _ = try await liveTransport()
+        guard served.side else {
+            throw AgentSessionAttachError(code: Self.forkUnsupported, message: "Update cmux on that machine to open a side chat there.")
+        }
+        var params: [String: any Sendable] = throughSeq.map { ["through_seq": $0] } ?? ["live": true]
+        if let prompt {
+            params["prompt"] = prompt
+            params["prompt_id"] = promptID
+        }
+        let data = try await call("agent-session-side", params)
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let session = object["sessionId"] as? String, !session.isEmpty else {
+            throw AgentSessionAttachError(code: "agent_session.refused", message: "agent-session-side answered no session")
+        }
+        return data
+    }
+
     /// `agent-session-typing` (`agent-session-presence-v1`): the person starts or stops typing in
     /// the attached chat. A daemon without the verb hears nothing (no one else is shown there).
     public func typing(_ on: Bool) async throws {
@@ -393,6 +477,29 @@ public actor AgentSessionAttachClient {
     /// `session/set_config_option`, which answers the agent's whole `configOptions`.
     public func setConfig(id configId: String, value: String) async throws -> Data {
         try await setting("agent-session-set-config", ["config_id": configId, "value": value])
+    }
+
+    /// The attached session's effective context inventory, from its own machine.
+    public func context() async throws -> Data {
+        try await context(["op": "get"])
+    }
+
+    /// Saves or resets a cmux-added context override on that machine. A project scope uses
+    /// the attached session's directory; nil resets the saved override.
+    public func setContextOverride(scope: String, text: String?, partId: String? = nil) async throws -> Data {
+        var params: [String: any Sendable] = ["op": "set", "scope": scope]
+        if let text { params["text"] = text }
+        if let partId { params["partId"] = partId }
+        return try await context(params)
+    }
+
+    private func context(_ params: [String: any Sendable]) async throws -> Data {
+        _ = try await liveTransport()
+        guard served.context else {
+            throw AgentSessionAttachError(code: "agent_session.context_unsupported",
+                                          message: "Update cmux on that machine to view or edit this chat's context.")
+        }
+        return try await call("agent-session-context", params)
     }
 
     private func setting(_ cmd: String, _ params: [String: any Sendable]) async throws -> Data {
@@ -603,10 +710,14 @@ public actor AgentSessionAttachClient {
                             model: identity.supports(DaemonCapability.agentSessionStartModel.rawValue),
                             trustVMKind: identity.supports(DaemonCapability.agentSessionTrustVMKind.rawValue),
                             children: identity.supports(DaemonCapability.agentSessionChildren.rawValue),
+                            fork: identity.supports(DaemonCapability.agentSessionFork.rawValue),
+                            side: identity.supports(DaemonCapability.agentSessionSide.rawValue),
                             presence: identity.supports(DaemonCapability.agentSessionPresence.rawValue),
                             folders: identity.supports(DaemonCapability.agentSessionFolders.rawValue),
                             settings: identity.supports(DaemonCapability.agentSessionSettings.rawValue),
-                            login: identity.supports(DaemonCapability.agentSessionLogin.rawValue))
+                            login: identity.supports(DaemonCapability.agentSessionLogin.rawValue),
+                            content: identity.supports(DaemonCapability.agentSessionContent.rawValue),
+                            context: identity.supports(DaemonCapability.agentSessionContext.rawValue))
             _ = try await DaemonConnection.perform(
                 // `agent-session-presence-v1` echoed: the daemon then streams presence (an app
                 // from before it would end its attachment on an event it does not know).

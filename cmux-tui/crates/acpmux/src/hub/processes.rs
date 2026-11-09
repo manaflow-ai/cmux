@@ -17,7 +17,9 @@
 //!
 //! Claude Code writes each shell's output to a file it names
 //! (`output_file`), which `_acpmux/process/tail` reads. The agent host runs
-//! on this machine, so the daemon reads the file itself.
+//! on this machine, so the daemon reads the file itself. A running one's
+//! file is also where a dev server prints its URL: `process_preview.rs`
+//! finds it, and the record carries it as `preview`.
 
 use super::*;
 use serde::{Deserialize, Serialize};
@@ -66,6 +68,10 @@ pub(super) struct Process {
     task_id: String,
     harness: String,
     command: String,
+    /// What the call that started it says it does (Claude's Bash
+    /// `description`); none from Codex.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
     cwd: String,
     /// Unix ms.
     started_at: u64,
@@ -88,9 +94,22 @@ pub(super) struct Process {
     /// The file Claude Code writes its output to (`output_file`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     output_file: Option<String>,
+    /// The loopback server it runs, found in its output (`process_preview.rs`);
+    /// only while it runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    preview: Option<ProcessPreview>,
     /// Its latest state is in a logged `process_update`.
     #[serde(skip)]
     logged: bool,
+}
+
+/// The local URL a running process serves, as its output printed it and a
+/// loopback connect confirmed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ProcessPreview {
+    url: String,
+    port: u16,
 }
 
 /// A session's processes, in the order they started.
@@ -110,6 +129,8 @@ pub(super) struct ProcessTable {
     running: std::collections::BTreeSet<usize>,
     /// Processes a person asked to stop: their end is the person's.
     stopping: std::collections::HashSet<String>,
+    /// Processes whose output a preview watch reads (`process_preview.rs`): one each.
+    watching: std::collections::HashSet<String>,
 }
 
 #[cfg(test)]
@@ -123,6 +144,13 @@ mod process_active_tests;
 #[cfg(test)]
 #[path = "processes_page_tests.rs"]
 mod process_page_tests;
+
+#[path = "process_preview.rs"]
+mod preview;
+
+#[cfg(test)]
+#[path = "processes_preview_tests.rs"]
+mod process_preview_tests;
 
 impl ProcessTable {
     /// All appends go here, including records replayed from a logged process update.
@@ -185,6 +213,7 @@ impl ProcessTable {
                     task_id: text("taskId").unwrap_or("").to_owned(),
                     harness: crate::web_modes::family_of(&meta),
                     command: text("command").unwrap_or("").to_owned(),
+                    description: text("description").map(str::to_owned),
                     cwd: meta.cwd.to_string_lossy().into_owned(),
                     started_at: at,
                     ended_at: None,
@@ -196,6 +225,7 @@ impl ProcessTable {
                     origin: text("origin").unwrap_or("background").to_owned(),
                     output_bytes: None,
                     output_file: None,
+                    preview: None,
                     logged: false,
                 };
                 self.insert(process)
@@ -221,6 +251,8 @@ impl ProcessTable {
         let asked = self.stopping.remove(&p.id);
         p.state = state;
         p.ended_at = Some(at);
+        // An ended server serves nothing.
+        p.preview = None;
         p.reason = match state {
             ProcessState::Lost => Some(HARNESS_EXIT.into()),
             ProcessState::Killed if asked => Some("person".into()),
@@ -262,6 +294,12 @@ impl ProcessTable {
         {
             let new_tool = process.tool_call_id.clone();
             let live = process.state == ProcessState::Running;
+            // A preview found here outlives a record that names none, while it runs.
+            if !live {
+                process.preview = None;
+            } else if process.preview.is_none() {
+                process.preview = slot.preview.clone();
+            }
             let old_tool = std::mem::replace(slot, process).tool_call_id;
             if live {
                 self.running.insert(at);
@@ -340,6 +378,7 @@ impl ProcessTable {
             self.stopping.remove(&p.id);
             p.state = ProcessState::Lost;
             p.ended_at = Some(at);
+            p.preview = None;
             p.reason = Some(reason.to_owned());
             p.logged = logged;
             lost.push(p.clone());
@@ -522,8 +561,11 @@ impl Hub {
     /// Reads the session's processes from its log again: a daemon that
     /// adopted a running host lists them again (`hosts.rs`).
     pub(super) fn rebuild_processes(&self, session: &Session) {
-        let table = self.read_processes(session);
-        *session.processes.lock().unwrap_or_else(|e| e.into_inner()) = table;
+        let mut table = self.read_processes(session);
+        let mut slot = session.processes.lock().unwrap_or_else(|e| e.into_inner());
+        // The preview watches still run: they stay the only ones.
+        table.watching = std::mem::take(&mut slot.watching);
+        *slot = table;
     }
 
     /// A logged `background_task_update` (`tap.rs`), the session's own or a
@@ -542,7 +584,7 @@ impl Hub {
                 // so it is kept here.
                 let tool = params.pointer("/update/toolCallId").and_then(Value::as_str);
                 let i = tool.and_then(|tool| table.find_tool(tool));
-                let p = i.map(|i| &mut table.processes[i]);
+                let p = i.and_then(|i| table.processes.get_mut(i));
                 if let (Some(p), Some(file)) = (p, output.filter(|f| !f.is_empty()))
                     && p.output_file.is_none()
                 {
@@ -569,8 +611,13 @@ impl Hub {
     /// A process still runs in the background: the chat is not idle
     /// (`idle.rs`).
     pub(super) fn any_process_running(&self, session: &Session) -> bool {
-        let table = self.process_table(session);
-        !table.running.is_empty()
+        self.running_processes(session) > 0
+    }
+
+    /// How many of the session's background processes run (reading its log once if this
+    /// daemon has not yet).
+    pub(super) fn running_processes(&self, session: &Session) -> usize {
+        self.process_table(session).running.len()
     }
 
     /// How many of the session's background processes run, from a table this
@@ -750,7 +797,17 @@ impl Hub {
     /// request: refused. With no turn running, nothing runs in the
     /// foreground: `backgrounded: false`, and Claude Code is not asked.
     pub async fn background_work(&self, key: &str, tool: Option<&str>) -> Result<Value, RpcError> {
-        let session = self.resolve(key)?;
+        self.background_session(&self.resolve(key)?, tool, false).await
+    }
+
+    /// [`Self::background_work`] for `session`. `auto`: acpmux moves it on its own
+    /// (`auto_background.rs`), not the person, so what moves keeps origin `auto_backgrounded`.
+    pub(super) async fn background_session(
+        &self,
+        session: &Arc<Session>,
+        tool: Option<&str>,
+        auto: bool,
+    ) -> Result<Value, RpcError> {
         if !session.backgrounds_work.load(Ordering::SeqCst) {
             return Err(RpcError::invalid_params(
                 "only Claude Code can move running work to the background",
@@ -772,8 +829,9 @@ impl Hub {
             "sessionId": session.meta().agent_session_id,
             "toolCallId": tool,
             "timeoutMs": u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
+            "auto": auto,
         });
-        let ask = child.request(crate::claude_stdio::BACKGROUND_TASKS, params);
+        let ask = child.request(crate::claude_stdio::BACKGROUND_TASKS, params.clone());
         match tokio::time::timeout(timeout, ask).await {
             Ok(Ok(answer)) => {
                 let moved = answer.get("backgrounded").and_then(Value::as_bool).unwrap_or(true);
@@ -781,6 +839,14 @@ impl Hub {
             }
             Ok(Err(e)) => Err(e),
             Err(_) => {
+                // Logged, so an answer that comes later shows as Claude Code's delay, not
+                // hidden behind this wait (bg-8 of Leo's chat: 10 s here, 195.9 s to answer).
+                self.append(
+                    session,
+                    "mux",
+                    "background_wait_ended",
+                    json!({"toolCallId": tool, "timeoutMs": params.get("timeoutMs"), "auto": auto}),
+                );
                 Err(RpcError::internal("Claude Code did not answer background_tasks in time"))
             }
         }

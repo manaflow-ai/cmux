@@ -189,7 +189,10 @@ async function mount({
       <ComposerPickers
         snapshot={snapshot}
         pickerCatalog={picker.catalog}
-        onModel={(next) => setState((current) => ({ ...current, model: next }))}
+        onModel={(next) => {
+          sent.push({ id: "model", value: next });
+          setState((current) => ({ ...current, model: next }));
+        }}
         onMode={() => undefined}
         onEffort={(id, value) => {
           sent.push({ id, value });
@@ -228,6 +231,25 @@ async function open() {
   await act(async () => chipButton().click());
   await settle();
 }
+
+test("Fable uses its reported 1M option under one plain model name", async () => {
+  const { sent } = await mount({ harness: "claude", family: "claude" });
+  await open();
+  const fable = modelRows().filter((row) => label(row).includes("Fable 5.1"));
+  expect(fable.map(label)).toEqual(["Fable 5.1"]);
+  await act(async () => fable[0]!.click());
+  expect(sent).toContainEqual({ id: "model", value: "claude-fable-5-1[1m]" });
+});
+
+for (const model of ["claude-fable-5-1", "claude-fable-5-1[1m]"])
+  test(`a chat already on ${model} keeps its checked Fable row without changing the session`, async () => {
+    const { sent } = await mount({ harness: "claude", family: "claude", model });
+    await open();
+    const fable = modelRows().filter((row) => label(row).includes("Fable 5.1"));
+    expect(fable.map(label)).toEqual(["Fable 5.1"]);
+    expect(fable[0]!.getAttribute("aria-checked")).toBe("true");
+    expect(sent).toEqual([]);
+  });
 
 for (const state of ["expired", "signedOut"] as const) {
   test(`full picker offers Sign in again for ${state} auth before send`, async () => {
@@ -343,10 +365,24 @@ for (const harnessFixed of [false, true]) {
       ),
     );
     await open();
-    expect(modelRows().map(label)).toEqual(choices.slice(0, 6).map((choice) => choice.name));
-    // A rail's other models are Legacy models in the default symbols layout; a started chat's More
-    // models opens the full picker.
-    expect(menu()!.textContent).toContain(harnessFixed ? "More models" : "Legacy models");
+    const top = choices.slice(0, 6).map((choice) => choice.name);
+    if (!harnessFixed) {
+      // A rail's menu is the columns menu: the top models, then the harness's other models under
+      // the "Legacy models" caption in the same column.
+      const list = [...doc().querySelector('.acpmux-cols [role="listbox"]')!.children];
+      const caption = list.findIndex((item) => item.textContent === "Legacy models");
+      const names = (items: Element[]) =>
+        items
+          .filter((item) => item.getAttribute("role") === "option")
+          .map((item) => item.querySelector(".acpmux-cols-name")?.textContent ?? "");
+      expect(caption, list.map((item) => item.textContent).join(", ")).toBeGreaterThan(0);
+      expect(names(list.slice(0, caption))).toEqual(top);
+      expect(names(list.slice(caption + 1)).sort()).toEqual(["Choice 6", "Choice 7"]);
+      return;
+    }
+    expect(modelRows().map(label)).toEqual(top);
+    // A started chat's More models opens the full picker.
+    expect(menu()!.textContent).toContain("More models");
     expect(modelRows().map(label)).not.toContain("Choice 6");
     expect(modelRows().map(label)).not.toContain("Choice 7");
   });

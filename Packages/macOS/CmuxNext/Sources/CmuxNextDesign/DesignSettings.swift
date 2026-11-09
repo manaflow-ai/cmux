@@ -68,7 +68,7 @@ public final class DesignSettings {
     /// depend on the agent setting; a change event lets chat row measurement follow CSS immediately.
     public func interfaceScaleScript(pageZoom: Double? = nil) -> String {
         let effectivePageZoom = max(pageZoom ?? Double(uiScale), 0.01)
-        return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(Typography.userScale)');"
+        return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(Typography.pageScale)');"
             + "document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)');"
             + "window.dispatchEvent(new Event('cmux-ui-scale-change'))"
     }
@@ -130,9 +130,6 @@ public final class DesignSettings {
     /// `ui.paneAnimations`: pane layout changes spring when true (see
     /// `Motion.animatesPaneLayout`); on by default.
     public var paneAnimations = true
-    /// `labs.classicHome`: Home is the classic top page instead of the home workspace with its
-    /// left dock (cx-ebm.59.5); off by default, kept one release. Read when Home opens.
-    public var classicHome = false
     /// `home.channelsEnabled`: the sidebar shows the Channels entry after Home (cx-frn2y); off by default.
     public var homeChannelsEnabled = false
     /// `home.chiefBubbleStyle` is `theme`: the Chief chat's bubbles take the theme's colours; false (the
@@ -156,10 +153,21 @@ public final class DesignSettings {
     public var verticalTabs = false
     /// `tabs.verticalTabsExpandOnHover`: a collapsed vertical tab list widens while the pointer is over it.
     public var verticalTabsExpandOnHover = true
+    /// `tabs.hideLoneChatTab`: a chat alone in its pane hides its one tab, so the page takes the tab row (off by default).
+    public var hideLoneChatTab = false
     /// `layout.stripScrollbar`: the column strip's scrollbar.
     public var stripScrollbar: StripScrollbarMode = .system
     /// `sidebar.*`: section look and pinned band caps.
-    public var sidebarSections = SidebarSectionsPreferences.defaults
+    public var sidebarSections = SidebarSectionsPreferences.defaults {
+        didSet {
+            // The Wallpaper and Pictorial group palettes need the desktop picture (`DesktopWallpaperWatch.samplesForGroups`).
+            let follows = sidebarSections.groupPalette.followsWallpaper
+            if follows != oldValue.groupPalette.followsWallpaper { BackdropImageStore.shared.desktop.samplesForGroups = follows }
+        }
+    }
+    /// The desktop picture's color (and its bands) while the Wallpaper or Pictorial group palette is chosen; nil under
+    /// any other palette or until the first sample lands. Observed, so the sidebar's groups repaint when the picture changes.
+    public var groupWallpaperTint: WallpaperTint?
     /// `sidebar.hoverCards.enabled`: off, no hover card opens on hover (sidebar rows, tabs, and a
     /// user's custom card). A change posts `hoverCardsDidChange` so a shown card goes at once.
     public var hoverCardsEnabled = true {
@@ -168,6 +176,9 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: Self.hoverCardsDidChange, object: nil)
         }
     }
+    /// `developerTools.appPages`: cmux's own pages (an agent chat, Home, Markdown, Settings) offer
+    /// Inspect Element and open developer tools. On by default; browser tabs keep theirs either way.
+    public var pageDeveloperTools = true
     /// `ui.calm` (``CalmMode``): Reduce Motion behavior, no hover cards and no hover fills, and
     /// with `still` no animation at all. A change posts the motion, Reduce Motion and hover-card
     /// notifications, so cached motion values re-read and a shown card goes at once.
@@ -187,13 +198,15 @@ public final class DesignSettings {
     /// `sidebar.hoverCards.delay`: pointer rest before a sidebar row's or a tab's card opens.
     /// Defaults to `HoverCardTiming.showDelay`.
     public var hoverCardDelay: Duration = HoverCardTiming.showDelay
+    /// `sidebar.hoverCards.delay` has a value in the file: its delay is a fixed wait, with no settle.
+    public var hoverCardDelayIsSet = false
     /// `sidebar.hoverCards.layout`, `.sections.*` and `.maxRows`: what a workspace card shows (u3320).
     public var workspaceHoverCard = WorkspaceHoverCardOptions()
     /// `sidebar.hoverCards.groups.*`: whether group headers and tab group chips open a card, after
     /// how long, and what it shows (Lawrence 2026-10-20).
     public var groupHoverCard = GroupHoverCardOptions()
     /// `layout.closeFocus`: who gets focus when the focused pane closes.
-    public var closeFocus: CloseFocusPolicy = .previousNeighbor
+    public var closeFocus: CloseFocusPolicy = .mostRecent
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.
     public var defaultColumnWidth: Double = 2.0 / 3.0
     /// `layout.newColumnWidth`: how a new column's width is chosen.
@@ -243,6 +256,10 @@ public final class DesignSettings {
     /// face when cmux.json sets none.
     public var terminalConfigFontFamily: String? {
         didSet { repaintIfTerminalFaceChanged(from: terminalFontFamily ?? oldValue) }
+    }
+    /// The full Ghostty `font-family` fallback chain, in config precedence order.
+    public var terminalConfigFontFamilies: [String] = [] {
+        didSet { if terminalConfigFontFamilies != oldValue { ThemeScope.app.store.repaintAll() } }
     }
     /// The family the terminal draws in: cmux.json's, else the Ghostty config's; nil when
     /// neither names one (Ghostty's built-in face). Pages that show code follow it (`WebTheme`).

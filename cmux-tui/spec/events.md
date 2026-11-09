@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-conversation-presence`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `cloud-host-replica-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `apps-changed` (page relays only), `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-conversation-presence`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `cloud-host-replica-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `stash-changed` (page relays only), `apps-changed` (page relays only), `tasks-changed` (page relays only), `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -42,7 +42,9 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `personal-changed` | subscribe | session | protocol 12; capability `profiles-v1` |
 | `bookmarks-changed` | subscribe | `browser_profile_id` | protocol 12; capability `bookmarks-v1` |
 | `history-changed` | subscribe | none | protocol 12; capability `history-v1` |
+| `stash-changed` | subscribe (page relays only) | none | capability `stash-v1` |
 | `apps-changed` | apps clients; subscribe (page relays) | `app` | capability `apps-v1`; on subscribe `page-events-v1` |
+| `tasks-changed` | subscribe (page relays) | none | `page-events-v1` |
 | `settings-changed` | subscribe | machine settings | protocol 12; capability `settings-v1` |
 | `keybindings-changed` | subscribe | machine keybindings | protocol 12; capability `keybindings-v1` |
 | `conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
@@ -432,6 +434,36 @@ through the v2 page router, so it is no apps client: it hears this event on
 `subscribe` when its page lists it in page-router.json (the App Store page
 does), and no other `subscribe` stream carries it. Interested frontends
 re-read `cmux.apps.installed.list` or the catalog.
+
+### stash-changed
+
+| Field | Value |
+| --- | --- |
+| event | `stash-changed` |
+| status | implemented |
+| since | additive extension; capability `stash-v1` |
+
+Published when a committed `stash.create`, `stash.import`, `stash.restore` or
+`stash.delete` changed the stashes (a replayed idempotent request publishes
+nothing). The payload is `{event:"stash-changed", revision:uint64}`. Only a
+page relay whose page lists it in page-router.json (the Stashed Tabs page)
+hears it on `subscribe`; interested pages re-read `stash.list`.
+
+### tasks-changed
+
+| Field | Value |
+| --- | --- |
+| event | `tasks-changed` |
+| status | implemented |
+| since | `page-events-v1` |
+
+Published by the daemon's Tasks owner link (page-router.md, routed namespace
+`tasks`) for each event the local Tasks owner commits after the first
+`tasks.snapshot`: `{event:"tasks-changed", change: Event}`, the owner's event
+as it sent it (`seq`, `index`, `tx`, `at`, `actor`, `origin`, `kind`,
+`change`). When the link to the owner ends the payload is
+`{event:"tasks-changed", lost:true}`; the page then reads `tasks.snapshot`
+again. Only a page relay whose page lists it (the Tasks page) hears it.
 
 ### history-changed
 
@@ -909,6 +941,42 @@ screens also emit `tree-changed` first. It carries no workspace revision.
 object{event:"screen-changed",workspace:Id,screen:Id,index:usize,entity:Screen,transaction?:string}
 ```
 
+### selection-changed
+
+| Field | Value |
+| --- | --- |
+| event | `selection-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; the client echoes `tree-selection-deltas-v1` in `set-client-info` |
+
+Sent to a delta subscriber that reads it, in place of `tree-changed`, when a
+selection change rides with a lifecycle delta (a created workspace takes the
+focus, a created tab becomes its pane's active tab). It is the whole selection
+of that one workspace, read when the event is written. A screen or pane the
+client does not hold yet comes with its own later delta and is skipped. A
+selection change that names no workspace is still `tree-changed`.
+
+```text
+object{event:"selection-changed",workspace:Id,active:bool,active_workspace:Id|null,screens:[object{id:Id,active:bool,active_pane:Id,panes:[object{id:Id,active_tab:usize,focused_at:u64}]}]}
+```
+
+### workspace-presentation-changed
+
+| Field | Value |
+| --- | --- |
+| event | `workspace-presentation-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; the client echoes `tree-selection-deltas-v1` in `set-client-info` |
+
+Sent to the same subscriber, in place of `tree-changed`, after a
+`workspace.update` of a workspace's title, color or icon (no workspace
+revision). `entity` is the workspace as `list-workspaces` has it when the
+event is written.
+
+```text
+object{event:"workspace-presentation-changed",workspace:Id,entity:Workspace}
+```
+
 ### tab-changed
 
 | Field | Value |
@@ -974,7 +1042,7 @@ object{event:"layout-changed",screen:Id,workspace?:Id,active_pane?:Id,zoomed_pan
 
 Meaning: A screen's pane geometry changed through split, close/collapse, ratio update, viewport column width, row heights, dock, apply-layout, swap, undo, tab drag, or zoom. The event is emitted once per settled command.
 
-A server that advertises `layout-delta-v1` includes the screen's new layout in the event: `workspace`, and the layout fields of that `Screen` exactly as `list-workspaces` reports them at the commit (`active_pane`, `zoomed_pane`, `layout`, and when present `viewport_splits`, `viewport_base_width`, `columns`). It does not include `panes` or tabs; the pane and tab deltas carry those. Like `Screen`, the SDK schema does not list `viewport_splits`, `viewport_base_width` and `columns` yet. `transaction` is the numeric `transaction` of the request that caused the change (`set-split-ratio`, `set-viewport-pane-width`, `set-column-dock`, `set-row-heights`), as a decimal string, so the frontend that sent it can recognize the echo of its own gesture. A client patches that one screen's layout. When the event carries no layout (an older server), or names a pane the client does not have, clients re-fetch `export-layout` or `list-workspaces`.
+A server that advertises `layout-delta-v1` includes the screen's new layout in the event: `workspace`, and the layout fields of that `Screen` exactly as `list-workspaces` reports them at the commit (`active_pane`, `zoomed_pane`, `layout`, and when present `viewport_splits`, `viewport_base_width`, `columns`). It does not include `panes` or tabs; the pane and tab deltas carry those. Like `Screen`, the SDK schema does not list `viewport_splits`, `viewport_base_width` and `columns` yet. `transaction` is the numeric `transaction` of the request that caused the change (`set-split-ratio`, `set-viewport-pane-width`, `set-layout-sizes`, `set-column-dock`, `set-row-heights`), as a decimal string, so the frontend that sent it can recognize the echo of its own gesture. A client patches that one screen's layout. When the event carries no layout (an older server), or names a pane the client does not have, clients re-fetch `export-layout` or `list-workspaces`.
 
 Example:
 
@@ -1331,13 +1399,21 @@ Example:
 Payload:
 
 ```text
-object{event:"daemon-shutdown"}
+object{event:"daemon-shutdown",restart?:boolean}
 ```
 
 Meaning: Sent on the control queue to every live control client after the
 `shutdown-daemon` or `session.shutdown` success response is flushed. It is sent even when the
 requesting client did not open a subscription. Clients should classify the
 following EOF and pending requests as expected daemon shutdown.
+
+`restart` repeats the requester's `shutdown-daemon` `restart`: `true` when a replacement
+daemon takes over the same session (the interactive TUI reconnects and keeps its view),
+`false` when the session stops (the TUI exits with a message). The daemon sends it only to a
+client that listed `daemon-shutdown-restart-v1` in `set-client-info` (servers advertise it in
+`identify`), so strict older decoders keep reading the bare event. It is absent when the
+requester did not say (`session.shutdown`, an older CLI); the TUI then tries to reconnect
+for a short time.
 
 Example:
 
@@ -1496,6 +1572,7 @@ Meaning: One coalesced render frame. The cursor is always present; `rows` contai
 | `colors` field | protocol 6 additive extension |
 | Kitty replay sidecars | protocol 9 aliases; protocol 10 graphics state |
 | `pending` field | additive, `terminal-pending-sequence-v1` |
+| `history_rows_omitted` field | additive, `attach-replay-history-rows-v1` |
 
 Payload:
 
@@ -1529,7 +1606,8 @@ object{
     cursor_style:"block"|"underline"|"bar"|null,
     cursor_blink:boolean|null
   },
-  pending?:Base64
+  pending?:Base64,
+  history_rows_omitted?:uint64
 }
 ```
 
@@ -1562,6 +1640,12 @@ same bytes appended to `data`, which suits clients that write nothing between
 the replay and the live stream. The one exception is a control string longer
 than 1 MiB that is not a direct Kitty upload: a replay taken inside it omits the
 string, and a resize there drops byte attachments so they reattach.
+
+`history_rows_omitted` is present only when the attach carried
+`replay_history_rows` (`attach-replay-history-rows-v1`, see `attach-surface`):
+`data` then holds the active area and at most that many of the newest history
+rows, and the field counts the older history rows it left out (0 when the
+whole history fit).
 
 Example:
 

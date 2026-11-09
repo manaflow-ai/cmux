@@ -1,6 +1,6 @@
-// Dev-server status dots keep the same leading icon column as Background task rows. This is a
-// rendered geometry contract: the status mark stays seven pixels, while its slot and text start
-// line up with the shared task glyph slot.
+// A dev server is a Background task row of its own (ServersSection.tsx): its globe and its address sit
+// in the same icon and text columns as a command task's glyph and command. This is a rendered geometry
+// contract: the glyphs share their column and the texts start at one edge.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -47,28 +47,27 @@ await requireBrowserLane("session-info-server-columns.test.ts", async () => {
       await page.goto(
         `http://127.0.0.1:${port}${galleryFrame("agent-pane.chat-inspector", { variant: "full", theme })}`,
       );
-      await page.locator(".acpmux-session-info-server__dot").first().waitFor();
-      const metrics = await page
-        .locator(".acpmux-session-info-server")
-        .first()
-        .evaluate((server) => {
-          const dot = server.querySelector<HTMLElement>(".acpmux-session-info-server__dot")!;
-          const text = server.querySelector<HTMLElement>(".acpmux-session-info-server__text")!;
-          const task = document.querySelector<HTMLElement>(".acpmux-session-info-task__open")!;
-          const icon = task.querySelector<SVGElement>(":scope > svg")!;
-          const taskText = task.querySelector<HTMLElement>(".acpmux-session-info-task__command")!;
-          const dotBox = dot.getBoundingClientRect();
-          const iconBox = icon.getBoundingClientRect();
-          return {
-            dotWidth: dotBox.width,
-            dotCenter: dotBox.left + dotBox.width / 2,
-            iconCenter: iconBox.left + iconBox.width / 2,
-            serverText: text.getBoundingClientRect().left,
-            taskText: taskText.getBoundingClientRect().left,
-          };
-        });
-      expect(metrics.dotWidth).toBe(7);
-      expect(Math.abs(metrics.dotCenter - metrics.iconCenter)).toBeLessThanOrEqual(0.5);
+      const server = page
+        .locator('.acpmux-session-info-task[data-kind="server"] .acpmux-session-info-task__open')
+        .first();
+      await server.waitFor();
+      const metrics = await server.evaluate((row) => {
+        const task = document.querySelector<HTMLElement>(
+          '.acpmux-session-info-task--command:not([data-kind="server"]) .acpmux-session-info-task__open',
+        )!;
+        const glyph = (button: Element) =>
+          button.querySelector<SVGElement>(".acpmux-row-glyph")!.getBoundingClientRect();
+        const serverIcon = glyph(row);
+        const taskIcon = glyph(task);
+        return {
+          serverIcon: serverIcon.left + serverIcon.width / 2,
+          taskIcon: taskIcon.left + taskIcon.width / 2,
+          serverText: row.querySelector<HTMLElement>(".acpmux-session-info-task__address")!.getBoundingClientRect()
+            .left,
+          taskText: task.querySelector<HTMLElement>(".acpmux-session-info-task__command")!.getBoundingClientRect().left,
+        };
+      });
+      expect(Math.abs(metrics.serverIcon - metrics.taskIcon)).toBeLessThanOrEqual(0.5);
       expect(Math.abs(metrics.serverText - metrics.taskText)).toBeLessThanOrEqual(0.5);
       await page.close();
     });

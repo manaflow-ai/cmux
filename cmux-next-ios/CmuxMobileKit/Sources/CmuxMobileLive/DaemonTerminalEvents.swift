@@ -24,6 +24,11 @@ enum DaemonTerminalInbound: Sendable, Equatable {
     case sameGridResize(columns: Int, rows: Int)
     /// The terminal's shared size state changed (`size-state`, shared-sizing-v1).
     case sizeState(TerminalSizeState, selfParticipant: String?)
+    /// Rows of the Mac's history older than the mirror's oldest row: the
+    /// attach's `vt-state` left them out (`history_rows_omitted`,
+    /// `attach-replay-history-rows-v1`); 0 for a whole replay. (A `resized`
+    /// replay, always whole, says so with ``resetMirror(alternate:)``.)
+    case historyRowsOmitted(Int)
 }
 
 /// Decodes attach-stream event lines (JSON, base64) and follows the alternate
@@ -47,6 +52,9 @@ struct DaemonTerminalEventParser: Sendable {
             if let cols = object["cols"] as? Int, cols > 0 { out.append(.columns(cols)) }
             if let rows = object["rows"] as? Int, rows > 0 { out.append(.rows(rows)) }
             noteGrid(object)
+            // A latest-screen-first replay names the older rows it left out;
+            // any other replay holds the whole history.
+            out.append(.historyRowsOmitted(max(0, object["history_rows_omitted"] as? Int ?? 0)))
             // The attach's replay rebuilds the whole screen: its final
             // alternate screen state goes first, then its bytes, like a
             // `resized` replay. A reattach to a TUI that is still running

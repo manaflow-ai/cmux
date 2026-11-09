@@ -12,6 +12,7 @@
 // Gallery files import types only (and pure data helpers), so a test can import every one of them
 // without a DOM (test/gallery-coverage.test.ts). A component host loads its component lazily.
 import type { ComponentType } from "react";
+import type { DiffCommentRecord } from "../comments/types";
 import type { AcpmuxSnapshot } from "../agent-session/acpmux/model";
 import type { AppDetail, Grants, InstalledApp } from "../pages/apps/types";
 import type { CloudMachine, CloudSnapshot } from "../pages/cloud/ops";
@@ -20,7 +21,7 @@ import type { ReleaseNotes } from "../pages/changelog/types";
 import type { PickerSession } from "../pages/icon-picker/host";
 import type { EditorFile, ReadOnlyReason } from "../pages/editor/host";
 import type { HistoryFilter, HistoryGrouping } from "../pages/history/model";
-import type { HistoryEntry } from "../pages/history/types";
+import type { CookieBackup, HistoryEntry } from "../pages/history/types";
 import type { Binding } from "../pages/keybindings/types";
 import type { WidthName } from "./env";
 import { checkReasons, type Play, type PlayChecks, type PlayTarget } from "./play";
@@ -28,6 +29,8 @@ import { armIds, validateExperiments, type Experiment } from "../experiments/exp
 import { validateTunables, type Tunable } from "../experiments/tunable";
 import { optionAccepts, validateOptions, type GalleryOption } from "./options";
 import type { MockOptions } from "../pages/settings/mockProvider";
+import type { BranchPickerGroup } from "../diff/generated/protocol";
+import type { SourceOption } from "../toolbar-model";
 import type {
   AccountsState,
   AgentsState,
@@ -36,6 +39,8 @@ import type {
   HarnessesState,
   HostLists,
   IntegrationsState,
+  SharesState,
+  TailnetState,
 } from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
 
@@ -55,6 +60,10 @@ export type SettingsPageVariant = VariantBase & {
   accounts?: AccountsState;
   /** Settings > Accounts > Cloud Environments fixture state. */
   environments?: CloudEnvironmentsState;
+  /** Settings > Privacy and Security > Shared Links fixture state; default the mock's shares. */
+  sharedLinks?: SharesState;
+  /** Settings > Server > This Mac on Your Tailnet fixture state (null: no tailnet); default signed out. */
+  tailnet?: TailnetState | null;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Harnesses; default the mock's four. */
@@ -169,7 +178,7 @@ export type AgentPaneVariant = VariantBase & {
   /** Fields of the `ready` answer the app sends (newTab, draft, newSession, machineName, ...). */
   ready?: Record<string, unknown>;
   /** Fields over the theme the app pushes (`applyTheme`, AgentPaneTheme.swift), such as a Debug
-   *  Settings value it carries (`chatWidth`). */
+   *  Settings value it carries (`codexToolRuns`). */
   theme?: Record<string, unknown>;
   /** The snapshot the bridge delivers after `ready`. */
   snapshot: AcpmuxSnapshot;
@@ -201,7 +210,8 @@ export type AgentPaneVariant = VariantBase & {
     login?: { kind: "terminal" | "route"; command?: string; host?: string | null; routeId?: string | null };
   };
   /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null.
-   * `{ nativeError: {code, userMessage?} }` answers as the app refusing the call. */
+   * `{ nativeError: {code, userMessage?} }` answers as the app refusing the call. A function is
+   * called with the call's params for its answer (one too large to write out, made when asked). */
   native?: Record<string, unknown>;
   /** Gallery-only answers for the reply chips and preview card's host calls. */
   chipHost?: ChipHostFixture;
@@ -223,6 +233,9 @@ export type AgentPaneVariant = VariantBase & {
   /** `<html data-*>` attributes the app sets at document start for Debug Settings choices
    *  (AgentPaneTunables `documentAttributes`), by name without `data-`: `{ "needs-you": "off" }`. */
   documentAttributes?: Record<string, string>;
+  /** The pane's first chat has Session Info open, as a person who opened it there has it. Session
+   *  Info starts closed in every new pane (sessionInfoState.ts); a stage that draws it set this. */
+  sessionInfoOpen?: boolean;
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */
@@ -255,8 +268,15 @@ export type DiffPageVariant = VariantBase & {
   files?: DiffFixtureFile[];
   repoRoot?: string;
   baseRef?: string;
+  /** Branch and commit lists served by the in-page diff host. */
+  branchGroups?: BranchPickerGroup[];
+  sourceOptions?: SourceOption[];
   /** A machine error while the loaded diff remains visible. */
   fingerprintError?: { code: string; message: string };
+  /** Saved review comments the in-page host lists (`comments.list`). */
+  comments?: DiffCommentRecord[];
+  /** The host sends comments to the diff's chat (Send to agent). */
+  commentsSend?: boolean;
 };
 
 /** The App Store page on an in-page cmuxPage host serving its supervisor projection. */
@@ -277,7 +297,7 @@ export type AppsPageVariant = VariantBase & {
 /** The Cloud page on an in-page cmuxPage host serving the Cloud app server's projection. */
 export type CloudPageVariant = VariantBase & {
   mode?: "normal" | "loading" | "error";
-  action?: "select-machine" | "create" | "get" | "ports-pending";
+  action?: "select-machine" | "create" | "get" | "ports-pending" | "ports-shared";
   error?: { code: string; message: string };
   signedIn?: boolean;
   layout?: "rows" | "cards";
@@ -288,7 +308,7 @@ export type CloudPageVariant = VariantBase & {
   /** Sample forwards shown by Ports variants (gallery-only). */
   ports?: import("../pages/cloud/ops").PortForward[];
   /** Hold one port action after its control is activated to show the busy boundary. */
-  pendingAction?: "forward" | "close" | "browser";
+  pendingAction?: "forward" | "close" | "browser" | "share" | "revoke";
   /** The create sheet's snapshot list fails once (its Retry then loads the sample snapshots). */
   snapshotsFail?: boolean;
   machines: CloudMachine[];
@@ -345,6 +365,8 @@ export type EditorPageVariant = VariantBase & {
 /** The history page (src/pages/history) on a cmuxPage host with timeline entries. */
 export type HistoryPageVariant = VariantBase & {
   entries?: HistoryEntry[];
+  /** The app's cookie backups (the Cookie Backups panel). */
+  cookieBackups?: CookieBackup[];
   loading?: boolean;
   error?: "network" | "permission" | "not-found";
   query?: {
@@ -353,6 +375,8 @@ export type HistoryPageVariant = VariantBase & {
     grouping?: HistoryGrouping;
     selectIndex?: number;
     menuIndex?: number;
+    /** Opens the Cookie Backups panel. */
+    cookieBackups?: boolean;
   };
 };
 

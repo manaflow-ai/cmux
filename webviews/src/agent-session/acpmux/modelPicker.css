@@ -23,10 +23,20 @@
    (--ds-glass-menu-blur), in plain glass and under the lens alike. Chromium over the window glass
    lays it over the theme surface as well (glass.css), so there it is near solid. Reduce
    Transparency still makes it the solid popup surface (glass.css, !important). */
+/* On the App's menu glass (ui/glass/hostGlass.ts; Leo, 2026-11-06: "the model picker ... is this
+   actually glass"): the chat under it blurs in place and the page lays a 40% veil of the theme surface
+   on the App's glass, so the rows still never read the chat through them (gallery ui.host-glass
+   model-*: 0% let the wallpaper's color into the row text, 70% read as solid again). Only the model
+   menus: the composer's (its placement class, or the column picker, .acpmux-cols), their submenus and
+   Retry with; the other quick menus (Open In, a queued message's, a machine's) keep the plain menu glass. */
+.ui-popup.ui-glass.acpmux-quick-menu:is([class*="acpmux-quick-placement-"], .acpmux-quick-submenu, .acpmux-retry-menu),
+.ui-glass.acpmux-cols {
+  --host-glass-fill: color-mix(in srgb, var(--glass-surface) 40%, transparent);
+}
 .ui-popup.ui-glass.acpmux-quick-menu,
 :root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) .ui-popup.ui-glass.acpmux-quick-menu {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--surface-text-min, 92%), transparent);
-  --glass-backdrop: var(--ds-glass-menu-blur, blur(32px) saturate(1.6));
+  --glass-backdrop: var(--ds-glass-menu-blur);
 }
 .acpmux-mp-rail-scroll {
   flex: 0 0 auto;
@@ -507,7 +517,9 @@
 /* The menu's screen-reader-only text (a symbol tab's name, the effort trigger's model, Add
    harness's label) is hidden by the picker's own rule, not only by the pane's Tailwind sr-only:
    the menu is portaled, and a page without that utility drew it all as text. */
-.acpmux-quick-menu .sr-only {
+.acpmux-quick-menu .sr-only,
+.acpmux-model-fork .sr-only,
+.acpmux-used-mark .sr-only {
   position: absolute;
   overflow: hidden;
   clip-path: inset(50%);
@@ -544,7 +556,6 @@
   overflow-y: auto;
   scroll-padding-block: 0;
 }
-.acpmux-quick-body[data-scrolled] { mask-image: linear-gradient(to bottom, transparent, #000 6px); }
 .acpmux-quick-list { display: flex; flex-direction: column; min-height: 0; }
 .acpmux-quick-list > * { flex: none; }
 .acpmux-quick-list > .acpmux-quick-more-list { contain: inline-size; }
@@ -824,4 +835,59 @@
   flex: none;
   align-items: center;
   color: inherit;
+}
+
+/* What a started chat ran, beside a held pick of another harness's model (QuickModelMenu
+   UsedMark, Leo 2026-11-06): a quiet mark in secondary ink on the chat's own model row, provider
+   row and harness tab. `glyph` ships (the history glyph; its tab a hairline ring); `dot` and
+   `caption` are the gallery's other versions. */
+.acpmux-used-mark {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  margin-inline-start: 4px;
+  color: var(--agent-muted);
+}
+.acpmux-used-dot {
+  width: 5px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: currentColor;
+}
+.acpmux-used-caption {
+  flex: none;
+  margin-inline-start: 8px;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  white-space: nowrap;
+}
+.acpmux-quick-rail-tab[data-used="glyph"],
+.acpmux-mp-harness[data-used="glyph"] {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-muted) 55%, transparent);
+}
+.acpmux-mp-harness[data-used="dot"],
+.acpmux-mp-harness[data-used="caption"] {
+  position: relative;
+}
+.acpmux-mp-harness[data-used="dot"]::after,
+.acpmux-mp-harness[data-used="caption"]::after {
+  content: "";
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline-end: 0;
+  translate: -1px -1px;
+  width: 5px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--agent-muted);
+}
+
+/* The model button with another harness's model held for the next message (forkHold.ts): the
+   held model's name and effort, then a small fork glyph in secondary ink. */
+.acpmux-model .acpmux-model-fork {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  color: var(--agent-muted);
 }

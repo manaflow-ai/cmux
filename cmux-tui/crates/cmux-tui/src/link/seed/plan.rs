@@ -89,8 +89,8 @@ pub struct Planned {
     /// Bytes of the bundle; 0 when [`Self::unchanged`] (no bundle is
     /// written then).
     pub bundle_bytes: u64,
-    /// A delta seed found HEAD, the index and the working tree as the
-    /// previous seed left them: nothing to send.
+    /// A delta seed found HEAD, the index, the working tree and refs/stash as
+    /// the previous seed left them: nothing to send.
     pub unchanged: bool,
 }
 
@@ -100,6 +100,8 @@ pub struct PreviousSeed {
     pub head: String,
     pub index: String,
     pub work: String,
+    /// Stash at the previous accepted seed (None means refs/stash was absent).
+    pub stash: Option<String>,
 }
 
 /// Why a folder takes the streamed copy instead of a seed.
@@ -210,8 +212,8 @@ pub fn plan_with_base(folder: &Path, out_bundle: &Path, base: &str) -> Result<Pl
 /// prerequisites, so the bundle holds only what changed since.
 /// [`SeedParams::base`] and [`SeedParams::since`] are `previous.work`;
 /// [`Planned::bases`] is empty. When HEAD, the index and the working tree
-/// are as `previous` left them, the answer is [`Planned::unchanged`] and
-/// no bundle is written. The stash is carried but not compared.
+/// and stash are as `previous` left them, the answer is [`Planned::unchanged`]
+/// and no bundle is written.
 pub fn plan_since(
     folder: &Path,
     out_bundle: &Path,
@@ -487,12 +489,31 @@ fn build(
     if let Some(stash) = &stash {
         refs.push(("refs/cmux-seed/stash", stash.as_str()));
     }
-    // The work commit's parents are the index commit and HEAD, so the same
-    // work sha means all three are as the previous seed left them.
+    // WORK's parents are INDEX and HEAD. The stash ref is independent of all three.
     let (base, unchanged) = match since {
         Since::Base(base) => ((*base).to_string(), false),
-        Since::Previous(previous) => (previous.work.clone(), previous.work == work_commit),
+        Since::Previous(previous) => {
+            (previous.work.clone(), previous.work == work_commit && previous.stash == stash)
+        }
     };
+    // A stash-only deletion has no new Git object. Git refuses an empty bundle,
+    // so carry a tiny synthetic commit, excluded from the destination's seed record.
+    // WORK remains stable: the next unchanged delta stays a zero-byte send.
+    let stash_clear_marker = if let Since::Previous(previous) = since
+        && previous.stash.is_some()
+        && stash.is_none()
+        && previous.work == work_commit
+    {
+        let tree =
+            git::text(git::at(&repo.top).args(["rev-parse", &format!("{work_commit}^{{tree}}")]))
+                .map_err(|error| failed("reading the work tree", error))?;
+        Some(commit(repo, &tree, &previous.work, "cmux seed stash cleared")?)
+    } else {
+        None
+    };
+    if let Some(marker) = &stash_clear_marker {
+        refs.push(("refs/cmux-seed/stash-cleared", marker.as_str()));
+    }
     let mut bundle_bytes = 0;
     if !unchanged {
         for (name, id) in &refs {
@@ -571,7 +592,36 @@ fn commits(repo: &Repo, scratch: &Scratch) -> Result<Commits, Fallback> {
     // the patterns; entries git keeps out of the working tree stay as they
     // are either way.
     let sparse_flag: &[&str] = if sparse.is_some() { &["--sparse"] } else { &[] };
-    run(repo.scratch_git(&index).args(["add", "-A"]).args(sparse_flag), "adding the working tree")?;
+    if skipped.is_empty() {
+        run(
+            repo.scratch_git(&index).args(["add", "-A"]).args(sparse_flag),
+            "adding the working tree",
+        )?;
+    } else {
+        // Git add writes blobs to the repository's real object store even
+        // with a scratch index. Removing a skipped secret from that index
+        // afterwards leaves its unreferenced blob behind, where a fallback
+        // whole-repository copy could send it to Cloud.
+        //
+        // Include everything except the skipped raw paths during the add.
+        // NUL-delimited literal pathspecs preserve odd/non-UTF-8 names and
+        // avoid treating characters such as '*' or '[' as patterns.
+        let list = scratch.0.join("add-pathspecs");
+        let mut paths = b".\0".to_vec();
+        for item in &skipped {
+            paths.extend_from_slice(b":(exclude,literal)");
+            paths.extend_from_slice(item.raw.strip_suffix(b"/").unwrap_or(&item.raw));
+            paths.push(0);
+        }
+        write(&list, paths)?;
+        run(
+            repo.scratch_git(&index)
+                .args(["add", "-A", "--pathspec-file-nul"])
+                .args(sparse_flag)
+                .arg(format!("--pathspec-from-file={}", list.display())),
+            "adding the working tree",
+        )?;
+    }
     if !skipped.is_empty() {
         let list = scratch.0.join("left-out");
         let mut paths = Vec::new();

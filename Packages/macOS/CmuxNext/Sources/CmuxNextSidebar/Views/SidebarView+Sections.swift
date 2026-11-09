@@ -6,7 +6,8 @@ import CmuxNextDesign
 // (`SidebarLayoutDocument.bottomSectionID`: the profile control, with the
 // space dots in its row) is outside the capped, scrolling band below the
 // list: it is pinned at the sidebar's bottom. The band below the list draws
-// nothing since cx-n0i9 (no bottom-left sections; All chats is on the New Tab page).
+// only app-contributed sections; ordinary item
+// sections remain undrawn since cx-n0i9 (All chats is on the New Tab page).
 extension SidebarViewComponents {
     /// Every region that draws layout items, the footer first.
     var bandRegions: [SidebarRegionView] { [footerRegion, belowRegion, aboveRegion] }
@@ -24,6 +25,9 @@ extension SidebarViewComponents {
         for region in bandRegions {
             region.liftHost = self
             wireItems(region)
+            region.appView = { [weak self] section in
+                section.contribution.flatMap { self?.appSections?.makeView(for: $0) }
+            }
             // A drop gives the layout the order the band showed (R77).
             region.onReorder = { [weak self] subject, shown in
                 guard let self, let op = SidebarRegionReorder.op(for: subject, shown: shown, document: self.model.layout) else { return }
@@ -54,10 +58,10 @@ extension SidebarViewComponents {
         list.leadingSelectionOrder = { [weak self] in self?.aboveRegion.content?.workspaceOrder ?? [] }
         // The footer row's items (the profile control) do not drag; its space
         // dots reorder by their own drag, dropped on the footer band
-        // (`ProfileBarView+DotDrag`). The band below keeps the rule it had while it held the footer.
+        // (`ProfileBarView+DotDrag`). App sections in the band below use the
+        // same section drag and reorder path as the top band.
         footerRegion.allowsDrag = false
         footerRegion.emptySpaceTarget = .footer
-        belowRegion.allowsDrag = false
         addSubview(aboveFade)
         addSubview(belowFade)
         addSubview(footerRegion)
@@ -68,6 +72,11 @@ extension SidebarViewComponents {
 
     /// A region's item activation and section folding (the bands and the list's blocks).
     private func wireItems(_ region: SidebarRegionView) {
+        region.liftHost = self
+        region.sectionDropTarget = { [weak self] id, point in
+            self.flatMap { SidebarAppSectionDrops.target($0, section: id, at: point) }
+        }
+        region.onSectionDrop = { [weak self] op in self?.model.send(.layout(op)) }
         region.onActivateWithModifiers = { [weak self, weak region] id, flags in
             // The profile control opens its menu over itself.
             if let view = region?.itemView(id), view.showsAvatar, self?.footerBand.showProfileMenu(from: view) == true { return }
@@ -98,6 +107,8 @@ extension SidebarViewComponents {
         let shownAbove = model.placingTransientItems(in: above.presenting(hidingItems: hidden, apps: apps))
         let shownBelow = below.presenting(hidingItems: hidden, apps: apps)
         let isFooter = { (section: LayoutSection) in section.id == SidebarLayoutDocument.bottomSectionID }
+        // App sections in the scrolling area after the list (`defaultRegion: "middle"`): they draw after it.
+        let appsAfterList = shownBelow.filter { $0.content == .app && $0.region == .middle }
         let look = SidebarSectionTunables.currentLook
         // The footer keeps the full row (its avatar and search); the bands' rows follow Minimal Mode like the list's.
         let footerBase = SidebarRegionMetrics.standard
@@ -116,7 +127,8 @@ extension SidebarViewComponents {
             // The sidebar document (one renderer): its sections draw in the list, in document order; the band
             // above keeps only the client's items with nothing to follow. One anchored after an item the
             // document shows (Channels after Home) draws right after it in its block.
-            let docSections = model.placingTransientItems(in: above.presenting(hidingItems: hidden, apps: apps), anchoredOnly: true).map(titled)
+            let docSections = (model.placingTransientItems(in: above.presenting(hidingItems: hidden, apps: apps), anchoredOnly: true)
+                + appsAfterList).map(titled)
             // Only the blocks' own items' infos: another item's change does not reload the list.
             let shownIDs = Set(docSections.flatMap(\.items).map(\.id))
             // A block's rows end where the list's other rows do, `rowEdgeGap` from the edge (`rowTrailingTrim`): a
@@ -145,16 +157,19 @@ extension SidebarViewComponents {
                 list.reload(animated: false)
             }
         }
-        // No bottom-left sections (Lawrence 2026-10-10, cx-n0i9: "no more bottom left stuff"): the
-        // band below the list draws nothing; only the footer row stays. A stored layout keeps
-        // its sections there (no user data is removed); they just do not draw.
-        belowRegion.update(content([]), width: width)
+        // The bottom slot is reserved for app views. Ordinary item sections
+        // remain stored but undrawn, as cx-n0i9 decided.
+        let bottomApps = model.layout.appSections(in: .bottom, room: model.activeProfileID?.rawValue)
+            .presenting(hidingItems: hidden, apps: apps)
+        // Without the document the list draws no blocks: the apps after it take the band below it.
+        let bandApps = (model.docDrag == nil ? appsAfterList : []) + bottomApps
+        belowRegion.update(content(bandApps), width: width)
         let footer = shownBelow.filter(isFooter)
         // The footer line ends on the bottom margin, not on the section's padding over it.
         var footerMetrics = footerBase
         footerMetrics.bottomPadding = footerBand.footerBottomPadding(rowHeight: footerBase.rowHeight)
         footerRegion.update(content(footer, metrics: footerMetrics), width: width)
-        releaseAppSections(shown: shownAbove + footer)
+        releaseAppSections(shown: shownAbove + appsAfterList + bottomApps + footer)
     }
 
     /// Draws the one selection on the top item it names, in every band and list block: the old and new
@@ -191,7 +206,7 @@ extension SidebarViewComponents {
         let (aboveHeight, belowHeight) = SidebarBandHeights.resolve(
             above: aboveRegion.layoutResult, below: belowRegion.layoutResult, available: available,
             preferences: SidebarAppHeights.preferences(below: belowRegion), minimumList: SidebarDensityTokens.rowHeight * 3,
-            bandFloor: SidebarDensityTokens.rowHeight + Metrics.space2)
+            bandFloor: SidebarRowTokens.current.band.rowHeight + Metrics.space2)
         aboveFade.frame = NSRect(x: 0, y: y, width: b.width, height: aboveHeight)
         size(aboveRegion, in: aboveScroll, width: b.width)
         // The band below sits on the footer section; the dots and cards go above it.

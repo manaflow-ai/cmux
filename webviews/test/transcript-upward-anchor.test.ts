@@ -195,7 +195,7 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
         };
 
         for (let quantum = 0; quantum < 32; quantum += 1) await setHeightAndSample(quantum, "folded");
-        const toggle = lower().querySelector<HTMLButtonElement>(".cv-disclosure__toggle")!;
+        const toggle = lower().querySelector<HTMLButtonElement>(".cv-agentmsg__toggle")!;
         if (!toggle) throw new Error("real received-card fold toggle missing");
         const beforeFold = toggle.getAttribute("aria-expanded");
         await window.cmuxPaintFrame(() => {
@@ -205,7 +205,7 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
         await window.cmuxPaintFrame();
         await window.cmuxPaintFrame();
         const afterFold = lower()
-          .querySelector<HTMLButtonElement>(".cv-disclosure__toggle")
+          .querySelector<HTMLButtonElement>(".cv-agentmsg__toggle")
           ?.getAttribute("aria-expanded");
         for (let quantum = 31; quantum >= 0; quantum -= 1) await setHeightAndSample(quantum, "expanded-streaming");
         return { baseHeight, absoluteTop, beforeFold, afterFold, gapBlock, samples };
@@ -302,7 +302,24 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
       await page.evaluate(() => (window as unknown as { __seedFoldStream(): void }).__seedFoldStream());
       const card = page.locator('[data-row-id="gap-incoming"]');
       await card.waitFor();
+      // Fonts settle before the card is placed, so its rows keep their measured height.
+      await page.evaluate(() => document.fonts.ready);
       await card.evaluate((node) => node.scrollIntoView({ block: "start" }));
+      // Off the very bottom: the card sits in the last turns, so scrolling it to the top lands at
+      // the physical end, and there closing a line pins the bottom and pulls the text above it down
+      // (Leo 2026-11-03; an open there grows down, Codex parity).
+      // This trace is about a fold that keeps its place while the reply streams, so start at least
+      // 48px up. Whether scrollIntoView lands on the end depended on timing (base runs read 128 to
+      // 136 compared frames), so the start is pinned here: never further down than end - 48, and
+      // never further down than where scrollIntoView put the card, so the card stays in view.
+      const fromEnd = await page.locator(".acpmux-scroll").evaluate(async (node) => {
+        node.scrollTop = Math.max(0, Math.min(node.scrollTop, node.scrollHeight - node.clientHeight - 48));
+        node.dispatchEvent(new Event("scroll"));
+        await window.cmuxPaintFrame();
+        await window.cmuxPaintFrame();
+        return node.scrollHeight - node.clientHeight - node.scrollTop;
+      });
+      expect(fromEnd).toBeGreaterThan(8);
       const result = await page.evaluate(traceUpwardAnchors, {
         steps: Array.from({ length: 112 }, () => 0),
         foldStream: true,

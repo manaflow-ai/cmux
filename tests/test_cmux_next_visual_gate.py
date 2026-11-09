@@ -1221,9 +1221,11 @@ class WiringTests(unittest.TestCase):
         # The gate's needs, plus the signed build's last check: publication's wait for the gate
         # starts only once the build is ready, so it never runs beside the build for nothing.
         self.assertEqual(line(verdict, "needs"), line(gate, "needs").replace("]", ", verify-final-dmg-nightly]"))
-        # A Linux runner of its own, never the gate's Mac.
+        # A runner of its own, never the gate's Mac, and never Blacksmith (nightlies run only on ours).
         runs_on = line(verdict, "runs-on")
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_32", runs_on)
+        self.assertIn("'glaeda-nightly-only-m4pro'", runs_on)
+        self.assertNotIn("RUNNER_POOLS", runs_on)
+        self.assertNotIn("blacksmith", runs_on)
         self.assertNotIn("route-visual-gate-nightly", runs_on)
         perms = verdict[verdict.index("    permissions:\n"):verdict.index("    outputs:\n")]
         self.assertEqual(re.findall(r"^      ([a-z-]+): ", perms, re.MULTILINE), ["contents", "actions"])
@@ -1237,7 +1239,9 @@ class WiringTests(unittest.TestCase):
         self.assertIn("budget=(--queue-budget-minutes 15 --gate-timeout-minutes 75)", verdict)
         self.assertIn("GATE_MODE: ${{ needs.route-visual-gate-nightly.outputs.mode }}", verdict)
         self.assertIn("timeout-minutes: 75", gate)
-        self.assertEqual(int(re.search(r"timeout-minutes: (\d+)", verdict).group(1)), 100)
+        # 100 min, or 220 in one-mini mode (132f7cef: one-mini jobs get 120 more for the capacity wait).
+        self.assertEqual(re.search(r"timeout-minutes: (.+)", verdict).group(1).strip(),
+                         "${{ vars.CI_NIGHTLY_MINI != '' && 220 || 100 }}")
         self.assertIn("persist-credentials: false", verdict)
         self.assertIn("sparse-checkout: |\n            scripts/ci/nightly_next_canary_mode.py\n", verdict)
         self.assertIn("blocks: ${{ steps.await.outputs.blocks }}", verdict)

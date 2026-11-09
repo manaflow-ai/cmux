@@ -36,6 +36,9 @@ import CmuxNextCompat
     /// that froze (the app's hibernation) thaws first, so the work runs now instead of waiting on a
     /// page that runs no script (a push's completion paces the next one).
     public var beforePageWork: (@MainActor () -> Void)?
+    /// Tests: runs on the main actor after a pass's frames were read off it and before the main
+    /// actor decides the next one, where a reconnect can land. Nil in the app.
+    var afterAnalyze: (@MainActor () async -> Void)?
     /// Counts pushes, so a late completion of a previous connection's push is ignored.
     private var deliveries = 0
     private var pacerStorage: any AgentPaneTransportPacer
@@ -119,6 +122,9 @@ import CmuxNextCompat
     /// A folder pick took the person's gesture (``grantPicked(_:)``): the next `session/new` on this
     /// Mac on that connection carries it as its own (``startCredit``). Nothing else spends it.
     var pickCredit = AgentPaneGestureCredit()
+    /// A Cloud chat's Sign in took the person's click (`_acpmux/agent_login/start`): it also opens
+    /// that sign-in's page once (``takeSignInPage(_:)``), so Sign in is one click.
+    var signInPageCredit = AgentPaneGestureCredit()
     /// Home folders of the chat's machine the person chose by Use Home Folder (cx-1bhjj): only
     /// these may be trusted or started in there. Never this Mac's roots (``addedRoots``).
     public internal(set) var remoteHomeChosen: Set<String> = []
@@ -247,18 +253,19 @@ import CmuxNextCompat
     public func open(_ connection: AcpmuxConnection) async throws(AgentPaneTransportError) -> Int {
         close(connection: current)
         pacer.reset()
-        // A reconnect drops every ticket of the old connection.
-        gestures.clearTickets()
         questionKeyCredit = nil
         questionKeyTickets.removeAll()
         current += 1
         let id = current
+        // A reconnect drops every ticket of the old connection but the person's own send tickets.
+        gestures.carrySendTickets(to: id)
         localAppToken = connection.localAppToken
         socketPath = connection.socketPath
         remoteApprovals = connection.remote?.approvals
         remoteHostID = connection.remote?.hostID
         remoteWire = connection.remote != nil
         trustDaemon = remoteWire ? nil : (connection.socketPath ?? connection.url.absoluteString)
+        AgentPaneLaunchTimings.shared.mark("agent_pane.transport_open_start")
         if let daemon = trustDaemon {
             bindPreOpenTrust(to: daemon)
             guard await restorePendingTrust(daemon: daemon, connection: id) else { throw .closed }
@@ -277,6 +284,7 @@ import CmuxNextCompat
         if !remoteWire { remoteHomeChosen = [] }
         startCredit.clear()
         pickCredit.clear()
+        signInPageCredit.clear()
         decisions.reset()
         sentFirst = false
         promptRelay = AgentPanePromptRelay(connection, journal: promptJournal)
@@ -298,6 +306,7 @@ import CmuxNextCompat
             if self.socket === socket { self.socket = nil; localAppToken = nil; trustDaemon = nil }
             throw .connectFailed
         }
+        AgentPaneLaunchTimings.shared.mark("agent_pane.transport_listener_checked")
         do {
             try await socket.start(timeout: limits.connectTimeout)
         } catch {
@@ -317,11 +326,13 @@ import CmuxNextCompat
         } else {
             onOtherInstall?(false)
         }
+        AgentPaneLaunchTimings.shared.mark("agent_pane.transport_accepted_checked")
         // P1: the daemon's mode fields, once per connection, before the page's first frame.
         modeFields = nil
         let answer = await webModes(nil, nil, nil)
         guard self.socket === socket, id == current else { throw .staleConnection }
         modeFields = answer?.modeFields
+        AgentPaneLaunchTimings.shared.mark("agent_pane.transport_open")
         Self.logger.info("agent pane transport open connection=\(id, privacy: .public) localApp=\(self.localAppToken != nil, privacy: .public)")
         return id
     }
@@ -362,7 +373,9 @@ import CmuxNextCompat
     }
 
     /// `transport.gesture`: reserves the current gesture for one pick sent later on this connection.
-    public func reserveGesture(_ intent: AgentPaneGestureIntent) -> String? {
+    /// `personOnly`: only the person's own gesture pays for it, never input another process posted under
+    /// "Computer use can act as me" (a credential transfer rides on a Send ticket, but the grant never covers it).
+    public func reserveGesture(_ intent: AgentPaneGestureIntent, personOnly: Bool = false) -> String? {
         guard socket != nil else { return nil }
         // A send ticket bound to a chat only for a chat of this pane.
         if let session = intent.sessionId, !sessions.contains(session) { return nil }
@@ -376,13 +389,16 @@ import CmuxNextCompat
             if let ticket = takeQuestionKeyTicket(intent) { return ticket }
             guard gestures.hasFreshAnswerGesture else { return nil }
         }
+        // A plan build answers the chat's plan approval or starts the plan in new worktrees: only
+        // right after the person's own click, as an answer (its chat is bound above).
+        if intent.method == "_acpmux/plan/build", !gestures.hasFreshAnswerGesture { return nil }
         // A prompt held for the folder trust answer right after a new chat's start: the start took
         // the send's gesture, and its credit becomes the prompt's ticket (the ticket outlives it).
         if intent.method == "session/prompt", !gestures.isAvailable,
            let fresh = startCredit.take(connection: current, now: gestures.uptime, lifetime: Self.startCreditLifetime) {
             return fresh ? gestures.reserve(connection: current, intent: intent, paid: true) : nil
         }
-        return gestures.reserve(connection: current, intent: intent)
+        return gestures.reserve(connection: current, intent: intent, paid: false, personOnly: personOnly)
     }
 
     /// `uploads.begin {sessionId, promptId, ticket}`: the upload `upload` of the person's send holds
@@ -408,7 +424,7 @@ import CmuxNextCompat
         decisions.reset()
         onQuestionStateChanged?()
         localAppToken = nil
-        promptRelay?.ended(byDaemon: false)
+        promptRelay?.ended()
     }
 
     func offerQuestionKeyCredit(target: PageQuestionKeyTarget, intent: AgentPaneGestureIntent,
@@ -450,6 +466,8 @@ import CmuxNextCompat
         for answer in decisions.takeAnswers() where !remoteWire {
             switch answer {
             case .refused(let peer): onPeerApprovalsOff?(.notEnrolled(peer: peer))
+            case .enrollThenRetry(let peer, let pageID, let frame): enrollThenRetry(peer: peer, pageID: pageID, frame: frame)
+            case .unproved: onPeerApprovalsOff?(.notRecorded)
             case .counted: onPeerApprovalsOff?(nil)
             }
         }
@@ -472,9 +490,8 @@ import CmuxNextCompat
             gestures.clearTickets(connection: current)
             localAppToken = nil
             // A connection the daemon closed: its prompts go again on the next connection, where the
-            // page waits for them, unless Debug Settings agentPane.debug.lostPromptReplay is off (then
-            // they are the page's again).
-            promptRelay?.ended(byDaemon: deliver != nil && !AgentPaneTunables.lostPromptReplay.value)
+            // page waits for them.
+            promptRelay?.ended()
             // Kept in the log (notice, not info): the page's "connection interrupted" needs its reason.
             Self.logger.notice("agent pane transport closed connection=\(self.current, privacy: .public) code=\(batch.closed?.code ?? 0, privacy: .public) error=\(batch.closed?.error?.rawValue ?? "-", privacy: .public)")
         }

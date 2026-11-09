@@ -8,6 +8,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextWakeups
+import CmuxNextWindowRules
 import Foundation
 import enum CmuxNextLayout.ChatColumnPlacement
 import enum CmuxNextLayout.NewChatPlacement
@@ -65,7 +66,7 @@ enum TabLifecycle {
             // A script's tab aimed at Home's dock opens beside it (HomeDockOpens), in its slot or not.
             let homePlacement = target.map { HomeDockOpens.opensBeside($0.pane, services: ctx.services) } ?? false
             let placed = target.flatMap { HomeDockOpens.placing($0.pane, services: ctx.services, focus: true,
-                                                                then: NewTabSlot.placing(slot, services: ctx.services, then: nil)) }
+                                                                then: NewTabSlot.placing(target === controller ? slot : nil, services: ctx.services, then: nil)) }
             target?.newTerminalTab(cwd: target === controller ? tabCwd : chatStart, keep: keep, fromSelectedTab: true, daemonResolvesCwd: target !== controller,
                                    placementOwner: homePlacement, then: placed)
             return
@@ -73,7 +74,7 @@ enum TabLifecycle {
         let handle = pane.handle, options = SpawnOptions(cwd: tabCwd ?? pane.tabs.first?.cwd, workspace: ctx.services.workspaceKey(of: pane), keep: keep)
         // Home's dock that no window shows opens nothing in itself either: the tab moves beside it, the focus kept; a dock taking no tab: a column right of it (as above).
         let beside = HomeDockOpens.opensBeside(pane, services: ctx.services), width = ctx.services.newColumnWidth(nextTo: pane)
-        let closed = HomeDockOpens.pinnedDock(holding: pane, in: ctx.services.daemon(for: pane).store)?.takesTabs == false
+        let closed = ctx.services.daemon(for: pane).store.pinnedDock(holding: pane.handle)?.takesTabs == false
         ctx.send("new-tab") { connection in
             if closed { _ = try await connection.newColumn(beside: handle, left: false, width: width, options: options); return }
             let created = try await connection.newTab(in: handle, options: options)
@@ -81,16 +82,12 @@ enum TabLifecycle {
         }
     }
 
-    /// `newTab.default` (Cmd-T, the strip's +): a person always gets the New
-    /// Tab page, where a terminal, browser or chat is picked; nothing is
-    /// opened for them (Leo 2026-10-12). Scripts (CLI, MCP) get a tab of the
-    /// kind of the pane's selected tab (`NewTabKind`), through the New
-    /// Terminal Tab, New Browser Tab and New Agent Chat paths, so focus and
-    /// options match them, and so does `newTab.ofKind` (New <Kind> Tab,
-    /// `followsSetting` false).
-    /// `inStrip` (New Horizontal Tab) is kept for its callers; Cmd-T itself always adds a tab now.
-    /// `position` (New Tab After Current Tab, at Start, at End, New Tab to the Right) places the
-    /// tab whatever `tabs.newTabPosition` says (NewTabSlot).
+    /// `newTab.default` (Cmd-T, the strip's +): a person always gets the New Tab page, where a terminal, browser or chat is
+    /// picked; nothing is opened for them (Leo 2026-10-12). Scripts (CLI, MCP) get a tab of the kind of the pane's selected
+    /// tab (`NewTabKind`), through the New Terminal Tab, New Browser Tab and New Agent Chat paths, so focus and options match
+    /// them, and so does `newTab.ofKind` (New <Kind> Tab, `followsSetting` false). `inStrip` (New Horizontal Tab) is kept for
+    /// its callers. `position` (New Tab After Current Tab, at Start, at End, New Tab to the Right) places the tab whatever the
+    /// setting says: `tabs.newTabButtonPosition` for the strip's + (its `newTabButton` argument), else `tabs.newTabPosition`.
     static func newTabOfPaneKind(_ ctx: AppActionContext, _ invocation: ActionInvocation, followsSetting: Bool = true,
                                  inStrip: Bool = false, position: NewTabPosition? = nil) {
         // A named tab or pane that resolves to nothing is refused by the
@@ -128,28 +125,24 @@ enum TabLifecycle {
         // The targeted tab (CLI `--tab`), else the pane's selected tab (an
         // empty pane has none and gets a terminal; never a refusal).
         let selectedID = invocation.target?.kind == .tab ? invocation.target?.id
-            : controller?.stripModel.selectedID?.rawValue
+            : controller.flatMap(current)
             ?? (pane.tabs.indices.contains(pane.defaultTabIndex) ? pane.tabs[pane.defaultTabIndex].id : nil)
         let tab = pane.tabs.first { $0.id == selectedID }
         let user = invocation.origin == .user
         // Agent tabs and pages count as a kind for the user only: a script's
         // `tab new` always gets a terminal or browser it can drive.
-        let onAgentTab = user && controller != nil && selectedID.map(ctx.services.agentTabs.isAgentTab) == true
+        let onAgentTab = user && controller != nil && selectedID.map { ctx.services.agentTabs.isAgentTab($0) } == true
         // Cmd-T opens a tab in the current workspace, like a browser, also in a pane that hides its
         // tab bar (an agent chat alone): Lawrence decided 2026-10-11 (cx-04fy), replacing the
         // "follows the tab bar" rule of cx-xt5k. New Workspace (Cmd-N) opens one in a new workspace.
-        var sameKind = NewTabKind.resolve(
-            selectedKind: tab?.kind, engine: tab?.browserEngine,
-            isLocalBrowser: selectedID?.hasPrefix(LocalBrowserTab.prefix) == true, isAgent: onAgentTab
-        )
-        if onAgentTab, let selectedID, ctx.services.agentTabs.isNewTabPage(selectedID) { sameKind = .page }
-        // The position action's slot, else a person's `tabs.newTabPosition` (right after `tab` by default), else the end (NewTabSlot).
-        let slot = NewTabSlot.target(current: tab, pane: pane.tabs, explicit: position, user: user,
-                                     setting: ctx.services.settings?.snapshot.newTabPosition)
-        var kind = user && followsSetting ? .page : sameKind
-        // Agent tabs and the page live in a shown pane whose daemon holds agent tabs; elsewhere,
-        // a terminal. A build without the agent page has no new tab page either.
-        if kind == .agent || kind == .page, !(controller.map { ctx.services.agentTabs.canHost(on: $0.daemon) } ?? false) { kind = .terminal }
+        // The kind is Rust's (cmux-window-rules `tabs::new_tab_kind`); agent tabs and the page live in a
+        // shown pane whose daemon holds agent tabs.
+        let facts = NewTabKind.facts(tab, id: selectedID, agent: onAgentTab, newTabPage: onAgentTab && selectedID.map { ctx.services.agentTabs.isNewTabPage($0) } == true,
+                                     user: user, followsSetting: followsSetting, canHostAgent: controller.map { ctx.services.agentTabs.canHost(on: $0.daemon) } ?? false)
+        // The position action's slot, else a person's setting (the +: `tabs.newTabButtonPosition`, else `tabs.newTabPosition`), else the end (NewTabSlot).
+        let slot = NewTabSlot.target(current: tab, pane: pane.tabs, explicit: position, user: user, setting: invocation[StripNewTab.button]?.boolValue == true
+                                     ? ctx.services.settings?.snapshot.newTabButtonPosition ?? .buttonDefault : ctx.services.settings?.snapshot.newTabPosition)
+        let kind = WindowRules().newTabKind(facts)?.kind ?? .terminal
         switch kind {
         case .terminal:
             newTerminal(ctx, invocation, slot: slot)
@@ -181,21 +174,36 @@ enum TabLifecycle {
     static func newBrowser(_ ctx: AppActionContext, _ invocation: ActionInvocation, engine: BrowserEngineTag) {
         var invocation = invocation
         invocation.arguments["engine"] = .string(engine.rawValue)
-        newBrowser(ctx, invocation)
+        newBrowser(ctx, invocation, slot: keySlot(ctx, invocation))
+    }
+
+    /// A person's new terminal or browser naming no pane (a key, the palette, the menu bar) goes where Cmd-T's does; a menu's
+    /// named pane (the +'s) or a script's, the end (Leo 2026-11-07: "you make a new tab with the hotkeys, it opens up, like, subsequently").
+    /// The pane's current tab for a new tab's slot: one it selects once listed (Ctrl-` then Cmd-T: after the terminal; a reopened tab), else the strip's selection.
+    static func current(_ pane: PaneController) -> String? { pane.pendingSelect.listed(in: pane.pane.tabs) ?? pane.stripModel.selectedID?.rawValue }
+
+    static func keySlot(_ ctx: AppActionContext, _ invocation: ActionInvocation) -> NewTabSlot.Target? {
+        guard invocation.origin == .user, invocation.target == nil, !invocation.besideCaller, let pane = ctx.services.windows.active?.focusedPane else { return nil }
+        return NewTabSlot.target(current: pane.pane.tabs.first { $0.id == current(pane) }, pane: pane.pane.tabs, explicit: nil, user: true, setting: ctx.services.settings?.snapshot.newTabPosition)
     }
 
     /// Reopens a browser tab's page on the other engine in the same pane,
     /// then closes the original (engines are fixed per tab).
     static func reopen(_ ctx: AppActionContext, _ invocation: ActionInvocation, on engine: BrowserEngineTag) {
         guard let (pane, id) = ctx.tab(invocation) else { return }
-        guard let tab = pane.tab(id), tab.kind == .browser else { return ctx.refuse(RefusalStrings.notABrowserTab) }
-        let current = BrowserEngineTag(rawValue: tab.browserEngine ?? "") ?? .webkit
-        guard current != engine else { return }
-        if engine == .webkit, ctx.services.cache.pageRequests.proxiedTabs.isProxied(tab.id) {
-            return ctx.refuse(RefusalStrings.proxiedTabStaysInChromium)
-        }
-        if engine == .cef, let reason = ctx.services.cache.browserTabs.cefUnavailableReason() {
-            return ctx.refuse(reason)
+        let tab = pane.tab(id)
+        let chromiumReason = engine == .cef ? ctx.services.cache.browserTabs.cefUnavailableReason() : nil
+        // The guards are Rust's (cmux-window-rules `tabs::reopen`).
+        let facts = WindowRules.ReopenFacts(isBrowser: tab?.kind == .browser, current: tab?.browserEngine, target: engine.rawValue,
+                                            proxied: engine == .webkit && tab.map { ctx.services.cache.pageRequests.staysOffThisMacLocalhost($0.id) } == true,
+                                            chromiumUnavailable: chromiumReason != nil)
+        guard let decision = WindowRules().reopen(facts), let tab else { return ctx.refuse(RefusalStrings.notABrowserTab) }
+        switch (decision.decision, decision.reason) {
+        case ("reopen", _): break
+        case ("same", _): return
+        case (_, "proxiedTabStaysInChromium"?): return ctx.refuse(RefusalStrings.proxiedTabStaysInChromium)
+        case (_, "chromiumUnavailable"?): return ctx.refuse(chromiumReason ?? RefusalStrings.notABrowserTab)
+        default: return ctx.refuse(RefusalStrings.notABrowserTab)
         }
         let live = ctx.services.cache.existingBrowser(tab.id)?.tab.state.url
         let url = live ?? tab.url.flatMap(URL.init(string:))
@@ -230,17 +238,15 @@ enum TabLifecycle {
         guard let invoked = ctx.daemonPane(invocation) else { return }
         let engine = plan.engine
         if openBrowserFromDock(ctx, invocation, pane: invoked, url: url, engine: engine, profile: profileRequest) { return }
-        // From the docked agent chat, a tab in the strip (ChatColumnPlacement)
-        // that opens what the chat works on, not the strip's selected tab. The
-        // chat header's Preview is placed beside the chat as an agent's is.
+        // From the docked agent chat, a tab in the strip (ChatColumnPlacement),
+        // not in the chat's pane. The chat header's Preview is placed beside the
+        // chat as an agent's is.
         let pane: PaneModel
-        var context: PaneController?
         var docked = false
         if invocation.origin == .user, !invocation.besideCaller, let chat = ctx.services.paneController(for: invoked) {
             let respawn = chatRespawn(ctx, url: url, engine: engine, profile: profileRequest)
             if let target = ChatColumnPlacement.route(from: chat, respawn: respawn, services: ctx.services) {
                 pane = target.pane
-                if target !== chat { context = chat }
             } else {
                 // A lone chat docked and left the browser in its pane.
                 pane = invoked
@@ -251,10 +257,19 @@ enum TabLifecycle {
         }
         if docked { return }
         // A tab the CLI, MCP or a script opens is an agent's: no saved password fills in it (plans/cmux-next/browser.md).
+        // Whether it opens behind and is an agent's: Rust's (cmux-window-rules `tabs::browser_placement`).
+        // An agent never swaps out the page the person is working in: its tab opens unselected in the
+        // pane that has their focus, or wherever the run asks (plans/cmux-next/agent-browser-passkey-DESIGN.md 3.1).
+        let scripted = [.cli, .mcp, .script].contains(invocation.origin)
+        let placement = WindowRules().browserPlacement(WindowRules.BrowserPlacementFacts(
+            scripted: scripted, allowsViewChange: invocation.allowsViewChange,
+            focusedHere: ctx.services.windows.active?.focusedPane?.pane.id == pane.id, besideCaller: invocation.besideCaller,
+            newColumnBeside: invocation.newColumnBeside, opensInBackground: invocation.opensInBackground
+        ))
         let cache: TabContentCache? = ctx.services.cache
         var agentTab: (@MainActor (SurfaceID) -> Void)?
         var homePlacement = false
-        if [.cli, .mcp, .script].contains(invocation.origin) {
+        if placement?.agentDriven ?? scripted {
             agentTab = { @MainActor [weak cache] surface in cache?.markAgentDriven(surface: surface) }
         }
         // An agent's tab beside its chat: selected there, focus stays in the chat; with no column
@@ -263,11 +278,7 @@ enum TabLifecycle {
         if invocation.besideCaller {
             agentTab = AgentBesidePlacement.placed(invocation, pane: pane, controller: beside, services: ctx.services, then: agentTab)
         }
-        // An agent never swaps out the page the person is working in: its tab opens unselected in the
-        // pane that has their focus, or wherever the run asks (plans/cmux-next/agent-browser-passkey-DESIGN.md 3.1).
-        let personIsHere = [.cli, .mcp, .script].contains(invocation.origin) && !invocation.allowsViewChange
-            && ctx.services.windows.active?.focusedPane?.pane.id == pane.id
-        let background = (invocation.besideCaller && invocation.newColumnBeside) || invocation.opensInBackground || personIsHere
+        let background = placement?.background ?? (scripted || invocation.opensInBackground)
         // A script's tab aimed at Home's dock opens beside it (HomeDockOpens); an agent's beside its
         // chat is placed by AgentBesidePlacement.
         if !invocation.besideCaller {
@@ -309,15 +320,13 @@ enum TabLifecycle {
             _ = beside.newBrowserTab(url: url, engine: engine, background: background, then: agentTab)
             return
         }
-        // In its slot at once (NewTabSuccession), only once it opens in this pane.
-        if then == nil { then = NewTabSlot.placing(slot, services: ctx.services, then: agentTab) }
+        // In its slot at once (NewTabSuccession), only once it opens in this pane (one routed elsewhere lands there as reported).
+        if then == nil { then = NewTabSlot.placing(pane === invoked ? slot : nil, services: ctx.services, then: agentTab) }
         if let controller = ctx.services.paneController(for: opener) {
-            // No URL given: what the selected tab works on (#16620), the chat's from the chat dock.
-            if url == nil {
-                (context ?? controller).newBrowserTabFromSelectedTab(engine: engine, in: controller, placementOwner: homePlacement, then: then)
-            } else {
-                controller.newBrowserTab(url: url, engine: engine, background: background, placementOwner: homePlacement, then: then)
-            }
+            // No URL given: a blank tab on the New Tab page, never an address the selected tab
+            // shows (#37384: a terminal's or a chat's localhost link looked like the last closed tab
+            // coming back). Only Reopen Closed Tab brings a closed tab's address back.
+            controller.newBrowserTab(url: url, engine: engine, background: background, placementOwner: homePlacement, then: then)
             return
         }
         openOffscreen(ctx, pane: pane, url: url, engine: engine, profile: nil, then: agentTab)
@@ -402,21 +411,19 @@ enum TabLifecycle {
             defer { pane.workspace?.showCancelledCreation() } // a close of a pending split's stand-in: the focus to a live pane now
             // A Cmd-W while the last one's close still asks the daemon closes the next tab (TabCloseGuard).
             guard let id = invocation.origin == .user ? TabCloseGuard.cmdWTarget(selected, in: pane) : selected else { return }
-            // The user's Cmd-W closes a pinned tab, as Chrome's does, unless `tabs.cmdWClosesPinnedTabs`
-            // is off (then it keeps it, PINNED-ITEMS-END-TO-END P3); the tab menu, the CLI and MCP close it either way.
+            // The user's Cmd-W closes a pinned tab like any other, as Chrome's does (cmux-ad i8); the close
+            // selects by the one rule (FocusAfterClose.tab: the tab before). Only Home's tab is kept.
             if invocation.origin == .user {
-                let closesPinned = ctx.services.settings?.snapshot.cmdWClosesPinnedTabs ?? CmdWClosesPinnedTabsSetting.fallback
-                // Several selected tabs close together (Chrome); a selected pinned tab stays, as above.
-                if let selected = pane.stripModel.keyboardCloseSelection(id, closesPinned: closesPinned) {
+                // Several selected tabs close together (Chrome).
+                if let selected = pane.stripModel.keyboardCloseSelection(id) {
                     let empties = TabCloseGuard.empties(pane, closing: selected)
                     if empties { pane.workspace?.focus.noteEmptied(pane.paneKey, by: press) }
                     trace.closed(tabs: selected.map(\.rawValue), emptiesPane: empties, input: input)
                     return CloseUndoToasts.close(in: pane, selected)
                 }
-                switch pane.stripModel.keyboardClose(id, closesPinned: closesPinned) {
+                switch pane.stripModel.keyboardClose(id) {
                 case .close: break
                 case .select(let next): return pane.select(next)
-                case .keep: return ctx.refuse(RefusalStrings.pinnedTabKept)
                 // Cmd-W in the Home Chief pane: nothing to close there, so no notice either.
                 case .ignore: return
                 }
@@ -434,6 +441,7 @@ enum TabLifecycle {
             if let back, let content = back.workspace { PaneHandlers.focus(back.layoutPaneID, in: content) }
             return
         }
+        if let target = ctx.explicitTarget(invocation, kinds: [.tab]) { ctx.services.closedTabs?.undoToasts.hiddenPages.lift(target.id) } // a tab hidden while its page decided (HiddenPageCloses): found again
         guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
         if let controller = ctx.services.paneController(for: pane) {
             return CloseUndoToasts.close(in: controller, ctx.actingTabs(invocation, controller, StripTabID(tab.id)))
@@ -479,8 +487,8 @@ extension TabLifecycle {
         }
     }
 
-    /// A browser uses the same serialized right-column open as a terminal. Preserve the chat's
-    /// working URL and the requested profile; while a split is being made, its upper pane keeps
+    /// A browser uses the same serialized right-column open as a terminal. Preserve the requested
+    /// profile; while a split is being made, its upper pane keeps
     /// showing its existing tab and the browser appears only after its move below lands.
     static func openBrowserFromDock(_ ctx: AppActionContext, _ invocation: ActionInvocation, pane: PaneModel,
                                     url: URL?, engine: String?, profile: AgentBrowserProfile.Request) -> Bool {
@@ -491,10 +499,7 @@ extension TabLifecycle {
             let background = placed != nil || invocation.opensInBackground
             switch profile {
             case .cascade:
-                if url == nil {
-                    chat.newBrowserTabFromSelectedTab(engine: engine, in: target, background: background, placementOwner: placed != nil, then: then)
-                    return true
-                }
+                // No URL given: a blank tab, as from any other pane (#37384).
                 return target.newBrowserTab(url: url, engine: engine, background: background, placementOwner: placed != nil, then: then)
             case .explicit(let id):
                 return target.newBrowserTab(url: url, engine: engine, background: background, profile: id, placementOwner: placed != nil, then: then)

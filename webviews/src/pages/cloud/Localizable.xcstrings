@@ -11353,138 +11353,6 @@
         }
       }
     },
-    "field.id": {
-      "comment": "Field label",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "المعرّف"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ID"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Id"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ID"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ID"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ID"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ID"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ID"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ID"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "លេខសម្គាល់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ID"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ID"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ID"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ID"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ID"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ID"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kimlik"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ID"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ID"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ID"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ID"
-          }
-        }
-      }
-    },
     "field.idle": {
       "comment": "Field label: when the machine pauses itself",
       "extractionState": "manual",
@@ -25737,6 +25605,3042 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "用量"
+          }
+        }
+      }
+    },
+    "ports.sharePreview": {
+      "comment": "Button: create and copy an anonymous preview link.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Share"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Share"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Share"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Share"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Share"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Share"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Share"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Share"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Share"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Share"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Share"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Share"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Share"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Share"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Share"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Share"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Share"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Share"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Share"
+          }
+        }
+      }
+    },
+    "ports.revokeShare": {
+      "comment": "Button: revoke an anonymous preview link.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revoke"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revoke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revoke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revoke"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revoke"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revoke"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revoke"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revoke"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revoke"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revoke"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revoke"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revoke"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revoke"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revoke"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revoke"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revoke"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revoke"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revoke"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revoke"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revoke"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Revoke"
+          }
+        }
+      }
+    },
+    "ports.shareCopied": {
+      "comment": "Status: the preview link was copied to the clipboard.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copied"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copied"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copied"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copied"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link copied"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copied"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copied"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copied"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copied"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copied"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copied"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copied"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copied"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copied"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copied"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copied"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copied"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copied"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copied"
+          }
+        }
+      }
+    },
+    "ports.shareExpires": {
+      "comment": "Status: when the preview link expires.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expires {date}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expires {date}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expires {date}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expires {date}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expires {date}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expires {date}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expires {date}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expires {date}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expires {date}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expires {date}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expires {date}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expires {date}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expires {date}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expires {date}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expires {date}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expires {date}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expires {date}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expires {date}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expires {date}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expires {date}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expires {date}"
+          }
+        }
+      }
+    },
+    "environment.secretHosts": {
+      "comment": "Cloud environment editor: a secret's delivery hosts and header",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُرسل إلى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Šalje se na"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sendes til"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesendet an"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sent to"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se envía a"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyé à"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inviato a"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信先"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើទៅ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전송 대상"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sendes til"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wysyłany do"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviado para"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправляется на"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งไปยัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gönderildiği yer"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надсилається на"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gửi đến"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送到"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送至"
+          }
+        }
+      }
+    },
+    "environment.secretHostsPlaceholder": {
+      "comment": "Cloud environment editor: a secret's delivery hosts and header",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المضيفون، مثل api.example.com"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hostovi, npr. api.example.com"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Værter, f.eks. api.example.com"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hosts, z. B. api.example.com"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hosts, like api.example.com"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hosts, como api.example.com"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hôtes, comme api.example.com"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host, come api.example.com"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホスト（例: api.example.com）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីន ដូចជា api.example.com"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호스트(예: api.example.com)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verter, f.eks. api.example.com"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hosty, np. api.example.com"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hosts, como api.example.com"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хосты, например api.example.com"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โฮสต์ เช่น api.example.com"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ana makineler, ör. api.example.com"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хости, наприклад api.example.com"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy chủ, ví dụ api.example.com"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机，例如 api.example.com"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主機，例如 api.example.com"
+          }
+        }
+      }
+    },
+    "environment.secretHostsNote": {
+      "comment": "Cloud environment editor: a secret's delivery hosts and header",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُرسَل السر إلى مضيفيه فقط في ترويسة الطلب؛ لا تدخل قيمته الجهاز أبدًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tajna se šalje samo njenim hostovima, u zaglavlju zahtjeva; njena vrijednost nikad ne ulazi u mašinu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En hemmelighed sendes kun til dens værter i en anmodningsheader; dens værdi kommer aldrig ind på maskinen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Geheimnis wird nur an seine Hosts gesendet, in einem Anfrage-Header; sein Wert gelangt nie auf die Maschine."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A secret is sent only to its hosts, in a request header; its value never enters the machine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un secreto se envía solo a sus hosts, en un encabezado de la solicitud; su valor nunca entra en la máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un secret n’est envoyé qu’à ses hôtes, dans un en-tête de requête ; sa valeur n’entre jamais dans la machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un segreto viene inviato solo ai suoi host, in un'intestazione della richiesta; il suo valore non entra mai nella macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シークレットはそのホストにだけリクエストヘッダーで送信され、値はマシンに入りません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម្ងាត់ត្រូវបានផ្ញើទៅម៉ាស៊ីនរបស់វាតែប៉ុណ្ណោះ ក្នុងក្បាលសំណើ។ តម្លៃរបស់វាមិនដែលចូលម៉ាស៊ីនឡើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시크릿은 요청 헤더에 담겨 해당 호스트로만 전송되며, 값은 머신에 들어가지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En hemmelighet sendes bare til vertene sine, i en forespørselsheader; verdien kommer aldri inn på maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekret jest wysyłany tylko do jego hostów, w nagłówku żądania; jego wartość nigdy nie trafia na maszynę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um segredo é enviado só aos seus hosts, em um cabeçalho da requisição; o valor nunca entra na máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Секрет отправляется только своим хостам в заголовке запроса; его значение никогда не попадает на машину."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความลับจะถูกส่งไปยังโฮสต์ของมันเท่านั้นในส่วนหัวของคำขอ ค่าของความลับจะไม่เข้าสู่เครื่องเลย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir gizli bilgi yalnızca kendi ana makinelerine, bir istek başlığında gönderilir; değeri makineye hiç girmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Секрет надсилається лише його хостам у заголовку запиту; його значення ніколи не потрапляє на машину."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bí mật chỉ được gửi đến các máy chủ của nó, trong một tiêu đề yêu cầu; giá trị của nó không bao giờ vào máy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密钥只会通过请求头发送给它的主机，其值永远不会进入机器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密鑰只會透過請求標頭傳送給它的主機，其值永遠不會進入機器。"
+          }
+        }
+      }
+    },
+    "environment.secretHeader": {
+      "comment": "Cloud environment editor: a secret's delivery hosts and header",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الترويسة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaglavlje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Header"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Header"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Header"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encabezado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En-tête"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intestazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヘッダー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក្បាល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "헤더"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Header"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nagłówek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cabeçalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заголовок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่วนหัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başlık"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заголовок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiêu đề"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请求头"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請求標頭"
+          }
+        }
+      }
+    },
+    "environment.secretHeaderName": {
+      "comment": "Cloud environment editor: a secret's delivery hosts and header",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اسم الترويسة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naziv zaglavlja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Headernavn"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Header-Name"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Header name"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombre del encabezado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nom de l’en-tête"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nome dell’intestazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヘッダー名"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឈ្មោះក្បាល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "헤더 이름"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Headernavn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nazwa nagłówka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nome do cabeçalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Имя заголовка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ชื่อส่วนหัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başlık adı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Назва заголовка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tên tiêu đề"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请求头名称"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請求標頭名稱"
+          }
+        }
+      }
+    },
+    "environment.secretHeaderFormat": {
+      "comment": "Cloud environment editor: a secret's delivery hosts and header",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التنسيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Format"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Format"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Format"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Format"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Formato"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Format"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Formato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "形式"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទម្រង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "형식"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Format"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Format"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Formato"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Формат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รูปแบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biçim"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Формат"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Định dạng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "格式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "格式"
+          }
+        }
+      }
+    },
+    "environment.secretHeaderHint": {
+      "comment": "Cloud environment editor: a secret's delivery hosts and header",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{value} يمثّل السر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{value} označava tajnu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{value} står for hemmeligheden."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{value} steht für das Geheimnis."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{value} stands for the secret."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{value} representa el secreto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{value} représente le secret."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{value} rappresenta il segreto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{value} はシークレットを表します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{value} តំណាងឱ្យសម្ងាត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{value}는 시크릿을 나타냅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{value} står for hemmeligheten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{value} oznacza sekret."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{value} representa o segredo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{value} обозначает секрет."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{value} แทนความลับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{value}, gizli bilgiyi temsil eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{value} позначає секрет."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{value} đại diện cho bí mật."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{value} 代表密钥。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{value} 代表密鑰。"
+          }
+        }
+      }
+    },
+    "environment.invalidHosts": {
+      "comment": "Cloud environment editor: a secret's delivery hosts and header",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم حتى 8 أسماء مضيفين مثل api.example.com، بلا مخطط أو منفذ أو مسار أو حرف بدل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristite do 8 naziva hostova poput api.example.com, bez šeme, porta, putanje ili zamjenskog znaka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug op til 8 værtsnavne som api.example.com uden skema, port, sti eller jokertegn."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwende bis zu 8 Hostnamen wie api.example.com, ohne Schema, Port, Pfad oder Platzhalter."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use up to 8 host names like api.example.com, with no scheme, port, path or wildcard."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa hasta 8 nombres de host como api.example.com, sin esquema, puerto, ruta ni comodín."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez jusqu’à 8 noms d’hôte comme api.example.com, sans schéma, port, chemin ni caractère générique."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa fino a 8 nomi host come api.example.com, senza schema, porta, percorso o carattere jolly."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "api.example.com のようなホスト名を最大 8 個まで、スキーム・ポート・パス・ワイルドカードなしで入力してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើឈ្មោះម៉ាស៊ីនរហូតដល់ 8 ដូចជា api.example.com ដោយគ្មាន scheme ច្រក ផ្លូវ ឬ wildcard។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "api.example.com 같은 호스트 이름을 최대 8개까지, 스킴·포트·경로·와일드카드 없이 입력하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk opptil 8 vertsnavn som api.example.com, uten skjema, port, sti eller jokertegn."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użyj maksymalnie 8 nazw hostów, np. api.example.com, bez schematu, portu, ścieżki i symbolu wieloznacznego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use até 8 nomes de host como api.example.com, sem esquema, porta, caminho ou curinga."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите до 8 имён хостов вида api.example.com, без схемы, порта, пути и подстановочных знаков."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ชื่อโฮสต์ได้สูงสุด 8 ชื่อ เช่น api.example.com โดยไม่มี scheme พอร์ต พาธ หรือไวลด์การ์ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "api.example.com gibi en fazla 8 ana makine adı kullanın; şema, bağlantı noktası, yol veya joker karakter olmadan."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкажіть до 8 імен хостів на кшталт api.example.com, без схеми, порту, шляху та символів підстановки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng tối đa 8 tên máy chủ như api.example.com, không có scheme, cổng, đường dẫn hay ký tự đại diện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最多填写 8 个主机名，例如 api.example.com，不含协议、端口、路径或通配符。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最多填寫 8 個主機名稱，例如 api.example.com，不含協定、連接埠、路徑或萬用字元。"
+          }
+        }
+      }
+    },
+    "environment.secretNoHosts": {
+      "comment": "Cloud environment editor: a secret's delivery hosts and header",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج السر إلى مضيف واحد على الأقل. للقيمة التي يقرؤها الجهاز بنفسه، استخدم متغيرًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tajni treba barem jedan host. Za vrijednost koju mašina sama čita koristite varijablu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En hemmelighed skal have mindst én vært. Brug en variabel til en værdi, maskinen selv læser."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Geheimnis braucht mindestens einen Host. Für einen Wert, den die Maschine selbst liest, nutze eine Variable."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A secret needs at least one host. For a value the machine reads itself, use a variable."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un secreto necesita al menos un host. Para un valor que la máquina lee por sí misma, usa una variable."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un secret a besoin d’au moins un hôte. Pour une valeur que la machine lit elle-même, utilisez une variable."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un segreto ha bisogno di almeno un host. Per un valore che la macchina legge da sé, usa una variabile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シークレットには少なくとも 1 つのホストが必要です。マシン自身が読む値には変数を使ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម្ងាត់ត្រូវការម៉ាស៊ីនយ៉ាងហោចណាស់មួយ។ សម្រាប់តម្លៃដែលម៉ាស៊ីនអានដោយខ្លួនឯង សូមប្រើអថេរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시크릿에는 호스트가 하나 이상 필요합니다. 머신이 직접 읽는 값에는 변수를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En hemmelighet trenger minst én vert. Bruk en variabel for en verdi maskinen leser selv."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekret potrzebuje co najmniej jednego hosta. Dla wartości, którą maszyna odczytuje sama, użyj zmiennej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um segredo precisa de pelo menos um host. Para um valor que a máquina lê sozinha, use uma variável."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Секрету нужен хотя бы один хост. Для значения, которое машина читает сама, используйте переменную."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความลับต้องมีโฮสต์อย่างน้อยหนึ่งรายการ สำหรับค่าที่เครื่องอ่านเอง ให้ใช้ตัวแปร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir gizli bilginin en az bir ana makinesi olmalı. Makinenin kendisinin okuduğu bir değer için değişken kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Секрету потрібен принаймні один хост. Для значення, яке машина читає сама, використовуйте змінну."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bí mật cần ít nhất một máy chủ. Với giá trị máy tự đọc, hãy dùng biến."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密钥至少需要一个主机。机器自己读取的值，请使用变量。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密鑰至少需要一個主機。機器自己讀取的值，請使用變數。"
+          }
+        }
+      }
+    },
+    "environment.invalidHeader": {
+      "comment": "Cloud environment editor: a secret's delivery hosts and header",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سمِّ الترويسة وضمِّن {value} في تنسيقها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imenujte zaglavlje i uključite {value} u njegov format."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navngiv headeren, og medtag {value} i dens format."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benenne den Header und nimm {value} in sein Format auf."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the header and include {value} in its format."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pon nombre al encabezado e incluye {value} en su formato."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nommez l’en-tête et incluez {value} dans son format."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dai un nome all’intestazione e includi {value} nel suo formato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヘッダー名を入力し、形式に {value} を含めてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដាក់ឈ្មោះក្បាល ហើយបញ្ចូល {value} ក្នុងទម្រង់របស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "헤더 이름을 입력하고 형식에 {value}를 포함하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gi headeren et navn, og ta med {value} i formatet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nazwij nagłówek i umieść {value} w jego formacie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dê um nome ao cabeçalho e inclua {value} no formato."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите имя заголовка и включите {value} в его формат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตั้งชื่อส่วนหัวและใส่ {value} ในรูปแบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başlığa bir ad verin ve biçimine {value} ekleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкажіть назву заголовка й додайте {value} до його формату."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đặt tên tiêu đề và thêm {value} vào định dạng của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请填写请求头名称，并在格式中包含 {value}。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請填寫請求標頭名稱，並在格式中包含 {value}。"
+          }
+        }
+      }
+    },
+    "environment.reservedHeader": {
+      "comment": "Cloud environment editor: a secret's delivery hosts and header",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذه الترويسة تحمل الطلب نفسه (مثل host أو content-length). استخدم ترويسة أخرى، مثل authorization."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To zaglavlje nosi sam zahtjev (poput host ili content-length). Koristite drugo, npr. authorization."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den header bærer selve anmodningen (som host eller content-length). Brug en anden, f.eks. authorization."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Header trägt die Anfrage selbst (wie host oder content-length). Verwende einen anderen, etwa authorization."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That header carries the request itself (like host or content-length). Use another, such as authorization."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ese encabezado forma parte de la propia solicitud (como host o content-length). Usa otro, como authorization."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet en-tête porte la requête elle-même (comme host ou content-length). Utilisez-en un autre, comme authorization."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa intestazione regge la richiesta stessa (come host o content-length). Usane un'altra, come authorization."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このヘッダーはリクエスト自体を構成します（host や content-length など）。authorization など別のヘッダーを使ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក្បាលនេះផ្ទុកសំណើខ្លួនឯង (ដូចជា host ឬ content-length)។ ប្រើក្បាលផ្សេង ដូចជា authorization។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 헤더는 요청 자체를 구성합니다(host, content-length 등). authorization 같은 다른 헤더를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den headeren bærer selve forespørselen (som host eller content-length). Bruk en annen, for eksempel authorization."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten nagłówek przenosi samo żądanie (np. host lub content-length). Użyj innego, np. authorization."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esse cabeçalho faz parte da própria requisição (como host ou content-length). Use outro, como authorization."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот заголовок несёт сам запрос (например, host или content-length). Используйте другой, например authorization."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่วนหัวนี้เป็นส่วนของคำขอเอง (เช่น host หรือ content-length) ใช้ส่วนหัวอื่น เช่น authorization"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu başlık isteğin kendisini taşır (host veya content-length gibi). authorization gibi başka bir başlık kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей заголовок несе сам запит (як-от host або content-length). Використайте інший, наприклад authorization."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiêu đề này mang chính yêu cầu (như host hoặc content-length). Hãy dùng tiêu đề khác, như authorization."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该请求头承载请求本身（如 host 或 content-length）。请改用其他请求头，例如 authorization。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此請求標頭承載請求本身（如 host 或 content-length）。請改用其他請求標頭，例如 authorization。"
+          }
+        }
+      }
+    },
+    "environment.invalidValue": {
+      "comment": "Cloud environment editor: a secret's delivery hosts and header",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السر المرسل إلى مضيفين يوضع في ترويسة: استخدم نص ASCII عاديًا ومسافات وعلامات جدولة، بلا فواصل أسطر. ويتبع تنسيق الترويسة القاعدة نفسها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tajna koja se šalje hostovima ide u zaglavlje: koristite običan ASCII tekst, razmake i tabove, bez prelazaka u novi red. Format zaglavlja slijedi isto pravilo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En hemmelighed, der sendes til værter, ligger i en header: brug almindelig ASCII-tekst, mellemrum og tabulatorer uden linjeskift. Headerformatet følger samme regel."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Geheimnis, das an Hosts geht, steht in einem Header: Verwende einfachen ASCII-Text, Leerzeichen und Tabs, ohne Zeilenumbrüche. Für das Header-Format gilt dieselbe Regel."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A secret sent to hosts goes in a header: use plain ASCII text, spaces and tabs, with no line breaks. The header format follows the same rule."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un secreto enviado a hosts va en un encabezado: usa texto ASCII simple, espacios y tabulaciones, sin saltos de línea. El formato del encabezado sigue la misma regla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un secret envoyé à des hôtes passe dans un en-tête : utilisez du texte ASCII simple, des espaces et des tabulations, sans saut de ligne. Le format de l’en-tête suit la même règle."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un segreto inviato agli host va in un’intestazione: usa testo ASCII semplice, spazi e tabulazioni, senza a capo. Il formato dell’intestazione segue la stessa regola."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストに送信するシークレットはヘッダーに入ります。改行を含まない ASCII 文字、スペース、タブのみを使ってください。ヘッダーの形式も同じ規則に従います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម្ងាត់ដែលផ្ញើទៅម៉ាស៊ីនស្ថិតក្នុងក្បាល៖ ប្រើអត្ថបទ ASCII ធម្មតា ដកឃ្លា និងថេប ដោយគ្មានការចុះបន្ទាត់។ ទម្រង់ក្បាលក៏អនុវត្តតាមច្បាប់ដូចគ្នា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호스트로 보내는 시크릿은 헤더에 들어갑니다. 줄바꿈 없이 일반 ASCII 텍스트, 공백, 탭만 사용하세요. 헤더 형식도 같은 규칙을 따릅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En hemmelighet som sendes til verter, ligger i en header: bruk vanlig ASCII-tekst, mellomrom og tabulatorer, uten linjeskift. Headerformatet følger samme regel."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekret wysyłany do hostów trafia do nagłówka: używaj zwykłego tekstu ASCII, spacji i tabulatorów, bez łamania wierszy. Format nagłówka podlega tej samej zasadzie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um segredo enviado a hosts vai em um cabeçalho: use texto ASCII simples, espaços e tabulações, sem quebras de linha. O formato do cabeçalho segue a mesma regra."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Секрет, отправляемый хостам, передаётся в заголовке: используйте обычный текст ASCII, пробелы и табуляцию, без переносов строк. Формат заголовка подчиняется тому же правилу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความลับที่ส่งไปยังโฮสต์จะอยู่ในส่วนหัว: ใช้ข้อความ ASCII ธรรมดา ช่องว่าง และแท็บ โดยไม่มีการขึ้นบรรทัดใหม่ รูปแบบส่วนหัวก็ใช้กฎเดียวกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ana makinelere gönderilen gizli bilgi bir başlıkta taşınır: satır sonu olmadan düz ASCII metin, boşluk ve sekme kullanın. Başlık biçimi de aynı kurala uyar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Секрет, що надсилається хостам, передається в заголовку: використовуйте звичайний текст ASCII, пробіли й табуляцію, без розривів рядків. Формат заголовка підлягає тому самому правилу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bí mật gửi đến máy chủ nằm trong một tiêu đề: dùng văn bản ASCII thường, dấu cách và tab, không xuống dòng. Định dạng tiêu đề theo cùng quy tắc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送到主机的密钥放在请求头中：只能使用普通 ASCII 文本、空格和制表符，不能换行。请求头格式遵循同样的规则。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送至主機的密鑰放在請求標頭中：只能使用一般 ASCII 文字、空格和定位字元，不能換行。請求標頭格式遵循相同規則。"
+          }
+        }
+      }
+    },
+    "environment.secretRetype": {
+      "comment": "Cloud environment editor: a secret's delivery hosts and header",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اكتب القيمة مرة أخرى لإرسال هذا السر إلى هؤلاء المضيفين."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponovo upišite vrijednost da se ova tajna šalje ovim hostovima."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriv værdien igen for at sende hemmeligheden til disse værter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib den Wert erneut ein, um dieses Geheimnis an diese Hosts zu senden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type the value again to send this secret to these hosts."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vuelve a escribir el valor para enviar este secreto a estos hosts."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez de nouveau la valeur pour envoyer ce secret à ces hôtes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digita di nuovo il valore per inviare questo segreto a questi host."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このシークレットをこれらのホストに送信するには、値をもう一度入力してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វាយតម្លៃម្ដងទៀត ដើម្បីផ្ញើសម្ងាត់នេះទៅម៉ាស៊ីនទាំងនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 시크릿을 이 호스트들로 보내려면 값을 다시 입력하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriv inn verdien på nytt for å sende hemmeligheten til disse vertene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wpisz wartość ponownie, aby wysyłać ten sekret do tych hostów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digite o valor de novo para enviar este segredo a esses hosts."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введите значение ещё раз, чтобы отправлять этот секрет на эти хосты."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พิมพ์ค่าอีกครั้งเพื่อส่งความลับนี้ไปยังโฮสต์เหล่านี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu gizli bilgiyi bu ana makinelere göndermek için değeri yeniden yazın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введіть значення ще раз, щоб надсилати цей секрет цим хостам."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhập lại giá trị để gửi bí mật này đến các máy chủ này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要将此密钥发送到这些主机，请重新输入其值。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要將此密鑰傳送至這些主機，請重新輸入其值。"
+          }
+        }
+      }
+    },
+    "environment.routeDropped": {
+      "comment": "Cloud environment editor: a secret's delivery hosts and header",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تحتفظ خدمة السحابة هذه بوجهة إرسال السر، لذا حُفظ كمتغير عادي على الجهاز. أزله أدناه أو حاول لاحقًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova Cloud usluga nije zadržala kamo se tajna šalje, pa je sačuvana kao obična varijabla na mašini. Uklonite je ispod ili pokušajte kasnije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Cloud-tjeneste beholdt ikke, hvor hemmeligheden sendes hen, så den blev gemt som en almindelig variabel på maskinen. Fjern den nedenfor, eller prøv igen senere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Cloud-Dienst hat nicht behalten, wohin das Geheimnis gesendet wird, daher wurde es als normale Variable auf der Maschine gespeichert. Entferne es unten oder versuche es später erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Cloud service didn't keep where the secret is sent, so it was saved as a plain variable on the machine. Remove it below, or try again later."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este servicio de Cloud no guardó adónde se envía el secreto, así que se guardó como una variable normal en la máquina. Elimínalo abajo o inténtalo más tarde."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce service Cloud n’a pas conservé la destination du secret : il a été enregistré comme variable ordinaire sur la machine. Supprimez-le ci-dessous ou réessayez plus tard."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo servizio Cloud non ha mantenuto la destinazione del segreto, quindi è stato salvato come variabile normale sulla macchina. Rimuovilo qui sotto o riprova più tardi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Cloud サービスはシークレットの送信先を保持しなかったため、マシン上の通常の変数として保存されました。下で削除するか、後でもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវា Cloud នេះមិនបានរក្សាទុកកន្លែងដែលសម្ងាត់ត្រូវផ្ញើទេ ដូច្នេះវាត្រូវបានរក្សាទុកជាអថេរធម្មតានៅលើម៉ាស៊ីន។ លុបវាខាងក្រោម ឬព្យាយាមម្ដងទៀតពេលក្រោយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Cloud 서비스가 시크릿의 전송 대상을 보관하지 않아 머신의 일반 변수로 저장되었습니다. 아래에서 삭제하거나 나중에 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Cloud-tjenesten beholdt ikke hvor hemmeligheten sendes, så den ble lagret som en vanlig variabel på maskinen. Fjern den nedenfor, eller prøv igjen senere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta usługa Cloud nie zachowała, dokąd jest wysyłany sekret, więc zapisano go jako zwykłą zmienną na maszynie. Usuń go poniżej lub spróbuj później."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este serviço de Cloud não guardou para onde o segredo é enviado, então ele foi salvo como uma variável comum na máquina. Remova-o abaixo ou tente mais tarde."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот сервис Cloud не сохранил, куда отправляется секрет, поэтому он сохранён как обычная переменная на машине. Удалите его ниже или повторите попытку позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริการ Cloud นี้ไม่ได้เก็บปลายทางของความลับไว้ จึงบันทึกเป็นตัวแปรธรรมดาบนเครื่อง ลบได้ด้านล่าง หรือลองใหม่ภายหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Cloud hizmeti gizli bilginin nereye gönderildiğini saklamadı, bu yüzden makinede düz bir değişken olarak kaydedildi. Aşağıdan kaldırın veya daha sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей сервіс Cloud не зберіг, куди надсилається секрет, тому його збережено як звичайну змінну на машині. Видаліть його нижче або спробуйте пізніше."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dịch vụ Cloud này không giữ nơi gửi bí mật, nên nó đã được lưu thành một biến thường trên máy. Hãy xóa nó bên dưới hoặc thử lại sau."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Cloud 服务没有保留密钥的发送位置，因此它被保存为机器上的普通变量。请在下方删除，或稍后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Cloud 服務沒有保留密鑰的傳送位置，因此它被儲存為機器上的一般變數。請在下方移除，或稍後再試。"
+          }
+        }
+      }
+    },
+    "environment.vaultDown": {
+      "comment": "Cloud environment editor: why saving a secret failed",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر حفظ الأسرار الآن. حاول مرة أخرى بعد قليل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tajne trenutno nije moguće spremiti. Pokušajte ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hemmeligheder kan ikke gemmes lige nu. Prøv igen om et øjeblik."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geheimnisse können gerade nicht gespeichert werden. Versuche es gleich noch einmal."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Secrets can't be saved right now. Try again in a moment."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahora no se pueden guardar los secretos. Inténtalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’enregistrer les secrets pour le moment. Réessayez dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al momento non è possibile salvare i segreti. Riprova tra poco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在シークレットを保存できません。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចរក្សាទុកសម្ងាត់បានទេឥឡូវនេះ។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금은 시크릿을 저장할 수 없습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hemmeligheter kan ikke lagres akkurat nå. Prøv igjen om et øyeblikk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można teraz zapisać sekretów. Spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é possível salvar segredos agora. Tente novamente em instantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сейчас не удаётся сохранить секреты. Повторите попытку чуть позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บันทึกข้อมูลลับไม่ได้ในขณะนี้ ลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gizli değerler şu anda kaydedilemiyor. Birazdan tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зараз не вдається зберегти секрети. Повторіть спробу трохи згодом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện không thể lưu bí mật. Hãy thử lại sau giây lát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂时无法保存密钥。请稍后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暫時無法儲存密鑰。請稍後再試。"
+          }
+        }
+      }
+    },
+    "environment.vaultPublicSuffix": {
+      "comment": "Cloud environment editor: why saving a secret failed",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لمضيف أن يشمل كل المواقع تحت لاحقة عامة مثل .com أو .co.uk. اكتب اسم المضيف بالضبط، مثل api.example.com."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host ne može obuhvatiti sve stranice pod javnim sufiksom poput .com ili .co.uk. Navedite tačan host, npr. api.example.com."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En vært kan ikke dække alle websteder under et offentligt suffiks som .com eller .co.uk. Angiv den præcise vært, fx api.example.com."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Host darf nicht alle Websites unter einem öffentlichen Suffix wie .com oder .co.uk abdecken. Gib den genauen Host an, etwa api.example.com."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A host can't cover every site under a public suffix like .com or .co.uk. Name the exact host, such as api.example.com."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un host no puede abarcar todos los sitios bajo un sufijo público como .com o .co.uk. Indica el host exacto, como api.example.com."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un hôte ne peut pas couvrir tous les sites sous un suffixe public comme .com ou .co.uk. Indiquez l’hôte exact, par exemple api.example.com."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un host non può coprire tutti i siti sotto un suffisso pubblico come .com o .co.uk. Indica l’host esatto, ad esempio api.example.com."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストで .com や .co.uk のようなパブリックサフィックス配下のすべてのサイトを指定することはできません。api.example.com のように正確なホストを入力してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីនមិនអាចគ្របដណ្តប់គ្រប់គេហទំព័រក្រោមបច្ច័យសាធារណៈដូចជា .com ឬ .co.uk បានទេ។ សូមដាក់ឈ្មោះម៉ាស៊ីនឱ្យច្បាស់ ដូចជា api.example.com។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호스트는 .com이나 .co.uk 같은 공개 접미사 아래의 모든 사이트를 포함할 수 없습니다. api.example.com처럼 정확한 호스트를 입력하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En vert kan ikke dekke alle nettsteder under et offentlig suffiks som .com eller .co.uk. Oppgi den nøyaktige verten, for eksempel api.example.com."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host nie może obejmować wszystkich witryn w sufiksie publicznym, takim jak .com lub .co.uk. Podaj dokładny host, np. api.example.com."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um host não pode abranger todos os sites sob um sufixo público como .com ou .co.uk. Informe o host exato, como api.example.com."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хост не может охватывать все сайты в публичном суффиксе вроде .com или .co.uk. Укажите точный хост, например api.example.com."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โฮสต์ครอบคลุมทุกเว็บไซต์ภายใต้ส่วนต่อท้ายสาธารณะอย่าง .com หรือ .co.uk ไม่ได้ ให้ระบุโฮสต์ที่ตรงกัน เช่น api.example.com"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir ana makine, .com veya .co.uk gibi genel bir sonek altındaki tüm siteleri kapsayamaz. api.example.com gibi tam ana makineyi yazın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хост не може охоплювати всі сайти в публічному суфіксі на кшталт .com або .co.uk. Вкажіть точний хост, наприклад api.example.com."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một máy chủ không thể bao trùm mọi trang dưới hậu tố công khai như .com hay .co.uk. Hãy ghi đúng máy chủ, ví dụ api.example.com."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机不能覆盖 .com 或 .co.uk 这类公共后缀下的所有网站。请填写确切的主机，例如 api.example.com。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主機不能涵蓋 .com 或 .co.uk 這類公共後綴下的所有網站。請填寫確切的主機，例如 api.example.com。"
+          }
+        }
+      }
+    },
+    "environment.vaultNotPlainText": {
+      "comment": "Cloud environment editor: why saving a secret failed",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السر المرسل كبيانات اعتماد Basic يجب أن يكون نصًا عاديًا: أحرف وأرقام ورموز ASCII فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tajna koja se šalje kao Basic vjerodajnice mora biti običan tekst: samo ASCII slova, brojevi i simboli."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En hemmelighed, der sendes som Basic-legitimation, skal være almindelig tekst: kun ASCII-bogstaver, -tal og -symboler."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Geheimnis, das als Basic-Anmeldedaten gesendet wird, muss einfacher Text sein: nur ASCII-Buchstaben, -Ziffern und -Symbole."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A secret sent as Basic credentials must be plain text: ASCII letters, numbers and symbols only."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un secreto enviado como credenciales Basic debe ser texto simple: solo letras, números y símbolos ASCII."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un secret envoyé comme identifiants Basic doit être du texte simple : lettres, chiffres et symboles ASCII uniquement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un segreto inviato come credenziali Basic deve essere testo semplice: solo lettere, numeri e simboli ASCII."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basic 認証情報として送信するシークレットはプレーンテキストにしてください。使えるのは ASCII の英字、数字、記号のみです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម្ងាត់ដែលផ្ញើជាព័ត៌មានសម្គាល់ Basic ត្រូវតែជាអត្ថបទធម្មតា៖ អក្សរ លេខ និងនិមិត្តសញ្ញា ASCII ប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basic 자격 증명으로 보내는 시크릿은 일반 텍스트여야 합니다. ASCII 문자, 숫자, 기호만 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En hemmelighet som sendes som Basic-legitimasjon, må være vanlig tekst: bare ASCII-bokstaver, -tall og -symboler."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekret wysyłany jako dane uwierzytelniające Basic musi być zwykłym tekstem: tylko litery, cyfry i symbole ASCII."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um segredo enviado como credenciais Basic deve ser texto simples: apenas letras, números e símbolos ASCII."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Секрет, отправляемый как учётные данные Basic, должен быть простым текстом: только буквы, цифры и символы ASCII."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อมูลลับที่ส่งเป็นข้อมูลรับรองแบบ Basic ต้องเป็นข้อความธรรมดา ใช้ได้เฉพาะตัวอักษร ตัวเลข และสัญลักษณ์ ASCII"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basic kimlik bilgisi olarak gönderilen bir gizli değer düz metin olmalıdır: yalnızca ASCII harfler, rakamlar ve simgeler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Секрет, що надсилається як облікові дані Basic, має бути простим текстом: лише літери, цифри й символи ASCII."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bí mật gửi dưới dạng thông tin xác thực Basic phải là văn bản thuần: chỉ chữ cái, chữ số và ký hiệu ASCII."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以 Basic 凭据发送的密钥必须是纯文本：只能包含 ASCII 字母、数字和符号。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以 Basic 憑證傳送的密鑰必須是純文字：只能包含 ASCII 字母、數字和符號。"
+          }
+        }
+      }
+    },
+    "environment.vaultUnreadable": {
+      "comment": "Cloud environment editor: why saving a secret failed",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يعد من الممكن قراءة سر محفوظ. اكتب قيمته مرة أخرى، ثم احفظ."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spremljenu tajnu više nije moguće pročitati. Ponovo unesite njenu vrijednost, pa spremite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En gemt hemmelighed kan ikke længere læses. Indtast værdien igen, og gem."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein gespeichertes Geheimnis kann nicht mehr gelesen werden. Gib seinen Wert erneut ein und speichere."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A saved secret can't be read anymore. Type its value again, then save."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ya no se puede leer un secreto guardado. Vuelve a escribir su valor y guarda."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un secret enregistré n’est plus lisible. Saisissez de nouveau sa valeur, puis enregistrez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un segreto salvato non è più leggibile. Digita di nuovo il suo valore, poi salva."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存済みのシークレットを読み取れなくなりました。値をもう一度入力してから保存してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម្ងាត់ដែលបានរក្សាទុកមិនអាចអានបានទៀតទេ។ សូមវាយតម្លៃរបស់វាម្តងទៀត រួចរក្សាទុក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장된 시크릿을 더 이상 읽을 수 없습니다. 값을 다시 입력한 뒤 저장하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En lagret hemmelighet kan ikke leses lenger. Skriv inn verdien på nytt, og lagre."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zapisanego sekretu nie można już odczytać. Wpisz jego wartość ponownie, a potem zapisz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é mais possível ler um segredo salvo. Digite o valor novamente e salve."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сохранённый секрет больше не читается. Введите его значение заново и сохраните."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อ่านข้อมูลลับที่บันทึกไว้ไม่ได้อีกต่อไป พิมพ์ค่าอีกครั้งแล้วบันทึก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kaydedilmiş bir gizli değer artık okunamıyor. Değerini yeniden yazıp kaydedin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Збережений секрет більше не читається. Введіть його значення ще раз і збережіть."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể đọc một bí mật đã lưu nữa. Hãy nhập lại giá trị rồi lưu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已保存的密钥无法再读取。请重新输入它的值，然后保存。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已儲存的密鑰無法再讀取。請重新輸入它的值，然後儲存。"
+          }
+        }
+      }
+    },
+    "environment.vaultRefused": {
+      "comment": "Cloud environment editor: why saving a secret failed",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر تخزين السر. تم الاحتفاظ بتعديلاتك؛ تحقق من اسمه ومضيفيه، أو حاول مرة أخرى لاحقًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tajnu nije moguće pohraniti. Vaše izmjene su sačuvane; provjerite njen naziv i hostove ili pokušajte ponovo kasnije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hemmeligheden kunne ikke gemmes. Dine redigeringer er bevaret; tjek dens navn og værter, eller prøv igen senere."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Geheimnis konnte nicht gespeichert werden. Deine Eingaben bleiben erhalten; prüfe Name und Hosts oder versuche es später erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The secret couldn't be stored. Your edits are kept; check its name and hosts, or try again later."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo almacenar el secreto. Tus ediciones se conservan; revisa su nombre y hosts, o inténtalo más tarde."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de stocker le secret. Vos saisies sont conservées ; vérifiez son nom et ses hôtes, ou réessayez plus tard."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile archiviare il segreto. Le tue modifiche sono conservate; controlla nome e host, oppure riprova più tardi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シークレットを保管できませんでした。編集内容は保持されています。名前とホストを確認するか、後でもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចរក្សាទុកសម្ងាត់បានទេ។ ការកែសម្រួលរបស់អ្នកត្រូវបានរក្សាទុក សូមពិនិត្យឈ្មោះ និងម៉ាស៊ីនរបស់វា ឬព្យាយាមម្តងទៀតពេលក្រោយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시크릿을 보관할 수 없습니다. 편집 내용은 유지됩니다. 이름과 호스트를 확인하거나 나중에 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hemmeligheten kunne ikke lagres. Redigeringene dine er beholdt; sjekk navnet og vertene, eller prøv igjen senere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się przechować sekretu. Twoje edycje zostały zachowane; sprawdź jego nazwę i hosty albo spróbuj ponownie później."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível armazenar o segredo. Suas edições foram mantidas; verifique o nome e os hosts, ou tente novamente mais tarde."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось сохранить секрет в хранилище. Ваши правки сохранены; проверьте его имя и хосты или повторите попытку позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จัดเก็บข้อมูลลับไม่ได้ ระบบเก็บการแก้ไขไว้แล้ว ตรวจสอบชื่อและโฮสต์ หรือลองอีกครั้งภายหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gizli değer saklanamadı. Düzenlemeleriniz korundu; adını ve ana makinelerini kontrol edin ya da daha sonra tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося зберегти секрет у сховищі. Ваші редагування збережено; перевірте його назву та хости або повторіть спробу пізніше."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể lưu trữ bí mật. Các chỉnh sửa của bạn vẫn được giữ; hãy kiểm tra tên và máy chủ của nó, hoặc thử lại sau."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法存储该密钥。你的编辑内容已保留；请检查它的名称和主机，或稍后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法儲存該密鑰。你的編輯內容已保留；請檢查它的名稱和主機，或稍後再試。"
           }
         }
       }

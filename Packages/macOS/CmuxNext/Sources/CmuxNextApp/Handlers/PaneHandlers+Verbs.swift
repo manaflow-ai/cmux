@@ -55,15 +55,10 @@ extension PaneHandlers {
             let controller = ctx.services.paneController(for: pane)
             // The pane's own daemon decides: a remote pane's close waits for no local connection.
             let shown = ctx.services.daemon(for: pane).connection == nil ? nil : controller?.showPaneClose()
-            ctx.send("close-pane") { connection in
-                do {
-                    try await connection.closePane(handle)
-                    await MainActor.run { controller?.finishPaneClose(shown, failed: false) }
-                } catch {
-                    await MainActor.run { controller?.finishPaneClose(shown, failed: true) }
-                    throw error
-                }
-            }
+            // The pane's own daemon closes it (`DaemonService.closePane`): a stand-in still opening leaves the records in
+            // this turn, never refused ("This pane is still opening", Leo 2026-11-03: "i should be able to just close
+            // immedeiately"), and its close waits for the daemon's pane that takes it over.
+            ctx.services.daemon(for: pane).closePane(handle) { failed in controller?.finishPaneClose(shown, failed: failed) }
         })
         // Every other pane of the right-clicked pane's screen closes with its
         // tabs, as a user's tab close does: no question, the closed history
@@ -112,7 +107,7 @@ extension PaneHandlers {
         guard let host = view.layer, let fade = Motion.indicators.flashAnimation() else { return }
         let ring = CALayer()
         ring.frame = host.bounds.insetBy(dx: 2, dy: 2)
-        ring.cornerRadius = 8
+        ring.cornerRadius = Metrics.paneNestedCornerRadius(inset: 2, size: ring.frame.size)
         let color = view.performWithTheme { Palette.focusRing }
         if Borders.drawsLines {
             ring.borderWidth = 3

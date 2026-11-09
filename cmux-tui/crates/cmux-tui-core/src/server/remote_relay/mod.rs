@@ -106,11 +106,12 @@ impl super::ClientRegistry {
     /// A poisoned registry lock also gives `None`, which every caller treats
     /// as remote (fail closed).
     pub(super) fn transport_of(&self, client: u64) -> Option<ClientTransport> {
-        lock_checked(&self.state, RelayLock::Clients)
-            .ok()?
-            .clients
-            .get(&client)
-            .map(|record| record.transport)
+        if self.input_lane.on() {
+            // The published facts, never the registry lock (R-DAEMON-STATE S1); a poisoned registry still
+            // fails closed.
+            return self.state.load().ok()?.clients.get(&client).map(|facts| facts.transport);
+        }
+        self.state.lock().ok()?.clients.get(&client).map(|record| record.transport)
     }
 
     /// True for a connection that came through the remote entry (tests;
@@ -176,7 +177,7 @@ impl Mux {
         } else {
             None
         };
-        match lock_checked(&relay.peers, RelayLock::Peers) {
+        match relay.peers_checked() {
             Ok(mut peers) => {
                 peers.insert(client, peer.clone());
                 if let Some(clients) = cloud_clients.as_deref_mut() {
@@ -230,10 +231,12 @@ impl Mux {
         {
             return false;
         }
-        // Until the Cloud verifier carries the VM principal through the
-        // entry stamp, require the explicit owner record. Never let a
-        // caller-provided `user_id` substitute for that source. The Cloud VM
-        // path is enabled by the follow-up verifier PR's owner stamp.
+        // This remote-entry path admits only the paired server's owner
+        // record; a caller-provided `user_id` never substitutes for it. A
+        // Cloud VM's phone channel does not come this way: it is a carrier
+        // `mux-control` stream, a unix connection the session host stamps
+        // with the grant's role (carrier_role.rs) and phone_carrier.rs holds
+        // to hostd's commands.
         match (self.remote_relay().peer_checked(client), self.remote_relay().owner_user()) {
             (Ok(Some(peer)), Ok(Some(owner))) => peer.user == owner,
             _ => false,
@@ -360,6 +363,7 @@ pub(super) fn handle_frame(
                     | "agent-session-prompt"
                     | "agent-session-cancel"
                     | "agent-session-detach"
+                    | "agent-session-context"
             )
         );
         if allowed {

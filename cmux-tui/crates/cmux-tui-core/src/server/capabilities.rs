@@ -55,9 +55,13 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_agent_session_attach() {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_CONTENT_CAPABILITY);
+        capabilities.push(AGENT_SESSION_FORK_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_SIDE_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_SETTINGS_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY);
         capabilities.push(agent_inventory::CAPABILITY);
         capabilities.push(agent_inventory::OWNER_CAPABILITY);
         capabilities.push(agent_inventory::REFRESH_CAPABILITY);
@@ -79,6 +83,11 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_START_KEYED_REASON_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_VM_KIND_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_MODEL_CAPABILITY);
+        // A phone's channel (hostd's `cloud-acpmux`) is enforced here: the carrier's signed
+        // owner role (carrier_role.rs), the phone floor on its start (agent_session_start.rs)
+        // and on every prompt (acpmux, `via: cloud-mobile`), and the adapter's commands only
+        // (phone_carrier.rs). cmux-next-ios/SECURITY.md, hq#8003.
+        capabilities.push(agent_session_attach::CLOUD_MOBILE_CHAT_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_owner_cloud_start() {
@@ -107,6 +116,10 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     }
     if crate::chief_brains::taken().is_some() {
         capabilities.push(chief_control::CAPABILITY);
+    }
+    #[cfg(unix)]
+    if crate::chief_brains::configured_home().is_some() || chief_inspect::tools_socket().is_some() {
+        capabilities.push(chief_work::CAPABILITY);
     }
     #[cfg(debug_assertions)]
     capabilities
@@ -146,6 +159,8 @@ fn always_identified() -> Vec<&'static str> {
     capabilities.push(crate::apps::AGENT_INVENTORY_INVALIDATION_CAPABILITY);
     #[cfg(unix)]
     capabilities.push(client_registry::machine_catalog::CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(cloud_api::CAPABILITY);
     capabilities
 }
 
@@ -196,12 +211,19 @@ pub fn build_capabilities() -> Vec<&'static str> {
     #[cfg(unix)]
     capabilities.retain(|capability| {
         *capability != crate::fs_ops::FS_CAPABILITY
+            && *capability != crate::fs_ops::FS_SYMLINK_CAPABILITY
+            && *capability != crate::fs_ops::FS_WRITE_DEFLATE_CAPABILITY
+            && *capability != crate::fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_EXPORT_CAPABILITY
+            && *capability != crate::blob_fetch::BLOB_FETCH_CAPABILITY
             && *capability != BROWSER_RUNTIME_CAPABILITY
     });
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
-    capabilities.retain(|capability| *capability != crate::image_paste::CAPABILITY);
+    capabilities.retain(|capability| {
+        *capability != crate::image_paste::CAPABILITY
+            && *capability != crate::image_paste::FILE_CAPABILITY
+    });
     capabilities.sort_unstable();
     capabilities.dedup();
     capabilities
@@ -217,6 +239,7 @@ pub(super) fn advertised_capabilities(
         crate::terminal_activity::CAPABILITY,
         split_kind::SPLIT_CLIENT_KEYS_CAPABILITY,
         split_kind::SPLIT_CLIENT_SPLIT_ID_CAPABILITY,
+        split_kind::SPLIT_BEFORE_CAPABILITY,
         creating_input::TERMINAL_INPUT_WHILE_CREATING_CAPABILITY,
         cmd_terminal_io::SEND_EXPECT_FOREGROUND_CAPABILITY,
         cmd_terminal_io::SEND_EXPECT_AGENT_CAPABILITY,
@@ -225,6 +248,7 @@ pub(super) fn advertised_capabilities(
         GUARDED_BROWSER_POINTER_CAPABILITY,
         VIEWPORT_SPLITS_CAPABILITY,
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
+        LAYOUT_SIZES_BATCH_CAPABILITY,
         DOCK_COLUMNS_CAPABILITY,
         LAYOUT_DELTA_CAPABILITY,
         EDGE_DOCKS_CAPABILITY,
@@ -255,11 +279,11 @@ pub(super) fn advertised_capabilities(
         OPEN_DEVICE_KINDS_CAPABILITY,
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
+        ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
         terminal_snapshot::ATTACH_VISIBILITY_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_HISTORY_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_LOCAL_HISTORY_CAPABILITY,
-        terminal_snapshot::TERMINAL_SNAPSHOT_IMAGES_CAPABILITY,
         CREATION_RECEIPTS_CAPABILITY,
         CREATION_ATTEMPT_KEYS_CAPABILITY,
         CREATION_SELECTOR_FALLBACKS_CAPABILITY,
@@ -271,9 +295,11 @@ pub(super) fn advertised_capabilities(
         MACHINE_LISTENING_TCP_CAPABILITY,
         TERMINAL_PORTS_CAPABILITY,
         SERVER_STATS_CAPABILITY,
+        DAEMON_SHUTDOWN_RESTART_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
         RESUME_COMMAND_CAPABILITY,
+        TERMINAL_LAST_COMMAND_CAPABILITY,
         END_TERMINALS_KEEP_LAYOUT_CAPABILITY,
         BATCH_CLOSE_CAPABILITY,
         CLOSE_WORKSPACE_IF_EMPTY_CAPABILITY,
@@ -291,6 +317,10 @@ pub(super) fn advertised_capabilities(
         WORKSPACE_STATUS_CAPABILITY,
         WORKSPACE_CREATE_FOCUS_CAPABILITY,
         WORKSPACE_SIDEBAR_PLACEMENT_CAPABILITY,
+        WORKSPACE_CREATED_BY_CAPABILITY,
+        TERMINAL_READ_UNWRAP_CAPABILITY,
+        TERMINAL_WAIT_NEW_CAPABILITY,
+        TERMINAL_EXIT_STATUS_CAPABILITY,
         TAB_METADATA_CAPABILITY,
         FRONTEND_BROWSER_TABS_CAPABILITY,
         FRONTEND_BROWSER_HISTORY_CAPABILITY,
@@ -301,6 +331,7 @@ pub(super) fn advertised_capabilities(
         TAB_SPLIT_RESPAWN_CAPABILITY,
         TAB_SPLIT_KEEP_FOCUS_CAPABILITY,
         TAB_COLUMN_RESPAWN_CAPABILITY,
+        TAB_COLUMN_CLIENT_PANE_CAPABILITY,
         NOTIFICATION_ACK_CAPABILITY,
         TAB_GROUPS_CAPABILITY,
         SAVED_TAB_GROUPS_CAPABILITY,
@@ -377,12 +408,17 @@ pub(super) fn advertised_capabilities(
         crate::state::palette_usage_store::CAPABILITY,
         crate::state::stash_store::CAPABILITY,
         crate::state::stash_store::WORKSPACES_CAPABILITY,
+        crate::state::classic_import_router::CAPABILITY,
+        crate::state::conductor_import_router::CAPABILITY,
+        crate::resource_router::palette_rank::CAPABILITY,
+        crate::resource_router::palette_rank::BATCH_CAPABILITY,
         crate::state::browser_devices::CAPABILITY,
         crate::state::workspace_checklist::CAPABILITY,
         crate::state::browser_devices::FIT_CAPABILITY,
         crate::state::browser_devices::FIT_WIDTH_CAPABILITY,
         crate::browser_profile_ops::CAPABILITY,
         crate::state::layout_bulk::CAPABILITY,
+        crate::state::layout_bulk::BARE_CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::CLOSED_CONVERSATION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
@@ -404,10 +440,13 @@ pub(super) fn advertised_capabilities(
         crate::git_ops::WORKTREE_CAPABILITY,
         crate::git_ops::WORKTREE_APPLY_CAPABILITY,
         crate::git_ops::WORKTREE_REMOVE_CAPABILITY,
+        crate::git_ops::DIFF_COMMENTS_CAPABILITY,
+        crate::git_ops::WORKTREE_SETUP_CAPABILITY,
         crate::request_origin::ORIGIN_CLAIM_CAPABILITY,
         crate::request_origin::page_router_table::PAGE_ROUTER_CAPABILITY,
         crate::request_origin::page_router_table::PAGE_EVENTS_CAPABILITY,
         crate::browser_host::BROWSER_HOST_PROVIDER_CAPABILITY,
+        crate::remote_host::REMOTE_HOST_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_ACTIVATE_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
         clipboard_read::CAPABILITY,
@@ -417,12 +456,14 @@ pub(super) fn advertised_capabilities(
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
     }
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
-    capabilities.push(crate::image_paste::CAPABILITY);
+    capabilities.extend([crate::image_paste::CAPABILITY, crate::image_paste::FILE_CAPABILITY]);
     capabilities.extend(crate::apps::advertised_capabilities());
     #[cfg(unix)]
     capabilities.extend(crate::fs_ops::advertised());
     #[cfg(unix)]
     capabilities.extend(crate::git_seed::advertised());
+    #[cfg(unix)]
+    capabilities.extend(crate::blob_fetch::advertised());
     #[cfg(unix)]
     capabilities.push(BROWSER_RUNTIME_CAPABILITY);
     capabilities

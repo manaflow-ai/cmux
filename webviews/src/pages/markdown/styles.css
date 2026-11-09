@@ -30,9 +30,10 @@
   --cmux-md-code-block-size: calc(var(--cmux-md-font-size) * var(--cmux-md-code-scale));
   --cmux-md-code-line-height: 1.55;
   --cmux-md-code-background: color-mix(in srgb, var(--page-text) 5%, transparent);
-  --cmux-md-code-radius: 6px;
+  /* Code blocks are the named 16px radius exception in the shared grid. */
+  --cmux-md-code-radius: var(--ds-radius-2xl);
   --cmux-md-content-width: 72ch;
-  --cmux-md-page-padding: 32px;
+  --cmux-md-page-padding: var(--ds-space-6);
   --cmux-md-paragraph-spacing: 1em;
   --cmux-md-list-spacing: 0.25em;
   --cmux-md-list-indent: 1.8em;
@@ -46,15 +47,15 @@
   --cmux-md-caret-color: var(--cmux-caret, var(--cmux-md-text-color));
   --cmux-md-footnote-size: 0.9em;
   --cmux-md-superscript-size: 0.75em;
-  --cmux-md-ui-font-size: 13px;
-  --cmux-md-toolbar-font-size: 12px;
+  --cmux-md-ui-font-size: var(--text-body);
+  --cmux-md-toolbar-font-size: var(--text-detail);
   --cmux-md-accent-background: color-mix(in srgb, var(--page-text) 8%, transparent);
   --cmux-md-banner-background: color-mix(in srgb, var(--cmux-app-warning, #b58900) 14%, transparent);
   --cmux-md-error-color: var(--cmux-app-danger, light-dark(#b42318, #ff8a80));
   --cmux-md-link-broken-color: var(--cmux-md-error-color);
   --cmux-md-popover-background: var(--surface-popup);
   --cmux-md-popover-shadow: var(--elevation-2);
-  --cmux-md-popover-font-size: 12px;
+  --cmux-md-popover-font-size: var(--text-detail);
 }
 
 html,
@@ -82,8 +83,12 @@ body {
   font-size: var(--cmux-md-ui-font-size);
 }
 
+/* The page's selection color is where the shared fit starts (ui/adaptiveSelection.ts). */
+:root {
+  --cmux-selection-base: var(--cmux-md-selection-color);
+}
 ::selection {
-  background: var(--cmux-md-selection-color);
+  background: var(--cmux-selection-fill, var(--cmux-md-selection-color));
 }
 
 .md-page {
@@ -123,7 +128,7 @@ body {
 .md-page-message {
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
   color: var(--cmux-md-muted-color);
 }
 
@@ -132,9 +137,9 @@ body {
 .md-toolbar-host > .md-toolbar {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--ds-space-2);
   min-width: 0;
-  padding: 6px 12px;
+  padding: var(--ds-space-2) var(--ds-space-3);
   border-bottom: 1px solid var(--cmux-md-border-color);
   user-select: none;
 }
@@ -164,8 +169,8 @@ body {
 }
 
 .md-status-read-only {
-  padding: 1px 6px;
-  border-radius: 4px;
+  padding: var(--grid-half-step) var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
   background: var(--cmux-md-accent-background);
   color: var(--cmux-md-muted-color);
 }
@@ -180,8 +185,8 @@ body {
   margin: 0;
   border: 0;
   min-inline-size: 0;
-  padding: 2px;
-  border-radius: 6px;
+  padding: var(--grid-half-step);
+  border-radius: var(--ds-radius-control);
   background: var(--cmux-md-accent-background);
 }
 
@@ -191,8 +196,8 @@ body {
 
 .md-mode .ui-toggle {
   border: 0;
-  padding: 2px 10px;
-  border-radius: 4px;
+  padding: var(--grid-half-step) var(--ds-space-3);
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: var(--cmux-md-muted-color);
   font-size: var(--cmux-md-toolbar-font-size);
@@ -209,8 +214,8 @@ body {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-2) var(--ds-space-3);
   border-bottom: 1px solid var(--cmux-md-border-color);
   user-select: none;
 }
@@ -230,8 +235,9 @@ body {
 
 .md-button {
   border: 1px solid var(--cmux-md-border-color);
-  padding: 2px 10px;
-  border-radius: 5px;
+  min-height: var(--grid-row);
+  padding: 0 var(--ds-space-3);
+  border-radius: var(--ds-radius-control);
   background: var(--page-elevated);
 }
 
@@ -455,9 +461,8 @@ body {
    table itself starts where the text does and grows right up to the pane's padding before it
    scrolls. When the column fills the pane (a narrow pane, Full Width) the breakout is 0. The pane
    is the size container (`.md-scroll`), so 100cqw is its width without its scrollbar.
-   No edge of a table is faded out (user 2026-10-31: "it blurs the edges of the tables? why
-   blur?"): the box's thin sideways scrollbar (scrollers.ts SIDEWAYS_SCROLLER_ATTRIBUTE, set by
-   tables.ts) shows that it scrolls, with the overlay scrollbar hidden too. */
+   The box's thin sideways scrollbar (scrollers.ts SIDEWAYS_SCROLLER_ATTRIBUTE, set by tables.ts)
+   shows that it scrolls, with the overlay scrollbar hidden too, and so does the edge fade below. */
 .md-scroll {
   container-type: inline-size;
 }
@@ -469,6 +474,38 @@ body {
   max-width: none;
   margin-left: calc(-1 * var(--md-table-breakout));
   padding-left: var(--md-table-breakout);
+}
+
+/* The edge with more table past it fades out (tables.ts sets `data-more-left` once the table is
+   scrolled and `data-more-right` while more lies past the right; user 2026-11-07: "markdown
+   missing fade now"). Only those edges fade, and only over 24px, so no text sits under a fade at
+   rest unless more of it is past the edge (user 2026-10-31, on the older 2.5em fade of both
+   edges: "why blur?"). A mask, so the fade takes the page under it in every theme; eased stops,
+   so it never bands. */
+.md-prose .tableWrapper {
+  --md-table-fade-left: 0px;
+  --md-table-fade-right: 0px;
+}
+.md-prose .tableWrapper[data-more-left] {
+  --md-table-fade-left: var(--md-table-fade, 24px);
+}
+.md-prose .tableWrapper[data-more-right] {
+  --md-table-fade-right: var(--md-table-fade, 24px);
+}
+.md-prose .tableWrapper:is([data-more-left], [data-more-right]) {
+  --md-table-mask: linear-gradient(
+    to right,
+    rgb(0 0 0 / 0) 0,
+    rgb(0 0 0 / 0.45) calc(var(--md-table-fade-left) * 0.3),
+    rgb(0 0 0 / 0.8) calc(var(--md-table-fade-left) * 0.6),
+    #000 var(--md-table-fade-left),
+    #000 calc(100% - var(--md-table-fade-right)),
+    rgb(0 0 0 / 0.8) calc(100% - var(--md-table-fade-right) * 0.6),
+    rgb(0 0 0 / 0.45) calc(100% - var(--md-table-fade-right) * 0.3),
+    rgb(0 0 0 / 0) 100%
+  );
+  -webkit-mask-image: var(--md-table-mask);
+  mask-image: var(--md-table-mask);
 }
 
 /* Table borders (MARKDOWN-OBSIDIAN-PARITY, user 2026-10-19: in transparency mode "when the border
@@ -665,10 +702,16 @@ body {
   color: var(--md-tok-light);
 }
 
+/* The token scheme is the paper's: a fixed `markdown.theme` paper (light or dark) wins over the App
+   Theme's appearance, which `prefers-color-scheme` follows (colorScheme.ts picks the same for diagrams). */
 @media (prefers-color-scheme: dark) {
-  .md-code [style*="--md-tok-dark"] {
+  :root:not([data-cmux-md-theme="light"]) .md-code [style*="--md-tok-dark"] {
     color: var(--md-tok-dark);
   }
+}
+
+:root[data-cmux-md-theme="dark"] .md-code [style*="--md-tok-dark"] {
+  color: var(--md-tok-dark);
 }
 
 .md-diagram {
@@ -846,8 +889,8 @@ body {
   position: fixed;
   z-index: 20;
   max-width: min(560px, calc(100vw - 16px));
-  padding: 6px 10px;
-  border-radius: 8px;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border-radius: var(--ds-radius-popup);
   color: var(--cmux-md-text-color);
   font-family: var(--cmux-md-font-family);
   font-size: var(--cmux-md-popover-font-size);
@@ -859,22 +902,22 @@ body {
   border: 1px solid var(--cmux-md-border-color);
   background: var(--cmux-md-popover-background);
   box-shadow: var(--cmux-md-popover-shadow);
-  min-width: 220px;
-  padding: 4px 4px 6px 8px;
+  min-width: calc(var(--ds-space-6) * 7);
+  padding: var(--ds-space-1) var(--ds-space-1) var(--ds-space-2) var(--ds-space-2);
   pointer-events: auto;
 }
 
 .md-link-bubble-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--ds-space-2);
 }
 
 .md-link-bubble-target {
   display: inline-flex;
   flex: 1 1 auto;
   align-items: center;
-  gap: 6px;
+  gap: var(--ds-space-2);
   min-width: 0;
   padding: 2px 0;
   border: 0;
@@ -917,20 +960,20 @@ body {
 }
 
 .md-link-popover {
-  width: 360px;
-  padding: 8px;
+  width: calc(var(--ds-space-6) * 11.25);
+  padding: var(--ds-space-2);
 }
 
 .md-link-form {
   display: grid;
-  gap: 6px;
+  gap: var(--ds-space-2);
 }
 
 .md-link-field {
   display: grid;
   grid-template-columns: max-content 1fr;
   align-items: start;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .md-link-field-label {
@@ -942,7 +985,7 @@ body {
 .md-link-form-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 6px;
+  gap: var(--ds-space-2);
 }
 
 .md-link-text {
@@ -960,9 +1003,9 @@ body {
 
 .md-link-input {
   width: 100%;
-  padding: 4px 6px;
+  padding: var(--grid-half-step) var(--ds-space-2);
   border: 1px solid var(--cmux-md-border-color);
-  border-radius: 5px;
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: var(--cmux-md-text-color);
   font-family: var(--cmux-md-code-font-family);
@@ -983,8 +1026,8 @@ body {
 }
 
 .md-link-suggestions li {
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: var(--grid-half-step) var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
   font-family: var(--cmux-md-code-font-family);
   overflow-wrap: anywhere;
 }
@@ -1001,8 +1044,9 @@ body {
 
 .md-history-button {
   border: 0;
-  padding: 0 6px;
-  border-radius: 4px;
+  min-height: var(--grid-row);
+  padding: 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: var(--cmux-md-muted-color);
   font-size: var(--cmux-md-ui-font-size);
@@ -1015,7 +1059,7 @@ body {
 /* A followed link is loading: the toolbar already names the new file (zero-latency rule a). */
 .md-page[data-navigating] .md-doc {
   opacity: 0.55;
-  transition: opacity 120ms ease-out 80ms;
+  transition: opacity var(--cmux-motion-micro) var(--cmux-ease-out) var(--cmux-motion-quick);
 }
 
 /* The Reading Settings popover (ReadingSettings.tsx), opened by the toolbar's Aa button. */
@@ -1035,7 +1079,7 @@ body {
 
 .md-reading-body {
   display: grid;
-  gap: 10px;
+  gap: var(--ds-space-3);
   padding: 12px;
   font-size: var(--cmux-md-ui-font-size);
 }

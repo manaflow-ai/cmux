@@ -30,7 +30,7 @@ import Foundation
     /// reservation (`pane_id_exists` refuses one in use); every other pane it makes gets a fresh
     /// id, and a restart's panes come back in a new connection's snapshot, not as events.
     static func paneGone(_ intent: PendingIntent, in store: DaemonStore) -> Bool {
-        guard intent.daemonPaneSeen, case .splitPane(_, _, _, let provisional) = intent.kind else { return false }
+        guard intent.daemonPaneSeen, let provisional = intent.kind.provisionalPane else { return false }
         return daemonPane(provisional, in: store) == nil
     }
 
@@ -40,7 +40,7 @@ import Foundation
     static func noteDaemonPanes(in store: DaemonStore) {
         guard !store.intentLog.isEmpty else { return }
         for entry in store.intentLog.entries {
-            guard case .splitPane(_, _, _, let provisional) = entry.kind, daemonPane(provisional, in: store) != nil else { continue }
+            guard let provisional = entry.kind.provisionalPane, daemonPane(provisional, in: store) != nil else { continue }
             store.intentLog.noteDaemonPane(provisional.paneID)
         }
     }
@@ -51,13 +51,23 @@ import Foundation
     /// (``paneGone(_:in:)``) settles at once: waiting for a snapshot left it applying, and its
     /// provisional pane came back. A cancelled creation stays while the records hold what it
     /// made (``CancelledCreation``).
-    static func awaitsRecords(_ intent: PendingIntent, in store: DaemonStore) -> Bool {
+    static func awaitsRecords(_ intent: PendingIntent, snapshot: Bool = false, in store: DaemonStore) -> Bool {
         if intent.closeWhenCreated { return CancelledCreation.daemonHolds(intent, in: store) }
+        if intent.standInClosed {
+            // A closed stand-in's fresh tab stays hidden until its close commits (``CancelledCreation/closeStandIn(_:in:)``).
+            if CancelledCreation.freshTabHeld(intent, in: store) { return true }
+            // Not seen yet (its close never went out): the daemon's dock pane and layout can come before the fresh
+            // tab, so it is waited for, up to a snapshot, which holds everything the daemon made.
+            if intent.closeAttempts == 0, !snapshot { return true }
+        }
         switch intent.kind {
-        case .splitPane(_, _, _, let provisional):
+        case .splitPane(_, _, _, let provisional), .dockTab(_, _, let provisional, _, _):
             return !daemonPlaces(provisional, in: store) && !paneGone(intent, in: store)
         case .closeTabs(let surfaces):
             return TabCloseOverlay(store: store).daemonHolds(surfaces)
+        case .closeStandInPane:
+            // Stays until the records drop the daemon's pane (its close committed).
+            return CancelledCreation.closingPane(intent.kind, in: store).map { $0.handle.rawValue < ProvisionalPane.firstHandle } ?? false
         case .createWorkspace(let provisional, _):
             // Cmd-N's workspace settles only once the daemon's workspace holds a tab: before
             // that, undoing the overlay would show the window an empty workspace for a turn.
@@ -94,7 +104,8 @@ import Foundation
         guard handle.rawValue >= ProvisionalPane.firstHandle else { return nil }
         for entry in store.intentLog.entries {
             switch entry.kind {
-            case .splitPane(_, _, _, let provisional) where provisional.handle == handle: return .pane(provisional.paneID)
+            case .splitPane(_, _, _, let provisional) where provisional.handle == handle,
+                 .dockTab(_, _, let provisional, _, _) where provisional.handle == handle: return .pane(provisional.paneID)
             case .createWorkspace(let provisional, _) where provisional.pane == handle: return .workspace(provisional.key)
             default: continue
             }
@@ -107,7 +118,8 @@ import Foundation
         store.intentLog.entries.contains { entry in
             guard !entry.closeWhenCreated else { return false }
             switch (entry.kind, origin) {
-            case (.splitPane(_, _, _, let provisional), .pane(let paneID)): return provisional.paneID == paneID
+            case (.splitPane(_, _, _, let provisional), .pane(let paneID)), (.dockTab(_, _, let provisional, _, _), .pane(let paneID)):
+                return provisional.paneID == paneID
             case (.createWorkspace(let provisional, _), .workspace(let key)): return provisional.key == key
             default: return false
             }
@@ -155,14 +167,15 @@ import Foundation
         if let row = provisional.row {
             return applyRow(row, below: target, leaf: leaf, daemon: daemon, provisional: provisional, screen: screen, in: store)
         }
-        guard let layout = split(screen.layout, target, direction, ratio, leaf, provisional.splitID) else { return nil }
+        let before = provisional.before
+        guard let layout = split(screen.layout, target, direction, ratio, leaf, provisional.splitID, before: before) else { return nil }
         // The target's column tree (and row tree) take the split too; a tree the split cannot
         // reach leaves the intent unapplied, as cmux-tui would refuse it.
         var reached = true
         let columns = screen.columns.map { column -> ColumnSnapshot in
             guard column.layout.paneIDs.contains(target) else { return column }
             var column = column
-            guard let tree = split(column.layout, target, direction, ratio, leaf, provisional.splitID) else {
+            guard let tree = split(column.layout, target, direction, ratio, leaf, provisional.splitID, before: before) else {
                 reached = false
                 return column
             }
@@ -170,7 +183,7 @@ import Foundation
             column.rows = column.rows.map { row -> RowSnapshot in
                 guard row.layout.paneIDs.contains(target) else { return row }
                 var row = row
-                guard let rowTree = split(row.layout, target, direction, ratio, leaf, provisional.splitID) else {
+                guard let rowTree = split(row.layout, target, direction, ratio, leaf, provisional.splitID, before: before) else {
                     reached = false
                     return row
                 }
@@ -187,8 +200,11 @@ import Foundation
         if columns != screen.columns { screen.columns = columns }
         guard daemon == nil else { return undo }
         let pane = model(of: provisional, in: store)
-        let after = (screen.panes.firstIndex { $0.handle == target } ?? screen.panes.count - 1) + 1
-        screen.panes.insert(pane, at: min(after, screen.panes.count))
+        // The daemon lists a screen's panes in its layout's order: a pane split before its target comes before it.
+        let at = before
+            ? (screen.panes.firstIndex { $0.handle == target } ?? screen.panes.count)
+            : (screen.panes.firstIndex { $0.handle == target } ?? screen.panes.count - 1) + 1
+        screen.panes.insert(pane, at: min(at, screen.panes.count))
         store.index.insert(pane, in: screen)
         return undo
     }
@@ -290,20 +306,21 @@ import Foundation
         if screen.columns != columns { screen.columns = columns }
     }
 
-    /// `node` with the leaf `target` replaced by a split of `target` and `new`, or nil when the
-    /// leaf is not in it (or sits in a stack, which `split` turns into its own layout). The new
-    /// split has no handle until the daemon's arrives; `splitID` is its public id.
+    /// `node` with the leaf `target` replaced by a split of `target` and `new` (`new` first when
+    /// `before`, as `split {before: true}` makes it), or nil when the leaf is not in it (or sits
+    /// in a stack, which `split` turns into its own layout). The new split has no handle until
+    /// the daemon's arrives; `splitID` is its public id.
     private static func split(_ node: LayoutNode, _ target: PaneID, _ direction: SplitDirection, _ ratio: Double,
-                              _ new: PaneID, _ splitID: String) -> LayoutNode? {
+                              _ new: PaneID, _ splitID: String, before: Bool = false) -> LayoutNode? {
         switch node {
         case .leaf(let pane) where pane == target:
             return .split(id: nil, resourceID: ResourceID(rawValue: splitID), direction: direction, ratio: ratio,
-                          a: .leaf(target), b: .leaf(new))
+                          a: .leaf(before ? new : target), b: .leaf(before ? target : new))
         case .split(let id, let resourceID, let dir, let r, let a, let b):
-            if let a = split(a, target, direction, ratio, new, splitID) {
+            if let a = split(a, target, direction, ratio, new, splitID, before: before) {
                 return .split(id: id, resourceID: resourceID, direction: dir, ratio: r, a: a, b: b)
             }
-            if let b = split(b, target, direction, ratio, new, splitID) {
+            if let b = split(b, target, direction, ratio, new, splitID, before: before) {
                 return .split(id: id, resourceID: resourceID, direction: dir, ratio: r, a: a, b: b)
             }
             return nil

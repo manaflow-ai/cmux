@@ -21,6 +21,19 @@
 //! `autoAllowBashIfSandboxed: false`, disable bypass mode, and add an ask
 //! rule for every tool that acts, which wins over the user's own allow rules.
 //!
+//! For the same reason the chain sets `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=0`
+//! (`SANDBOXED_SCRUB`). Claude Code (2.1.310 on) implements that scrub with
+//! its own bwrap: with it on, every Bash call needs that inner sandbox, which
+//! cannot listen on its socket inside this one (no Unix sockets, user
+//! namespaces off), so every call is refused; with it on and no bwrap at all,
+//! as on a Mac, Claude refuses to start. Claude's own credential is therefore
+//! in its children's env, inside this sandbox, which still confines them:
+//! their writes, network and sockets are the sandbox's. The scrub never kept
+//! the credential from them fully: Claude's own process env stays readable to
+//! them as the same user (on Linux `/proc/PPID/environ`, in the sandbox's own
+//! `/proc`). Only a `vmBoundary` session, which runs
+//! with no outer sandbox, keeps the scrub on (its bwrap can start there).
+//!
 //! The spawn canary: before every such spawn, the same `sandbox-exec`, the
 //! same profile and the same parameters (the keeper on Linux) run a shell that tries to write a
 //! file outside the allowed folders and to connect to a loopback port acpmux
@@ -66,7 +79,7 @@ pub(super) fn profile_id() -> String {
 }
 
 fn platform_profile_id(linux: bool) -> String {
-    const ENV_POLICY: &str = "env-v5: explicit cleared host projection, fixed remote allowlist, nested-parent credential and endpoint excluded, credential by explicit profile/login env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1, endpoint pinned by --settings env, user settings skipped for a profile's own endpoint";
+    const ENV_POLICY: &str = "env-v6: explicit cleared host projection, fixed remote allowlist, nested-parent credential and endpoint excluded, credential by explicit profile/login env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=0 in the sandbox and 1 at a vmBoundary, endpoint pinned by --settings env, user settings skipped for a profile's own endpoint";
     // Preserve the established macOS adoption identity across this Linux-only note.
     let profile = if linux { PROFILE.to_owned() } else { PROFILE.replace(LINUX_PROFILE_NOTE, "") };
     let identity = format!("{profile}\n{ENV_POLICY}");
@@ -321,6 +334,17 @@ async fn claude_credential(
         return Err("Claude's login on this Mac expires within 10 minutes (or has expired), and a remote chain cannot refresh it; open Claude Code on the Mac to refresh it, or put a long-lived token (`claude setup-token`) in the harness profile env".into());
     }
     Ok((!token.is_empty()).then(|| ("CLAUDE_CODE_OAUTH_TOKEN", token.to_owned())))
+}
+
+/// `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` for a remote chain's Claude: `0` inside
+/// the sandbox, set explicitly so nothing a profile or login env carries turns
+/// it on (it would refuse every Bash call there, module doc); `1` at a
+/// `vmBoundary`, which has no outer sandbox for it to nest in.
+const SANDBOXED_SCRUB: &str = "0";
+
+fn scrub_env(profile: &mut HarnessProfile, sandboxed: bool) {
+    let value = if sandboxed { SANDBOXED_SCRUB } else { "1" };
+    profile.env.insert("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB".into(), value.into());
 }
 
 /// A daemon started inside Claude/Chief carries that parent turn's token in
@@ -857,6 +881,11 @@ fn linux_keeper_args_with_exe(
         }
         out.extend(["--api-port".into(), port.to_string(), "--api-loopback-v4".into()]);
     }
+    // A router on another host (a cloud VM's sr2 :4016): open that port as the
+    // macOS profile does; 80 and 443 are open already.
+    if let Some((port, false)) = bound.api_port.filter(|(p, _)| !matches!(p, 80 | 443)) {
+        out.extend(["--api-remote-port".into(), port.to_string()]);
+    }
     out.push("--".into());
     out.push("/usr/bin/env".into());
     for key in REFUSED_ENV {
@@ -1270,9 +1299,10 @@ impl Hub {
     /// The profile it returns carries the remote chain's env: Claude's own
     /// credential (the keychain is closed to the sandbox; read only with the
     /// setting `KEYCHAIN_LOGIN_SETTING` on) and
-    /// `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`, so Claude's Bash and other
-    /// children never inherit that credential. Env, never argv: argv is
-    /// visible to every process of the user.
+    /// `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` (`scrub_env`): off in the sandbox,
+    /// where Claude's own scrub sandbox cannot start (module doc), on at a
+    /// `vmBoundary`. Env, never argv: argv is visible to every process of the
+    /// user.
     pub(super) async fn remote_chain_plan<'p>(
         &self,
         session: &Session,
@@ -1343,7 +1373,7 @@ impl Hub {
                 self.append(session, "mux", "remote_sandbox", json!({"refused": why}));
                 refused(why)
             })?;
-            profile.env.insert("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB".into(), "1".into());
+            scrub_env(&mut profile, false);
             self.append(session, "mux", "remote_sandbox", json!({"vmBoundary": true}));
             // Unsandboxed on purpose: Web control stays refused (`remote_floor.rs`), as for
             // any agent no canary proved (`hosts.rs` reads it back the same way).
@@ -1352,7 +1382,7 @@ impl Hub {
         }
         let (program, args) =
             self.sandboxed_claude_plan(session, &profile, plan.program, plan.args).await?;
-        profile.env.insert("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB".into(), "1".into());
+        scrub_env(&mut profile, true);
         Ok((crate::claude_stdio::SpawnPlan { program, args }, std::borrow::Cow::Owned(profile)))
     }
 
@@ -1476,8 +1506,25 @@ mod endpoint_tests {
     fn macos_profile_identity_stays_at_base() {
         assert_eq!(
             platform_profile_id(false),
-            "dfe0fa2509e4121cda90d0e4fb84e961ba886c72a73385954dcbb48774058054"
+            "c1bc6b9ad4bfc49398fb0d7427fef225ed3490688ba6de654ab69a73e3b22954"
         );
+    }
+
+    /// Claude Code's scrub starts its own bwrap, which cannot start inside the remote sandbox:
+    /// a sandboxed chain turns it off over whatever the profile set; a `vmBoundary` keeps it.
+    #[test]
+    fn only_a_vm_boundary_chain_scrubs_claudes_children_env() {
+        for (sandboxed, inherited, want) in
+            [(true, Some("1"), "0"), (true, None, "0"), (false, Some("0"), "1"), (false, None, "1")]
+        {
+            let mut p = profile(&["claude"], &[]);
+            if let Some(v) = inherited {
+                p.env.insert("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB".into(), v.into());
+            }
+            scrub_env(&mut p, sandboxed);
+            let got = p.env.get("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB").map(String::as_str);
+            assert_eq!(got, Some(want), "sandboxed={sandboxed} inherited={inherited:?}");
+        }
     }
 
     #[test]
@@ -1872,6 +1919,30 @@ mod endpoint_tests {
         assert!(text.contains("--proxy-port 8118"));
         assert!(text.contains("--api-port 41234 --api-loopback-v4"));
         assert!(text.contains("-- /usr/bin/env -u CLAUDE_CONFIG_DIR"));
+    }
+
+    /// A cloud VM's Claude reaches its router on another tailnet host and a
+    /// port other than 80/443 (sr2 :4016). macOS opens that port in Seatbelt;
+    /// the Linux keeper must open it too, or every request 403s inside the
+    /// sandbox ("destination denied by network policy").
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_wrap_opens_a_remote_api_port() {
+        let bound = bound(Some(Endpoint { url: "http://100.120.48.119:4016".into(), own: false }));
+        let (_, args) =
+            linux_wrap(&bound, &profile(&["claude"], &[]), "/bin/claude".into(), vec![]).unwrap();
+        let text = args.join(" ");
+        assert!(text.contains("--api-remote-port 4016"), "{text}");
+        assert!(!text.contains("--api-loopback-v4"), "{text}");
+        let https = bound_https();
+        let (_, args) =
+            linux_wrap(&https, &profile(&["claude"], &[]), "/bin/claude".into(), vec![]).unwrap();
+        assert!(!args.join(" ").contains("--api-remote-port"), "443 is open already");
+    }
+
+    #[cfg(target_os = "linux")]
+    fn bound_https() -> Bound {
+        bound(Some(Endpoint { url: "https://api.anthropic.com".into(), own: false }))
     }
 
     #[cfg(target_os = "linux")]

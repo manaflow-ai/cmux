@@ -3,24 +3,19 @@ import CmuxNextCloud
 import CmuxNextWakeups
 import Foundation
 
-/// Files the person drops or pastes into a chat moved to a Cloud machine (cmuxterm-hq#1874 slice 6)
-/// that the composer can't attach: the page sends their bytes (``AgentPaneUpload``), and only for a
+/// Files the person drops or pastes into a chat moved to a Cloud machine (cmuxterm-hq#1874 slice 6),
+/// or started there with no folder, that the composer can't attach: the page sends their bytes (``AgentPaneUpload``), and only for a
 /// live moved chat's own tab, with a real gesture in its pane, the app writes them under this Mac's
 /// temporary `cmux-pastes` folder (owner-only), runs `cmux link access upload` for the chat's machine
 /// and work root, deletes its copy, and answers where each went on the machine. Nothing is uploaded
 /// from anywhere else on this Mac, and the machine can't start an upload.
 @MainActor
 final class CloudUploads {
-    /// `cmux-pastes` in the temporary folder the upload CLI (a child of this app, with its
-    /// environment) resolves: `TMPDIR`. Nil without one (the CLI would look elsewhere): no upload.
-    nonisolated static var pastes: URL? {
-        guard let temporary = ProcessInfo.processInfo.environment["TMPDIR"], temporary.hasPrefix("/") else { return nil }
-        return URL(fileURLWithPath: temporary, isDirectory: true).appendingPathComponent("cmux-pastes", isDirectory: true)
-    }
+    nonisolated static var pastes: URL? { AgentPaneCloudAttachments.pastes }
 
-    /// Where one tab's upload goes: the moved chat's machine and its work root.
+    /// Where one tab's upload goes: the chat's session, its machine and its work root.
     private struct Target {
-        var chat: CloudMovedChats.Entry
+        var session: String
         var machine: CloudMachineSession
         var remoteRoot: String
         var binary: URL
@@ -38,8 +33,8 @@ final class CloudUploads {
     /// This Mac's staged Cloud uploads: files of any size, in `cmux-pastes` until the machine has them.
     private let stages = AgentPaneStagedUploads<Target>(owner: "CloudUploads.stageExpiry")
 
-    /// The upload for chat tab `tab`, nil unless it is a live moved chat on a connected machine. The
-    /// upload looks the chat up again when it runs.
+    /// The upload for chat tab `tab`, nil unless it is a live moved chat, or a folderless Cloud start's
+    /// chat, on a connected machine. The upload looks the chat up again when it runs.
     func uploader(tab: String, services: AppServices) -> AgentPaneUploader? {
         guard Self.target(tab: tab, services: services) != nil else { return nil }
         return { [weak services] files in
@@ -64,11 +59,17 @@ final class CloudUploads {
         guard !services.machines.isFeatureDisabled(.cloud), let binary = services.cloud.move.cli, pastes != nil else { return nil }
         for chat in services.cloud.movedChats.all() where chat.broughtBack == nil {
             guard let machine = services.machines.session(chat.machineID), machine.daemon.connection != nil,
-                  CloudAccessAsks.tab(of: chat, on: machine, services: services) == tab,
-                  let root = CloudAccessAsks.remoteRoot(chat.remoteFolder, roots: services.cloud.move.workRoots) else { continue }
-            return Target(chat: chat, machine: machine, remoteRoot: root, binary: binary)
+                  CloudAccessAsks.tab(of: chat, on: machine, services: services) == tab else { continue }
+            guard let root = services.cloud.move.workRoot(of: chat.remoteFolder) else { return nil }
+            return Target(session: chat.session, machine: machine, remoteRoot: root, binary: binary)
         }
-        return nil
+        // A folderless Cloud start's chat (CloudStartChat `runHome`): into the first work root, as its first send.
+        guard let session = services.agentTabs.session(of: tab), let root = services.cloud.move.workRoots.first,
+              let machine = services.machines.cloud.first(where: { machine in
+                  machine.daemon.connection != nil && AgentTabStore.registryHost(of: machine.daemon)
+                      .map { machine.daemon.store.holdsChat(tab: services.agentTabs.resolve(tab), host: $0, session: session) } == true
+              }) else { return nil }
+        return Target(session: session, machine: machine, remoteRoot: root, binary: binary)
     }
 
     private static func upload(_ files: [AgentPaneUpload], to target: Target, services: AppServices) async -> [String: Any] {
@@ -80,7 +81,7 @@ final class CloudUploads {
         defer { try? FileManager.default.removeItem(at: folder) }
         let paths: [String]
         do {
-            paths = try await Task.detached { try CloudUploads.write(files, in: folder) }.value
+            paths = try await Task.detached { try AgentPaneCloudAttachments.write(files, in: folder) }.value
         } catch {
             // The error's domain and code only: its description can name the file.
             let failure = error as NSError
@@ -93,13 +94,7 @@ final class CloudUploads {
         } catch {
             answer = CloudAccessCLI.Answer(ok: false, error: String(describing: error))
         }
-        guard answer.ok, answer.uploaded.count == files.count else {
-            // The CLI's message names the files: private. A refusal keeps its code for the page.
-            services.cloud.logger.error("cloud upload: \(answer.errorCode ?? "", privacy: .public) \(answer.error ?? "", privacy: .private)")
-            return AgentPaneReply.failure(code: answer.errorCode ?? "upload_failed", message: CloudUploadStrings.failed)
-        }
-        let uploads = zip(files, answer.uploaded).map { file, path -> [String: Any] in ["name": file.name, "path": path] }
-        return AgentPaneReply.success(["uploads": uploads])
+        return reply(answer, names: files.map(\.name), services: services)
     }
 
     private static func reply(_ answer: CloudAccessCLI.Answer, names: [String], services: AppServices) -> [String: Any] {
@@ -113,9 +108,9 @@ final class CloudUploads {
     private func stage(_ request: AgentPaneUploadStageRequest, tab: String, session: String, services: AppServices) async -> [String: Any] {
         let failed = AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed)
         await stages.purge(work: services.work)
-        let owns = { (staged: Target) in staged.chat.session == session }
+        let owns = { (staged: Target) in staged.session == session }
         // Every step but a cancel needs the tab to show the chat still.
-        let current = { Self.target(tab: tab, services: services).flatMap { $0.chat.session == session ? $0 : nil } }
+        let current = { Self.target(tab: tab, services: services).flatMap { $0.session == session ? $0 : nil } }
         switch request {
         case .begin(let name, let size, let batchToken, let manifest):
             guard let found = current() else { return failed }
@@ -176,23 +171,6 @@ final class CloudUploads {
     static func beginRefusal(name: String, size: Int, manifest: [AgentPaneUploadBatchEntry]?) -> [String: Any]? {
         AgentPaneStagedUploads<Target>.acceptsBegin(name: name, size: size, manifest: manifest)
             ? nil : AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed)
-    }
-
-    /// Writes each file owner-only to `folder/<index>/<name>` (its own folder, so two files may share
-    /// a name), with `cmux-pastes` and `folder` owner-only too; the paths, in order.
-    private nonisolated static func write(_ files: [AgentPaneUpload], in folder: URL) throws -> [String] {
-        let manager = FileManager.default, owner: [FileAttributeKey: Any] = [.posixPermissions: 0o700]
-        try manager.createDirectory(at: folder.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: owner)
-        try manager.createDirectory(at: folder, withIntermediateDirectories: false, attributes: owner)
-        return try files.enumerated().map { index, file in
-            let parent = folder.appendingPathComponent(String(index), isDirectory: true)
-            try manager.createDirectory(at: parent, withIntermediateDirectories: false, attributes: owner)
-            let url = parent.appendingPathComponent(file.name, isDirectory: false)
-            guard manager.createFile(atPath: url.path, contents: file.data, attributes: [.posixPermissions: 0o600]) else {
-                throw CocoaError(.fileWriteUnknown)
-            }
-            return url.path
-        }
     }
 }
 

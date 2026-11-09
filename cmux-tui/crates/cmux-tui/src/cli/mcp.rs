@@ -21,16 +21,20 @@ mod agent_dispatch_tools;
 mod agent_events_tool;
 mod agent_tools;
 mod agent_wait_tool;
+mod automation_tools;
 mod browser_tools;
 mod caller_scope;
+mod chat_tools;
 mod cloud_repo_tools;
 mod code_mode;
 mod computer_use_gate;
 mod config;
 mod keybinding_tools;
+mod live_code_tools;
 mod messages;
 mod open_tool;
 mod placement;
+mod remote_tools;
 mod render_tool;
 mod schema;
 mod settings_tools;
@@ -43,6 +47,8 @@ mod upstream_listing;
 mod v2_tools;
 mod video_tools;
 mod watch;
+mod workflow;
+mod workflow_tools;
 
 use std::collections::BTreeSet;
 use std::io::{self, BufRead, Read, Write};
@@ -85,6 +91,32 @@ pub(super) fn cli_backend(global: GlobalArgs) -> impl Backend {
     LiveBackend { global }
 }
 
+pub(super) fn workflow_run(global: GlobalArgs, run_id: String, generation: u64) -> i32 {
+    workflow::run(global, run_id, generation)
+}
+
+pub(super) fn workflow_command(global: GlobalArgs, arguments: Value) -> i32 {
+    let output = global.output;
+    let mut server = Server::new(LiveBackend { global }, None);
+    server.allowed = allowed_tools(std::env::var_os(ALLOWED_TOOLS_ENV));
+    match server.call(&json!({"name":workflow_tools::NAME,"arguments":arguments})) {
+        Ok(result) if result.get("isError").and_then(Value::as_bool) == Some(true) => {
+            super::wire::print_local_error(
+                result.pointer("/structuredContent/error").unwrap_or(&Value::Null),
+                output,
+                1,
+            )
+        }
+        Ok(result) => super::wire::print_local_success(
+            result.get("structuredContent").unwrap_or(&Value::Null),
+            output,
+        ),
+        Err((code, message)) => {
+            super::wire::print_local_error(&json!({"code":code,"message":message}), output, 2)
+        }
+    }
+}
+
 /// A failed owner call as the CLI prints it: the owner's error with its
 /// `state` and idempotency key in `details`.
 #[cfg(unix)]
@@ -107,20 +139,7 @@ const MAX_MESSAGE_BYTES: usize = 8 << 20;
 /// The largest tool result; a larger page is cut and says where to go on.
 pub(super) const MAX_RESULT_BYTES: usize = 256 << 10;
 
-const INSTRUCTIONS: &str = "These tools drive the cmux terminal app and its session daemon. \
-    This chat runs in cmux: a terminal, tab or workspace the person asks for is a cmux one, \
-    made with these tools, not your own shell. \
-    Objects have stable public ids (ws_…, screen_…, pane_…, tab_…, term_…, win_…) that the \
-    *_list tools report; a unique prefix works, and <session>:<id> reaches another session. \
-    `current` is this chat's own workspace or pane; `focused` is the one the person looks at. \
-    A change takes idempotency_key: when a call fails with state in_progress, retry it with the \
-    key from the error so it cannot apply twice. Tools never move the user's focus unless the \
-    call passes focus: true or the tool's purpose is focus. \
-    Name workspaces and tabs to the person by their titles, never by an id they cannot see. \
-    When the person must act in a tab (log in, confirm, approve, pick), mark it: tab_update \
-    {tab, attention: \"reason\"}; when they ask to go there, tab_focus it. \
-    In a cmux chat reply, show UI rather than describe it: ![alt](/abs/path.png), a bare image \
-    path or an https image address draws as a thumbnail, and two in one paragraph sit side by side.";
+const INSTRUCTIONS: &str = acpmux::agent_tools::prompt_sources::BASE_INSTRUCTIONS;
 
 /// A catalog entry that is not a tool, and why.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -160,6 +179,14 @@ pub(super) trait Backend {
         request: browser_tools::Request,
         mutation: bool,
     ) -> Result<Value, CallFailure>;
+    /// One legacy daemon command (cmux Remote's `remote-host-*`).
+    fn daemon(&self, _request: Value) -> Result<Value, CallFailure> {
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "daemon.unavailable",
+            "this server cannot reach the daemon",
+        ))
+    }
     /// One harness-agnostic agent dispatch request. The acpmux daemon owns
     /// target selection, brief persistence and sender attribution; this
     /// surface deliberately carries no shell command or remote path.
@@ -177,6 +204,20 @@ pub(super) trait Backend {
             "this server cannot reach acpmux agent dispatch",
         ))
     }
+    /// One `cmux automation WORDS…` verb, run by the CLI's own code
+    /// (`automation_tools`); `idempotency_key` keys a Cloud mutation.
+    fn automation(
+        &self,
+        _words: &[String],
+        _idempotency_key: Option<&str>,
+    ) -> Result<Value, CallFailure> {
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "automation.unavailable",
+            "this server cannot reach the automation store",
+        ))
+    }
+
     /// Cloud chat repo actions run on the selected machine daemon.
     fn cloud_repo(&self, _action: &str, _args: Value) -> Result<Value, CallFailure> {
         Err(CallFailure::local(
@@ -296,6 +337,30 @@ impl Backend for LiveBackend {
 
     fn cloud_repo(&self, action: &str, args: Value) -> Result<Value, CallFailure> {
         super::cloud_repo::call(&self.global, action, args)
+    }
+
+    fn automation(
+        &self,
+        words: &[String],
+        idempotency_key: Option<&str>,
+    ) -> Result<Value, CallFailure> {
+        let mut global = self.global.clone();
+        global.output = OutputMode::Json;
+        global.idempotency_key = idempotency_key.map(str::to_owned);
+        super::automation::run_json(&global, words).map_err(|(error, unknown)| CallFailure {
+            kind: if unknown { FailureKind::InProgress } else { FailureKind::Rejected },
+            error,
+            idempotency_key: idempotency_key.map(str::to_owned),
+        })
+    }
+
+    #[cfg(unix)]
+    fn daemon(&self, mut request: Value) -> Result<Value, CallFailure> {
+        if let Some(fields) = request.as_object_mut() {
+            fields.insert("id".into(), json!(1));
+        }
+        super::remote_host::daemon_value(&self.global, &request)
+            .map_err(remote_tools::daemon_failure)
     }
 
     fn resource(
@@ -468,9 +533,9 @@ fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
         eprintln!("cmux: {message}");
         return 1;
     }
-    // The client ends the server by closing stdin, then by SIGTERM; the
-    // blocking stdin read must not hide that signal.
+    // Closed stdin, SIGTERM (not hidden by the blocking read) or the client's death end it.
     let _ = crate::restore_default_termination_signals();
+    acpmux::parent_watch::exit_with_parent();
     let output = watch::Output::new(io::stdout());
     watch::spawn(global.clone(), output.clone());
     let mut server = Server::new(LiveBackend { global }, Some(path));
@@ -582,6 +647,9 @@ pub(super) struct Server<B> {
     /// `CMUX_MCP_TOOLS`: the only tools listed and callable. It turns code
     /// mode off (the few tools are listed directly).
     allowed: Option<BTreeSet<String>>,
+    /// Only the workflow host adapter can install this one-use operation.
+    /// Script arguments never create an authenticated daemon activity.
+    workflow_activity: Option<workflow::Internal>,
     /// The agent chat's other MCP servers (`upstream`), behind this one.
     upstreams: Vec<upstream::Proxied>,
     /// While a `cmux_exec` script runs: its time limit, which also bounds a
@@ -589,6 +657,8 @@ pub(super) struct Server<B> {
     call_cap: Option<Duration>,
     /// While a `cmux_exec` script runs: when its time limit ends.
     call_deadline: Option<Instant>,
+    /// While a `cmux_exec` script runs: the `_meta` its calls pass on (`upstream::passed_meta`).
+    call_meta: Option<Value>,
     /// Where `run` writes, for a call's `notifications/progress`.
     notes: Option<watch::Output>,
     /// The ids `render` returned in this process: a render may update only one of these.
@@ -611,9 +681,11 @@ impl<B: Backend> Server<B> {
             code_mode: false,
             script_limits: code_mode::Limits::default(),
             allowed: None,
+            workflow_activity: None,
             upstreams: Vec::new(),
             call_cap: None,
             call_deadline: None,
+            call_meta: None,
             typed: std::cell::RefCell::default(),
             notes: None,
             renders: std::collections::HashSet::new(),
@@ -678,12 +750,24 @@ impl<B: Backend> Server<B> {
         let params = object.get("params").cloned().unwrap_or_else(|| json!({}));
         let result = match method {
             "initialize" => {
-                Ok(initialize(&params, self.list_changed, self.code_mode && self.allowed.is_none()))
+                chat_tools::remember_client(&params);
+                let code_mode = self.code_mode && self.allowed.is_none();
+                let wrap_up = code_mode
+                    && self.upstreams.iter().any(|up| up.name == code_mode::WRAP_UP_SERVER);
+                let offers =
+                    code_mode && self.upstreams.iter().any(|up| up.name == code_mode::OFFER_SERVER);
+                Ok(initialize(&params, self.list_changed, code_mode, wrap_up, offers))
             }
             "ping" => Ok(json!({})),
             "tools/list" if self.code_mode && self.allowed.is_none() => {
                 let tools = self.list();
-                Ok(json!({ "tools": code_mode::descriptors(&tools) }))
+                let mut exposed = code_mode::descriptors(&tools);
+                if let Some(workflow) =
+                    tools.iter().find(|tool| tool["name"] == workflow_tools::NAME)
+                {
+                    exposed.push(workflow.clone());
+                }
+                Ok(json!({ "tools": exposed }))
             }
             "tools/list" => Ok(json!({ "tools": self.list() })),
             "tools/call" => {
@@ -730,7 +814,10 @@ impl<B: Backend> Server<B> {
         tools.push(super::agents::snapshot_tool());
         tools.extend(agent_tools::TOOLS.iter().map(agent_tools::AgentTool::descriptor_json));
         tools.extend(agent_dispatch_tools::descriptors());
+        tools.push(workflow_tools::descriptor());
         tools.extend(cloud_repo_tools::descriptors());
+        tools.extend(chat_tools::descriptors());
+        tools.extend(live_code_tools::descriptors());
         tools.push(super::agents_doctor::mcp_tool());
         tools.push(agent_wait_tool::descriptor());
         tools.push(agent_events_tool::descriptor());
@@ -738,8 +825,10 @@ impl<B: Backend> Server<B> {
         tools.push(render_tool::descriptor());
         tools.push(open_tool::descriptor());
         tools.extend(video_tools::descriptors());
+        tools.extend(remote_tools::TOOLS.iter().map(remote_tools::RemoteTool::descriptor_json));
         tools
             .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
+        tools.extend(automation_tools::descriptors());
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
@@ -776,15 +865,7 @@ impl<B: Backend> Server<B> {
         }
     }
 
-    fn call(&mut self, params: &Value) -> Result<Value, (i64, String)> {
-        let name = params["name"]
-            .as_str()
-            .ok_or_else(|| (-32602, "tools/call needs a tool name".to_string()))?;
-        let arguments = match params.get("arguments") {
-            None | Some(Value::Null) => Map::new(),
-            Some(Value::Object(arguments)) => arguments.clone(),
-            Some(_) => return Err((-32602, "tools/call arguments must be an object".into())),
-        };
+    fn tool_refusal(&self, name: &str) -> Option<Value> {
         if let Some(path) = &self.config
             && let Some(message) = refusal(path)
         {
@@ -794,7 +875,7 @@ impl<B: Backend> Server<B> {
                 "details": {},
                 "retryable": false,
             });
-            return Ok(tool_error(envelope(error, "not_run", None)));
+            return Some(tool_error(envelope(error, "not_run", None)));
         }
         if let Some(allowed) = &self.allowed
             && !allowed.contains(name)
@@ -805,7 +886,30 @@ impl<B: Backend> Server<B> {
                 "details": {},
                 "retryable": false,
             });
-            return Ok(tool_error(envelope(error, "not_run", None)));
+            return Some(tool_error(envelope(error, "not_run", None)));
+        }
+        None
+    }
+
+    fn call(&mut self, params: &Value) -> Result<Value, (i64, String)> {
+        let name = params["name"]
+            .as_str()
+            .ok_or_else(|| (-32602, "tools/call needs a tool name".to_string()))?;
+        let arguments = match params.get("arguments") {
+            None | Some(Value::Null) => Map::new(),
+            Some(Value::Object(arguments)) => arguments.clone(),
+            Some(_) => return Err((-32602, "tools/call arguments must be an object".into())),
+        };
+        if let Some(refusal) = self.tool_refusal(name) {
+            return Ok(refusal);
+        }
+        if name == "cmux_workflow"
+            && let Some(operation) = self.workflow_activity.take()
+        {
+            return Ok(workflow::internal_call(&self.backend, operation));
+        }
+        if name == workflow_tools::NAME {
+            return Ok(workflow_tools::call(&self.backend, &arguments));
         }
         if name == code_mode::DOCS {
             let tools = self.list();
@@ -823,11 +927,13 @@ impl<B: Backend> Server<B> {
             let mut images = Vec::new();
             self.call_cap = Some(self.script_limits.total);
             self.call_deadline = Some(Instant::now() + self.script_limits.total);
+            self.call_meta = upstream::passed_meta(params);
             let answered = code_mode::exec(&arguments, self.script_limits, &mut |request| {
                 self.script_request(request, &mut tools, &mut images)
             });
             self.call_cap = None;
             self.call_deadline = None;
+            self.call_meta = None;
             let mut result = answered.unwrap_or_else(|message| {
                 tool_error(envelope(v2_tools::invalid(message), "not_run", None))
             });
@@ -836,8 +942,16 @@ impl<B: Backend> Server<B> {
             }
             return Ok(result);
         }
-        if let Some(job) = self.proxied_tool(name, &arguments) {
+        if let Some(mut job) = self.proxied_tool(name, &arguments) {
+            // A script's own call carries no `_meta`: it passes on the script's (`call_meta`).
+            job.meta = upstream::passed_meta(params).or(job.meta);
             return Ok(job.run(self.call_cap));
+        }
+        if let Some(result) = chat_tools::call(name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = live_code_tools::call(name, &arguments) {
+            return Ok(result);
         }
         if let Some(result) = cloud_repo_tools::call(&self.backend, name, &arguments) {
             return Ok(result);
@@ -967,6 +1081,12 @@ impl<B: Backend> Server<B> {
             });
         }
         if let Some(tool) = settings_tools::find(name) {
+            return Ok(tool.call(&self.backend, &arguments));
+        }
+        if let Some(result) = automation_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(tool) = remote_tools::find(name) {
             return Ok(tool.call(&self.backend, &arguments));
         }
         if let Some(tool) = keybinding_tools::find(name) {
@@ -1151,6 +1271,9 @@ impl<B: Backend> Server<B> {
         images: &mut Vec<Value>,
     ) -> Value {
         match request {
+            code_mode::Request::ActivityStart { .. } | code_mode::Request::ActivityWait { .. } => {
+                json!({"ok": false, "message": "workflow activities require a daemon-owned run"})
+            }
             code_mode::Request::Call { name, .. } if name == code_mode::EXEC => {
                 code_mode::script_answer(
                     Err((-32602, "a script cannot start another script".into())),
@@ -1347,7 +1470,7 @@ impl<B: Backend> Server<B> {
         }
         // On screen the typed line follows the prompt, so an output line is the one
         // that starts with the match.
-        if !regex::Regex::new(&pattern).ok()?.is_match(&typed) {
+        if !cmux_tui_core::wait_pattern::compile(&pattern).ok()?.is_match(&typed) {
             return None;
         }
         let anchored = format!("(?m)^\\s*(?:{pattern})");
@@ -1385,15 +1508,26 @@ impl<B: Backend> Server<B> {
     }
 }
 
-fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
+/// `wrap_up`: the chat's acpmux server is folded in, so its next-step box is steered to here too
+/// (code_mode.rs [`code_mode::WRAP_UP_INSTRUCTION`]). `offers`: the chat's cmux-sessions server is
+/// folded in, so suggesting a new chat is steered to here too ([`code_mode::OFFER_INSTRUCTION`]).
+fn initialize(
+    params: &Value,
+    list_changed: bool,
+    code_mode: bool,
+    wrap_up: bool,
+    offers: bool,
+) -> Value {
     json!({
         "protocolVersion": acpmux::secret_mcp::protocol_version(params),
         "capabilities": {"tools": {"listChanged": list_changed}},
         "serverInfo": {"name": "cmux", "title": "cmux", "version": env!("CARGO_PKG_VERSION")},
         "instructions": format!(
-            "{} {}",
+            "{} {}{}{}",
             if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
-            acpmux::agent_tools::ASKING_RULE
+            acpmux::agent_tools::ASKING_RULE,
+            if wrap_up { code_mode::WRAP_UP_INSTRUCTION } else { "" },
+            if offers { code_mode::OFFER_INSTRUCTION } else { "" }
         ),
     })
 }

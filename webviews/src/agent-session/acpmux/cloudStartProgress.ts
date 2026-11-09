@@ -1,4 +1,6 @@
 import type { CloudStartAnswer } from "./cloudRun";
+import { translate } from "./i18n";
+import { errorMessage } from "./transportErrors";
 import { sliceWhole } from "../../ui/wholeChars";
 
 /// A chat starting in Cloud, as the chat shows it (CloudStartView; cloud work mode, leo-workspace
@@ -36,6 +38,10 @@ export type CloudStartProgress = {
   network?: "full" | "limited";
   /// A failure's words, the host's own.
   message?: string;
+  /// A stable host refusal code, used to attach recovery to the matching failure.
+  code?: string;
+  /// The start waits on the person's browser sign-in (`cloud.signIn`): the card says so, not "starting".
+  signingIn?: true;
   /// The agent the chat starts, by name ("Claude Code"), for the opening step.
   agent?: string;
   /// No project: nothing is copied, so the card shows no copy step.
@@ -56,7 +62,64 @@ export type CloudStartProgress = {
   setup?: CloudStartupSetup;
   /// True after the harness has started. The checklist stays available but folds to one quiet line.
   initialized?: boolean;
+  /// A question the start waits on, shown in the card (CloudStartAsk.tsx): the host's words and buttons.
+  ask?: CloudStartAsk;
+  /// A failure another try of the same start can help: the card offers Retry.
+  retryable?: boolean;
+  /// This Mac's pane refused the start before it reached Cloud (a `transport.*` code: a folder that
+  /// is not the tab's own, a Send without a gesture): no step ran, so the checklist marks none failed.
+  refusedHere?: boolean;
 };
+
+/// What a start asks (AgentPaneCloudAsk): its first Claude login, the one-time login copy consent, Codex's
+/// Mac sign-in consent, Codex's device code. The host words it; the card draws it and answers with the
+/// clicked button's id (`cloud.answerStart`). One filled button at most; a page to open is a link.
+export type CloudStartAskKind = "firstLogin" | "loginCopy" | "codexDevice" | "codexConsent";
+export type CloudStartAskButton = { id: string; title: string; role: "default" | "cancel" | "normal" };
+export type CloudStartAsk = {
+  id: string;
+  kind: CloudStartAskKind;
+  title: string;
+  lines: string[];
+  buttons: CloudStartAskButton[];
+  /// A one-time code the card shows with Copy.
+  code?: string;
+  link?: { url: string; title: string };
+};
+
+const ASK_KINDS = new Set<CloudStartAskKind>(["firstLogin", "loginCopy", "codexDevice", "codexConsent"]);
+
+/// The host's `ask`, each field checked; undefined for anything malformed.
+export function cloudStartAsk(value: unknown): CloudStartAsk | undefined {
+  const record = asRecord(value);
+  if (!record || typeof record.id !== "string" || !record.id || record.id.length > 64) return undefined;
+  if (!ASK_KINDS.has(record.kind as CloudStartAskKind)) return undefined;
+  const title = line(record.title, 160);
+  if (!title || !Array.isArray(record.lines) || !Array.isArray(record.buttons)) return undefined;
+  const lines = record.lines.slice(0, 6).flatMap((text) => line(text, 400) ?? []);
+  const buttons = record.buttons.slice(0, 4).flatMap((raw): CloudStartAskButton[] => {
+    const button = asRecord(raw);
+    const label = line(button?.title, 40);
+    const role = button?.role === "default" || button?.role === "cancel" ? button.role : "normal";
+    return button && typeof button.id === "string" && button.id && button.id.length <= 64 && label
+      ? [{ id: button.id, title: label, role }]
+      : [];
+  });
+  if (buttons.length === 0) return undefined;
+  const code = line(record.code, 32);
+  const linkRecord = asRecord(record.link);
+  const url = httpsUrl(linkRecord?.url);
+  const linkTitle = line(linkRecord?.title, 40);
+  return {
+    id: record.id,
+    kind: record.kind as CloudStartAskKind,
+    title,
+    lines,
+    buttons,
+    ...(code ? { code } : {}),
+    ...(url && linkTitle ? { link: { url, title: linkTitle } } : {}),
+  };
+}
 
 export type CloudStartupOperation = {
   state: "pending" | "running" | "done" | "failed";
@@ -98,6 +161,7 @@ export function cloudStartBegun(
   cwd: string | undefined,
   agent?: string,
   home?: boolean,
+  signingIn?: boolean,
 ): CloudStartProgress {
   const folder = cwd?.replace(/\/+$/, "").split("/").pop();
   return {
@@ -107,7 +171,19 @@ export function cloudStartBegun(
     ...(folder ? { folder } : {}),
     ...(agent ? { agent } : {}),
     ...(home ? { home: true } : {}),
+    ...(signingIn ? { signingIn: true } : {}),
   };
+}
+
+/// Start `key`'s sign-in came back signed in and the start goes on: the card leaves its waiting for
+/// sign-in state for the normal start. Another start, or one not waiting on a sign-in, is unchanged.
+export function cloudStartSignedIn(
+  current: CloudStartProgress | undefined,
+  key: string,
+): CloudStartProgress | undefined {
+  if (current?.key !== key || !current.signingIn) return current;
+  const { signingIn: _signedIn, ...started } = current;
+  return started;
 }
 
 /// Text the card shows from the host: one line, at most `max` characters.
@@ -179,6 +255,12 @@ export function cloudStartPushed(
   if (clone) next.clone = ended ? { ...pick(next.clone, ["fallback", "installUrl"]), ...clone } : clone;
   const setup = setupStatus(fields.setup ?? fields.environment);
   if (setup) next.setup = setup;
+  // The host's question: `null` takes it away (answered, or the wait ended); a malformed one changes nothing.
+  if (fields.ask === null) delete next.ask;
+  else {
+    const ask = cloudStartAsk(fields.ask);
+    if (ask) next.ask = ask;
+  }
   return next;
 }
 
@@ -329,6 +411,49 @@ export function cloudStartEnded(
 ): CloudStartProgress | undefined {
   if (current?.key !== key) return current;
   if (answer.ok) return undefined;
-  const message = line(answer.message, 240);
-  return { ...current, state: "failed", ...(message ? { message } : {}) };
+  // The pane's own refusal (AgentPaneCloudStart: the folder check, the gesture) is worded by its
+  // code, never the host's generic "The app refused the agent connection." (cloudRefusalText).
+  const refusedHere = answer.code.startsWith("transport.") || REFUSED_HERE.has(answer.code);
+  const message = refusedHere ? cloudRefusalText(answer.code, answer.message) : line(answer.message, 240);
+  // A failed start waits on no sign-in (its card offers the sign in again instead) and asks nothing more.
+  const { signingIn: _signingIn, ask: _ask, ...ended } = current;
+  return {
+    ...ended,
+    state: "failed",
+    code: answer.code,
+    ...(message ? { message } : {}),
+    ...(refusedHere ? { refusedHere } : {}),
+    ...(answer.retryable ? { retryable: true } : {}),
+  };
 }
+
+/// The words for a Cloud start this Mac's pane refused: a folder that is not one of the tab's own
+/// asks the person to pick it (a pick grants it, `workspace.useFolder`); a folder that is gone, home
+/// or above it, or a credential folder each says so (AgentPaneCloudFolderRefusal; the secret's host
+/// words are its `~/` spelling); any other `transport.*` code reads as the pane's refusal text
+/// (transportErrors.ts).
+export function cloudRefusalText(code: string, hostWords?: string): string {
+  if (code === "transport.path_outside_roots") return translate("cloudStartup.folderNotOpen");
+  if (code === "cloud_folder_missing") return translate("cloudStartup.folderMissing");
+  if (code === "cloud_folder_home") return translate("cloudStartup.folderHome");
+  if (code === "cloud_folder_secret")
+    return translate("cloudStartup.folderSecret", { folder: line(hostWords, 120) ?? "~" });
+  if (code.startsWith("transport.")) return errorMessage({ code });
+  // The attachment refusal's words are the host's own sentence; the others carry only their code.
+  if (code === "cloud_attachments")
+    return line(hostWords, 240) ?? translate("composer.offloadNotRun", { action: translate("composer.cloud") });
+  return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
+}
+
+/// The codes the pane refuses a Cloud start with before it reaches Cloud, besides `transport.*`
+/// (AgentPaneHandOff.refusedHereCodes, the same list): no step ran, so none is marked failed.
+const REFUSED_HERE = new Set([
+  "cloud_attachments",
+  "unsupported",
+  "unavailable_now",
+  "sandbox_busy",
+  "sandbox_spent",
+  "cloud_folder_missing",
+  "cloud_folder_home",
+  "cloud_folder_secret",
+]);

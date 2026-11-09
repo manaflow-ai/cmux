@@ -3,8 +3,10 @@
 // there, the session rail ends up pushing it to the side, and also when the left pane gets too narrow,
 // the session rail still disappears. We can't have it disappear."). Session Info floats and never
 // moves the chat's column (Leo, 2026-10-29: "it's not supposed to be a fucking sidebar that pushes the
-// fucking layout"); the rail stays at its pane-edge inset, open or closed.
-// In a wide pane (1600), a pane whose gutter cannot hold the panel (1200), a narrow window (800), the
+// fucking layout"); the rail stays at its pane-edge inset, open or closed, also where the chat's column
+// moves left beside a pushing panel (Lucas, 2026-11-06), the rail then marking itself occluded where
+// that column reaches it.
+// In a wide pane (1600), panes whose gutter cannot hold the panel (1100 and 1200), a narrow window (800), the
 // overlap breakpoint (780), and the narrowest usable pane (760), with Session Info closed, open,
 // and pushing (Push always): the rail keeps one full-width look, uses its pane-edge spacing inset,
 // and keeps a live edge strip when the text leaves no room.
@@ -21,6 +23,8 @@ import { chromium, webkit, type Browser, type BrowserType, type Page } from "pla
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { sessionInfoPushAlways, papercutPane } from "./support/papercutChat";
 import { railPlacement } from "../src/agent-session/acpmux/threadMinimap/model";
+import { sessionInfoStage } from "../src/agent-session/acpmux/session-info/sessionInfoModel";
+import { SESSION_INFO_WIDTH } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 
 await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -113,13 +117,17 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
       const scroller = document.querySelector(".acpmux-scroll")!.getBoundingClientRect();
       const rows = [...document.querySelectorAll(".acpmux-row")].map((row) => row.getBoundingClientRect().left);
       const column = Math.min(...rows);
-      if (!nav) return { shown: false as const };
+      // Session Info's stage as the page chose it (SessionInfo.tsx sessionInfoStage, with the chat's
+      // measured overflow), not one this file computes.
+      const placement = document.querySelector("aside.acpmux-session-info")?.getAttribute("data-placement") ?? null;
+      if (!nav) return { shown: false as const, placement };
       const box = nav.getBoundingClientRect();
       // A tick's resting bar, as drawn.
       const bar = nav.querySelector(".acpmux-minimap__bar")!.getBoundingClientRect();
       return {
         shown: true as const,
         scrollbarPinned: Math.abs(scroller.right - shell.right) < 1,
+        placement,
         left: Math.round(box.left),
         occluded: nav.hasAttribute("data-occluded"),
         insidePane: box.left >= shell.left - 0.5 && box.right <= shell.right + 0.5 && bar.width > 0,
@@ -129,23 +137,24 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
     });
 
   for (const name of browsers.keys())
-    for (const width of [1600, 1200, 1084, 800, 780, 760])
+    for (const width of [1600, 1100, 1200, 800, 780, 760])
       test(`${name}: in a ${width}px pane the rail stays pinned while the chat moves`, async () => {
         current = browsers.get(name)!;
         const page = await pane!.open({ width, height: 700 });
         try {
           await closeSessionInfo(page);
           const closed = await rail(page);
-          if (process.env.RAIL_CAPTURE_DIR && [1600, 1084, 800, 760].includes(width))
+          if (process.env.RAIL_CAPTURE_DIR && [1600, 1200, 800, 760].includes(width))
             await page.screenshot({ path: `${process.env.RAIL_CAPTURE_DIR}/${width}-closed.png` });
           await openSessionInfo(page, false);
           const open = await rail(page);
-          if (process.env.RAIL_CAPTURE_DIR && [1600, 1084, 800, 760].includes(width))
+          if (process.env.RAIL_CAPTURE_DIR && [1600, 1200, 800, 760].includes(width))
             await page.screenshot({ path: `${process.env.RAIL_CAPTURE_DIR}/${width}-open.png` });
-          if (width === 1084 && process.env.RAIL_GUTTER_SCREENSHOT) {
+          if (width === 1200 && process.env.RAIL_GUTTER_SCREENSHOT) {
             await page.screenshot({ path: process.env.RAIL_GUTTER_SCREENSHOT });
           }
-          // Push always narrows the chat to the pane less the panel; the rail stays pinned to the pane
+          // Push always narrows the chat to the pane less the panel where that keeps the column (else it lies
+          // over the chat); the rail stays pinned to the pane
           // edge and uses its own spacing-token inset.
           await closeSessionInfo(page);
           await openSessionInfo(page, true);
@@ -159,9 +168,24 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
             expect(state.occluded).toBe(state.distance! < -0.5);
           }
           expect(closed.scrollbarPinned).toBe(true);
-          // By default it floats only where the gutter holds it (1600px); narrower, it pushes too.
-          expect(open.scrollbarPinned).toBe(width >= 1600);
-          expect(pushed.scrollbarPinned).toBe(false);
+          // It pushes wherever Chat Text Width's 800px column fits beside the whole panel (1160px and wider)
+          // and lies over the chat where it cannot (1100px, 800px and under). The model's stage at the panel's
+          // default width (sessionInfoStage) says 1200px pushes in both settings, so the push arm stays covered.
+          if (width === 1200) {
+            const pushesHere = (placement: "overlay" | "push") =>
+              sessionInfoStage(placement, { width, height: 700 }, SESSION_INFO_WIDTH.fallback) === "push";
+            expect([pushesHere("overlay"), pushesHere("push"), open.placement, pushed.placement]).toEqual([
+              true,
+              true,
+              "push",
+              "push",
+            ]);
+          }
+          // Pushing keeps the chat the pane's full width and moves only its column (Lucas, 2026-11-06: "the
+          // scroll bar should be on the right of the session info"): the scroller, and its scrollbar,
+          // stay at the pane's right edge in every stage.
+          expect(open.scrollbarPinned).toBe(true);
+          expect(pushed.scrollbarPinned).toBe(true);
           expect([closed.left, open.left, pushed.left]).toEqual([railInset, railInset, railInset]);
         } finally {
           await page.close();

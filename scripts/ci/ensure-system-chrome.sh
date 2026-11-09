@@ -7,9 +7,9 @@
 # 1.64.1 ships older than that, unsandboxed (webviews/test/support/systemChrome.ts).
 #
 # Linux CI: installs or updates Chrome stable with `playwright install --with-deps chrome` (run
-# from a folder with Playwright in node_modules, or with bunx/npx on PATH). macOS: uses
-# /Applications/Google Chrome.app, copied from Google's signed image where /Applications is
-# writable (admin users) or installed by Playwright where sudo needs no password.
+# from a folder with Playwright in node_modules, or with bunx/npx on PATH). macOS (GitHub Actions
+# runners only, see below): uses /Applications/Google Chrome.app, installed by Playwright where sudo
+# needs no password.
 # --optional: where Chrome is missing or old and cannot be installed, warn and exit 0 (a fleet
 # step's browser lane then skips Chromium, as it skips any engine that cannot launch).
 #
@@ -116,45 +116,28 @@ ensure_chrome() {
     return 0
   fi
 
-  # macOS without sudo: an admin user can write /Applications, so copy Chrome stable from Google's
-  # signed disk image there (Chrome then keeps itself updated).
-  install_mac_dmg() {
-    local tmp mnt
-    tmp="$(mktemp -d)"
-    mnt="$tmp/mnt"
-    curl -fsSL --retry 3 -o "$tmp/googlechrome.dmg" \
-      https://dl.google.com/chrome/mac/universal/stable/GGRO/googlechrome.dmg
-    hdiutil attach -quiet -nobrowse -readonly -mountpoint "$mnt" "$tmp/googlechrome.dmg"
-    if codesign --verify --deep "$mnt/Google Chrome.app" &&
-      codesign -dv "$mnt/Google Chrome.app" 2>&1 | grep -q 'TeamIdentifier=EQHXZ8M8AV'; then
-      rm -rf "/Applications/Google Chrome.app"
-      ditto "$mnt/Google Chrome.app" "/Applications/Google Chrome.app"
-    else
-      echo "error: downloaded Chrome failed its Google signature check" >&2
-    fi
-    hdiutil detach -quiet "$mnt" || true
-    rm -rf "$tmp"
-  }
-
-  # Not for --optional (fleet steps): a 280 MB image is slow on their links, and headless cases
-  # run on chrome-headless-shell without it.
-  if [ "$optional" = 0 ] && [ "$(uname -s)" = Darwin ] && ! sudo -n true 2> /dev/null && [ -w /Applications ]; then
-    echo "system Chrome ${have:-missing}; copying Chrome stable into /Applications (need $min or later)"
-    install_mac_dmg || true
-    have="$(chrome_version || true)"
-    if at_least "$have" "$min"; then
-      echo "system Chrome $have at $(chrome_bin)"
-      return 0
-    fi
-  fi
-
   can_install=0
   if [ "$(uname -s)" = Linux ] || sudo -n true 2> /dev/null; then can_install=1; fi
   if [ "$can_install" = 1 ]; then
     echo "system Chrome ${have:-missing}; installing Chrome stable (need $min or later)"
     # CI=1: reinstall over an older system Chrome instead of stopping at Playwright's prompt.
-    # shellcheck disable=SC2046
-    CI=1 $(playwright_cli) install --with-deps chrome || echo "warning: Chrome stable install failed" >&2
+    # The install runs apt-get update, which fails on a hash mismatch when Google republishes its
+    # apt repository mid-fetch (job 127181004735: "Hashes of received file ... do not match"); one
+    # more try a little later reads the new index.
+    local log attempt
+    log="$(mktemp)"
+    for attempt in 1 2; do
+      # shellcheck disable=SC2046
+      if CI=1 $(playwright_cli) install --with-deps chrome 2>&1 | tee "$log"; then break; fi
+      if [ "$attempt" = 1 ] && grep -qE 'Hash Sum mismatch|Hashes of received file' "$log"; then
+        echo "warning: apt index changed during the fetch; trying once more in 15 s" >&2
+        sleep 15
+        continue
+      fi
+      echo "warning: Chrome stable install failed" >&2
+      break
+    done
+    rm -f "$log"
     have="$(chrome_version || true)"
     if at_least "$have" "$min"; then
       echo "system Chrome $have at $(chrome_bin)"

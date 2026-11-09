@@ -38,6 +38,13 @@ pub const KEEP_SETTLED_MS: u64 = 24 * 60 * 60 * 1000;
 /// Shared bounded retry schedule for delivery and projection-only reconciliation.
 pub(crate) const RETRY_DELAYS_SECS: &[u64] = &[2, 5, 10, 30, 60, 120, 300, 600, 900];
 
+/// How long a message that could not be delivered yet (a peer that is down, a target that does
+/// not answer) keeps being tried, at the last of [`RETRY_DELAYS_SECS`] once those run out, and
+/// at once whenever a peer's link is ready again ([`Outbox::peer_ready`]). A message is not
+/// lost because a machine was off or overloaded for half an hour (Leo, 2026-11-02: "sends
+/// shouldn't time out just bc of load").
+pub(crate) const RETRY_FOR_MS: u64 = KEEP_SETTLED_MS;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum State {
@@ -63,6 +70,12 @@ pub struct Delivery {
     /// The session the sender's connection proved it runs in, sent again as the caller.
     #[serde(default)]
     pub caller: Option<String>,
+    /// The session a sender's connection named with a caller token this daemon could not prove
+    /// (an agent's shell holding a stale session's token). Sent again as that unproven caller
+    /// (`server/outbox.rs` `attempt_once`), so the replay is no owner's terminal send either
+    /// (`server/requests.rs` `owner_terminal`) and stays unverified, as the send itself was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unproven_caller: Option<String>,
     pub state: State,
     #[serde(default)]
     pub attempts: u32,
@@ -121,7 +134,18 @@ impl Delivery {
             "accepted": self.accepted,
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
+            // Why it failed, for a program: the target's machine has no such session.
+            "reason": self.no_session().then_some("no_session"),
         })
+    }
+
+    /// It failed because the target's machine has no such session (`server/outbox.rs`).
+    pub fn no_session(&self) -> bool {
+        self.state == State::Failed
+            && self
+                .error
+                .as_deref()
+                .is_some_and(|e| e.starts_with(super::no_session::NO_SESSION_PREFIX))
     }
 }
 
@@ -136,6 +160,9 @@ pub struct Outbox {
     running: StdMutex<HashSet<String>>,
     /// Fired on every change: a `send_status` that waits wakes.
     pub changed: Notify,
+    /// Fired when a peer's link is ready again (`hub/peers.rs`): a message waiting out a retry
+    /// delay tries again at once instead of minutes later.
+    pub peer_ready: Notify,
 }
 
 /// The deliveries and the number of changes made to them.
@@ -239,6 +266,15 @@ impl Outbox {
         self.running.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
     }
 
+    /// Whether a delivery not settled yet goes to a target `named` matches (a session's id, name
+    /// or an id prefix the sender gave): a turn may still come for that session
+    /// (`Hub::work_coming`).
+    pub fn pending_to(&self, named: impl Fn(&str) -> bool) -> bool {
+        self.book().deliveries.values().any(|d| {
+            !d.settled() && !d.projection_only() && !d.is_team_receipt() && named(&d.target)
+        })
+    }
+
     /// How many deliveries are not settled yet (a projection intent waiting on its receiver's
     /// journal counts).
     pub fn unsettled(&self) -> usize {
@@ -261,6 +297,7 @@ impl Outbox {
             target: address.to_owned(),
             request: json!({"teamOrigin": true, "_meta": {"acpmux": {"promptId": key}}}),
             caller: caller.map(str::to_owned),
+            unproven_caller: None,
             state: State::Delivered,
             attempts: 0,
             never_sent: false,
@@ -279,6 +316,30 @@ impl Outbox {
 
     pub(crate) fn team_receipt(&self, id: &str) -> Option<Delivery> {
         self.book().deliveries.get(&format!("mesh:{id}")).filter(|d| d.is_team_receipt()).cloned()
+    }
+
+    /// The messages this daemon was handed to deliver, at most `limit`, and how many of all of
+    /// them still wait: every one, or only those `caller` (a session id) sent. The waiting ones
+    /// come first (none is cut while a settled one is shown), then the rest, newest first.
+    /// Projection intents and team receipts are bookkeeping, not messages, and are left out.
+    pub fn list(&self, caller: Option<&str>, limit: usize) -> (Vec<Delivery>, usize) {
+        let book = self.book();
+        let mut out: Vec<Delivery> = book
+            .deliveries
+            .values()
+            .filter(|d| !d.is_team_receipt() && !d.projection_only())
+            .filter(|d| caller.is_none_or(|c| d.caller.as_deref() == Some(c)))
+            .cloned()
+            .collect();
+        let waiting = out.iter().filter(|d| !d.settled()).count();
+        out.sort_by(|a, b| {
+            a.settled()
+                .cmp(&b.settled())
+                .then_with(|| b.created_at.cmp(&a.created_at))
+                .then_with(|| b.id.cmp(&a.id))
+        });
+        out.truncate(limit);
+        (out, waiting)
     }
 
     pub fn get(&self, id: &str) -> Option<Delivery> {
@@ -468,6 +529,7 @@ mod tests {
             target: "lane".into(),
             request: json!({"sessionId": "lane", "_meta": {"acpmux": {"promptId": format!("p-{n}")}}}),
             caller: None,
+            unproven_caller: None,
             state: State::Queued,
             attempts: 0,
             never_sent: false,
@@ -477,6 +539,31 @@ mod tests {
             created_at: now,
             updated_at: now,
         }
+    }
+
+    #[test]
+    fn list_is_newest_first_by_sender_without_bookkeeping() {
+        let outbox = Outbox::default();
+        for n in 0..4 {
+            let mut d = delivery(n);
+            d.created_at = n as u64;
+            d.caller = Some(if n % 2 == 0 { "s-even" } else { "s-odd" }.into());
+            outbox.add(d);
+        }
+        let mut intent = delivery(9);
+        intent.request["_meta"]["acpmux"]["forwardProjection"] = json!({"text": "x"});
+        intent.state = State::Held;
+        outbox.add(intent);
+        let ids = |(v, _): (Vec<Delivery>, usize)| v.into_iter().map(|d| d.id).collect::<Vec<_>>();
+        assert_eq!(ids(outbox.list(None, 10)), ["d-3", "d-2", "d-1", "d-0"]);
+        assert_eq!(ids(outbox.list(Some("s-even"), 10)), ["d-2", "d-0"]);
+        assert_eq!(ids(outbox.list(None, 1)), ["d-3"]);
+        // A waiting one is never cut for a newer settled one, and the count is of all of them.
+        for n in 1..4 {
+            outbox.update(&format!("d-{n}"), |d| d.state = State::Delivered);
+        }
+        assert_eq!(outbox.list(None, 1).1, 1);
+        assert_eq!(ids(outbox.list(None, 1)), ["d-0"]);
     }
 
     #[test]
@@ -679,6 +766,7 @@ mod tests {
             target: "lane".into(),
             request,
             caller: None,
+            unproven_caller: None,
             state: State::Queued,
             attempts: 0,
             never_sent: false,

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7c39669d1126b40e5f9e8759eee6ec5ee6eec5da05b4c5a793d8cb16c32dc31b. */
+/* cmux-tui mux protocol 12, IR 62625fc976e69a44b62563b404477f91207f431e3b472e3b79007ead92baffb6. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -31,6 +31,8 @@ export type AgentRecord = {
   "since_ms"?: bigint;
   "source": AgentSource;
   "state": AgentState;
+  /** What the person sees: `working`, `blocked`, `done` (the agent finished a turn and no client has shown its tab since; `state` is `idle` then), `idle` or `unknown`; null for an ended session (`state` `done`). Reading never clears `done`; a frontend's tab acknowledgement does. Absent from older daemons: use `state`. */
+  "status"?: (AgentState) | null;
   "surface": Id;
   "updated_at_ms": bigint;
 };
@@ -171,6 +173,26 @@ export type CellPixelSurface = {
   "height_px": number;
   "surface": Id;
   "width_px": number;
+};
+
+export type ChiefWorkAgent = {
+  "id": string;
+  "name": string;
+  "startedAt": (bigint) | null;
+  "state": "working" | "waiting" | "idle" | "failed";
+  "task": (string) | null;
+  "updatedAt": (bigint) | null;
+};
+
+export type ChiefWorkTask = {
+  "command": string;
+  "detail": (string) | null;
+  "endedAt": (bigint) | null;
+  "id": string;
+  "sessionId": string;
+  "startedAt": (bigint) | null;
+  "status": "running" | "done" | "failed" | "cancelled" | "unknown";
+  "title": string;
 };
 
 export type ClientInfo = {
@@ -645,6 +667,18 @@ export type Layout = ({ "type": "leaf" } & {
   "type": "stack";
 });
 
+export type LayoutSizePaneWidth = {
+  "pane": Id;
+  "width": number;
+};
+
+export type LayoutSizeSplitRatio = {
+  "ratio": number;
+  "split": Id;
+};
+
+export type LayoutSizeValue = (LayoutSizeSplitRatio) | (LayoutSizePaneWidth);
+
 export type LayoutUndoConfirmationRequired = {
   "closes_panes": Array<Id>;
   "confirmation_required": true;
@@ -824,6 +858,12 @@ export type ReadScrollbackResult = {
 export type ReattachViewResult = {
   "participant": string;
   "state": SizeState;
+};
+
+export type RemoteHostAppResult = {
+  "host_pid": number;
+  "secret": string;
+  "socket": string;
 };
 
 export type RenderCursor = {
@@ -1007,6 +1047,19 @@ export type Screen = {
   "zoomed_pane": (Id) | null;
 };
 
+export type SelectionPane = {
+  "active_tab": bigint;
+  "focused_at": bigint;
+  "id": Id;
+};
+
+export type SelectionScreen = {
+  "active": boolean;
+  "active_pane": Id;
+  "id": Id;
+  "panes": Array<SelectionPane>;
+};
+
 export type SendExpectAgent = {
   "session"?: (string) | null;
 };
@@ -1142,7 +1195,12 @@ export type ServerStatsWritePath = {
   "effect_intent_batches": bigint;
   "effect_intent_failures": bigint;
   "effect_intents": bigint;
+  "registry_wal_file_bytes"?: bigint;
+  "registry_wal_file_high_water_bytes"?: bigint;
+  "registry_wal_frame_bytes"?: bigint;
   "request_effect_commits": bigint;
+  "wal_commits"?: bigint;
+  "wal_synced_commits"?: bigint;
   "writer_registry_locks": bigint;
 };
 
@@ -1470,6 +1528,18 @@ export type TerminalKeyInput = {
   "shifted_codepoint"?: (string) | null;
   "unshifted_codepoint"?: (string) | null;
   "utf8": string;
+};
+
+export type TerminalLastCommand = {
+  "command": string;
+  "ended_at_ms": string;
+  "exit_code": (number) | null;
+  "started_at_ms": string;
+};
+
+export type TerminalLastCommandResult = {
+  "last_command": (TerminalLastCommand) | null;
+  "terminal_id": string;
 };
 
 export type TerminalLifecycle = "launching" | "adopting" | "running" | "exited" | "tombstoned";

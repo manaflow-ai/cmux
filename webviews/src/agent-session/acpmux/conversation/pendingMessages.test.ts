@@ -10,7 +10,10 @@ import {
   PENDING_MESSAGES_ROW_ID,
   pendingMessagesRow,
   searchablePendingRows,
+  withWaitingRows,
 } from "./pendingMessages";
+import { groupSender } from "./messageGroupHeadModel";
+import { THINKING } from "./turns";
 import { batchLaneNotices, flattenInboxRows, projectInboxRows } from "./laneNoticeBatches";
 
 let at = 0;
@@ -539,4 +542,45 @@ test("a delivered many-thread notice has one flat fold, independent of the waiti
   expect(streamed[0]).toBe(delivered[0]);
   // The reverse order must not reuse the folded array for Find or the waiting strip either.
   expect(flattenInboxRows(nextSource)).toHaveLength(14);
+});
+
+// The running turn's live line stays the transcript's last row, under the waiting messages' group
+// (Leo, 2026-11-03: "thinking shimmer not being at the bottom looks bad").
+test("the waiting messages draw over the running turn's live line", () => {
+  const reply: AcpmuxRow = { id: "a", version: 1, at: at++, kind: "assistant", text: "hi" };
+  const line: AcpmuxRow = { id: "thinking-live", version: 1, at: at++, kind: THINKING, below: true };
+  const group = pendingMessagesRow([], [queued("p-live", "tests", "done")])!;
+  expect(withWaitingRows([reply, line], [group]).map((row) => row.id)).toEqual([
+    "a",
+    PENDING_MESSAGES_ROW_ID,
+    "thinking-live",
+  ]);
+  // An ended turn has no live line: the group stays at the end.
+  expect(withWaitingRows([reply], [group]).map((row) => row.id)).toEqual(["a", PENDING_MESSAGES_ROW_ID]);
+  // Nothing waits: the same rows back.
+  const rows = [reply, line];
+  expect(withWaitingRows(rows, [])).toBe(rows);
+});
+
+// cmux#38791 review: two relayed chats both named lane-a, on two machines, name no session here;
+// each is asked for by its relay address (`lookup`), so they are two senders, and the group's head
+// names neither.
+test("two relayed senders of one name on two machines are two senders", () => {
+  const relayed = (promptId: string, lookup: string): AcpmuxRow => ({
+    id: `queued-message-${promptId}`,
+    version: 1,
+    at: at++,
+    kind: QUEUED_MESSAGE,
+    text: "done",
+    incoming: { kind: "message", message: { name: "lane-a", lookup, text: "done", raw: "done" } },
+    queuedMessage: { promptId },
+  });
+  const rows = [relayed("p1", "vm-1/lane-a"), relayed("p2", "vm-2/lane-a"), relayed("p3", "vm-1/lane-a")];
+  expect(bySender(rows).map((each) => [each.key, each.rows.length])).toEqual([
+    ["vm-1/lane-a", 2],
+    ["vm-2/lane-a", 1],
+  ]);
+  expect(groupSender(rows.map((row) => (row.incoming?.kind === "message" ? row.incoming.message : undefined)))).toBe(
+    undefined,
+  );
 });

@@ -1,4 +1,4 @@
-import type { ChatMenuChild, ChatMenuItem } from "./ChatHeaderTools";
+import type { ChatMenuChild, ChatMenuItem } from "./chatHeaderToolsModel";
 import type { Translate } from "../i18n";
 
 type Row = Exclude<ChatMenuItem, "separator">;

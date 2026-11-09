@@ -17,11 +17,10 @@ import Testing
 
     @Test func aBrowserTabWalksItsHistoryAndAnyOtherPaneWalksGoBack() {
         typealias Route = MouseSideButtons.Route
-        #expect(Route.of(.back, enabled: true, overForwardingView: false, overBrowser: true) == .page(.back))
-        #expect(Route.of(.forward, enabled: true, overForwardingView: false, overBrowser: false) == .history(.forward))
-        #expect(Route.of(.back, enabled: true, overForwardingView: true, overBrowser: false) == .pass)
-        #expect(Route.of(.back, enabled: false, overForwardingView: false, overBrowser: true) == .pass)
-        #expect(Route.of(nil, enabled: true, overForwardingView: false, overBrowser: true) == .pass)
+        #expect(Route.of(.back, overForwardingView: false, overBrowser: true) == .page(.back))
+        #expect(Route.of(.forward, overForwardingView: false, overBrowser: false) == .history(.forward))
+        #expect(Route.of(.back, overForwardingView: true, overBrowser: false) == .pass)
+        #expect(Route.of(nil, overForwardingView: false, overBrowser: true) == .pass)
     }
 
     @Test func aRemoteDesktopInControlModeKeepsTheButtons() {

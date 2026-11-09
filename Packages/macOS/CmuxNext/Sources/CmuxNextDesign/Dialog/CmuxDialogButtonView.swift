@@ -18,7 +18,7 @@ public final class CmuxDialogButtonView: ClickableButton {
     /// When the button came on screen (`systemUptime`): a click-only button takes no click
     /// before ``armDelay`` has passed, so a click aimed at what was there before cannot land on it.
     private(set) var shownAt: TimeInterval?
-    static let armDelay: TimeInterval = 0.5
+    static let armDelay = CmuxDialogClickOnlyArm.delay
     /// The keyboard focus ring, just outside the button.
     private let focusRing = CALayer()
     /// On a solid fill, a line of the card's color just inside the button's edge, between the fill and
@@ -26,7 +26,7 @@ public final class CmuxDialogButtonView: ClickableButton {
     private let focusGap = CALayer()
 
     /// A button drawing `hint` after its title. The hint only labels the key: the host
-    /// answers it (``CmuxDialogView`` through ``CmuxDialogKeys``), so pass the hint that
+    /// answers it (the overlay page's dialog through ``CmuxDialogKeys``), so pass the hint that
     /// ``CmuxDialogKeys/hint(for:in:)`` gives for the host's spec.
     public init(_ button: CmuxDialogButton, hint: CmuxDialogKeyHint?, quiet: Bool = false, target: AnyObject?, action: Selector) {
         self.button = button
@@ -54,7 +54,7 @@ public final class CmuxDialogButtonView: ClickableButton {
         refresh()
     }
 
-    /// A button outside a ``CmuxDialogView`` (a sheet or panel of its own) that answers its
+    /// A button outside a cmux dialog (a sheet or panel of its own) that answers its
     /// own key and shows it: Return for a `.default` button, Escape for a `.cancel` one, else
     /// Command plus the button's `key`; a `.normal` button with no `key` shows none.
     public convenience init(standalone button: CmuxDialogButton, target: AnyObject?, action: Selector) {
@@ -226,12 +226,8 @@ public final class CmuxDialogButtonView: ClickableButton {
 /// Sizes shared by every dialog.
 @MainActor
 enum CmuxDialogMetrics {
-    static var width: CGFloat { 380 * Typography.userScale }
     static var buttonHeight: CGFloat { 26 * Typography.userScale }
     static var buttonMinWidth: CGFloat { 72 * Typography.userScale }
     static var buttonCornerRadius: CGFloat { 7 }
-    static var fieldHeight: CGFloat { 24 * Typography.userScale }
     static var padding: CGFloat { Metrics.space5 }
-    static var spacing: CGFloat { Metrics.space3 }
-    static var iconSize: CGFloat { 40 }
 }

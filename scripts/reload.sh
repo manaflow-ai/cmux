@@ -29,9 +29,13 @@ DERIVED_DATA=""
 NAME_SET=0
 BUNDLE_SET=0
 DERIVED_SET=0
+# 1: build only this Mac's architecture, 0: the configuration's own (Release is universal); empty until the
+# flags and environment are read (--native-arch, CMUX_RELOAD_NATIVE_ARCH, a fleet measurement step).
+NATIVE_ARCH=""
 TAG=""
 LAUNCH=0
 BUILD_ONLY=0
+KEEP_APP=""
 CMUX_DEBUG_LOG=""
 CMUX_DEV_PORT=""
 CMUX_DEV_PORT_END=""
@@ -727,6 +731,11 @@ Options:
   --build-only           Build and validate a tagged app without replacing or
                          stopping the running tagged app, daemon, or tag state.
                          Cannot be combined with --launch.
+  --keep-app <path>      With --build-only: keep the tagged bundle at <path> instead of
+                         deleting it, its LSEnvironment pointing at the tag's installed path
+                         (CMUX_RELOAD_INSTALLED_APP, default this derived data's), so it can
+                         replace the running tagged app later (live mode,
+                         scripts/live-code/live-mode.py). Prints it as the App path.
   --direct-backend       Use the tag's shared GCP dev web stack (scripts/dev-backend.sh,
                          direct Tailscale transport). cmux-next builds default to local
                          backend mode without it, and Cloud is then unavailable.
@@ -765,7 +774,16 @@ Options:
   --derived-data <path>  Override derived data path.
                          Defaults to CMUX_DERIVED_DATA when set (an absolute
                          path to a DerivedData kept warm for this checkout and
-                         shared by its tags), else one directory per tag.
+                         shared by its tags), else in a fleet measurement step
+                         (CMUX_CI_STEP_CLASS=exclusive) .build/DerivedData/cmux-measure
+                         in this checkout, else one directory per tag.
+  --native-arch          Build only this Mac's architecture (ARCHS=$(uname -m),
+                         ONLY_ACTIVE_ARCH=YES), the app and its bundled helpers,
+                         instead of Release's universal arm64 + x86_64. For an app
+                         that only runs here: benches and local Release dogfood.
+                         The default in a fleet measurement step; CMUX_RELOAD_NATIVE_ARCH=1
+                         turns it on, CMUX_RELOAD_NATIVE_ARCH=0 off. Shipped builds
+                         never use reload.sh, so they stay universal.
   --no-global-cli-links  Do not update /tmp/cmux-cli, /tmp/cmux-last-cli-path,
                          or PATH cmux-dev shims. Useful for isolated dogfood.
   --swift-frontend-workaround
@@ -880,6 +898,26 @@ tagged_derived_data_path() {
   echo "$HOME/Library/Developer/Xcode/DerivedData/cmux-${slug}"
 }
 
+# A fleet measurement step (cmux-ci run --class exclusive, the scripts/measure/ entries) builds a tagged app
+# only to run it on this Mac. Its HOME is per step (work/steps/<id>/home), so the per-tag DerivedData was a
+# cold build every time, and Release built x86_64 too, a slice the bench never runs: chat-open.sh at
+# 599d6c5d ran into its 1800 s bound inside that build (step b128e339), split-spring.sh at 5d5ab41c sat
+# in it past 30 min (step 24ab613d).
+reload_is_measurement_step() {
+  [[ "${CMUX_CI_STEP_CLASS:-}" == exclusive ]]
+}
+
+# A measurement step's DerivedData sits in the checkout's .build, which the build worker keeps between
+# steps when the step runs in a warm checkout of its own (cmuxterm-hq build-fleet/cmd/worker/step_warm.go:
+# one checkout path per slot, cleaned with `git clean -ffdx -e .build`). Xcode keys DerivedData by the
+# sources' absolute paths, so only a checkout that keeps its path keeps the build warm. A cold checkout
+# removes it with the step, as the per-step HOME did. After a finished build reload.sh writes the
+# commit to .build/.cmux-ci-built-ref, the worker's sign that the build in .build completed
+# (warmBuildOutcome); a build cut short leaves none, and the worker drops that .build.
+measurement_derived_data_path() {
+  echo "$(cd "$SCRIPT_DIR/.." && pwd -P)/.build/DerivedData/cmux-measure"
+}
+
 # A tag only changes the bundle id, names, socket and state files. None of those
 # are compiler inputs, so a new tag built into a DerivedData that is already warm
 # for this checkout recompiles nothing, while a fresh per-tag DerivedData is a full
@@ -888,7 +926,8 @@ tagged_derived_data_path() {
 # to pass --derived-data on every reload. It must be absolute, and only one build
 # may use it at a time; that is the owner's lock to hold, not this script's.
 resolve_tagged_derived_data() {
-  # Precedence: --derived-data, then CMUX_DERIVED_DATA, then one directory per tag.
+  # Precedence: --derived-data, then CMUX_DERIVED_DATA, then a measurement step's warm one, then one
+  # directory per tag.
   local slug="$1" explicit_set="${2:-0}" explicit_path="${3:-}"
   if [[ "$explicit_set" -eq 1 ]]; then
     echo "$explicit_path"
@@ -900,6 +939,10 @@ resolve_tagged_derived_data() {
       return 1
     fi
     echo "$CMUX_DERIVED_DATA"
+    return 0
+  fi
+  if reload_is_measurement_step; then
+    measurement_derived_data_path
     return 0
   fi
   tagged_derived_data_path "$slug"
@@ -1129,6 +1172,14 @@ while [[ $# -gt 0 ]]; do
       BUILD_ONLY=1
       shift
       ;;
+    --keep-app)
+      KEEP_APP="${2:-}"
+      if [[ -z "$KEEP_APP" ]]; then
+        echo "error: --keep-app requires a path" >&2
+        exit 1
+      fi
+      shift 2
+      ;;
     --prod-auth)
       PROD_AUTH=1
       shift
@@ -1198,6 +1249,10 @@ while [[ $# -gt 0 ]]; do
       NO_GLOBAL_CLI_LINKS=1
       shift
       ;;
+    --native-arch)
+      NATIVE_ARCH=1
+      shift
+      ;;
     --swift-disable-global-isel)
       SWIFT_FRONTEND_WORKAROUND=1
       shift
@@ -1221,6 +1276,18 @@ done
 if [[ "$BUILD_ONLY" -eq 1 && "$LAUNCH" -eq 1 ]]; then
   echo "error: --build-only cannot be combined with --launch" >&2
   exit 1
+fi
+if [[ -n "$KEEP_APP" && ( "$BUILD_ONLY" -ne 1 || -z "$TAG" ) ]]; then
+  echo "error: --keep-app needs --tag and --build-only" >&2
+  exit 1
+fi
+
+if [[ -z "$NATIVE_ARCH" ]]; then
+  case "${CMUX_RELOAD_NATIVE_ARCH:-}" in
+    1) NATIVE_ARCH=1 ;;
+    0) NATIVE_ARCH=0 ;;
+    *) if reload_is_measurement_step; then NATIVE_ARCH=1; else NATIVE_ARCH=0; fi ;;
+  esac
 fi
 
 if [[ -z "$TAG" ]]; then
@@ -1359,8 +1426,8 @@ fi
 if [[ -z "${CMUX_DEV_BACKEND_MODE:-}" && -z "${CMUX_DEV_BACKEND_URL:-}" ]]; then
   export CMUX_DEV_BACKEND_MODE=local
 fi
-# The cmuxterm-hq local build guard refuses xcodebuild/cargo below 500 GiB
-# free on the home volume unless CMUX_ALLOW_LOW_SPACE_BUILD=1. That floor is
+# The cmuxterm-hq local build guard refuses xcodebuild/cargo below its own floor
+# (CMUX_BUILD_MIN_FREE_GIB) of free space on the home volume unless CMUX_ALLOW_LOW_SPACE_BUILD=1. That floor is
 # sized for the legacy app and many agents at once. A cold cmux-next tagged
 # build (2026-09-29, tag nxpipe) left 5.8 GiB of DerivedData and lowered
 # free space by at most 10.6 GiB while it ran, so cmux-next reloads use their
@@ -1368,6 +1435,10 @@ fi
 # build. Its default (40 GiB, about 4x that peak) is the one number in
 # cmux-next/tour-requirements.json, so the runners that take tours read the
 # same floor instead of copying it.
+# The floor warns and the build runs anyway: a busy machine makes things
+# slower, never makes them fail (2026-11-06: a fleet try-pr --live-code run
+# with 33 GiB free was refused here). Under the floor it says the free space,
+# the floor and the host, and still lifts the guard's floor for this build.
 cmux_next_requirements="$SCRIPT_DIR/cmux-next/tour-requirements.json"
 cmux_next_default_min_free_gib="$(python3 -c '
 import json, sys
@@ -1379,14 +1450,18 @@ print(value)' "$cmux_next_requirements" 2>/dev/null)" \
 cmux_next_min_free_gib="${CMUX_NEXT_MIN_FREE_GIB:-$cmux_next_default_min_free_gib}"
 [[ "$cmux_next_min_free_gib" =~ ^[0-9]+$ ]] \
   || { echo "error: CMUX_NEXT_MIN_FREE_GIB must be a whole number of GiB" >&2; exit 1; }
-cmux_next_free_gib="$(df -Pk "$HOME" | awk 'NR==2{print int($4/1048576)}')"
-if (( cmux_next_free_gib < cmux_next_min_free_gib )); then
-  echo "error: cmux-next build needs ${cmux_next_min_free_gib} GiB free on the home volume; ${cmux_next_free_gib} GiB free." >&2
-  echo "       Free space (skills/build-release/cleanup-dev-builds in cmuxterm-hq) or build on the fleet with cmux-ci." >&2
-  exit 1
+cmux_next_free_gib="$(df -Pk "$HOME" 2>/dev/null | awk 'NR==2{print int($4/1048576)}')" || cmux_next_free_gib=""
+cmux_next_host="$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo unknown)"
+if ! [[ "$cmux_next_free_gib" =~ ^[0-9]+$ ]]; then
+  echo "warning: cmux-next floor: cannot read the home volume's free space on ${cmux_next_host} (floor ${cmux_next_min_free_gib} GiB); building anyway" >&2
+elif (( cmux_next_free_gib < cmux_next_min_free_gib )); then
+  echo "warning: cmux-next floor: ${cmux_next_free_gib} GiB free on the home volume of ${cmux_next_host}, under the ${cmux_next_min_free_gib} GiB floor; building anyway" >&2
+  echo "         If the build runs out of space: skills/build-release/cleanup-dev-builds in cmuxterm-hq, or build on the fleet with cmux-ci." >&2
+else
+  echo "==> cmux-next floor: ${cmux_next_free_gib} GiB free >= ${cmux_next_min_free_gib} GiB on ${cmux_next_host}"
 fi
 if [[ "${CMUX_ALLOW_LOW_SPACE_BUILD:-}" != "1" ]]; then
-  echo "==> cmux-next floor: ${cmux_next_free_gib} GiB free >= ${cmux_next_min_free_gib} GiB; lifting the local build guard's 500 GiB floor for this build"
+  echo "==> cmux-next: lifting the local build guard's floor for this build"
   export CMUX_ALLOW_LOW_SPACE_BUILD=1
 fi
 if [[ -n "${CMUX_NEXT_TUI_BIN:-}" ]]; then
@@ -1412,9 +1487,17 @@ fi
 # app architecture in their binaries, while both build scripts default to the
 # host. A fleet --release build failed on "acpmux has architectures arm64, but
 # the app needs arm64 x86_64" (job f03724be4852). An explicit choice wins.
-if [[ "$BUILD_CONFIGURATION" == "Release" ]]; then
-  export CMUX_NEXT_ACPMUX_ARCHS="${CMUX_NEXT_ACPMUX_ARCHS:-arm64 x86_64}"
-  export CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="${CMUX_NEXT_OPTCHAT_CHIEF_ARCHS:-arm64 x86_64}"
+# A --native-arch build (a measurement step's default) builds the app for this Mac alone, so its helpers
+# need only that architecture too.
+RELOAD_HELPER_ARCHS="arm64 x86_64"
+if [[ "$NATIVE_ARCH" -eq 1 ]]; then
+  # hw.optional.arm64, not `uname -m`: a shell under Rosetta reports x86_64 on an Apple silicon Mac.
+  if [[ "$(sysctl -n hw.optional.arm64 2>/dev/null || true)" == 1 ]]; then RELOAD_HELPER_ARCHS=arm64; else RELOAD_HELPER_ARCHS="$(uname -m)"; fi
+  echo "==> native architecture build: ARCHS=$RELOAD_HELPER_ARCHS ONLY_ACTIVE_ARCH=YES (not universal)"
+fi
+if [[ "$BUILD_CONFIGURATION" == "Release" || "$NATIVE_ARCH" -eq 1 ]]; then
+  export CMUX_NEXT_ACPMUX_ARCHS="${CMUX_NEXT_ACPMUX_ARCHS:-$RELOAD_HELPER_ARCHS}"
+  export CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="${CMUX_NEXT_OPTCHAT_CHIEF_ARCHS:-$RELOAD_HELPER_ARCHS}"
 fi
 
 # cmux-next's agent pane starts the acpmux daemon from Resources/bin. A miss
@@ -1457,8 +1540,8 @@ fi
 # compile it on a miss and require it; a local reload bundles a cached build
 # when one exists and otherwise builds an app whose iPhone section says it is
 # unavailable (never Cargo on the developer Mac).
-if [[ "$BUILD_CONFIGURATION" == "Release" ]]; then
-  export CMUX_NEXT_MOBILE_HOST_ARCHS="${CMUX_NEXT_MOBILE_HOST_ARCHS:-arm64 x86_64}"
+if [[ "$BUILD_CONFIGURATION" == "Release" || "$NATIVE_ARCH" -eq 1 ]]; then
+  export CMUX_NEXT_MOBILE_HOST_ARCHS="${CMUX_NEXT_MOBILE_HOST_ARCHS:-$RELOAD_HELPER_ARCHS}"
 fi
 if [[ -z "${CMUX_NEXT_MOBILE_HOST_BIN:-}" && -x "$PWD/scripts/cmux-next/build-mobile-host.sh" ]]; then
   if cmux_mobile_host_cached="$("$PWD/scripts/cmux-next/build-mobile-host.sh" --cached-only --print-path 2>/dev/null)"; then
@@ -1471,7 +1554,7 @@ if [[ -z "${CMUX_NEXT_MOBILE_HOST_BIN:-}" && -x "$PWD/scripts/cmux-next/build-mo
 fi
 [[ -n "${CMUX_NEXT_MOBILE_HOST_BIN:-}" ]] && echo "==> cmux-next: bundling cmux-mobile-host from $CMUX_NEXT_MOBILE_HOST_BIN"
 
-# The web bundles (agent pane, pages, Agent Activity, palette ranker, webviews
+# The web bundles (agent pane, pages, Agent Activity, webviews
 # app) are build output, not committed: they are built from the sources before
 # the compile, so the app never ships a stale or missing copy (cx-vn5). A warm
 # tree skips the build in about a second. The Xcode "Verify web bundles" phase
@@ -1608,7 +1691,17 @@ reload_finalize() {
     echo "Swift workaround:"
     echo "  batch mode, debug symbols, and AArch64 GlobalISel disabled for this reload"
   fi
-  if [[ "$BUILD_ONLY" -eq 1 ]]; then
+  if [[ "$BUILD_ONLY" -eq 1 && -n "$KEEP_APP" && -n "${TAG_APP_STAGING_PATH:-}" && -e "$TAG_APP_STAGING_PATH" ]]; then
+    # Live mode's build (--keep-app): the staged bundle is the product. It moves to KEEP_APP,
+    # beside nothing the running tagged app uses, and is printed as the App path.
+    rm -rf "$KEEP_APP"
+    mkdir -p "$(dirname "$KEEP_APP")"
+    mv "$TAG_APP_STAGING_PATH" "$KEEP_APP"
+    echo
+    echo "Build-only: kept the tagged app for a later swap. The running tagged app, cmuxd, and tag state were left unchanged."
+    echo "App path:"
+    echo "  $KEEP_APP"
+  elif [[ "$BUILD_ONLY" -eq 1 ]]; then
     echo
     echo "Build-only validation complete. The running tagged app, cmuxd, and tag state were left unchanged."
     if [[ -n "${TAG_APP_STAGING_PATH:-}" && -e "$TAG_APP_STAGING_PATH" ]]; then
@@ -1663,6 +1756,12 @@ if should_skip_ghostty_cli_helper_zig_build; then
   export CMUX_SKIP_ZIG_BUILD=1
 fi
 
+# A measurement step's build drops the last finished build's marker first, so a build cut short this time
+# leaves none and the build worker drops the DerivedData it may have half written (measurement_derived_data_path).
+if reload_is_measurement_step && [[ "$DERIVED_DATA" == "$(measurement_derived_data_path)" ]]; then
+  rm -f "$(dirname "$(dirname "$DERIVED_DATA")")/.cmux-ci-built-ref"
+fi
+
 XCODEBUILD_ARGS=(
   -project cmux.xcodeproj
   -scheme cmux
@@ -1686,6 +1785,9 @@ if [[ -z "$TAG" ]]; then
   )
 fi
 XCODEBUILD_ARGS+=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID")
+if [[ "$NATIVE_ARCH" -eq 1 ]]; then
+  XCODEBUILD_ARGS+=(ARCHS="$RELOAD_HELPER_ARCHS" ONLY_ACTIVE_ARCH=YES)
+fi
 # A dev bundle id never claims http/https at Default rank, Release mode included
 # (Resources/Info.plist; tests/test_web_url_handler_rank.py).
 web_url_handler_rank=Default
@@ -1732,6 +1834,16 @@ if [[ "$BENCH_HOOKS" -eq 1 ]]; then
   source "$(dirname "${BASH_SOURCE[0]}")/cmux-next/lib/bench-swift-defines.sh"
   SWIFT_OTHER_FLAGS+=" $CMUX_BENCH_SWIFT_DEFINES"
   echo "==> bench configuration: Release optimization with $CMUX_BENCH_SWIFT_DEFINES (no DEBUG)"
+fi
+if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == "1" ]]; then
+  # Live code: every CmuxNext target unoptimized, testable and a file at a time, linked so a patch
+  # can repoint it (scripts/live-code/lib/xcodebuild-args.sh, shared with the NIGHTLY variant).
+  # shellcheck source=scripts/live-code/lib/xcodebuild-args.sh
+  source "$SCRIPT_DIR/live-code/lib/xcodebuild-args.sh"
+  while IFS= read -r arg; do XCODEBUILD_ARGS+=("$arg"); done < <(
+    live_code_xcodebuild_args "$BUILD_CONFIGURATION" "${CMUX_LIVE_CODE_INTERPOSABLE_LIST:-}")
+  SWIFT_OTHER_FLAGS+=" $(live_code_swift_flags)"
+  echo "==> live code build: $(live_code_targets | wc -l | tr -d ' ') CmuxNext targets at -Onone, testable and a file at a time${CMUX_LIVE_CODE_INTERPOSABLE_LIST:+, interposable as listed in $CMUX_LIVE_CODE_INTERPOSABLE_LIST}"
 fi
 if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=1
@@ -1808,6 +1920,11 @@ if ! is_positive_integer "$XCODEBUILD_LOCK_WAIT_SECONDS"; then
   echo "error: xcodebuild lock wait timeout must be a positive integer" >&2
   exit 1
 fi
+# The commit and dirty state the build is made from, read before it starts: a checkout that moves
+# during the build must not stamp the app with a commit it was not built from (Info.plist below).
+build_commit="$(git rev-parse --verify -q HEAD 2>/dev/null || true)"
+build_dirty=false
+[[ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]] && build_dirty=true
 # Xcode 26's SWBBuildService is a per-user singleton. Too many concurrent
 # xcodebuild invocations can trample that daemon, so cap reload.sh builds at
 # five per user while still allowing useful parallel tagged builds.
@@ -1956,6 +2073,10 @@ if LC_ALL=C grep -q 'BUILD INTERRUPTED' "$RELOAD_LOG"; then
   echo "error: xcodebuild reported ** BUILD INTERRUPTED **; refusing to reuse DerivedData app artifacts" >&2
   exit 65
 fi
+# The finished build's commit beside a measurement step's DerivedData (measurement_derived_data_path).
+if reload_is_measurement_step && [[ "$DERIVED_DATA" == "$(measurement_derived_data_path)" ]]; then
+  git -C "$SCRIPT_DIR/.." rev-parse HEAD > "$(dirname "$(dirname "$DERIVED_DATA")")/.cmux-ci-built-ref" 2>/dev/null || true
+fi
 
 FALLBACK_APP_NAME="$PRODUCT_APP_NAME"
 SEARCH_APP_NAME="$APP_NAME"
@@ -2034,6 +2155,15 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $APP_NAME" "$INFO_PLIST"
     /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$INFO_PLIST" 2>/dev/null \
       || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $BUNDLE_ID" "$INFO_PLIST"
+    # The commit the build was made from, as the nightly stamps it, plus whether tracked files had
+    # local changes then. try-pr sorts a PR against it (scripts/cmux-next/try-pr.sh), and crash
+    # reports name it (CrashReportIdentity).
+    /usr/libexec/PlistBuddy -c 'Delete :CMUXCommit' "$INFO_PLIST" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c 'Delete :CMUXCommitDirty' "$INFO_PLIST" 2>/dev/null || true
+    if [[ -n "$build_commit" ]]; then
+      /usr/libexec/PlistBuddy -c "Add :CMUXCommit string $build_commit" "$INFO_PLIST"
+      /usr/libexec/PlistBuddy -c "Add :CMUXCommitDirty bool $build_dirty" "$INFO_PLIST"
+    fi
     if [[ -n "${TAG_SLUG:-}" ]]; then
       APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
       CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-dev-${TAG_SLUG}.sock"
@@ -2059,13 +2189,22 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       esac
       /usr/libexec/PlistBuddy -c 'Delete :CMUXCloudDogfoodEnabled' "$INFO_PLIST" 2>/dev/null || true
       /usr/libexec/PlistBuddy -c "Add :CMUXCloudDogfoodEnabled bool ${CMUX_DEV_CLOUD_ENABLED:-1}" "$INFO_PLIST"
+      # Swift live mode's mark (LiveCode.isLive): only a live code build (scripts/live-code/build.sh) has it.
+      /usr/libexec/PlistBuddy -c 'Delete :CMUXLiveCodeBuild' "$INFO_PLIST" 2>/dev/null || true
+      if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == "1" ]]; then
+        /usr/libexec/PlistBuddy -c "Add :CMUXLiveCodeBuild bool true" "$INFO_PLIST"
+      fi
       set_plist_env "$INFO_PLIST" CMUX_AUTH_CALLBACK_SCHEME "$CMUX_AUTH_CALLBACK_SCHEME_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_ENABLE "1"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_MODE "allowAll"
       set_plist_env "$INFO_PLIST" CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD "1"
       set_plist_env "$INFO_PLIST" CMUXTERM_REPO_ROOT "$PWD"
       BUNDLED_APP_PATH="$TAG_APP_FINAL_PATH"
-      if [[ "$BUILD_ONLY" -eq 1 ]]; then
+      # --keep-app: the kept bundle will be swapped into the installed tagged app's path
+      # (CMUX_RELOAD_INSTALLED_APP, when it is built in other derived data), so it names that one.
+      if [[ "$BUILD_ONLY" -eq 1 && -n "$KEEP_APP" ]]; then
+        BUNDLED_APP_PATH="${CMUX_RELOAD_INSTALLED_APP:-$TAG_APP_FINAL_PATH}"
+      elif [[ "$BUILD_ONLY" -eq 1 ]]; then
         BUNDLED_APP_PATH="$TAG_APP_STAGING_PATH"
       fi
       set_plist_env "$INFO_PLIST" CMUX_BUNDLED_CLI_PATH "$BUNDLED_APP_PATH/Contents/Resources/bin/cmux"

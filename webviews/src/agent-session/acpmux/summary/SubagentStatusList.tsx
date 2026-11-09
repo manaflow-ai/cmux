@@ -7,126 +7,46 @@
 // one does now; a click opens its chat beside this one (`onOpenSession`). After them, the other
 // chats the agent started (`sessions`, session-info/ChildSessionRows.tsx), each opening its chat.
 import { useContext } from "react";
-import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
+
 import { formatDuration } from "../conversation/turns";
 import { AgentLine } from "../subagents/AgentLine";
-import { useT, type StringKey, type Translate } from "../i18n";
+import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { elapsed, running, STATE_LABEL, SubagentHarnessContext, useNow } from "../subagents/SubagentGroup";
-import type { Subagent } from "../subagents/subagentFold";
+import { elapsed, SubagentHarnessContext, ticking, useNow } from "../subagents/subagentGroupModel";
+import { type Subagent } from "../subagents/subagentFold";
+
 import { retrying, retryLabel, sessionRetry } from "../subagents/retryState";
 import { Spinner } from "../conversation/icons";
 import {
   SUBSESSION_STATE_LABEL,
   subsessionDisplayName,
   type SubsessionRow,
-  type SubsessionState,
   waitingLine,
 } from "../subagents/subsessions";
 import type { StartedSession } from "../started/startedSessions";
-import { ChildSessionRows, sessionStatus } from "../session-info/ChildSessionRows";
+import { ChildSessionRows } from "../session-info/ChildSessionRows";
+import { sessionStatus } from "../session-info/childSessionRowsModel";
 import type { SummarySubagent } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
-import { AgentIdentity, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/AgentIdentity";
+import { AgentIdentity } from "../subagents/AgentIdentity";
+import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/agentIdentityModel";
 import { agentTone } from "../subagents/agentTones";
+import { useSenderIconLook } from "../subagents/senderIconLook";
 import { orderedSubagents } from "./subagentOrder";
+import { subagentStatus, subagentStateText, SUBSESSION_STATUS } from "./subagentStatusListModel";
 
 const ROW_ICON = rowIconSize(12);
 const NO_SESSIONS: readonly StartedSession[] = [];
 const NO_STACK: readonly SummarySubagent[] = [];
 
-/// What a row says of its subagent: a subagent that asks the user for a permission or an answer
-/// is waiting on them, not running; a cancelled (stopped by the person) or disconnected (lost by
-/// acpmux) one is stopped: it ended without its result, but did not fail.
-export type SubagentStatus = "running" | "waiting" | "done" | "failed" | "stopped";
-
-export const STATUS_LABEL: Record<SubagentStatus, StringKey> = {
-  running: "subagents.state.running",
-  waiting: "subagents.state.waiting",
-  done: "subagents.state.completed",
-  failed: "subagents.state.failed",
-  stopped: "subagents.state.cancelled",
-};
-
-export function subagentStatus(agent: Subagent, waiting: ReadonlySet<string>): SubagentStatus {
-  if (running(agent)) return waiting.has(agent.id) ? "waiting" : "running";
-  // acpmux waits to retry it (subagents/retryState.ts): it is about to run again.
-  if (retrying(agent)) return "running";
-  if (agent.state === "completed") return "done";
-  return agent.state === "cancelled" || agent.state === "disconnected" ? "stopped" : "failed";
-}
-
-/// The label of a subagent's status: a stopped one says how it stopped (Cancelled, Disconnected),
-/// as its transcript row does.
-export function subagentStatusLabel(agent: Subagent, waiting: ReadonlySet<string>): StringKey {
-  const status = subagentStatus(agent, waiting);
-  if (status !== "stopped") return STATUS_LABEL[status];
-  return agent.state === "disconnected" ? STATE_LABEL.disconnected : STATE_LABEL.cancelled;
-}
-
-/// What a subagent's line says of its state: acpmux's retry while one waits ("Retrying (2/4) after a
-/// capacity error"), else its status's word.
-export function subagentStateText(t: Translate, agent: Subagent, waiting: ReadonlySet<string>): string {
-  const retry = retrying(agent);
-  return retry ? retryLabel(t, retry) : t(subagentStatusLabel(agent, waiting));
-}
-
-/// The tool calls the chat's open asks are about: the pending permission (`snapshot.permission`),
-/// the pending items of permission groups, and permission rows still pending.
-export function pendingToolCalls(
-  snapshot: Pick<AcpmuxSnapshot, "rows" | "permission" | "permissionGroups">,
-): Set<string> {
-  const calls = new Set<string>();
-  const add = (value: unknown) => {
-    if (typeof value === "string" && value) calls.add(value);
-  };
-  if (snapshot.permission?.pending) add(snapshot.permission.toolCallId);
-  for (const group of snapshot.permissionGroups?.groups ?? [])
-    for (const item of group.items)
-      if (item.state === "pending") {
-        const request = item.request as {
-          toolCall?: { toolCallId?: unknown };
-          subject?: { type?: unknown; toolCall?: { toolCallId?: unknown } };
-        };
-        add(
-          request.toolCall?.toolCallId ??
-            (request.subject?.type === "tool_call" ? request.subject.toolCall?.toolCallId : undefined),
-        );
-      }
-  for (const row of snapshot.rows)
-    if (row.kind === "permission" && row.permission?.pending) add(row.permission.toolCallId);
-  return calls;
-}
-
-/// The subagents that wait on the user: an open ask about one of their own tool calls (their
-/// view's tool calls).
-export function waitingSubagents(
-  calls: ReadonlySet<string>,
-  views: Record<string, AcpmuxRow[]> | undefined,
-): Set<string> {
-  const waiting = new Set<string>();
-  if (calls.size === 0 || !views) return waiting;
-  for (const [id, own] of Object.entries(views))
-    if (own.some((row) => row.items?.some((item) => item.tool && calls.has(item.tool.id)))) waiting.add(id);
-  return waiting;
-}
-
 /// Depth-first, attention first; the indexed walk also keeps malformed orphan/cycle records visible.
 function ordered(agents: readonly Subagent[], waiting: ReadonlySet<string>): { agent: Subagent; depth: number }[] {
   return orderedSubagents(
     agents,
-    (agent) => ({ waiting: 0, running: 1, done: 2, failed: 2, stopped: 2 })[subagentStatus(agent, waiting)],
+    (agent) => ({ waiting: 0, running: 1, idle: 1, done: 2, failed: 2, stopped: 2 })[subagentStatus(agent, waiting)],
   );
 }
-
-/// A sub-session's state as a subagent row's status, for the row's dot and the card's counts.
-export const SUBSESSION_STATUS: Record<SubsessionState, SubagentStatus> = {
-  working: "running",
-  input: "waiting",
-  failed: "failed",
-  done: "done",
-};
 
 export function SubagentStatusList({
   agents,
@@ -165,9 +85,12 @@ export function SubagentStatusList({
   /// when acpmux reports none.
   stack?: readonly SummarySubagent[];
 }) {
+  // The badge look picks which subagents show their family mark (foreignHarness): read here, so a
+  // change of the setting draws them again.
+  const senderBadge = useSenderIconLook().badge;
   const t = useT();
   const chatHarness = useContext(SubagentHarnessContext);
-  const now = useNow(agents.some(running));
+  const now = useNow(agents.some(ticking));
   const title = t("summary.subagents");
   const live =
     agents.filter((agent) => subagentStatus(agent, waiting) === "running").length +
@@ -200,7 +123,7 @@ export function SubagentStatusList({
               <AgentLine
                 name={agent.name}
                 icon={SUBAGENT_FALLBACK}
-                mark={agent.harness ?? chatHarness}
+                mark={foreignHarness(agent.harness, chatHarness, senderBadge)}
                 status={status}
                 state={subagentStateText(t, agent, waiting)}
                 working={Boolean(retrying(agent))}

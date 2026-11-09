@@ -53,20 +53,33 @@ Object.assign(root.style, { height: "100%", display: "flex", flexDirection: "col
 const view = createRoot(root);
 let shownRows: AcpmuxRow[] = [];
 let olderPage: (() => Promise<void>) | undefined;
+/// What the snapshot says of the prompts the rows do not hold (App.tsx passes `earlierPrompts` and
+/// `promptCount`): a test hands them with the rows (`window.__showRows(rows, extra)`).
+type Extra = { earlier?: AcpmuxRow[]; promptCount?: number };
+let shownExtra: Extra = {};
+/// A rail click on a prompt not held calls this (`window.__setLoadThrough`), as the pane's client does.
+let loadThrough: ((seq: number) => Promise<boolean>) | undefined;
+/// A hover or click on a pending tick asks for the prompt index through this (`window.__setPromptIndex`).
+let loadPromptIndex: (() => Promise<boolean>) | undefined;
 // A prompt's sent images read through `window.__imageUrl(id)` when the test sets it (the pane reads
 // them from acpmux); a test serves that URL as late as it likes.
 const actions = {
   promptImage: (id: string) =>
     Promise.resolve((window as unknown as { __imageUrl?: (id: string) => string | undefined }).__imageUrl?.(id)),
 };
-(window as unknown as { __showRows: (rows: AcpmuxRow[]) => void }).__showRows = (rows) =>
+(window as unknown as { __showRows: (rows: AcpmuxRow[], extra?: Extra) => void }).__showRows = (rows, extra = {}) =>
   (() => {
     shownRows = rows;
+    shownExtra = extra;
     view.render(
       <TurnActionsContext.Provider value={actions}>
         <VirtualTranscript
           rows={turnView(rows, new Set())}
           sessionId="minimap-session"
+          earlier={shownExtra.earlier}
+          promptCount={shownExtra.promptCount}
+          loadThrough={loadThrough}
+          loadPromptIndex={loadPromptIndex}
           onToggleActivity={() => {}}
           expanded={new Set()}
           canLoadOlder={olderPage !== undefined}
@@ -80,7 +93,11 @@ const actions = {
   page,
 ) => {
   olderPage = page;
-  (window as unknown as { __showRows: (rows: AcpmuxRow[]) => void }).__showRows(shownRows);
+  (window as unknown as { __showRows: (rows: AcpmuxRow[], extra?: Extra) => void }).__showRows(shownRows, shownExtra);
+};
+(window as unknown as { __setLoadThrough: (load: typeof loadThrough) => void }).__setLoadThrough = (load) => {
+  loadThrough = load;
+  (window as unknown as { __showRows: (rows: AcpmuxRow[], extra?: Extra) => void }).__showRows(shownRows, shownExtra);
 };
 
 // The chat's bookmarks, answered as acpmux answers them: a test marks prompts (by their seq, rows
@@ -97,4 +114,8 @@ setBookmarkTransport(transport);
 (window as unknown as { __setMarks: (seqs: number[]) => void }).__setMarks = (seqs) => {
   marks = seqs;
   setBookmarkTransport(transport);
+};
+(window as unknown as { __setPromptIndex: (read: typeof loadPromptIndex) => void }).__setPromptIndex = (read) => {
+  loadPromptIndex = read;
+  (window as unknown as { __showRows: (rows: AcpmuxRow[], extra?: Extra) => void }).__showRows(shownRows, shownExtra);
 };

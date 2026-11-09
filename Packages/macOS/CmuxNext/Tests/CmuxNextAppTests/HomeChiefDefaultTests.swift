@@ -3,7 +3,7 @@ import CmuxHomeCore
 @testable import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDesign
-@testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 import CmuxNextHostedChief
 @testable import CmuxNextSettings
 import Foundation
@@ -57,7 +57,7 @@ struct HomeChiefDefaultTests {
         #expect(roster.places[HomeChiefRosterTests.hosted] == .cloud)
         #expect(roster.places[HomeChiefRosterTests.placed] == .server("cmux20"))
         #expect(roster.tag(for: HomeChiefRosterTests.local, engine: nil)
-            == HomeConversationStrings.mainChief + " \u{00B7} " + HomeConversationStrings.placeThisMac)
+            == HomeModelStrings.mainChief + " \u{00B7} " + HomeModelStrings.placeThisMac)
     }
 
     /// A failed cloud read leaves `cloudChiefsRead` false for the whole launch, so the last
