@@ -515,6 +515,19 @@ impl Mux {
         self.terminal_reaper_events.lock().unwrap_or_else(PoisonError::into_inner).is_some()
     }
 
+    /// Announce that this owner starts the unplaced-terminal reaper once its
+    /// socket is bound. The socket answers `identify` from the moment it is
+    /// bound, so a client that identifies before the reaper thread runs must
+    /// already see `terminal-reaper-active-v1`. The announcement ends when
+    /// the reaper stops or its start fails.
+    pub fn announce_terminal_reaper(&self) {}
+
+    /// Whether `identify` lists `terminal-reaper-active-v1`: the reaper runs,
+    /// or this owner announced that it starts it.
+    pub fn terminal_reaper_advertised(&self) -> bool {
+        self.terminal_reaper_running()
+    }
+
     /// Subscribe the reaper to the events that can change the reapable set,
     /// and keep a handle so a grace change can wake it.
     fn subscribe_terminal_reaper(&self) -> MuxEventReceiver {

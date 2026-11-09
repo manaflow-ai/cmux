@@ -293,7 +293,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
 /// [`TERMINAL_REAPER_ACTIVE_CAPABILITY`] while the unplaced-terminal reaper runs.
 fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     let mut capabilities = advertised_capabilities(cfg!(unix));
-    if mux.terminal_reaper_running() {
+    if mux.terminal_reaper_advertised() {
         capabilities.push(TERMINAL_REAPER_ACTIVE_CAPABILITY);
     }
     capabilities
@@ -15215,6 +15215,29 @@ mod tests {
         );
         reaper.stop();
         assert!(!identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
+    }
+
+    /// The socket answers `identify` as soon as it is bound, and the owner
+    /// started its reaper only later: a client that identified in between
+    /// saw an owner without a reaper (restart_host_leak.rs:87 on macOS,
+    /// main #39586). An owner that announced its reaper lists the capability
+    /// from the start; a stopped reaper ends the announcement.
+    #[test]
+    fn terminal_reap_identify_lists_an_announced_reaper_before_it_starts() {
+        let mux = test_mux();
+        mux.announce_terminal_reaper();
+        assert!(
+            identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY),
+            "an owner that starts its reaper once bound answered identify without \
+             terminal-reaper-active-v1 before the reaper thread ran"
+        );
+        let reaper = crate::start_terminal_reaper(&mux).unwrap();
+        assert!(identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
+        reaper.stop();
+        assert!(
+            !identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY),
+            "a stopped reaper is still advertised"
+        );
     }
 
     fn sizing_browser(mux: &Arc<Mux>, size: (u16, u16)) -> Arc<crate::Surface> {
