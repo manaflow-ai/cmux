@@ -116,8 +116,9 @@ final class CloudService {
     @ObservationIgnored let moveRetries = CloudMoveRetries(key: "cmux.cloud.moveRetries")
     /// What Retry does for each machine chat whose Bring Back Local stopped, by its tab there.
     @ObservationIgnored let bringBackRetries = CloudMoveRetries(key: "cmux.cloud.bringBackRetries")
-    /// The chats moved from this Mac, for Bring Back Local; the claims' login copies Rust has not registered yet (CloudSpareWarm).
-    @ObservationIgnored let movedChats = CloudMovedChats(), claimedCopies = CloudClaimedCopyRegistrations()
+    /// The chats moved from this Mac, for Bring Back Local.
+    @ObservationIgnored let movedChats = CloudMovedChats()
+    @ObservationIgnored let claimedCopies = CloudClaimedCopyRegistrations() // the claims' login copies Rust has not registered yet (CloudSpareWarm)
     /// Agents' asks to move their chats, and the cards they raise in chats.
     @ObservationIgnored let moveAsks = CloudMoveAsks()
     @ObservationIgnored let toolCards = AgentToolCards()
