@@ -160,3 +160,67 @@ test("a turn with no named task keeps its plain line", async () => {
     client.close();
   }
 });
+
+const shellUpdate = (toolCallId: string, command: string, state: string, owner?: [string, string]): Step => [
+  "in",
+  "background_task_update",
+  update({
+    sessionUpdate: "background_task_update",
+    toolCallId,
+    command,
+    state,
+    ...(owner && { subagentSessionId: owner[0], subagentTitle: owner[1] }),
+  }),
+];
+const sources = (rows: AcpmuxRow[]) =>
+  rows.filter((row) => row.kind === BACKGROUND_TURN).map((row) => row.background?.source);
+
+test("every line a task's ends started is cited when its update comes after them", async () => {
+  // A monitor's ticks each start a turn for the same call; the helper's update names it later.
+  const tick = { kind: "monitor", status: "completed", weight: "silent", origin: "toolu_watch" };
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "Watch CI", turnId: "t1" }],
+      ["mux", "turn_started", { turnId: "t1" }],
+      ["mux", "turn_result", { turnId: "t1", status: "completed" }],
+      weighed("bg-1", tick),
+      ended("bg-1"),
+      weighed("bg-2", tick),
+      ended("bg-2"),
+      shellUpdate("toolu_watch", "gh run watch 42", "running", ["agent-ci", "CI watcher"]),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const cited = { command: "gh run watch 42", ownerId: "agent-ci", ownerTitle: "CI watcher" };
+    expect(sources(rows())).toEqual([cited, cited]);
+  } finally {
+    client.close();
+  }
+});
+
+test("a reused call id starts a new task that inherits nothing of the last one", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "Run both", turnId: "t1" }],
+      ["mux", "turn_started", { turnId: "t1" }],
+      ["mux", "turn_result", { turnId: "t1", status: "completed" }],
+      shellUpdate("call-1", "bun test a", "failed", ["agent-a", "Helper A"]),
+      weighed("bg-a", { kind: "shell", status: "failed", weight: "failure", origin: "call-1" }),
+      ended("bg-a"),
+      shellUpdate("call-1", "bun test b", "running"),
+      shellUpdate("call-1", "bun test b", "failed"),
+      weighed("bg-b", { kind: "shell", status: "failed", weight: "failure", origin: "call-1" }),
+      ended("bg-b"),
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    expect(sources(rows())).toEqual([
+      { command: "bun test a", ownerId: "agent-a", ownerTitle: "Helper A" },
+      { command: "bun test b" },
+    ]);
+  } finally {
+    client.close();
+  }
+});
