@@ -27,9 +27,15 @@
 //!    macOS allows on another process of the same user. Every process the harness starts after
 //!    that inherits it, so the builds and tests of its turns run below the GUI. A process it
 //!    started during its start keeps the class it started at: an MCP server, and the real agent
-//!    of a harness that is only a launcher (a script or adapter that starts the agent as a child
-//!    and waits for it), whose turns then run at normal class. acpmux does not list processes
+//!    of a harness that is only a launcher (a script or adapter that starts the agent as a child),
+//!    whose turns then run at normal class. acpmux does not list processes
 //!    (`scripts/cmux-next/check-no-process-scan.py`), so only the harness itself is reniced, once.
+//!    A launcher is left at its class too ([`is_launcher`]): lowering it cannot reach its agent's
+//!    tools, and it may carry the agent's stream. `sr2 claude` relays Claude Code's stdin and
+//!    stdout, so at background class on a busy Mac (2026-11-08, load 450 on 15 cores) what Claude
+//!    Code wrote reached acpmux 6.5 s late at the median and 54 s at p90, against 0.1 s at p90 for
+//!    the relays moved back to normal class in the same minutes. A tool call whose PreToolUse
+//!    hook got no answer inside its 90 s was refused, with "hook did not respond".
 //! 3. A cold start that still fails or misses its deadline with its harness at background class
 //!    (set again during the start by another process) is retried once, and the retry is logged.
 //! 4. A start that misses its deadline says what its harness was doing ([`HarnessSeen`]): alive or
@@ -121,8 +127,29 @@ impl CpuClass {
         if self == Self::Normal {
             return false;
         }
+        if let Some((own, children)) = imp::names(pid)
+            && is_launcher(&own, &children)
+        {
+            tracing::info!(pid, %own, "a launcher stays at its class: its agent does the work");
+            return false;
+        }
         imp::set_background(pid, true)
     }
+}
+
+/// Whether a harness process named `own` with the direct children `children` only starts the
+/// agent (module docs, item 2): it is no agent itself, and one of its children is. An agent's own
+/// children (MCP servers, a subagent) do not make it a launcher. A launcher that has not started
+/// its agent yet reads as a harness, but a session's start is over only once its agent answered.
+fn is_launcher(own: &str, children: &[String]) -> bool {
+    fn is_agent(name: &str) -> bool {
+        // `claude`, or `claude.exe` for its native build; `codex` and its platform builds.
+        ["claude", "codex"].iter().any(|agent| {
+            name.strip_prefix(agent)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with(['.', '-']))
+        })
+    }
+    !is_agent(own) && children.iter().any(|child| is_agent(child))
 }
 
 /// The class a session's harness takes at its exec: its starter's, without a background class it
@@ -448,6 +475,22 @@ mod imp {
         })
     }
 
+    /// `pid`'s program name and those of the processes it started itself, or None when it cannot
+    /// be read. Only a harness acpmux holds and its children: no other process is listed.
+    pub(super) fn names(pid: u32) -> Option<(String, Vec<String>)> {
+        let id = libc::c_int::try_from(pid).ok().filter(|p| *p > 0)?;
+        let name = |p: libc::c_int| -> Option<String> {
+            let bsd: libc::proc_bsdinfo = pidinfo(p, libc::PROC_PIDTBSDINFO)?;
+            Some(name_of(&bsd))
+        };
+        let children = tree(id)
+            .into_iter()
+            .filter(|(_, parent)| *parent == id)
+            .filter_map(|(kid, _)| name(kid))
+            .collect();
+        Some((name(id)?, children))
+    }
+
     /// A process's program name: its long name, else its short one (both NUL-ended).
     fn name_of(bsd: &libc::proc_bsdinfo) -> String {
         let text = |chars: &[libc::c_char]| {
@@ -467,6 +510,10 @@ mod imp {
 #[cfg(target_os = "linux")]
 mod imp {
     use super::HarnessState;
+
+    pub(super) fn names(_pid: u32) -> Option<(String, Vec<String>)> {
+        None
+    }
 
     pub(super) fn set_background(_pid: u32, _on: bool) -> bool {
         false
@@ -502,6 +549,10 @@ mod imp {
 mod imp {
     use super::HarnessState;
 
+    pub(super) fn names(_pid: u32) -> Option<(String, Vec<String>)> {
+        None
+    }
+
     pub(super) fn set_background(_pid: u32, _on: bool) -> bool {
         false
     }
@@ -518,6 +569,23 @@ mod imp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `sr2 claude` is the case that starved (module docs, item 2).
+    #[test]
+    fn a_launcher_is_a_non_agent_with_an_agent_child() {
+        let kids = |names: &[&str]| names.iter().map(|n| (*n).to_owned()).collect::<Vec<_>>();
+        assert!(is_launcher("sr2", &kids(&["claude.exe"])));
+        assert!(is_launcher("sr2", &kids(&["git", "claude"])));
+        assert!(is_launcher("sh", &kids(&["codex"])));
+        // The agent itself, whatever it started, is lowered: its tools inherit the class.
+        assert!(!is_launcher("claude", &kids(&["node", "claude"])));
+        assert!(!is_launcher("claude.exe", &[]));
+        assert!(!is_launcher("codex-aarch64-apple-darwin", &kids(&["codex"])));
+        // No agent child: a stand-in, an adapter that speaks ACP itself, or a name it only starts.
+        assert!(!is_launcher("python3", &kids(&["sleep"])));
+        assert!(!is_launcher("sr2", &[]));
+        assert!(!is_launcher("sr2", &kids(&["claudette"])));
+    }
 
     #[test]
     fn the_first_valid_source_names_the_class_else_background() {

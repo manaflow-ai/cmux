@@ -391,6 +391,59 @@ async fn cpu_class_a_hosted_harness_starts_at_normal_under_a_background_host_the
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A launcher started with its stdin piped, with a real child that runs as `child_name` and has
+/// said it is up (its program name is set by then). Returns the launcher.
+fn launcher_with_child(dir: &Path, child_name: &str) -> std::process::Child {
+    use std::io::BufRead as _;
+    let child = dir.join(child_name);
+    std::fs::copy("/bin/bash", &child).unwrap();
+    let mut launcher = std::process::Command::new("/bin/sh")
+        .arg("-c")
+        .arg(r#""$0" -c 'echo up; read -r _'; true"#)
+        .arg(&child)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut line = String::new();
+    std::io::BufReader::new(launcher.stdout.take().unwrap()).read_line(&mut line).unwrap();
+    assert_eq!(line.trim(), "up");
+    launcher
+}
+
+/// A launcher's agent keeps its class and the launcher can carry its stream (`sr2 claude`,
+/// 2026-11-08): lowering the launcher alone starved that stream and reached no tool.
+#[test]
+fn cpu_class_a_launcher_of_an_agent_stays_above_background() {
+    runs_above_background();
+    let dir = scratch("launcher");
+    let mut launcher = launcher_with_child(&dir, "claude");
+    let pid = launcher.id();
+    let entered = CpuClass::Background.enter(pid);
+    let pri = class_priority(pid as i32);
+    let _ = launcher.kill();
+    let _ = launcher.wait();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(!entered, "the launcher of an agent was lowered");
+    assert!(pri > BACKGROUND_PRI, "the launcher runs at background class (pri {pri})");
+}
+
+/// The same process with a child that is no agent is a harness, and goes to its class.
+#[test]
+fn cpu_class_a_harness_whose_child_is_no_agent_is_lowered() {
+    runs_above_background();
+    let dir = scratch("not-launcher");
+    let mut harness = launcher_with_child(&dir, "helper");
+    let pid = harness.id();
+    let entered = CpuClass::Background.enter(pid);
+    let pri = class_priority(pid as i32);
+    let _ = harness.kill();
+    let _ = harness.wait();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(entered, "the harness was not lowered");
+    assert_eq!(pri, BACKGROUND_PRI, "the harness did not go to background class");
+}
+
 /// A real daemon (`acpmux daemon run`, agent hosts on, a store on disk) whose one harness is the
 /// stand-in agent with `env`.
 struct RealDaemon {
