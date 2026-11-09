@@ -56,11 +56,12 @@ fn home(name: &str, extra: Value) -> PathBuf {
         "harnesses": {
             "claude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
             "codex": {"argv": [codex, "app-server"]},
-            // Says nothing about asking (`FAKE_NO_ASK_CLAIM`): it cannot keep a policy.
-            "plain": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_ASK_CLAIM": "1"}},
-            // The same agent, which says it asks before every tool call
-            // (`agentCapabilities._meta.acpmux.asksBeforeTools`).
-            "asker": {"argv": ["python3", FAKE_AGENT]},
+            // The fake as it is by default: it says nothing about asking, so it cannot keep a
+            // policy.
+            "plain": {"argv": ["python3", FAKE_AGENT]},
+            // The same agent, which says it asks before every tool call (`FAKE_ASK_CLAIM`,
+            // `agentCapabilities._meta.acpmux.asksBeforeTools`).
+            "asker": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_ASK_CLAIM": "1"}},
         },
         "defaultHarness": "codex",
         "permissionPolicy": "ask",
@@ -1234,6 +1235,88 @@ async fn a_policy_that_cannot_hold_never_runs_however_the_chat_gets_it() {
     assert_eq!(refused[0]["msg"]["reason"], "policy_unenforceable", "{r}");
     let r = app.call("session/prompt", hi).await;
     assert_eq!(r["error"]["data"]["reason"], "policy_unenforceable", "its next start: {r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+impl Client {
+    /// The records of kind `kind` in chat `id`'s log.
+    async fn records(&mut self, id: &str, kind: &str) -> Vec<Value> {
+        let r = self.call("_acpmux/events", json!({"sessionId": id, "kinds": [kind]})).await;
+        r["result"]["events"].as_array().cloned().unwrap_or_else(|| panic!("{r}"))
+    }
+}
+
+/// acpmux believes an agent's `asksBeforeTools` claim only from an agent it started from a
+/// harness entry of its own config that still launches what it started from, and logs every
+/// claim (`asks_before_tools_claim`; lead, 2026-11-09). A folder profile (the repository's
+/// `.cmux/harnesses`) that claims is not believed, so a narrow policy on it does not run; nor is
+/// an entry changed while its agent runs, so a narrower policy then stops that agent.
+#[tokio::test]
+async fn a_policy_holds_on_an_asks_before_tools_claim_only_from_an_unchanged_config_entry() {
+    use acpmux::config::folder_profiles;
+    let dir = home("asks-claim-trust", json!({}));
+    let (repo, gate) = folder_profile(&dir);
+    // The folder profile `acme` runs the fake that claims.
+    std::fs::write(
+        folder_profiles::profile_dir(&repo).join("acme.toml"),
+        format!(
+            "schema = 1\nid = \"acme\"\ncommand = \"python3\"\nargs = [{FAKE_AGENT:?}]\n\n[env]\nFAKE_ASK_CLAIM = \"1\"\n"
+        ),
+    )
+    .unwrap();
+    acpmux::trust::set(&gate.trust, &repo.to_string_lossy(), "trusted").unwrap();
+    let enabled = Config { folder_gate: Some(gate.clone()), ..Default::default() };
+    let sha = folder_profiles::load_one(&enabled, &gate, &repo, "acme")
+        .and_then(|fp| fp.sha256)
+        .expect("sha256");
+    folder_profiles::enable(&enabled, &gate, &repo, "acme", &sha).unwrap();
+    let daemon = hub_with(&dir, |cfg| cfg.folder_gate = Some(gate));
+    let mut app = Client::app(&daemon).await;
+
+    // A config entry that claims: believed, and logged.
+    let (id, _) = app.chat_with_policy(&dir, "asker", "ask").await;
+    let claims = app.records(&id, "asks_before_tools_claim").await;
+    assert_eq!(claims.len(), 1, "{claims:?}");
+    assert_eq!(claims[0]["msg"]["harness"], "asker", "{claims:?}");
+    assert_eq!(claims[0]["msg"]["trusted"], true, "{claims:?}");
+    // The fake as it is by default makes no claim, and none is logged.
+    let (id, _) = app.chat_with_policy(&dir, "plain", "approve-all").await;
+    assert!(app.records(&id, "asks_before_tools_claim").await.is_empty());
+
+    // A folder profile that claims: not believed, so a narrow policy on it does not run.
+    let folder_chat = |policy: &str| {
+        json!({"cwd": repo, "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "acme", "policy": policy}}})
+    };
+    let r = app.call("session/new", folder_chat("ask")).await;
+    assert_eq!(r["error"]["data"]["reason"], "policy_unenforceable", "{r}");
+    let why = r["error"]["data"]["why"].as_str().unwrap_or_default();
+    assert!(why.contains("not_a_config_entry"), "{r}");
+    // Under approve-all it runs; its claim is logged as not believed, and a narrower policy
+    // then stops its agent.
+    let r = app.call("session/new", folder_chat("approve-all")).await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    let claims = app.records(&id, "asks_before_tools_claim").await;
+    assert_eq!(claims.len(), 1, "{claims:?}");
+    assert_eq!(claims[0]["msg"]["trusted"], false, "{claims:?}");
+    assert_eq!(claims[0]["msg"]["reason"], "not_a_config_entry", "{claims:?}");
+    let r = app.call("_acpmux/set_policy", json!({"sessionId": id, "policy": "ask"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.records(&id, "policy_refused").await.len(), 1, "folder agent stopped");
+
+    // A config entry changed while its agent runs: it no longer launches what the agent started
+    // from, so the claim is not believed, and a narrower policy stops the agent.
+    let (id, _) = app.chat_with_policy(&dir, "asker", "approve-all").await;
+    let mut cfg = daemon.config.write().await;
+    let asker = cfg.harnesses.get_mut("asker").expect("asker");
+    asker.env.insert("FAKE_CHANGED".to_owned(), "1".to_owned());
+    drop(cfg);
+    let r = app.call("_acpmux/set_policy", json!({"sessionId": id, "policy": "ask"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let refused = app.records(&id, "policy_refused").await;
+    assert_eq!(refused.len(), 1, "changed entry's agent stopped: {refused:?}");
+    let why = refused[0]["msg"]["why"].as_str().unwrap_or_default();
+    assert!(why.contains("entry_changed"), "{refused:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
