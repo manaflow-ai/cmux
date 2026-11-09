@@ -724,7 +724,6 @@ body {
   color: var(--cmux-md-faint-color);
   font: inherit;
   line-height: inherit;
-  cursor: pointer;
 }
 
 .md-run-button::before {
