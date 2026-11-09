@@ -78,6 +78,7 @@ impl Api for Platform {
         machine: &str,
         person: &str,
         sessions: &Sessions,
+        replaces: Option<&str>,
     ) -> Result<PlatformShare, Failure> {
         if let Some(down) = &self.down {
             return Err(down.clone());
@@ -87,9 +88,20 @@ impl Api for Platform {
         {
             return Err(failure.clone());
         }
-        let body = sessions.body(person);
+        let body = sessions.body(person, replaces);
         assert!(body["sessions"].as_array().is_some_and(|s| !s.is_empty()), "{body}");
+        assert!(body.get("replaces").is_some(), "every write names what it replaces: {body}");
         self.creates.borrow_mut().push(body);
+        // The platform writes only while `replaces` is still the person's live share.
+        let current = self
+            .shares
+            .borrow()
+            .iter()
+            .find(|s| s.person == person && s.revoked_at.is_none())
+            .map(|s| s.id.clone());
+        if current.as_deref() != replaces {
+            return Err(refused(409, "cloud.carrier_share.conflict"));
+        }
         // A create for the same person replaces their live share.
         for share in self.shares.borrow_mut().iter_mut() {
             if share.person == person && share.revoked_at.is_none() {
@@ -160,7 +172,7 @@ fn run(
     args: &[&str],
     all: bool,
     target: &Target,
-    api: &Platform,
+    api: &dyn Api,
 ) -> (anyhow::Result<Value>, Vec<String>, Vec<Value>) {
     let mut asked = Vec::new();
     let mut audited = Vec::new();
@@ -200,7 +212,7 @@ fn a_share_creates_one_with_the_named_chats_and_asks_first() {
     assert_eq!(answer["share"]["sessions"], json!(["s-three", "s-review"]));
     assert_eq!(
         *api.creates.borrow(),
-        vec![json!({"person": ANA, "sessions": ["s-three", "s-review"]})]
+        vec![json!({"person": ANA, "sessions": ["s-three", "s-review"], "replaces": null})]
     );
     assert_eq!(asked.len(), 1);
     assert!(asked[0].contains(ANA) && asked[0].contains("s-three"), "{}", asked[0]);
@@ -247,7 +259,11 @@ fn a_share_never_sends_null_or_empty_sessions() {
     assert_eq!(Sessions::new(Vec::new()), None);
     assert_eq!(Sessions::new(vec!["bad id".to_owned()]), None);
     let sessions = Sessions::new(words(&["a", "b", "a"])).unwrap();
-    assert_eq!(sessions.body(ANA), json!({"person": ANA, "sessions": ["a", "b"]}));
+    assert_eq!(
+        sessions.body(ANA, None),
+        json!({"person": ANA, "sessions": ["a", "b"], "replaces": null})
+    );
+    assert_eq!(sessions.body(ANA, Some("csh_x"))["replaces"], "csh_x");
 }
 
 #[test]
@@ -728,21 +744,23 @@ fn a_grant_with_a_share_left_here_stays_and_stays_proxied() {
 }
 
 /// A change another host makes to the stand-in platform.
-type Meanwhile<'a> = Box<dyn FnOnce(&Platform) + 'a>;
+type Meanwhile<'a> = Box<dyn Fn(&Platform) + 'a>;
 
-/// The stand-in platform, with `after` run once right after the first create or revoke: a writer
-/// on another host whose change lands between this run's write and its read-back.
+/// The stand-in platform, with `before` run right before each of this run's first `times` writes:
+/// a writer on another host whose change lands between this run's read and its write.
 struct Interleaved<'a> {
     platform: &'a Platform,
-    after: RefCell<Option<Meanwhile<'a>>>,
-    passes: RefCell<u32>,
+    before: Meanwhile<'a>,
+    times: RefCell<u32>,
 }
 
 impl Interleaved<'_> {
-    fn landed(&self) {
-        *self.passes.borrow_mut() += 1;
-        if let Some(after) = self.after.borrow_mut().take() {
-            after(self.platform);
+    fn meanwhile(&self) {
+        let mut times = self.times.borrow_mut();
+        if *times > 0 {
+            *times -= 1;
+            drop(times);
+            (self.before)(self.platform);
         }
     }
 }
@@ -751,68 +769,155 @@ impl Api for Interleaved<'_> {
     fn list(&self, machine: &str) -> Result<Vec<PlatformShare>, Failure> {
         self.platform.list(machine)
     }
-    fn create(&self, m: &str, p: &str, s: &Sessions) -> Result<PlatformShare, Failure> {
-        let share = self.platform.create(m, p, s)?;
-        self.landed();
-        Ok(share)
+    fn create(
+        &self,
+        m: &str,
+        p: &str,
+        s: &Sessions,
+        replaces: Option<&str>,
+    ) -> Result<PlatformShare, Failure> {
+        self.meanwhile();
+        self.platform.create(m, p, s, replaces)
     }
     fn revoke(&self, m: &str, share: &str) -> Result<PlatformShare, Failure> {
-        let share = self.platform.revoke(m, share)?;
-        self.landed();
-        Ok(share)
+        self.meanwhile();
+        self.platform.revoke(m, share)
     }
     fn members(&self) -> Result<Vec<Member>, Failure> {
         self.platform.members()
     }
 }
 
-fn sessions(ids: &[&str]) -> Sessions {
-    Sessions::new(ids.iter().map(|s| (*s).to_owned())).unwrap()
+fn interleaved<'a>(platform: &'a Platform, times: u32, before: Meanwhile<'a>) -> Interleaved<'a> {
+    Interleaved { platform, before, times: RefCell::new(times) }
+}
+
+/// Another host's `unshare CHAT ANA`, run to the end.
+fn other_host_unshares(chat: &'static str) -> Meanwhile<'static> {
+    Box::new(move |p: &Platform| {
+        let (answer, ..) = run("unshare", &[chat, ANA], false, &elsewhere(), p);
+        answer.unwrap();
+    })
 }
 
 #[test]
-fn a_write_from_another_host_after_this_one_takes_another_pass() {
+fn a_stale_write_from_another_host_is_refused_and_redone_from_the_live_share() {
     let platform = Platform::default();
     platform.live(ANA, &["a", "b", "c"]);
-    // Right after this run writes [b, c], another host writes [a, b, c, d].
-    let api = Interleaved {
-        platform: &platform,
-        after: RefCell::new(Some(Box::new(|p: &Platform| {
-            p.create(VM, ANA, &sessions(&["a", "b", "c", "d"])).unwrap();
-        }))),
-        passes: RefCell::new(0),
-    };
-    let answer = unshare_while_on(&api, &["a", ANA]);
-    answer.unwrap();
-    assert_eq!(platform.live_sessions(ANA).unwrap(), ["b", "c", "d"]);
-    assert_eq!(*api.passes.borrow(), 2, "the read-back saw a share it did not write");
+    // A reads [a, b, c] to drop `a`; before A writes, B drops `b` and sees [a, c]. A's write of
+    // [b, c] names the share B replaced, so the platform refuses it; A reads [a, c] and writes [c].
+    let api = interleaved(&platform, 1, other_host_unshares("b"));
+    unshare_while_on(&api, &["a", ANA]).unwrap();
+    assert_eq!(platform.live_sessions(ANA).unwrap(), ["c"], "b stays removed");
+    let creates = platform.creates.borrow();
+    let tried: Vec<_> = creates.iter().map(|c| c["sessions"].clone()).collect();
+    assert_eq!(tried, [json!(["a", "c"]), json!(["b", "c"]), json!(["c"])]);
 }
 
 #[test]
-fn a_share_that_never_settles_is_reported_not_claimed() {
+fn a_revoke_of_a_share_another_host_replaced_is_redone_from_the_live_share() {
     let platform = Platform::default();
     platform.live(ANA, &["a", "b"]);
-    // Every write is followed by another host sharing `a` again.
-    struct Stubborn<'a>(&'a Platform);
-    impl Api for Stubborn<'_> {
-        fn list(&self, machine: &str) -> Result<Vec<PlatformShare>, Failure> {
-            self.0.list(machine)
-        }
-        fn create(&self, m: &str, p: &str, s: &Sessions) -> Result<PlatformShare, Failure> {
-            let share = self.0.create(m, p, s)?;
-            self.0.create(m, p, &sessions(&["a", "b"]))?;
-            Ok(share)
-        }
-        fn revoke(&self, m: &str, share: &str) -> Result<PlatformShare, Failure> {
-            self.0.revoke(m, share)
-        }
-        fn members(&self) -> Result<Vec<Member>, Failure> {
-            self.0.members()
-        }
-    }
-    let error = unshare_while_on(&Stubborn(&platform), &["a", ANA]).unwrap_err();
+    // A revokes the whole share; before that lands, B narrows it to [a]. A then revokes [a].
+    let api = interleaved(&platform, 1, other_host_unshares("b"));
+    unshare_while_on(&api, &[ANA]).unwrap();
+    assert_eq!(platform.live_sessions(ANA), None);
+    assert_eq!(platform.revokes.borrow().len(), 2);
+}
+
+#[test]
+fn a_share_that_keeps_conflicting_stops_after_three_writes_with_an_error() {
+    let platform = Platform::default();
+    platform.live(ANA, &["a", "b"]);
+    let api = interleaved(
+        &platform,
+        u32::MAX,
+        Box::new(|p: &Platform| {
+            let live = p.live_sessions(ANA).unwrap_or_default();
+            let now = live.iter().map(String::as_str).chain(["z"]).collect::<Vec<_>>();
+            let current = p.list(VM).unwrap().into_iter().find(|s| s.person == ANA).map(|s| s.id);
+            p.create(VM, ANA, &sessions(&now), current.as_deref()).unwrap();
+        }),
+    );
+    let error = unshare_while_on(&api, &["a", ANA]).unwrap_err();
     let text = &crate::localization::catalog().host_share;
     assert!(error.to_string().contains(text.narrow_raced), "{error}");
+    let ours = platform
+        .creates
+        .borrow()
+        .iter()
+        .filter(|c| c["sessions"].get(0) != Some(&json!("a")))
+        .count();
+    assert_eq!(ours, 3, "three writes of its own, each refused");
+}
+
+#[test]
+fn a_first_share_sends_replaces_null_and_a_share_made_meanwhile_is_merged_not_overwritten() {
+    let platform = Platform::default();
+    // Before this share's write, another host shares `x` with Ana: the write that said "Ana has
+    // no live share" (replaces: null) is refused, and the next one adds to `x`.
+    let api = interleaved(
+        &platform,
+        1,
+        Box::new(|p: &Platform| {
+            p.create(VM, ANA, &sessions(&["x"]), None).unwrap();
+        }),
+    );
+    let (answer, ..) = run("share", &["a", ANA], false, &elsewhere(), &api);
+    answer.unwrap();
+    assert_eq!(platform.live_sessions(ANA).unwrap(), ["x", "a"]);
+    let creates = platform.creates.borrow();
+    assert_eq!(creates[0]["replaces"], Value::Null);
+    assert_eq!(creates[1]["replaces"], Value::Null, "the other host's first share");
+    assert!(creates[2]["replaces"].as_str().is_some_and(|id| id.starts_with("csh_")));
+}
+
+#[test]
+fn every_write_names_the_share_it_replaces() {
+    let platform = Platform::default();
+    platform.live(BO, &["s-bo-old"]);
+    // move_local: one person with a live share, one without.
+    let config = with_shares(vec![local(ANA, "s-1"), local(BO, "s-3")]);
+    let outcome = move_local(config, &platform, VM, "now", Some(BOOT)).unwrap();
+    assert_eq!(outcome.moved.len(), 2);
+    // share, then narrow.
+    run("share", &["s-2", ANA], false, &elsewhere(), &platform).0.unwrap();
+    run("unshare", &["s-1", ANA], false, &elsewhere(), &platform).0.unwrap();
+    let creates = platform.creates.borrow();
+    assert_eq!(creates.len(), 4);
+    assert_eq!(creates[0]["replaces"], Value::Null, "Ana had no live share");
+    assert_eq!(creates[1]["replaces"], json!("csh_00000000000000000000"), "Bo's live share");
+    for later in &creates[2..] {
+        assert!(later["replaces"].as_str().is_some_and(|id| id.starts_with("csh_new")), "{later}");
+    }
+}
+
+#[test]
+fn a_move_that_conflicts_merges_with_the_share_made_meanwhile() {
+    let platform = Platform::default();
+    let api = interleaved(
+        &platform,
+        1,
+        Box::new(|p: &Platform| {
+            p.create(VM, ANA, &sessions(&["x"]), None).unwrap();
+        }),
+    );
+    let outcome = move_local(with_shares(vec![local(ANA, "s-1")]), &api, VM, "now", Some(BOOT));
+    let outcome = outcome.unwrap();
+    assert!(outcome.failed.is_none());
+    assert_eq!(platform.live_sessions(ANA).unwrap(), ["x", "s-1"]);
+    assert!(outcome.config.shares.is_empty());
+}
+
+#[test]
+fn a_conflict_answer_reads_as_a_conflict() {
+    let body = br#"{"ok":false,"error":{"code":"cloud.carrier_share.conflict","message":"m","current":null}}"#;
+    let failure = value_of(409, body).unwrap_err();
+    assert!(conflict(&failure), "{failure:?}");
+}
+
+fn sessions(ids: &[&str]) -> Sessions {
+    Sessions::new(ids.iter().map(|s| (*s).to_owned())).unwrap()
 }
 
 fn unshare_while_on(api: &dyn Api, args: &[&str]) -> anyhow::Result<Value> {

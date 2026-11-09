@@ -79,11 +79,16 @@ pub(crate) enum Failure {
 pub(crate) trait Api {
     fn list(&self, machine: &str) -> Result<Vec<PlatformShare>, Failure>;
     /// `sessions` is never empty: a share without chats is refused before it gets here.
+    /// `replaces` is always sent: the person's live share as it was read (`None` for none). The
+    /// platform writes only while that is still their live share, and answers a 409
+    /// `cloud.carrier_share.conflict` otherwise ([`conflict`]), so no write is computed from a
+    /// share another writer has since replaced.
     fn create(
         &self,
         machine: &str,
         person: &str,
         sessions: &Sessions,
+        replaces: Option<&str>,
     ) -> Result<PlatformShare, Failure>;
     fn revoke(&self, machine: &str, share: &str) -> Result<PlatformShare, Failure>;
     fn members(&self) -> Result<Vec<Member>, Failure>;
@@ -112,9 +117,10 @@ impl Sessions {
         &self.0
     }
 
-    /// The create body: `{person, sessions: [...]}`, never `null` sessions.
-    pub(crate) fn body(&self, person: &str) -> Value {
-        json!({"person": person, "sessions": self.0})
+    /// The create body: `{person, sessions: [...], replaces}`, never `null` sessions, and
+    /// `replaces` always present (`null` when the person had no live share).
+    pub(crate) fn body(&self, person: &str, replaces: Option<&str>) -> Value {
+        json!({"person": person, "sessions": self.0, "replaces": replaces})
     }
 }
 
@@ -200,6 +206,7 @@ pub(crate) fn explain(failure: &Failure) -> String {
             "acpmux.team_without_chats" => text.team_without_chats.to_owned(),
             "cloud.carrier_share.not_teammate" => text.not_teammate.to_owned(),
             "cloud.carrier_share.not_found" => text.share_not_found.to_owned(),
+            "cloud.carrier_share.conflict" => text.narrow_raced.to_owned(),
             "cloud.machine.not_found" => text.machine_not_found.to_owned(),
             "auth.forbidden" => text.forbidden.to_owned(),
             "owner.unreachable" => text.cloud_unreachable.to_owned(),
@@ -209,6 +216,20 @@ pub(crate) fn explain(failure: &Failure) -> String {
         Failure::Unreachable(reason) => format!("{} ({reason})", text.cloud_unreachable),
         Failure::Unreadable(reason) => reason.clone(),
     }
+}
+
+/// Whether a create was refused because the person's live share is no longer the one it named
+/// in `replaces`: another writer got there first, and the change is computed again from the
+/// share as it is now.
+pub(crate) fn conflict(failure: &Failure) -> bool {
+    matches!(failure, Failure::Refused { status: 409, code, .. }
+        if code == "cloud.carrier_share.conflict")
+}
+
+/// Whether a revoke found no such live share: it was replaced or revoked since it was read.
+fn gone(failure: &Failure) -> bool {
+    matches!(failure, Failure::Refused { status: 404, code, .. }
+        if code == "cloud.carrier_share.not_found")
 }
 
 /// The person's live share of the machine, if any.
@@ -317,7 +338,7 @@ pub(crate) fn move_local(
     if by_person.is_empty() {
         return Ok(outcome);
     }
-    let live = api.list(machine)?;
+    let mut live = api.list(machine)?;
     let mut confirmed: Vec<(String, String)> = Vec::new();
     for (person, local) in &by_person {
         if outcome.failed.is_some() {
@@ -327,29 +348,25 @@ pub(crate) fn move_local(
         let Some(add) = Sessions::new(local.iter().map(|s| s.session.clone())) else {
             continue;
         };
-        let existing = live_for(&live, person);
-        let covering = match merged(existing, &add) {
-            None => existing.map(|s| s.id.clone()),
-            Some(sessions) => match api.create(machine, person, &sessions) {
-                Ok(share) => Some(share.id),
-                Err(failure) => {
-                    outcome.failed = Some(failure);
-                    outcome.kept.extend(local.iter().map(|s| kept(s, "not reached")));
-                    continue;
+        match cover(api, machine, person, &add, &mut live) {
+            Ok(Some(share_id)) => {
+                for share in local {
+                    confirmed.push((share.login.clone(), share.session.clone()));
+                    outcome.moved.push(Moved {
+                        login: share.login.clone(),
+                        session: share.session.clone(),
+                        machine: machine.to_owned(),
+                        person: person.clone(),
+                        share: share_id.clone(),
+                        moved_at: at.to_owned(),
+                    });
                 }
-            },
-        };
-        let Some(share_id) = covering else { continue };
-        for share in local {
-            confirmed.push((share.login.clone(), share.session.clone()));
-            outcome.moved.push(Moved {
-                login: share.login.clone(),
-                session: share.session.clone(),
-                machine: machine.to_owned(),
-                person: person.clone(),
-                share: share_id.clone(),
-                moved_at: at.to_owned(),
-            });
+            }
+            Ok(None) => {}
+            Err(failure) => {
+                outcome.failed = Some(failure);
+                outcome.kept.extend(local.iter().map(|s| kept(s, "not reached")));
+            }
         }
     }
     config.shares.retain(|s| {
@@ -374,6 +391,35 @@ pub(crate) fn move_local(
     config.moved_shares.extend(outcome.moved.iter().cloned());
     outcome.config = config;
     Ok(outcome)
+}
+
+/// The id of `person`'s live share once it covers `add`: as it is, or after a create that names
+/// the share it replaces. A conflict (another writer replaced it since `live` was read) reads
+/// `live` again and merges from that, up to [`MAX_WRITES`].
+fn cover(
+    api: &dyn Api,
+    machine: &str,
+    person: &str,
+    add: &Sessions,
+    live: &mut Vec<PlatformShare>,
+) -> Result<Option<String>, Failure> {
+    let mut last = None;
+    for _ in 0..MAX_WRITES {
+        let existing = live_for(live, person);
+        let Some(sessions) = merged(existing, add) else {
+            return Ok(existing.map(|s| s.id.clone()));
+        };
+        let replaces = existing.map(|s| s.id.clone());
+        match api.create(machine, person, &sessions, replaces.as_deref()) {
+            Ok(share) => return Ok(Some(share.id)),
+            Err(failure) if conflict(&failure) => {
+                last = Some(failure);
+                *live = api.list(machine)?;
+            }
+            Err(failure) => return Err(failure),
+        }
+    }
+    Err(last.unwrap_or_else(|| Failure::Unreadable("no write was tried".to_owned())))
 }
 
 fn kept(share: &shares::Share, reason: &'static str) -> Kept {
@@ -426,8 +472,8 @@ pub(crate) struct Hooks<'a> {
 /// What [`Hooks::lock`] hands back: the lock is held until it drops.
 pub(crate) type Guard = Box<dyn std::any::Any>;
 
-/// How many times a change re-reads and writes again when a concurrent writer (another host)
-/// undid it between its write and its check.
+/// How many writes a change tries when each is refused because a concurrent writer (another host)
+/// replaced the share between this run's read and its write.
 const MAX_WRITES: usize = 3;
 
 /// `share|unshare|shares` on `target` with `positional` words; the JSON answer.
@@ -475,16 +521,26 @@ pub(crate) fn act(
             ))?;
             // What is written is computed from the share as it is now, under the lock: a change
             // that landed while the prompt waited is kept, never overwritten by an older list.
+            // A writer on another host is caught by `replaces`: a conflict reads the share again.
             let _guard = (hooks.lock)(machine, &person)?;
-            let live = api.list(machine).map_err(failed)?;
-            let Some(sessions) = merged(live_for(&live, &person), &add) else {
+            for _ in 0..MAX_WRITES {
+                let live = api.list(machine).map_err(failed)?;
                 let existing = live_for(&live, &person);
-                return Ok(json!({"machine": machine, "share": existing, "unchanged": true}));
-            };
-            let share = api.create(machine, &person, &sessions).map_err(failed)?;
-            (hooks.audit)(json!({"decision": "share", "machine": machine, "person": person,
-                "sessions": sessions.ids(), "share": share.id}));
-            Ok(json!({"machine": machine, "share": share}))
+                let Some(sessions) = merged(existing, &add) else {
+                    return Ok(json!({"machine": machine, "share": existing, "unchanged": true}));
+                };
+                let replaces = existing.map(|s| s.id.as_str());
+                match api.create(machine, &person, &sessions, replaces) {
+                    Ok(share) => {
+                        (hooks.audit)(json!({"decision": "share", "machine": machine,
+                            "person": person, "sessions": sessions.ids(), "share": share.id}));
+                        return Ok(json!({"machine": machine, "share": share}));
+                    }
+                    Err(failure) if conflict(&failure) => {}
+                    Err(failure) => return Err(failed(failure)),
+                }
+            }
+            bail!("{}: {person}", text.narrow_raced)
         }
         "unshare" => {
             if all {
@@ -524,15 +580,12 @@ pub(crate) fn act(
     }
 }
 
-/// Takes `remove` (every chat for `None`) out of `person`'s live share, holding their lock: each
-/// pass reads the share as it is, writes the narrowed one (or revokes it), and reads it back. The
-/// read-back must find exactly what was written (the same share id with the same chats, or no
-/// live share after a revoke); anything else is another writer, and takes another pass from what
-/// is live, up to [`MAX_WRITES`]. A list computed before the lock is never written.
-///
-/// What this cannot see: a writer on another host that read the share before this write and
-/// writes after this read-back. The platform has no compare-and-swap on a person's share yet, so
-/// that writer's older list wins; the lock only serializes runs on this machine.
+/// Takes `remove` (every chat for `None`) out of `person`'s live share, holding their lock. Each
+/// pass reads the share as it is and writes the narrowed one with `replaces` naming it (or
+/// revokes it by id). A write the platform refuses because another writer replaced the share
+/// since it was read (a 409 conflict, or a revoke of a share that is gone) writes nothing, and the
+/// next pass computes the change again from the live share, up to [`MAX_WRITES`]. A list
+/// computed before the lock is never written, and no write is sent without `replaces`.
 fn narrow(
     api: &dyn Api,
     machine: &str,
@@ -542,19 +595,10 @@ fn narrow(
 ) -> anyhow::Result<Value> {
     let text = &crate::localization::catalog().host_share;
     let failed = |f: Failure| anyhow!("{}", explain(&f));
-    let mut answer: Option<Value> = None;
-    let mut written: Option<Written> = None;
     for _ in 0..MAX_WRITES {
         let live = api.list(machine).map_err(failed)?;
-        let existing = live_for(&live, person);
-        if let (Some(answer), Some(written)) = (&answer, &written)
-            && written.is_live(existing)
-        {
-            return Ok(answer.clone());
-        }
-        let Some(existing) = existing else {
-            // Nothing (left) to take back.
-            return Ok(answer.unwrap_or_else(|| json!({"machine": machine, "unchanged": true})));
+        let Some(existing) = live_for(&live, person) else {
+            return Ok(json!({"machine": machine, "unchanged": true}));
         };
         let next = match remove {
             None => Narrowed::Revoke,
@@ -562,56 +606,31 @@ fn narrow(
         };
         match next {
             Narrowed::Unchanged => {
-                return Ok(answer.unwrap_or_else(
-                    || json!({"machine": machine, "share": existing, "unchanged": true}),
-                ));
+                return Ok(json!({"machine": machine, "share": existing, "unchanged": true}));
             }
-            Narrowed::Revoke => {
-                let share = api.revoke(machine, &existing.id).map_err(failed)?;
-                (hooks.audit)(json!({"decision": "unshare", "machine": machine,
-                    "person": person, "share": existing.id}));
-                written = Some(Written::Revoked);
-                answer = Some(json!({"machine": machine, "revoked": share}));
-            }
+            Narrowed::Revoke => match api.revoke(machine, &existing.id) {
+                Ok(share) => {
+                    (hooks.audit)(json!({"decision": "unshare", "machine": machine,
+                        "person": person, "share": existing.id}));
+                    return Ok(json!({"machine": machine, "revoked": share}));
+                }
+                Err(failure) if gone(&failure) => {}
+                Err(failure) => return Err(failed(failure)),
+            },
             Narrowed::Keep(sessions) => {
-                let share = api.create(machine, person, &sessions).map_err(failed)?;
-                (hooks.audit)(json!({"decision": "unshare", "machine": machine,
-                    "person": person, "sessions": sessions.ids(), "share": share.id}));
-                written = Some(Written::Share(share.id.clone(), sessions));
-                answer = Some(json!({"machine": machine, "share": share}));
+                match api.create(machine, person, &sessions, Some(&existing.id)) {
+                    Ok(share) => {
+                        (hooks.audit)(json!({"decision": "unshare", "machine": machine,
+                            "person": person, "sessions": sessions.ids(), "share": share.id}));
+                        return Ok(json!({"machine": machine, "share": share}));
+                    }
+                    Err(failure) if conflict(&failure) => {}
+                    Err(failure) => return Err(failed(failure)),
+                }
             }
         }
     }
-    let live = api.list(machine).map_err(failed)?;
-    match (answer, written) {
-        (Some(answer), Some(written)) if written.is_live(live_for(&live, person)) => Ok(answer),
-        _ => bail!("{}: {person}", text.narrow_raced),
-    }
-}
-
-/// What a [`narrow`] pass wrote, to check the read-back against.
-enum Written {
-    Revoked,
-    Share(String, Sessions),
-}
-
-impl Written {
-    /// Whether `live` (the person's live share, if any) is exactly this write.
-    fn is_live(&self, live: Option<&PlatformShare>) -> bool {
-        match (self, live) {
-            (Self::Revoked, None) => true,
-            (Self::Share(id, sessions), Some(live)) => {
-                let mut want: Vec<&String> = sessions.ids().iter().collect();
-                let mut have: Vec<&String> = live.sessions.iter().flatten().collect();
-                want.sort();
-                want.dedup();
-                have.sort();
-                have.dedup();
-                live.id == *id && live.sessions.is_some() && want == have
-            }
-            _ => false,
-        }
-    }
+    bail!("{}: {person}", text.narrow_raced)
 }
 
 /// Whether a verb on this Cloud machine stays the tailnet host's, exactly as on a host that is no
@@ -957,8 +976,9 @@ mod live {
             machine: &str,
             person: &str,
             sessions: &Sessions,
+            replaces: Option<&str>,
         ) -> Result<PlatformShare, Failure> {
-            let body = sessions.body(person);
+            let body = sessions.body(person, replaces);
             super::share_of(&self.send(reqwest::Method::POST, &path(machine), Some(body))?)
         }
 
@@ -1062,7 +1082,13 @@ mod live {
         fn list(&self, _: &str) -> Result<Vec<PlatformShare>, Failure> {
             Ok(Vec::new())
         }
-        fn create(&self, _: &str, _: &str, _: &Sessions) -> Result<PlatformShare, Failure> {
+        fn create(
+            &self,
+            _: &str,
+            _: &str,
+            _: &Sessions,
+            _: Option<&str>,
+        ) -> Result<PlatformShare, Failure> {
             Err(Failure::Unreachable(String::new()))
         }
         fn revoke(&self, _: &str, _: &str) -> Result<PlatformShare, Failure> {
