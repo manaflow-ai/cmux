@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDaemon
 @testable import CmuxNextApps
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import UniformTypeIdentifiers
@@ -9,7 +10,7 @@ import UniformTypeIdentifiers
 /// A customize save whose script does not load keeps the view on the last script that did (the
 /// supervisor's `apps-reload-failed`). The view says so with a small marker naming the file and line,
 /// and the next good save (a reset scene) takes the marker away.
-@MainActor @Suite(.serialized) struct AppReloadFailureMarkerTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AppReloadFailureMarkerTests {
     static let reason = "init: SyntaxError: expecting ';' at main.js:2:12"
 
     /// A drawn PR list, as the customize app's section draws it.

@@ -1,13 +1,14 @@
 import AppKit
 @testable import CmuxNextApps
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// A custom sidebar section whose data comes from a JS app (the customize app's `cmux.section/1`)
 /// draws in AppKit, with the sidebar's own row tokens, so it looks like the built-in rows: no
 /// SwiftUI hosting view, row heights, insets, fonts and colors from `SidebarRowTokens`, taps sent
 /// back to the script, and an update op redrawing the same row view in place.
-@MainActor @Suite(.serialized) struct AppSceneNativeSectionTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AppSceneNativeSectionTests {
     private final class Recorder: AppSceneInteraction {
         var events: [(node: String, event: String)] = []
         func dispatch(node: String, event: String, payload: AppJSON) { events.append((node, event)) }

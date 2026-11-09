@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApps
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -8,7 +9,7 @@ import Testing
 /// to SwiftUI and looks unlike the sidebar: Toggle, TextField, Slider, Image, Menu, ProgressView,
 /// ZStack and the shapes, and the decoration props (`frame`, `background`, `borderColor`,
 /// `cornerRadius`, `hoverBackground`, `rotation`). Each control sends its events back to the script.
-@MainActor @Suite(.serialized) struct AppSceneNativeControlsTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AppSceneNativeControlsTests {
     private final class Recorder: AppSceneInteraction {
         var events: [(node: String, event: String, payload: AppJSON)] = []
         func dispatch(node: String, event: String, payload: AppJSON) { events.append((node, event, payload)) }

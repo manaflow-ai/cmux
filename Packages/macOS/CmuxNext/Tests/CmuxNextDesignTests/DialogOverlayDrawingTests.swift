@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// Review of #37296: (F1) the dialog's view took the keyboard itself, a plain view that refuses it, so
@@ -7,7 +8,7 @@ import Testing
 /// hid a tab's dialog and the next show asked the drawing for a new view, loading a page per switch
 /// while the old one was never given back. The host now asks its drawing for one view per dialog,
 /// hands the keyboard to the drawing on every show, and gives the view back only when the dialog ends.
-@MainActor @Suite struct DialogOverlayDrawingTests {
+@MainActor @Suite(.closesItsWindows) struct DialogOverlayDrawingTests {
     /// Counts what the host asks of its drawing.
     @MainActor private final class Drawing: CmuxDialogDrawing {
         var attached = 0, focused = 0, detached = 0
