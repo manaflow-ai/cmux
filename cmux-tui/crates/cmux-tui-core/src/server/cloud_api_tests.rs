@@ -215,8 +215,9 @@ fn a_classic_mutation_answers_a_mutation_result_that_is_never_replayed() {
 fn a_classic_vm_call_is_refused_at_once_and_sends_nothing() {
     let (origin, seen) = fake(|_| (200, "{}".into()));
     let daemon = Daemon::start("vm-gone");
-    let (code, _, details) =
-        daemon.send("cloud.vm.networks", params(&origin, "stack", json!({})), None).unwrap_err();
+    let (code, _, details) = daemon
+        .send("cloud.vm.firewall_list", params(&origin, "stack", json!({})), None)
+        .unwrap_err();
     assert_eq!(code, "operation.failed");
     assert_eq!(details["extra"]["failure"]["status"], 501);
     assert_eq!(details["extra"]["failure"]["code"], "cloud.not_available");

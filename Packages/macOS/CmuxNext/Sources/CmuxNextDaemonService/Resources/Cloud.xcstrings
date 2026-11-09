@@ -5386,6 +5386,138 @@
         }
       }
     },
+    "cloud.failed.tunnelDaemonUnavailable": {
+      "comment": "A Cloud tunnel attach, detach or key rotation that this Mac's acpmux agent daemon did not take (it is not running, or did not accept the app's proof). Cloud is a product name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac's agent daemon did not take the Cloud tunnel change. Open an agent chat to start it, then try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يقبل برنامج الوكيل الخفي على جهاز Mac هذا تغيير نفق Cloud. افتح محادثة وكيل لتشغيله، ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent daemon na ovom Macu nije prihvatio promjenu Cloud tunela. Otvorite chat s agentom da ga pokrenete, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-daemonen på denne Mac tog ikke imod ændringen af Cloud-tunnelen. Åbn en agentchat for at starte den, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agent-Daemon auf diesem Mac hat die Änderung am Cloud-Tunnel nicht angenommen. Öffne einen Agent-Chat, um ihn zu starten, und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El daemon de agentes de este Mac no aceptó el cambio del túnel de Cloud. Abre un chat de agente para iniciarlo y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le daemon d'agents de ce Mac n'a pas accepté la modification du tunnel Cloud. Ouvrez une discussion d'agent pour le démarrer, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il daemon degli agenti su questo Mac non ha accettato la modifica al tunnel Cloud. Apri una chat con un agente per avviarlo, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のエージェントデーモンが Cloud トンネルの変更を受け付けませんでした。エージェントチャットを開いて起動してから、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដេមិនភ្នាក់ងារនៅលើ Mac នេះមិនបានទទួលការផ្លាស់ប្ដូរផ្លូវរូងក្រោមដី Cloud ទេ។ បើកការជជែកភ្នាក់ងារដើម្បីចាប់ផ្ដើមវា រួចព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 에이전트 데몬이 Cloud 터널 변경을 받지 않았습니다. 에이전트 채팅을 열어 시작한 다음 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-daemonen på denne Macen tok ikke imot endringen av Cloud-tunnelen. Åpne en agentchat for å starte den, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demon agentów na tym Macu nie przyjął zmiany tunelu Cloud. Otwórz czat z agentem, aby go uruchomić, i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O daemon de agentes deste Mac não aceitou a alteração do túnel do Cloud. Abra um chat de agente para iniciá-lo e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Демон агентов на этом Mac не принял изменение туннеля Cloud. Откройте чат с агентом, чтобы запустить его, и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เดมอนเอเจนต์บน Mac เครื่องนี้ไม่รับการเปลี่ยนแปลงทันเนล Cloud เปิดแชทเอเจนต์เพื่อเริ่มเดมอน แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac'teki ajan arka plan hizmeti Cloud tüneli değişikliğini kabul etmedi. Başlatmak için bir ajan sohbeti açın, sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Демон агентів на цьому Mac не прийняв зміну тунелю Cloud. Відкрийте чат з агентом, щоб запустити його, і спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trình nền tác nhân trên máy Mac này không nhận thay đổi đường hầm Cloud. Mở một cuộc trò chuyện với tác nhân để khởi động nó, rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 上的智能体守护进程未接受 Cloud 隧道的更改。打开一个智能体聊天以启动它，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 上的代理程式常駐程式未接受 Cloud 通道的變更。開啟一個代理程式聊天以啟動它，然後再試一次。"
+          }
+        }
+      }
+    },
     "cloud.result.filesTitle": {
       "extractionState": "manual",
       "localizations": {
@@ -5513,6 +5645,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Cloud Files"
+          }
+        }
+      }
+    },
+    "cloud.result.networkTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Networks"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Networks"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Networks"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Networks"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Networks"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Networks"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Networks"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Networks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Networks"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Networks"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Networks"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Networks"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Networks"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Networks"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Networks"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Networks"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Networks"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Networks"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Networks"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Networks"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Networks"
           }
         }
       }
@@ -12211,134 +12474,134 @@
         }
       }
     },
-    "cloud.network.notOnThisCloudYet": {
-      "comment": "A tunnel, network or firewall action: this Cloud does not serve those yet, so the action is unavailable.",
+    "cloud.network.firewallNotOnThisCloudYet": {
+      "comment": "A Cloud firewall action: cmux-platform serves no firewall rules yet, so the action is unavailable.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tunnels, networks and firewall rules aren't available on this Cloud yet."
+            "value": "Firewall rules aren't available on this Cloud yet."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الأنفاق والشبكات وقواعد جدار الحماية غير متاحة على هذه السحابة بعد."
+            "value": "قواعد جدار الحماية غير متاحة على هذه السحابة بعد."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tuneli, mreže i pravila zaštitnog zida još nisu dostupni na ovom Cloudu."
+            "value": "Pravila zaštitnog zida još nisu dostupna na ovom Cloudu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tunneler, netværk og firewallregler er ikke tilgængelige på denne Cloud endnu."
+            "value": "Firewallregler er ikke tilgængelige på denne Cloud endnu."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tunnel, Netzwerke und Firewall-Regeln sind in dieser Cloud noch nicht verfügbar."
+            "value": "Firewall-Regeln sind in dieser Cloud noch nicht verfügbar."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los túneles, las redes y las reglas de firewall aún no están disponibles en esta nube."
+            "value": "Las reglas de firewall aún no están disponibles en esta nube."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les tunnels, les réseaux et les règles de pare-feu ne sont pas encore disponibles sur ce Cloud."
+            "value": "Les règles de pare-feu ne sont pas encore disponibles sur ce Cloud."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tunnel, reti e regole firewall non sono ancora disponibili su questo Cloud."
+            "value": "Le regole firewall non sono ancora disponibili su questo Cloud."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "トンネル、ネットワーク、ファイアウォールルールはこの Cloud ではまだ利用できません。"
+            "value": "ファイアウォールルールはこの Cloud ではまだ利用できません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ផ្លូវរូងក្រោមដី បណ្ដាញ និងច្បាប់ជញ្ជាំងភ្លើង មិនទាន់មាននៅលើ Cloud នេះនៅឡើយទេ។"
+            "value": "ច្បាប់ជញ្ជាំងភ្លើង មិនទាន់មាននៅលើ Cloud នេះនៅឡើយទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "터널, 네트워크, 방화벽 규칙은 아직 이 Cloud에서 사용할 수 없습니다."
+            "value": "방화벽 규칙은 아직 이 Cloud에서 사용할 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tunneler, nettverk og brannmurregler er ikke tilgjengelige på denne Cloud ennå."
+            "value": "Brannmurregler er ikke tilgjengelige på denne Cloud ennå."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tunele, sieci i reguły zapory nie są jeszcze dostępne w tej chmurze."
+            "value": "Reguły zapory nie są jeszcze dostępne w tej chmurze."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Túneis, redes e regras de firewall ainda não estão disponíveis nesta nuvem."
+            "value": "Regras de firewall ainda não estão disponíveis nesta nuvem."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Туннели, сети и правила брандмауэра пока недоступны в этом облаке."
+            "value": "Правила брандмауэра пока недоступны в этом облаке."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "อุโมงค์ เครือข่าย และกฎไฟร์วอลล์ยังไม่พร้อมใช้งานบน Cloud นี้"
+            "value": "กฎไฟร์วอลล์ยังไม่พร้อมใช้งานบน Cloud นี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tüneller, ağlar ve güvenlik duvarı kuralları bu Cloud'da henüz kullanılamıyor."
+            "value": "Güvenlik duvarı kuralları bu Cloud'da henüz kullanılamıyor."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Тунелі, мережі та правила брандмауера поки що недоступні в цій хмарі."
+            "value": "Правила брандмауера поки що недоступні в цій хмарі."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đường hầm, mạng và quy tắc tường lửa chưa có trên Cloud này."
+            "value": "Quy tắc tường lửa chưa có trên Cloud này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 Cloud 尚不支持隧道、网络和防火墙规则。"
+            "value": "此 Cloud 尚不支持防火墙规则。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 Cloud 尚不支援通道、網路和防火牆規則。"
+            "value": "此 Cloud 尚不支援防火牆規則。"
           }
         }
       }

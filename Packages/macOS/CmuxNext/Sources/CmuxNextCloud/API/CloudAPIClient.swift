@@ -25,6 +25,8 @@ public struct CloudAPIClient: Sendable {
     /// A Worker machines client's exec and file routes through cmux-tui (direct to the provider
     /// with a client session); nil: straight to the cmux API (CloudAPIClient+MachineRoutes.swift).
     var machineIO: CloudMachineIO?
+    /// A Worker machines client's install token, for the routes that take an install, not a session (``listNetworks()``).
+    var installToken: (@Sendable () async throws -> String)?
 
     /// Requests that carry the account's bearer token: ephemeral, no URL
     /// cache, no cookies, so no answer (or the request headers stored with
@@ -84,6 +86,23 @@ public struct CloudAPIClient: Sendable {
         try requireWorker()
         return try await send("POST", "\(machinePath)/\(id)/ssh-endpoint", body: ["publicKey": publicKey],
                        timeout: .seconds(100), as: CloudSCPEndpoint.self)
+    }
+
+    /// The team's Cloud network: cmux-platform's `GET /v1/host/network/target` on a Worker machines
+    /// client, sent as this Mac's install (`installToken`; the route refuses a Stack session), never
+    /// classic Cloud. A team has one network, named by its team id (what tunnel attach takes), with
+    /// its provider mesh as `meshId`; a team with no mesh yet (404) has none.
+    public func listNetworks() async throws -> [CloudNetwork] {
+        guard !sendsStackSession, let installToken else { throw CloudAPIError.transport("the Cloud network list is a cmux API Worker route") }
+        struct Target: Decodable { var team: String; var mesh: String; var ipv4_cidr: String }
+        var install = self
+        install.tokens = { (try await installToken(), "") }
+        do {
+            let target = try await install.send("GET", "/v1/host/network/target", as: Target.self)
+            return [CloudNetwork(id: target.team, meshId: target.mesh, cidr: target.ipv4_cidr, cidrV6: nil, scope: "team")]
+        } catch CloudAPIError.http(status: 404, code: _, message: _, action: _, traceId: _) {
+            return []
+        }
     }
 
     // MARK: Domains and publications

@@ -16,7 +16,7 @@
 //! one is refused before any request. `vm.scp_endpoint` is cmux-platform's
 //! `/v1/cloud/machines/{id}/ssh-endpoint` (a `stack` call is refused before any request).
 //!
-//! Classic cmux.com's `/api/vm` is gone from NEXT: the tunnel, firewall and network calls
+//! Classic cmux.com's `/api/vm` is gone from NEXT: the tunnel and firewall calls
 //! ([`NOT_ON_THIS_CLOUD`]) have no cmux-platform route yet, so each answers a 501
 //! `cloud.not_available` at once and sends nothing.
 //!
@@ -43,6 +43,7 @@
 mod http;
 mod machine;
 pub mod machine_io;
+mod network;
 mod owner;
 mod previews;
 mod runs;
@@ -104,6 +105,7 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
     match request.call.as_str() {
         "machine.io" if request.auth == Auth::Stack => Err(not_on_this_cloud("machine.io")),
         "machine.io" => machine::worker(request).await,
+        "vm.networks" => network::networks(&http, request.auth).await,
         "vm.scp_endpoint" => machine::scp_endpoint(&http, args).await,
         call if previews::PUBLICATION_CALLS.contains(&call) => {
             previews::publications(request, call, args).await
@@ -123,7 +125,7 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
 
 /// The calls classic cmux.com's `/api/vm` served that cmux-platform does not yet: each answers
 /// [`not_on_this_cloud`] before any request.
-pub const NOT_ON_THIS_CLOUD: [&str; 10] = [
+pub const NOT_ON_THIS_CLOUD: [&str; 9] = [
     "vm.tunnel_enroll",
     "vm.tunnel_revoke",
     "vm.tunnel_attach",
@@ -133,7 +135,6 @@ pub const NOT_ON_THIS_CLOUD: [&str; 10] = [
     "vm.firewall_get",
     "vm.firewall_create",
     "vm.firewall_delete",
-    "vm.networks",
 ];
 
 /// The refusal of a call this Cloud does not serve: a 501 the caller shows at once.

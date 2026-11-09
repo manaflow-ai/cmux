@@ -3,11 +3,11 @@ import Foundation
 /// What the network, domain, publication and API key actions say. Keys
 /// live in Resources/Cloud.xcstrings with every app locale.
 public extension CloudStrings {
-    /// A tunnel, network or firewall action: classic cmux.com served those, and cmux-platform
-    /// serves none of them yet, so the action is unavailable instead of waiting on a route.
-    static var notOnThisCloudYet: String {
-        String(localized: "cloud.network.notOnThisCloudYet",
-               defaultValue: "Tunnels, networks and firewall rules aren't available on this Cloud yet.",
+    /// A firewall action: classic cmux.com served firewall rules and cmux-platform serves none yet,
+    /// so the action is unavailable instead of waiting on a route.
+    static var firewallNotOnThisCloudYet: String {
+        String(localized: "cloud.network.firewallNotOnThisCloudYet",
+               defaultValue: "Firewall rules aren't available on this Cloud yet.",
                table: "Cloud", bundle: .module)
     }
 
