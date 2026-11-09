@@ -8,24 +8,28 @@
 //! current pane, the current tab's terminal title. A name only fills a gap, so
 //! a selector that resolved before selects the same object.
 //!
-//! A name that the scoped rule does not find is looked up in the whole
-//! session, one rule for every scope, so `terminal alpha`, `tab alpha` and
-//! `pane alpha` select one tab and its terminal and pane:
+//! A name that the scoped rule does not find is looked up further, with
+//! the rules every client had before (so a selector that resolved before
+//! selects the same object):
 //!
-//! 1. the scope's own names: a screen name, a pane name, a terminal title;
-//! 2. for a terminal, tab or pane: the tab name. An agent name
-//!    (`cmux agent start alpha`) is its tab's name. A tab whose terminal runs
-//!    wins over one whose terminal exited (so `terminal alpha resume` finds
-//!    the kept tab of an agent that quit).
+//! - a tab name: in the current screen, then the current workspace, then
+//!   the session (the daemon's old tab-name levels). The first level with a
+//!   match decides; in it a tab whose terminal runs wins over one whose
+//!   terminal exited, and two or more at that step are `selector.ambiguous`;
+//! - a pane: a pane name in the session, else the tab name in the session
+//!   (the CLI's old W3-H rule): a live terminal tab first, then an exited
+//!   one (so `terminal alpha resume` finds the kept tab of an agent that
+//!   quit), two or more at one step ambiguous; then a browser tab;
+//! - a terminal: a terminal title in the session, else the tab name with
+//!   the W3-H rule (terminal tabs only);
+//! - a screen: a screen name in the session.
 //!
-//! The first step that has a match decides: one match is the object, two or
-//! more (two live tabs, also an agent tab and a shell tab) are
-//! `selector.ambiguous` with every candidate id. Under an explicit parent
-//! (an id or a name) the scoped rule is the only rule.
+//! An agent name (`cmux agent start alpha`) is its tab's name. Under an
+//! explicit parent (an id or a name) the scoped rule is the only rule.
 
 use crate::model::State;
 use crate::resource::{ContentPublicId, ResourceError, Selector, resolve_name};
-use crate::{PaneId, ScreenId, SurfaceId};
+use crate::{PaneId, ScreenId, SurfaceId, WorkspaceId};
 
 use super::ResourceSelectors;
 
@@ -84,14 +88,37 @@ pub(super) fn pane(state: &State, raw: &str) -> Result<Option<PaneId>, ResourceE
     if named.is_some() {
         return Ok(named);
     }
-    Ok(named_tab(state, &name, false)?
-        .and_then(|tab| state.resource_indexes.tab_pane.get(&tab).copied()))
+    let tab = match named_tab(state, &name, true, &|_| true)? {
+        Some(tab) => Some(tab),
+        None => named_tab(state, &name, false, &|_| true)?,
+    };
+    Ok(tab.and_then(|tab| state.resource_indexes.tab_pane.get(&tab).copied()))
 }
 
-/// The tab named `raw` anywhere in the session.
-pub(super) fn tab(state: &State, raw: &str) -> Result<Option<SurfaceId>, ResourceError> {
+/// The tab named `raw` outside the current pane: in the current `screen`,
+/// then the current `workspace`, then the session; the first level with a
+/// match decides.
+pub(super) fn tab(
+    state: &State,
+    raw: &str,
+    screen: Option<ScreenId>,
+    workspace: Option<WorkspaceId>,
+) -> Result<Option<SurfaceId>, ResourceError> {
     let Some(name) = name_of(raw)? else { return Ok(None) };
-    named_tab(state, &name, false)
+    let indexes = &state.resource_indexes;
+    let screen_of = |pane: PaneId| indexes.pane_screen.get(&pane).copied();
+    let workspace_of = |pane: PaneId| {
+        screen_of(pane).and_then(|screen| indexes.screen_workspace.get(&screen).copied())
+    };
+    let in_screen = |pane: PaneId| screen.is_some() && screen_of(pane) == screen;
+    let in_workspace = |pane: PaneId| workspace.is_some() && workspace_of(pane) == workspace;
+    let levels: [&dyn Fn(PaneId) -> bool; 3] = [&in_screen, &in_workspace, &|_| true];
+    for in_level in levels {
+        if let Some(tab) = named_tab(state, &name, false, in_level)? {
+            return Ok(Some(tab));
+        }
+    }
+    Ok(None)
 }
 
 /// The tab of the terminal named `raw` anywhere in the session: the one
@@ -112,20 +139,23 @@ pub(super) fn terminal(state: &State, raw: &str) -> Result<Option<SurfaceId>, Re
     if titled.is_some() {
         return Ok(titled);
     }
-    named_tab(state, &name, true)
+    named_tab(state, &name, true, &|_| true)
 }
 
-/// The tab named `name` in the session: a live one first, then one whose
-/// terminal exited; two or more at the first step that has any are
-/// ambiguous. `terminals_only` leaves out tabs that show no terminal.
+/// The tab named `name` in the panes `in_level` takes: a live one first,
+/// then one whose terminal exited; two or more at the first step that has
+/// any are ambiguous. `terminals_only` leaves out tabs that show no
+/// terminal.
 fn named_tab(
     state: &State,
     name: &str,
     terminals_only: bool,
+    in_level: &dyn Fn(PaneId) -> bool,
 ) -> Result<Option<SurfaceId>, ResourceError> {
     let candidates = state
         .panes
         .values()
+        .filter(|pane| in_level(pane.id))
         .flat_map(|pane| &pane.tabs)
         .filter_map(|tab| {
             let id = state.resource_indexes.tab_ids.get(tab)?;
