@@ -134,5 +134,37 @@ struct KeychainStackTokenStoreTests {
             #expect(!read.isAvailable)
         }
     }
+
+    /// The SDK's refresh path reads one token at a time and clears through
+    /// compare-and-set. Neither may fall through to a stale file token while
+    /// the Keychain is locked, or the process keeps reading and writing the
+    /// file after the Keychain unlocks.
+    @Test func lockedKeychainSingleTokenReadsAndCompareDoNotPromoteFileSnapshot() async {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-fallback-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = FileStackTokenStore(directory: directory)
+        await file.setTokens(accessToken: "stale-access", refreshToken: "stale-refresh")
+        let store = FallbackTokenStore(
+            primary: KeychainStackTokenStore(
+                service: "cmux-test-locked-\(UUID().uuidString)",
+                copyMatching: { _ in (errSecInteractionNotAllowed, nil) }
+            ),
+            fallback: file
+        )
+
+        #expect(await store.getStoredAccessToken() == nil)
+        #expect(await store.getStoredRefreshToken() == nil)
+        await store.compareAndSet(
+            compareRefreshToken: "stale-refresh",
+            newRefreshToken: "rotated-refresh",
+            newAccessToken: "rotated-access"
+        )
+
+        // Still routed to the Keychain: the file snapshot was neither
+        // promoted nor rewritten.
+        #expect(!(await store.readStoredTokens()).isAvailable)
+        #expect(await file.getStoredRefreshToken() == "stale-refresh")
+    }
     #endif
 }

@@ -21,28 +21,15 @@ public actor FallbackTokenStore: StackAuthTokenStoreProtocol {
         self.file = file
     }
 
+    // The single-token getters go through `readStoredTokens()` so a
+    // temporarily unreadable Keychain never falls through to a stale file
+    // token (the SDK's refresh path reads with these, not readStoredTokens).
     public func getStoredAccessToken() async -> String? {
-        if keychainWorks, let value = await keychain.getStoredAccessToken() {
-            return value
-        }
-        let fallbackValue = await file.getStoredAccessToken()
-        if keychainWorks, fallbackValue != nil {
-            keychainWorks = false
-            log.log("keychain read missed file fallback token; switching to file fallback for this session")
-        }
-        return fallbackValue
+        await readStoredTokens().accessToken
     }
 
     public func getStoredRefreshToken() async -> String? {
-        if keychainWorks, let value = await keychain.getStoredRefreshToken() {
-            return value
-        }
-        let fallbackValue = await file.getStoredRefreshToken()
-        if keychainWorks, fallbackValue != nil {
-            keychainWorks = false
-            log.log("keychain read missed file fallback token; switching to file fallback for this session")
-        }
-        return fallbackValue
+        await readStoredTokens().refreshToken
     }
 
     /// Reads credentials with the availability of the same primary-store read.
@@ -110,7 +97,11 @@ public actor FallbackTokenStore: StackAuthTokenStoreProtocol {
         newAccessToken: String?
     ) async {
         if keychainWorks {
-            if await keychain.getStoredRefreshToken() != compareRefreshToken,
+            // Only a definitive Keychain miss hands the session to the file
+            // store; a locked Keychain's empty read is not a miss.
+            let primary = await keychain.readStoredTokens()
+            if primary.isAvailable,
+               primary.refreshToken != compareRefreshToken,
                await file.getStoredRefreshToken() == compareRefreshToken {
                 keychainWorks = false
                 log.log("keychain compare missed file fallback token; switching to file fallback for this session")
