@@ -12,6 +12,9 @@
 //   floor   the change (in `unit`) that is noise on a shared runner; the cron's default is 10 % of p95.
 //   version bump it when an edit changes what the row measures: the cron then rebases the row instead of
 //           calling the change a regression (default 1).
+//   load    set by bench/web-ui-suite.ts, never by a bench: the host's contention factor (bench/hostLoad.ts) the row's
+//           p50 and p95 were divided by, with the measured p95 as raw_p95. Only ms rows are scaled, only when the
+//           host was busy.
 export type PerfRow = {
   name: string;
   p50?: number;
@@ -20,6 +23,8 @@ export type PerfRow = {
   target?: number;
   floor?: number;
   version?: number;
+  load?: number;
+  raw_p95?: number;
 };
 
 export const PERF_ROW_MARK = "PERF_ROW ";
