@@ -98,6 +98,19 @@ fn assert_ssh_ran_pinned_through_the_hub(world: &SshWorld) {
     assert!(asked.iter().all(|a| a["purpose"] == "carrier"), "{asked:?}");
 }
 
+/// The connect log once it holds `want`, waiting up to 10 s for it.
+fn log_with(world: &SshWorld, want: &str) -> String {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let log = world.connect_log();
+        if log.contains(want) {
+            return log;
+        }
+        assert!(std::time::Instant::now() < deadline, "no {want:?} in the connect log: {log}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 /// A relay that refuses every connect: the same attempt goes on to the ssh
 /// group, which connects, and the stream works on it.
 #[test]
@@ -151,8 +164,9 @@ fn a_session_on_the_relay_fails_over_to_ssh_and_keeps_its_stream() {
     let (_, pushed) = round_trip(&mut stdin, &lines, 2);
     assert_eq!(pushed, "{\"event\":\"pushed\",\"conn\":0}\n", "the same mux connection");
     assert_ssh_ran_pinned_through_the_hub(&world);
-    let log = world.connect_log();
-    assert!(log.contains("phase=resume carrier=ssh:0 outcome=ok"), "{log}");
+    // The resume's lines are written when its attempt ends, which may come
+    // just after the replayed stream already flows.
+    let log = log_with(&world, "phase=resume carrier=ssh:0 outcome=ok");
     assert!(
         log.lines().any(|l| l.starts_with(&format!(
             "cloud.connect route=carrier machine={MACHINE} phase=resume outcome=ok"

@@ -218,7 +218,7 @@ fn the_ssh_group_comes_after_the_relay_only_when_every_piece_is_there() {
     assert_eq!(absent(&no_listener, &with_ssh), Absent::Tunnel, "a file, not a live hub");
     assert_eq!(absent(&SshSetup { hub: None, ..full.clone() }, &with_ssh), Absent::Tunnel);
     assert_eq!(absent(&SshSetup { exe: None, ..full.clone() }, &with_ssh), Absent::Tunnel);
-    assert_eq!(absent(&SshSetup { state: None, ..full.clone() }, &with_ssh), Absent::Key);
+    assert_eq!(absent(&SshSetup { state: None, ..full }, &with_ssh), Absent::Key);
     let codes: Vec<_> = [Absent::Candidate, Absent::Tunnel, Absent::Key].map(Absent::code).into();
     assert_eq!(codes, ["no_candidate", "no_tunnel", "no_key"]);
 }
