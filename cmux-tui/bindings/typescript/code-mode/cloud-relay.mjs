@@ -26,14 +26,33 @@ function guestPath(params, operation) {
   return params.path;
 }
 function bodyWithout(params, ...names) { const body = { ...params }; for (const name of names) delete body[name]; return body; }
-/** A relay op's params as its cloud.* op takes them: `vm_id` is `machine`, `snapshot_id` is `snapshot`. */
-function aliasParams(op, params) {
-  const out = {};
-  for (const [name, value] of Object.entries(params)) {
-    const key = name === "vm_id" ? "machine" : name === "snapshot_id" ? "snapshot" : name;
-    if (key === "machine" && (op === "cloud.snapshot.restore" || op === "cloud.snapshot.delete")) continue;
-    out[key] = value;
+// Each cloud.* op's fields (backend/catalog/cloud-operations.json; the ops take no extra field).
+const OP_FIELDS = {
+  "cloud.machine.list": [], "cloud.machine.get": ["machine"],
+  "cloud.machine.create": ["name", "size", "image", "from_snapshot", "expected_revision"],
+  "cloud.machine.rename": ["machine", "name", "expected_revision"],
+  "cloud.machine.start": ["machine", "expected_revision"], "cloud.machine.pause": ["machine", "expected_revision"],
+  "cloud.machine.resize": ["machine", "size", "expected_revision"], "cloud.machine.delete": ["machine", "expected_revision"],
+  "cloud.snapshot.list": ["machine"], "cloud.snapshot.create": ["machine", "name", "expected_revision"],
+  "cloud.snapshot.restore": ["snapshot", "name", "expected_revision"], "cloud.snapshot.delete": ["snapshot", "expected_revision"],
+};
+// A size as the relay names took it, flat or nested (`cpu`, `memoryMb`, `diskMb`), as cloud.*'s `size`.
+const SIZE_NAMES = { cpu: "cpu", vcpus: "cpu", cpus: "cpu", memoryMb: "memory_mb", memory_mb: "memory_mb", memoryMB: "memory_mb", diskMb: "disk_mb", disk_mb: "disk_mb", diskMB: "disk_mb" };
+function sizeOf(params) {
+  const size = {};
+  for (const source of [params, typeof params.size === "object" && params.size ? params.size : {}]) {
+    for (const [name, value] of Object.entries(source)) if (SIZE_NAMES[name] && value !== undefined) size[SIZE_NAMES[name]] = value;
   }
+  return size;
+}
+/** A relay op's params as its cloud.* op takes them: `vm_id` is `machine`, `snapshot_id` is `snapshot`, a
+ * create's or resize's sizing is `size` (empty: the plan's default), and nothing the op does not take. */
+function aliasParams(op, params) {
+  const named = { ...params, machine: params.machine ?? params.vm_id, snapshot: params.snapshot ?? params.snapshot_id };
+  if (op === "cloud.machine.create" || op === "cloud.machine.resize") named.size = sizeOf(params);
+  if (op === "cloud.machine.create" && named.from_snapshot === undefined && params.snapshot_id !== undefined) named.from_snapshot = params.snapshot_id;
+  const out = {};
+  for (const field of OP_FIELDS[op] ?? Object.keys(named)) if (named[field] !== undefined) out[field] = named[field];
   return out;
 }
 

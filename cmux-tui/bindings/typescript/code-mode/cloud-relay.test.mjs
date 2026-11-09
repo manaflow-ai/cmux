@@ -104,6 +104,31 @@ test("a protocol op's ok:false answer is a refusal, not a result", async () => {
   await assert.rejects(broker.request("vm.create", { name: "sixth box" }, "key-create-quota"), /this plan allows 5 active machines/);
 });
 
+test("every machine and snapshot op sends the params its cloud.* contract takes", async () => {
+  const calls = [];
+  const broker = createCloudBroker({ catalog: relayCatalog, apiUrl: "https://cloud.test", bearerToken: "fixture-secret",
+    fetchImpl: async (url, init) => { calls.push(JSON.parse(init.body)); return new Response("{}", { status: 200 }); } });
+  const cases = [
+    ["vm.list", {}], ["vm.get", { vm_id: "vm_x" }], ["vm.create", { name: "box" }], ["vm.create", { name: "box", cpu: 4, memoryMb: 8192 }],
+    ["vm.update", { vm_id: "vm_x", name: "renamed", stray: 1 }], ["vm.start", { vm_id: "vm_x" }], ["vm.resume", { vm_id: "vm_x" }],
+    ["vm.pause", { vm_id: "vm_x" }], ["vm.resize", { vm_id: "vm_x", memoryMb: 8192 }], ["vm.resize", { vm_id: "vm_x", size: { cpu: 2 } }],
+    ["vm.delete", { vm_id: "vm_x" }], ["vm.snapshot.list", { vm_id: "vm_x" }], ["vm.snapshot.create", { vm_id: "vm_x", name: "s" }],
+    ["vm.snapshot.restore", { vm_id: "vm_x", snapshot_id: "snap_x" }], ["vm.snapshot.delete", { vm_id: "vm_x", snapshot_id: "snap_x" }],
+  ];
+  for (const [operation, params] of cases) await broker.request(operation, params, `key-${operation}`);
+  for (const [index, sent] of calls.entries()) {
+    const contract = cloudCatalog.operations[sent.op]?.params;
+    assert.ok(contract, `${sent.op} is a cloud op`);
+    for (const [field, spec] of Object.entries(contract.fields)) if (spec.required) assert.ok(field in sent.params, `${cases[index][0]}: ${sent.op} needs ${field}`);
+    for (const field of Object.keys(sent.params)) assert.ok(field in contract.fields, `${cases[index][0]}: ${sent.op} takes no ${field}`);
+  }
+  assert.deepEqual(calls[2].params, { name: "box", size: {} });
+  assert.deepEqual(calls[3].params, { name: "box", size: { cpu: 4, memory_mb: 8192 } });
+  assert.deepEqual(calls[8].params, { machine: "vm_x", size: { memory_mb: 8192 } });
+  assert.deepEqual(calls[9].params, { machine: "vm_x", size: { cpu: 2 } });
+  assert.deepEqual(calls[4].params, { machine: "vm_x", name: "renamed" });
+});
+
 test("classic publication, domain and API key ops are gone from the relay", async () => {
   const broker = createCloudBroker({ catalog: relayCatalog, apiUrl: "https://cloud.test", bearerToken: "fixture-secret", fetchImpl: async () => { throw new Error("no request"); } });
   for (const operation of ["vm.domain.list", "vm.publication.create", "vm.api.provision", "vm.publication.api-key.revoke"]) {
