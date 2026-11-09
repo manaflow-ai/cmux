@@ -597,13 +597,26 @@ impl TerminalOutputScanner {
                     let concealed = std::mem::take(&mut self.sgr).finish(self.is_concealed);
                     return Some(self.set_concealed(concealed));
                 }
+                let was_concealed = self.is_concealed;
                 let switched = self.track_attribute_saves(byte);
+                if self.parameters == b"!" && byte == b'p' && !self.parameters_overflowed {
+                    // DECSTR, a soft reset, sets the rendition back to normal.
+                    self.is_concealed = false;
+                }
                 let signal =
                     classify_control_sequence(&self.parameters, self.parameters_overflowed, byte);
                 Some(match switched {
                     // A list too long for the classifier still switched screens.
                     Some(entered) if signal == OutputSignal::Disruptive => {
                         OutputSignal::AlternateScreen(entered)
+                    }
+                    // A restore or pop that conceals says so, even inside a
+                    // cursor-save detour, so what is drawn goes.
+                    _ if self.is_concealed
+                        && !was_concealed
+                        && !matches!(signal, OutputSignal::AlternateScreen(_)) =>
+                    {
+                        OutputSignal::Concealed(true)
                     }
                     _ => signal,
                 })

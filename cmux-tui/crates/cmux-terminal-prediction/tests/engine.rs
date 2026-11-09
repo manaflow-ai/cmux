@@ -1523,3 +1523,33 @@ fn a_save_in_a_mode_list_past_the_parameter_cap_conceals_again() {
     let result = conceals_after("\x1b[8m\x1b[?25;25;25;25;1048h\x1b[0m\x1b[?1048l");
     assert!(result.starts_with("drawn \"\""), "{result}");
 }
+
+#[test]
+fn an_sgr_pop_inside_a_cursor_detour_withdraws_what_is_drawn() {
+    let mut session = armed_session();
+    session.remote("\x1b[8m\x1b[#{\x1b[0m");
+    session.advance(ms(2_000));
+    session.type_key("l");
+    session.remote("l");
+    session.type_key("s");
+    session.remote("s");
+    session.engine.presented_frame(session.clock);
+    session.type_key("x");
+    assert_eq!(session.drawn(), "x", "status {:?}", session.status());
+    session.remote("\x1b7\x1b[#}");
+    assert_eq!(session.drawn(), "");
+}
+
+#[test]
+fn a_soft_reset_reveals_text() {
+    let mut session = armed_session();
+    session.remote("\x1b[8m\x1b[!p");
+    session.advance(ms(2_000));
+    session.type_key("l");
+    session.remote("l");
+    session.type_key("s");
+    session.remote("s");
+    session.engine.presented_frame(session.clock);
+    session.type_key("x");
+    assert_eq!(session.drawn(), "x", "status {:?}", session.status());
+}
