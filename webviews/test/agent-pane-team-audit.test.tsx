@@ -235,7 +235,8 @@ test("Download CSV waits for the picked grouping's reply, then saves that reply'
   const root: Root = createRoot(host);
   await act(async () => root.render(<TeamAuditScreen load={load} now={NOW} />));
   await settle();
-  const button = () => [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Download CSV")!;
+  const button = () =>
+    [...host.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Download CSV")!;
   expect(button().disabled).toBe(false);
   const trigger = host.querySelector<HTMLElement>(".cst-controls [aria-haspopup=menu]")!;
   await act(async () => trigger.click());
@@ -251,7 +252,11 @@ test("Download CSV waits for the picked grouping's reply, then saves that reply'
   expect(calls.some((call) => call.format === "csv")).toBe(false);
   await act(async () =>
     release(
-      answer({ groupBy: "day", range: { since: "2026-10-12", until: "2026-11-08" }, rows: [{ ...totals(), key: "2026-11-08" }] }),
+      answer({
+        groupBy: "day",
+        range: { since: "2026-10-12", until: "2026-11-08" },
+        rows: [{ ...totals(), key: "2026-11-08" }],
+      }),
     ),
   );
   await settle();
