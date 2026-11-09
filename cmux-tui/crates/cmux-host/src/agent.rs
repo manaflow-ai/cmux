@@ -3,13 +3,16 @@
 //! trait (Linux: `crate::linux::LinuxPlatform`; tests: a fake).
 //!
 //! One thread, one blocking wait. Every wake is a kernel event (clock set,
-//! address change, file write, signal, process exit, one-shot timer); there
-//! is no tick.
+//! address change, file write, signal, process exit, one-shot timer) or the
+//! pause watch's report of a resume. The agent thread has no tick; the
+//! pause watch's thread sleeps [`PAUSE_TICK`] at a time and wakes it only
+//! after a pause.
 
 use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::Path;
+use std::time::Duration;
 
 use cmux_server_core::layout::Layout;
 use cmux_server_core::platform::InstallMode;
@@ -32,6 +35,10 @@ pub enum Wake {
     /// than [`RESUME_CLOCK_JUMP_NS`]: a provider's clock sync (Freestyle sets
     /// it on every exec and file operation), not a resume.
     ClockAdjusted,
+    /// The pause watch woke more than [`PAUSE_GAP`] past its tick on the
+    /// boot clock: the machine was stopped while its boot clock kept running
+    /// (Freestyle), so no clock set moved realtime against it.
+    Paused,
     /// The set of global addresses changed (rtnetlink, filtered).
     Address,
     /// The driver wrote `/run/cmux/instance-id`.
@@ -68,6 +75,47 @@ pub fn clock_set_wake(before_ns: i128, after_ns: i128) -> Wake {
         Wake::ClockSet
     } else {
         Wake::ClockAdjusted
+    }
+}
+
+/// How long the pause watch sleeps (monotonic) between two looks at the
+/// boot clock. A pause longer than `PAUSE_TICK + PAUSE_GAP` (30 s) is always
+/// found, so every pause the relay retires a registration over (45 s of
+/// silence) is.
+pub const PAUSE_TICK: Duration = Duration::from_secs(10);
+
+/// How far past [`PAUSE_TICK`] the boot clock must have moved during one
+/// sleep for it to count as a pause. An NTP slew moves the boot clock by at
+/// most 0.5 ms a second and a step never moves it, so 20 s is no clock sync;
+/// it is also far past any scheduling delay of an otherwise idle thread.
+pub const PAUSE_GAP: Duration = Duration::from_secs(20);
+
+/// How long the machine was stopped, at least, during a pause-watch sleep
+/// that read the boot clock at `before_ns` and again at `after_ns`; `None`
+/// when the sleep ended within [`PAUSE_GAP`] of its tick.
+pub fn paused_for(before_ns: i128, after_ns: i128) -> Option<Duration> {
+    let _ = (before_ns, after_ns);
+    None
+}
+
+/// Wall time within which a clock set and a pause-watch gap are the same
+/// resume. Each fires within about a second of the resume, and on a provider
+/// that has one of them the other never fires.
+pub const SAME_RESUME_NS: i128 = 10_000_000_000;
+
+/// One resume can reach the agent both as a clock set and as a pause-watch
+/// gap (a provider whose boot clock runs through a pause and whose realtime
+/// is set late). Only the first is a resume; the other is a clock sync.
+#[derive(Debug, Default)]
+pub struct ResumeOnce {
+    last_wall_ns: Option<i128>,
+}
+
+impl ResumeOnce {
+    /// Whether a resume signal at wall time `wall_ns` is a new resume.
+    pub fn first(&mut self, wall_ns: i128) -> bool {
+        self.last_wall_ns = Some(wall_ns);
+        true
     }
 }
 
@@ -245,7 +293,7 @@ impl<P: Platform> Agent<P> {
                 // the identity), but remote authority, the roles and their
                 // receivers stay up and no `Resumed` is sent. Ending them
                 // here dropped the Native receiver on every provider exec.
-                Wake::ClockAdjusted => {
+                Wake::ClockAdjusted | Wake::Paused => {
                     observe = true;
                     clone_signal = true;
                 }
@@ -427,6 +475,7 @@ fn wake_name(wake: Wake) -> &'static str {
         Wake::Identity => "identity",
         Wake::ClockSet => "clock",
         Wake::ClockAdjusted => "clock-adjusted",
+        Wake::Paused => "paused",
         Wake::Address => "net",
         Wake::DriverFile => "driver-file",
         Wake::BakeFile => "bake-file",
@@ -542,11 +591,11 @@ mod identity_tests {
             exits: VecDeque::new(),
             ran: vec![],
         };
-        let path = std::env::temp_dir().join(format!(
-            "cmux-host-clock-{}-{}.log",
-            std::process::id(),
-            wakes.len()
-        ));
+        // One file per call: the tests run in parallel.
+        static RUNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let run = RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path =
+            std::env::temp_dir().join(format!("cmux-host-clock-{}-{run}.log", std::process::id()));
         let _ = std::fs::remove_file(&path);
         let mut agent =
             Agent::new(fake, vec![], Err("no roles".into()), ActionLog::new(Some(&path)).unwrap());
@@ -583,6 +632,47 @@ mod identity_tests {
         assert_eq!(clock_set_wake(base, base + RESUME_CLOCK_JUMP_NS), Wake::ClockSet);
         assert_eq!(clock_set_wake(base, base + 140_000_000_000), Wake::ClockSet);
         assert_eq!(clock_set_wake(base, base - 30_000_000_000), Wake::ClockSet);
+    }
+
+    #[test]
+    fn a_pause_watch_gap_ends_remote_authority_and_sends_resume() {
+        // Freestyle: the boot clock ran through the pause, so the realtime
+        // set after it moved nothing and only the pause watch saw it.
+        let (log, invalidations) = run_wakes(&[Wake::ClockAdjusted, Wake::Paused]);
+        assert_eq!(invalidations, 1, "a pause watch gap kept remote authority: {log}");
+        assert_eq!(log.matches("event=resumed").count(), 1, "{log}");
+    }
+
+    #[test]
+    fn only_a_sleep_far_past_its_tick_is_a_pause() {
+        let tick = i128::try_from(PAUSE_TICK.as_nanos()).unwrap();
+        let gap = i128::try_from(PAUSE_GAP.as_nanos()).unwrap();
+        let base = 2_000_000_000_000_i128;
+        // On time, a scheduling delay, and a slew's worth of drift.
+        assert_eq!(paused_for(base, base + tick), None);
+        assert_eq!(paused_for(base, base + tick + 1_500_000_000), None);
+        assert_eq!(paused_for(base, base + tick + gap), None);
+        // A claim that resumed a spare paused for five minutes.
+        assert_eq!(
+            paused_for(base, base + tick + gap + 1),
+            Some(Duration::from_nanos(20_000_000_001))
+        );
+        assert_eq!(paused_for(base, base + 300_000_000_000), Some(Duration::from_secs(290)));
+        // A boot clock that went backwards is no pause.
+        assert_eq!(paused_for(base, base - 60_000_000_000), None);
+    }
+
+    #[test]
+    fn one_resume_seen_by_both_detectors_is_one_resume() {
+        let wall = 1_793_780_000_000_000_000_i128;
+        let mut once = ResumeOnce::default();
+        assert!(once.first(wall));
+        // The other detector a second later: the same resume.
+        assert!(!once.first(wall + 1_000_000_000));
+        // A second pause, 5 min of wall time later: a new resume.
+        assert!(once.first(wall + 300_000_000_000));
+        assert!(!once.first(wall + 300_000_000_000 + SAME_RESUME_NS - 1));
+        assert!(once.first(wall + 300_000_000_000 + 2 * SAME_RESUME_NS));
     }
 
     /// The session host (adopted, so `Running`) under a fake spawner: the
