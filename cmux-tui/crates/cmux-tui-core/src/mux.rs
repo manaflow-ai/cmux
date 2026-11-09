@@ -738,6 +738,10 @@ pub struct Mux {
     /// retained per mux until the first reporter arrives.
     diagnostic_reporter: OnceLock<DiagnosticReporter>,
     pending_diagnostics: Mutex<Vec<String>>,
+    /// Held across one call of `seal_journal_segments`: the owner's sealers
+    /// (the maintenance worker, a client's seal, the registry generator)
+    /// take turns, so none commits a segment another is preparing.
+    journal_seal: Mutex<()>,
     #[cfg(test)]
     journal_segment_prepare_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     /// Runs right after a new screen's creation handoff is released, where a
