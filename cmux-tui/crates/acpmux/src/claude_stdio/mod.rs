@@ -304,7 +304,7 @@ mod logged_bodies;
 pub use logged_bodies::leave_out_bodies;
 // What the log keeps of Claude's raw system/init lines (`logged_init.rs`).
 mod logged_init;
-pub use logged_init::LoggedInit;
+pub use logged_init::{InitSections, LoggedInit};
 mod live_name;
 #[cfg(test)]
 mod live_name_tests;

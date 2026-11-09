@@ -35,11 +35,21 @@ pub(crate) struct UpdateRepeats {
     logged: HashMap<&'static str, [u8; 32]>,
 }
 
+/// What [`UpdateRepeats::leave_out_repeats`] found: whether nothing is left to log, and the
+/// sections to record as the last logged once the update is ([`UpdateRepeats::note_logged`]), so a
+/// write that failed and is retried is compared with what the log holds.
+#[must_use]
+pub(crate) struct Repeats {
+    pub(crate) nothing_left: bool,
+    changed: Vec<(&'static str, [u8; 32])>,
+}
+
 impl UpdateRepeats {
     /// Leaves out of `update` (a `session/update`'s `update` of `kind`) each section the session
-    /// last logged the same; whether nothing is left to log.
-    pub(crate) fn leave_out_repeats(&mut self, kind: &str, update: &mut Value) -> bool {
-        let Some((_, sections)) = SECTIONS.iter().find(|(k, _)| *k == kind) else { return false };
+    /// last logged the same.
+    pub(crate) fn leave_out_repeats(&self, kind: &str, update: &mut Value) -> Repeats {
+        let mut found = Repeats { nothing_left: false, changed: Vec::new() };
+        let Some((_, sections)) = SECTIONS.iter().find(|(k, _)| *k == kind) else { return found };
         let mut left_out = false;
         for &pointer in *sections {
             let Some(section) = update.pointer(pointer) else { continue };
@@ -49,10 +59,17 @@ impl UpdateRepeats {
                 remove(update, pointer);
                 left_out = true;
             } else {
-                self.logged.insert(pointer, hash);
+                found.changed.push((pointer, hash));
             }
         }
-        left_out && is_empty(update)
+        found.nothing_left = left_out && is_empty(update);
+        found
+    }
+
+    /// The update [`Self::leave_out_repeats`] trimmed is in the log: its sections are the last
+    /// logged.
+    pub(crate) fn note_logged(&mut self, repeats: Repeats) {
+        self.logged.extend(repeats.changed);
     }
 }
 

@@ -2,6 +2,12 @@
 
 use super::*;
 
+/// `leave_out_repeats`, then the write succeeds.
+fn log(logged: &mut LoggedInit, kind: &str, line: &mut Value) {
+    let sections = logged.leave_out_repeats(kind, line);
+    logged.note_logged(sections);
+}
+
 fn init(uuid: &str, commands: &[&str]) -> Value {
     json!({"type": "system", "subtype": "init", "session_id": "cc-1", "uuid": uuid,
         "model": "claude-opus-5-5", "cwd": "/w", "tools": ["Bash", "Read"],
@@ -15,11 +21,11 @@ fn init(uuid: &str, commands: &[&str]) -> Value {
 fn a_repeated_init_keeps_only_what_changed() {
     let mut logged = LoggedInit::default();
     let mut first = init("u1", &["compact", "review"]);
-    logged.leave_out_repeats("claude.system.init", &mut first);
+    log(&mut logged, "claude.system.init", &mut first);
     assert_eq!(first, init("u1", &["compact", "review"]));
 
     let mut second = init("u2", &["compact", "review"]);
-    logged.leave_out_repeats("claude.system.init", &mut second);
+    log(&mut logged, "claude.system.init", &mut second);
     assert_eq!(
         second,
         json!({"type": "system", "subtype": "init", "session_id": "cc-1", "uuid": "u2",
@@ -29,7 +35,7 @@ fn a_repeated_init_keeps_only_what_changed() {
 
     // A new slash command logs that section whole again, and only it.
     let mut third = init("u3", &["compact", "review", "loop"]);
-    logged.leave_out_repeats("claude.system.init", &mut third);
+    log(&mut logged, "claude.system.init", &mut third);
     assert_eq!(third["slash_commands"], json!(["compact", "review", "loop"]));
     assert_eq!(third["_acpmux"]["sameAsLastInit"], json!(["mcp_servers", "tools"]));
 }
@@ -39,14 +45,14 @@ fn a_repeated_init_keeps_only_what_changed() {
 fn other_kinds_and_sessions_are_untouched() {
     let mut logged = LoggedInit::default();
     let mut user = json!({"type": "user", "tools": ["Bash"]});
-    logged.leave_out_repeats("claude.user", &mut user);
-    logged.leave_out_repeats("claude.user", &mut user);
+    log(&mut logged, "claude.user", &mut user);
+    log(&mut logged, "claude.user", &mut user);
     assert_eq!(user, json!({"type": "user", "tools": ["Bash"]}));
 
     let mut a = LoggedInit::default();
     let mut line = init("u1", &["compact"]);
-    logged.leave_out_repeats("claude.system.init", &mut init("u0", &["compact"]));
-    a.leave_out_repeats("claude.system.init", &mut line);
+    log(&mut logged, "claude.system.init", &mut init("u0", &["compact"]));
+    log(&mut a, "claude.system.init", &mut line);
     assert_eq!(line, init("u1", &["compact"]));
 }
 
@@ -62,9 +68,20 @@ fn a_day_of_repeated_inits_logs_the_sections_once() {
     for turn in 0..100 {
         let mut line = init(&format!("u{turn}"), &refs);
         before += serde_json::to_vec(&line).unwrap().len();
-        logged.leave_out_repeats("claude.system.init", &mut line);
+        log(&mut logged, "claude.system.init", &mut line);
         after += serde_json::to_vec(&line).unwrap().len();
     }
     eprintln!("100 inits: {before} bytes before, {after} after");
     assert!(after * 20 < before, "100 inits: {before} bytes before, {after} after");
+}
+
+/// An init whose write failed leaves nothing recorded: its retry is logged whole (review F1 on
+/// #39147).
+#[test]
+fn a_failed_init_write_is_logged_whole_on_retry() {
+    let mut logged = LoggedInit::default();
+    drop(logged.leave_out_repeats("claude.system.init", &mut init("u1", &["compact"])));
+    let mut retry = init("u1", &["compact"]);
+    log(&mut logged, "claude.system.init", &mut retry);
+    assert_eq!(retry, init("u1", &["compact"]));
 }

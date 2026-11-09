@@ -3,6 +3,14 @@
 use super::*;
 use serde_json::json;
 
+/// `leave_out_repeats`, then the write succeeds: whether nothing was left to log.
+fn log(repeats: &mut UpdateRepeats, kind: &str, update: &mut Value) -> bool {
+    let found = repeats.leave_out_repeats(kind, update);
+    let nothing_left = found.nothing_left;
+    repeats.note_logged(found);
+    nothing_left
+}
+
 fn init_info(model: &str) -> Value {
     json!({"sessionUpdate": "session_info_update", "title": null,
         "_meta": {"claude": {"tools": ["Bash", "Read"], "mcp_servers": [{"name": "cmux"}],
@@ -20,15 +28,15 @@ fn breakdown(tokens: u64) -> Value {
 fn alternating_shapes_log_only_what_changed() {
     let mut repeats = UpdateRepeats::default();
     let kind = "session_info_update";
-    assert!(!repeats.leave_out_repeats(kind, &mut init_info("opus")));
-    assert!(!repeats.leave_out_repeats(kind, &mut breakdown(100)));
-    assert!(repeats.leave_out_repeats(kind, &mut init_info("opus")), "same tools: nothing logged");
+    assert!(!log(&mut repeats, kind, &mut init_info("opus")));
+    assert!(!log(&mut repeats, kind, &mut breakdown(100)));
+    assert!(log(&mut repeats, kind, &mut init_info("opus")), "same tools: nothing logged");
     let mut grown = breakdown(140);
-    assert!(!repeats.leave_out_repeats(kind, &mut grown));
+    assert!(!log(&mut repeats, kind, &mut grown));
     assert_eq!(grown, breakdown(140), "a changed section is logged whole");
-    assert!(repeats.leave_out_repeats(kind, &mut breakdown(140)));
+    assert!(log(&mut repeats, kind, &mut breakdown(140)));
     let mut switched = init_info("sonnet");
-    assert!(!repeats.leave_out_repeats(kind, &mut switched));
+    assert!(!log(&mut repeats, kind, &mut switched));
     assert_eq!(switched, init_info("sonnet"));
 }
 
@@ -37,10 +45,10 @@ fn alternating_shapes_log_only_what_changed() {
 #[test]
 fn other_fields_stay() {
     let mut repeats = UpdateRepeats::default();
-    repeats.leave_out_repeats("session_info_update", &mut breakdown(1));
+    log(&mut repeats, "session_info_update", &mut breakdown(1));
     let mut update = json!({"sessionUpdate": "session_info_update", "title": "Fix the tests",
         "_meta": {"goal": {"objective": "x"}, "acpmux": {"contextBreakdown": {"total": 1}}}});
-    assert!(!repeats.leave_out_repeats("session_info_update", &mut update));
+    assert!(!log(&mut repeats, "session_info_update", &mut update));
     assert_eq!(
         update,
         json!({"sessionUpdate": "session_info_update", "title": "Fix the tests",
@@ -57,11 +65,11 @@ fn a_restarted_processs_same_commands_are_not_logged() {
         json!({"sessionUpdate": "available_commands_update",
             "availableCommands": [{"name": "compact"}, {"name": "review"}]})
     };
-    assert!(!repeats.leave_out_repeats("available_commands_update", &mut commands()));
-    assert!(repeats.leave_out_repeats("available_commands_update", &mut commands()));
+    assert!(!log(&mut repeats, "available_commands_update", &mut commands()));
+    assert!(log(&mut repeats, "available_commands_update", &mut commands()));
     let mut usage = json!({"sessionUpdate": "usage_update", "used": 1});
-    assert!(!repeats.leave_out_repeats("usage_update", &mut usage));
-    assert!(!repeats.leave_out_repeats("usage_update", &mut usage));
+    assert!(!log(&mut repeats, "usage_update", &mut usage));
+    assert!(!log(&mut repeats, "usage_update", &mut usage));
 }
 
 /// A day of one busy session's state updates as Leo's Mac logged them (2026-11-08: a ~21 KB
@@ -77,27 +85,41 @@ fn a_day_of_state_updates_logs_each_change_once() {
         .collect();
     let mut repeats = UpdateRepeats::default();
     let (mut before, mut after) = (0usize, 0usize);
-    let mut log = |kind: &str, mut update: Value| {
+    let mut write = |kind: &str, mut update: Value| {
         before += serde_json::to_vec(&update).unwrap().len();
-        if !repeats.leave_out_repeats(kind, &mut update) {
+        if !log(&mut repeats, kind, &mut update) {
             after += serde_json::to_vec(&update).unwrap().len();
         }
     };
     for turn in 0..200u64 {
         if turn % 50 == 0 {
-            log(
+            write(
                 "available_commands_update",
                 json!({"sessionUpdate": "available_commands_update", "availableCommands": commands}),
             );
         }
-        log(
+        write(
             "session_info_update",
             json!({"sessionUpdate": "session_info_update", "title": null,
             "_meta": {"claude": {"tools": tools, "model": "claude-opus-5-5"}}}),
         );
         // The breakdown changes on one turn in four (a tool's output grows the context).
-        log("session_info_update", breakdown(turn / 4));
+        write("session_info_update", breakdown(turn / 4));
     }
     eprintln!("200 turns: {before} bytes before, {after} after");
     assert!(after * 10 < before, "200 turns: {before} bytes before, {after} after");
+}
+
+/// A section whose write failed is not recorded as logged: the retried update is logged whole
+/// (review F1 on #39147: a retry taken as a repeat lost the changed section).
+#[test]
+fn a_failed_write_is_compared_again_on_retry() {
+    let mut repeats = UpdateRepeats::default();
+    let failed = repeats.leave_out_repeats("session_info_update", &mut breakdown(9));
+    assert!(!failed.nothing_left);
+    drop(failed);
+    let mut retry = breakdown(9);
+    assert!(!log(&mut repeats, "session_info_update", &mut retry));
+    assert_eq!(retry, breakdown(9));
+    assert!(log(&mut repeats, "session_info_update", &mut breakdown(9)));
 }

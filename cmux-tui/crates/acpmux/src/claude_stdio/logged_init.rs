@@ -25,14 +25,23 @@ pub struct LoggedInit {
     sections: HashMap<String, [u8; 32]>,
 }
 
+/// The sections of one init that differ from the last logged: recorded only once the line is
+/// logged ([`LoggedInit::note_logged`]), so a line whose write failed and is retried is compared
+/// with what the log holds, not with what it never kept.
+#[derive(Default)]
+#[must_use]
+pub struct InitSections(Vec<(String, [u8; 32])>);
+
 impl LoggedInit {
     /// `line`, a raw Claude line of `kind` as it is about to be logged, without the list and object
-    /// sections the session's last logged init had the same. Other kinds are left as they are.
-    pub fn leave_out_repeats(&mut self, kind: &str, line: &mut Value) {
+    /// sections the session's last logged init had the same, and the sections it keeps. Other
+    /// kinds are left as they are.
+    pub fn leave_out_repeats(&self, kind: &str, line: &mut Value) -> InitSections {
+        let mut changed = InitSections::default();
         if kind != KIND {
-            return;
+            return changed;
         }
-        let Some(fields) = line.as_object_mut() else { return };
+        let Some(fields) = line.as_object_mut() else { return changed };
         let mut repeated = Vec::new();
         fields.retain(|key, value| {
             if !(value.is_array() || value.is_object()) || key == "_acpmux" {
@@ -43,7 +52,7 @@ impl LoggedInit {
             if same {
                 repeated.push(Value::from(key.clone()));
             } else {
-                self.sections.insert(key.clone(), hash);
+                changed.0.push((key.clone(), hash));
             }
             !same
         });
@@ -53,6 +62,12 @@ impl LoggedInit {
                 note.insert("sameAsLastInit".into(), Value::Array(repeated));
             }
         }
+        changed
+    }
+
+    /// The line [`Self::leave_out_repeats`] trimmed is in the log: its sections are the last logged.
+    pub fn note_logged(&mut self, sections: InitSections) {
+        self.sections.extend(sections.0);
     }
 }
 
