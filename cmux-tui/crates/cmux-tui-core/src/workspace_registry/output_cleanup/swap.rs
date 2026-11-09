@@ -21,8 +21,8 @@ use super::super::{
     sqlite_filesystem_path,
 };
 use super::build::{
-    STEP_BUILT, journal_schema_digest, pack_rest, quote, schema_objects,
-    segment_record_limit, stage_range, table_columns,
+    STEP_BUILT, journal_schema_digest, pack_rest, quote, schema_objects, segment_record_limit,
+    stage_range, table_columns,
 };
 use super::stage::{open_existing_staging, state, state_u64};
 use super::{
