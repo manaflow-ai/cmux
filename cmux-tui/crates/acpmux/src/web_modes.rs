@@ -180,8 +180,8 @@ fn non_asking(mode: &str) -> bool {
 /// Modes of [`NON_ASKING_MODES`], by harness family, that run every tool with no question at
 /// all, so a permission policy that answers questions never comes into play. The other
 /// non-asking modes still ask for some tools (Claude's `acceptEdits` before Bash, Codex's
-/// `read-only` and `agent` outside the workspace, opencode's `build` outside the project) or deny
-/// them (`dontAsk`), and a policy answers those (review of #39057).
+/// `read-only` and `agent` outside the workspace, opencode's `build` outside the project), and a
+/// policy answers those, or deny them unasked ([`DENIES_UNASKED_MODES`]) (review of #39057).
 const RUNS_EVERYTHING_MODES: &[(&str, &[&str])] =
     &[("claude", &["bypassPermissions"]), ("codex", &["agent-full-access"])];
 
@@ -190,6 +190,16 @@ const RUNS_EVERYTHING_MODES: &[(&str, &[&str])] =
 /// custom `bypassPermissions`) says nothing about what it asks.
 pub(crate) fn runs_everything_unasked(family: &str, mode: &str) -> bool {
     RUNS_EVERYTHING_MODES.iter().any(|(f, modes)| *f == family && modes.contains(&mode))
+}
+
+/// Modes of [`NON_ASKING_MODES`], by harness family, that ask nothing and deny a tool not allowed
+/// beforehand (Claude's `dontAsk`: its permission rules allow, everything else is refused).
+const DENIES_UNASKED_MODES: &[(&str, &[&str])] = &[("claude", &["dontAsk"])];
+
+/// Whether mode `mode` of a harness of family `family` (`mode_family`) denies, without asking,
+/// every tool not allowed beforehand ([`DENIES_UNASKED_MODES`]).
+pub(crate) fn denies_unasked(family: &str, mode: &str) -> bool {
+    DENIES_UNASKED_MODES.iter().any(|(f, modes)| *f == family && modes.contains(&mode))
 }
 
 /// `REFUSED_FAMILIES` plus `extra` (families whose profile runs one).

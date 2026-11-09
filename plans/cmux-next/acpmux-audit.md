@@ -367,3 +367,12 @@ From tui-parity bench round 4, friction 6-10 (owner W5-S). CLI only; no daemon c
   `createdBy`, and `subsession.startedBy` is a sub-session's parent (flagged to the lead).
 - Guide: a complete private-daemon recipe (unset every `ACPMUX_*` and `CLAUDE_CODE_MESSAGING_*`,
   an absolute acpmux path, `defaults claude prefer=claude-sr2,claude` for a new home).
+
+## Notice to PL-acpmux: the policy note in Claude's dontAsk (2026-11-09)
+
+Follow-up to #39057 (owner W5-S). `question_answer.rs` `app_allow_note`: a Claude chat in
+`dontAsk` under a daemon default (not its own policy) asked nothing, and the note said it "asks
+before some tools run". It now says that a tool not allowed beforehand is denied, not asked,
+that the default does not hold, and how to hold it (`acpmux session set NAME policy=P`);
+English and Japanese. The modes are in `web_modes::DENIES_UNASKED_MODES`, keyed by harness
+family as `RUNS_EVERYTHING_MODES` is. A chat's own policy keeps the asking note.

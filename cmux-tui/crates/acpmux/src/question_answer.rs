@@ -271,11 +271,13 @@ pub fn pending_hint(request: &Value, session: &str) -> String {
 /// every tool unasked (`web_modes::runs_everything_unasked`, by the harness's family: Claude's
 /// `bypassPermissions` from the harness's settings, Codex's `agent-full-access`) nothing asks,
 /// so the note says that and how to hold the policy (W5-S, bench round 4 friction 6,
-/// 2026-11-08). A mode that still asks for some tools (`acceptEdits`, opencode's `build`) keeps
-/// the asking note: the default answers those. In Japanese for a Japanese locale.
+/// 2026-11-08). In a mode that asks nothing and denies what is not allowed beforehand
+/// (`web_modes::denies_unasked`: Claude's `dontAsk`) the note says so. A mode that still asks for
+/// some tools (`acceptEdits`, opencode's `build`) keeps the asking note: the default answers
+/// those. In Japanese for a Japanese locale.
 pub fn app_allow_note(info: &Value, session: &str) -> Option<String> {
     use crate::config::PermissionPolicy;
-    use crate::web_modes::runs_everything_unasked;
+    use crate::web_modes::{denies_unasked, runs_everything_unasked};
     // A session's own policy, else the daemon default it runs under.
     let own = info.get("policy").and_then(Value::as_str);
     let policy = own.or_else(|| info.pointer("/enforcement/policy").and_then(Value::as_str));
@@ -286,9 +288,9 @@ pub fn app_allow_note(info: &Value, session: &str) -> Option<String> {
     let mode = info.pointer("/modes/currentModeId").and_then(Value::as_str);
     let default_only = own.is_none() && policy != PermissionPolicy::Review;
     let family = crate::web_modes::mode_family_of_detail(info).unwrap_or_default();
+    let japanese = || crate::cli::sender::japanese(|k| std::env::var(k).ok());
     if let Some(mode) = mode.filter(|m| default_only && runs_everything_unasked(&family, m)) {
-        let japanese = crate::cli::sender::japanese(|k| std::env::var(k).ok());
-        return Some(if japanese {
+        return Some(if japanese() {
             format!(
                 "注意: {session} はモード {mode} でツールを確認なしで実行します。ポリシー {policy} は\
                  デーモンの既定値にすぎず、このセッションには適用されません。適用するには \
@@ -299,6 +301,23 @@ pub fn app_allow_note(info: &Value, session: &str) -> Option<String> {
                 "note: {session} runs tools without asking (mode {mode}); policy {policy} is only \
                  the daemon default and does not hold here. To hold it: `acpmux session set \
                  {session} policy={policy}`, or start it with --policy {policy}."
+            )
+        });
+    }
+    if let Some(mode) = mode.filter(|m| default_only && denies_unasked(&family, m)) {
+        return Some(if japanese() {
+            format!(
+                "注意: {session} はモード {mode} で何も確認しません。事前に許可されていないツールは\
+                 確認なしで拒否されます。ポリシー {policy} はデーモンの既定値にすぎず、このセッションには\
+                 適用されません。適用するには `acpmux session set {session} policy={policy}` を\
+                 実行するか、--policy {policy} で開始してください。"
+            )
+        } else {
+            format!(
+                "note: {session} asks nothing (mode {mode}): a tool that is not allowed beforehand \
+                 is denied, not asked. Policy {policy} is only the daemon default and does not hold \
+                 here. To hold it: `acpmux session set {session} policy={policy}`, or start it \
+                 with --policy {policy}."
             )
         });
     }
