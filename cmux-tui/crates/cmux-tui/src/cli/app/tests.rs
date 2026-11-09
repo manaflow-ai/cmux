@@ -325,6 +325,29 @@ fn remote_views_reads_the_release_remote_view_state() {
     assert!(parse(&args(&["app", "remote-views", "--mode", "control"])).is_err());
 }
 
+/// `cmux app machines` and `cmux app join-line` call the app's every-build
+/// `machine.list` and `device.join_line`, never `app call` (debug builds only)
+/// and never an `action.run`.
+#[test]
+fn machines_and_join_line_call_the_every_build_methods() {
+    let (method, params) = call(parse(&args(&["app", "machines"])).unwrap().unwrap());
+    assert_eq!(method, MACHINES_METHOD);
+    assert_eq!(params, json!({}));
+    let (_, params) = call(parse(&args(&["app", "machines", "--no-refresh"])).unwrap().unwrap());
+    assert_eq!(params, json!({ "refresh": false }));
+    let (method, params) = call(parse(&args(&["app", "join-line"])).unwrap().unwrap());
+    assert_eq!(method, JOIN_LINE_METHOD);
+    assert_eq!(params, json!({}));
+    let (_, params) = call(
+        parse(&args(&["app", "join-line", "--mint", "--name", "e2e-runner", "--no-open"]))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(params, json!({ "mint": true, "name": "e2e-runner", "open": false }));
+    assert!(parse(&args(&["app", "machines", "list"])).is_err());
+    assert!(parse(&args(&["app", "join-line", "--token", "x"])).is_err());
+}
+
 #[test]
 fn action_describe_accepts_an_unquoted_cli_name() {
     let (_, params) =

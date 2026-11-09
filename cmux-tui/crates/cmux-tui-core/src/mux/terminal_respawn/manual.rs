@@ -66,7 +66,9 @@ impl std::error::Error for TabRestartError {}
 pub(crate) struct TabRestart {
     /// The public terminal id (`term_…`), the same before and after.
     pub(crate) terminal: String,
-    pub(crate) previous_incarnation: String,
+    /// None when the terminal's last respawn launch failed after its row
+    /// reopened: no incarnation was left to replace.
+    pub(crate) previous_incarnation: Option<String>,
 }
 
 impl Mux {
@@ -145,7 +147,7 @@ impl Mux {
         let identity = runtime.terminal_host_identity()?;
         runtime.recover_failed_host_link().then(|| TabRestart {
             terminal: public_id.as_str().to_string(),
-            previous_incarnation: identity.incarnation,
+            previous_incarnation: Some(identity.incarnation),
         })
     }
 
@@ -196,7 +198,10 @@ impl Mux {
             return Err(TabRestartError::NotDead.into());
         }
         let recorded = TerminalEnd::from_receipt(record.exit.as_ref()).exit().clone();
-        let old_incarnation = record.incarnation.ok_or(TabRestartError::Unavailable)?;
+        // A respawn whose launch failed after its row reopened (no free PTY
+        // after a reboot) left the row exited with no incarnation. It is
+        // dead all the same, and the person asked: restart it.
+        let old_incarnation = record.incarnation;
         let placements = state.placements_of_content(&content).to_vec();
         // Keep-layout tabs (`kept_tabs`, `tab-restart-kept-layout-v1`): the
         // shell starts in the restarted tab's kept directory, and the worker

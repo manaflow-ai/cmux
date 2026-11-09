@@ -480,6 +480,56 @@
         ],
         "type": "object"
       },
+      "CloudPreviewApiKey": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hint": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "publicationId": {
+            "type": "string"
+          },
+          "revokedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "publicationId",
+          "name",
+          "hint",
+          "createdAt",
+          "expiresAt",
+          "revokedAt"
+        ],
+        "type": "object"
+      },
       "CloudPreviewCatalog": {
         "additionalProperties": false,
         "properties": {
@@ -552,6 +602,129 @@
           "listening",
           "previews",
           "unavailable"
+        ],
+        "type": "object"
+      },
+      "CloudPreviewDomain": {
+        "additionalProperties": false,
+        "properties": {
+          "certificateState": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "managed"
+            ],
+            "type": "string"
+          },
+          "publications": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "hostname": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "hostname",
+                "state"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "verificationState": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hostname",
+          "kind",
+          "verificationState",
+          "certificateState",
+          "publications"
+        ],
+        "type": "object"
+      },
+      "CloudPreviewPublication": {
+        "additionalProperties": false,
+        "properties": {
+          "accessMode": {
+            "enum": [
+              "personal"
+            ],
+            "type": "string"
+          },
+          "domainKind": {
+            "enum": [
+              "managed"
+            ],
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "port": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "protocol": {
+            "enum": [
+              "https"
+            ],
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "active"
+            ],
+            "type": "string"
+          },
+          "targetPort": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "teamId": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "vmId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hostname",
+          "url",
+          "domainKind",
+          "vmId",
+          "port",
+          "targetPort",
+          "protocol",
+          "accessMode",
+          "teamId",
+          "state"
         ],
         "type": "object"
       },
@@ -4629,6 +4802,96 @@
         ]
       }
     },
+    "/v1/cloud/domains": {
+      "get": {
+        "description": "The platform-managed preview domain. Custom domains are not offered.",
+        "operationId": "cloudPublications.domains",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "domains": {
+                      "items": {
+                        "$ref": "#/components/schemas/CloudPreviewDomain"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "domains"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineBadRequestEncoded"
+                }
+              }
+            },
+            "description": "MachineBadRequest: the request or current machine state conflicts with this operation; inspect its code before retrying."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineUnauthorizedEncoded"
+                }
+              }
+            },
+            "description": "MachineUnauthorized: a valid machine API bearer is required; authenticate and retry."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineForbiddenEncoded"
+                }
+              }
+            },
+            "description": "MachineForbidden: the current principal cannot perform this operation; check its permissions."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineNotFoundEncoded"
+                }
+              }
+            },
+            "description": "MachineNotFound: the machine or enabled API surface is absent; check the identifier and deployment."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineUnavailableEncoded"
+                }
+              }
+            },
+            "description": "MachineUnavailable: the provider or machine service cannot complete this operation; retry with the same client key."
+          }
+        },
+        "security": [
+          {
+            "cmuxAccessToken": []
+          }
+        ],
+        "summary": "List the domains previews are served on",
+        "tags": [
+          "Machines"
+        ]
+      }
+    },
     "/v1/cloud/machines/{machine}/previews/refresh": {
       "post": {
         "description": "Discovers current TCP listeners on the caller's own new-architecture Cloud machine and reconciles private HTTPS ingress. Each returned URL authenticates before the machine wakes or receives a request. Stopped listeners lose their ingress; partial provider failures are listed by port. URLs carry short-lived credentials: keep the response private and do not cache it. Development and staging only.",
@@ -4766,6 +5029,362 @@
                     "origin",
                     "url",
                     "expiresAt"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineBadRequestEncoded"
+                }
+              }
+            },
+            "description": "MachineBadRequest: the request or current machine state conflicts with this operation; inspect its code before retrying."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineUnauthorizedEncoded"
+                }
+              }
+            },
+            "description": "MachineUnauthorized: a valid machine API bearer is required; authenticate and retry."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineForbiddenEncoded"
+                }
+              }
+            },
+            "description": "MachineForbidden: the current principal cannot perform this operation; check its permissions."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineNotFoundEncoded"
+                }
+              }
+            },
+            "description": "MachineNotFound: the machine or enabled API surface is absent; check the identifier and deployment."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineUnavailableEncoded"
+                }
+              }
+            },
+            "description": "MachineUnavailable: the provider or machine service cannot complete this operation; retry with the same client key."
+          }
+        },
+        "security": [
+          {
+            "cmuxAccessToken": []
+          }
+        ],
+        "tags": [
+          "Machines"
+        ]
+      }
+    },
+    "/v1/cloud/machines/{machine}/previews/{port}/api-keys": {
+      "get": {
+        "operationId": "cloudPreviews.apiKeys",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "machine",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "port",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "apiKeys": {
+                      "items": {
+                        "$ref": "#/components/schemas/CloudPreviewApiKey"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "apiKeys"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineBadRequestEncoded"
+                }
+              }
+            },
+            "description": "MachineBadRequest: the request or current machine state conflicts with this operation; inspect its code before retrying."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineUnauthorizedEncoded"
+                }
+              }
+            },
+            "description": "MachineUnauthorized: a valid machine API bearer is required; authenticate and retry."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineForbiddenEncoded"
+                }
+              }
+            },
+            "description": "MachineForbidden: the current principal cannot perform this operation; check its permissions."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineNotFoundEncoded"
+                }
+              }
+            },
+            "description": "MachineNotFound: the machine or enabled API surface is absent; check the identifier and deployment."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineUnavailableEncoded"
+                }
+              }
+            },
+            "description": "MachineUnavailable: the provider or machine service cannot complete this operation; retry with the same client key."
+          }
+        },
+        "security": [
+          {
+            "cmuxAccessToken": []
+          }
+        ],
+        "tags": [
+          "Machines"
+        ]
+      },
+      "post": {
+        "description": "Mints a long-lived API key for the caller's own machine port, refreshing its preview ingress first when the port has none (409 cloud.preview.not_listening when nothing listens). The key is answered only here; the platform keeps its SHA-256 and last four characters. API clients send `cookie` on every request; the edge withholds that cookie from the machine and rechecks the key, its expiry and revocation, the current ingress rule and the creator's machine on each one. Only the creator manages keys.",
+        "operationId": "cloudPreviews.createApiKey",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "machine",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "port",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "expiresAt": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "apiKey": {
+                      "$ref": "#/components/schemas/CloudPreviewApiKey"
+                    },
+                    "cookie": {
+                      "type": "string"
+                    },
+                    "cookieName": {
+                      "type": "string"
+                    },
+                    "publication": {
+                      "$ref": "#/components/schemas/CloudPreviewPublication"
+                    },
+                    "token": {
+                      "type": "string"
+                    },
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url",
+                    "publication",
+                    "apiKey",
+                    "token",
+                    "cookieName",
+                    "cookie"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineBadRequestEncoded"
+                }
+              }
+            },
+            "description": "MachineBadRequest: the request or current machine state conflicts with this operation; inspect its code before retrying."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineUnauthorizedEncoded"
+                }
+              }
+            },
+            "description": "MachineUnauthorized: a valid machine API bearer is required; authenticate and retry."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineForbiddenEncoded"
+                }
+              }
+            },
+            "description": "MachineForbidden: the current principal cannot perform this operation; check its permissions."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineNotFoundEncoded"
+                }
+              }
+            },
+            "description": "MachineNotFound: the machine or enabled API surface is absent; check the identifier and deployment."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineUnavailableEncoded"
+                }
+              }
+            },
+            "description": "MachineUnavailable: the provider or machine service cannot complete this operation; retry with the same client key."
+          }
+        },
+        "security": [
+          {
+            "cmuxAccessToken": []
+          }
+        ],
+        "summary": "Publish a machine port as an API behind a key",
+        "tags": [
+          "Machines"
+        ]
+      }
+    },
+    "/v1/cloud/machines/{machine}/previews/{port}/api-keys/{keyId}": {
+      "delete": {
+        "operationId": "cloudPreviews.revokeApiKey",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "machine",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "port",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "keyId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "apiKey": {
+                      "$ref": "#/components/schemas/CloudPreviewApiKey"
+                    }
+                  },
+                  "required": [
+                    "apiKey"
                   ],
                   "type": "object"
                 }
@@ -5745,6 +6364,96 @@
             "cmuxAccessToken": []
           }
         ],
+        "tags": [
+          "Machines"
+        ]
+      }
+    },
+    "/v1/cloud/previews": {
+      "get": {
+        "description": "Every preview ingress the caller created in the selected team (a VM install: its own machine only), as kept by refresh. Ingress made before this index existed appears after one refresh.",
+        "operationId": "cloudPublications.publications",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "previews": {
+                      "items": {
+                        "$ref": "#/components/schemas/CloudPreviewPublication"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "previews"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineBadRequestEncoded"
+                }
+              }
+            },
+            "description": "MachineBadRequest: the request or current machine state conflicts with this operation; inspect its code before retrying."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineUnauthorizedEncoded"
+                }
+              }
+            },
+            "description": "MachineUnauthorized: a valid machine API bearer is required; authenticate and retry."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineForbiddenEncoded"
+                }
+              }
+            },
+            "description": "MachineForbidden: the current principal cannot perform this operation; check its permissions."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineNotFoundEncoded"
+                }
+              }
+            },
+            "description": "MachineNotFound: the machine or enabled API surface is absent; check the identifier and deployment."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineUnavailableEncoded"
+                }
+              }
+            },
+            "description": "MachineUnavailable: the provider or machine service cannot complete this operation; retry with the same client key."
+          }
+        },
+        "security": [
+          {
+            "cmuxAccessToken": []
+          }
+        ],
+        "summary": "List the caller's machine previews",
         "tags": [
           "Machines"
         ]

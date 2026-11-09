@@ -72,7 +72,7 @@ final class AppSceneButtonNSView: AppSceneNodeNSView {
         }
     }
 
-    override func updateLayer() {
+    override func paint() {
         performWithTheme {
             title.textColor = node.flag("destructive") ? Palette.danger : Palette.textPrimary
             let state = ChromeHover.State(hovering: isHovered && isTappable, pressed: isPressed)

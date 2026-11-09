@@ -581,3 +581,11 @@
 .acpmux-needs-you-form .acpmux-needs-you-error {
   margin: 0;
 }
+/* An approval's answer letter (y, n) at the row's end, as the permission card's keycaps. */
+.acpmux-needs-you-answer[data-answer-key] {
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+}
+.acpmux-needs-you-answer .acpmux-keycap {
+  margin: 0;
+  color: var(--agent-muted);
+}

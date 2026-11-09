@@ -185,12 +185,12 @@ fn every_call_of_the_library_is_one_of_this_modules_operations() {
 
 #[test]
 fn a_classic_read_sends_the_stack_session_and_answers_its_body() {
-    let (origin, seen) = fake(|_| (200, r#"{"domains":[{"id":"d1"}]}"#.into()));
+    let (origin, seen) = fake(|_| (200, r#"{"networks":[{"id":"n1"}]}"#.into()));
     let daemon = Daemon::start("vm");
-    let result = daemon.send("cloud.vm.domains", params(&origin, "stack", json!({})), None);
-    assert_eq!(result, Ok(json!([{"id": "d1"}])));
+    let result = daemon.send("cloud.vm.networks", params(&origin, "stack", json!({})), None);
+    assert_eq!(result, Ok(json!([{"id": "n1"}])));
     let seen = seen.lock().unwrap();
-    assert!(seen[0].line.starts_with("GET /api/vm/domains "));
+    assert!(seen[0].line.starts_with("GET /api/vm/network "));
     assert_eq!(seen[0].header("authorization").as_deref(), Some("Bearer secret-access"));
     assert_eq!(seen[0].header("x-stack-refresh-token").as_deref(), Some("secret-refresh"));
     assert_eq!(seen[0].header("x-cmux-team-id").as_deref(), Some("team_1"));
@@ -198,19 +198,19 @@ fn a_classic_read_sends_the_stack_session_and_answers_its_body() {
 
 #[test]
 fn a_classic_mutation_answers_a_mutation_result_that_is_never_replayed() {
-    let (origin, seen) = fake(|_| (200, r#"{"ok":true,"cpu":4}"#.into()));
+    let (origin, seen) = fake(|_| (200, r#"{"ok":true}"#.into()));
     let daemon = Daemon::start("vm-mutation");
     let result = daemon
         .send(
-            "cloud.vm.resize",
-            params(&origin, "stack", json!({"id": VM, "cpu": 4})),
-            Some("resize-1"),
+            "cloud.vm.firewall_delete",
+            params(&origin, "stack", json!({"ruleId": "rule-1"})),
+            Some("firewall-1"),
         )
         .unwrap();
     assert_eq!(result["replayed"], false);
     assert_eq!(result["revision"], "0");
-    assert_eq!(result["value"], Value::Null, "a resize answers no body");
-    assert!(seen.lock().unwrap()[0].line.starts_with(&format!("POST /api/vm/{VM}/resize ")));
+    assert_eq!(result["value"], Value::Null, "a rule delete answers no body");
+    assert!(seen.lock().unwrap()[0].line.starts_with("DELETE /api/vm/firewall?ruleId=rule-1 "));
 }
 
 #[test]
@@ -321,13 +321,13 @@ fn a_request_that_is_not_a_call_runs_nothing_and_echoes_nothing() {
     let daemon = Daemon::start("invalid");
     let mut unknown = params(&origin, "stack", json!({}));
     unknown["extra_field"] = json!("secret-extra");
-    let (code, message, details) = daemon.send("cloud.vm.domains", unknown, None).unwrap_err();
+    let (code, message, details) = daemon.send("cloud.vm.networks", unknown, None).unwrap_err();
     assert_eq!(code, "validation.invalid");
     assert!(!format!("{message} {details}").contains("secret-access"));
 
     let mut no_token = params(&origin, "stack", json!({}));
     no_token["access_token"] = json!("   ");
-    let (code, _, _) = daemon.send("cloud.vm.domains", no_token, None).unwrap_err();
+    let (code, _, _) = daemon.send("cloud.vm.networks", no_token, None).unwrap_err();
     assert_eq!(code, "validation.invalid");
 
     let mut bad_key = params(&origin, "owner", json!({}));
@@ -337,8 +337,9 @@ fn a_request_that_is_not_a_call_runs_nothing_and_echoes_nothing() {
     assert_eq!(code, "validation.invalid");
     assert!(!format!("{message} {details}").contains("%%%%"));
 
-    let (code, _, _) =
-        daemon.send("cloud.vm.resize", params(&origin, "stack", json!({})), None).unwrap_err();
+    let (code, _, _) = daemon
+        .send("cloud.vm.firewall_delete", params(&origin, "stack", json!({})), None)
+        .unwrap_err();
     assert_eq!(code, "validation.invalid", "a mutation needs its idempotency key");
     assert!(seen.lock().unwrap().is_empty());
 }
@@ -365,15 +366,15 @@ fn files(root: &std::path::Path) -> Vec<(PathBuf, Vec<u8>)> {
 fn no_record_or_log_of_the_daemon_holds_a_credential() {
     let (origin, seen) = fake(|seen| {
         if seen.line.starts_with("GET") {
-            (200, r#"{"domains":[]}"#.into())
+            (200, r#"{"networks":[]}"#.into())
         } else {
             (409, r#"{"error":"vm_busy","message":"echo secret-access"}"#.into())
         }
     });
     let daemon = Daemon::start("records");
-    assert!(daemon.send("cloud.vm.domains", params(&origin, "stack", json!({})), None).is_ok());
-    let resize = params(&origin, "stack", json!({"id": VM, "cpu": 4}));
-    assert!(daemon.send("cloud.vm.resize", resize, Some("records-1")).is_err());
+    assert!(daemon.send("cloud.vm.networks", params(&origin, "stack", json!({})), None).is_ok());
+    let delete = params(&origin, "stack", json!({"ruleId": "rule-1"}));
+    assert!(daemon.send("cloud.vm.firewall_delete", delete, Some("records-1")).is_err());
     let mut keyed = params(&origin, "owner", json!({"machine": VM, "key_length": 10}));
     keyed["key_base64"] = json!(base64::engine::general_purpose::STANDARD.encode(b"secret-key"));
     let _ = daemon.send("cloud.owner.acpmux_keyed_start", keyed, Some("records-2"));
