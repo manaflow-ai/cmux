@@ -58,9 +58,10 @@ extension WorkspaceRowView {
 }
 
 extension SidebarListView {
-    /// `sidebar.groupPinMark` for a pinned member's row, in its group's tint (none with `sidebar.showColors` off).
+    /// `sidebar.groupPinMark` for a pinned member's row, in the tint its group's header draws: the place's color under
+    /// the gradient palette (`drawnTints`), else the group's own; none with `sidebar.showColors` off.
     func groupPinStyle(_ row: SidebarRow) -> (SidebarGroupPinMark, GroupTint?) {
-        let group = row.group.flatMap { groups[$0] ?? model.group($0) }
-        return (model.groupPinMark, group.map { model.showsColors ? $0.tint : .none })
+        guard let id = row.group, let group = groups[id] ?? model.group(id) else { return (model.groupPinMark, nil) }
+        return (model.groupPinMark, model.showsColors ? drawnTints[id] ?? group.tint : .none)
     }
 }

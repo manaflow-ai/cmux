@@ -1915,3 +1915,8 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
 - 2026-11-06: the pin before the name takes the title's color, not the group's. Aziz: "the pin color should just match
   the text color". It follows the title on quiet, archived and selected rows. https://github.com/manaflow-ai/cmux/pull/28708.
   Regression: SidebarGroupPinRowViewTests.
+- 2026-11-09: after the base merge (271b176b641, the Tinted Rows wash reads `sidebar.groupPalette` through
+  `lineColor(palette:)`, the gradient palette's API) the `shelf` wash takes the color its group's header draws: the
+  place's color under the gradient and pictorial palettes (`drawnTints`), not the stored token, so a pinned member's
+  wash matches its header and line. Leo's gradient words hold ("based off of placement"); review of
+  https://github.com/manaflow-ai/cmux/pull/28708. Regression: SidebarGroupPinPlacedTintTests.
