@@ -579,6 +579,30 @@ async fn init_after_the_adoption_makes_no_new_link_key() {
     assert_eq!(state::public_key(&served.key), node_public(&machine.home));
 }
 
+/// An adopted link has no `private.key`, so `init --server-identity` once took it
+/// for a fresh one and overwrote its config, leaving a state `serve_key` refuses.
+/// It is refused, and the config and the adoption stay as they were.
+#[tokio::test]
+async fn init_with_a_server_identity_after_the_adoption_is_refused() {
+    let machine = machine();
+    let state = LinkState::open(Some(machine.link.clone())).unwrap();
+    let holder = KeyHolder::acquire(&machine.home).unwrap();
+    serve_key(&state, &holder, Some(&machine.home)).await.unwrap();
+    let before = std::fs::read(machine.link.join("config.json")).ok();
+    let Err(refused) = state.init(&LinkConfig {
+        install: "inst_a".into(),
+        port: 4242,
+        server_identity: Some(machine.home.join("identity.json")),
+    }) else {
+        panic!("an adopted link was converted to a server link");
+    };
+    assert_eq!(refused.to_string(), "server_link.identity_conflict");
+    assert_eq!(std::fs::read(machine.link.join("config.json")).ok(), before);
+    assert!(!state.has_link_key());
+    let served = serve_key(&state, &holder, Some(&machine.home)).await.unwrap();
+    assert_eq!(state::public_key(&served.key), node_public(&machine.home));
+}
+
 /// Once adopted, a node key that is gone (a leave of an older acpmux, a hand
 /// removal) is never made again: every told peer knows the link by it, and a
 /// fresh one would reach nobody. The link refuses until the key is back, and

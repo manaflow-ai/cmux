@@ -104,6 +104,12 @@ impl LinkState {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid install id"));
         }
         if config.server_identity.is_some() {
+            // An adopted link has no `private.key`, but it is still a local link: its
+            // peers know it by the node key, and `serve_key` refuses an enrolled link
+            // with an adoption record, so converting it would leave nothing to serve.
+            if self.dir().join(super::key_adoption::MARKER).symlink_metadata().is_ok() {
+                return Err(io::Error::other("server_link.identity_conflict"));
+            }
             let _ = enrolled(config)?;
             if self.key_path().symlink_metadata().is_ok()
                 || (self.has_config() && {
