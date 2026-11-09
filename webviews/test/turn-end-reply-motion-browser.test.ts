@@ -1,12 +1,10 @@
 // l10n-allow-file: test fixture prompts, commands and replies, not shipped UI.
-// The reply's lines that reveal after a turn ends move on the follow motion's curve, never at once
-// (Leo's rule: no row moves at once, every change a state transition on the house settle), on every
-// route where the end-of-turn fold (turnEndFold.ts) has nothing of its own to play. The real agent pane
-// from its dev entry, against a stand-in acpmux daemon (as turn-end-fold-browser.test.ts). The turn's
-// last paragraph comes with its end, so it reveals after it:
-// - the fold read the rows at the end but cannot play (`playTurnEnd` finds no motion on the thread):
-//   the swap still moves the reply (58 px up in one frame before the fix); it now eases there on the
-//   follow motion, no more than about a line a frame, the bottom pinned;
+// The reply never steps at a turn's end (Leo's rule: no row moves at once, every change a state
+// transition on the house settle), on the routes around the end-of-turn fold (turnEndFold.ts). The
+// real agent pane from its dev entry, against a stand-in acpmux daemon (as
+// turn-end-fold-browser.test.ts). The turn's last paragraph comes with its end:
+// - a turn with calls, followed at the bottom (the fold plays): the reply moves no more than about a
+//   line or a quarter of its move in a frame, never past its place and back, the bottom pinned;
 // - a turn of words alone (no running line, so no fold): the same;
 // - motion off before the end: the end applies at once, and nothing settles on after;
 // - the reader scrolled up: the row at the top of their view stays where it is.
@@ -220,7 +218,7 @@ await requireBrowserLane("turn-end-reply-motion-browser.test.ts", async () => {
   /// Where the reply is drawn in the view on each painted frame around the end, the first row drawn
   /// at the view's top (its id and where it is), and whether the fold plays.
   type Sample = { reply: number; topId: string; top: number; folding: boolean; ended: boolean; line: boolean; gap: number };
-  type Route = "no-fold" | "words" | "motion-off" | "scrolled-up";
+  type Route = "bottom" | "words" | "motion-off" | "scrolled-up";
   async function playEnd(route: Route) {
     withTools = route !== "words";
     summary.harness = "claude";
@@ -245,19 +243,6 @@ await requireBrowserLane("turn-end-reply-motion-browser.test.ts", async () => {
     }
     for (let frame = 0; frame < 30; frame++) await page.evaluate(() => window.cmuxPaintFrame());
     if (route === "motion-off") await page.evaluate(() => (document.documentElement.dataset.agentMotion = "off"));
-    if (route === "no-fold")
-      // The fold reads the rows at the end (it copies the running line), then finds no motion on the
-      // thread when it would play: nothing of it plays. Only the fold reads `animate`; the follow
-      // motion draws on its own frames.
-      await page.evaluate(() => {
-        const clone = Node.prototype.cloneNode;
-        Node.prototype.cloneNode = function (this: Node, deep?: boolean) {
-          const row = this as HTMLElement;
-          if (row.dataset?.rowId && row.parentElement?.classList.contains("acpmux-thread"))
-            Object.defineProperty(row.parentElement, "animate", { value: undefined, configurable: true });
-          return clone.call(this, deep);
-        };
-      });
     await page.evaluate(() => {
       const samples: Sample[] = [];
       (window as any).replySamples = samples;
@@ -315,12 +300,9 @@ await requireBrowserLane("turn-end-reply-motion-browser.test.ts", async () => {
     expect(after.at(-1)!.gap).toBeLessThanOrEqual(2);
   }
 
-  test("the fold captured but nothing of it plays: the reply never steps at the end", async () => {
-    const { page, samples } = await playEnd("no-fold");
-    // Nothing of the fold played.
-    expect(samples.some((sample) => sample.folding)).toBe(false);
-    // From the frame the running line left: the swap and the paragraph after it.
-    expectEased(samples, samples.findIndex((sample) => !sample.line), "no-fold");
+  test("a turn with calls, followed at the bottom: the reply never steps at the end", async () => {
+    const { page, samples } = await playEnd("bottom");
+    expectEased(samples, samples.findIndex((sample) => !sample.line), "bottom");
     await page.close();
   });
 

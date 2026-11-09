@@ -160,19 +160,6 @@ function layoutTops(nodes: readonly HTMLElement[]): number[] {
 /// What one row of the fold plays now: how far from its place it started, and its animations.
 type Moving = { delta: number; fades: boolean; animations: Animation[] };
 
-/// How far the last row `capture` read that the swap kept (the one nearest the reply) moved on screen
-/// since (px, negative: up), or undefined when none is drawn now. One lookup per captured row, in the
-/// mounted window only.
-export function keptRowMove(thread: HTMLElement, capture: TurnEndCapture): number | undefined {
-  const nodes = new Map([...mounted(thread)].map((node) => [node.dataset.rowId!, node]));
-  for (let index = capture.rows.length - 1; index >= 0; index -= 1) {
-    const row = capture.rows[index]!;
-    const node = row.copy ? undefined : nodes.get(row.id);
-    if (node) return node.getBoundingClientRect().top - row.top;
-  }
-  return undefined;
-}
-
 /// Plays the fold the swap after `capture` makes, from the pass that placed the new rows. Each row
 /// drawn then and drawn now slides from where it was to its place, a copy of each row the swap took
 /// away goes where it was drawn, and a row the swap added fades in. The rows are placed again while
