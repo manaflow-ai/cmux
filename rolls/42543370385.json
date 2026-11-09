@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42543370385",
+  "recorded_at": "2026-11-09T01:10:14Z",
+  "reason": "cmux-tui 7679859e451b changes the image's cmux-tui (pinned 7538a3663f30)",
+  "dry_run": false,
+  "cmux_tui": "7679859e451b5be474330917db4fd05a7f837f4e",
+  "fixes": [
+    {
+      "sha": "7679859e451b5be474330917db4fd05a7f837f4e",
+      "mergedAt": "2026-11-08T16:45:30-08:00",
+      "subject": "Personalization: a profile menu entry and one page for every visual choice (#37731)"
+    },
+    {
+      "sha": "5bbab5424d43bf2d0738f6bacdbeae6610fa28a4",
+      "mergedAt": "2026-11-08T16:45:23-08:00",
+      "subject": "cmux-wg: agree on ultra mode inside the tunnel, so one end turning it on protects both directions (#38993)"
+    },
+    {
+      "sha": "a66189b4dac93916af7eb715ecb7121ac65eedf6",
+      "mergedAt": "2026-11-08T16:40:54-08:00",
+      "subject": "cmux-tui: end placeholder shells and reap closed tabs' shells in client-started owners (W5-O) (#38956)"
+    },
+    {
+      "sha": "b9e522b1ae9393da2d4f1bd7f191361450a70344",
+      "mergedAt": "2026-11-08T16:40:38-08:00",
+      "subject": "cmux-rd host: a replacement link offer reports media back on the stream (#39038)"
+    },
+    {
+      "sha": "7be0bb4d615a3fe95607876d16870aea2900a363",
+      "mergedAt": "2026-11-08T16:39:30-08:00",
+      "subject": "chatmux-relay: move workspace.rs git ops and tests into their own modules (#38908)"
+    },
+    {
+      "sha": "05017abadce21e65e2d34a06a7990653ac8a4b46",
+      "mergedAt": "2026-11-08T16:38:53-08:00",
+      "subject": "Cloud repo pick: a warm start fetches behind the first reply (#38997)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T01:10:14Z",
+    "snapshot_id": "sh-d96c3d65c3264f9f875f32ff480e400a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42543370385): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f37274f2016d76641e0c78221373e6d6806684fc",
+    "image": "cloud-native-auto-7679859e-42543370385-1",
+    "revision": "ci-42543370385-1",
+    "at": "2026-11-09T01:10:14Z"
+  },
+  "rolled_back": false
+}
