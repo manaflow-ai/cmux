@@ -10,15 +10,20 @@ import {
   minimapView,
   paintMinimap,
   streamingRow,
+  minimapReserve,
   minimapWidth,
   LINE_HEIGHT,
   LINE_PITCH,
   MAX_SCALE,
+  MINIMAP_EDGE,
   MINIMAP_MAX_WIDTH,
+  MINIMAP_MIN_PANE,
+  MINIMAP_RESERVE,
   MINIMAP_WIDTH,
   MIN_VIEW,
   type MinimapContext,
 } from "../src/agent-session/acpmux/chatMinimap/paint";
+import { COMPUTER_USE_PREVIEW_RESERVE } from "../src/agent-session/acpmux/computerUse/computerUsePreview";
 
 const row = (index: number, kind: string, text?: string): AcpmuxRow => ({
   id: `r${index}`,
@@ -204,6 +209,65 @@ test("the strip is as wide as the right gutter allows, from 56 to 120 px, and ab
   expect(minimapWidth(100)).toBe(80);
   expect(minimapWidth(140)).toBe(120);
   expect(minimapWidth(400)).toBe(120);
+});
+
+test("with its room kept at the column's end, the strip is its full width in every pane from 600 px", async () => {
+  // Chat Text Width's 800px column (#36342) left a 952-1080px pane a 56-120px strip and a narrower
+  // pane none: the column's end keeps MINIMAP_RESERVE instead, as VS Code's minimap takes its own width.
+  const { transcriptColumn } = await import("../src/agent-session/acpmux/model");
+  expect(MINIMAP_RESERVE).toBe(MINIMAP_MAX_WIDTH + 2 * MINIMAP_EDGE);
+  for (let pane = MINIMAP_MIN_PANE; pane <= 2400; pane += 20) {
+    const column = transcriptColumn(pane, undefined, MINIMAP_RESERVE);
+    expect(minimapWidth(column.insetEnd)).toBe(MINIMAP_MAX_WIDTH);
+    // The column's start stays where it was.
+    expect(column.inset).toBe(transcriptColumn(pane).inset);
+  }
+  // chatMinimap.css keeps the same room.
+  const css = await Bun.file(
+    new URL("../src/agent-session/acpmux/chatMinimap/chatMinimap.css", import.meta.url),
+  ).text();
+  // Only in a chat at least MINIMAP_MIN_PANE wide (its own width: one beside an artifact keeps its column).
+  expect([minimapReserve(MINIMAP_MIN_PANE - 1), minimapReserve(MINIMAP_MIN_PANE)]).toEqual([0, MINIMAP_RESERVE]);
+  expect(css).toContain(
+    `--cv-inset-end: max(var(--cv-inset), clamp(0px, (100% - ${MINIMAP_MIN_PANE - 0.5}px) * 1000, ${MINIMAP_RESERVE}px));`,
+  );
+  expect(css).toContain(`--cv-inset-end: max(var(--cv-inset), ${COMPUTER_USE_PREVIEW_RESERVE}px);`);
+  // The strip steps aside for the computer use preview card at the same corner.
+  expect(css).toMatch(/\.acpmux-main\[data-cu-preview\] \.acpmux-chat-minimap \{\s*visibility: hidden;/);
+  // Every band in the column ends where the column does (--cv-inset-end), so neither the strip nor the
+  // computer use preview lies over it: a padding or margin whose right side is the start inset alone
+  // fails here (Glob over the pane's CSS; galleries are fixtures).
+  const values = (value: string) => {
+    const parts: string[] = [];
+    let depth = 0;
+    let part = "";
+    for (const char of value.trim()) {
+      if (char === "(") depth += 1;
+      if (char === ")") depth -= 1;
+      if (char === " " && depth === 0) {
+        if (part) parts.push(part);
+        part = "";
+      } else part += char;
+    }
+    if (part) parts.push(part);
+    return parts;
+  };
+  const startOnly: string[] = [];
+  const root = new URL("../src/agent-session/acpmux/", import.meta.url).pathname;
+  for (const file of new Bun.Glob("**/*.css").scanSync(root)) {
+    if (file.endsWith(".gallery.css")) continue;
+    const text = await Bun.file(root + file).text();
+    for (const [, body] of text.matchAll(/\{([^{}]*)\}/g)) {
+      for (const [, prop, value] of body!.matchAll(/(?:^|[;\s])(padding|margin)\s*:\s*([^;]+)/g)) {
+        const right = values(value!.replace(/\s*,\s*/g, ",").replace(/\s*!important/, ""))[1];
+        const startInset = right?.startsWith("var(--cv-inset,") || right === "var(--cv-inset)";
+        // A longhand after it may give the right side the column's end.
+        if (startInset && !new RegExp(`${prop}-right\\s*:\\s*var\\(--cv-inset-end`).test(body!))
+          startOnly.push(`${file}: ${prop}: ${value!.trim()}`);
+      }
+    }
+  }
+  expect(startOnly).toEqual([]);
 });
 
 test("a reply draws as 2 px text lines every 4 px, as VS Code's minimap at scale 2", () => {

@@ -310,6 +310,8 @@ FREEZE_TRAILER = re.compile(r"(?mi)^Freeze-Token:[ \t]*(\S+)[ \t]*$")
 # The UI font is the macOS system font, everywhere (Lawrence 2026-11-07).
 UI_FONT_CHECK = "UI font (the system font, schemas/type-scale/ui-font-pin.json)"
 UI_FONT_SCRIPT = SCRIPTS + "/check-ui-font.py"
+# check-ui-font.py's stop on a read outside its INPUTS (Tree.covered).
+UI_FONT_GUARD = "which is not in INPUTS"
 
 # The What's New highlights (release-notes/next/WRITING.md), judged by the release-notary job's own validator.
 HIGHLIGHTS_CHECK = "What's New highlights (scripts/whats-new/validate.py, the release-notary test)"
@@ -1334,8 +1336,14 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
                 return [f"check-ui-font.py {' '.join(args)}: {out}"]
             return [line for line in out.splitlines() if line.strip() and not line.startswith("ui font:")]
 
+        head_lines = findings("--rev", head, "--base", base)
+        # A guard stop (a read outside the check's INPUTS) prints the same line on both passes, so the diff below
+        # would hide it and pass a push the check never judged (review of #39838): it refuses on its own.
+        stopped = [line for line in head_lines if UI_FONT_GUARD in line]
+        if stopped:
+            return stopped
         base_lines = set(findings("--rev", base))
-        return [line for line in findings("--rev", head, "--base", base) if line not in base_lines]
+        return [line for line in head_lines if line not in base_lines]
 
 
 def cargo_lock_drift(repo: Path, base: str, head: str) -> list[str]:
