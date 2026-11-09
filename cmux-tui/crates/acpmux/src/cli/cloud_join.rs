@@ -339,10 +339,6 @@ fn relay_for_join_at(config_path: &std::path::Path, hub: &str, sign_in: bool) ->
     configure_mesh_relay_at(config_path, hub)
 }
 
-fn configure_mesh_relay(hub: &str) -> Result<()> {
-    configure_mesh_relay_at(&crate::config::Config::path(), hub)
-}
-
 fn configure_mesh_relay_at(config_path: &std::path::Path, hub: &str) -> Result<()> {
     let mut config = crate::config::Config::load_from(config_path)?;
     let previous = config.mesh_relay.take();
@@ -555,8 +551,10 @@ pub(crate) fn already_joined(replace: bool, report: Report) -> Result<bool> {
     // state must persist the shared requirement before idempotent success.
     let sign_in = record.joined_by.as_deref() == Some(JOINED_BY_SIGN_IN);
     authority().and_then(|authority| authority.enroll_as(sign_in)).map_err(|_| store_error())?;
-    // Repair a previous config-save failure before reporting idempotent success.
-    configure_mesh_relay(&record.hub_origin).map_err(|_| store_error())?;
+    // Repair a previous config-save failure before reporting idempotent success. A sign-in's
+    // join leaves a relay the person set up as it is.
+    relay_for_join_at(&crate::config::Config::path(), &record.hub_origin, sign_in)
+        .map_err(|_| store_error())?;
     match report {
         Report::Quiet => {}
         Report::Json => {
