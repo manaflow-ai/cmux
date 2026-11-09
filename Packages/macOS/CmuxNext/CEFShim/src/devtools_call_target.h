@@ -13,8 +13,9 @@ namespace cmux_shim {
 // identifier is `id`; an empty `Browser` when no open frontend has it.
 template <class Browser, class Map>
 Browser DevToolsFrontendIn(const Map& open, int id) {
-  (void)open;
-  (void)id;
+  for (const auto& entry : open) {
+    if (entry.second && entry.second->GetIdentifier() == id) return entry.second;
+  }
   return Browser();
 }
 
