@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42557546374",
+  "recorded_at": "2026-11-09T03:47:49Z",
+  "reason": "cmux-tui d3619f16901d changes the image's cmux-tui (pinned 6c323e858fe9)",
+  "dry_run": false,
+  "cmux_tui": "d3619f16901d4b47a7e5935700304f33b3eb8fc5",
+  "fixes": [
+    {
+      "sha": "d3619f16901d4b47a7e5935700304f33b3eb8fc5",
+      "mergedAt": "2026-11-08T19:22:31-08:00",
+      "subject": "acpmux app_orphan_exit: copy the bundle's binary in a cp process (ETXTBSY) (#39109)"
+    },
+    {
+      "sha": "cef4b82440317655d58c1545805d07f3e21d0620",
+      "mergedAt": "2026-11-09T03:19:24Z",
+      "subject": "cmux NEXT: classic cmux migration rules move to Rust (classic_import.plan/.record on the daemon) (#38407)"
+    },
+    {
+      "sha": "bd69158ca336498fc666d44e9f4cbcc629df316b",
+      "mergedAt": "2026-11-09T03:19:04Z",
+      "subject": "acpmux: a sandboxed remote chain starts with a working Bash (subprocess env scrub off) (#39076)"
+    },
+    {
+      "sha": "1b6196b1a8350e8f4946857beb7b55048cf0e852",
+      "mergedAt": "2026-11-09T03:18:53Z",
+      "subject": "remote_stream_bench: --drop-at cuts a two-host viewer's path (#39114)"
+    },
+    {
+      "sha": "ab1b7217b70700a3134af390cf4a791808f005cd",
+      "mergedAt": "2026-11-09T03:18:42Z",
+      "subject": "cmux-wg: resend in-flight tunnel data at once when the path changes (#39121)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-09T03:47:49Z",
+    "snapshot_id": "sh-04c1ac4f10394a93bb4237dc7236fc62",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42557546374): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "cc4ea9bfe5fe5e67d87219a9ea35134e583a76df",
+    "image": "cloud-native-auto-d3619f16-42557546374-1",
+    "revision": "ci-42557546374-1",
+    "at": "2026-11-09T03:47:49Z"
+  },
+  "rolled_back": false
+}
