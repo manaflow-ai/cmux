@@ -59,6 +59,27 @@ fn update_cost_closed_rows_after_one_chats_record() {
     }
 }
 
+/// One live chat's status record, then the session list a client is sent (`Snapshot::build`,
+/// what `_acpmux/sessions` and a watch's list read): the closed rows' bytes, in list order.
+#[test]
+#[ignore = "manual per-event cost measurement"]
+fn update_cost_list_snapshot_after_one_chats_record() {
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let _enter = runtime.enter();
+    for n in SIZES {
+        let (hub, live) = hub_of(n);
+        std::hint::black_box(super::list_guard::Snapshot::build(&hub));
+        let rounds = 20;
+        let started = Instant::now();
+        for round in 0..rounds {
+            let status = if round % 2 == 0 { "running" } else { "idle" };
+            hub.append(&live[0], "mux", "status", json!({"status": status}));
+            std::hint::black_box(super::list_guard::Snapshot::build(&hub));
+        }
+        report("list_snapshot_after_one_record", n, rounds, started.elapsed());
+    }
+}
+
 /// Fix 4: the idle reaper's and the stalled-turn timer's next deadline, taken on every wake.
 #[test]
 #[ignore = "manual per-event cost measurement"]

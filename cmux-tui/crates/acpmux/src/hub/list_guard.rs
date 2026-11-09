@@ -220,7 +220,7 @@ impl Snapshot {
     /// Keep only serialized bytes and paging keys as summaries are produced. A full
     /// JSON tree of every row amplifies the list's peak heap, even when it is freed
     /// immediately after serialization.
-    fn build(hub: &Hub) -> Built {
+    pub(super) fn build(hub: &Hub) -> Built {
         let mut rows = Rows::default();
         hub.visit_session_summaries(false, |row| rows.push(&row));
         rows.finish()
@@ -466,6 +466,12 @@ fn too_large_stub(key: &Value, bytes: usize) -> String {
     stub.to_string()
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Rows this thread's list builds sorted: what a list's tests count of its sort.
+    static ROWS_SORTED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// A byte arena and small keys, rather than all the summaries' nested allocations.
 /// Sort only captured keys: reading live timestamps in a comparator is not a total order.
 #[derive(Default)]
@@ -501,6 +507,8 @@ impl Rows {
     }
 
     fn finish(mut self) -> Built {
+        #[cfg(test)]
+        ROWS_SORTED.with(|n| n.set(n.get() + self.keys.len()));
         // The order `sort_session_summaries` gives: a chat's copies local first, then by peer,
         // the order their cursors (`session_pages.rs`) read them in.
         self.keys.sort_by(|a, b| {
@@ -1102,6 +1110,75 @@ mod tests {
         hub.append(&closed, "mux", "tags", json!({}));
         hub.visit_session_summaries(false, |_| {});
         assert_eq!(builds() - before, CLOSED);
+    }
+
+    /// The list after one chat's record parses no closed row and sorts none (Leo 2026-11-04:
+    /// "never ... acceptable ... linear time growth degradation"): the closed rows stay in list
+    /// order between lists, so one chat's change costs its own row's removal and insert. Before,
+    /// each list parsed every closed row's cached bytes and sorted every row: 38 ms at 3,000.
+    /// The same at 10 and 400 closed rows.
+    #[tokio::test]
+    async fn a_list_after_one_chats_record_parses_and_sorts_no_closed_row() {
+        for closed in [10_u64, 400] {
+            let cfg: crate::config::Config =
+                serde_json::from_value(json!({"store": {"mode": "memory"}})).unwrap();
+            let hub = Hub::new(
+                cfg.clone(),
+                crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap(),
+            );
+            let meta = |id: String, status: &str, at: u64| -> crate::store::SessionMeta {
+                serde_json::from_value(json!({
+                    "schema": crate::store::META_SCHEMA, "id": id, "name": id,
+                    "harness": "claude", "family": "claude", "cwd": "/w", "status": status,
+                    "createdAt": 1, "updatedAt": at, "preview": "a reply",
+                }))
+                .unwrap()
+            };
+            // Ids in the reverse of their order, so no walk of the map happens to be sorted.
+            for n in 0..closed {
+                hub.insert_test_session(meta(format!("closed-{n:04}"), "closed", n + 1));
+            }
+            let live = hub.insert_test_session(meta("live".into(), "idle", closed / 2));
+            let list = |hub: &Hub| {
+                let built = Snapshot::build(hub);
+                Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, false, built).values()
+            };
+            let uncached = |hub: &Hub| {
+                let mut rows: Vec<Value> =
+                    hub.sessions().iter().map(|s| hub.session_list_summary(s)).collect();
+                super::super::session_pages::sort_session_summaries(&mut rows);
+                rows
+            };
+            assert_eq!(list(&hub), uncached(&hub));
+            let counts = || {
+                (
+                    hub.closed_summary_builds.load(Ordering::SeqCst),
+                    hub.closed_summary_parses.load(Ordering::SeqCst),
+                    ROWS_SORTED.with(std::cell::Cell::get),
+                )
+            };
+
+            // A live chat's record: no closed row is built, parsed or sorted.
+            let before = counts();
+            hub.append(&live, "mux", "status", json!({"status": "running"}));
+            let rows = list(&hub);
+            let after = counts();
+            assert_eq!(after.0 - before.0, 0, "closed rows built at {closed}");
+            assert_eq!(after.1 - before.1, 0, "closed rows parsed at {closed}");
+            assert!(after.2 - before.2 <= 1, "rows sorted at {closed}: {}", after.2 - before.2);
+            assert_eq!(rows, uncached(&hub));
+
+            // A closed chat's record: its own row only is built again, and moves into place.
+            let one = hub.sessions().into_iter().find(|s| s.id == "closed-0001").unwrap();
+            let before = counts();
+            hub.append(&one, "in", "agent_message_chunk", json!({}));
+            let rows = list(&hub);
+            let after = counts();
+            assert_eq!(after.0 - before.0, 1, "closed rows built at {closed}");
+            assert_eq!(after.1 - before.1, 0, "closed rows parsed at {closed}");
+            assert!(after.2 - before.2 <= 1, "rows sorted at {closed}: {}", after.2 - before.2);
+            assert_eq!(rows, uncached(&hub));
+        }
     }
 
     /// A one-chat change rebuilds that chat's closed row, never every closed row: each status,

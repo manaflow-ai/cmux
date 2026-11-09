@@ -64,6 +64,10 @@ struct Windows {
     task: bool,
 }
 
+/// How many times each window (by name) was recomputed in this process (tests).
+#[cfg(test)]
+pub(super) static RECOMPUTES: StdMutex<BTreeMap<String, usize>> = StdMutex::new(BTreeMap::new());
+
 /// Window tasks alive in this process (tests check that none outlives its connection).
 static LIVE_TASKS: AtomicUsize = AtomicUsize::new(0);
 
@@ -267,6 +271,10 @@ async fn refresh(
         lock(&conn.chat_windows.windows).by_name.values().map(|state| state.spec.clone()).collect();
     if specs.is_empty() {
         return Ok(());
+    }
+    #[cfg(test)]
+    for spec in &specs {
+        *lock(&RECOMPUTES).entry(spec.window.clone()).or_default() += 1;
     }
     let activity = hub.chat_activity();
     let read_with = activity.clone();

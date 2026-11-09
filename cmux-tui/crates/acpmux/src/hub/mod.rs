@@ -648,6 +648,9 @@ pub struct Hub {
     /// Closed rows built anew because their cached bytes were missing or stale (tests).
     #[cfg(test)]
     pub(super) closed_summary_builds: AtomicU64,
+    /// Closed rows parsed back from their cached bytes (tests).
+    #[cfg(test)]
+    pub(super) closed_summary_parses: AtomicU64,
     /// Projection-only message repairs in flight, keyed by destination and delivery id. These
     /// retries never resend a prompt and are bounded in `message_events.rs`.
     pub(super) message_repairs: StdMutex<std::collections::HashSet<(String, String)>>,
@@ -1100,6 +1103,8 @@ impl Hub {
             chat_activity_cache: Default::default(),
             #[cfg(test)]
             closed_summary_builds: AtomicU64::new(0),
+            #[cfg(test)]
+            closed_summary_parses: AtomicU64::new(0),
             message_repairs: StdMutex::new(std::collections::HashSet::new()),
             #[cfg(test)]
             message_projection_failures: StdMutex::new(std::collections::HashSet::new()),
@@ -1779,7 +1784,7 @@ impl Hub {
                         && !bytes.is_empty())
                     .then_some(bytes)
                 })
-            && let Ok(row) = serde_json::from_str(bytes)
+            && let Ok(row) = self.parse_cached_row(bytes)
         {
             return row;
         }
@@ -1817,6 +1822,13 @@ impl Hub {
             }
         }
         row
+    }
+
+    /// A closed row parsed back from its cached bytes.
+    fn parse_cached_row(&self, bytes: &str) -> serde_json::Result<Value> {
+        #[cfg(test)]
+        self.closed_summary_parses.fetch_add(1, Ordering::SeqCst);
+        serde_json::from_str(bytes)
     }
 
     pub(super) fn remove_cached_closed_summary(&self, id: &str) {
