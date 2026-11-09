@@ -45,7 +45,8 @@ import Testing
     /// Any App and Message the Chief from Any App are the system-wide keys of Start Agent and Message the
     /// Chief, whose rows they are; the sidebar's Compact
     /// and Comfortable rows are the app density's "Density: Compact/Comfortable" rows; Mute Tab and
-    /// Unmute Tab list in place of the right-click menu's Mute/Unmute Tab toggle).
+    /// Unmute Tab list in place of the right-click menu's Mute/Unmute Tab toggle; the New ▸ kind submenus
+    /// duplicate New … to the Right).
     @Test func everyActionIsInThePaletteUnlessExempt() {
         for descriptor in catalog where !descriptor.isPaletteVisible {
             let reason = descriptor.surfacePlan.palette.exemption
@@ -59,6 +60,7 @@ import Testing
                 "home.sendSelectionToChief", "list.next", "list.previous",
                 "import.card", "import.list", "import.suggest",
                 "machine.joined.check", "machine.joined.revoke", "machine.joined.rotate",
+                "new.agentChat", "new.browser", "new.newTabPage", "new.terminal",
                 "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium", "palette.startAgentFromAnyApp",
                 "sidebar.chat.togglePin", "sidebar.density.comfortable", "sidebar.density.compact", "toggleTabAudioMute"]
             + ["paletteKey.firstItem", "paletteKey.lastItem", "paletteKey.pageUp", "paletteKey.pageDown", "paletteKey.submit",
