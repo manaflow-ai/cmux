@@ -30,8 +30,11 @@ export function ComposerHatStage({
     setRunning(next);
     setWaiting(wait);
   };
+  // In the pane's shell, as App.tsx draws it: the card's edge and fill (--acpmux-composer-edge,
+  // --acpmux-composer-tray) are the shell's, so without it the card drew no ring at all.
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "var(--agent-page-bg)" }}>
+    <div className="acpmux-shell" style={{ height: "100vh" }}>
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, background: "var(--agent-page-bg)" }}>
       <div
         style={{
           display: "flex",
@@ -76,6 +79,7 @@ export function ComposerHatStage({
           </div>
         </div>
       </main>
+    </div>
     </div>
   );
 }

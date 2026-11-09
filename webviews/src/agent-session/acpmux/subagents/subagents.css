@@ -2061,8 +2061,9 @@ div.cv-subagent-done[data-toggle-line]::before {
    keeps its fill and shadow; only its ring and rim move to a layer of their own, as under a queue
    (composerLocation.css), and that layer leaves out the strip the pill covers, down to the pill's
    foot, so the sheen under the edge ends at the pill's rim too. A queue or a location strip on top
-   leaves out its top hairline the same width. test/composer-hat-line-gap.test.ts measures the pixels
-   through the pill. */
+   leaves out its top hairline the same width. Only the part the pill sits on does: with a note or
+   the former strip's kept room above the card, the pill floats over that and the card keeps its
+   whole line. test/composer-hat-line-gap.test.ts measures the pixels through the pill. */
 .acpmux-tray-pull + .acpmux-composer {
   --acpmux-tray-pull-gap-mark: 0px;
   --acpmux-tray-pull-gap-at: 50%;
@@ -2087,13 +2088,16 @@ div.cv-subagent-done[data-toggle-line]::before {
   --acpmux-tray-pull-gap-at: calc(100% - var(--ds-space-3, 12px) - var(--acpmux-tray-pull-tab-width) / 2);
 }
 /* Everything but the gap: the line left of it, the line right of it, and the part below the band. */
-:root:not([data-top-strip]) .acpmux-tray-pull + .acpmux-composer > .acpmux-composer-queue,
 :root:not([data-top-strip])
   .acpmux-tray-pull
-  + .acpmux-composer:not(:has(> .acpmux-composer-queue))
+  + .acpmux-composer:not(:has(> .acpmux-composer-remote-note))
+  > .acpmux-composer-queue,
+:root:not([data-top-strip])
+  .acpmux-tray-pull
+  + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-remote-note))
   > .acpmux-composer-strip,
 .acpmux-tray-pull
-  + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip))
+  + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip, > .acpmux-composer-strip-placeholder, > .acpmux-composer-remote-note))
   > .acpmux-composer-box::before {
   --acpmux-tray-pull-gap-mask: linear-gradient(#000 0 0), linear-gradient(#000 0 0), linear-gradient(#000 0 0);
   --acpmux-tray-pull-gap-size:
@@ -2104,12 +2108,12 @@ div.cv-subagent-done[data-toggle-line]::before {
 /* The ring and rim layer: from the card's top edge to the pill's foot (the tab's top, -8px, plus the
    pill's 20px, less its lift). */
 :root .acpmux-tray-pull
-  + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip))
+  + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip, > .acpmux-composer-strip-placeholder, > .acpmux-composer-remote-note))
   > .acpmux-composer-box {
   box-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
 }
 .acpmux-tray-pull
-  + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip))
+  + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip, > .acpmux-composer-strip-placeholder, > .acpmux-composer-remote-note))
   > .acpmux-composer-box::before {
   --acpmux-tray-pull-gap-depth: calc(12px - var(--acpmux-tray-pull-lift));
   content: "";
@@ -2126,7 +2130,7 @@ div.cv-subagent-done[data-toggle-line]::before {
 @media not (prefers-reduced-transparency: reduce) {
   :root:not([data-reduce-transparency])
     .acpmux-tray-pull
-    + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip))
+    + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip, > .acpmux-composer-strip-placeholder, > .acpmux-composer-remote-note))
     > .acpmux-composer-box::before {
     box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-rim);
   }
@@ -2134,20 +2138,26 @@ div.cv-subagent-done[data-toggle-line]::before {
 /* A queue (or, with none, a location strip) on top: its top hairline only, so its fill stays. Its
    text keeps its own type, so a count's `ch` there is the queue's digit: within a pixel or two of
    the pill's, under the pill's own rim. */
-:root:not([data-top-strip]) .acpmux-tray-pull + .acpmux-composer > .acpmux-composer-queue,
 :root:not([data-top-strip])
   .acpmux-tray-pull
-  + .acpmux-composer:not(:has(> .acpmux-composer-queue))
+  + .acpmux-composer:not(:has(> .acpmux-composer-remote-note))
+  > .acpmux-composer-queue,
+:root:not([data-top-strip])
+  .acpmux-tray-pull
+  + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-remote-note))
   > .acpmux-composer-strip {
   --acpmux-tray-pull-gap-depth: calc(2 * var(--cmux-hairline, 0.5px));
 }
-:root:not([data-top-strip]) .acpmux-tray-pull + .acpmux-composer > .acpmux-composer-queue,
 :root:not([data-top-strip])
   .acpmux-tray-pull
-  + .acpmux-composer:not(:has(> .acpmux-composer-queue))
+  + .acpmux-composer:not(:has(> .acpmux-composer-remote-note))
+  > .acpmux-composer-queue,
+:root:not([data-top-strip])
+  .acpmux-tray-pull
+  + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-remote-note))
   > .acpmux-composer-strip,
 .acpmux-tray-pull
-  + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip))
+  + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip, > .acpmux-composer-strip-placeholder, > .acpmux-composer-remote-note))
   > .acpmux-composer-box::before {
   -webkit-mask-image: var(--acpmux-tray-pull-gap-mask);
   mask-image: var(--acpmux-tray-pull-gap-mask);
@@ -2161,7 +2171,7 @@ div.cv-subagent-done[data-toggle-line]::before {
 /* The card's layer moves its gap on the slot's clock. A queue or strip keeps its own transitions
    (its height's, composerStates.css), so its gap takes the new width at once. */
 .acpmux-tray-pull
-  + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip))
+  + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip, > .acpmux-composer-strip-placeholder, > .acpmux-composer-remote-note))
   > .acpmux-composer-box::before {
   transition:
     -webkit-mask-size var(--agent-motion-move) var(--agent-ease-out),
@@ -2169,13 +2179,13 @@ div.cv-subagent-done[data-toggle-line]::before {
 }
 :root:is([data-cmux-motion="reduced"], [data-agent-motion="reduced"], [data-cmux-motion="off"], [data-agent-motion="off"])
   .acpmux-tray-pull
-  + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip))
+  + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip, > .acpmux-composer-strip-placeholder, > .acpmux-composer-remote-note))
   > .acpmux-composer-box::before {
   transition: none;
 }
 @media (prefers-reduced-motion: reduce) {
   .acpmux-tray-pull
-    + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip))
+    + .acpmux-composer:not(:has(> .acpmux-composer-queue, > .acpmux-composer-strip, > .acpmux-composer-strip-placeholder, > .acpmux-composer-remote-note))
     > .acpmux-composer-box::before {
     transition: none;
   }
