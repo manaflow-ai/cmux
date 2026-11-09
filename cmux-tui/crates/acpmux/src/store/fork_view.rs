@@ -563,6 +563,20 @@ impl Store for ForkView {
         }
         self.inner.commit_compaction(id, staged)
     }
+    fn stage_cold(&self, id: &str) -> Result<Option<StagedCold>> {
+        self.inner.stage_cold(id)
+    }
+    /// A cold archive keeps every byte (`store/cold.rs`): a fork that shows the chat's records
+    /// keeps its reference, and its read brings the chat's log back.
+    fn commit_cold(&self, id: &str, staged: StagedCold) -> Result<bool> {
+        self.inner.commit_cold(id, staged)
+    }
+    fn rehydrate(&self, id: &str) -> Result<bool> {
+        self.inner.rehydrate(id)
+    }
+    fn is_cold(&self, id: &str) -> bool {
+        self.inner.is_cold(id)
+    }
     /// Under `dropping`, as a reservation is: one that came first is written in here (or, still
     /// being made, fails this), and one after is refused until `end_release`.
     fn release_history(&self, id: &str) -> Result<()> {

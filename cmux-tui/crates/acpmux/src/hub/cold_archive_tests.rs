@@ -70,10 +70,6 @@ async fn archive_lists_from_its_preview_and_opens_back() {
     };
     let (_, hub) = open(&root.0);
     let session = hub.resolve("old").unwrap();
-    for e in walk(&root.0) {
-        eprintln!("DEBUG {e}");
-    }
-    eprintln!("DEBUG coldable {:?}", hub.coldable(&session, None, &Default::default()));
     let summary = hub.cold_archive_request(session.clone(), true).await.unwrap();
     let cold = &summary["coldArchive"];
     assert_eq!(cold["messages"], json!(10), "{summary}");
@@ -185,16 +181,4 @@ fn the_setting_is_off_by_default() {
         ),
         Some(std::time::Duration::from_secs(7 * 86_400))
     );
-}
-
-fn walk(dir: &Path) -> Vec<String> {
-    let mut out = Vec::new();
-    for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-        let p = e.path();
-        out.push(format!("{} {:?}", p.display(), e.file_type().map(|t| t.is_dir())));
-        if p.is_dir() {
-            out.extend(walk(&p));
-        }
-    }
-    out
 }
