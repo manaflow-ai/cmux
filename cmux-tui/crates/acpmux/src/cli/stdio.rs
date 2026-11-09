@@ -101,8 +101,6 @@ fn response_id(line: &str) -> Option<String> {
     message.get("id").map(Value::to_string)
 }
 
-/// Adds the defaults to a `session/new` request. Every other line, and any
-/// line that is not JSON, passes through byte for byte.
 /// The editor's `initialize`, with what this relay says about its caller in `_meta.acpmux`, as
 /// the CLI's own hello says it (`client.rs`): the session it runs in with its caller token (only
 /// to the socket of the daemon that issued it), and whether it runs in an acpmux session's
@@ -142,6 +140,8 @@ pub fn declare_caller(
     message.to_string()
 }
 
+/// Adds the defaults to a `session/new` request. Every other line, and any
+/// line that is not JSON, passes through byte for byte.
 pub fn apply_defaults(line: &str, defaults: &Defaults) -> String {
     if defaults.entries().iter().all(|(_, value)| value.is_none()) {
         return line.to_owned();

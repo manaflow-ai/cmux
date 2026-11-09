@@ -21,8 +21,9 @@ test "${ACPMUX_ENV:-}" = 1 && echo "I am session $ACPMUX_SESSION_NAME ($ACPMUX_S
 When set, `@` names your own session (`acpmux last @`, `acpmux history @`).
 Sessions you start are siblings, not children: they outlive you.
 
-Inside a session, run the daemon's own CLI: `"$ACPMUX_BIN"` is its absolute
-path (`alias acpmux="$ACPMUX_BIN"` in a script). The `acpmux` on your PATH can
+Inside a session, run the daemon's own CLI: `"$ACPMUX_BIN"` is one absolute
+path that runs it, also inside cmux. Use it in place of `acpmux` in every
+command, as in `"$ACPMUX_BIN" send NAME "text"`. The `acpmux` on your PATH can
 be another, older build (a login profile puts `~/.local/bin` first). A CLI
 older than the daemon does not say who runs it: the daemon records its sends as
 an unverified program, not as you or the person, and refuses it what only the

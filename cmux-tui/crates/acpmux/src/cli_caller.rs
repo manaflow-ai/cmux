@@ -23,9 +23,12 @@
 //! `hub/person.rs`. It closes the accident (an agent that runs an old or foreign CLI), not a
 //! deliberate forgery, which the trust boundary in `owner_terminal` already describes.
 //!
-//! So that an agent runs its daemon's own CLI, each session's harness gets [`BIN_ENV`], the
-//! absolute path of the daemon's executable (`agent/command.rs`). A login shell profile that puts
-//! `~/.local/bin` first on PATH (Claude Code's shell snapshot keeps it) cannot change that path.
+//! So that an agent runs its daemon's own CLI, each session's harness gets [`BIN_ENV`]
+//! (`agent/command.rs`), one absolute path that runs it ([`own_bin`]). A login shell profile that
+//! puts `~/.local/bin` first on PATH (Claude Code's shell snapshot keeps it) cannot change it.
+//! Under cmux the daemon's executable is cmux (`<cmux> acp daemon run`), whose own verbs are not
+//! acpmux's: the path is then the `acpmux` alias beside it, or a wrapper script in the daemon's
+//! home that runs `<cmux> acp` ([`bin_choice`]).
 
 use serde_json::{Map, Value, json};
 
@@ -134,20 +137,51 @@ pub fn old_cli_refused(client: &str, what: &str) -> crate::rpc::RpcError {
         -32000,
         format!(
             "{client} is older than this acpmux daemon ({daemon}) and does not say who runs it, so \
-             {what} is refused: run the daemon's own acpmux (in an agent session: \"$ACPMUX_BIN\"; \
+             {what} is refused: run the daemon's own acpmux (in an agent session, the same \
+             command with \"$ACPMUX_BIN\" in place of acpmux, as in \"$ACPMUX_BIN\" send; \
              `acpmux daemon status` names its path), or update the one on your PATH. / \
              {client} はこの acpmux デーモン ({daemon}) より古く、だれが実行しているかを伝えないため、\
              この操作は拒否されました。デーモン自身の acpmux を実行してください \
-             (エージェントのセッションでは \"$ACPMUX_BIN\"、パスは `acpmux daemon status` で確認できます)。\
+             (エージェントのセッションでは acpmux の代わりに \"$ACPMUX_BIN\" で同じコマンドを実行します。\
+             例: \"$ACPMUX_BIN\" send。パスは `acpmux daemon status` で確認できます)。\
              または PATH 上の acpmux を更新してください。"
         ),
     )
     .with_data(json!({"reason": OLD_CLI_REASON, "client": client, "daemonVersion": daemon}))
 }
 
-/// This process's executable, for [`BIN_ENV`]: absolute, or `None`.
+/// The name of the acpmux alias a cmux install puts beside its binary (`bin/acpmux`, a link to
+/// `bin/cmux` in the app; `host setup`'s copy): cmux-tui runs acpmux's CLI when argv0 is
+/// `acpmux` (`cmux-tui/src/main.rs`).
+const CLI_ALIAS: &str = "acpmux";
+
+/// This daemon's own acpmux CLI as one absolute path, for [`BIN_ENV`] ([`bin_choice`] of this
+/// process's executable and `daemon::daemon_prefix`): the executable, its `acpmux` alias, or the
+/// wrapper script in the daemon's home ([`install_wrapper`]). `None` when none can be had.
 pub fn own_bin() -> Option<std::path::PathBuf> {
-    std::env::current_exe().ok().filter(|p| p.is_absolute())
+    let exe = crate::self_command::undeleted(std::env::current_exe().ok()?);
+    let same = |alias: &std::path::Path| same_file(&exe, alias);
+    match bin_choice(&exe, &crate::daemon::daemon_prefix(), same)? {
+        BinChoice::Exe(path) | BinChoice::Alias(path) => Some(path),
+        BinChoice::Wrapper(script) => {
+            let path = wrapper_path(&crate::config::home());
+            match install_wrapper(&path, &script) {
+                Ok(()) => Some(path),
+                Err(e) => {
+                    tracing::warn!(path = %path.display(), "ACPMUX_BIN: the wrapper was not written: {e}");
+                    None
+                }
+            }
+        }
+    }
+}
+
+/// Whether `a` and `b` both exist and are one file, links resolved.
+fn same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
 }
 
 /// What runs this daemon's acpmux CLI by one path, for [`BIN_ENV`] ([`bin_choice`]).
@@ -155,31 +189,93 @@ pub fn own_bin() -> Option<std::path::PathBuf> {
 pub enum BinChoice {
     /// The daemon's executable itself: a standalone acpmux.
     Exe(std::path::PathBuf),
-    /// The `acpmux` alias beside a host binary, the same file.
+    /// The `acpmux` alias beside a host binary, the same file: run by that name, the host runs
+    /// acpmux's CLI. The alias's own path, not the file it resolves to.
     Alias(std::path::PathBuf),
-    /// A host binary with no such alias: the text of a script that runs it with its prefix.
+    /// A host binary with no such alias: the text of a script that runs it with its prefix
+    /// (`exec '/…/cmux' 'acp' "$@"`).
     Wrapper(String),
 }
 
 /// How [`BIN_ENV`] runs this daemon's acpmux CLI, from its executable `exe`, the words before an
 /// acpmux subcommand in it (`daemon_prefix`, `acp` in cmux) and whether a path is the same file
 /// as `exe`.
+///
+/// Standalone (no prefix) it is `exe`, without the ` (deleted)` Linux adds once an update
+/// replaced the file. Under a prefix `exe` is a host binary whose own verbs are not acpmux's
+/// (`cmux send` is cmux's): the `acpmux` alias beside it when that is the same file, else a
+/// wrapper script. `None` for a relative path, or a word a script cannot hold (not UTF-8).
 pub fn bin_choice(
     exe: &std::path::Path,
-    _prefix: &[std::ffi::OsString],
-    _same_file: impl Fn(&std::path::Path) -> bool,
+    prefix: &[std::ffi::OsString],
+    same_file: impl Fn(&std::path::Path) -> bool,
 ) -> Option<BinChoice> {
-    exe.is_absolute().then(|| BinChoice::Exe(exe.to_path_buf()))
+    let exe = crate::self_command::undeleted(exe.to_path_buf());
+    if !exe.is_absolute() {
+        return None;
+    }
+    if prefix.is_empty() {
+        return Some(BinChoice::Exe(exe));
+    }
+    let alias = exe.with_file_name(CLI_ALIAS);
+    if same_file(&alias) {
+        return Some(BinChoice::Alias(alias));
+    }
+    let mut words = vec![shell_word(exe.to_str()?)];
+    for word in prefix {
+        words.push(shell_word(word.to_str()?));
+    }
+    Some(BinChoice::Wrapper(format!("#!/bin/sh\nexec {} \"$@\"\n", words.join(" "))))
+}
+
+/// `word` as one POSIX shell word, in single quotes.
+fn shell_word(word: &str) -> String {
+    format!("'{}'", word.replace('\'', "'\\''"))
 }
 
 /// Where the daemon whose home is `home` keeps its [`BinChoice::Wrapper`] script.
 pub fn wrapper_path(home: &std::path::Path) -> std::path::PathBuf {
-    home.join("bin").join("acpmux")
+    home.join("bin").join(CLI_ALIAS)
 }
 
-/// Writes `script` at `path`, owner-only and executable, unless the file there holds it already.
+/// Writes `script` at `path`, owner-only and executable (0700, its folder too), unless the
+/// regular file there holds it already: a new file renamed over the old one, so an agent that
+/// starts it meanwhile runs either the old text or the new one, whole.
+#[cfg(unix)]
+pub fn install_wrapper(path: &std::path::Path, script: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    if let Ok(meta) = std::fs::symlink_metadata(path)
+        && meta.is_file()
+        && meta.permissions().mode() & 0o777 == 0o700
+        && std::fs::read_to_string(path).is_ok_and(|text| text == script)
+    {
+        return Ok(());
+    }
+    let dir = path.parent().ok_or_else(|| std::io::Error::other("the wrapper has no folder"))?;
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = dir.join(format!(".{CLI_ALIAS}.{}.{n}.tmp", std::process::id()));
+    let written = (|| {
+        let mut file =
+            std::fs::OpenOptions::new().write(true).create_new(true).mode(0o700).open(&tmp)?;
+        file.write_all(script.as_bytes())?;
+        file.sync_all()?;
+        // The mode a umask may have narrowed: the script must run.
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o700))?;
+        std::fs::rename(&tmp, path)
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
+}
+
+/// [`install_wrapper`] where a shell script cannot run: refused, so [`BIN_ENV`] is not set.
+#[cfg(not(unix))]
 pub fn install_wrapper(_path: &std::path::Path, _script: &str) -> std::io::Result<()> {
-    Ok(())
+    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "no shell scripts here"))
 }
 
 #[cfg(test)]
@@ -263,7 +359,7 @@ mod tests {
     fn the_old_cli_refusal_names_the_client_and_the_fix_in_english_and_japanese() {
         let e = old_cli_refused("acpmux-cli 0.1.0", "changing a session's turn cap");
         assert!(e.message.contains("acpmux-cli 0.1.0 is older than this acpmux daemon"), "{e:?}");
-        assert!(e.message.contains("\"$ACPMUX_BIN\""), "{e:?}");
+        assert!(e.message.contains("\"$ACPMUX_BIN\" send"), "{e:?}");
         assert!(e.message.contains("より古く"), "{e:?}");
         assert_eq!(e.data.unwrap()["reason"], OLD_CLI_REASON);
     }

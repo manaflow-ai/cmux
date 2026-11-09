@@ -264,8 +264,14 @@ changed, with no process scanning (`plans/cmux-next/pty-holder.md` section 4):
   turn cap gets `caller.old_client` with the daemon's version and which CLI to run.
 - The outbox keeps it (`Delivery::not_terminal`): a kept send replays with an agent
   declaration, so it is no owner's terminal send either (as `unproven_caller`, #38260 F1).
-- Each session's harness gets `ACPMUX_BIN`, the daemon's own executable (`agent/command.rs`);
-  a profile cannot set it. The guide says to run `"$ACPMUX_BIN"` in a session.
+- Each session's harness gets `ACPMUX_BIN` (`agent/command.rs`), one absolute path that runs the
+  daemon's own acpmux CLI (`cli_caller::own_bin`, `bin_choice`); a profile cannot set it.
+  Standalone it is the executable, without Linux's ` (deleted)` (N4). Under cmux (`<cmux> acp
+  daemon run`, review 2 B1: the executable alone named cmux, whose `send` is cmux's own verb) it is
+  the `acpmux` alias beside cmux when that is the same file (cmux-tui runs acpmux when argv0 is
+  `acpmux`; the alias's own path), else `<acpmux home>/bin/acpmux`, a wrapper script the daemon
+  writes (0700, atomic, again only when its text changes): `exec '<cmux>' 'acp' "$@"`. The guide
+  and the old-client refusal say to run `"$ACPMUX_BIN" send ...`.
 - Limits: a declaration is a claim of the same user's process. It closes the accident (an agent
   that runs an old or foreign CLI), not a forgery, as the trust boundary in `owner_terminal`
   says. A person who runs an old CLI at their terminal is now unverified until they update.
@@ -289,6 +295,11 @@ changed, with no process scanning (`plans/cmux-next/pty-holder.md` section 4):
   person's terminal, or a raw client that declares `terminal`, makes the same record. Proposal:
   stamp `verified: false, basis: "same_uid_socket"` for it, and keep `verified: true` for the
   proven person (`hub/person.rs`). PL-acpmux decides; W5-S did not change it.
-- Follow-ups, not in this change: `own_bin` keeps a Linux `current_exe()` that reads
-  `"... (deleted)"` after an in-place update (N4: filter on `exists()`); `acpmux-move` and
-  `acpmux-transfer` raw clients declare nothing (N8; they send no prompt as the person today).
+- Follow-ups, not in this change: `acpmux-move` and `acpmux-transfer` raw clients declare
+  nothing (N8; they send no prompt as the person today). N4 (the ` (deleted)` path) is fixed by
+  `bin_choice` above.
+- Notice (review 2 of #39020, not changed here): mesh controls (`server/mesh_control_send.rs:76`
+  and the mesh lifecycle enqueue) still send with this daemon's identity for any local connection
+  with no caller, an unproven agent included. It is older code and never was a person-only check
+  (proven agents use it under their own name), but it is the same class as review 1's B1. Proposed
+  follow-up: `conn.unproven_agent()` -> `conn.refusal("mesh controls", ...)`.
