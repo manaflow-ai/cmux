@@ -501,12 +501,14 @@ fn reap_pass_with(
         previous.cursor.as_deref(),
         stopped,
         |(state_root, root, component)| {
+            // Reached this pass, listed or not: a root whose listing failed
+            // keeps its entries, and the prune below never lists it again.
+            visited.insert(root.display().to_string());
             let Ok(records) = (hosts.load)(root) else {
                 return Visit::Done;
             };
             let prefix = format!("{}|", root.display());
             store.hosts.retain(|key, _| !key.starts_with(&prefix));
-            visited.insert(root.display().to_string());
             if records.is_empty() {
                 return Visit::Empty;
             }
