@@ -16,7 +16,7 @@ import Testing
 
     static func defaults() -> UserDefaults {
         let name = "ChiefPetTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
+        let defaults = UserDefaults(testSuiteName: name)!
         defaults.removePersistentDomain(forName: name)
         return defaults
     }

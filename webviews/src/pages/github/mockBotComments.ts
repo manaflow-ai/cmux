@@ -96,6 +96,7 @@ export const mockBotDetails: PullRequestDetails = {
     },
   ],
   conversationTotal: 2,
+  conversationRead: 2,
 };
 
 /** The same, as the page drew it before GitHub's rendering reached it: the Markdown, its HTML as text. */

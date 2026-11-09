@@ -26,9 +26,11 @@ const USAGE: &str = "usage: cmux repo hold DIR -- CMD [ARG...] | cmux repo wait 
 /// The child's one stdout line once it holds the barrier.
 const HELD: &str = "held";
 
-/// The head's harness settings that run a command when the harness starts: a start at
-/// the head would run them on a partial checkout, so such a head is never marked.
-const START_SETTINGS: &[&str] = &[".claude/settings.json", ".claude/settings.local.json"];
+/// The head's harness settings that run a command when the harness starts (hooks, and the
+/// project's MCP servers, which start outside the tool gate): a start at the head would run
+/// them on a partial checkout, so such a head is never marked.
+const START_SETTINGS: &[&str] =
+    &[".claude/settings.json", ".claude/settings.local.json", ".mcp.json"];
 
 pub(crate) fn run(args: &[String]) -> i32 {
     match args.split_first() {

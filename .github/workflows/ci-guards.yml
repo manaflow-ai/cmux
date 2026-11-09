@@ -1066,6 +1066,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_web_complexity_trusted_workflow.py
 
+      - name: Validate the web performance gate keeps measurement and validation apart
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_web_perf_validation_boundary.py
+
       - name: Validate every workflow guard is wired
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py

@@ -266,6 +266,10 @@ final class CEFHostView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // The fork's tracker re-places the page on this view's frame notices and its ancestors'. A resize drag
+        // keeps the pane views' notices for its end (`FrameNoticeHold`): a move they did not post reaches the fork
+        // here, once (the window's page update in the same frame then finds the fork's read current).
+        enclosingFrameNoticeReaders?.add(self) { [weak self] in self?.pagesNeedUpdate(force: false) }
         if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
         windowObserver = nil
         readGeometry = nil
