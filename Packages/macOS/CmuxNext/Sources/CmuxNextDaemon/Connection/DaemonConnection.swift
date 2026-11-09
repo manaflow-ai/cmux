@@ -211,8 +211,15 @@ public actor DaemonConnection {
     }
 
     public func request<R: DaemonRequest>(_ request: R, timeout: Duration?) async throws -> R.Response {
+        try await self.request(request, timeout: timeout, on: nil)
+    }
+
+    /// `request` on the transport of connection `serial` (``DaemonEventEnvelope/connectionSerial``) only, when given:
+    /// a write its caller checked against that connection's tree (a surface it names) fails as not connected once
+    /// another transport, maybe to a daemon that numbers surfaces anew, took its place.
+    func request<R: DaemonRequest>(_ request: R, timeout: Duration?, on serial: UInt64?) async throws -> R.Response {
         await waitOutHandoff()
-        guard let ready else { throw DaemonError.notConnected }
+        guard let ready, serial.map({ $0 == ready.serial }) ?? true else { throw DaemonError.notConnected }
         requestStarted()
         defer { requestEnded() }
         try R.requireServed(by: identity)

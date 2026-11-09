@@ -181,10 +181,24 @@ struct TabReadsTests {
     /// unanswered, rather than reach a daemon that may number surfaces anew.
     @Test func aReadWaitsForTheConnectionsFirstTree() throws {
         let (store, _, _) = try Self.unreadTab()
-        #expect(throws: Never.self) { try store.awaitLiveTree() }
+        #expect(throws: Never.self) { _ = try store.liveTreeStamp() }
         store.connectionEpoch += 1
-        #expect(throws: DaemonError.notConnected) { try store.awaitLiveTree() }
+        #expect(throws: DaemonError.notConnected) { _ = try store.liveTreeStamp() }
         store.apply(snapshot: Self.tree(unread: true))
-        #expect(throws: Never.self) { try store.awaitLiveTree() }
+        #expect(throws: Never.self) { _ = try store.liveTreeStamp() }
+    }
+
+    /// The daemon answered and its record kept the notification unread (a moved feed item it could not clear): the
+    /// next read sends again instead of waiting on a write that already ended.
+    @Test func aReadAfterAnEndedWriteSendsAgain() async throws {
+        let (_, tab, reads) = try Self.unreadTab()
+        var tries = 0
+        let first = try #require(reads.readNotification(of: tab) { (_: SurfaceID) in tries += 1 })
+        await first.value
+        #expect(tab.readingNotification != nil)
+        let again = try #require(reads.readNotification(of: tab) { (_: SurfaceID) in tries += 1 },
+                                 "a read after its write ended sent nothing")
+        await again.value
+        #expect(tries == 2)
     }
 }

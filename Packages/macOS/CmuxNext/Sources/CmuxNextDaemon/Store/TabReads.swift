@@ -22,6 +22,10 @@ import Foundation
         try? await backoff.wait(owner: "tab read retry")
     }
 
+    /// The notification reads being sent (tab id and notification): a read of one of them stands for this one too.
+    /// A write that ended (answered, refused, or no longer standing) leaves it, so the next read sends again.
+    private var sending: Set<String> = []
+
     public init() {}
 
     /// Sends `attempt` until it is answered while `stands()` holds; `refused` gets the daemon's refusal, `answered`
@@ -31,11 +35,13 @@ import Foundation
                                   current: @escaping @MainActor () -> Bool = { true },
                                   refused: @escaping @MainActor (any Error) -> Void,
                                   answered: @escaping @MainActor (T) -> Void = { _ in },
+                                  ended: @escaping @MainActor () -> Void = {},
                                   _ attempt: @escaping @MainActor () async throws -> T) -> Task<Void, Never> {
         let pause = pause
         // task-owner: one read the person made, sent again while unanswered; ends on its answer, a refusal or the read
         // no longer standing (`stands`)
         return Task { @MainActor in
+            defer { ended() }
             var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(5), jitter: 0.1)
             while stands(), !Task.isCancelled {
                 guard current() else { return refused(CancellationError()) }
@@ -61,14 +67,14 @@ import Foundation
                                               current: @escaping @MainActor () -> Bool = { true },
                                               answered: @escaping @MainActor (T) -> Void = { _ in },
                                               _ ack: @escaping @MainActor (SurfaceID) async throws -> T) -> Task<Void, Never>? {
-        // A read of this notification already on its way stands for this one too.
-        if let reading = tab.readingNotification, reading == tab.notification?.notification, tab.notification?.unread == true {
-            return nil
-        }
         tab.expectNotificationRead()
         guard let reading = tab.readingNotification else { return nil }
+        // A read of this notification already on its way stands for this one too.
+        let key = "\(tab.id)#\(reading.rawValue)"
+        guard sending.insert(key).inserted else { return nil }
         return send(stands: { tab.readingNotification == reading && alive() }, current: current,
-                    refused: { _ in tab.dropExpectedNotificationRead() }, answered: answered) {
+                    refused: { _ in tab.dropExpectedNotificationRead() }, answered: answered,
+                    ended: { [weak self] in self?.sending.remove(key) }) {
             // The tab's surface as it is at this try: a daemon that came back may number it anew.
             try await ack(tab.surface)
         }
@@ -108,9 +114,12 @@ extension DaemonStore {
         }
     }
 
-    /// A read sent before this connection's first tree landed could reach a daemon that numbers surfaces anew while
-    /// the store still shows the last one's tree: it waits, as unanswered, until the tree says which daemon this is.
-    public func awaitLiveTree() throws {
+    /// The transport whose tree the store shows, for a read that names one of its surfaces
+    /// (``DaemonConnection/acknowledgeNotifications(of:on:)``). Before a new connection's first tree lands the store
+    /// still shows the last one's, and a daemon that numbers surfaces anew may answer: the read waits, as unanswered.
+    /// Nil for a connection with no stamp (the read goes on whichever transport is up).
+    public func liveTreeStamp() throws -> DaemonControlStamp? {
         guard liveTreeEpoch == connectionEpoch else { throw DaemonError.notConnected }
+        return sideEvents.controlStamp
     }
 }

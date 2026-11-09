@@ -13,8 +13,11 @@ extension DaemonService {
         let sent = reads.readNotification(of: tab, alive: { [weak self] in self?.shutdowns == start }, current: store.holdsRead(of: tab),
                                           answered: answered) { [weak self] surface in
             guard let self else { throw CancellationError() }
-            try store.awaitLiveTree()
-            return try await perform("ack-tab-notifications") { try await $0.acknowledgeNotifications(of: surface) }
+            // The surface is the store's tree's number: sent on that tree's transport only.
+            guard let stamp = try store.liveTreeStamp() else {
+                return try await perform("ack-tab-notifications") { try await $0.acknowledgeNotifications(of: surface) }
+            }
+            return try await perform("ack-tab-notifications") { try await $0.acknowledgeNotifications(of: surface, on: stamp) }
         }
         guard sent == nil, tab.readingNotification == nil else { return }
         let surface = tab.surface
@@ -26,7 +29,6 @@ extension DaemonService {
         let start = shutdowns
         reads.clearMarkedUnread(of: tab, alive: { [weak self] in self?.shutdowns == start }, current: store.holdsRead(of: tab)) { [weak self] in
             guard let self else { throw CancellationError() }
-            try store.awaitLiveTree()
             try await perform("tab.update") { try await $0.state.updateTabRecord(resource, markedUnread: false) }
         }
     }
@@ -36,7 +38,6 @@ extension DaemonService {
         let start = shutdowns
         reads.clearAttention(request, of: tab, alive: { [weak self] in self?.shutdowns == start }, current: store.holdsRead(of: tab)) { [weak self] in
             guard let self else { throw CancellationError() }
-            try store.awaitLiveTree()
             try await perform("tab.update") { try await $0.state.updateTabRecord(resource, attentionRequestID: request.requestID) }
         }
     }
