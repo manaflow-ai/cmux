@@ -82,7 +82,7 @@ fn every_session_a_guest_starts_asks_before_it_acts() {
         let at = argv.iter().position(|a| a == "--policy").expect("a --policy");
         argv[at + 1].clone()
     };
-    let harnesses = [None, Some("claude"), Some("claude/opus"), Some("codex"), Some("codex/gpt-5.5")];
+    let harnesses = [None, Some("claude"), Some("claude/opus"), Some("codex"), Some("codex/x")];
     let machines = [None, Some("local"), Some("auto"), Some("mac-mini"), Some("cloud-1")];
     for harness in harnesses {
         for machine in machines {
