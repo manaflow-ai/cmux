@@ -83,6 +83,8 @@ extension CredentialVault {
                 }
             }
         } onCancel: {
+            // main-hop-allow: a cancellation handler runs synchronously on any thread; ending the one sheet
+            // this call showed needs the main actor, and that is all the hop does (one dismiss).
             Task { @MainActor in if let id = shown.id { _ = CmuxDialogCenter.shared.dismiss(id) } }
         }
         return entryAnswer(result, request: request)

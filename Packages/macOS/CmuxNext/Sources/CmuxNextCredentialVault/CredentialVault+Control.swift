@@ -332,6 +332,8 @@ nonisolated enum VaultControl {
                 vault.auditRefusal(event: event, names: names, by: by, command: command)
                 throw Self.refusal(busy, names: names)
             }
+            // main-hop-allow: a control call off the main actor shows one sheet only the person answers and waits
+            // for it; the hop presents that sheet (no action of the person's to fold it into), then waits.
             let task = Task { @MainActor in try await show() }
             // Its connection may have closed already: then the sheet ends at once.
             let token = ControlConnectionClosures.shared.add(call.connection) { task.cancel() }

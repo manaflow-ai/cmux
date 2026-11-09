@@ -31,6 +31,8 @@ public final class CredentialVaultBoard {
         self.enabled = enabled
         vault.onChange { [weak self] in
             // task-owner: one read of the index; it ends by itself
+            // main-hop-allow: the vault reports a change from the thread that made it (a control call's write);
+            // the hop starts one background read of the names index, which publishes once it is read.
             Task { @MainActor in self?.reload() }
         }
     }

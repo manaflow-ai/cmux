@@ -31,6 +31,8 @@ public final class HomeNativeTranscriptView: NSView {
     let transcript: MessagesLabHomeView
     let firstRun = HomeFirstRunView()
     var starterSent = false
+    /// Follows the Credential Vault rollout (``connectCredentialVault(vault:window:)``): one loop per view.
+    var credentialVaultFollower: Task<Void, Never>?
     var starterIntakes = 0 { didSet { updateStarterAvailability() } }
     let me: ParticipantID
     /// This conversation's part of the store: chained refusal and
