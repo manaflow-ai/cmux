@@ -1124,6 +1124,140 @@
           ]
         },
         {
+          "key": "appearance.font",
+          "note": "The app font: every chrome label (Typography, CheckedFont) and every web page's --font-ui (WebTheme `uiFont`). Leo, 2026-11-08: \"there's no whole app font change thing ... i wanna just be able to see different fonts just like how i can see different themes as preview\". The default is the macOS system font (ui-font-pin.json); the choices are faces every Mac ships, so chrome and pages draw the same one.",
+          "title": {
+            "key": "settings.appearance.font",
+            "text": "App Font"
+          },
+          "help": {
+            "key": "settings.appearance.font.help",
+            "text": "The font of the whole app: tabs, the sidebar, menus, chats and pages. Terminal and code text keep their own fonts."
+          },
+          "kind": "choice",
+          "swift_owner": "AppFontSetting",
+          "choices": [
+            {
+              "value": "system",
+              "title": {
+                "key": "settings.choice.agentChatUiFontSystemUi",
+                "text": "System (default)"
+              }
+            },
+            {
+              "value": "Helvetica Neue",
+              "title": {
+                "key": null,
+                "text": "Helvetica Neue"
+              }
+            },
+            {
+              "value": "Avenir Next",
+              "title": {
+                "key": null,
+                "text": "Avenir Next"
+              }
+            },
+            {
+              "value": "Futura",
+              "title": {
+                "key": null,
+                "text": "Futura"
+              }
+            },
+            {
+              "value": "Gill Sans",
+              "title": {
+                "key": null,
+                "text": "Gill Sans"
+              }
+            },
+            {
+              "value": "Optima",
+              "title": {
+                "key": null,
+                "text": "Optima"
+              }
+            },
+            {
+              "value": "Verdana",
+              "title": {
+                "key": null,
+                "text": "Verdana"
+              }
+            },
+            {
+              "value": "Trebuchet MS",
+              "title": {
+                "key": null,
+                "text": "Trebuchet MS"
+              }
+            },
+            {
+              "value": "Georgia",
+              "title": {
+                "key": null,
+                "text": "Georgia"
+              }
+            },
+            {
+              "value": "Palatino",
+              "title": {
+                "key": null,
+                "text": "Palatino"
+              }
+            },
+            {
+              "value": "Charter",
+              "title": {
+                "key": null,
+                "text": "Charter"
+              }
+            },
+            {
+              "value": "Iowan Old Style",
+              "title": {
+                "key": null,
+                "text": "Iowan Old Style"
+              }
+            },
+            {
+              "value": "Baskerville",
+              "title": {
+                "key": null,
+                "text": "Baskerville"
+              }
+            },
+            {
+              "value": "American Typewriter",
+              "title": {
+                "key": null,
+                "text": "American Typewriter"
+              }
+            },
+            {
+              "value": "Menlo",
+              "title": {
+                "key": null,
+                "text": "Menlo"
+              }
+            }
+          ],
+          "default": "system",
+          "keywords": [
+            "font",
+            "fonts",
+            "typeface",
+            "family",
+            "app",
+            "interface",
+            "ui",
+            "whole",
+            "everything",
+            "preview"
+          ]
+        },
+        {
           "key": "appearance.metrics.chromeFontSize",
           "title": {
             "key": "settings.appearance.interfaceSize",

@@ -10,7 +10,7 @@ public final class TerminalDictationPreview: NSView {
     public init() {
         super.init(frame: .zero)
         glass.translatesAutoresizingMaskIntoConstraints = false
-        label.font = .systemFont(ofSize: TypeScale.detail, weight: TypeScale.emphasis)
+        label.font = Typography.system(size: TypeScale.detail, weight: TypeScale.emphasis)
         label.ink = .secondary
         label.lineBreakMode = .byTruncatingTail
         label.maximumNumberOfLines = 1

@@ -44,14 +44,14 @@ public final class BrowserFitFrameView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         for field in [label, note] {
-            field.font = .systemFont(ofSize: TypeScale.caption)
+            field.font = Typography.system(size: TypeScale.caption)
             field.lineBreakMode = .byTruncatingTail
         }
         label.themedToolTip = Strings.explain
         for button in [choose, off] {
             button.isBordered = false
             button.target = self
-            button.font = .systemFont(ofSize: TypeScale.caption, weight: TypeScale.emphasis)
+            button.font = Typography.system(size: TypeScale.caption, weight: TypeScale.emphasis)
         }
         choose.action = #selector(showChoices)
         choose.imagePosition = .imageTrailing

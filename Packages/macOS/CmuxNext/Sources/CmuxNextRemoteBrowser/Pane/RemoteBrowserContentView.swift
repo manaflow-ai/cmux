@@ -124,7 +124,7 @@ public final class RemoteBrowserContentView: NSView {
         label.stringValue = message
         label.alignment = .center
         label.ink = .secondary
-        label.font = .systemFont(ofSize: NSFont.systemFontSize)
+        label.font = Typography.system(size: NSFont.systemFontSize)
         label.isSelectable = true
         label.focusRingType = .none
         if failureLabel == nil {

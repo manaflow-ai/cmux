@@ -134,7 +134,7 @@ final class FeedRowCell: NSTableCellView {
 
     static func label(size: CGFloat, weight: NSFont.Weight = TypeScale.regular) -> NSTextField {
         let label = NSTextField(labelWithString: "")
-        label.font = .systemFont(ofSize: size, weight: weight)
+        label.font = Typography.system(size: size, weight: weight)
         label.lineBreakMode = .byTruncatingTail
         label.maximumNumberOfLines = 1
         label.cell?.truncatesLastVisibleLine = true
@@ -146,7 +146,7 @@ final class FeedRowCell: NSTableCellView {
     func show(_ content: FeedRowContent, colors: ReportsBasketColors, now: Date, times: FeedRelativeTime.Formatter) {
         self.content = content
         headline.stringValue = content.headline
-        headline.font = .systemFont(ofSize: TypeScale.body, weight: content.isUnread ? TypeScale.emphasis : TypeScale.regular)
+        headline.font = Typography.system(size: TypeScale.body, weight: content.isUnread ? TypeScale.emphasis : TypeScale.regular)
         headline.textColor = content.isUnread || content.isOpenRequest ? colors.primary : colors.secondary
         time.stringValue = times.string(content.createdAt, now: now)
         time.themedToolTip = content.whenFull

@@ -51,6 +51,32 @@ extension AppearanceSettingsSchema {
                 keywords: ["scale", "zoom", "size", "chrome", "web", "bigger", "smaller"]
             ),
             SettingDescriptor(
+                AppFontSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.font", "App Font"),
+                help: SettingsText.keyed("settings.appearance.font.help", "The font of the whole app: tabs, the sidebar, menus, chats and pages. Terminal and code text keep their own fonts."),
+                kind: .choice([
+                    SettingChoice("system", SettingsText.keyed("settings.choice.agentChatUiFontSystemUi", "System (default)")),
+                    SettingChoice("Helvetica Neue", "Helvetica Neue"),
+                    SettingChoice("Avenir Next", "Avenir Next"),
+                    SettingChoice("Futura", "Futura"),
+                    SettingChoice("Gill Sans", "Gill Sans"),
+                    SettingChoice("Optima", "Optima"),
+                    SettingChoice("Verdana", "Verdana"),
+                    SettingChoice("Trebuchet MS", "Trebuchet MS"),
+                    SettingChoice("Georgia", "Georgia"),
+                    SettingChoice("Palatino", "Palatino"),
+                    SettingChoice("Charter", "Charter"),
+                    SettingChoice("Iowan Old Style", "Iowan Old Style"),
+                    SettingChoice("Baskerville", "Baskerville"),
+                    SettingChoice("American Typewriter", "American Typewriter"),
+                    SettingChoice("Menlo", "Menlo"),
+                ]),
+                default: .string(AppFontSetting.fallback),
+                keywords: ["font", "fonts", "typeface", "family", "app", "interface", "ui", "whole", "everything", "preview"]
+            ),
+            SettingDescriptor(
                 InterfaceSizeSetting.configPath,
                 section: .appearance,
                 group: group,

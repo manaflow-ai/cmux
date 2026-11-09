@@ -129,7 +129,7 @@ public final class ChiefPanelView: NSView, TitlebarPressDeciding {
         setAccessibilityIdentifier("window.chiefPanel")
         backdrop.translatesAutoresizingMaskIntoConstraints = true
         backdrop.autoresizingMask = [.width, .height]
-        self.title.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+        self.title.font = Typography.system(size: NSFont.smallSystemFontSize, weight: .semibold)
         self.title.textColor = .secondaryLabelColor
         for (button, id) in [(dockButton, "window.chiefPanel.dock"), (hideButton, "window.chiefPanel.hide"), (eyeButton, "window.chiefPanel.seesScreen")] {
             button.bezelStyle = .accessoryBarAction

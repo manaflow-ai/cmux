@@ -42,6 +42,10 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// `lens`, `plain` or `spectrum` (``GlassLensMode/current``, already `plain` under Reduce
     /// Transparency and Low Power Mode): `data-glass` on `<html>`, which `.ui-glass` reads.
     public let glass: String
+    /// The app font's CSS stack (`appearance.font`, ``uiFontStack(_:)``), nil for the system font:
+    /// the bootstrap's `html:root` rule sets `--font-ui` to it, so every page's UI text follows,
+    /// while a page's own inline `--font-ui` (the chat's Interface Font) still wins.
+    public let uiFont: String?
     /// The filled personality slots (``ThemeDecorations/payload``): `data-cmux-decoration-<slot>` on
     /// `<html>`, which the page draws. Empty sends no `decorations` key at all.
     public let decorations: [String: String]
@@ -171,6 +175,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         self.scrollers = scrollers ?? SystemScrollers.pageValue
         terminal = Terminal(tokens, fontFamily: DesignSettings.shared.effectiveTerminalFontFamily,
                             fallbackFamilies: DesignSettings.shared.terminalConfigFontFamilies)
+        uiFont = Self.uiFontStack(DesignSettings.shared.appFontFamily)
         statusIndicators = !Motion.indicators.animatesLoops || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated"
         workingLook = StatusWorkingLook.tunable.value.rawValue
         motion = Self.motionValue(Motion.web.policy)
@@ -181,13 +186,21 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// `data-cmux-motion` for `policy`: `off` when the web category, the master switch or speed
     /// is off (the bootstrap stylesheet then ends every transition and animation at once),
     /// `reduced` under Reduce Motion, else `full`.
+    /// `family` first, then the system font for what it lacks; nil for no family. Quotes,
+    /// backslashes and CSS punctuation are dropped, so the name cannot end the rule it goes in.
+    public static func uiFontStack(_ family: String?) -> String? {
+        let name = family.map { String($0.unicodeScalars.filter { !"\"\\{};<>".unicodeScalars.contains($0) }) } ?? ""
+        guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return "\"\(name)\", -apple-system, BlinkMacSystemFont, system-ui, sans-serif"
+    }
+
     public static func motionValue(_ policy: MotionPolicy) -> String {
         guard policy.categoryAnimates else { return "off" }
         return policy.reduceMotion ? "reduced" : "full"
     }
 
     /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, workingLook, motion, glass}`,
-    /// and `decorations` while a personality slot is filled
+    /// `uiFont` while the app font is not the system font, and `decorations` while a personality slot is filled
     /// (`terminal.fontFamily` is null when the terminal has no named face).
     /// How the page's color variables move to new values (`appearance.colorTransition`, the same
     /// duration, curve and blend space as native): `{duration, easing, space}`.
@@ -198,6 +211,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
                                      "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators,
                                      "workingLook": workingLook, "motion": motion, "glass": glass]
         if !decorations.isEmpty { object["decorations"] = decorations }
+        if let uiFont { object["uiFont"] = uiFont }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
         return json
@@ -213,6 +227,19 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     (function () {
       if (window.cmuxTheme) return;
       var style = null;
+      // appearance.font: `--font-ui` on html:root, above desktop.css's :root default and under a
+      // page's own inline value (the chat's Interface Font); no rule for the system font.
+      var fontStyle = null;
+      function applyUiFont(stack) {
+        if (!fontStyle) {
+          if (!stack) return;
+          fontStyle = document.createElement('style');
+          fontStyle.id = 'cmux-app-font';
+          (document.head || document.documentElement).appendChild(fontStyle);
+        }
+        var text = stack ? 'html:root{--font-ui:' + stack + '}' : '';
+        if (fontStyle.textContent !== text) fontStyle.textContent = text;
+      }
       function ensureStyle() {
         if (style || !document.documentElement) return;
         style = document.createElement('style');
@@ -333,6 +360,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           if (first && names.length) getComputedStyle(root).getPropertyValue(names[0]);
           setTransition(payload.transition, names);
           root.style.colorScheme = payload.colorScheme;
+          applyUiFont(typeof payload.uiFont === 'string' ? payload.uiFont : null);
           if (payload.scrollers) root.setAttribute('data-scrollers', payload.scrollers);
           if (payload.statusIndicators) root.setAttribute('data-status-indicators', payload.statusIndicators);
           if (payload.workingLook) root.setAttribute('data-working-look', payload.workingLook);

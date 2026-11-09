@@ -30,14 +30,14 @@ final class HomeFirstRunHero: NSView {
         picture.layer?.contentsGravity = .resizeAspectFill
         picture.layer?.masksToBounds = true
         picture.setAccessibilityElement(false)
-        glyph.font = .systemFont(ofSize: Self.glyphSize)
+        glyph.font = Typography.system(size: Self.glyphSize)
         glyph.alignment = .center
         glyph.setAccessibilityElement(false)
-        title.font = .systemFont(ofSize: TypeScale.Base.title, weight: TypeScale.emphasis)
+        title.font = Typography.system(size: TypeScale.Base.title, weight: TypeScale.emphasis)
         title.alignment = .center
         title.lineBreakMode = .byTruncatingTail
         title.setAccessibilityRole(.staticText)
-        body.font = .systemFont(ofSize: TypeScale.Base.detail)
+        body.font = Typography.system(size: TypeScale.Base.detail)
         body.alignment = .center
         body.maximumNumberOfLines = 0
         body.setAccessibilityRole(.staticText)
@@ -78,9 +78,9 @@ final class HomeFirstRunHero: NSView {
         self.scale = scale
         if monogram != nil { picture.layer?.contents = monogramImage() }
         // The face is a picture-sized emoji, not body text: it scales with the picture.
-        glyph.font = .systemFont(ofSize: Self.glyphSize * scale)
-        title.font = .systemFont(ofSize: TypeScale.Base.title * scale, weight: TypeScale.emphasis)
-        body.font = .systemFont(ofSize: TypeScale.Base.detail * scale)
+        glyph.font = Typography.system(size: Self.glyphSize * scale)
+        title.font = Typography.system(size: TypeScale.Base.title * scale, weight: TypeScale.emphasis)
+        body.font = Typography.system(size: TypeScale.Base.detail * scale)
         invalidateIntrinsicContentSize()
         needsLayout = true
     }

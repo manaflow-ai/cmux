@@ -102,6 +102,7 @@ public final class SettingsApplier {
             if design === DesignSettings.shared { StatusIndicatorAppearance.shared.refresh() }
         }
         if design.statusBehavior != snapshot.statusBehavior { design.statusBehavior = snapshot.statusBehavior }
+        if design.appFontFamily != snapshot.appFontFamily { design.appFontFamily = snapshot.appFontFamily }
         let titlebar = ChromePlacementSetting.effectiveTitlebar(snapshot)
         if design.titlebar != titlebar { design.titlebar = titlebar }
         if design.titlebarButtons != snapshot.titlebarButtons { design.titlebarButtons = snapshot.titlebarButtons }

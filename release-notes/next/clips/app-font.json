@@ -1,0 +1,78 @@
+{
+  "caption": "Pick App Font in the command palette and the tabs, sidebar, menus and pages all change to that font.",
+  "frameInterval": 0.25,
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "Find App Font in the palette",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "palette.open",
+          "args": {
+            "query": "App Font"
+          },
+          "focus": true
+        }
+      },
+      "wait": 1.5,
+      "clip": true
+    },
+    {
+      "title": "The whole app in Georgia",
+      "rpc": {
+        "method": "settings.set",
+        "params": {
+          "key": "appearance.font",
+          "value": "Georgia"
+        }
+      },
+      "wait": 1.5,
+      "clip": true
+    },
+    {
+      "title": "The whole app in Avenir Next",
+      "rpc": {
+        "method": "settings.set",
+        "params": {
+          "key": "appearance.font",
+          "value": "Avenir Next"
+        }
+      },
+      "wait": 1.5,
+      "clip": true
+    },
+    {
+      "title": "The whole app in Futura",
+      "rpc": {
+        "method": "settings.set",
+        "params": {
+          "key": "appearance.font",
+          "value": "Futura"
+        }
+      },
+      "wait": 1.5,
+      "clip": true
+    },
+    {
+      "title": "Back to the system font",
+      "rpc": {
+        "method": "settings.set",
+        "params": {
+          "key": "appearance.font",
+          "value": "system"
+        }
+      },
+      "wait": 0.5
+    }
+  ],
+  "crop": [
+    0,
+    0,
+    0.6,
+    0.7
+  ]
+}

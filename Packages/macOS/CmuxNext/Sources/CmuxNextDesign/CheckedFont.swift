@@ -4,8 +4,9 @@ import os
 
 /// The one way chrome code gets a UI font (`Typography.system`): every design is the system's, SF Pro
 /// for the default (Lawrence 2026-11-07: "default fonts on cmux for everything should be macos default,
-/// not inter"). ``system(_:size:weight:)`` makes each (design, size, weight) font once and keeps it for
-/// the process.
+/// not inter"), or the default design in `appearance.font`'s family when one is set
+/// (`DesignSettings.appFontFamily`). ``system(_:size:weight:)`` makes each (design, family, size, weight)
+/// font once and keeps it for the process.
 ///
 /// Why: AppKit's monospaced system font constructors
 /// (`monospacedSystemFont`, `monospacedDigitSystemFont`) are imported as
@@ -27,6 +28,7 @@ import os
 enum CheckedFont {
     private struct Key: Hashable {
         var design: Typography.Design
+        var family: String?
         var size: CGFloat
         var weight: CGFloat
     }
@@ -47,26 +49,39 @@ enum CheckedFont {
     /// The system font of `design` at `size` (rounded to 1/100 pt) and
     /// `weight`: the retained one when this process made it before, else a
     /// new checked one that is kept. Main actor only (the module default).
-    static func system(_ design: Typography.Design, size requested: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
+    /// `family` draws the default design in that face (the app font); nil, and the monospaced
+    /// designs, are the system's.
+    static func system(_ design: Typography.Design, family requestedFamily: String? = nil, size requested: CGFloat,
+                       weight: NSFont.Weight = .regular) -> NSFont {
+        let family = design == .default ? requestedFamily : nil
         // A non-finite size never equals itself as a key: check it, never keep it.
         guard requested.isFinite else {
-            return checked(size: requested) { fresh(design, size: NSFont.systemFontSize, weight: weight) }.font
+            return checked(size: requested) { fresh(design, family: family, size: NSFont.systemFontSize, weight: weight) }.font
         }
         let size = (requested * 100).rounded() / 100
-        let key = Key(design: design, size: size, weight: weight.rawValue)
+        let key = Key(design: design, family: family, size: size, weight: weight.rawValue)
         if let font = retained[key] { return font }
-        let (font, isFallback) = checked(size: size) { fresh(design, size: size, weight: weight) }
+        let (font, isFallback) = checked(size: size) { fresh(design, family: family, size: size, weight: weight) }
         // A fallback is not kept: the next call asks AppKit again.
         if !isFallback, retained.count < retainedLimit { retained[key] = font }
         return font
     }
 
-    private static func fresh(_ design: Typography.Design, size: CGFloat, weight: NSFont.Weight) -> NSFont {
+    private static func fresh(_ design: Typography.Design, family: String?, size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        if let family, let font = named(family, size: size, weight: weight) { return font }
         switch design {
         case .default: .systemFont(ofSize: size, weight: weight)
         case .monospaced: .monospacedSystemFont(ofSize: size, weight: weight)
         case .monospacedDigit: .monospacedDigitSystemFont(ofSize: size, weight: weight)
         }
+    }
+
+    /// `family` at `weight`, the face of the family nearest it; nil when the family is not
+    /// installed, so the system font draws instead.
+    private static func named(_ family: String, size: CGFloat, weight: NSFont.Weight) -> NSFont? {
+        let descriptor = NSFontDescriptor(fontAttributes: [.family: family, .traits: [NSFontDescriptor.TraitKey.weight: weight.rawValue]])
+        guard let font = NSFont(descriptor: descriptor, size: size), font.familyName == family else { return nil }
+        return font
     }
 
     /// `font` as an optional, so a null reference from a non-optional

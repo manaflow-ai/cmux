@@ -343,8 +343,11 @@ public struct Typography {
     /// process and kept alive. Use it instead of a fresh `NSFont.systemFont`
     /// or `monospacedSystemFont` call in a computed property: a font made
     /// and dropped on every draw can come back nil (`CheckedFont`, #20557).
+    /// The default design draws in the app font (`appearance.font`) when one is set; reading it
+    /// here registers it with Observation, so a change (or its palette preview) re-lays out
+    /// chrome live, as an Interface Size change does.
     public static func system(_ design: Design = .default, size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
-        CheckedFont.system(design, size: size, weight: weight)
+        CheckedFont.system(design, family: design == .default ? DesignSettings.shared.appFontFamily : nil, size: size, weight: weight)
     }
 
     /// Tab titles, sidebar rows, palette results.

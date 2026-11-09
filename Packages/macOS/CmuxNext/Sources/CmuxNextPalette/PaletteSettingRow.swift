@@ -59,9 +59,12 @@ public struct PaletteSettingRow: Identifiable {
     public var isEnabled: Bool
     /// A font family setting: its values are installed fonts (Change Font… lists it).
     public var isFontFamily: Bool
+    /// The whole app's font (`appearance.font`): first in Change Font…, and ranked as a command, not a
+    /// demoted setting, so typing "font" finds it (Leo 2026-11-08: "there's no whole app font change thing").
+    public var isAppFont: Bool
 
     public init(id: String, title: String, group: String, value: String, kind: Kind, keywords: [String] = [],
-                swatches: [ThemeRGB] = [], isEnabled: Bool = true, isFontFamily: Bool = false) {
+                swatches: [ThemeRGB] = [], isEnabled: Bool = true, isFontFamily: Bool = false, isAppFont: Bool = false) {
         self.id = id
         self.title = title
         self.group = group
@@ -71,5 +74,6 @@ public struct PaletteSettingRow: Identifiable {
         self.swatches = swatches
         self.isEnabled = isEnabled
         self.isFontFamily = isFontFamily
+        self.isAppFont = isAppFont
     }
 }

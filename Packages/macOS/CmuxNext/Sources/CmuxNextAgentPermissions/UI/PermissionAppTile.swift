@@ -15,7 +15,7 @@ final class PermissionAppTile: NSView, NSDraggingSource {
         let icon = NSImageView(image: NSWorkspace.shared.icon(forFile: appURL.path))
         icon.imageScaling = .scaleProportionallyUpOrDown
         let name = NSTextField(labelWithString: Self.displayName(appURL))
-        name.font = .systemFont(ofSize: TypeScale.body, weight: TypeScale.emphasis)
+        name.font = Typography.system(size: TypeScale.body, weight: TypeScale.emphasis)
         name.textColor = Palette.textPrimary
         let stack = NSStackView(views: [icon, name])
         stack.spacing = 10

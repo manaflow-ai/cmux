@@ -27,7 +27,8 @@ public final class SettingsPaletteProvider: PaletteProvider {
 
     func makeItems() -> [PaletteItem] {
         let rows = source.rows
-        let fontRows = rows.filter(Self.isFontRow)
+        // The app font leads the font page (a stable sort keeps the others in schema order).
+        let fontRows = rows.filter(Self.isFontRow).enumerated().sorted { ($0.element.isAppFont ? 0 : 1, $0.offset) < ($1.element.isAppFont ? 0 : 1, $1.offset) }.map(\.element)
         return (fontRows.isEmpty ? [] : [changeFontItem(fontRows)]) + rows.map(item)
     }
 
@@ -38,7 +39,7 @@ public final class SettingsPaletteProvider: PaletteProvider {
         row.isFontFamily || row.id.localizedCaseInsensitiveContains("font")
     }
 
-    /// Change Font…: one page of the font settings (terminal, chat, code, editor, Markdown), each
+    /// Change Font…: one page of the font settings (the app font first, then terminal, chat, code, editor, Markdown), each
     /// opening its value list, where the fonts draw in their own face, recent ones first.
     private func changeFontItem(_ rows: [PaletteSettingRow]) -> PaletteItem {
         let section = PaletteSection(id: "fonts", title: PaletteStrings.changeFont, order: 0)
@@ -95,7 +96,7 @@ public final class SettingsPaletteProvider: PaletteProvider {
             )
         }
         item.swatches = row.swatches
-        item.isDemoted = true
+        item.isDemoted = !row.isAppFont
         return item
     }
 

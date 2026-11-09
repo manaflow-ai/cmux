@@ -17,7 +17,7 @@ enum RemoteChrome {
 
     static func wrapping(_ text: String, size: CGFloat, width: CGFloat) -> ChromeLabel {
         let field = ChromeLabel(wrappingLabelWithString: text)
-        field.font = .systemFont(ofSize: size)
+        field.font = Typography.system(size: size)
         field.alignment = .center
         field.preferredMaxLayoutWidth = width
         field.translatesAutoresizingMaskIntoConstraints = false

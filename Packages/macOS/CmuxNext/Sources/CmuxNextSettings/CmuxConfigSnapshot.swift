@@ -210,6 +210,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var focusIndicator: FocusIndicator = PaneFocusSettings.focusIndicatorDefault
     /// `focus.inactiveTabStyle`; "fade" when unset or invalid.
     public var inactiveTabStyle: InactiveTabStyle = PaneFocusSettings.inactiveTabStyleDefault
+    /// `appearance.font`: the family the whole app draws in; nil (unset, "system" or invalid) is the system font.
+    public var appFontFamily: String?
     /// `window.titlebar`; "minimal" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
     /// `window.titlebarButtons`; "hover" when unset or invalid.
@@ -429,6 +431,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
             root, at: PaneFocusSettings.inactiveTabStylePath, fallback: PaneFocusSettings.inactiveTabStyleDefault)
         snapshot.inactiveTabStyle = inactiveTabStyle
         if let inactiveTabDiagnostic { snapshot.diagnostics.append(inactiveTabDiagnostic) }
+        let (appFont, appFontDiagnostic) = AppFontSetting.parse(root)
+        snapshot.appFontFamily = appFont
+        if let appFontDiagnostic { snapshot.diagnostics.append(appFontDiagnostic) }
         let (titlebar, titlebarDiagnostic) = WindowTitlebarSetting.parse(root)
         snapshot.titlebar = titlebar
         if let titlebarDiagnostic { snapshot.diagnostics.append(titlebarDiagnostic) }
