@@ -64,13 +64,14 @@ struct AcpmuxRecords {
                 guard let id = image["id"]?.stringValue, !id.isEmpty, !AgentVideo.isFrameName(image["name"]?.stringValue) else { return nil }
                 return .recordedImage(id: id, name: image["name"]?.stringValue, index: index)
             }
+            let videos = Self.sentVideos(msg, recorded: recorded)
             var events: [AgentSessionEvent] = []
             if let retry = msg["_meta"]?["provenance"], retry["kind"]?.stringValue == "auto_resume",
                let previous = retry["turnId"]?.stringValue, previous != turnID {
                 events.append(.turnRetried(previousTurnID: previous, turnID: turnID))
             }
             events.append(.userMessage(text: AgentVideo.withoutFrameText(msg["text"]?.stringValue ?? "", imageNames: imageNames), promptId: msg["promptId"]?.stringValue ?? turnID,
-                                 turnId: turnID, attachments: images, at: at))
+                                 turnId: turnID, attachments: images + videos, at: at))
             if let incoming = AgentIncoming.parse(text: msg["text"]?.stringValue ?? "", provenance: msg["_meta"]?["provenance"],
                                                   client: msg["client"]?.stringValue, fromHarness: msg["fromHarness"]?.stringValue) {
                 events.append(.promptFrom(turnId: turnID, incoming: incoming))
@@ -141,6 +142,30 @@ struct AcpmuxRecords {
         default:
             return []
         }
+    }
+
+    /// The videos a `user_message` sent (`AgentVideo.sentVideos`): its text and its recorded
+    /// parts' text give the frames notes, its file parts (`inlineParts`, acpmux
+    /// prompt_images.rs) the links, `recorded` (its kept images) the posters.
+    static func sentVideos(_ msg: JSONValue, recorded: [JSONValue]) -> [AgentAttachment] {
+        let parts = msg["inlineParts"]?.arrayValue ?? []
+        let texts = [msg["text"]?.stringValue ?? ""] + parts.compactMap { part in
+            part["kind"]?.stringValue == "text" ? part["text"]?.stringValue : nil
+        }
+        let lines = texts.flatMap { $0.components(separatedBy: "\n") }
+        guard lines.contains(where: { $0.hasPrefix("Frames from the video ") })
+            || parts.contains(where: { AgentVideo.isVideoName($0["name"]?.stringValue ?? "") }) else { return [] }
+        let links = parts.compactMap { part -> AgentVideo.SentLink? in
+            guard part["kind"]?.stringValue == "file", let name = part["name"]?.stringValue,
+                  let uri = part["uri"]?.stringValue, let url = URL(string: uri), url.isFileURL else { return nil }
+            let path = url.path(percentEncoded: false)
+            return path.hasPrefix("/") ? AgentVideo.SentLink(name: name, path: path) : nil
+        }
+        let images = recorded.compactMap { image -> AgentVideo.SentImage? in
+            guard let id = image["id"]?.stringValue, !id.isEmpty else { return nil }
+            return AgentVideo.SentImage(id: id, name: image["name"]?.stringValue)
+        }
+        return AgentVideo.sentVideos(lines: lines, links: links, images: images)
     }
 
     /// A `permission_request` body as a question (AskUserQuestion and kin) or a tool permission.

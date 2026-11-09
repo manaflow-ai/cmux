@@ -107,7 +107,26 @@ impl HostAttachment {
         let deadline = Instant::now()
             .checked_add(HOST_LAUNCH_ROLLBACK_WAIT)
             .ok_or_else(|| anyhow::anyhow!("terminal-host termination timeout overflow"))?;
-        self.terminate().context("send terminal-host termination")?;
+        if let Err(error) = self.terminate() {
+            // A host that already ended cannot take the request. Its queued
+            // Exit frame or its durable exit record still answers below.
+            if !host_link_closed(&error) {
+                return Err(error.context("send terminal-host termination"));
+            }
+        }
+        self.wait_for_exit_until(deadline)
+    }
+
+    /// After [`Self::request_termination`]: the host's exit receipt, waited
+    /// for as long as [`Self::terminate_and_wait_for_exit`] waits.
+    pub(crate) fn wait_for_requested_exit(&mut self) -> anyhow::Result<TerminalHostExitRecord> {
+        let deadline = Instant::now()
+            .checked_add(HOST_LAUNCH_ROLLBACK_WAIT)
+            .ok_or_else(|| anyhow::anyhow!("terminal-host termination timeout overflow"))?;
+        self.wait_for_exit_until(deadline)
+    }
+
+    fn wait_for_exit_until(&mut self, deadline: Instant) -> anyhow::Result<TerminalHostExitRecord> {
         let identity = self.identity();
         let record_path = self.record_path.clone();
         let protocol_version = self.protocol_version;
@@ -166,4 +185,17 @@ impl HostAttachment {
             }
         }
     }
+}
+
+/// True when an error says the host's end of the link is gone: a write or
+/// shutdown on a socket whose peer closed (EPIPE, ECONNRESET, ENOTCONN).
+fn host_link_closed(error: &anyhow::Error) -> bool {
+    error.chain().filter_map(|cause| cause.downcast_ref::<std::io::Error>()).any(|cause| {
+        matches!(
+            cause.kind(),
+            std::io::ErrorKind::BrokenPipe
+                | std::io::ErrorKind::ConnectionReset
+                | std::io::ErrorKind::NotConnected
+        )
+    })
 }

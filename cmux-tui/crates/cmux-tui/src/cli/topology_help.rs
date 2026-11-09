@@ -251,6 +251,7 @@ USAGE
   cmux terminal <selector> resume [--cmd <launcher>] [--pane <selector>]
     [--split right|down|left|up] [--cwd <dir>] [--no-focus] [--no-wait]
   cmux terminal <term_id> keep on|off
+  cmux terminal <term_id>|current pin-tail on|off
 
 list --cwd <path> keeps the terminals in <path> or a folder inside it.
 screen read prints the screen's text; --details (or --json) gives the whole

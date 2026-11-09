@@ -1619,6 +1619,31 @@ fn a_carrier_read_that_times_out_inside_the_gate_is_busy() {
         role::Unread::Failed(_)
     ));
 
+    // The hard deadline: a child that ignores `timeout`'s SIGTERM, and a
+    // grandchild that keeps stdout open, are killed with their group at
+    // limit + READ_KILL_AFTER, not waited for (review F1 on #39366).
+    for script in ["trap '' TERM; sleep 30", "sleep 30 & wait"] {
+        let mut cmd = std::process::Command::new("timeout");
+        cmd.args(["1", "sh", "-c", script]);
+        let started = std::time::Instant::now();
+        let read = role::output_within(cmd, std::time::Duration::from_secs(1));
+        let took = started.elapsed();
+        assert_eq!(
+            read,
+            Err(role::Unread::TimedOut(std::time::Duration::from_secs(1))),
+            "{script}"
+        );
+        assert!(
+            took < std::time::Duration::from_secs(1)
+                + role::READ_KILL_AFTER
+                + std::time::Duration::from_secs(2),
+            "{script}: {took:?}"
+        );
+    }
+    let mut cmd = std::process::Command::new("timeout");
+    cmd.args(["2", "echo", "ok"]);
+    assert_eq!(role::output_within(cmd, std::time::Duration::from_secs(2)), Ok(b"ok\n".to_vec()));
+
     for honor in [gate::Honor::All, gate::Honor::AllButResume] {
         let dir = tempfile::tempdir().unwrap();
         let paths = Paths::new(dir.path());

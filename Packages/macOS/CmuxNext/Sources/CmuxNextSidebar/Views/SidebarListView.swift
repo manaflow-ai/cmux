@@ -144,7 +144,17 @@ final class SidebarListView: NSView {
     /// The group editor bubble (SidebarListView+GroupEditor) and its App-filled rows.
     let groupEditor = SidebarGroupEditor()
     var groupEditorItems: ((GroupID) -> [[SidebarGroupEditorItem]])?
-    var onGroupEditorItem: ((GroupID, String) -> Void)?
+    /// Runs a group editor row's action; a group header's + and Unpin and the empty group's + exist only with it.
+    /// Live rows take a new one at once (as `contextMenuProvider` does): the rows wire it on dequeue, and a row
+    /// realized before it was set would keep no + (its header lays the + out on its next layout).
+    var onGroupEditorItem: ((GroupID, String) -> Void)? {
+        didSet {
+            for (key, view) in rowViews {
+                wire(view, key: key)
+                view.needsLayout = true
+            }
+        }
+    }
     /// The group editor's Sort menu for a group: the App's `workspaceGroup.setSort` choices, the group's sort checked.
     var groupSortMenu: ((GroupID) -> NSMenu?)?
     var groupEditing: SidebarGroupEditing { SidebarGroupEditing(list: self) }
@@ -200,6 +210,9 @@ final class SidebarListView: NSView {
     /// Builds the right-click menu for a target (filled by the App from the
     /// action registry). Nil means no context menu.
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
+    /// Makes a row of a workspace's drive indicator menu from a registered action (filled by the App;
+    /// ``SidebarView/driveMenuItem``). Nil, or nil for a row, leaves the row out.
+    var driveMenuItem: ((WorkspaceID, SidebarDriveCommand, String) -> NSMenuItem?)?
     /// Opens a menu a row's button asked for at `anchor` (the button's frame in `view`):
     /// under the button, on the anchor's edge. Tests inject a recorder (popUp tracks modally).
     var menuPresenter: (NSMenu, PopupAnchor, NSView) -> Void = { menu, anchor, view in

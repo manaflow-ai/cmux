@@ -1,10 +1,12 @@
 import AppKit
-import CmuxNextActions
+@testable import CmuxNextActions
+@testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextComputerUse
 @testable import CmuxNextDesign
 @testable import CmuxNextDaemon
+import CmuxNextPages
 @testable import CmuxNextSidebar
 import CmuxNextTabs
 import Foundation
@@ -48,6 +50,8 @@ struct AgentDriveIndicatorTests {
         #expect(row.presence.isEmpty)
     }
 
+    /// The menu's rows are registered actions (scripts/cmux-next/check-menu-actions.py): Go to is Show Tab on
+    /// the agent's tab, Stop is Stop Computer Use on the agent's terminals, as the File menu and the CLI run them.
     @Test func theRowShowsTheDriverAndItsMenuGoesToItsTabAndStopsIt() throws {
         let presence = SidebarMapping.shared.row(try Self.workspace(.computerUse), machine: .local).presence
         let id = WorkspaceID("ws-drive")
@@ -55,9 +59,10 @@ struct AgentDriveIndicatorTests {
         var ws = SidebarWorkspace(id: id, title: "drive")
         ws.presence = presence
         let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [.workspace(ws)])], activeWorkspaceID: id)
-        var intents: [SidebarIntent] = []
-        model.onIntent = { intents.append($0) }
+        let services = ForkConversationTests.services()
+        AppActions.bind(services)
         let sidebar = SidebarView(model: model, design: DesignSettings())
+        sidebar.driveMenuItem = SidebarBridge.driveMenuItem(services)
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 400)
         sidebar.layoutSubtreeIfNeeded()
         sidebar.list.reload(animated: false)
@@ -71,16 +76,62 @@ struct AgentDriveIndicatorTests {
                 "a click reaches it, not the row")
         let menu = indicator.menu(for: presence[0])
         #expect(menu.items.map(\.title) == [Strings.driveGoTo(presence[0].name), Strings.driveStop(.screen)])
-        for item in menu.items { _ = item.target?.perform(item.action, with: item) }
         let tab = try #require(presence[0].tab)
-        #expect(intents.contains(.selectTab(workspace: id, tab: tab)))
-        #expect(intents.contains(.stopAgentDrive(workspace: id, tab: tab, drive: .screen)))
+        let runs = menu.items.compactMap { $0.representedObject as? ActionMenuPayload }
+        #expect(runs.map(\.id) == ["tab.focus", "computerUseStop"], "each row runs a registered action")
+        #expect(runs.first?.target == ActionTargetRef(kind: .tab, id: tab.rawValue), "Go to shows the agent's tab")
+        #expect(runs.last?.arguments["terminals"] != nil, "Stop names the agent's terminals")
+        #expect(menu.items.allSatisfy { $0.target is ActionMenuTarget }, "no row runs a handler of its own")
+    }
+
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
+    /// The row's Stop on an agent chat that drives a browser stops that chat's turn though no window shows its
+    /// workspace: the indicator sits on sidebar rows, mostly of workspaces in the background (review of #39609).
+    @Test(.timeLimit(.minutes(1))) func stopOnABrowsingChatStopsItsTurnInAWorkspaceNoWindowShows() async throws {
+        let services = ForkConversationTests.services()
+        AppActions.bind(services)
+        let store = services.machines.local.store
+        let pane = PaneSnapshot(id: 1, activeTab: 0, tabs: [TabSnapshot(surface: 1, terminalResourceID: "term_1")])
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "away",
+                                                                        screens: [ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])])]))
+        let paneModel = try #require(store.workspaces.first?.screens.first?.panes.first)
+        let tab = try #require(paneModel.tabs.first?.id)
+        try #require(services.paneController(for: paneModel) == nil, "a window shows the workspace")
+        let directory = FileManager.default.temporaryDirectory.appending(path: "drive-stop-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "index.html")
+        try Data("<html><body></body></html>".utf8).write(to: file)
+        let chat = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "s-drive"), source: .bundled(file),
+                                              pageHost: true, chromium: nil))
+        defer { chat.close() }
+        services.agentTabs.views[tab] = chat
+        defer { services.agentTabs.views[tab] = nil }
+        // A new subscriber's events arrive on a later main-actor turn (the provider's replay flush): read them as a stream.
+        let (kinds, sink) = AsyncStream.makeStream(of: String.self)
+        let provider = try #require(chat.pageEvents)
+        let subscription = try await provider.subscribe(AgentPageProvider.hostEvents, filter: .null,
+                                                         context: PageCallContext(page: PageDescriptor.agent.id)) { event in
+            if case .string(let kind)? = event["kind"] { sink.yield(kind) }
+        }
+        defer { subscription.cancel(); sink.finish() }
+        let item = try #require(SidebarBridge.driveMenuItem(services)(WorkspaceID("away"), .stop(tab: TabID(tab), drive: .browser),
+                                                                      Strings.driveStop(.browser)))
+        let refusal = services.registry.capturingRefusal { _ = item.target?.perform(item.action, with: item) }
+        try #require(refusal == nil, "the row's Stop was refused")
+        // The page gets the stop as an event; the test's time limit ends the wait when it never comes.
+        for await kind in kinds where kind == "stopTurn" { return }
+        Issue.record("the chat's turn did not stop")
     }
 
     @Test(arguments: SidebarDriveIndicatorVariant.allCases)
     func everyLookDrawsAndNamesTheAgent(_ variant: SidebarDriveIndicatorVariant) {
         _ = NSApplication.shared
         let view = AgentDriveIndicatorView()
+        view.makeItem = { _, title in NSMenuItem(title: title, action: nil, keyEquivalent: "") }
         let driver = SidebarPresence(id: "claude-1", name: "Claude Code 2", activity: .browsing, tab: TabID("tab_1"))
         view.configure([driver, SidebarPresence(id: "x", name: "Codex", activity: .editing)], variant: variant)
         #expect(view.drivers == [driver], "only drivers show")
