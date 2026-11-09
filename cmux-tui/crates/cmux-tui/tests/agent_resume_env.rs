@@ -357,13 +357,14 @@ fn w5r_agents_started_and_resumed_from_an_agent_caller_get_none_of_its_session_e
     // exits (the daemon's event stream, terminal.exited).
     let exited =
         session.run(&["terminal", &terminal, "wait", "--until", "prompt", "--timeout", "60s"]);
+    // A `--json` error is one JSON document on stderr.
     let exited_json: serde_json::Value =
-        serde_json::from_slice(&exited.stdout).unwrap_or(serde_json::Value::Null);
+        serde_json::from_slice(&exited.stderr).unwrap_or(serde_json::Value::Null);
     assert_eq!(
-        exited_json.pointer("/error/code").and_then(serde_json::Value::as_str),
+        exited_json.get("code").and_then(serde_json::Value::as_str),
         Some("terminal.exited"),
         "the agent never exited: {exited_json} {}",
-        String::from_utf8_lossy(&exited.stderr)
+        String::from_utf8_lossy(&exited.stdout)
     );
 
     let resumed = session.json(&["agent", "resume", "w5rbot", "--no-focus", "--no-wait"]);
