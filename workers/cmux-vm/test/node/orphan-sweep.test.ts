@@ -108,7 +108,7 @@ it("skips a VM a retried create recorded between the listing and its delete", as
 });
 
 const device = (n: number) => `dev_${String(n).padStart(26, "0")}`;
-const tunnelProvider = (tunnels: ReadonlyArray<{ id: string; slug: string | null; displayName: string | null }>) => {
+const tunnelProvider = (tunnels: ReadonlyArray<{ id: string; slug: string | null; displayName: string | null; attachments?: ReadonlyArray<{ vpcId: string | null }> }>) => {
   const live = new Map(tunnels.map((tunnel) => [tunnel.id, tunnel]));
   const deletes: string[] = [];
   const fetch = async (request: Request) => {
@@ -124,9 +124,14 @@ const tunnelProvider = (tunnels: ReadonlyArray<{ id: string; slug: string | null
   };
   return { live, deletes, config: { baseUrl: "https://provider.test", apiKey: Redacted.make("key"), environment: "production" as const, fetch } };
 };
-const deviceTunnel = (n: number, environment = "production", tenant = "team_alpha") => ({
-  id: `tun-${n}`, slug: `cmux-tun-${environment}-${device(n).replace("_", "-")}`, displayName: `cmux-vm-${environment} ${tenant} ${device(n)}`,
+const deviceTunnel = (n: number, environment = "production", tenant = "team_alpha", attachments: ReadonlyArray<{ vpcId: string | null }> = [{ vpcId: "vpc-mesh" }]) => ({
+  id: `tun-${n}`, slug: `cmux-tun-${environment}-${device(n).replace("_", "-")}`, displayName: `cmux-vm-${environment} ${tenant} ${device(n)}`, attachments,
 });
+/** A lookup naming `devices`, each on the mesh network "vpc-mesh". */
+const naming = (devices: ReadonlyArray<string>) => (owners: ReadonlyArray<{ readonly deviceId: string }>) => {
+  const found: ReadonlyMap<string, string> = new Map(owners.filter((owner) => devices.includes(owner.deviceId)).map((owner) => [owner.deviceId, "vpc-mesh"] as const));
+  return Effect.succeed(found);
+};
 
 it("deletes only this environment's device tunnels, named exactly as their create named them, that the lookup names", async () => {
   const p = tunnelProvider([
@@ -142,14 +147,28 @@ it("deletes only this environment's device tunnels, named exactly as their creat
     dryRun: false,
     sweepable: (owners) => {
       asked.push(...owners.map((owner) => `${owner.tenantId} ${owner.deviceId}`));
-      const found: ReadonlySet<string> = new Set(owners.map((owner) => owner.deviceId).filter((x) => x === device(1)));
-      return Effect.succeed(found);
+      return naming([device(1)])(owners);
     },
   }));
   expect([...new Set(asked)].sort()).toEqual([`team_alpha ${device(1)}`, `team_alpha ${device(2)}`]);
   expect(report.deleted).toEqual(["tun-1"]);
   expect(p.deletes).toEqual(["tun-1"]);
   expect([...p.live.keys()].sort()).toEqual(["tun-2", "tun-3", "tun-4", "tun-5", "tun-6"]);
+});
+
+it("skips and reports a named tunnel that is not attached to exactly its mesh's network, and deletes the one that is", async () => {
+  const p = tunnelProvider([
+    deviceTunnel(1), // on its mesh's network only: deleted
+    deviceTunnel(2, "production", "team_alpha", []), // no attachments
+    deviceTunnel(3, "production", "team_alpha", [{ vpcId: "vpc-mesh" }, { vpcId: "vpc-other" }]), // its mesh's plus another
+    deviceTunnel(4, "production", "team_alpha", [{ vpcId: "vpc-other" }]), // only another
+    deviceTunnel(5, "production", "team_alpha", [{ vpcId: null }]), // an attachment with no network id
+  ]);
+  const report = await Effect.runPromise(sweepOrphanTunnels(p.config, { dryRun: false, sweepable: naming([1, 2, 3, 4, 5].map(device)) }));
+  expect(report.deleted).toEqual(["tun-1"]);
+  expect([...report.skipped].sort()).toEqual(["tun-2", "tun-3", "tun-4", "tun-5"]);
+  expect(p.deletes).toEqual(["tun-1"]);
+  expect([...p.live.keys()].sort()).toEqual(["tun-2", "tun-3", "tun-4", "tun-5"]);
 });
 
 it("deletes no tunnel when the sweep's lookup fails", async () => {

@@ -505,16 +505,19 @@ const sweepTunnels = () =>
         sweepable: (owners: ReadonlyArray<TunnelOwner>) =>
           Effect.sync(() => {
             const store = h.mesh.store;
-            const found: Set<string> = new Set();
+            const found = new Map<string, string>();
             for (const owner of owners) {
               if (store.devices.some((row) => row.deviceId === owner.deviceId && row.deletedAt === null)) continue;
               const done = store.deviceIntentAttempts().some((attempt) =>
                 attempt.tenantId === owner.tenantId && attempt.deviceId === owner.deviceId &&
                 (attempt.resolvedAt !== null || store.deviceIntents().some((intent) =>
                   intent.tenantId === owner.tenantId && intent.meshId === attempt.meshId && intent.intentId === attempt.intentId && intent.revokedAt !== null)));
-              if (done) found.add(owner.deviceId);
+              // With its mesh's network, from the mesh's ownership row (as src/db/orphans.ts reads it).
+              const meshId = store.deviceIntentAttempts().find((attempt) => attempt.tenantId === owner.tenantId && attempt.deviceId === owner.deviceId)?.meshId;
+              const network = h.resources.find((row) => row.tenantId === owner.tenantId && row.kind === "mesh" && row.cmuxId === meshId)?.upstreamId;
+              if (done && network !== undefined) found.set(owner.deviceId, network);
             }
-            const sweepable: ReadonlySet<string> = found;
+            const sweepable: ReadonlyMap<string, string> = found;
             return sweepable;
           }),
       },

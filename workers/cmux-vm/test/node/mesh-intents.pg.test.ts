@@ -193,7 +193,12 @@ describe("mesh device intents", () => {
       [...(await Effect.runPromise(Effect.provide(sweepableTunnelDevices(owners), Layer.succeed(SqlClient, {
         query: (operation, text, params) =>
           Effect.tryPromise({ try: async () => (await pg.query(text, [...params])).rows, catch: (cause) => new StoreError({ operation, cause }) }),
-      }))))].sort();
+      }))))].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    // The mesh's ownership row carries its provider network: the sweep checks a tunnel's attachments against it.
+    await pg.query(
+      `INSERT INTO cmux_vm.resources (cmux_id, tenant_id, kind, upstream_id, created_by) VALUES ($1, $2, 'mesh', 'vpc-sweep-mesh', 'key:x')`,
+      [meshId, A],
+    );
     const resolved = newDeviceId();
     await claim(meshId, "s-1", resolved, at);
     await run(store.resolveAttempt(keyOf(meshId, "s-1", resolved), later(1)));
@@ -208,7 +213,13 @@ describe("mesh device intents", () => {
     await revokeAs(meshId, "s-4", later(2));
     const noIntent = newDeviceId();
     const asked = [resolved, open, revokedOpen, live, noIntent].map((deviceId) => ({ tenantId: A, deviceId }));
-    expect(await sweepable(asked)).toEqual([resolved, revokedOpen].sort());
+    expect(await sweepable(asked)).toEqual([resolved, revokedOpen].sort().map((device) => [device, "vpc-sweep-mesh"]));
+    // A device whose mesh has no recorded network is never named: the sweep could not check its attachments.
+    const unrecorded = newMeshId();
+    const orphanedMesh = newDeviceId();
+    await claim(unrecorded, "s-5", orphanedMesh, at);
+    await run(store.resolveAttempt(keyOf(unrecorded, "s-5", orphanedMesh), later(1)));
+    expect(await sweepable([{ tenantId: A, deviceId: orphanedMesh }])).toEqual([]);
     // The tenant is part of the match: another tenant's name for the same device names nothing.
     expect(await sweepable([{ tenantId: "team_other", deviceId: resolved }])).toEqual([]);
     expect(await sweepable([])).toEqual([]);
