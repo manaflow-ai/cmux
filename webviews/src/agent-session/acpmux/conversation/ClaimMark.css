@@ -6,7 +6,6 @@
   display: inline;
   color: inherit;
   font: inherit;
-  cursor: default;
   text-decoration-line: underline;
   text-decoration-style: solid;
   text-decoration-thickness: 1.5px;
@@ -19,9 +18,6 @@
 }
 .cv-claim--none {
   text-decoration-style: dashed;
-}
-button.cv-claim {
-  cursor: pointer;
 }
 button.cv-claim:hover {
   text-decoration-color: var(--cv-claim-color);
