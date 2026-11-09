@@ -176,12 +176,29 @@ fn git_repo_write<'a>(dir: impl Into<Dir<'a>>, args: &[&str]) -> Result<String, 
 }
 
 /// Runs `f` while this process changes nothing else in `dir`'s repository ([`git_repo_write`]).
-/// `f` must not call [`git_repo_write`]: the lock is not reentrant.
+/// `f` must not call [`git_repo_write`] or [`git_repo_write_by`]: the lock is not reentrant.
 fn with_repo_lock<T>(dir: Dir<'_>, f: impl FnOnce() -> T) -> T {
-    // Every worktree of a repository shares its common git folder's config and worktree list.
-    let repository = git(dir, &["rev-parse", "--path-format=absolute", "--git-common-dir"])
-        .map_or_else(|_| dir.path.to_path_buf(), PathBuf::from);
-    let lock = repo_lock(&repository);
+    let repository = git(dir, &COMMON_DIR).map_or_else(|_| dir.path.to_path_buf(), PathBuf::from);
+    locked(&repository, f)
+}
+
+/// [`with_repo_lock`] for a caller with a deadline: the key is read by `by` too, and a key that
+/// cannot be read is an error (any other key would exclude nothing).
+fn with_repo_lock_by<T>(
+    dir: &Path,
+    by: Instant,
+    f: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    let repository = PathBuf::from(git_by(dir, &COMMON_DIR, by)?);
+    locked(&repository, f)
+}
+
+/// Every worktree of a repository shares its common git folder's config and worktree list: the
+/// lock's key, as an absolute path with links resolved.
+const COMMON_DIR: [&str; 3] = ["rev-parse", "--path-format=absolute", "--git-common-dir"];
+
+fn locked<T>(repository: &Path, f: impl FnOnce() -> T) -> T {
+    let lock = repo_lock(repository);
     // A std mutex, not an actor: the callers are synchronous (blocking threads), and it is held
     // for one short git run or file removal on one repository.
     let _held = lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -203,6 +220,14 @@ fn repo_lock(repository: &Path) -> Lock {
 /// Git that runs nothing from the repository at `dir` ([`hardened`]), ended at `by`.
 pub(crate) fn git_by(dir: &Path, args: &[&str], by: Instant) -> Result<String, String> {
     run_by(hardened(dir.into()), args, Some(by))
+}
+
+/// [`git_by`] for a command that changes the repository's worktree list (`worktree add`,
+/// `move`, `remove`, `prune`): under the same per-repository lock as [`git_repo_write`], so a
+/// revive and a model race's adds in this process never run at once (an add reads the other
+/// worktrees' admin folders, and one half made fails it).
+pub(crate) fn git_repo_write_by(dir: &Path, args: &[&str], by: Instant) -> Result<String, String> {
+    with_repo_lock_by(dir, by, || git_by(dir, args, by))
 }
 
 /// `cmd`'s output, `input` on its stdin. With `by`, it runs in a process group of its own,
@@ -296,6 +321,7 @@ pub(crate) fn add_without_config(
     by: Instant,
 ) -> Result<(), String> {
     let git = |args: &[&str]| git_by(common, args, by);
+    let write = |args: &[&str]| git_repo_write_by(common, args, by);
     let path = ["rev-parse", "--path-format=absolute", "--git-path", "objects"];
     let objects = PathBuf::from(git(&path)?);
     let format = git(&["rev-parse", "--show-object-format"])?;
@@ -306,7 +332,7 @@ pub(crate) fn add_without_config(
         .into_iter()
         .chain(add.iter().map(|arg| if *arg == destination { stage.as_ref() } else { *arg }))
         .collect();
-    git(&args)?;
+    write(&args)?;
     let filled = git_by(&staged, &["rev-parse", "HEAD"], by)
         .and_then(|actual| {
             (actual == commit).then_some(()).ok_or_else(|| "branch advanced during recovery".into())
@@ -319,7 +345,7 @@ pub(crate) fn add_without_config(
         .and_then(|actual| {
             (actual == commit).then_some(()).ok_or_else(|| "branch advanced during recovery".into())
         })
-        .and_then(|()| git(&["worktree", "move", &stage, &destination]).map(drop))
+        .and_then(|()| write(&["worktree", "move", &stage, &destination]).map(drop))
         .and_then(|()| {
             if root.join(staged.file_name().unwrap_or_default()).exists()
                 || !root.join(".git").is_file()
@@ -330,14 +356,14 @@ pub(crate) fn add_without_config(
             }
         });
     if filled.is_err() {
-        let cleanup_by = Instant::now() + std::time::Duration::from_secs(5);
+        let cleanup = std::time::Duration::from_secs(5);
         let nested = root.join(staged.file_name().unwrap_or_default());
         for path in [&staged, &nested] {
-            let _ = git_by(
-                common,
-                &["worktree", "remove", "--force", &path.to_string_lossy()],
-                cleanup_by,
-            );
+            let remove = ["worktree", "remove", "--force", &path.to_string_lossy()];
+            // Its own time starts once the lock is held: a wait for the lock never skips it.
+            let _ = with_repo_lock_by(common, Instant::now() + cleanup, || {
+                git_by(common, &remove, Instant::now() + cleanup)
+            });
         }
     }
     filled
@@ -1797,6 +1823,32 @@ mod tests {
         assert_eq!(made.root_pin, None);
         let at = Dir::from(made.cwd.as_path());
         assert_eq!(verify_made(repo.as_path().into(), &made, at), Ok(()));
+    }
+
+    /// A revive's worktree add waits while this process changes the same repository (a model
+    /// race's add holds its lock), so two worktree changes never run at once in one repository.
+    #[test]
+    fn a_revive_add_waits_for_the_repository_lock() {
+        let (_scratch, repo, home) = repo();
+        let root = home.join("revived");
+        let at = sh(&repo, &["rev-parse", "HEAD"]);
+        let (tx, rx) = std::sync::mpsc::channel();
+        with_repo_lock(repo.as_path().into(), || {
+            let (common, target, at) = (repo.join(".git"), root.clone(), at.clone());
+            std::thread::spawn(move || {
+                let by = Instant::now() + std::time::Duration::from_secs(60);
+                let place = target.to_string_lossy().into_owned();
+                let args = ["--detach", place.as_str(), at.as_str()];
+                let _ = tx.send(add_without_config(&common, &args, &target, &at, by));
+            });
+            // Waits for what must not happen: the add finishing while the lock is held.
+            let early = rx.recv_timeout(std::time::Duration::from_secs(5));
+            assert!(early.is_err(), "the revive changed the repository under its lock: {early:?}");
+            assert!(!root.exists());
+        });
+        let added = rx.recv_timeout(std::time::Duration::from_secs(60)).expect("the revive ran");
+        assert_eq!(added, Ok(()));
+        assert!(root.join(".git").is_file());
     }
 
     #[test]
