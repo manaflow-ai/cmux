@@ -15,6 +15,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub(crate) mod salvage;
 const JOURNAL_RECORD_SCHEMA_VERSION: u32 = 1;
 const MAX_JOURNAL_PAGE_SIZE: usize = 1024;
+/// How long one call of the legacy kind backfill decodes
+/// ([`backfill_legacy_journal_segment_kinds`]).
+const KIND_BACKFILL_SLICE: std::time::Duration = std::time::Duration::from_millis(100);
 pub(crate) const MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES: usize = 16 * 1024 * 1024;
 pub(crate) const MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES: usize = 32 * 1024 * 1024;
 pub(crate) const MAX_JOURNAL_CONTENT_BYTES: usize = 256 * 1024;
@@ -1511,7 +1514,23 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
             Ok(())
         })?;
     }
+    // Each call decodes for at most `KIND_BACKFILL_SLICE` (one segment at
+    // least), then returns with the rest left and its progress recorded. The
+    // backfill runs inside the kind read that needs it, and on a large
+    // registry the whole of it took minutes, inside the start's 1 s roster
+    // budget. The read takes the full-decode path for segments still
+    // unmapped, and each later read goes on with the backfill.
+    #[cfg(test)]
+    let slice = BACKFILL_SLICE_FOR_TEST.with(Cell::get).unwrap_or(KIND_BACKFILL_SLICE);
+    #[cfg(not(test))]
+    let slice = KIND_BACKFILL_SLICE;
+    let deadline = std::time::Instant::now() + slice;
+    let mut decoded_any = false;
     for (segment_id, start_sequence) in legacy_backfill_segments(connection, rescan)? {
+        if decoded_any && std::time::Instant::now() >= deadline {
+            return Ok(());
+        }
+        decoded_any = true;
         // The kinds are all it needs: output records are named, not
         // validated (a base64 decode and a SHA-256 each). The segment's own
         // digest still covers their bytes.
