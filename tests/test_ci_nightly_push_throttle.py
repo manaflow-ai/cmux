@@ -497,7 +497,7 @@ def test_schedule_dispatch_and_rc_are_not_throttled() -> None:
     )
 
 
-NEXT_ENV = {"NIGHTLY_NEXT_FEED_BASE": "https://files-next.cmux.com/nightly-next/next", "NIGHTLY_NEXT_WRITER": "mac"}
+NEXT_ENV = {"NIGHTLY_NEXT_FEED_BASE": "https://files-next.cmux.com/nightly-next", "NIGHTLY_NEXT_WRITER": "mac"}
 
 
 def test_nightly_next_builds_for_publication_only_as_the_mac_writer() -> None:
@@ -523,8 +523,9 @@ def test_nightly_next_builds_for_publication_only_as_the_mac_writer() -> None:
 
 def test_nightly_next_publishes_its_own_track() -> None:
     # A push to nightly-next (moved only by the promote workflow) builds and
-    # publishes the cmux-next track: its own app (cmux NEXT, cx-x7hwx),
-    # release, feed and environment, and no main push throttle.
+    # publishes the cmux-next track: signed once as cmux NIGHTLY, the app the
+    # team runs, with its Developer ID profile (hq#7156), on its own release,
+    # feed and environment, and no main push throttle.
     result = run_decide(event="push", ref="refs/heads/nightly-next",
                         tag_age_hours=0.1, extra_env=NEXT_ENV)
     outputs = result["outputs"]
@@ -533,13 +534,15 @@ def test_nightly_next_publishes_its_own_track() -> None:
     assert outputs["track"] == "nightly-next"
     assert outputs["channel"] == "nightly"
     assert outputs["environment"] == "release-next"
-    assert outputs["bundle_id"] == "com.cmuxterm.app.nightly.cmux-next"
-    assert outputs["app_name"] == "cmux NEXT"
-    assert outputs["sign_channel"] == "next"
-    assert outputs["profile_channel"] == ""
+    assert outputs["bundle_id"] == "com.cmuxterm.app.nightly"
+    assert outputs["app_name"] == "cmux NIGHTLY"
+    assert outputs["url_scheme"] == "cmux-nightly"
+    assert outputs["entitlements"] == "cmux.nightly.entitlements"
+    assert outputs["sign_channel"] == "nightly"
+    assert outputs["profile_channel"] == "NIGHTLY"
     assert outputs["release_tag"] == "nightly-next"
     assert outputs["dmg_prefix"] == "cmux-nightly-next-macos"
-    assert outputs["feed_base"] == "https://files-next.cmux.com/nightly-next/next"
+    assert outputs["feed_base"] == "https://files-next.cmux.com/nightly-next"
     # The same commit is not rebuilt.
     assert not should_build(run_decide(event="push", ref="refs/heads/nightly-next",
                                        tag_sha=HEAD_SHA, extra_env=NEXT_ENV))

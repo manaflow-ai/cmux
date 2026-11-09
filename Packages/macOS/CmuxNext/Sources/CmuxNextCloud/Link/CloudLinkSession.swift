@@ -1,15 +1,18 @@
+public import CmuxNextDaemon
 import Foundation
 
 /// The link of one Cloud machine for its daemon connection (C13b). A
 /// ``connect(origin:)`` (one user intent, a fresh idempotency key: the daemon
 /// replays a keyed `apps-run`) asks the resolver for the socket and returns a
 /// ``CloudLinkTicket``; ``endpoint(_:)`` with that ticket hands the socket to
-/// exactly one connection. v1 does not reconnect by itself: a second
-/// ``endpoint(_:)`` call (the connection reconnecting after a drop, also after
-/// a first handshake that failed), a `down` or `revoked` change, or a failed
-/// connect ends the link until the next connect. A ticket of an older connect
-/// never changes the state: an old connection that asks again only learns
-/// that it was superseded.
+/// exactly one connection. A second ``endpoint(_:)`` call (the connection
+/// retrying a first handshake, or reconnecting after a drop) gets the same
+/// socket again from a link that dials per connection (the carrier,
+/// ``CloudLinkResolver/redials``) until it refused a dial; from any other link
+/// it ends the link. A `down` or `revoked` change, or a failed connect, ends
+/// the link until the next connect. A ticket of an older connect never changes
+/// the state: an old connection that asks again only learns that it was
+/// superseded.
 public actor CloudLinkSession {
     enum State {
         case idle
@@ -39,6 +42,8 @@ public actor CloudLinkSession {
     /// A revoke that came while the current connect was in flight: the
     /// connect's answer cannot bring the link back.
     private var revokedWhileConnecting: CloudLinkError?
+    /// The resolver hands newer ownership answers to ``updateOwnership(_:)`` (asked once).
+    private var observing = false
 
     /// `intent` makes each connect's idempotency key (default: a new UUID).
     public init(key: CloudLinkKey, resolver: any CloudLinkResolver, intent: (@Sendable () -> String)? = nil) {
@@ -62,6 +67,10 @@ public actor CloudLinkSession {
         let mine = attempt
         state = .connecting
         revokedWhileConnecting = nil
+        if !observing {
+            observing = true
+            await resolver.observeOwnership(key) { [weak self] in await self?.updateOwnership($0) }
+        }
         var result: Result<CloudLinkSocket, CloudLinkError>
         do {
             result = .success(try await resolver.open(key, intent: makeIntent(), origin: origin))
@@ -88,7 +97,7 @@ public actor CloudLinkSession {
     /// The current connect's socket while its link is up, without handing it to a connection:
     /// ``endpoint(_:)`` still serves it once. For another, short-lived client of the same machine
     /// daemon (`cmux link machine update`), also while the app refused that daemon: the carrier
-    /// dials the machine once per connection it accepts (``CloudConnectOpResolver``). Nil before a
+    /// dials the machine once per connection it accepts (``CloudCarrierServe``). Nil before a
     /// connect answered and once the link ended.
     public var currentSocket: String? {
         switch state {
@@ -110,11 +119,30 @@ public actor CloudLinkSession {
     /// the machine (``CloudLinkSocket/callerOwnsVM``), else nil. A chat start or a trust call reads
     /// it before it connects and again as it sends: a different answer means the link ended or a
     /// new connect asked the Cloud API again, so an owner answer never carries over to another link
-    /// (as ``CloudMachineLink/ownerLink`` on the legacy link).
     public var ownerLink: Int? {
         switch state {
         case .ready(let socket), .attached(let socket): socket.callerOwnsVM ? Int(truncatingIfNeeded: attempt) : nil
         case .idle, .connecting, .ended: nil
+        }
+    }
+
+    /// What this link's connect answered about the signed-in caller: ``CloudCallerOwnership/unknown`` while no
+    /// link is up, or when the answer was neither `owner` nor `team` (the app server could not read it, or predates it).
+    public var callerOwnership: CloudCallerOwnership {
+        switch state {
+        case .ready(let socket), .attached(let socket): socket.callerOwnsVM ? .owner : socket.callerIsTeammate ? .team : .unknown
+        case .idle, .connecting, .ended: .unknown
+        }
+    }
+
+    /// The link's state in one word, for a decision log line (no id, path or token).
+    public var stateWord: String {
+        switch state {
+        case .idle: "idle"
+        case .connecting: "connecting"
+        case .ready: "ready"
+        case .attached: "attached"
+        case .ended: "ended"
         }
     }
 
@@ -128,23 +156,56 @@ public actor CloudLinkSession {
         }
     }
 
-    /// The daemon connection's endpoint: the ticket's socket, once. Throws
+    /// The daemon connection's endpoint: the ticket's socket. Throws
     /// ``CloudLinkError`` otherwise; a current ticket's second call ends the
-    /// link, an old ticket changes nothing.
-    public func endpoint(_ ticket: CloudLinkTicket) throws -> String {
+    /// link unless the link redials (see the type), an old ticket changes nothing.
+    public func endpoint(_ ticket: CloudLinkTicket) async throws -> String {
         guard ticket.id == attempt else { throw Self.superseded }
         switch state {
         case .ready(let socket):
             state = .attached(socket)
             return socket.path
-        case .attached:
-            let error = CloudLinkError.disconnected(reason: "connection ended")
+        case .attached(let socket):
+            // A refused connection's step (a carrier dial's), else the plain drop. A link that dials per
+            // connection serves the retry until it refused one.
+            let refusal = await resolver.refusal(key)
+            guard ticket.id == attempt, case .attached = state else { throw Self.superseded }
+            if refusal == nil, resolver.redials { return socket.path }
+            let error = refusal ?? CloudLinkError.disconnected(reason: "connection ended")
             state = .ended(error)
             throw error
         case .ended(let error):
             throw error
         case .idle, .connecting:
             throw CloudLinkError.disconnected(reason: "not connected")
+        }
+    }
+
+    /// The ticket's socket for one more connection to the machine's daemon (an agent chat's attach,
+    /// the history reader): each connection to the carrier's socket is its own dial, so this neither
+    /// attaches nor ends the link. Only the daemon connection's own redial goes through
+    /// ``endpoint(_:)``, whose second call is that connection dropping.
+    public func streamEndpoint(_ ticket: CloudLinkTicket) throws -> String {
+        guard ticket.id == attempt else { throw Self.superseded }
+        switch state {
+        case .ready(let socket), .attached(let socket): return socket.path
+        case .ended(let error): throw error
+        case .idle, .connecting: throw CloudLinkError.disconnected(reason: "not connected")
+        }
+    }
+
+    /// A newer answer about the caller for the live link (a carrier connection's `vmk`): the link's
+    /// ownership follows it without a new connect. Nothing while no link is up or when it is the same.
+    func updateOwnership(_ caller: CloudCallerOwnership) {
+        guard caller != callerOwnership else { return }
+        let owned = { (socket: CloudLinkSocket) in
+            CloudLinkSocket(key: socket.key, path: socket.path, generation: socket.generation,
+                            callerOwnsVM: caller == .owner, callerIsTeammate: caller == .team)
+        }
+        switch state {
+        case .ready(let socket): state = .ready(owned(socket))
+        case .attached(let socket): state = .attached(owned(socket))
+        case .idle, .connecting, .ended: break
         }
     }
 
@@ -177,6 +238,18 @@ public actor CloudLinkSession {
     }
 
     /// Ends the link for good and asks the app server to close it.
+    /// The machine's carrier socket for the Cloud app server (``CloudLinkResolver/carrierSocket(_:)``): it
+    /// neither connects nor ends this link.
+    public func carrierSocket() async throws -> String { try await resolver.carrierSocket(key) }
+
+    /// The Cloud app server's carrier ask (``CloudCredentialRelay/carrierSocketOp``) of `machine`, whose app
+    /// link is `link` (nil: this app has no session of it), as the relay's answer: the socket path, or the
+    /// carrier step that refused (``CloudCarrierDial/carrierRefusal(_:)``).
+    public static func carrierAnswer(_ link: CloudLinkSession?, machine: String) async -> Result<String, CloudCredentialRelay.CarrierRefusal> {
+        guard let link else { return .failure(.init(code: "cloud.machine.not_found", message: "this Mac has no session of \(machine)")) }
+        do { return .success(try await link.carrierSocket()) } catch { return .failure(CloudCarrierDial.carrierRefusal(error)) }
+    }
+
     public func close() async {
         end(reason: "closed")
         await resolver.close(key)
@@ -190,4 +263,10 @@ public actor CloudLinkSession {
 public struct CloudLinkTicket: Equatable, Sendable {
     public let id: UInt64
     public let socket: CloudLinkSocket
+}
+
+/// Who the signed-in caller is to a machine, by its link's connect answer: its owner, a teammate, or not known (no link
+/// up, or no answer read). Only `owner` grants anything; `unknown` is never read as a teammate's machine.
+public enum CloudCallerOwnership: String, Sendable {
+    case owner, team, unknown
 }

@@ -52,8 +52,8 @@ await requireBrowserLane("model-search.browser.test.ts", async () => {
     return page;
   }
 
-  /// Search groups are sibling headings in the models column. Long names may ellipsize;
-  /// their full text stays in the title, and their boxes must stay inside the row.
+  /// Search groups are sibling headings in the models column. Long names wrap; their full text
+  /// and id stay in the title, and their boxes must stay inside the row.
   const read = (page: Page) =>
     page.evaluate(() => {
       const menu = document.querySelector<HTMLElement>(".acpmux-cols")!;
@@ -110,7 +110,8 @@ await requireBrowserLane("model-search.browser.test.ts", async () => {
     // Pi's OpenRouter names differ only at their end (Thinking, Mini, Nano).
     const pi = rows.filter((row) => row.name.startsWith("OpenAI: GPT-6.1 Sol"));
     expect(pi.map((row) => row.name.split(" ")[3])).toEqual(["Thinking", "Mini", "Nano"]);
-    expect(rows.every((row) => row.labelInside && row.ellipsis === "ellipsis")).toBe(true);
+    // Names wrap rather than ellipsize (Lawrence 2026-11-05: "cant see full model name").
+    expect(rows.every((row) => row.labelInside && row.ellipsis === "clip")).toBe(true);
     expect(rows.every((row) => row.height >= 26)).toBe(true);
     expect(rows.every((row) => row.title.includes(row.name) && row.title.includes(row.heading))).toBe(true);
     await page.close();

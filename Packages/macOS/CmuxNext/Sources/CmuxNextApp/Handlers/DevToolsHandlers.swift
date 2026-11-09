@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDaemonService
+import CmuxNextDesign
+import CmuxNextPages
 import WebKit
 
 /// The palette's Developer Tools set (`devtools.*`, plans/cmux-next/web-devtools.md)
@@ -19,6 +21,8 @@ enum DevToolsHandlers {
                 ActionTargetTitles.setPaletteState(id, in: registry) { isOn(command, context) }
             }
         }
+        registry.bindEffect("debug.viewWindow", effect: { [viewWindow = ViewWindow()] in
+            viewWindow.open(arguments: $0.arguments.compactMapValues { $0.stringValue ?? $0.intValue.map(String.init) ?? $0.boolValue.map(String.init) }); return .done })
     }
 
     // MARK: Target
@@ -28,31 +32,35 @@ enum DevToolsHandlers {
     static func target(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> WebInspectorTarget {
         if invocation.target != nil {
             if let entry = try? context.page(invocation) { return .browser(entry.tab) }
-            if let pane = context.scope(invocation).pane, let webView = WebInspectorTargets.webView(in: pane.view) {
-                return .webView(webView)
+            if targets(context).appPages, let pane = context.scope(invocation).pane, let page = WebInspectorTargets.page(in: pane.view) {
+                return page
             }
         }
-        guard let target = WebInspectorTargets().target(in: context.services.windows.active) else {
+        guard let target = targets(context).target(in: context.services.windows.active) else {
             throw ActionFailure(message: WebDevToolsLimit.noWebView.message)
         }
         return target
     }
 
+    /// The finder with the person's `developerTools.appPages`.
+    static func targets(_ context: AppActionContext) -> WebInspectorTargets {
+        WebInspectorTargets(appPages: DesignSettings.shared.pageDeveloperTools)
+    }
+
     /// Why the inspector actions are disabled now: no focused web view.
     static func noTargetReason(_ context: AppActionContext) -> String? {
-        WebInspectorTargets().target(in: context.services.windows.active) == nil ? WebDevToolsLimit.noWebView.message : nil
+        targets(context).target(in: context.services.windows.active) == nil ? WebDevToolsLimit.noWebView.message : nil
     }
 
     private static func reason(_ command: WebDevToolsCommand, _ context: AppActionContext) -> String? {
-        guard let target = WebInspectorTargets().target(in: context.services.windows.active) else {
+        guard let target = targets(context).target(in: context.services.windows.active) else {
             return WebDevToolsLimit.noWebView.message
         }
         return target.support(for: command).limit?.message
     }
 
     private static func isOn(_ command: WebDevToolsCommand, _ context: AppActionContext) -> Bool {
-        guard case .browser(let tab)? = WebInspectorTargets().target(in: context.services.windows.active),
-              let chromium = tab as? CEFTab else { return false }
+        guard let chromium = targets(context).target(in: context.services.windows.active)?.chromiumTab else { return false }
         return chromium.devToolsModes.isOn(command)
     }
 
@@ -61,9 +69,7 @@ enum DevToolsHandlers {
     static func run(_ command: WebDevToolsCommand, on target: WebInspectorTarget, _ invocation: ActionInvocation,
                     _ context: AppActionContext) throws {
         if let limit = target.support(for: command).limit { throw ActionFailure(message: limit.message) }
-        if case .browser(let tab) = target, let chromium = tab as? CEFTab {
-            return runChromium(command, on: chromium, context)
-        }
+        if let chromium = target.chromiumTab { return runChromium(command, on: chromium, context) }
         guard let webView = target.webKitView else { throw ActionFailure(message: WebDevToolsLimit.chromiumOnly.message) }
         runWebKit(command, on: webView, tab: target, context)
     }

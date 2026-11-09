@@ -16,6 +16,7 @@ use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 mod command;
+pub(crate) mod foreign_login;
 #[cfg(unix)]
 pub(crate) mod session_tmp;
 pub(crate) use command::{
@@ -114,6 +115,12 @@ pub struct ClaudeState {
 
 /// The answer to one request, as `ChildAgent::request` returns it.
 pub type Response = oneshot::Receiver<Result<Value, RpcError>>;
+
+/// How long [`ChildAgent::runs_claude`] waits for a host's answer. Shorter than
+/// `agent_host::QUERY_BUDGET`: adoption at the daemon's start waits on it, and a host that does
+/// not answer in time is judged by its profile, then asked again when a prompt reaches it.
+// timeout: never fails anything; a late host falls back to its profile and is asked again on its next prompt.
+const HOST_KIND_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// How long the reader waits for the Exit entry's ack to be written.
 const EXIT_ACK_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
@@ -703,6 +710,8 @@ impl Spawned {
             env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
         );
         crate::cpu_class::start_at_normal(&mut cmd);
+        // Never the daemon's OOM protection (`oom_rank.rs`).
+        crate::oom_rank::agent_at_exec(&mut cmd);
         let mut child = cmd.spawn().map_err(|e| spawn_error(&format!("spawn agent {name}"), e))?;
         // Not at a background class another process set on this daemon (`cpu_class.rs`, item 1):
         // the child is held and not reaped, so its pid is its own.
@@ -768,6 +777,7 @@ pub fn process_state(params: &Value) -> bool {
     params
         .pointer("/update/_meta/acpmux")
         .is_some_and(|m| m.get("contextBreakdown").is_some() || m.get("usageLimits").is_some())
+        || params.pointer("/update/_meta/codexAppServer/rateLimits").is_some()
 }
 
 impl ChildAgent {
@@ -1760,13 +1770,13 @@ impl ChildAgent {
 
     /// Whether Claude Code's translator runs this agent: here, or in its host
     /// (only that translator answers the host's query with modes). None: the
-    /// host did not answer in time.
+    /// host did not answer within [`HOST_KIND_BUDGET`].
     pub async fn runs_claude(&self) -> Option<bool> {
         if self.translator.is_some() {
             return Some(true);
         }
         let Some(h) = &self.hosted else { return Some(false) };
-        h.link().query().await.ok().map(|reply| reply.modes.is_some())
+        h.link().query_within(HOST_KIND_BUDGET).await.ok().map(|reply| reply.modes.is_some())
     }
 
     /// The Claude translator's state, wherever the translator runs.
@@ -1828,9 +1838,32 @@ impl ChildAgent {
         matches!(child.try_wait(), Ok(None)).then(|| f(pid))
     }
 
+    /// The processes under its harness, for ending some of them (`hub/silent_listing.rs`),
+    /// never found from a bare pid, which a reaped process gives up: a direct child's
+    /// descendants read while it is not reaped, under its slot's lock; a hosted one's, every
+    /// process that carries its host's start nonce (`HOST_MARK`).
+    #[cfg(unix)]
+    pub(crate) async fn harness_processes(&self) -> Vec<crate::agent_host::tree::Started> {
+        if let Some(record) = self.host_record() {
+            let nonce = record.start_nonce;
+            return tokio::task::spawn_blocking(move || {
+                crate::agent_host::tree::marked(crate::agent_host::HOST_MARK, &nonce)
+            })
+            .await
+            .unwrap_or_default();
+        }
+        let guard = self.child.lock().await;
+        under_unreaped(guard.as_ref()).await
+    }
+
     /// The host record when this agent runs under a host.
     pub fn host_record(&self) -> Option<crate::agent_host::HostRecord> {
         self.hosted.as_ref().map(|h| h.link().record.clone())
+    }
+
+    /// The build its host runs (`HostRecord::host_build`), when this agent runs under a host.
+    pub fn host_build(&self) -> Option<String> {
+        self.hosted.as_ref().map(|h| h.link().record.host_build.clone())
     }
 
     /// The hosted harness exited (its host is finishing).

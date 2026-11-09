@@ -72,6 +72,11 @@ await requireBrowserLane("composer-line-breaks.test.ts", async () => {
           writeText: async (text: string) => {
             copied.push(text);
           },
+          // A message's Copy writes its Markdown and HTML together (richClipboard.ts).
+          write: async (items: ClipboardItem[]) => {
+            copied.push(await (await items[0]!.getType("text/plain")).text());
+            Object.assign(window, { __copiedHtml: await (await items[0]!.getType("text/html")).text() });
+          },
           readText: async () => copied.at(-1) ?? "",
         },
       });

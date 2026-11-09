@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextCookieImport
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// The consent panel before an agent's cookie import reads another browser
@@ -9,7 +10,7 @@ import Testing
 /// of screen capture and screen sharing), and no automation can press Allow:
 /// not an Accessibility press, not a programmatic click, not Return. Deny and
 /// Escape stay easy.
-@MainActor @Suite(.serialized) struct CookieImportConsentPanelTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct CookieImportConsentPanelTests {
     static let request = CookieImportRequest(requester: CookieImportRequester(kind: .agentChat, name: "a49 · cookies"),
                                              reason: "Sign in to GitHub for the pull request", source: "Google Chrome · Work",
                                              sourceIsSafari: false, domains: ["github.com"], target: "Default")
@@ -41,6 +42,7 @@ import Testing
         let parent = Self.parent()
         let consent = CookieImportConsentPanel(request: Self.request, onShowRequester: nil)
         let answer = Task { await consent.ask(on: parent, limit: .seconds(30)) }
+        defer { consent.panel.closeAfterTest(); parent.closeAfterTest() }
         let panel = try await Self.shown(consent, on: parent)
         #expect(panel.sharingType == .none, "a screenshot, a recording or an agent's capture never holds Allow")
         consent.answer(.deny)
@@ -52,6 +54,7 @@ import Testing
         let parent = Self.parent()
         let consent = CookieImportConsentPanel(request: Self.request, onShowRequester: nil)
         let answer = Task { await consent.ask(on: parent, limit: .seconds(30)) }
+        defer { consent.panel.closeAfterTest(); parent.closeAfterTest() }
         let panel = try await Self.shown(consent, on: parent)
         let allow = try #require(Self.find(panel.contentView, id: CookieImportConsentPanel.accessibilityID + ".allow") as? NSButton)
         let deny = try #require(Self.find(panel.contentView, id: CookieImportConsentPanel.accessibilityID + ".deny") as? NSButton)
@@ -77,6 +80,7 @@ import Testing
         let parent = Self.parent()
         let consent = CookieImportConsentPanel(request: Self.request, onShowRequester: {})
         let answer = Task { await consent.ask(on: parent, limit: .seconds(30)) }
+        defer { consent.panel.closeAfterTest(); parent.closeAfterTest() }
         let panel = try await Self.shown(consent, on: parent)
         let id = CookieImportConsentPanel.accessibilityID
         let allow = try #require(Self.find(panel.contentView, id: id + ".allow") as? CmuxDialogButtonView)
@@ -94,6 +98,37 @@ import Testing
     /// Allow and released elsewhere, and, as Chrome's permission prompts guard, not a click that begins
     /// right after the panel shows or moves, or right after the person's other click. Then the person's
     /// click allows, once, even right after another process's click.
+    /// Leo, 2026-11-06: "The bottom import is unthemed." The same gap here: the panel is the theme's
+    /// glass, but its lines and boxes drew the system's label, separator and text-background colors,
+    /// so under a custom theme they kept the system grays. Every line and box takes the theme's ink.
+    @Test func everyLineAndBoxTakesTheThemesInk() async throws {
+        _ = NSApplication.shared
+        let parent = Self.parent()
+        let consent = CookieImportConsentPanel(request: CookieImportRequest(
+            requester: CookieImportRequester(kind: .agentChat, name: "a49 · cookies", workspace: "Review", latestMessage: "Opening GitHub"),
+            reason: "Sign in to GitHub for the pull request", source: "Google Chrome · Work",
+            sourceIsSafari: false, domains: ["github.com"], target: "Default"), onShowRequester: nil)
+        let answer = Task { await consent.ask(on: parent, limit: .seconds(30)) }
+        defer { consent.panel.closeAfterTest(); parent.closeAfterTest() }
+        let panel = try await Self.shown(consent, on: parent)
+        let root = try #require(panel.contentView)
+        let inks = root.performWithTheme { [Palette.textPrimary, Palette.textSecondary] }
+        func all<T: NSView>(_ view: NSView, _ type: T.Type) -> [T] {
+            ((view as? T).map { [$0] } ?? []) + view.subviews.flatMap { all($0, type) }
+        }
+        let labels = all(root, NSTextField.self).filter { !$0.stringValue.isEmpty && !($0.superview is NSButton) }
+        #expect(labels.count >= 8)
+        for label in labels {
+            #expect(inks.contains(label.textColor ?? .clear), "\(label.stringValue) draws \(String(describing: label.textColor))")
+        }
+        let boxes = all(root, NSBox.self)
+        #expect(boxes.count == 2)
+        let separator = root.performWithTheme { Palette.separator }
+        for box in boxes { #expect(box.borderColor == separator) }
+        consent.answer(.deny)
+        #expect(await answer.value == .deny)
+    }
+
     @Test func onlyThePersonsOwnClickOnAllowAllows() async throws {
         _ = NSApplication.shared
         let parent = Self.parent()
@@ -101,6 +136,7 @@ import Testing
         let consent = CookieImportConsentPanel(request: Self.request, onShowRequester: nil,
                                                isPersonEvent: { genuine.contains($0.eventNumber) })
         let answer = Task { await consent.ask(on: parent, limit: .seconds(30)) }
+        defer { consent.panel.closeAfterTest(); parent.closeAfterTest() }
         _ = try await Self.shown(consent, on: parent)
         let window = consent.panel
         let allow = try #require(consent.allowButton)
@@ -155,6 +191,7 @@ import Testing
         let parent = Self.parent()
         let consent = CookieImportConsentPanel(request: Self.request, onShowRequester: nil, isPersonEvent: { _ in true })
         let answer = Task { await consent.ask(on: parent, limit: .seconds(30)) }
+        defer { consent.panel.closeAfterTest(); parent.closeAfterTest() }
         _ = try await Self.shown(consent, on: parent)
         let window = consent.panel
         let allow = try #require(consent.allowButton)

@@ -30,6 +30,13 @@ import Darwin
 /// - a class that yielded to input in one frame does not yield again in the next one (a person
 ///   typing at 30 keys a second never starves the sidebar).
 ///
+/// Background work is idle work (Chrome's idle tasks): nobody sees it this frame, so it runs only in
+/// a frame with idle time, one that came on time after the frame before it (no missed refresh) after a
+/// render pass under half a refresh. A switch, a Cmd-N or a sidebar insert leaves a few late frames
+/// behind its first frame (its commit, the content's layout); a spare made in them (the next Cmd-N's
+/// workspace view, 3 ms a step) made each of them later still. It never waits longer than
+/// ``Budgets/idleTimeout`` in a row (Chrome's idle task timeout): under constant load it still moves.
+///
 /// This is batching to the display cadence, not a throttle: work over budget runs on the next
 /// frame, never later. The app builds one at its composition root and hands it to the one
 /// ``MainWorkScheduler``, whose single display link opens the budget's window once per frame.
@@ -53,14 +60,29 @@ public final class MainFrameBudget {
     private var windowStart: UInt64 = 0
     private var windowLength: UInt64 = 16_666_667
     private var lastTimestamp: CFTimeInterval?
+    /// The previous display tick's time while the link runs (nil once it stops, and after a
+    /// synthesized frame): what tells a late frame.
+    private var lastTickTimestamp: CFTimeInterval?
+    /// This frame came more than one and a half refreshes after the one before it: the main thread
+    /// had no idle time, so background work waits.
+    private var frameIsLate = false
+    /// Since when background work has waited for a frame with idle time (nil: it is not waiting).
+    private var idleWaitStart: UInt64?
+    /// Background work asked to run in this window (a wait ends when it stops asking).
+    private var backgroundAsked = false
     /// The current window was opened by a task outside any tick (an idle queue's request).
     private var windowOpenedOffTick = false
-    /// Set by the ``MainWorkScheduler``'s frame scheduler while its display link exists: its ticks
+    /// Set by the ``MainWorkScheduler``'s frame scheduler while its display link runs: its ticks
     /// own the window, so a task outside a tick never opens one (it would give a run loop pass a
     /// second budget, and roll the input-yield memory between two real frames).
     var tickOwnsWindow = false {
-        // The link went away: a render pass measured under it is not charged to a later window.
-        didSet { if !tickOwnsWindow { renderSinceRoll = 0 } }
+        // The link stopped: a render pass measured under it is not charged to a later window.
+        didSet {
+            guard !tickOwnsWindow else { return }
+            renderSinceRoll = 0
+            lastTickTimestamp = nil
+            frameIsLate = false
+        }
     }
     private var spent: [UInt64] = [0, 0, 0]
     /// Time the pending-input checks took in this window: scheduled-work overhead, counted in the
@@ -71,6 +93,7 @@ public final class MainFrameBudget {
     private var yieldedThisFrame: [Bool] = [false, false, false]
     private let totalNanos: UInt64
     private let passTargetNanos: UInt64
+    private let idleTimeoutNanos: UInt64
     /// The longest render pass since the window opened (charged to the next window).
     private var renderSinceRoll: UInt64 = 0
     /// The render pass this window is charged with.
@@ -92,6 +115,7 @@ public final class MainFrameBudget {
         self.budgets = budgets
         totalNanos = Self.nanos(budgets.total)
         passTargetNanos = Self.nanos(budgets.passTarget)
+        idleTimeoutNanos = Self.nanos(budgets.idleTimeout)
         self.input = input
         self.board = board
         self.signposts = signposts
@@ -110,6 +134,13 @@ public final class MainFrameBudget {
         if let timestamp, timestamp == lastTimestamp { return }
         lastTimestamp = timestamp
         if let refreshInterval, refreshInterval > 0 { windowLength = UInt64(refreshInterval * 1_000_000_000) }
+        // A frame more than one and a half refreshes after the previous tick: one at least was missed.
+        if let timestamp, let previous = lastTickTimestamp, let refreshInterval, refreshInterval > 0 {
+            frameIsLate = timestamp - previous > refreshInterval * 1.5
+        } else {
+            frameIsLate = false
+        }
+        lastTickTimestamp = timestamp
         let now = uptimeNanos()
         if windowOpenedOffTick, now &- windowStart < windowLength {
             windowOpenedOffTick = false
@@ -129,6 +160,8 @@ public final class MainFrameBudget {
         }
         yieldedLastFrame = yieldedThisFrame
         yieldedThisFrame = [false, false, false]
+        if !backgroundAsked { idleWaitStart = nil }
+        backgroundAsked = false
         checkSpent = 0
         renderCharge = renderSinceRoll
         renderSinceRoll = 0
@@ -155,7 +188,8 @@ public final class MainFrameBudget {
     /// a frame always may, then it may while its own share is left, and past that, with no input
     /// pending, on idle time the other classes left; never once the frame's scheduled work reached
     /// its limit (``Budgets/total``, lowered by an expensive last render pass). A refusal is
-    /// counted: the caller keeps the task for the next frame.
+    /// counted: the caller keeps the task for the next frame. Background work runs only in a frame with
+    /// idle time (``hasIdleTime(_:)``).
     public func mayRun(_ workClass: MainWorkClass) -> Bool {
         guard let index = Self.index(workClass), let budget = budgets.budget(workClass) else { return true }
         let now = uptimeNanos()
@@ -170,6 +204,10 @@ public final class MainFrameBudget {
             yieldedThisFrame[index] = true
             return false
         }
+        if workClass == .background, !hasIdleTime(now) {
+            stats.waitedForIdleFrame += 1
+            return false
+        }
         guard ranThisFrame[index] else { return true }
         let underLimit = frameSpentNow(now) < scheduledLimitNanos
         if underLimit, spentNow(index, workClass: workClass, now: now) < Self.nanos(budget) { return true }
@@ -180,6 +218,24 @@ public final class MainFrameBudget {
         }
         stats.deferredOverBudget[index] += 1
         return false
+    }
+
+    /// Whether this frame has idle time for background work: it came on time after the frame before it
+    /// and the last render pass took under half a refresh (the pass target at most). After waiting
+    /// ``Budgets/idleTimeout`` in a row for one, background work runs anyway.
+    private func hasIdleTime(_ now: UInt64) -> Bool {
+        backgroundAsked = true
+        if !frameIsLate, renderCharge < min(passTargetNanos, windowLength / 2) {
+            idleWaitStart = nil
+            return true
+        }
+        guard let since = idleWaitStart else {
+            idleWaitStart = now
+            return false
+        }
+        guard now &- since >= idleTimeoutNanos else { return false }
+        idleWaitStart = nil
+        return true
     }
 
     /// Runs one task of `workClass` for `owner`: publishes it on ``board`` (the watchdog names it

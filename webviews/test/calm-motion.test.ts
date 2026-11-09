@@ -58,7 +58,7 @@ await requireBrowserLane("calm-motion.test.ts", async () => {
       rows.map((row) => `${getComputedStyle(row).animationName} ${getComputedStyle(row).animationDuration}`),
     );
     await p.close();
-    expect(fades).toEqual(["cv-enter-fade 0.12s", "cv-enter-fade 0.12s", "cv-enter-fade 0.12s", "cv-enter-fade 0.12s"]);
+    expect(fades).toEqual(["cv-enter-fade 0.12s", "cv-enter-fade 0.12s", "cv-enter-fade 0.36s", "cv-enter-fade 0.12s"]);
   });
 
   test("a new message fades at final size and appears instantly under Reduce Motion", async () => {

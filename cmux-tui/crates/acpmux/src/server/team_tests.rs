@@ -469,6 +469,7 @@ async fn team_receipt_origin_survives_restart_and_gates_owner_sends_without_wire
         target: OTHER.into(),
         request: json!({"_meta": {"acpmux": {"promptId": format!("mesh:{OWN_MESSAGE}")}}}),
         caller: Some(OTHER.into()),
+        unproven_caller: None,
         state: crate::hub::outbox::State::Delivered,
         attempts: 0,
         never_sent: false,

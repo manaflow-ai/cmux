@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextFiles
 import CmuxNextFilesUI
 import CmuxNextIcons
+import CmuxNextPages
 import UniformTypeIdentifiers
 
 extension InternalPageID {

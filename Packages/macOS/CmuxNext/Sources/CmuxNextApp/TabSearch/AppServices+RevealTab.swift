@@ -52,12 +52,7 @@ extension AppServices {
     /// or its `pane_` resource id when the model was first seen without one
     /// (its id is then `pane:<handle>`).
     func pane(id: String) -> PaneModel? {
-        for (workspace, _) in machines.allWorkspaces {
-            for screen in workspace.screens {
-                if let pane = screen.panes.first(where: { $0.id == id || $0.resourceID?.rawValue == id }) { return pane }
-            }
-        }
-        return nil
+        machines.daemons.lazy.compactMap { $0.store.pane(idOrResource: id) }.first
     }
 }
 

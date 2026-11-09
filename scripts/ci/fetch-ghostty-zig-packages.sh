@@ -27,15 +27,17 @@
 # partial under its final name, and a temp file has no archive suffix and stays.
 #
 # usage: fetch-ghostty-zig-packages.sh [ghostty source dir]
-# CMUX_ZIG_FETCH_ATTEMPTS (default 3), CMUX_ZIG_FETCH_STALL_TIMEOUT (seconds
+# CMUX_ZIG_FETCH_ATTEMPTS (default 4), CMUX_ZIG_FETCH_STALL_TIMEOUT (seconds
 # without progress, default 180), CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT (seconds an
 # attempt may run, default 1800), CMUX_ZIG_FETCH_RETRY_DELAY (seconds, default
-# 20, multiplied by the attempt number) and CMUX_ZIG_FETCH_SAMPLE (seconds
+# 20, multiplied by the attempt number: 20, 40 and 60 s, so the retries span 2
+# minutes of a package-host outage; 3 attempts 20 and 40 s apart all got the
+# same 504 on 2026-11-08) and CMUX_ZIG_FETCH_SAMPLE (seconds
 # between progress checks, default 5) bound the retries. CMUX_ZIG_SEED=0 skips
 # the curl pre-download (scripts/ci/seed-zig-package-archives.sh).
 set -euo pipefail
 source_dir="${1:-ghostty-next}"
-attempts="${CMUX_ZIG_FETCH_ATTEMPTS:-3}"
+attempts="${CMUX_ZIG_FETCH_ATTEMPTS:-4}"
 stall_timeout="${CMUX_ZIG_FETCH_STALL_TIMEOUT:-180}"
 attempt_timeout="${CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT:-1800}"
 delay="${CMUX_ZIG_FETCH_RETRY_DELAY:-20}"
@@ -52,7 +54,7 @@ cd "$source_dir"
 
 marker="$(mktemp "${TMPDIR:-/tmp}/zig-fetch-stopped.XXXXXX")"
 # The running attempt's process group and watchdog, stopped if this script is.
-fetch_pid="" watchdog_pid=""
+fetch_pid="" watchdog_pid="" seed_pid=""
 
 # Zig's global cache, where it keeps package archives (p/).
 cache="${ZIG_GLOBAL_CACHE_DIR:-}"
@@ -60,6 +62,10 @@ if [[ -z "$cache" ]]; then
   # `zig env` prints ZON (0.15 and later: `.global_cache_dir = "..."`) or JSON (older).
   cache="$("$zig_bin" env 2>/dev/null | sed -n 's/.*global_cache_dir"\{0,1\} *[:=] *"\([^"]*\)".*/\1/p' | head -1)" || cache=""
 fi
+# Zig 0.16 writes a zip package to <cache>/tmp/ and does not make that directory
+# ("failed to create temporary zip file: FileNotFound"): when every other package
+# came from a restore or the curl seed, nothing else made it.
+if [[ -n "$cache" ]]; then mkdir -p "$cache/p" "$cache/tmp"; fi
 
 # A signature of what has been downloaded so far: it changes while bytes arrive.
 progress() {
@@ -69,10 +75,12 @@ progress() {
 }
 
 # Whether an archive is whole. An unknown kind, or no tool to check it, counts
-# as whole: only an archive shown to be cut short is removed.
+# as whole: only an archive shown to be cut short or not a tar with entries is
+# removed (a gzipped error page passes gzip -t, GNU tar lists it as an empty
+# archive, and Zig fails on it every attempt).
 archive_ok() {
   case "$1" in
-    *.tar.gz|*.tgz) gzip -t "$1" 2>/dev/null ;;
+    *.tar.gz|*.tgz) local entries; entries="$(tar -tzf "$1" 2>/dev/null | wc -l)" && (( entries > 0 )) ;;
     *.tar.xz) ! command -v xz >/dev/null 2>&1 || xz -t "$1" 2>/dev/null ;;
     *.tar.zst) ! command -v zstd >/dev/null 2>&1 || zstd -tq "$1" 2>/dev/null ;;
     *.zip) ! command -v unzip >/dev/null 2>&1 || unzip -tqq "$1" >/dev/null 2>&1 ;;
@@ -113,6 +121,8 @@ stop_group() {
 # Cancelled (the job timed out or was cancelled): the fetch runs in a process
 # group of its own, which a signal to this script's group does not reach.
 on_exit() {
+  # The seed stops its own downloads on TERM (its EXIT trap signals their group).
+  if [[ -n "$seed_pid" ]]; then kill -TERM "$seed_pid" 2>/dev/null || true; wait "$seed_pid" 2>/dev/null || true; fi
   if [[ -n "$watchdog_pid" ]]; then kill "$watchdog_pid" 2>/dev/null || true; fi
   if [[ -n "$fetch_pid" ]]; then stop_group "$fetch_pid"; fi
   rm -f "$marker"
@@ -175,8 +185,13 @@ fetch_once() {
 
 # Download what curl can first, with retries and a speed floor that
 # Zig's own HTTP read lacks; Zig then unpacks those from the cache offline.
+# In the background with `wait`: Bash runs a trap only after a foreground command
+# ends, so a TERM to this script would otherwise wait for the seed's deadline.
 if [[ -n "$cache" && "${CMUX_ZIG_SEED:-1}" != 0 ]]; then
-  "$script_dir/seed-zig-package-archives.sh" "$cache" . || true
+  "$script_dir/seed-zig-package-archives.sh" "$cache" . &
+  seed_pid=$!
+  wait "$seed_pid" || true
+  seed_pid=""
 fi
 
 attempt=1

@@ -22,6 +22,10 @@ use cmux_json::JsonSet as _;
 
 mod background;
 pub use background::TERMINATE;
+mod usage_limits;
+#[cfg(test)]
+mod usage_limits_tests;
+pub use usage_limits::{is_plan_snapshot, read_usage_limits, usage_limits};
 
 /// The cmux-codex-acp translator, with Codex's background terminals beside
 /// it (`background.rs`).
@@ -452,13 +456,26 @@ pub fn is_profile_launch(argv: &[String]) -> bool {
 /// (the composer's mic) from any app-server that accepts them: the library
 /// advertises `promptCapabilities.audio` only to Codex 0.145.0 or later, so
 /// an older `codex` keeps `audio: false` and the pane falls back to dictation.
+///
+/// Prompt suggestions follow the same global switch as Claude's
+/// (`agents.promptSuggestions`, read at each process start): on, each Codex
+/// chat has the same `prompt-suggestions` option, and its saved pick comes
+/// back with the chat's other options at respawn (`hub/lifecycle.rs`
+/// `replay_config`). The library asks Codex's own `thread/prediction/request`
+/// first and falls back to a hidden prediction fork while Codex answers it
+/// -32601 (cmux-codex-acp `src/translator/suggestions.rs`).
 pub fn translator() -> Arc<Translator> {
+    translator_with(crate::claude_stdio::prompt_suggestions::enabled_in_settings())
+}
+
+fn translator_with(prompt_suggestions: bool) -> Arc<Translator> {
     Arc::new(Translator {
         inner: cmux_codex_acp::Translator::new(Options {
             client_name: "acpmux".into(),
             client_title: "cmux".into(),
             client_version: env!("CARGO_PKG_VERSION").into(),
             audio_input: true,
+            prompt_suggestions,
             ..Options::default()
         }),
         background: Mutex::default(),
@@ -588,6 +605,56 @@ mod tests {
         result["agentCapabilities"]["promptCapabilities"]["audio"] == json!(true)
     }
 
+    /// A Codex chat after one completed turn, with the global switch `on`: its
+    /// session options, and what the app-server was asked after the turn.
+    fn chat_after_a_turn(on: bool) -> (Value, Vec<Value>) {
+        let tr = translator_with(on);
+        let start = split(tr.start());
+        let init = start.server[0]["id"].clone();
+        let list = split(tr.from_server(
+            &json!({"id": init, "result": {"userAgent": "acpmux/0.164.0 (Linux; x86_64)"}}),
+        ));
+        let list = list.server.iter().find(|m| m["method"] == "model/list").unwrap()["id"].clone();
+        split(tr.from_server(&json!({"id": list, "result": {"data": []}})));
+        let new = split(tr.from_client(
+            &json!({"jsonrpc": "2.0", "id": 1, "method": "session/new", "params": {"cwd": "/tmp", "mcpServers": []}}),
+        ));
+        let thread =
+            new.server.iter().find(|m| m["method"] == "thread/start").unwrap()["id"].clone();
+        let opened =
+            split(tr.from_server(&json!({"id": thread, "result": {"thread": {"id": "t"}}})));
+        let options = opened
+            .hub
+            .iter()
+            .find_map(|m| m.to_value().pointer("/result/configOptions").cloned())
+            .expect("session/new result");
+        let prompt =
+            split(tr.from_client(&json!({"jsonrpc": "2.0", "id": 2, "method": "session/prompt",
+            "params": {"sessionId": "t", "prompt": [{"type": "text", "text": "fix it"}]}})));
+        let turn =
+            prompt.server.iter().find(|m| m["method"] == "turn/start").unwrap()["id"].clone();
+        split(tr.from_server(&json!({"id": turn, "result": {"turn": {"id": "turn-1"}}})));
+        let done = split(tr.from_server(&json!({"method": "turn/completed",
+            "params": {"threadId": "t", "turn": {"id": "turn-1", "status": "completed", "items": []}}})));
+        (options, done.server)
+    }
+
+    #[test]
+    fn the_global_switch_gives_codex_chats_prompt_suggestions() {
+        let has_option = |o: &Value| {
+            o.as_array()
+                .unwrap()
+                .iter()
+                .any(|o| o["id"] == crate::claude_stdio::prompt_suggestions::OPTION)
+        };
+        let (options, asked) = chat_after_a_turn(true);
+        assert!(has_option(&options), "{options}");
+        assert!(asked.iter().any(|m| m["method"] == "thread/prediction/request"), "{asked:?}");
+        let (options, asked) = chat_after_a_turn(false);
+        assert!(!has_option(&options));
+        assert!(asked.iter().all(|m| m["method"] != "thread/prediction/request"), "{asked:?}");
+    }
+
     #[test]
     fn a_current_codex_takes_audio_prompts() {
         assert!(advertises_audio("acpmux/0.163.0 (Mac OS 27.0.1; arm64) unknown (acpmux; 1)"));
@@ -715,6 +782,38 @@ mod tests {
             );
         }
     }
+    /// Codex refuses a config with `[permissions]` profiles and no `default_permissions`
+    /// when it loads a thread's config again before each model request on a ChatGPT
+    /// login (workspace routing): every turn of a new chat failed with "failed to load
+    /// workspace requirements: invalid input parameter" (Lucas, 2026-11-05).
+    #[test]
+    fn a_new_threads_permission_profile_comes_with_its_default() {
+        let tr = translator();
+        // The handshake first: a session request waits for `initialize`. Codex 0.164.0's
+        // user agent, as Lucas's app-server answered it.
+        let init = split(tr.inner.start());
+        tr.inner.from_server(&json!({"id":init.server[0]["id"], "result":{
+            "userAgent":"acpmux/0.164.0 (Mac OS 26.1.0; arm64) unknown (acpmux; 0.1)"}}));
+        let out = tr.inner.from_client(
+            &json!({"id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}),
+        );
+        let start = out
+            .iter()
+            .find_map(|o| match o {
+                Out::Server(v) if v["method"] == "thread/start" => Some(v),
+                _ => None,
+            })
+            .expect("thread/start");
+        let config = start["params"]["config"].as_object().expect("the thread's config");
+        let profiles: Vec<&String> =
+            config.keys().filter(|k| k.starts_with("permissions.")).collect();
+        assert!(!profiles.is_empty(), "no permission profile: {start}");
+        for key in profiles {
+            let id = key.trim_start_matches("permissions.");
+            assert_eq!(config.get("default_permissions"), Some(&json!(id)), "{start}");
+        }
+    }
+
     #[cfg(unix)]
     fn running_translator() -> Arc<Translator> {
         let tr = translator();

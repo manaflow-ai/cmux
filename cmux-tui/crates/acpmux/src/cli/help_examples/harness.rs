@@ -115,6 +115,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "harness install",
+        &[
+            ("Install Claude Code through its official installer", "acpmux harness install claude"),
+            (
+                "Install Codex, printing each step as a JSON line",
+                "acpmux harness install codex --json",
+            ),
+        ],
+    ),
+    (
         "harness codex-runtime",
         &[
             ("Download the pinned Codex release", "acpmux harness codex-runtime install"),

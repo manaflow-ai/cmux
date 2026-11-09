@@ -28,8 +28,11 @@ public struct Metrics {
 
     /// The user's `appearance.metrics.*` override, else the density's value for this metric
     /// (`DensityTokens.resolve`). Debug Settings overrides apply on top (`MetricTunable`).
-    static func pick(_ compact: CGFloat, _ comfortable: CGFloat, _ key: MetricKey? = nil, token: String? = nil) -> CGFloat {
+    /// A `glyph` metric lands on the icon scale (`DensityTokens.resolveGlyph`).
+    static func pick(_ compact: CGFloat, _ comfortable: CGFloat, _ key: MetricKey? = nil, token: String? = nil,
+                     glyph: Bool = false) -> CGFloat {
         if let key, let value = DesignSettings.shared.overrides[key] { return value }
+        if glyph { return tokens.resolveGlyph(compact: compact, comfortable: comfortable, token: token) }
         return tokens.resolve(compact: compact, comfortable: comfortable, token: token)
     }
 
@@ -44,8 +47,13 @@ public struct Metrics {
     /// traffic lights inside it.
     public static var titlebarHeight: CGFloat { MetricTunables.titlebarHeight.value }
 
-    /// Height of a pane's tab strip.
-    public static var tabStripHeight: CGFloat { MetricTunables.tabStripHeight.value }
+    /// Height of a pane's tab strip: the density token, or, when `layout.cornerPadding` is set, the
+    /// tab height with that gap above and below the pills (`PaneChromeMetrics`: the pill top is
+    /// `(strip - tab - stripTopOutset) / 2`, so the padding is the gap the corners nest across).
+    public static var tabStripHeight: CGFloat {
+        guard let padding = DesignSettings.shared.paneChrome.cornerPadding else { return MetricTunables.tabStripHeight.value }
+        return tabHeight + 2 * scale(padding) + stripTopOutset
+    }
 
     /// Space reserved at the leading edge of the titlebar for traffic lights.
     public static var trafficLightInset: CGFloat { scale(ChromeTunables.trafficLightInset.value) }
@@ -167,17 +175,56 @@ public struct Metrics {
 
     // MARK: Shape
 
-    /// Corner radius of a pane's rounded rect (`layout.paneCornerRadius`; 0 is
-    /// square). Without padding and border the default is 0, so panes are
-    /// exactly edge to edge unless the radius is set explicitly.
-    public static var paneCornerRadius: CGFloat {
-        let chrome = DesignSettings.shared.paneChrome
-        if let radius = chrome.cornerRadius { return scale(radius) }
-        if panePadding == 0 && paneBorder == .none { return 0 }
-        return densityPaneCornerRadius
+    /// The one outer corner radius (`layout.paneCornerRadius`, else the density's
+    /// ``densityPaneCornerRadius``): every rounded pane card, the curved main
+    /// pane and, less ``cornerPadding``, every tab pill (Lawrence 2026-11-04: "radius
+    /// of tabbar tabs ... + radius of panes, both need to be same setting").
+    public static var cornerRadius: CGFloat {
+        DesignSettings.shared.paneChrome.cornerRadius.map(scale) ?? densityPaneCornerRadius
     }
-    /// The density's rounded pane corner radius, used when padding or a
-    /// border shows and `layout.paneCornerRadius` is unset.
+    /// The gap between a pane's rounded edge and the tab pills nested in it, which
+    /// nested corners subtract from ``cornerRadius``: the first pill's inset from the
+    /// card's top and leading edges (``tabStripCardInset``), set by `layout.cornerPadding`.
+    public static var cornerPadding: CGFloat { tabStripCardInset }
+    /// The concentric corner rule of the pane chrome: ``cornerRadius`` outside,
+    /// ``cornerPadding`` between each nested level. Every pane and tab bar radius is
+    /// read from it (``ConcentricCorners``).
+    public static var corners: ConcentricCorners { ConcentricCorners(outer: cornerRadius, padding: cornerPadding) }
+    /// Corner radius of a pane's rounded rect: ``cornerRadius``, or 0 (square)
+    /// when panes are edge to edge (no padding and no border), where neighbors
+    /// meet with no gap for a curve to show in. Floating panes (the floating and
+    /// blocks styles) have no main pane card around them, so the panes in the
+    /// window's corners meet it: ``floatingPaneCornerRadius``.
+    public static var paneCornerRadius: CGFloat {
+        if panePadding == 0 && paneBorder == .none { return 0 }
+        return floatingPanes ? floatingPaneCornerRadius : cornerRadius
+    }
+    /// Corner radius of every pane card under Floating Panes: concentric with the window's corner
+    /// across the corner pane's inset (``floatingPaneWindowInset``), so 12 pt in a 16 pt window at
+    /// compact density; `layout.paneCornerRadius` still sets it, at most the window's radius
+    /// (``windowConcentricCornerRadius(windowCornerRadius:edgeInset:setting:)``). Lawrence 2026-11-07:
+    /// "make it all concentric with macos windows by default (but still configurable)".
+    public static var floatingPaneCornerRadius: CGFloat {
+        windowConcentricCornerRadius(windowCornerRadius: standardWindowCornerRadius, edgeInset: floatingPaneWindowInset,
+                                     setting: DesignSettings.shared.paneChrome.cornerRadius.map(scale))
+    }
+    /// How far a corner pane's card sits inside the window under Floating Panes: the gutter (at
+    /// least the window's lit rim, ``windowEdgeInset(_:in:)``) to the pane's cell, then the pane
+    /// padding to its card.
+    public static var floatingPaneWindowInset: CGFloat { max(mainPaneGutter, PaneTabRowRim.height) + panePadding }
+    /// The radius of a shape `inset` points inside a pane, `size` big: concentric with the
+    /// pane's corner (``paneCornerRadius``, or the one ``cornerRadius`` where panes are square
+    /// inside the rounded main pane), at most half the shape's shorter side.
+    public static func paneNestedCornerRadius(inset: CGFloat, size: CGSize) -> CGFloat {
+        let corners = corners
+        let pane = paneCornerRadius > 0 ? paneCornerRadius : corners.outer
+        return corners.radius(fitting: size, radius: corners.nested(in: pane, inset: inset))
+    }
+    /// The density's outer corner radius, used when `layout.paneCornerRadius` is unset:
+    /// the omnibar's 8 pt in every density (Lawrence 2026-11-05: "default roundness is too
+    /// round now", "default roundness should be omnibar roundness"). The tab pills and the
+    /// sidebar's rows nest the corner padding inside it. The curved main pane does not read it
+    /// by default: it is concentric with the window instead (`mainPaneCornerRadius(windowCornerRadius:)`).
     public static var densityPaneCornerRadius: CGFloat { MetricTunables.densityPaneCornerRadius.value }
     /// How panes are told apart (`layout.paneSeparation`, else the legacy
     /// `layout.paneBorder` and padding).
@@ -204,10 +251,49 @@ public struct Metrics {
     /// device pixel.
     public static var paneBorderWidth: CGFloat? { DesignSettings.shared.paneChrome.borderWidth.map(scale) }
 
-    /// Corner radius for floating glass panels (sidebar, palette).
-    public static var panelCornerRadius: CGFloat { MetricTunables.panelCornerRadius.value }
-    /// Corner radius for tabs and rows.
-    public static var itemCornerRadius: CGFloat { MetricTunables.itemCornerRadius.value }
+    // MARK: Corner levels (one radius, concentric everywhere)
+
+    /// The radius of every top-level rounded surface: panes, floating glass panels (sidebar,
+    /// palette), popovers, menus, hover cards, cards, toasts, dialogs and sheets. It is the one
+    /// outer radius (``corners``, `layout.paneCornerRadius`); a surface is a pane-like shape, so
+    /// it shares the pane's corner (Lawrence 2026-11-04, "all nested radius everywhere ... must be
+    /// concentric"). An explicit `appearance.metrics.panelCornerRadius` still wins for floating panels.
+    public static var surfaceCornerRadius: CGFloat { corners.outer }
+    /// A shape one level inside a surface (``ConcentricCorners/inner``): a tab pill, a row or
+    /// selection fill in a list that pads it from the surface's edge, a menu highlight.
+    public static var insetCornerRadius: CGFloat { corners.inner }
+    /// A shape two levels inside a surface (`radius(depth: 2)`): a button, field, badge or
+    /// thumbnail inside a row or pill.
+    public static var controlCornerRadius: CGFloat { corners.radius(depth: 2) }
+    /// The concentric radius of a shape `inset` points inside a shape of radius `outer`
+    /// (`outer - inset`, at least 0), at most half the shorter side of `size` when given.
+    public static func cornerRadius(nestedIn outer: CGFloat, inset: CGFloat, size: CGSize? = nil) -> CGFloat {
+        let radius = corners.nested(in: outer, inset: inset)
+        return size.map { corners.radius(fitting: $0, radius: radius) } ?? radius
+    }
+    /// The concentric radius of a shape `inset` points inside a top-level surface
+    /// (``surfaceCornerRadius``), at most half the shorter side of `size` when given.
+    public static func cornerRadius(insetFromSurface inset: CGFloat, size: CGSize? = nil) -> CGFloat {
+        cornerRadius(nestedIn: surfaceCornerRadius, inset: inset, size: size)
+    }
+    /// The radius that makes a rect of `size` a capsule (half its shorter side): a shape choice
+    /// (a slider track, a pill-shaped tag), not a radius level.
+    public static func capsuleRadius(_ size: CGSize) -> CGFloat { corners.radius(fitting: size, radius: .greatestFiniteMagnitude) }
+
+    /// Corner radius for floating glass panels (sidebar, palette): ``surfaceCornerRadius``, or an
+    /// explicit `appearance.metrics.panelCornerRadius`.
+    public static var panelCornerRadius: CGFloat {
+        legacyRadius(.panelCornerRadius, token: "panelCornerRadius") ?? surfaceCornerRadius
+    }
+    /// Corner radius for tabs' controls, rows' buttons and other items: ``controlCornerRadius``, or
+    /// an explicit `itemCornerRadius` token of a custom density.
+    public static var itemCornerRadius: CGFloat { legacyRadius(nil, token: "itemCornerRadius") ?? controlCornerRadius }
+    /// A radius the user set by its old name (an `appearance.metrics` override or a custom
+    /// density's token), scaled; nil when unset, so the corner follows ``corners``.
+    private static func legacyRadius(_ key: MetricKey?, token: String) -> CGFloat? {
+        if let key, let value = DesignSettings.shared.overrides[key] { return scale(value) }
+        return tokens.tokens[token].map { scale(CGFloat($0)) }
+    }
     /// Corner radius for a small labeled surface (a note, toast or count
     /// badge) of `height`: the item radius, never a capsule.
     public static func chipCornerRadius(height: CGFloat) -> CGFloat {
@@ -243,6 +329,16 @@ public struct Typography {
     /// Interface Size is not overridden). Surfaces with their own type scale
     /// (the Home transcript's `textScale`) follow it.
     public static var userScale: CGFloat { scale }
+    /// The text scale app web pages draw at (`--cmux-interface-scale`). Pages are drawn for the
+    /// Default density's 13 pt text; a larger chrome body size (Text Size, else the density's)
+    /// grows them by the same ratio, and a smaller one keeps them as drawn, so Ultra-compact and
+    /// Compact pages stay as they were.
+    public static var pageScale: CGFloat {
+        let interfaceScale = DesignSettings.shared.interfaceScaleEnabled ? DesignSettings.shared.interfaceScale : 1
+        let body = DesignSettings.shared.overrides[.chromeFontSize] ?? Metrics.tokens.bodySize
+        let drawn = DensityPreset.cozy.tokens.bodySize
+        return max(body, drawn) / drawn * interfaceScale
+    }
     /// A style's size: the density's (`DensityTokens.textSize`, which follows its level and its
     /// own font size), times the user's text scale.
     private static func size(_ compactSize: CGFloat, _ comfortableSize: CGFloat) -> CGFloat {
@@ -263,15 +359,19 @@ public struct Typography {
 
     /// Tab titles, sidebar rows, palette results.
     public static var body: NSFont { system(.default, size: size(12, 13), weight: .regular) }
-    /// Tab titles: `appearance.metrics.tabFontSize` (times the interface scale when it is on), else `body`.
+    /// Tab titles: `appearance.metrics.tabFontSize` (times the interface scale when it is on), else Chrome's 12 pt at
+    /// every density (Chromium's `ChromeTypographyProvider` gives a tab label its default 12 pt; Lawrence 2026-11-07:
+    /// match Chrome's tab title size).
     public static var tabTitle: NSFont {
-        guard let points = DesignSettings.shared.overrides[.tabFontSize] else { return body }
+        guard let points = DesignSettings.shared.overrides[.tabFontSize] else { return system(.default, size: size(12, 12), weight: .regular) }
         return system(.default, size: Metrics.scale(points), weight: .regular)
     }
     /// Selected or emphasized row titles.
     public static var bodyEmphasized: NSFont { system(.default, size: size(12, 13), weight: .medium) }
     /// Subtitles, shortcut hints, counts.
     public static var caption: NSFont { system(.default, size: size(10.5, 11), weight: .regular) }
+    /// `caption` with tabular digits: a count that ticks (a download's bytes) keeps its width.
+    public static var captionDigits: NSFont { system(.monospacedDigit, size: size(10.5, 11), weight: .regular) }
     /// Section headers (uppercase is not used; weight and color carry hierarchy).
     public static var header: NSFont { system(.default, size: size(11, 12), weight: .semibold) }
     /// Palette search field.

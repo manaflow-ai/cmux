@@ -14,6 +14,8 @@ struct ChiefSubagentLinkTests {
         var shown: [String: String] = [:]
         var revealed: [String] = []
         var opened: [(session: String, host: String)] = []
+        /// Opens beside a tab (a Home pill): session, host and the tab it opened beside.
+        var openedRight: [String] = []
         /// The open's work; nil: it ends at once.
         var work: ActionWork?
         /// False: the open's tab is listed only when its work ends (a grouped, remote or refused-host open).
@@ -28,6 +30,9 @@ struct ChiefSubagentLinkTests {
                       guard showsAtOnce else { return Task { @MainActor [unowned self] in shown[session] = "tab-" + session; return nil } }
                       shown[session] = "tab-" + session
                       return work ?? Task { nil }
+                  }, openRight: { [unowned self] session, host, beside in
+                      openedRight.append("\(session) \(host) \(beside)")
+                      return true
                   })
         }
     }
@@ -88,5 +93,24 @@ struct ChiefSubagentLinkTests {
         let sidebar = ChiefSidebar(lanes: AgentLaneStore(), host: app.host())
         #expect(!sidebar.openSubagentLink(session: "s-1", chiefHost: "chief:00000000", registry: ActionRegistry()))
         #expect(app.opened.isEmpty && app.revealed.isEmpty)
+    }
+
+    /// User 2026-11-04 (msg 21663): "i dont like these splits … just open it as pane to right side". A subagent's
+    /// pill or `aN` link clicked in Home (its tab the link's `source`) opens the chat as a real chat tab right of
+    /// Home's tab, never a new workspace or an inline split; a second click shows that tab; another Chief home's
+    /// link and a link clicked nowhere keep their own paths.
+    @Test func aLinkClickedInHomeOpensTheSubagentsChatRightOfHome() {
+        let app = FakeApp()
+        let sidebar = ChiefSidebar(lanes: AgentLaneStore(), host: app.host())
+        let session = "optchat-sub-6b68ac4a-a988"
+        #expect(sidebar.openSubagentLink(session: session, chiefHost: "chief:6b68ac4a", registry: ActionRegistry(), besideTab: "tab-home"))
+        #expect(app.openedRight == ["\(session) chief:6b68ac4a tab-home"])
+        #expect(app.opened.isEmpty, "a pill made a workspace instead of a tab right of Home")
+        app.shown[session] = "tab-right"
+        #expect(sidebar.openSubagentLink(session: session, chiefHost: "chief:6b68ac4a", registry: ActionRegistry(), besideTab: "tab-home"))
+        #expect(app.revealed == ["tab-right"] && app.openedRight.count == 1)
+        // Clicked nowhere (a palette's Open Link…): the sidebar row's path, a workspace on it.
+        #expect(sidebar.openSubagentLink(session: "s-9", chiefHost: "chief:6b68ac4a", registry: ActionRegistry()))
+        #expect(app.opened.map(\.session) == ["s-9"] && app.openedRight.count == 1)
     }
 }

@@ -1,6 +1,15 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
-import type { AccountsCmux, AccountsRow, AccountsState, CloudEnvironmentsState, HostLists } from "./ops";
+import type {
+  AccountsCmux,
+  AccountsRow,
+  AccountsState,
+  CloudEnvironmentsState,
+  HarnessesState,
+  HostLists,
+  ProviderAccount,
+} from "./ops";
+import { minutesAgo } from "../../gallery/clock";
 import { categories, homes } from "./categories";
 import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
@@ -286,15 +295,98 @@ const longProfiles = longRows.map((r, i) => ({
   source: "Imported sample browser profile",
 }));
 
+// Synthetic accounts only (example.com addresses): the CLI logins and one added Codex account.
+const providerAccounts: ProviderAccount[] = [
+  {
+    id: "codex-login",
+    family: "codex",
+    name: "ChatGPT",
+    home: null,
+    defaultHome: "~/.codex",
+    shadowOf: null,
+    signedIn: true,
+    plan: "pro",
+    email: "alex@example.com",
+    enabled: true,
+    builtin: true,
+    // Read when Settings opened (`_acpmux/account/usage`); no reset times, so the capture holds still.
+    usage: {
+      windows: [
+        { id: "session", usedPercent: 22, windowMins: 300 },
+        { id: "weekly", usedPercent: 41, windowMins: 10080 },
+      ],
+      plan: "pro",
+      credits: { balance: "56766" },
+    },
+  },
+  {
+    id: "codex-2",
+    family: "codex",
+    name: "ChatGPT 2",
+    home: "~/.cmux/accounts/codex-2",
+    defaultHome: "~/.codex",
+    shadowOf: "~/.codex",
+    signedIn: true,
+    plan: "plus",
+    email: "sam@example.com",
+    enabled: false,
+    builtin: false,
+    usage: { windows: [{ id: "session", usedPercent: 87.5, windowMins: 300 }], plan: "plus" },
+  },
+  {
+    id: "claude-login",
+    family: "claude",
+    name: "Claude",
+    home: null,
+    defaultHome: "~/.claude",
+    shadowOf: null,
+    signedIn: true,
+    plan: "max",
+    email: "alex@example.com",
+    enabled: true,
+    builtin: true,
+  },
+];
+
+/** The Codex harness row alone, for the account variants. */
+const codexHarness: HarnessesState["harnesses"] = [
+  {
+    id: "codex",
+    name: null,
+    kind: "acp",
+    source: "path",
+    problem: null,
+    version: "0.164.0",
+    checkedAt: minutesAgo(54),
+  },
+];
+
 Object.assign(variants, {
   "agents-harnesses-registry": variant("agents", {
-    note: "Harnesses: found on PATH, a profile file, an installed ACP Registry agent, a terminal-only harness, and acpmux's problem text.",
+    note: "Harnesses: found on PATH, a profile file, an installed ACP Registry agent, a terminal-only harness, and acpmux's problem text. Codex and Claude Code say whose login they use and its plan, list every account routing may use with its switch and, for Codex, its plan's 5-hour and weekly usage read at rest, and Codex offers Add account.",
     harnesses: {
       loading: false,
       problem: null,
+      accounts: providerAccounts,
       harnesses: [
-        { id: "claude", name: null, kind: "claude-stdio", source: "path", problem: null },
-        { id: "codex", name: null, kind: "acp", source: "path", problem: null },
+        {
+          id: "claude",
+          name: null,
+          kind: "claude-stdio",
+          source: "path",
+          problem: null,
+          version: "2.0.9",
+          checkedAt: minutesAgo(54),
+        },
+        {
+          id: "codex",
+          name: null,
+          kind: "acp",
+          source: "path",
+          problem: null,
+          version: "0.164.0",
+          checkedAt: minutesAgo(54),
+        },
         { id: "cursor", name: null, kind: "acp", source: "path", problem: null },
         { id: "github-copilot-cli", name: "GitHub Copilot", kind: "acp", source: "user-file", problem: null },
         { id: "goose", name: null, kind: "acp", source: "registry", problem: null },
@@ -313,6 +405,93 @@ Object.assign(variants, {
     note: "Agent integrations in a build without the cmux CLI: it says so and gives the command.",
     focus: "agents.integrations",
     integrations: { loading: false, problem: "unavailable", command: "cmux agent hook install", providers: [] },
+  }),
+  "agents-harnesses-account-added": variant("agents", {
+    note: "Codex right after Add account: ChatGPT 3 has a shadow home of its own, waits for its sign-in, and is on for routing.",
+    harnesses: {
+      loading: false,
+      problem: null,
+      accounts: [
+        ...providerAccounts,
+        {
+          id: "codex-3",
+          family: "codex",
+          name: "ChatGPT 3",
+          home: "~/.cmux/accounts/codex-3",
+          defaultHome: "~/.codex",
+          shadowOf: "~/.codex",
+          signedIn: false,
+          plan: null,
+          email: null,
+          enabled: true,
+          builtin: false,
+        },
+      ],
+      harnesses: [
+        {
+          id: "codex",
+          name: null,
+          kind: "acp",
+          source: "path",
+          problem: null,
+          version: "0.164.0",
+          checkedAt: minutesAgo(2),
+        },
+      ],
+    },
+  }),
+  // Remove asks first, in the row. Three states of the one flow: the question open on an added
+  // Codex login (shadow home), on a Claude API-key account, and a signed-out account whose usage
+  // read before its sign-out is no longer shown.
+  "agents-harnesses-account-remove-confirm": variant("agents", {
+    note: "Remove on ChatGPT 2 asks first, in its row: only cmux's record goes; the login folder and the CLI's own sign-in stay.",
+    harnesses: { loading: false, problem: null, accounts: providerAccounts, harnesses: codexHarness },
+    steps: [
+      wait('[data-account="codex-2"] [data-account-action="remove"]'),
+      click('[data-account="codex-2"] [data-account-action="remove"]'),
+      wait('[data-account="codex-2"] [data-account-remove-confirm]'),
+    ],
+  }),
+  "agents-harnesses-account-remove-confirm-key": variant("agents", {
+    note: "Remove on a Claude API-key account asks the same question; says the API key stays where it is stored.",
+    harnesses: {
+      loading: false,
+      problem: null,
+      accounts: [
+        ...providerAccounts,
+        {
+          id: "claude-key",
+          family: "claude",
+          name: "Work key",
+          home: null,
+          defaultHome: "~/.claude",
+          shadowOf: null,
+          signedIn: true,
+          plan: null,
+          email: null,
+          enabled: true,
+          builtin: false,
+          key: true,
+        },
+      ],
+      harnesses: [{ id: "claude", name: null, kind: "claude-stdio", source: "path", problem: null, version: "2.0.9" }],
+    },
+    steps: [
+      wait('[data-account="claude-key"] [data-account-action="remove"]'),
+      click('[data-account="claude-key"] [data-account-action="remove"]'),
+      wait('[data-account="claude-key"] [data-account-remove-confirm]'),
+    ],
+  }),
+  "agents-harnesses-account-signed-out": variant("agents", {
+    note: "ChatGPT 2 after its sign-out: Sign In comes back and the usage read before it is no longer shown.",
+    harnesses: {
+      loading: false,
+      problem: null,
+      accounts: providerAccounts.map((account) =>
+        account.id === "codex-2" ? { ...account, signedIn: false, email: null, plan: null } : account,
+      ),
+      harnesses: codexHarness,
+    },
   }),
   "agents-harnesses-unreachable": variant("agents", {
     note: "Harnesses when the acpmux daemon did not answer.",
@@ -341,6 +520,35 @@ Object.assign(variants, {
       { selector: '[data-card="backdrop"] button[aria-pressed="true"]', action: "focus" },
     ],
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
+  }),
+  // Leo, 11-07: the profile menu's Personalization…, every visual choice on one page under a jump bar.
+  "personalization-background": variant("personalization", {
+    focus: "personalization.background",
+    workspace: "ws-1",
+    options: {
+      values: { "appearance.background": "starryNight", "appearance.backgroundOpacity": 0.6 },
+      workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: null }],
+    },
+    host: {
+      ...host,
+      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
+    },
+    steps: [wait('[data-part="background"] [data-card="backdrop"]')],
+    note: "Change Background… opens Personalization on its Background part: the same art picker, Material and Opacity as Appearance.",
+  }),
+  "personalization-chief": variant("personalization", {
+    focus: "personalization.chief",
+    options: { values: { "home.chiefPetEnabled": true, "home.chiefPetMascot": "fox" } },
+    note: "Personalization on the Chief's look: the Chief Pet card, shown, with the Fox picked.",
+  }),
+  "personalization-text": variant("personalization", {
+    focus: "personalization.text",
+    options: { values: { "appearance.density": "cozy", "agentPane.display.transcriptView": "thinking" } },
+    note: "Personalization on Text and Density: the density tiles, the chat fonts and the transcript view.",
+  }),
+  "personalization-sounds": variant("personalization", {
+    focus: "personalization.sounds",
+    note: "Personalization on Sounds: the notification sound, its volume and when it plays.",
   }),
   // Leo, 10-19: Appearance's floating Undo, Redo and Reset, after a background pick (Undo names it).
   "appearance-undo-bar": variant("appearance", {

@@ -87,6 +87,8 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
     /// The workspace the frame's stage shows while a docked workspace has focus (`workspace_key` names that one);
     /// nil when the stage shows `workspace_key`.
     public var stageKey: WorkspaceKey?
+    /// The window's Chief panel (floating or docked, its places); nil when it was never opened.
+    public var chiefPanel: WindowChiefPanelRecord?
 
     public init(id: String, workspaceKey: WorkspaceKey? = nil, workspaceKeys: [WorkspaceKey] = [], machine: String? = nil,
                 screenID: ResourceID? = nil, frame: WindowFrame? = nil, display: String? = nil, isFullScreen: Bool = false,
@@ -132,6 +134,7 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         case docks
         case dockOrientation = "dock_orientation"
         case stageKey = "stage_key"
+        case chiefPanel = "chief_panel"
     }
 
     /// Keys only older builds wrote; read for migration, never written.
@@ -169,5 +172,6 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         docks = try c.decodeIfPresent([WindowDockRecord].self, forKey: .docks)
         dockOrientation = try c.decodeIfPresent(String.self, forKey: .dockOrientation)
         stageKey = try c.decodeIfPresent(WorkspaceKey.self, forKey: .stageKey)
+        chiefPanel = try? c.decodeIfPresent(WindowChiefPanelRecord.self, forKey: .chiefPanel)
     }
 }

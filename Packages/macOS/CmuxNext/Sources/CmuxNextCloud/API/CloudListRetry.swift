@@ -50,10 +50,4 @@ public final class CloudListRetry {
         pending?.cancel()
         pending = nil
     }
-
-    /// Whether the list loaded at `loadedAt` for `loadedFor` is the current account's and younger than `age`.
-    public nonisolated static func listIsCurrent(loadedAt: ContinuousClock.Instant?, loadedFor: [String?]?, account: [String?], now: ContinuousClock.Instant, within age: Duration) -> Bool {
-        guard let loadedAt, loadedFor == account else { return false }
-        return loadedAt.duration(to: now) < age
-    }
 }

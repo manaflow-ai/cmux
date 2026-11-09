@@ -189,7 +189,10 @@ async function mount({
       <ComposerPickers
         snapshot={snapshot}
         pickerCatalog={picker.catalog}
-        onModel={(next) => setState((current) => ({ ...current, model: next }))}
+        onModel={(next) => {
+          sent.push({ id: "model", value: next });
+          setState((current) => ({ ...current, model: next }));
+        }}
         onMode={() => undefined}
         onEffort={(id, value) => {
           sent.push({ id, value });
@@ -228,6 +231,25 @@ async function open() {
   await act(async () => chipButton().click());
   await settle();
 }
+
+test("Fable uses its reported 1M option under one plain model name", async () => {
+  const { sent } = await mount({ harness: "claude", family: "claude" });
+  await open();
+  const fable = modelRows().filter((row) => label(row).includes("Fable 5.1"));
+  expect(fable.map(label)).toEqual(["Fable 5.1"]);
+  await act(async () => fable[0]!.click());
+  expect(sent).toContainEqual({ id: "model", value: "claude-fable-5-1[1m]" });
+});
+
+for (const model of ["claude-fable-5-1", "claude-fable-5-1[1m]"])
+  test(`a chat already on ${model} keeps its checked Fable row without changing the session`, async () => {
+    const { sent } = await mount({ harness: "claude", family: "claude", model });
+    await open();
+    const fable = modelRows().filter((row) => label(row).includes("Fable 5.1"));
+    expect(fable.map(label)).toEqual(["Fable 5.1"]);
+    expect(fable[0]!.getAttribute("aria-checked")).toBe("true");
+    expect(sent).toEqual([]);
+  });
 
 for (const state of ["expired", "signedOut"] as const) {
   test(`full picker offers Sign in again for ${state} auth before send`, async () => {

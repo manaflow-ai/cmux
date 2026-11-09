@@ -1,18 +1,26 @@
 //! `cmux-rd host`: accepts viewers on one port (TCP for control, UDP for datagrams),
 //! admits them through the `cmux-rd-core` session table, and streams this OS's desktop
 //! with `stream.rs`. One viewer at a time in phase 1.
+//!
+//! `--listen-systemd` (Linux) is the production Cloud mode instead: no TCP or UDP port; the
+//! listening Unix socket comes from systemd (systemd.rs), only the root link receiver
+//! (`--peer-uid`) may connect, and the link already admitted the machine's owner.
 
 use crate::args::Opts;
 use crate::carrier::SocketCarrier;
 use crate::clock::now_ns;
+use crate::hybrid::LinkCfg;
 use crate::stream::{MediaSession, SessionCfg};
 use crate::wire::{write_control, Control, DatagramOut, FrameReader, FRAME_CONTROL};
 use crate::Res;
 use cmux_rd_core::policy::{ConsentRule, HostPolicy, Mode, Principal, PrincipalClass};
-use cmux_rd_core::service::{negotiate, Negotiated, SERVICE_DESKTOP};
+use cmux_rd_core::service::{caps, negotiate, Negotiated, SERVICE_DESKTOP};
 use cmux_rd_core::session::{Actor, SessionId, SessionTable, StartRequest};
 use cmux_rd_proto::{MAX_DATAGRAM_DEFAULT, OVERLAY_PORT};
+use std::io::{self, Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::os::fd::AsRawFd;
+use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 /// Linux: an X display name. macOS: `main` or a display's index, left to right.
@@ -33,6 +41,10 @@ pub(crate) const DEFAULT_SETTLE_US: u64 = 1000;
 pub(crate) const DEFAULT_SETTLE_US: u64 = 0;
 
 pub fn run(opts: &Opts) -> Res<()> {
+    set_xauthority(opts)?;
+    if opts.flag("listen-systemd") {
+        return run_systemd(opts);
+    }
     // Until the link token (lane 12) authenticates hello claims, the host trusts them, so by
     // default it listens on loopback only and refuses every non-loopback peer. A private
     // single-tenant overlay needs the explicit flag below.
@@ -51,29 +63,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     let port: u16 = opts.num_or("port", OVERLAY_PORT)?;
     let owner =
         opts.get("owner").ok_or("--owner <user> is required (the host's owner)")?.to_string();
-    let cfg = SessionCfg {
-        display: opts.str_or("display", DEFAULT_DISPLAY),
-        max_fps: opts.num_or("max-fps", 60)?,
-        start_kbps: opts.num_or("start-kbps", 8000)?,
-        max_kbps: opts.num_or("max-kbps", 50_000)?,
-        preset: opts.str_or("preset", "ultrafast"),
-        // High for hardware decoders (VideoToolbox); the Linux bench decoder needs baseline.
-        profile: opts.str_or("profile", "high"),
-        codec: opts.str_or("codec", DEFAULT_CODEC),
-        content: opts.str_or("content", "screen"),
-        openh264_lib: opts.get("openh264-lib").map(str::to_owned),
-        threads: opts.num_or("threads", 2)?,
-        stats_every_ms: opts.num_or("stats-ms", 1000)?,
-        settle_us: opts.num_or("settle-us", DEFAULT_SETTLE_US)?,
-        upstream_record: opts.get("upstream-record").map(std::path::PathBuf::from),
-        upstream_record_max_bytes: opts
-            .num_or::<u64>("upstream-record-max-mb", 1024)?
-            .saturating_mul(1 << 20),
-        max_width: opts
-            .get("max-width")
-            .map(|w| w.parse().map_err(|_| format!("--max-width {w}: a pixel count")))
-            .transpose()?,
-    };
+    let cfg = session_cfg(opts)?;
     if let Some(dir) = &cfg.upstream_record {
         // Fail at start, not at the first viewer.
         crate::upstream::RecordSink::new(dir, cfg.upstream_record_max_bytes)
@@ -84,20 +74,9 @@ pub fn run(opts: &Opts) -> Res<()> {
             dir.display()
         );
     }
-    let policy = HostPolicy {
-        enabled: true,
-        owner_user: owner,
-        grants: Vec::new(),
-        consent: ConsentRule::AskOthers,
-        unattended_allowed: true,
-    };
-    // `--browser URL`: the cloud browser. Chromium runs full screen in the display and
-    // outlives viewers; the supervisor restarts it and stops it with the host.
+    let policy = owner_policy(owner);
     #[cfg(target_os = "linux")]
-    let _browser = match opts.get("browser") {
-        Some(url) => Some(start_browser(opts, &cfg.display, url)?),
-        None => None,
-    };
+    let _browser = browser(opts, &cfg)?;
     #[cfg(not(target_os = "linux"))]
     if opts.get("browser").is_some() {
         return Err("--browser needs a Linux host (a virtual X display)".into());
@@ -124,7 +103,7 @@ pub fn run(opts: &Opts) -> Res<()> {
                 continue;
             }
         }
-        match serve_viewer(stream, &udp, &mut table, &cfg, &token) {
+        match serve_viewer(stream, Some(&udp), &mut table, &cfg, &Admission::Token(&token), None) {
             Ok(reason) => eprintln!("viewer {peer} ended: {reason}"),
             Err(e) => eprintln!("viewer {peer} failed: {e}"),
         }
@@ -133,6 +112,160 @@ pub fn run(opts: &Opts) -> Res<()> {
         }
     }
     Ok(())
+}
+
+/// The session settings from the options (every mode).
+fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
+    let display = opts.str_or("display", DEFAULT_DISPLAY);
+    // An explicit --max-fps wins; else the display's refresh rate (60 when it cannot be read).
+    let max_fps = match opts.get("max-fps") {
+        Some(_) => opts.num_or("max-fps", 60)?,
+        None => crate::desktop::default_max_fps(&display),
+    };
+    Ok(SessionCfg {
+        display,
+        max_fps,
+        start_kbps: opts.num_or("start-kbps", 8000)?,
+        max_kbps: opts.num_or("max-kbps", 50_000)?,
+        preset: opts.str_or("preset", "ultrafast"),
+        // High for hardware decoders (VideoToolbox); the Linux bench decoder needs baseline.
+        profile: opts.str_or("profile", "high"),
+        codec: opts.str_or("codec", DEFAULT_CODEC),
+        content: opts.str_or("content", "screen"),
+        openh264_lib: opts.get("openh264-lib").map(str::to_owned),
+        threads: opts.num_or("threads", 2)?,
+        stats_every_ms: opts.num_or("stats-ms", 1000)?,
+        settle_us: opts.num_or("settle-us", DEFAULT_SETTLE_US)?,
+        upstream_record: opts.get("upstream-record").map(std::path::PathBuf::from),
+        upstream_record_max_bytes: opts
+            .num_or::<u64>("upstream-record-max-mb", 1024)?
+            .saturating_mul(1 << 20),
+        frames_in_flight: 1,
+        input_frame_now: opts.flag("input-frame-now"),
+        max_width: opts
+            .get("max-width")
+            .map(|w| w.parse().map_err(|_| format!("--max-width {w}: a pixel count")))
+            .transpose()?,
+    })
+}
+
+/// The host's owner is the only principal admitted without a grant.
+fn owner_policy(owner: String) -> HostPolicy {
+    HostPolicy {
+        enabled: true,
+        owner_user: owner,
+        grants: Vec::new(),
+        consent: ConsentRule::AskOthers,
+        unattended_allowed: true,
+    }
+}
+
+/// `--xauthority PATH`: the X cookie for the display connections (Linux), as `XAUTHORITY`.
+/// Set before any thread or X connection starts.
+fn set_xauthority(opts: &Opts) -> Res<()> {
+    let Some(path) = opts.get("xauthority") else {
+        return Ok(());
+    };
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::File::open(path).map_err(|e| format!("--xauthority {path}: {e}"))?;
+        std::env::set_var("XAUTHORITY", path);
+        Ok(())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err(format!("--xauthority {path} needs a Linux host (an X display)").into())
+    }
+}
+
+/// `--browser URL`: the cloud browser. Chromium runs full screen in the display and
+/// outlives viewers; the supervisor restarts it and stops it with the host.
+#[cfg(target_os = "linux")]
+fn browser(opts: &Opts, cfg: &SessionCfg) -> Res<Option<crate::browser::BrowserSupervisor>> {
+    match opts.get("browser") {
+        Some(url) => Ok(Some(start_browser(opts, &cfg.display, url)?)),
+        None => Ok(None),
+    }
+}
+
+/// The principal a systemd-socket connection serves: the link admitted the machine's owner.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub const MACHINE_OWNER: &str = "owner";
+
+/// Options that `--listen-systemd` refuses: the TCP development modes, and the cloud browser
+/// (a Chromium with an optional CDP port does not belong on the agent display's host).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const NOT_WITH_SYSTEMD: &[&str] = &[
+    "token-fd",
+    "bind",
+    "port",
+    "single-tenant-overlay",
+    "upstream-record",
+    "browser",
+    "browser-cdp-port",
+];
+
+/// `--listen-systemd --peer-uid N`: the production Cloud mode (Linux). See systemd.rs.
+#[cfg(target_os = "linux")]
+fn run_systemd(opts: &Opts) -> Res<()> {
+    let peer_uid: u32 = opts
+        .get("peer-uid")
+        .ok_or("--listen-systemd needs --peer-uid N (the uid of the link receiver, 0)")?
+        .parse()
+        .map_err(|_| "--peer-uid: a uid")?;
+    if let Some(bad) = NOT_WITH_SYSTEMD.iter().find(|k| opts.get(k).is_some()) {
+        return Err(format!("--{bad} is not used with --listen-systemd").into());
+    }
+    let idle_ms = opts.num_or::<u64>("idle-exit-s", 120)?.saturating_mul(1000);
+    // The UDP media link (cap `link.udp`), on unless `--no-udp-link`; see hybrid.rs.
+    let link = match opts.flag("no-udp-link") {
+        true => None,
+        false => Some(LinkCfg::new(crate::hybrid::stun_names(opts.get("link-stun"))?)),
+    };
+    let listener = crate::systemd::listener_from_env()?;
+    let cfg = session_cfg(opts)?;
+    let owner = opts.str_or("owner", MACHINE_OWNER);
+    let mut table = SessionTable::new(owner_policy(owner.clone()));
+    eprintln!(
+        "cmux-rd host: systemd socket; only uid {peer_uid} (the link receiver) may connect; the link admitted \
+         the owner, so no hello token is used; exits after {} s with no viewer",
+        idle_ms / 1000
+    );
+    loop {
+        let Some(stream) = crate::systemd::accept_within(&listener, idle_ms)? else {
+            eprintln!(
+                "cmux-rd host: idle for {} s; exiting (the socket unit starts it again)",
+                idle_ms / 1000
+            );
+            return Ok(());
+        };
+        let stream = match crate::systemd::admit_peer(stream, peer_uid) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("{e}");
+                continue;
+            }
+        };
+        match serve_viewer(
+            stream,
+            None,
+            &mut table,
+            &cfg,
+            &Admission::LinkOwner(&owner),
+            link.as_ref(),
+        ) {
+            Ok(reason) => eprintln!("viewer ended: {reason}"),
+            Err(e) => eprintln!("viewer failed: {e}"),
+        }
+        for event in table.take_audit() {
+            eprintln!("audit: {event:?}");
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn run_systemd(_opts: &Opts) -> Res<()> {
+    Err("--listen-systemd needs a Linux host (systemd socket activation)".into())
 }
 
 /// Starts the cloud browser at the display's full size (read from the X server).
@@ -227,8 +360,67 @@ fn parse_class(class: &str) -> PrincipalClass {
     }
 }
 
+/// A viewer's control stream: TCP (development) or the systemd Unix socket.
+pub(crate) trait ViewerStream: Read + Write + AsRawFd {
+    /// Socket options before the hello (TCP: no delay, keepalive).
+    fn prepare(&self) -> io::Result<()>;
+    fn nonblocking(&self, on: bool) -> io::Result<()>;
+    fn read_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
+    fn close(&self);
+    /// The viewer's address for the UDP carrier; `None` on a Unix socket.
+    fn peer_ip(&self) -> Option<IpAddr>;
+}
+
+impl ViewerStream for TcpStream {
+    fn prepare(&self) -> io::Result<()> {
+        self.set_nodelay(true)?;
+        crate::wire::harden_tcp(self);
+        Ok(())
+    }
+    fn nonblocking(&self, on: bool) -> io::Result<()> {
+        self.set_nonblocking(on)
+    }
+    fn read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+        self.set_read_timeout(timeout)
+    }
+    fn close(&self) {
+        let _ = self.shutdown(std::net::Shutdown::Both);
+    }
+    fn peer_ip(&self) -> Option<IpAddr> {
+        self.peer_addr().ok().map(|a| a.ip())
+    }
+}
+
+impl ViewerStream for UnixStream {
+    fn prepare(&self) -> io::Result<()> {
+        Ok(())
+    }
+    fn nonblocking(&self, on: bool) -> io::Result<()> {
+        self.set_nonblocking(on)
+    }
+    fn read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+        self.set_read_timeout(timeout)
+    }
+    fn close(&self) {
+        let _ = self.shutdown(std::net::Shutdown::Both);
+    }
+    fn peer_ip(&self) -> Option<IpAddr> {
+        None
+    }
+}
+
+/// How a connection's principal is established.
+pub(crate) enum Admission<'a> {
+    /// Development: the exact per-launch token in the hello; the hello's claims name the principal.
+    Token(&'a crate::token::Token),
+    /// The systemd socket: the link admitted the machine's owner (this user name) before the
+    /// connection reached the host; the hello's token and principal claims are not used.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    LinkOwner(&'a str),
+}
+
 /// Reads one control message, waiting up to 5 s.
-fn read_control(stream: &mut TcpStream, reader: &mut FrameReader) -> Res<Control> {
+fn read_control<S: ViewerStream>(stream: &mut S, reader: &mut FrameReader) -> Res<Control> {
     let deadline = now_ns() + 5_000_000_000;
     loop {
         if let Some((ty, payload)) = reader.next()? {
@@ -248,22 +440,22 @@ fn read_control(stream: &mut TcpStream, reader: &mut FrameReader) -> Res<Control
         // Close at once, before any parse or reply, when the peer speaks something else
         // (an HTTP request from a browser page must never reach the control parser).
         if reader.foreign_prefix() {
-            let _ = stream.shutdown(std::net::Shutdown::Both);
+            stream.close();
             return Err("not the cmux.rd protocol (for example HTTP): closed (reset)".into());
         }
     }
 }
 
-fn serve_viewer(
-    mut stream: TcpStream,
-    udp: &UdpSocket,
+fn serve_viewer<S: ViewerStream>(
+    mut stream: S,
+    udp: Option<&UdpSocket>,
     table: &mut SessionTable,
     cfg: &SessionCfg,
-    token: &crate::token::Token,
+    admission: &Admission<'_>,
+    link: Option<&LinkCfg>,
 ) -> Res<String> {
-    stream.set_nodelay(true)?;
-    crate::wire::harden_tcp(&stream);
-    stream.set_nonblocking(true)?;
+    stream.prepare()?;
+    stream.nonblocking(true)?;
     let mut reader = FrameReader::default();
     let Control::Hello {
         user,
@@ -279,10 +471,13 @@ fn serve_viewer(
     else {
         return Err("first message must be hello".into());
     };
-    // Before anything else (no session, no frame): the exact per-launch token.
-    if !token.matches_hex(provided.as_ref().map(|s| s.0.as_str())) {
-        let _ = write_control(&mut stream, &Control::Refused { reason: "BadToken".into() });
-        return Ok("refused: missing or wrong session token".into());
+    // Before anything else (no session, no frame): the exact per-launch token. On the
+    // systemd socket the link admitted the owner already and the hello carries no token.
+    if let Admission::Token(token) = admission {
+        if !token.matches_hex(provided.as_ref().map(|s| s.0.as_str())) {
+            let _ = write_control(&mut stream, &Control::Refused { reason: "BadToken".into() });
+            return Ok("refused: missing or wrong session token".into());
+        }
     }
     // Route by service (C1): this host serves remote desktop only. Upstream
     // media (C4) is offered only when the desktop has a sink for it (today the
@@ -291,7 +486,11 @@ fn serve_viewer(
         cfg.upstream_record.as_deref(),
         cfg.upstream_record_max_bytes,
     );
-    let host_caps = crate::upstream::offered_caps(&*sink);
+    let mut host_caps = crate::upstream::offered_caps(&*sink);
+    // A UDP media link next to a stream carrier (the systemd socket), in a build with the link.
+    if cfg!(feature = "link") && link.is_some() && udp.is_none() {
+        host_caps.push(caps::LINK_UDP);
+    }
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
         Ok(n) => n,
         Err(refusal) => {
@@ -305,12 +504,44 @@ fn serve_viewer(
     if udp_port.is_some_and(|p| p < 1024) {
         return Err("udp_port below 1024 refused".into());
     }
-    let principal = Principal { user, install, class: parse_class(&class), interactive };
+    // The datagram path: the viewer's UDP port when this host has one, else the stream.
+    let out = match (udp_port, udp, stream.peer_ip()) {
+        (None, _, _) => DatagramOut::Stream,
+        (Some(p), Some(sock), Some(ip)) => {
+            DatagramOut::Udp { sock: sock.try_clone()?, peer: SocketAddr::new(ip, p) }
+        }
+        (Some(_), _, _) => {
+            write_control(&mut stream, &Control::Refused { reason: "StreamCarrierOnly".into() })?;
+            return Ok("refused: this host serves the stream carrier only".into());
+        }
+    };
+    let principal = match admission {
+        Admission::Token(_) => Principal { user, install, class: parse_class(&class), interactive },
+        // The link's owner, a person at the app: the hello's user, class and interactive
+        // claims are not used.
+        Admission::LinkOwner(owner) => Principal {
+            user: owner.to_string(),
+            install,
+            class: PrincipalClass::User,
+            interactive: true,
+        },
+    };
     // Never larger than the viewer asked for: a smaller path MTU would fragment or drop.
     if max_datagram < 512 {
         return Err("max_datagram below 512 refused".into());
     }
     let max_datagram = max_datagram.min(MAX_DATAGRAM_DEFAULT);
+    // With the link, every datagram fits it sealed, so none has to fall back to the stream.
+    let link = link.filter(|_| negotiated.caps.iter().any(|c| c == caps::LINK_UDP));
+    // The STUN names resolve in the background now; the offer comes after `started`.
+    if let Some(link) = link {
+        link.resolve_stun();
+    }
+    #[cfg(feature = "link")]
+    let max_datagram = match link {
+        Some(_) => max_datagram.min(crate::hybrid::LINK_MAX_DATAGRAM),
+        None => max_datagram,
+    };
     let Control::Start { key, mode } = read_control(&mut stream, &mut reader)? else {
         return Err("second message must be start".into());
     };
@@ -342,10 +573,11 @@ fn serve_viewer(
         cfg,
         session,
         &principal,
-        udp_port,
+        out,
         max_datagram,
         &negotiated,
         sink,
+        link,
     ) {
         Ok(reason) => reason,
         Err(e) => format!("failed: {e}"),
@@ -353,38 +585,37 @@ fn serve_viewer(
     // Every exit path ends the session in the table (single writer of rd_session).
     let _ = table.stop(session, &Actor::Remote(Some(principal.clone())));
     let _ = write_control(&mut stream, &Control::Ended { reason: reason.clone() });
-    stream.set_nonblocking(false)?;
-    stream.set_read_timeout(Some(Duration::from_millis(200)))?;
+    stream.nonblocking(false)?;
+    stream.read_timeout(Some(Duration::from_millis(200)))?;
     Ok(reason)
 }
 
 #[allow(clippy::too_many_arguments)]
-fn stream_session(
-    stream: &mut TcpStream,
+fn stream_session<S: ViewerStream>(
+    stream: &mut S,
     reader: &mut FrameReader,
-    udp: &UdpSocket,
+    udp: Option<&UdpSocket>,
     table: &mut SessionTable,
     cfg: &SessionCfg,
     session: SessionId,
     principal: &Principal,
-    udp_port: Option<u16>,
+    out: DatagramOut,
     max_datagram: usize,
     negotiated: &Negotiated,
     sink: Box<dyn crate::upstream::UpstreamSink>,
+    link: Option<&LinkCfg>,
 ) -> Res<String> {
     // Datagrams left over from an earlier viewer must not reach this session (bounded).
     let mut scratch = [0u8; 2048];
     for _ in 0..256 {
-        if udp.recv_from(&mut scratch).is_err() {
+        if udp.is_none_or(|u| u.recv_from(&mut scratch).is_err()) {
             break;
         }
     }
-    let peer_ip = stream.peer_addr()?.ip();
-    let out = match udp_port {
-        Some(p) => DatagramOut::Udp { sock: udp.try_clone()?, peer: SocketAddr::new(peer_ip, p) },
-        None => DatagramOut::Stream,
+    let carrier_name = match out {
+        DatagramOut::Udp { .. } => "udp",
+        DatagramOut::Stream => "stream",
     };
-    let carrier_name = if udp_port.is_some() { "udp" } else { "stream" };
     let mut media = MediaSession::open(cfg, max_datagram, &negotiated.caps, sink)?;
     let (width, height) = media.size();
     write_control(
@@ -400,8 +631,18 @@ fn stream_session(
         },
     )?;
     write_control(stream, &Control::Started { session })?;
-    let mut carrier = SocketCarrier::new(stream, reader, udp, out);
-    let reason = media.run(&mut carrier, table, session, principal);
+    let carrier = SocketCarrier::new(stream, reader, udp, out);
+    let reason = match link {
+        #[cfg(feature = "link")]
+        Some(link) => {
+            let mut carrier = crate::hybrid::HybridCarrier::new(carrier, link.clone());
+            media.run(&mut carrier, table, session, principal)
+        }
+        _ => {
+            let mut carrier = carrier;
+            media.run(&mut carrier, table, session, principal)
+        }
+    };
     media.release_input();
     media.close_upstreams();
     Ok(reason)
@@ -418,6 +659,29 @@ mod tests {
         let _client = std::net::TcpStream::connect(addr).expect("connect");
         let (accepted, _) = listener.accept().expect("accept");
         assert!(peer_allowed(accepted.peer_addr().expect("peer").ip(), Reach::LoopbackOnly));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn listen_systemd_refuses_the_development_and_browser_options() {
+        for extra in [
+            &["--token-fd", "3"][..],
+            &["--port", "4103"],
+            &["--browser", "https://example.com"],
+            &["--browser-cdp-port", "9222"],
+        ] {
+            let mut args: Vec<String> =
+                ["--listen-systemd", "--peer-uid", "0"].iter().map(|s| s.to_string()).collect();
+            args.extend(extra.iter().map(|s| s.to_string()));
+            let err = run_systemd(&Opts::parse(&args).expect("parse")).expect_err("refused");
+            assert!(
+                err.to_string().contains("is not used with --listen-systemd"),
+                "{extra:?}: {err}"
+            );
+        }
+        let args: Vec<String> = ["--listen-systemd"].iter().map(|s| s.to_string()).collect();
+        let err = run_systemd(&Opts::parse(&args).expect("parse")).expect_err("no peer uid");
+        assert!(err.to_string().contains("--peer-uid"), "{err}");
     }
 
     #[test]

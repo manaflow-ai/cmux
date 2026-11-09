@@ -12,7 +12,8 @@ import { componentEntry, type ComponentVariant } from "../../../gallery/format";
 import { tool } from "../../../gallery/fixtures/acpmux";
 import type { Play } from "../../../gallery/play";
 import { CommandRow } from "./CommandRow";
-import { TranscriptDisclosureProvider, resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 type Look = "hairline" | "split" | "gutter";
 type Case = "short" | "long" | "failed" | "streaming";

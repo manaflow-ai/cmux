@@ -84,6 +84,12 @@ extension AgentPaneTransport {
         }
         let method = facts.method
         let pageID = facts.pageID
+        // Older daemons ignore an unknown selector and would read or mutate this Mac's trust.
+        // Fail closed before the frame can enter either the free or gesture-checked send path.
+        if (method == "acp.trust.get" || method == "acp.trust.set"), box.param("peer") != nil,
+           !socket.supportsPeerTrust {
+            return .refuse(.refuse(.methodRefused, method: method, requestID: pageID), spend: facts.ticket)
+        }
         guard facts.free else { return .decide(facts, box) }
         // Free: nothing on the main actor decides it, so it goes out from here, in the same order.
         // A start or open is counted before it goes, or refused while a Sandboxed send runs.
@@ -235,14 +241,15 @@ extension AgentPaneTransport {
     /// The refusal of a session-scoped frame for a session that is not this pane's.
     nonisolated static func sessionRefusal(_ object: [String: Any], sessions: AcpmuxPaneSessions) -> AcpmuxPaneMethods.Decision? {
         guard let method = object["method"] as? String else { return nil }
-        let named = (object["params"] as? [String: Any])?["sessionId"]
+        let params = object["params"] as? [String: Any]
+        let primaryKey = AcpmuxPaneMethods.primarySessionParams[method] ?? "sessionId"
+        let named = params?[primaryKey]
         // A frame that may name a session and names none is not session-scoped.
         if AcpmuxPaneMethods.optionallySessionScoped.contains(method), named == nil { return nil }
         guard AcpmuxPaneMethods.sessionScoped.contains(method) || AcpmuxPaneMethods.optionallySessionScoped.contains(method)
         else { return nil }
         let session = named as? String
         // Other params that name a session must name one of the pane's too (`_acpmux/side`'s chat).
-        let params = object["params"] as? [String: Any]
         let othersHeld = AcpmuxPaneMethods.scopedSessionParams[method, default: []]
             .allSatisfy { (params?[$0] as? String).map(sessions.contains) == true }
         // Ones that may name a session (an accepted offer's child): none is fine, a named one

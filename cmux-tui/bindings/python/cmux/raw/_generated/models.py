@@ -373,6 +373,7 @@ class AgentRecord:
     agent_session_id: Union[str, None, MissingType] = field(default=MISSING)
     last_prompt: Union[str, None, MissingType] = field(default=MISSING)
     since_ms: Union[int, MissingType] = field(default=MISSING)
+    status: Union[AgentState, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1082,6 +1083,20 @@ class LayoutStack:
 
 
 @dataclass(frozen=True)
+class LayoutSizePaneWidth:
+    __cmux_schema_path__: ClassVar[str] = 'types/LayoutSizePaneWidth'
+    pane: Id
+    width: float
+
+
+@dataclass(frozen=True)
+class LayoutSizeSplitRatio:
+    __cmux_schema_path__: ClassVar[str] = 'types/LayoutSizeSplitRatio'
+    split: Id
+    ratio: float
+
+
+@dataclass(frozen=True)
 class LayoutUndoConfirmationRequired:
     __cmux_schema_path__: ClassVar[str] = 'types/LayoutUndoConfirmationRequired'
     screen: Id
@@ -1285,6 +1300,14 @@ class ReattachViewResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ReattachViewResult'
     participant: str
     state: SizeState
+
+
+@dataclass(frozen=True)
+class RemoteHostAppResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/RemoteHostAppResult'
+    host_pid: int
+    secret: str
+    socket: str
 
 
 @dataclass(frozen=True)
@@ -1674,6 +1697,8 @@ class ServerStatsWritePath:
     effect_intents: int
     request_effect_commits: int
     writer_registry_locks: int
+    registry_wal_file_bytes: Union[int, MissingType] = field(default=MISSING)
+    registry_wal_file_high_water_bytes: Union[int, MissingType] = field(default=MISSING)
     registry_wal_frame_bytes: Union[int, MissingType] = field(default=MISSING)
     wal_commits: Union[int, MissingType] = field(default=MISSING)
     wal_synced_commits: Union[int, MissingType] = field(default=MISSING)
@@ -2062,6 +2087,22 @@ class TerminalKeyInput:
 
 
 @dataclass(frozen=True)
+class TerminalLastCommand:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalLastCommand'
+    command: str
+    ended_at_ms: str
+    exit_code: Union[int, None]
+    started_at_ms: str
+
+
+@dataclass(frozen=True)
+class TerminalLastCommandResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalLastCommandResult'
+    terminal_id: str
+    last_command: Union[TerminalLastCommand, None]
+
+
+@dataclass(frozen=True)
 class TerminalModifiers:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalModifiers'
     alt: bool
@@ -2294,6 +2335,7 @@ class AttachSurfaceRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     expected_terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     mode: Union[Literal['bytes', 'render'], None, MissingType] = field(default=MISSING)
+    replay_history_rows: Union[int, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     snapshot: Union[str, None, MissingType] = field(default=MISSING)
     snapshot_images: Union[bool, MissingType] = field(default=MISSING)
@@ -4196,6 +4238,7 @@ class PasteImageRequest:
     op: str
     upload_id: str
     data: Union[str, None, MissingType] = field(default=MISSING)
+    filename: Union[str, None, MissingType] = field(default=MISSING)
     mime: Union[str, None, MissingType] = field(default=MISSING)
     offset: Union[int, None, MissingType] = field(default=MISSING)
     size: Union[int, None, MissingType] = field(default=MISSING)
@@ -4317,6 +4360,33 @@ class ReloadConfigResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/reload-config/result'
     path: Union[str, None]
     reloaded: Literal[True]
+
+
+@dataclass(frozen=True)
+class RemoteHostAppRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/remote-host-app/request'
+    pass
+
+
+@dataclass(frozen=True)
+class RemoteHostCallRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/remote-host-call/request'
+    method: str
+    params: Union[JsonValue, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class RemoteHostConfigRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/remote-host-config/request'
+    computer_use: Union[bool, None, MissingType] = field(default=MISSING)
+    headless: Union[bool, None, MissingType] = field(default=MISSING)
+    screen_sharing: Union[bool, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class RemoteHostStatusRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/remote-host-status/request'
+    pass
 
 
 @dataclass(frozen=True)
@@ -4637,6 +4707,13 @@ class SetHostSizePolicyRequest:
 
 
 @dataclass(frozen=True)
+class SetLayoutSizesRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-layout-sizes/request'
+    transaction: int
+    values: List[LayoutSizeValue]
+
+
+@dataclass(frozen=True)
 class SetPersonalTerminalRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-personal-terminal/request'
     session_id: str
@@ -4797,6 +4874,7 @@ class ShutdownDaemonRequest:
     force: Union[bool, MissingType] = field(default=MISSING)
     end_terminals: Union[bool, MissingType] = field(default=MISSING)
     keep_layout: Union[bool, MissingType] = field(default=MISSING)
+    restart: Union[bool, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4822,6 +4900,7 @@ class SplitRequest:
     pane: Id
     dir: SplitDirection
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    before: Union[bool, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     cwd: Union[str, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
@@ -4882,6 +4961,13 @@ class TerminalHistoryRequest:
     marker_epoch: int
     before: Union[int, None, MissingType] = field(default=MISSING)
     max_bytes: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class TerminalLastCommandRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/terminal-last-command/request'
+    surface: Union[Id, None, MissingType] = field(default=MISSING)
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -5490,6 +5576,7 @@ class ConversationTypingEvent(EventBase):
 class DaemonShutdownEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/daemon-shutdown/payload'
     event: Literal['daemon-shutdown']
+    restart: Union[bool, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5828,6 +5915,14 @@ class SizeStateEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class StashChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/stash-changed/payload'
+    event: Literal['stash-changed']
+    revision: int
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class StatusEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/status/payload'
     event: Literal['status']
@@ -6012,6 +6107,7 @@ class VtStateEvent(EventBase):
     event: Literal['vt-state']
     rows: int
     colors: Union[TerminalColors, MissingType] = field(default=MISSING)
+    history_rows_omitted: Union[int, MissingType] = field(default=MISSING)
     kitty_graphics_state: Union[KittyGraphicsState, MissingType] = field(default=MISSING)
     kitty_image_aliases: Union[List[KittyImageAlias], MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
@@ -6117,13 +6213,14 @@ FrontendJournalEvent = Union[FrontendJournalEventFocus, FrontendJournalEventResi
 Id = int
 JsonValue = Any
 Layout = Union[LayoutLeaf, LayoutSplit, LayoutStack]
+LayoutSizeValue = Union[LayoutSizeSplitRatio, LayoutSizePaneWidth]
 LayoutUndoResult = Union[LayoutUndoUndone, LayoutUndoConfirmationRequired]
 Pane = Union[LivePane, DeadPane]
 PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationPresenceEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SelectionChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspacePresentationChangedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationPresenceEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SelectionChangedEvent, SettingsChangedEvent, SizeStateEvent, StashChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspacePresentationChangedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -6244,6 +6341,8 @@ __all__ = [
     'LayoutLeaf',
     'LayoutSplit',
     'LayoutStack',
+    'LayoutSizePaneWidth',
+    'LayoutSizeSplitRatio',
     'LayoutUndoConfirmationRequired',
     'LayoutUndoUndone',
     'ListAgentsResult',
@@ -6267,6 +6366,7 @@ __all__ = [
     'ReadScreenResult',
     'ReadScrollbackResult',
     'ReattachViewResult',
+    'RemoteHostAppResult',
     'RenderCursor',
     'RenderGraphicImage',
     'RenderGraphicPlacement',
@@ -6342,6 +6442,8 @@ __all__ = [
     'TerminalHistoryPage',
     'TerminalHistoryPagesResult',
     'TerminalKeyInput',
+    'TerminalLastCommand',
+    'TerminalLastCommandResult',
     'TerminalModifiers',
     'TerminalPlacement',
     'TerminalPortsListener',
@@ -6605,6 +6707,10 @@ __all__ = [
     'ReleaseSurfaceSizeRequest',
     'ReloadConfigRequest',
     'ReloadConfigResult',
+    'RemoteHostAppRequest',
+    'RemoteHostCallRequest',
+    'RemoteHostConfigRequest',
+    'RemoteHostStatusRequest',
     'RemoteTerminalSnapshotRequest',
     'RemoveScreensFromScreenGroupRequest',
     'RemoveTabsFromTabGroupRequest',
@@ -6643,6 +6749,7 @@ __all__ = [
     'SetDefaultColorsRequest',
     'SetFrontendBrowserHistoryRequest',
     'SetHostSizePolicyRequest',
+    'SetLayoutSizesRequest',
     'SetPersonalTerminalRequest',
     'SetPersonalWorkspaceRequest',
     'SetProfileFollowsRequest',
@@ -6672,6 +6779,7 @@ __all__ = [
     'TerminalClipboardSubscribeRequest',
     'TerminalEventsRequest',
     'TerminalHistoryRequest',
+    'TerminalLastCommandRequest',
     'TerminalPortsRequest',
     'TerminalReadRangeRequest',
     'TerminalResourcesRequest',
@@ -6767,6 +6875,7 @@ __all__ = [
     'SelectionChangedEvent',
     'SettingsChangedEvent',
     'SizeStateEvent',
+    'StashChangedEvent',
     'StatusEvent',
     'SurfaceExitedEvent',
     'SurfaceOutputEvent',
@@ -6800,6 +6909,7 @@ __all__ = [
     'Id',
     'JsonValue',
     'Layout',
+    'LayoutSizeValue',
     'LayoutUndoResult',
     'Pane',
     'PaneRef',

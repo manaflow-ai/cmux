@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextWindowRules
 
 /// Notification actions over the daemon's retained unread markers
 /// (`TabModel.notification`) and `ack-tab-notifications`
@@ -17,8 +18,6 @@ enum NotificationHandlers {
         let services = context.services
         let panel = NotificationsPanelController(context: context)
         registry.bind("showNotifications", run: { _ in panel.toggle() })
-        let feedPanel = FeedPanelController(context: context)
-        registry.bind("feed.show", run: { _ in feedPanel.toggle() })
         services.pages.register(services.feedPage)
         registry.bind("clearAllNotifications", requires: ack, daemon: context.daemon, run: { _ in
             _ = try context.requireConnection()
@@ -27,28 +26,18 @@ enum NotificationHandlers {
                 await MainActor.run { panel.reload() }
             }
         })
-        registry.bind("jumpToUnread", run: { _ in try open(latestUnread(context), context) })
+        registry.bind("jumpToUnread", run: { _ in try run(.jumpToUnread, context) })
         // The live tab whose agent was prompted last (a closed one is no longer in the tree),
         // shown as a user jump: its window comes forward and its pane takes focus.
         registry.bind("jumpToLastPrompt", run: { _ in
             _ = try context.requireConnection()
-            let store = context.daemon.store
-            let prompted = context.allTabs.compactMap { located in store.agents.lastPromptBySurface[located.tab.surface].map { (located, $0) } }
-            guard let last = prompted.max(by: { $0.1 < $1.1 })?.0 else { throw ActionFailure(message: MiscHandlerStrings.noPrompt) }
+            let prompts = context.daemon.store.agents.lastPromptBySurface
+            guard let last = WindowRules().lastPrompted(context.allTabs, prompt: { prompts[$0.tab.surface] }) else { throw ActionFailure(message: MiscHandlerStrings.noPrompt) }
             guard ActionRunScope.viewChangeAllowed() else { return }
             context.services.revealTab(last.tab.id)
         })
-        registry.bind("markOldestUnreadAndJumpNext", requires: ack, daemon: context.daemon, run: { _ in
-            let tabs = unread(context)
-            guard let oldest = tabs.first else { throw ActionFailure(message: MiscHandlerStrings.noUnread) }
-            try acknowledge([oldest.tab.surface], context)
-            if tabs.count > 1 { try open(tabs[1], context) }
-        })
-        registry.bind("markAllNotificationsRead", requires: ack, daemon: context.daemon, run: { _ in
-            let tabs = unread(context)
-            guard !tabs.isEmpty else { throw ActionFailure(message: MiscHandlerStrings.noUnread) }
-            try acknowledge(tabs.map(\.tab.surface), context)
-        })
+        registry.bind("markOldestUnreadAndJumpNext", requires: ack, daemon: context.daemon, run: { _ in try run(.markOldestAndJumpNext, context) })
+        registry.bind("markAllNotificationsRead", requires: ack, daemon: context.daemon, run: { _ in try run(.markAllRead, context) })
         // Mark Tab Read/Unread: reads an unread tab, else marks it unread (any tab, no notification needed).
         registry.bind("toggleUnread", run: { invocation in
             guard let (pane, id) = context.scope(invocation).tab, let tab = pane.tab(id) else {
@@ -57,7 +46,7 @@ enum NotificationHandlers {
             try TabUnreadMark.toggle(tab, pane: pane.pane, context: context)
         })
         registry.bind("notificationOpen", run: { invocation in
-            guard let row = try panel.row(invocation) else { return try open(latestUnread(context), context) }
+            guard let row = try panel.row(invocation) else { return try run(.jumpToUnread, context) }
             guard let surface = row.surface, let located = context.services.notifications.locate(surface: surface, in: context.daemon.store) else {
                 throw ActionFailure(message: NotificationsPanelStrings.sourceClosed)
             }
@@ -74,11 +63,10 @@ enum NotificationHandlers {
                 }
                 return try TabUnreadMark.set(true, tab: located.tab, daemon: context.services.daemon(for: located.pane))
             }
-            guard let latest = unread(context).last else { throw ActionFailure(message: MiscHandlerStrings.noUnread) }
-            try acknowledge([latest.tab.surface], context)
+            try run(.readLatest, context)
         })
         registry.bind("notificationDismiss", requires: ack, daemon: context.daemon, run: { invocation in
-            guard let row = try panel.row(invocation) else { return try acknowledge([latestUnread(context).tab.surface], context) }
+            guard let row = try panel.row(invocation) else { return try run(.readLatest, context) }
             try dismiss(row, panel: panel, context)
         })
         registry.bind("notificationCopy", requires: ack, daemon: context.daemon, run: { invocation in
@@ -87,7 +75,7 @@ enum NotificationHandlers {
             // An empty ledger is refused: the CLI awaits the reason, a palette or key run shows it.
             let awaited = registry.isCapturingWork, none = MiscHandlerStrings.noNotificationToCopy
             context.daemon.send("copy-notification", onFailure: { [weak registry] failure in
-                if !awaited { registry?.refuse(failure.message) }
+                if !awaited { registry?.refuse(failure: failure) }
             }) { connection in
                 guard let entry = try await connection.notificationLedger(limit: 1).first else {
                     throw ActionFailure.invalidTarget(none)
@@ -121,22 +109,22 @@ enum NotificationHandlers {
         }
     }
 
-    /// Tabs with an unread marker, oldest first (by notification time, then
-    /// tree order for markers without one).
-    static func unread(_ context: AppActionContext) -> [LocatedTab] {
-        context.allTabs.enumerated()
-            .filter { $0.element.tab.hasUnread }
-            .sorted { lhs, rhs in
-                let left = lhs.element.tab.notification?.createdAtMs ?? 0
-                let right = rhs.element.tab.notification?.createdAtMs ?? 0
-                return left == right ? lhs.offset < rhs.offset : left < right
-            }
-            .map(\.element)
+    /// The tabs with an unread marker, in tree order; a workspace whose kept unread count is zero is skipped unread.
+    static func unreadTabs(_ context: AppActionContext) -> [LocatedTab] {
+        context.daemon.store.workspaces.filter { $0.unreadCount > 0 }.flatMap { workspace in
+            workspace.screens.flatMap(\.panes).flatMap { pane in pane.tabs.filter(\.hasUnread).map { LocatedTab(tab: $0, pane: pane, workspace: workspace) } }
+        }
     }
 
-    static func latestUnread(_ context: AppActionContext) throws -> LocatedTab {
-        guard let latest = unread(context).last else { throw ActionFailure(message: MiscHandlerStrings.noUnread) }
-        return latest
+    /// Runs an unread verb: `notifications::plan` names the unread tabs it acknowledges and the one it opens.
+    static func run(_ verb: WindowRules.UnreadVerb, _ context: AppActionContext) throws {
+        let tabs = unreadTabs(context)
+        guard let plan = WindowRules().unreadPlan(verb, createdAt: tabs.map { $0.tab.notification?.createdAtMs }), plan.refusal == nil else {
+            throw ActionFailure(message: MiscHandlerStrings.noUnread)
+        }
+        let acknowledged = plan.acknowledge.filter(tabs.indices.contains).map { tabs[$0].tab.surface }
+        if !acknowledged.isEmpty { try acknowledge(acknowledged, context) }
+        if let index = plan.open, tabs.indices.contains(index) { try open(tabs[index], context) }
     }
 
     /// Shows the tab and opens its notification: it is read unless

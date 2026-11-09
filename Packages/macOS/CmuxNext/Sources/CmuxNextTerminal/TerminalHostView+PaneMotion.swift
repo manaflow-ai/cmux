@@ -1,14 +1,40 @@
 public import AppKit
 public import CmuxNextDesign
 
-/// FRAME OWNER REFACTOR S3 (`motion.frameOwner.contentPolicy`): in a keyboard resize the terminal host is a container
-/// that follows its pane in every frame: the pane's content area gives it its bounds each frame, so the terminal's own
-/// ground, padding, scroller and overlays cover the whole pane and the window's shell never shows inside it. Only the
-/// surface (the producer: Ghostty draws it on its renderer thread) keeps its size: the final size the press asked for
-/// (``holdSurface(size:anchor:)``, one grid per press), else the size it had when the hold began, fixed at the pane edge
-/// that does not move. No grid and no reflow per frame: only the surface's origin moves.
+/// A person's divider or edge drag (`ScreenContentView+ResizeGesture`, cmux-ad m14) is told to the host, which outlives a
+/// surface swap: the surface it shows follows the drag, and so does one installed during the drag (a replay's
+/// `TerminalSession.swapSurface`: a surface joins its new host's drag, ``TerminalSurfaceView`` `viewWillMove(toSuperview:)`).
+extension TerminalHostView: PaneResizeGestureFollowing {
+    public func paneResizeGestureDidChange(active: Bool) {
+        guard followsResizeGesture != active else { return }
+        followsResizeGesture = active
+        current?.followResizeGesture(active)
+    }
+
+    /// The pointer let go: the surface's newest drag grid goes to its program in this turn (``TerminalGridReporter/release()``).
+    public func paneResizeGestureReleased() {
+        guard followsResizeGesture else { return }
+        current?.gridReports.release()
+    }
+
+    /// Out of its window no drag's end may reach it (its layout root can go first): a surface it shows later follows none.
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { followsResizeGesture = false }
+    }
+}
+
+/// FRAME OWNER REFACTOR S3 and cmux-ad m18: in a keyboard resize the terminal host is a container that follows its pane
+/// in every frame: the pane's content area gives it its bounds each frame, so the terminal's own ground, padding,
+/// scroller and overlays cover the whole pane and the window's shell never shows inside it. The surface follows too: it
+/// takes the area it shows in, in every frame
+/// (``followedSurfaceFrame(in:)``), and draws the grid that size fits (Ghostty's reflow preview re-wraps the text at it);
+/// the PTY gets the view's grid coalesced (``TerminalSurfaceView`` `updateSurfaceSize`), and the window's commit presents
+/// each size's frame. No key hold is left (m18), and no switch (m19).
 extension TerminalHostView: PaneMotionHoldFollowing {
     public func followPaneMotion(_ hold: PaneMotionHold?, heldSize: CGSize?) {
+        // The end of a followed hold: its last size drawn ahead goes at the final placement unless that placement takes it.
+        if hold == nil, followedHold != nil { (dropsAheadAtRest, aheadOfKeyResize, aheadRestBasis) = (true, true, nil) }
         followedHold = hold.map { ($0, heldSize ?? bounds.size) }
         needsLayout = true
     }
@@ -24,15 +50,47 @@ extension TerminalHostView: PaneMotionHoldFollowing {
     /// size now.
     var paneMotionBasisSize: CGSize { followedHold?.heldSize ?? bounds.size }
 
-    /// The surface's frame while the host follows `followed`: its held size on the hold's edges of the area it shows in
-    /// (less a legacy scroller's strip). One exception to the still edge: a pane that grows down with its prompt in the
-    /// lower half (`motionAnchor` answered `.bottom`) keeps the surface's bottom on its moving bottom edge, so the prompt on
-    /// the final grid's last row stays in view; the surface is taller than the pane then, so it still covers it.
-    func followedSurfaceFrame(_ followed: (hold: PaneMotionHold, heldSize: CGSize), in area: CGRect) -> CGRect { // perf-hot: 4ms motion-frame
-        let size = surfaceHold?.size ?? surfaceSize(forHostSize: followed.heldSize)
-        let shown = CGRect(x: area.minX, y: area.minY, width: max(0, area.width - scrollerWidth), height: area.height)
-        var hold = followed.hold
-        if case .bottom? = surfaceHold?.anchor { hold.bottom = true }
-        return hold.producerFrame(size, in: shown)
+    /// Whether the surface takes the area it shows in, in every frame (cmux-ad m14 and m18): the host follows its pane
+    /// through a key resize. The surface then holds no size (``TerminalSurfaceView`` `restAt`), and its reflow preview
+    /// stays on, so each frame draws the grid its size fits with the cursor row in view.
+    var surfaceFollowsArea: Bool { followedHold != nil }
+
+    /// Draw ahead (cmux-ad m26): its pane's spring gives the host `nextHostSize` at the next refresh. The surface asks
+    /// Ghostty for the size it will take then, after this refresh's commit, so that frame is drawn when it is needed.
+    public func drawAhead(nextHostSize: CGSize) { // perf-hot: 1ms motion-frame
+        guard surfaceFollowsArea, let current else { return }
+        current.drawAhead(surfaceSize(forHostSize: nextHostSize))
+    }
+
+    /// Draw ahead of the follow (T-KEYS 3): a key press's first refresh hands this host its pane's hold at `nextHostSize`.
+    /// The surface asks Ghostty for the size it takes then, in the key's turn (a key press: with its grid to the program,
+    /// ``aheadOfKeyResize``; a snap: render only), so the frame that shows the press has it drawn. A follow that does not
+    /// begin leaves it to the next placement at rest, which drops it unless it takes it (``dropsAheadAtRest``).
+    public func drawAheadOfFollow(nextHostSize: CGSize, keyPress: Bool) {
+        guard !surfaceFollowsArea, !isHidden, let current else { return }
+        aheadOfKeyResize = keyPress
+        current.drawAhead(surfaceSize(forHostSize: nextHostSize))
+        dropsAheadAtRest = true
+        aheadRestBasis = bounds.size
+    }
+
+    /// The snap this host's size was drawn ahead for showed: a size its placement did not take (the snap showed this host
+    /// at its old size) goes at the next layout.
+    public func aheadOfFollowShown() {
+        guard dropsAheadAtRest, aheadRestBasis != nil else { return }
+        aheadRestBasis = nil
+        needsLayout = true
+    }
+
+    /// Whether the host is in a content area that holds for a key resize and will hand it the follow in the area's next
+    /// layout pass (a parked tab shown mid-hold: its surface is shown, and joins, a pass before that).
+    var joinsAreaKeyHold: Bool { followedHold == nil && (superview as? PaneContentAreaView)?.hold != nil }
+
+    /// The surface's frame while the host follows its pane: the area it shows in (less a legacy scroller's strip),
+    /// whatever hold it has. Each frame draws the grid its size fits (the reflow preview), and the reflow keeps a low
+    /// prompt's cursor row in view, so no hold keeps it there (F2: a bottom hold at the final size made the surface taller
+    /// than its pane and cut its top rows).
+    func followedSurfaceFrame(in area: CGRect) -> CGRect { // perf-hot: 4ms motion-frame
+        CGRect(x: area.minX, y: area.minY, width: max(0, area.width - scrollerWidth), height: area.height)
     }
 }

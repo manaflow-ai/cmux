@@ -14,6 +14,15 @@ public final class DiffPageRuntime {
     public let isRemote: Bool
     /// Reads the session host's `git.status` of a folder.
     private let status: @MainActor (String) async throws -> JSONValue
+    /// The precomputes' sidecar (DiffPageRuntime+Warm.swift): one child at a time, apart from the
+    /// tabs' pool, so a person's open never waits behind one.
+    let warmSidecar: (any DiffSidecarRunning)?
+    /// The precompute in flight per folder, the folders asked again meanwhile, and the precomputed
+    /// diffs by repository root, oldest first in `warmOrder`.
+    var warming: [String: Task<Void, Never>] = [:]
+    var rewarm: Set<String> = []
+    var warmedEntries: [String: DiffWarmEntry] = [:]
+    var warmOrder: [String] = []
     nonisolated private static let swept = Mutex(false)
     nonisolated private static let live = Mutex<[ObjectIdentifier: DiffSessionGrant]>([:])
 
@@ -22,7 +31,9 @@ public final class DiffPageRuntime {
          status: (@MainActor (String) async throws -> JSONValue)? = nil,
          isRemote: Bool = false) {
         self.root = root
-        self.sidecar = sidecar ?? DiffSidecarLauncher.bundled(root: root).map { DiffSidecarPool(runner: $0) }
+        let bundled = sidecar == nil ? DiffSidecarLauncher.bundled(root: root) : nil
+        self.sidecar = sidecar ?? bundled.map { DiffSidecarPool(runner: $0) }
+        warmSidecar = bundled.map { DiffSidecarPool(runner: $0, limit: 1, queueLimit: 4) } ?? self.sidecar
         languages = DiffLanguageFeed(directory: DiffLanguagePack.directory(configFile: configFile))
         self.status = status ?? { _ in throw DiffTabFailure(title: "", message: DiffPageStrings.notRepository) }
         self.isRemote = isRemote
@@ -61,6 +72,8 @@ public final class DiffPageRuntime {
     /// The tab's grant (for `repository`'s root) and config, with `turn` as its
     /// Last turn. Fails with a ``DiffTabFailure`` the page shows.
     public func prepare(repository: DiffRepository, source: DiffOpenSource, turn: DiffTurn? = nil) -> Task<DiffTabReady, any Error> {
+        // A diff precomputed when an agent's turn ended there: the tab starts on its open session.
+        if let warm = takeWarm(repository, source: source, turn: turn) { return Task { warm } }
         let root = root, available = sidecar != nil || isRemote
         return Task {
             guard available else { throw DiffTabFailure(title: repository.name, message: DiffPageStrings.unavailable) }
@@ -90,7 +103,7 @@ public final class DiffPageRuntime {
         }
     }
 
-    @concurrent private static func grant(root wanted: URL, repository: String) async throws -> DiffSessionGrant {
+    @concurrent static func grant(root wanted: URL, repository: String) async throws -> DiffSessionGrant {
         let root: URL
         do {
             root = try DiffSessionRoot.prepare(wanted)

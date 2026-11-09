@@ -6,7 +6,7 @@
 import { expect, test } from "bun:test";
 import { SubagentFold } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { IDLE_AFTER_MS } from "../src/agent-session/acpmux/subagents/idle";
-import { subagentStatus } from "../src/agent-session/acpmux/summary/SubagentStatusList";
+import { subagentStatus } from "../src/agent-session/acpmux/summary/subagentStatusListModel";
 
 const update = (update: Record<string, unknown>, acpmux: Record<string, unknown>) => ({
   method: "session/update",

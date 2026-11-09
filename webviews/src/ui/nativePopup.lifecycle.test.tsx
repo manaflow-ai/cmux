@@ -111,7 +111,8 @@ test("an opening refusal survives descriptor changes", async () => {
   await act(async () => {
     h.shows[0]!.resolve({ shown: false });
   });
-  expect(h.dismissed).toEqual([undefined]);
+  // A show the host never drew says so, so an owner with a page fallback can keep its menu open.
+  expect(h.dismissed).toEqual(["refused"]);
 });
 
 test("a prior opening refusal cannot dismiss a reopened popup", async () => {

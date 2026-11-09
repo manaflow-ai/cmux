@@ -5,6 +5,7 @@ use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode};
+use crate::local_owner::CarriedLaunch;
 use cmux_json::JsonSet as _;
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
@@ -46,6 +47,14 @@ pub(super) enum ServerAction {
         end_terminals: bool,
         /// How long to wait for an owner that still restores its session
         /// (`--restore-wait-seconds`, default `local_owner::RESTORE_DEADLINE`).
+        restore_wait: Duration,
+    },
+    /// The daemon swap (HQ#7149 R4): stop the owner as an update hands it off
+    /// (its terminal hosts live on), wait for it to exit, then ensure an owner
+    /// from this binary, which adopts them. A daemon edit reaches the running
+    /// session with every terminal kept. Starts an owner when none runs.
+    Restart {
+        force: bool,
         restore_wait: Duration,
     },
     ReloadConfig,
@@ -142,17 +151,40 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             install_key,
             (socket, socket_is_derived),
             (progress, replace_unresponsive),
-            websocket,
+            (websocket, None),
             global.output,
         );
     }
-    if let ServerAction::Stop { force, end_terminals, restore_wait } = plan.action {
+    // A restart is a stop that keeps the terminals, then an ensure.
+    let restart = matches!(plan.action, ServerAction::Restart { .. });
+    let action = match plan.action {
+        ServerAction::Restart { force, restore_wait } => {
+            ServerAction::Stop { force, end_terminals: false, restore_wait }
+        }
+        action => action,
+    };
+    // The new owner takes the stopped owner's session (its `identify`), so a
+    // restart by `--socket` alone never starts a "main" owner beside it.
+    // It starts with the stopped owner's launch flags and environment.
+    let ensure_after_stop = |session: Option<String>, stopped: Option<(u32, CarriedLaunch)>| {
+        run_ensure(
+            session,
+            (None, None),
+            None,
+            (socket.clone(), socket_is_derived),
+            (false, false),
+            (None, stopped),
+            global.output,
+        )
+    };
+    if let ServerAction::Stop { force, end_terminals, restore_wait } = action {
         let stop = StopWait {
             socket: &socket,
             socket_is_derived,
             session: expected_session.as_deref(),
             limit: restore_wait,
             retry_flags: (force, end_terminals),
+            restart,
             output: global.output,
         };
         if let Err(exit_code) = stop.wait_for_restore() {
@@ -161,12 +193,18 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     }
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
-        Err(error) if matches!(plan.action, ServerAction::Stop { .. }) && is_absent(&error) => {
+        Err(error) if restart && is_absent(&error) => {
+            return ensure_after_stop(expected_session, None);
+        }
+        Err(error) if matches!(action, ServerAction::Stop { .. }) && is_absent(&error) => {
+            // A start lock an earlier owner left goes too.
+            let removed = remove_start_lock(&socket);
             return print_success(
                 json!({
                     "status":"not_running",
                     "session":expected_session,
                     "socket":socket_output,
+                    "removed":removed,
                     "message":crate::localization::catalog().local_server.not_running,
                 }),
                 global.output,
@@ -223,12 +261,10 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     match identity.get("lifecycle_ready") {
         Some(Value::Bool(true)) | None => {}
         Some(Value::Bool(false)) => {
-            return local_error(
-                "server.unavailable",
-                crate::localization::catalog().local_server.starting,
-                global.output,
-                3,
-            );
+            let message = crate::localization::catalog().local_server.starting;
+            // The message says to retry: a server still starting is retryable.
+            let error = json!({"code":"server.unavailable","message":message,"details":{"reason":"starting"},"retryable":true});
+            return super::wire::print_local_error(&error, global.output, 3);
         }
         Some(_) => {
             return local_error(
@@ -273,9 +309,13 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         );
     }
 
-    match plan.action {
-        ServerAction::Ensure { .. } | ServerAction::CompactRegistry { .. } => {
-            unreachable!("ensure and compact-registry return before the lifecycle exchange")
+    match action {
+        ServerAction::Ensure { .. }
+        | ServerAction::CompactRegistry { .. }
+        | ServerAction::Restart { .. } => {
+            unreachable!(
+                "ensure, compact-registry and restart return before the lifecycle exchange"
+            )
         }
         // A wedged owner answers identify, but serves no workspace change: the
         // app runs `server status` first and ensures only when it fails, so
@@ -299,6 +339,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 "pid":pid,
                 "generation":generation,
                 "message":crate::localization::catalog().local_server.running,
+                "screen_detection":crate::screen_detection_status::of_daemon(&identity),
             }),
             global.output,
         ),
@@ -379,7 +420,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             {
                 return local_error(
                     "server.end_terminals_unsupported",
-                    &refused_with_fix(
+                    &super::fix_command::refused_with_fix(
                         crate::localization::catalog().local_server.end_terminals_unsupported,
                         &super::fix_command::this_cli(),
                         std::path::Path::new(&socket_output),
@@ -398,7 +439,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             {
                 return local_error(
                     "server.force_unsupported",
-                    &refused_with_fix(
+                    &super::fix_command::refused_with_fix(
                         crate::localization::catalog().local_server.force_unsupported,
                         &super::fix_command::this_cli(),
                         std::path::Path::new(&socket_output),
@@ -407,6 +448,8 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                     1,
                 );
             }
+            // Read while the old owner still runs: the new one repeats it.
+            let launch = restart.then(|| CarriedLaunch::of_owner(pid));
             let result = match exchange(
                 &mut connection,
                 json!({
@@ -416,6 +459,9 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                     "generation":generation,
                     "force":force,
                     "end_terminals":end_terminals,
+                    // An attached TUI reconnects after a restart and exits
+                    // after a stop (the daemon repeats it on its notice).
+                    "restart":restart,
                 }),
                 deadline,
             ) {
@@ -448,6 +494,19 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             if let Err(message) = wait_for_close(&mut connection, deadline) {
                 return local_error("server.stop_incomplete", &message, global.output, 3);
             }
+            if let Some(launch) = launch {
+                // The old owner closes its socket before it exits; the new
+                // owner starts once the old process is gone.
+                if let Err(message) = wait_for_exit(pid, Instant::now() + Duration::from_secs(10)) {
+                    return local_error("server.stop_incomplete", &message, global.output, 3);
+                }
+                return ensure_after_stop(Some(actual_session.to_owned()), Some((pid, launch)));
+            }
+            // A running owner never holds the start lock (only a bind does),
+            // and the owner already closed its socket: remove the lock now.
+            // No pid wait: a parent that has not reaped the owner keeps a
+            // zombie, and kill(pid, 0) succeeds for a zombie.
+            let removed = remove_start_lock(&socket);
             print_success(
                 json!({
                     "status":"stopped",
@@ -456,6 +515,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                     "pid":pid,
                     "generation":generation,
                     "ended_terminals":result["ended_terminals"].as_u64(),
+                    "removed":removed,
                     "message":if end_terminals {
                         crate::localization::catalog().local_server.stopped_terminals_ended
                     } else {
@@ -518,6 +578,8 @@ struct StopWait<'a> {
     limit: Duration,
     /// `--force` and `--end-terminals`, repeated in the retry command.
     retry_flags: (bool, bool),
+    /// A `server restart`'s stop: the retry command restarts, never only stops.
+    restart: bool,
     output: OutputMode,
 }
 
@@ -647,8 +709,12 @@ impl StopWait<'_> {
     fn give_up(&self, phase: RestorePhase, started: Instant) -> i32 {
         let waited = started.elapsed();
         let longer = (self.limit * 2).max(crate::local_owner::RESTORE_DEADLINE);
-        let mut retry =
-            super::fix_command::stop_daemon(&super::fix_command::this_cli(), self.socket);
+        let cli = super::fix_command::this_cli();
+        let mut retry = if self.restart {
+            super::fix_command::restart_daemon_in_place(&cli, self.socket)
+        } else {
+            super::fix_command::stop_daemon(&cli, self.socket)
+        };
         let (force, end_terminals) = self.retry_flags;
         if force {
             retry.push_str(" --force");
@@ -727,19 +793,25 @@ fn read_install_key_from_stdin() -> std::io::Result<cmux_tui_core::server::Front
 /// existed and `started` for one this call spawned. `socket` is the socket
 /// path and whether it was derived from the session name; the owner pair is
 /// the reap grace and `--exit-with-pid`, the flag pair `--restore-progress`
-/// and `--replace-unresponsive`.
+/// and `--replace-unresponsive`. `stopped` is the owner a `server restart`
+/// stopped and its launch: an owner this call starts repeats that launch and
+/// reports `restarted` with the carried flags.
 fn run_ensure(
     expected_session: Option<String>,
     (terminal_reap_grace, exit_with_pid): (Option<Duration>, Option<crate::local_owner::ExitWith>),
     install_key: Option<cmux_tui_core::server::FrontendKey>,
     (socket, socket_is_derived): (std::path::PathBuf, bool),
     (progress, replace_unresponsive): (bool, bool),
-    websocket: Option<crate::local_owner::EnsureWebSocket>,
+    (websocket, stopped): (
+        Option<crate::local_owner::EnsureWebSocket>,
+        Option<(u32, CarriedLaunch)>,
+    ),
     output: OutputMode,
 ) -> i32 {
     let messages = &crate::localization::catalog().local_server;
     let socket_output = socket.to_string_lossy().into_owned();
-    let spec = crate::local_owner::OwnerSpec {
+    let (previous_pid, launch) = stopped.unzip();
+    let mut spec = crate::local_owner::OwnerSpec {
         session: expected_session.clone().unwrap_or_else(|| "main".to_string()),
         socket,
         socket_is_derived,
@@ -755,7 +827,12 @@ fn run_ensure(
         // ...and the Chief brains the app gave it (taken out at start too).
         chief_brains: cmux_tui_core::chief_brains::taken(),
         websocket,
+        carried_env: Vec::new(),
     };
+    let carried_flags = launch.as_ref().map(CarriedLaunch::flags);
+    if let Some(launch) = launch {
+        launch.apply(&mut spec);
+    }
     let replaced = if replace_unresponsive {
         match crate::local_owner::replace_if_unresponsive(&spec) {
             Ok(replaced) => replaced.map(|replaced| replaced.pid),
@@ -798,6 +875,9 @@ fn run_ensure(
                 crate::local_owner::Ensured::Started(ready) if replaced.is_some() => {
                     ("replaced", messages.replaced, ready)
                 }
+                crate::local_owner::Ensured::Started(ready) if previous_pid.is_some() => {
+                    ("restarted", messages.restarted, ready)
+                }
                 crate::local_owner::Ensured::Started(ready) => ("started", messages.started, ready),
             };
             let mut result = json!({
@@ -810,6 +890,42 @@ fn run_ensure(
             });
             if let Some(pid) = replaced {
                 result.set("replaced_pid", json!(pid));
+            }
+            if let Some(pid) = previous_pid {
+                result.set("previous_pid", json!(pid));
+            }
+            if let Some(flags) = &carried_flags {
+                result.set("carried_launch", json!(flags));
+            }
+            // A restart is done when the kept terminals run again: the new
+            // owner answers first and adopts their hosts after (R41).
+            if previous_pid.is_some() && matches!(ensured, crate::local_owner::Ensured::Started(_))
+            {
+                let adopted = wait_for_adoption(&spec.socket, spec.socket_is_derived);
+                result.set("terminals", adopted.counts());
+                if !adopted.listed || !adopted.not_running.is_empty() {
+                    let text = if adopted.listed {
+                        messages
+                            .restart_terminals_not_running
+                            .replace("{count}", &adopted.not_running.len().to_string())
+                            .replace("{terminals}", &adopted.not_running.join(", "))
+                    } else {
+                        messages.restart_terminals_unknown.to_owned()
+                    };
+                    // The top-level message says what is wrong; the success
+                    // text ("every terminal was kept") would contradict it.
+                    if let Some(result) = result.as_object_mut() {
+                        result.remove("message");
+                    }
+                    result.set("not_running", json!(adopted.not_running));
+                    return local_error_with_details(
+                        "server.terminals_not_running",
+                        &text,
+                        result,
+                        output,
+                        3,
+                    );
+                }
             }
             print_success(result, output)
         }
@@ -837,6 +953,75 @@ fn run_ensure(
         }
     }
 }
+
+/// How long a restart waits for the new owner to run every kept terminal.
+const ADOPTION_DEADLINE: Duration = Duration::from_secs(30);
+
+/// The terminals of a restarted owner, by lifecycle, once none is adopting
+/// (or at [`ADOPTION_DEADLINE`]): `not_running` are the ids still adopting
+/// or launching then; `listed` is false when the owner could not be read.
+#[derive(Debug, Default)]
+struct Adopted {
+    /// Whether the new owner listed its terminals at all.
+    listed: bool,
+    running: usize,
+    exited: usize,
+    not_running: Vec<String>,
+}
+
+impl Adopted {
+    fn counts(&self) -> Value {
+        json!({"running": self.running, "exited": self.exited, "not_running": self.not_running.len()})
+    }
+
+    /// From a `list-terminals` answer, and whether no terminal is still
+    /// being adopted or launched.
+    fn settled(listed: &Value) -> (Self, bool) {
+        let mut adopted = Self { listed: true, ..Self::default() };
+        for row in listed.get("terminals").and_then(Value::as_array).into_iter().flatten() {
+            match row.get("lifecycle").and_then(Value::as_str) {
+                Some("running") => adopted.running += 1,
+                Some("exited") => adopted.exited += 1,
+                Some("adopting" | "launching") => adopted.not_running.push(
+                    row.get("terminal_id").and_then(Value::as_str).unwrap_or_default().to_owned(),
+                ),
+                _ => {}
+            }
+        }
+        let settled = adopted.not_running.is_empty();
+        (adopted, settled)
+    }
+}
+
+/// Waits until the owner at `socket` adopted every kept terminal (none is
+/// `adopting` or `launching`), up to [`ADOPTION_DEADLINE`].
+fn wait_for_adoption(socket: &std::path::Path, socket_is_derived: bool) -> Adopted {
+    let deadline = Instant::now() + ADOPTION_DEADLINE;
+    let mut last = Adopted::default();
+    let Ok(stream) = cmux_tui_core::server::connect_session_socket(socket, socket_is_derived)
+    else {
+        return last;
+    };
+    let mut connection = BufReader::new(stream);
+    let mut id = 0_u64;
+    loop {
+        id += 1;
+        let Ok(listed) =
+            exchange(&mut connection, json!({"id": id, "cmd": "list-terminals"}), deadline)
+        else {
+            return last;
+        };
+        let (adopted, settled) = Adopted::settled(&listed);
+        if settled || Instant::now() + ADOPTION_POLL >= deadline {
+            return adopted;
+        }
+        last = adopted;
+        std::thread::sleep(ADOPTION_POLL);
+    }
+}
+
+/// The pause between two terminal lists while a restart waits for adoption.
+const ADOPTION_POLL: Duration = Duration::from_millis(25);
 
 /// One restore progress line on stdout (`server ensure --restore-progress`). The
 /// result stays the last JSON line, so a reader that takes the last line
@@ -989,6 +1174,42 @@ fn wait_for_close(
     }
 }
 
+/// Waits until the stopped owner `pid` has exited, so the owner a restart
+/// starts never meets the old one still holding the session.
+fn wait_for_exit(pid: u32, deadline: Instant) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        let Ok(pid) = libc::pid_t::try_from(pid) else {
+            return Ok(());
+        };
+        // SAFETY: signal 0 only checks that the pid exists. EPERM means
+        // another user's process holds the pid now: the owner is gone.
+        while unsafe { libc::kill(pid, 0) } == 0 {
+            if Instant::now() >= deadline {
+                return Err(crate::localization::catalog().local_server.stop_timeout.to_string());
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (pid, deadline);
+    Ok(())
+}
+
+/// After a stop (not a restart), removes what only a running owner needs:
+/// the socket's start lock (`<socket>.spawn-lock`, cmux-tui-core
+/// `remove_socket_start_lock`). The session's saved state stays
+/// (`cmux session <name> reset-state` removes it). Returns the removed path,
+/// or none when there is no lock file or a start holds it for 500 ms.
+fn remove_start_lock(socket: &std::path::Path) -> Vec<String> {
+    let lock = cmux_tui_core::server::socket_start_lock_path(socket);
+    let deadline = Instant::now() + Duration::from_millis(500);
+    match cmux_tui_core::server::remove_socket_start_lock(socket, deadline) {
+        Ok(true) => vec![lock.display().to_string()],
+        Ok(false) | Err(_) => Vec::new(),
+    }
+}
+
 fn usage_error(message: &str, output: OutputMode) -> i32 {
     local_error("usage.invalid", message, output, 2)
 }
@@ -1073,13 +1294,6 @@ fn local_error_with_details(
 
 fn print_success(value: Value, output: OutputMode) -> i32 {
     super::wire::print_local_success(&value, output)
-}
-
-/// A stop this daemon refuses (another build): `text` and the one command
-/// that restarts the daemon at `socket` with `cli`'s build
-/// (plans/cmux-next/version-skew.md).
-fn refused_with_fix(text: &str, cli: &std::path::Path, socket: &std::path::Path) -> String {
-    format!("{text} {}", super::fix_command::restart_daemon(cli, socket))
 }
 
 #[cfg(test)]

@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import type { AcpmuxActivity } from "../model";
 import { translate } from "../i18n";
 import { dispatchCall } from "./dispatchCalls";
-import { briefAnchor, lineLabel } from "./DispatchCard";
+import { briefAnchor, lineLabel } from "./dispatchCardModel";
 import { toolGroups } from "./toolGroups";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -202,4 +202,31 @@ test("failed dispatch calls cannot show a successful requested or returned statu
   const rejected = activity("acpmux report", {}, { status: "merged" });
   rejected.tool!.exitCode = 1;
   expect(dispatchCall(rejected)?.status).toBe("failed");
+});
+
+test("each call is read once: a pass over a long history parses no call again, and no plain output", () => {
+  const parse = JSON.parse;
+  let parsed = 0;
+  JSON.parse = ((text: string, reviver?: Parameters<typeof JSON.parse>[1]) => {
+    parsed += 1;
+    return parse(text, reviver);
+  }) as typeof JSON.parse;
+  try {
+    const read = activity("Read", { path: "src/a.ts" }, "export const a = 1;\n");
+    const dispatch = activity("dispatch", { title: "A brief" });
+    expect(dispatchCall(read)).toBeUndefined();
+    const first = dispatchCall(dispatch);
+    // The read's input is JSON; its output, a file's text, is never parsed.
+    const once = parsed;
+    expect(once).toBe(2);
+    for (let pass = 0; pass < 3; pass += 1) {
+      expect(dispatchCall(read)).toBeUndefined();
+      expect(dispatchCall(dispatch)).toBe(first);
+      // A shaped copy of the item keeps its tool: still read once.
+      expect(dispatchCall({ ...dispatch })).toBe(first);
+    }
+    expect(parsed).toBe(once);
+  } finally {
+    JSON.parse = parse;
+  }
 });

@@ -22,7 +22,7 @@ web server its browser tabs load.
      The quit is measured from the request to the kernel's exit event (kqueue NOTE_EXIT). While
      it runs, `sample` records the app every SAMPLE_SECONDS into quit-<mode>-<n>.txt.
   3. The launch after it is measured from main() (the loader's time before it is reported): the
-     first window frame, the first live terminal frame (interactive), the agent pane's handshake,
+     first window frame, the first live terminal frame (interactive), the agent chat's first frame,
      and the main thread's longest stall in the first LAUNCH_WATCH seconds (debug.hangs, threshold
      HANG_MS, with stacks). `sample` records the launch too.
   4. beforeunload: an app quit never shows a page's question, and waits for its handler at most the
@@ -401,9 +401,9 @@ class Session:
         launch = self.start()
         sampler = Sampler(launch.process.pid, out, f"launch-{label}")
         launch.wait_for(WINDOW_MARK, LAUNCH_WATCH * 2)
-        # Interactive: the first live terminal frame (a terminal takes input). The agent pane's
-        # handshake is reported, not bounded: it can come long before the terminals (a daemon
-        # that still adopts its terminal hosts).
+        # Interactive: the first live terminal frame (a terminal takes input). The agent chat's
+        # first frame (bench-startup AGENT_MARK) is reported, not bounded: it can come long before
+        # the terminals (a daemon that still adopts its terminal hosts).
         launch.wait_for([TERMINAL_MARK] + ([AGENT_MARK] if self.has_agent else []), LAUNCH_WATCH * 2)
         # The main thread's stalls during the restore: read after LAUNCH_WATCH seconds of the process.
         watch_left = LAUNCH_WATCH - (launch.marks.get(WINDOW_MARK, 0) / 1000)

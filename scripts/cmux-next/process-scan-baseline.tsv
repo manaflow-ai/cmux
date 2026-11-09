@@ -7,7 +7,9 @@
 # own children); a new `keep` row needs a review note in the commit.
 cmux-tui/crates/acpmux/src/adopt_live.rs	1	remove	cx-t2sqm.2 (OpenCode only; Claude and Codex use their recorded holders)
 cmux-tui/crates/acpmux/src/agent_host/tree.rs	6	remove	cx-t2sqm.3; also the idle census (hub/idle_census.rs, #26174) until harnesses report what runs under them: its ps listing, and each child's exact argv (KERN_PROCARGS2, /proc/<pid>/cmdline), executable (proc_pidpath, /proc/<pid>/exe) and folder (proc_pidinfo PROC_PIDVNODEPATHINFO, /proc/<pid>/cwd) to tell its MCP servers apart (#27558, #27925), and an adopted harness's start environment (KERN_PROCARGS2, /proc/<pid>/environ) when no daemon kept its servers
+cmux-tui/crates/acpmux/src/cpu_class.rs	2	keep	one held child only (the harness acpmux spawned) and, on macOS, its own descendants (at most 64, no other process listed): what its start did, read while the start runs, so a launcher (sr2 claude) or a harness waiting on page-ins is not called hung; Linux reads that one pid's /proc stat
 cmux-tui/crates/acpmux/src/hub/pool/reaper.rs	1	remove	cx-t2sqm.3
+cmux-tui/crates/acpmux/src/daemon/term_sender.rs	1	keep	one pid the kernel named (si_pid of the SIGTERM that stops the daemon), read once on the stop path to name its sender and parent on the stop line; no enumeration (#35147, hq#6338)
 cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/session_cleanup.rs	2	remove	cx-t2sqm.4
 cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/host_scope.rs	2	remove	cx-t2sqm.4
 cmux-tui/crates/cmux-tui-core/src/terminal_host_runtime/unix/adopted_child.rs	3	keep	one held child (the holder's own adopted child), single pid, zombie check
@@ -48,3 +50,9 @@ cmux-tui/crates/cmux-worktree-care/src/procs.rs	1	keep	one bounded check of one 
 cmux-tui/crates/cmux-pty/src/macos.rs	2	keep	this process only: PROC_PIDLISTFDS of getpid() between fork and exec, to mark its own inherited descriptors close-on-exec (new-terminal-100x; macOS has no close_range)
 cmux-tui/crates/acpmux/src/agent_host/scope.rs	1	keep	one held child: the agent host this daemon just spawned, read only for its own cgroup to confirm systemd moved it into its scope before it starts its harness (#24858)
 cmux-tui/crates/acpmux/src/linux_sandbox/supervisor.rs	2	keep	seccomp supervisor resolves its own sandboxed child's /proc/<pid>/fd aliases (one held child)
+Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/TakeoverBench.swift	1	keep	measurement tool only (cmux-cua-helper --takeover-bench, never in the app): looks up Finder once as the pid target of its harmless synthetic events; no process is classified or tracked
+cmux-tui/crates/cmux-host/src/updater/role.rs	2	remove	healthy() reads the exe of the one pid the daemon's pid file names (an identity check, keep-shaped); services_running() walks /proc to find system services running the old binary (#37280): ask systemd for its cmux-* units' main pids instead
+cmux-tui/crates/cmux-rd-host/src/inject.rs	1	keep	one recorded pid (a cmux-rd host this process started), its comm compared with this process's own, so a reused pid is not taken for the host (#36765)
+cmux-tui/crates/cmux-tui/src/cli/live_code.rs	2	keep	one recorded pid (the live code build's own process, from its record), its executable read to tell a reused pid apart (#36779); no enumeration
+cmux-tui/crates/acpmux/src/daemon/owner_exit.rs	1	keep	one named pid's start time (/proc/<pid>/stat field 22), so a later process under a reused pid does not stand in for the owner (#36532); no enumeration
+cmux-tui/crates/acpmux/src/sender_harness.rs	3	keep	peer of one connected socket and this CLI's own ancestors only (at most 32, one pid at a time, no enumeration), read only for a send that names its harness: the parent chain up to the first harness binary or app bundle, as provenance beside the claim, never a proof (sender_harness.rs)

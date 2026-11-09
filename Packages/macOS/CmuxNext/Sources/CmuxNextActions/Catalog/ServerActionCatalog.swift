@@ -35,6 +35,15 @@ nonisolated enum ServerActionCatalog: ActionCatalogGroup {
                 cliName: "servers add", mainMenu: .server,
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             )),
+            // The reverse of Add Server: this Mac shows an invite code, the new machine runs
+            // `cmux pair CODE`, and the person confirms its words here. Opening it mints an invite,
+            // which only a person may do; Confirm itself answers only the person's click in the card.
+            personOnly(ActionDescriptor(
+                id: "server.pairAnotherMachine", title: t("action.server.pairAnotherMachine", "Pair Another Machine…"),
+                keywords: ["pair", "invite", "code", "qr", "machine", "server", "add", "connect", "link", "computer"],
+                category: .settings, symbol: "qrcode", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            )),
             ActionDescriptor(
                 id: "server.showPanel", title: t("action.server.showPanel", "Server Status"),
                 keywords: ["server", "status", "menu bar", "terminals", "apps", "database", "chief"],

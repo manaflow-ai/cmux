@@ -11,9 +11,11 @@ extension WorkspaceRowView {
     /// y the icon and trailing marks center on.
     func textMetrics(head b: NSRect) -> (title: CGFloat, line: CGFloat, top: CGFloat, center: CGFloat) {
         let th = ceil(title.intrinsicContentSize.height)
-        let sh = SidebarTunables.evenRowText.value ? SidebarStyle.detailLineHeight : ceil(subtitle.intrinsicContentSize.height)
+        // Each detail line adds exactly its own height (`SidebarDensityTokens.rowHeightWithSubtitle`), with no gap
+        // between stacked lines; the labels' own line spacing separates them.
+        let sh = SidebarStyle.detailLineHeight
         let lines = (hasSubtitle ? 1 : 0) + (hasMeta ? 1 : 0)
-        let stackTop = (b.height - th - CGFloat(lines) * (lineGap + sh)) / 2
+        let stackTop = (b.height - th - CGFloat(lines) * sh) / 2
         // The title centers its capitals on its line of the stack (#27598).
         let titleCenter = stackTop + th / 2
         let top = SidebarStyle.columns(rowWidth: b.width).textOriginY(centerY: titleCenter, baseline: title.font.ascender,
@@ -24,10 +26,6 @@ extension WorkspaceRowView {
     }
 
     var hasMeta: Bool { isExpanded && !metaLabel.stringValue.isEmpty }
-
-    /// Between stacked text lines: none when each detail line adds exactly its own height to the row
-    /// (`SidebarDensityTokens.rowHeightWithSubtitle`); the labels' own line spacing separates them.
-    var lineGap: CGFloat { SidebarTunables.evenRowText.value ? 0 : Metrics.space1 }
 
     /// Lays out the age (or a one-line status) left of `trailing` and returns the new trailing edge.
     func layoutTime(trailing: CGFloat, cy: CGFloat, height: CGFloat) -> CGFloat {
@@ -48,19 +46,18 @@ extension WorkspaceRowView {
     /// its minX while it shows. An unpinned row draws no pin, at rest or on
     /// hover; Pin Workspace stays in its ⋮ menu (Leo 2026-10-21: "no empty pin
     /// symbol by default").
-    func layoutPin(rowWidth: CGFloat, showMore: Bool, control: CGFloat, fades: Bool) -> CGFloat? {
+    func layoutPin(rowWidth: CGFloat, showMore: Bool, moreFrame: NSRect, control: CGFloat, fades: Bool) -> CGFloat? {
         let pinned = isExpanded && isPinned?() == true
-        setHoverShown(pinButton, showMore && pinned, fades: fades)
+        setHoverShown(pinSlot, showMore && pinned, fades: fades)
         guard pinned else { return nil }
-        (pinButton.icon, pinButton.label) = (.statePinned, Strings.unpinWorkspace)
         if SidebarTunables.rowCloseSpot.value.atEnd {
             let center = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
-            let nextSlot = Int(round((center - moreButton.frame.midX) / SidebarStyle.trailingSlotPitch)) + 1
-            pinButton.frame = trailingActionFrame(rowWidth: rowWidth, cy: moreButton.frame.midY, control: control, minimumSlot: nextSlot)
+            let nextSlot = Int(round((center - moreFrame.midX) / SidebarStyle.trailingSlotPitch)) + 1
+            pinSlot.frame = trailingActionFrame(rowWidth: rowWidth, cy: moreFrame.midY, control: control, minimumSlot: nextSlot)
         } else {
-            pinButton.frame = moreButton.frame.offsetBy(dx: -SidebarStyle.trailingSlotPitch, dy: 0)
+            pinSlot.frame = moreFrame.offsetBy(dx: -SidebarStyle.trailingSlotPitch, dy: 0)
         }
-        return showMore ? pinButton.frame.minX : nil
+        return showMore ? pinSlot.frame.minX : nil
     }
 
     /// The title, the second line and the meta line, top to bottom from `top`.
@@ -72,8 +69,8 @@ extension WorkspaceRowView {
         // below its last line (Leo 2026-10-20, `SidebarRowLineSpacingTests`). Stepping them by the title's capital
         // center instead put the second line about a point lower and ate that room.
         subtitle.isHidden = !hasSubtitle
-        subtitle.frame = NSRect(x: x, y: top + th + lineGap, width: lineWidth, height: sh)
+        subtitle.frame = NSRect(x: x, y: top + th, width: lineWidth, height: sh)
         metaLabel.isHidden = !hasMeta
-        metaLabel.frame = NSRect(x: x, y: (hasSubtitle ? subtitle.frame.maxY : top + th) + lineGap, width: lineWidth, height: sh)
+        metaLabel.frame = NSRect(x: x, y: hasSubtitle ? subtitle.frame.maxY : top + th, width: lineWidth, height: sh)
     }
 }

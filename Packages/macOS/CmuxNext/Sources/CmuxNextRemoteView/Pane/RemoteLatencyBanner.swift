@@ -6,7 +6,7 @@ import CmuxNextDesign
 final class RemoteLatencyBanner: NSView {
     var onControlAnyway: (() -> Void)?
 
-    let surface = Glass.makeOverlayPanel(cornerRadius: 14)
+    let surface = Glass.makeOverlayPanel(cornerRadius: Metrics.surfaceCornerRadius)
     private let icon = RemoteChrome.symbol("exclamationmark.triangle.fill", size: 15)
     private let title = RemoteChrome.label(RemoteViewStrings.latencyTitle, size: 12.5, weight: .semibold)
     private let detail = RemoteChrome.label("", size: 11.5)

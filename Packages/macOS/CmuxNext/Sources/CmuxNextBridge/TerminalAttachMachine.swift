@@ -84,8 +84,8 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     private var hiddenOn: Link?
     /// This view's claims the stream has not echoed yet, oldest first (a live resize claims every frame).
     public private(set) var echoesDue: [CellSize] = []
-    /// The grid the stream last announced (the live link, or a pending attach's replay, #25595): a claim of
-    /// it changes nothing, so the stream echoes nothing and no echo is due (a stale one held the next grids).
+    /// The grid the stream last announced on the live link: a claim of it changes nothing, so the
+    /// stream echoes nothing and no echo is due (a stale one held the next drag's grids).
     public private(set) var announcedSize: CellSize?
     /// Last status the view was told (it starts connected: nothing shown).
     public private(set) var status: LinkStatus = .connected

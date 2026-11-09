@@ -2,6 +2,8 @@ import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextHistoryDaemon
+import CmuxNextHistoryPages
 import CmuxNextSettings
 import Foundation
 
@@ -16,6 +18,7 @@ final class HistoryService {
     /// history in memory only (tests).
     var supportDirectory: URL?
     private var sinks: [BrowserProfileID: BrowserVisitSink] = [:]
+    let pages = NSHashTable<HistoryCookieBackupsPageProvider>.weakObjects() // The open History pages (their shown rows).
     /// The omnibox persistence per profile: the daemon when it serves `history-v1`, else `sinks`.
     private var routes: [BrowserProfileID: RoutingVisitSink] = [:]
     let hidden: HiddenHistoryStore
@@ -110,7 +113,10 @@ final class HistoryService {
     // MARK: Entries
 
     /// Every entry matching `query`, newest first.
-    func entries(_ query: HistoryQuery) async -> [HistoryEntry] {
+    func entries(_ query: HistoryQuery) async -> [HistoryEntry] { await read(query).entries }
+
+    /// Same, with whether an owner did not answer (an empty list is then not "nothing there").
+    func read(_ query: HistoryQuery) async -> HistoryRead {
         if let daemon = daemonHistory { return await daemonEntries(query, daemon) }
         let wants = { (kind: HistoryEntry.Kind) in query.kinds.isEmpty || query.kinds.contains(kind) }
         var all: [HistoryEntry] = []
@@ -135,11 +141,12 @@ final class HistoryService {
                 }
             }
         }
-        return query.apply(to: all)
+        return HistoryRead(entries: query.apply(to: all))
     }
 
-    /// The entry with `id` among every owner's current entries, or nil when it is gone.
+    /// The entry with `id`: one the History page shows, else among every owner's current entries, or nil when it is gone.
     func entry(id: String) async -> HistoryEntry? {
+        if let shown = pages.allObjects.lazy.compactMap({ $0.shown[id] }).first { return shown }
         if let daemon = daemonHistory { return await daemonEntry(id: id, daemon) }
         return await entries(HistoryQuery(limit: 5_000)).first { $0.id == id }
     }
@@ -158,9 +165,11 @@ final class HistoryService {
     /// Closed tabs, screens and workspaces, as the daemons record them
     /// (`closed-history-v2`): the only closed history (reopen-closed.md 9). Newest first, a page
     /// closed again once (``DaemonClosedHistory/newestOnce(_:_:)``).
-    func closedEntries() -> [HistoryEntry] {
+    /// `limit`: only the newest that many are named (the titlebar list).
+    func closedEntries(limit: Int? = nil) -> [HistoryEntry] {
         let shown = DaemonClosedHistory.entries(DaemonClosedHistory.allKinds, in: services).filter { Self.isWorthReopening($0.item) }
-        return DaemonClosedHistory.newestOnce(shown) { ($0.item, $0.daemon.machineID) }.map { entry in
+        let once = DaemonClosedHistory.newestOnce(shown) { ($0.item, $0.daemon.machineID) }
+        return once.prefix(limit ?? once.count).map { entry in
             let item = entry.item, tab = Self.shownTab(item)
             let kind = Self.closedKind(item)
             let (title, detail) = Self.daemonClosedText(item, pages: services.pages)
@@ -348,3 +357,4 @@ final class HistoryService {
         sinks[profile] = nil
     }
 }
+

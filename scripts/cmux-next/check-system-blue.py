@@ -51,7 +51,7 @@ SKIP = (
     "Packages/Shared/CmuxMessagesLab/",
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GroupColor",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/AgentActivityMockSource.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchemaSamples.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Samples.generated.swift",
     "webviews/src/theme/",
     "webviews/src/syntax-colors.ts",
     "webviews/src/appearance.ts",

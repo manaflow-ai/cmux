@@ -55,3 +55,96 @@ fn a_folder_made_during_the_catalog_read_is_read_again_on_its_next_event() {
     let entry = app_entry(&f.supervisor.list(), "local/late");
     assert_eq!(entry["version"], "1.0.1", "the second save was read: {entry}");
 }
+
+/// A save that renames a view's export (the customize templates each name
+/// their own) remounts the open view with the new name (base red: the
+/// restarted host was sent the export read at the first mount, so the view
+/// showed "the app does not export a function named ..." until it was
+/// closed and opened again).
+#[test]
+fn a_save_that_renames_the_export_remounts_with_the_new_name() {
+    let f = fixture();
+    let prints = f.supervisor.reload_local_apps(&Default::default());
+    f.install("local/spy");
+    f.mount("m1", "local/spy", "cmux.section/1", json!({}));
+    let path = f.state.join("apps/local/spy/cmux-app.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["version"] = json!("1.0.1");
+    manifest["implements"]["cmux.section/1"]["export"] = json!("renderAgain");
+    std::fs::write(&path, manifest.to_string()).unwrap();
+    f.supervisor.reload_local_apps(&prints);
+    let scene = f.wait("the remount's scene", |e| {
+        e["event"] == "apps-scene" && e["mount_id"] == "m1" && e["ops"][0]["op"] == "create"
+    });
+    assert_eq!(scene["ops"][0]["props"]["text"], "renderAgain", "{scene}");
+}
+
+/// A save that drops the interface an open view renders fails that view the
+/// way `mount` refuses it (base red: the restarted host was sent the old
+/// export, so the view kept rendering an interface the app no longer has).
+#[test]
+fn a_save_that_drops_the_interface_fails_the_open_view() {
+    let f = fixture();
+    let prints = f.supervisor.reload_local_apps(&Default::default());
+    f.install("local/spy");
+    f.mount("m1", "local/spy", "cmux.section/1", json!({}));
+    let path = f.state.join("apps/local/spy/cmux-app.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["version"] = json!("1.0.1");
+    manifest["implements"].as_object_mut().unwrap().remove("cmux.section/1");
+    std::fs::write(&path, manifest.to_string()).unwrap();
+    f.supervisor.reload_local_apps(&prints);
+    let failed =
+        f.wait("the view fails", |e| e["event"] == "apps-mount-failed" && e["mount_id"] == "m1");
+    assert!(failed["reason"].as_str().unwrap().contains("cmux.section/1"), "{failed}");
+}
+
+/// Writes `text` as `local/spy`'s script.
+fn save_spy_script(state: &Path, text: &str) {
+    std::fs::write(state.join("apps/local/spy/dist/main.js"), text).unwrap();
+}
+
+/// A save whose script does not load keeps the open view on the last script
+/// that loaded, and says why the save was not taken; the next good save
+/// draws it (base red: the old host was stopped before the new script ran,
+/// so its init failure failed every mount and a section or chat widget lost
+/// its view to an error card).
+#[test]
+fn a_save_that_does_not_load_keeps_the_last_good_mount() {
+    let f = fixture();
+    let prints = f.supervisor.reload_local_apps(&Default::default());
+    f.install("local/spy");
+    f.mount("m1", "local/spy", "cmux.section/1", json!({}));
+    save_spy_script(&f.state, "const a b = 2 // THROW_AT_INIT");
+    let prints = f.supervisor.reload_local_apps(&prints);
+    let event = f.wait("the bad save's answer", |e| {
+        e["event"] == "apps-reload-failed"
+            || (e["event"] == "apps-mount-failed" && e["mount_id"] == "m1")
+    });
+    assert_eq!(event["event"], "apps-reload-failed", "the open view was failed: {event}");
+    assert_eq!(event["app"], "local/spy", "{event}");
+    assert!(event["reason"].as_str().unwrap().contains("main.js:2:12"), "{event}");
+    save_spy_script(&f.state, "var __cmuxAppExports = {};");
+    f.supervisor.reload_local_apps(&prints);
+    let scene = f.wait("the good save's scene", |e| {
+        e["mount_id"] == "m1" && (e["event"] == "apps-scene" || e["event"] == "apps-mount-failed")
+    });
+    assert_eq!(scene["event"], "apps-scene", "{scene}");
+    assert_eq!(scene["ops"][0]["op"], "create", "{scene}");
+}
+
+/// Mounting an open view again under its id (Reload, Reload Custom Views)
+/// marks its first scene `reset`, so a client that keeps drawing the old
+/// scene until then replaces it instead of adding the new nodes to it.
+#[test]
+fn mounting_an_open_view_again_resets_its_scene() {
+    let f = fixture();
+    f.supervisor.reload_local_apps(&Default::default());
+    f.install("local/spy");
+    f.mount("m1", "local/spy", "cmux.section/1", json!({}));
+    f.supervisor.mount(CLIENT, "m1", "local/spy", "cmux.section/1", json!({})).unwrap();
+    let scene = f.wait("the second scene", |e| e["event"] == "apps-scene" && e["mount_id"] == "m1");
+    assert_eq!(scene["reset"], true, "{scene}");
+}

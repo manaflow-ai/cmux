@@ -53,8 +53,9 @@ dom.window.clearTimeout = (() => {}) as never;
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { CardCopy, CardCopyLookContext } = await import("../src/agent-session/acpmux/conversation/CardCopy");
-const { COPIED_MS } = await import("../src/agent-session/acpmux/conversation/CopyButton");
+const { CardCopy } = await import("../src/agent-session/acpmux/conversation/CardCopy");
+const { CardCopyLookContext } = await import("../src/agent-session/acpmux/conversation/cardCopyModel");
+const { COPIED_MS } = await import("../src/agent-session/acpmux/conversation/copyButtonModel");
 const { SubsessionCallCard } = await import("../src/agent-session/acpmux/conversation/SubsessionCallCard");
 const { subsessionCall } = await import("../src/agent-session/acpmux/conversation/subsessionCalls");
 const { TranscriptDisclosureProvider } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");

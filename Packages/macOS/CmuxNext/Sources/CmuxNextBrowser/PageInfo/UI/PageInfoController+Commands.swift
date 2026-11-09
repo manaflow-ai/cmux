@@ -128,11 +128,11 @@ extension PageInfoController {
         if warningsOff != model.certificateWarningsOff || scope != model.certificateWarningScope {
             model.certificateWarningsOff = warningsOff
             model.certificateWarningScope = scope
-            if isShown, model.page == .security { render() }
+            if isOpen, model.page == .security { render() }
         }
         if rows != model.permissions {
             model.permissions = rows
-            if isShown { render() }
+            if isOpen { render() }
         }
     }
 
@@ -154,11 +154,11 @@ extension PageInfoController {
             let chain = await provider.pageInfoCertificateChain()
             guard !Task.isCancelled, let self else { return }
             self.model.certificates = chain.compactMap { try? PageInfoCertificate(der: $0) }
-            if self.isShown, self.model.page == .security { self.render() }
+            if self.isOpen, self.model.page == .security { self.render() }
             let data = await provider.pageInfoSiteData(pageHost: host)
             guard !Task.isCancelled else { return }
             self.model.siteData = data
-            if self.isShown, self.model.page == .cookies { self.render() }
+            if self.isOpen, self.model.page == .cookies { self.render() }
         }
     }
 
@@ -169,7 +169,7 @@ extension PageInfoController {
             let data = await provider.pageInfoSiteData(pageHost: host)
             self?.model.siteData = data
             self?.windows.siteDataChanged(data)
-            if self?.isShown == true, self?.model.page == .cookies { self?.render() }
+            if self?.isOpen == true, self?.model.page == .cookies { self?.render() }
         }
     }
 }

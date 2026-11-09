@@ -38,8 +38,15 @@ public nonisolated struct ChiefWhereabouts: Equatable, Sendable {
         self.init(movedTo: marker.to)
     }
 
-    /// The engine's `state/moved.json` (optchat-chief migrate.rs `Moved`); only `to` matters here.
+    /// When the move that wrote `movedJSON` ended (its `at`); nil when it has none that parses.
+    static func date(movedJSON: Data?) -> Date? {
+        guard let movedJSON, let marker = try? JSONDecoder().decode(Marker.self, from: movedJSON) else { return nil }
+        return marker.at.flatMap { Date(chiefRFC3339: $0) }
+    }
+
+    /// The engine's `state/moved.json` (optchat-chief migrate.rs `Moved`): where and when.
     private struct Marker: Decodable {
         var to: String
+        var at: String?
     }
 }

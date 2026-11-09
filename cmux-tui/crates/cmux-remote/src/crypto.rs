@@ -1,11 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
 use base64::Engine;
 use bytes::Bytes;
+use cmux_link::carrier_grant::CarrierGrant;
 use cmux_remote_protocol::{Lane, REMOTE_PROTOCOL_VERSION, Service, SessionId};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -17,6 +19,9 @@ use crate::link::{FrameLink, LinkError};
 
 const HANDSHAKE_NAME: &str = "cmux-remote-noise";
 const NOISE_XX: &str = "Noise_XX_25519_ChaChaPoly_BLAKE2s";
+/// The Noise protocol of a link without an invitation. acpmux's hub carrier pins its hash to
+/// WireGuard's, since it reuses the machine's WireGuard key as this static key.
+pub const NOISE_XX_PROTOCOL: &str = NOISE_XX;
 const NOISE_XX_PSK3: &str = "Noise_XXpsk3_25519_ChaChaPoly_BLAKE2s";
 const NOISE_MAX_MESSAGE: usize = 65_535;
 const NOISE_TAG_BYTES: usize = 16;
@@ -77,8 +82,17 @@ pub fn public_key_fingerprint(public: &[u8; 32]) -> String {
 #[derive(Clone)]
 pub enum ClientAuthMode {
     Enrolled,
-    Invitation { id: String, secret: Zeroizing<[u8; 32]> },
+    Invitation {
+        id: String,
+        secret: Zeroizing<[u8; 32]>,
+    },
     Carrier,
+    /// A carrier grant: a short-lived token the platform signed for this
+    /// client's Noise key. It rides inside the encrypted handshake, and a
+    /// daemon with no grant verifier refuses it.
+    Grant {
+        token: Zeroizing<String>,
+    },
 }
 
 impl fmt::Debug for ClientAuthMode {
@@ -89,6 +103,7 @@ impl fmt::Debug for ClientAuthMode {
                 formatter.debug_struct("Invitation").field("id", id).finish_non_exhaustive()
             }
             Self::Carrier => formatter.write_str("Carrier"),
+            Self::Grant { .. } => formatter.debug_struct("Grant").finish_non_exhaustive(),
         }
     }
 }
@@ -185,10 +200,35 @@ impl InboundAuthEvidence {
     }
 }
 
+/// A carrier grant as the client presented it. Its `Debug` never shows it.
+#[derive(Clone, PartialEq, Eq)]
+pub struct GrantToken(Zeroizing<String>);
+
+impl GrantToken {
+    pub fn new(token: impl Into<String>) -> Self {
+        Self(Zeroizing::new(token.into()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for GrantToken {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("GrantToken(..)")
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthRequest {
     pub mode: AuthKind,
     pub invitation_id: Option<String>,
+    /// The carrier grant, present only when `mode` is [`AuthKind::Grant`].
+    pub grant: Option<GrantToken>,
+    /// The client's connection attempt: every physical link of one attempt
+    /// may present the same grant.
+    pub connection_attempt: ConnectionAttemptId,
     pub device_public_key: [u8; 32],
     pub device_name: String,
     pub session: SessionId,
@@ -201,13 +241,17 @@ pub struct AuthRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServiceAuthority {
     services: Box<[Service]>,
+    /// The carrier grant that admitted the session, if one did: the only
+    /// source of who the person is ([`Service::Acpmux`] names them to acpmux
+    /// from it).
+    grant: Option<Arc<CarrierGrant>>,
 }
 
 impl ServiceAuthority {
     /// Refuse every service. Callers add authority deliberately rather than
     /// inheriting access when the protocol gains a new service.
     pub fn none() -> Self {
-        Self { services: Box::new([]) }
+        Self { services: Box::new([]), grant: None }
     }
 
     /// Preserve the service access held by devices before service-scoped
@@ -223,12 +267,35 @@ impl ServiceAuthority {
                 Service::TcpTunnel,
                 Service::ComputerUse,
             ]),
+            grant: None,
         }
+    }
+
+    /// Exactly `services`, each once, in the order given.
+    pub fn from_services(services: impl IntoIterator<Item = Service>) -> Self {
+        let mut unique = Vec::new();
+        for service in services {
+            if !unique.contains(&service) {
+                unique.push(service);
+            }
+        }
+        Self { services: unique.into_boxed_slice(), grant: None }
+    }
+
+    /// This authority, held by the session `grant` admitted.
+    pub fn with_grant(mut self, grant: CarrierGrant) -> Self {
+        self.grant = Some(Arc::new(grant));
+        self
     }
 
     /// Whether this grant may open the service.
     pub fn allows(&self, service: Service) -> bool {
         self.services.contains(&service)
+    }
+
+    /// The carrier grant that admitted the session, if one did.
+    pub fn grant(&self) -> Option<&Arc<CarrierGrant>> {
+        self.grant.as_ref()
     }
 }
 
@@ -298,6 +365,7 @@ pub enum AuthKind {
     Enrolled,
     Invitation,
     Carrier,
+    Grant,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -317,6 +385,10 @@ struct ClientPrelude {
 struct ClientHello {
     device_name: String,
     resume: BTreeMap<Lane, u64>,
+    /// The carrier grant. It travels in the third Noise message, encrypted
+    /// to the daemon's static key, never in the plaintext prelude.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    grant: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -334,8 +406,18 @@ pub struct SecureLink {
     transport: snow::StatelessTransportState,
     maximum_plaintext: usize,
     remote_static: [u8; 32],
+    /// Held from taking a nonce until the record is handed to the inner link, so records go
+    /// out in nonce order even when two tasks send at once.
+    send_order: tokio::sync::Mutex<()>,
     send_nonce: AtomicU64,
+    /// The nonce the next record must carry. The transport is stateless, so this is the only
+    /// replay guard: a record whose nonce is not exactly this one (a duplicate, a reorder or a
+    /// skip, as a relay in the middle could make) fails the link for good.
+    receive_nonce: AtomicU64,
 }
+
+/// `receive_nonce` once the link has failed; no record can carry it.
+const RECEIVE_FAILED: u64 = u64::MAX;
 
 impl fmt::Debug for SecureLink {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -351,6 +433,14 @@ impl fmt::Debug for SecureLink {
 impl SecureLink {
     pub fn remote_static(&self) -> [u8; 32] {
         self.remote_static
+    }
+
+    /// Fails the link on the first bad record: no later record is accepted and the inner link
+    /// is closed.
+    async fn fail_receive(&self, reason: String) -> LinkError {
+        self.receive_nonce.store(RECEIVE_FAILED, Ordering::Release);
+        let _ = self.inner.close().await;
+        LinkError::Protocol(reason)
     }
 }
 
@@ -375,6 +465,7 @@ impl FrameLink for SecureLink {
                 maximum: self.maximum_plaintext,
             });
         }
+        let _order = self.send_order.lock().await;
         let nonce = self
             .send_nonce
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |nonce| nonce.checked_add(1))
@@ -401,11 +492,33 @@ impl FrameLink for SecureLink {
             return Err(LinkError::Protocol("Noise record is truncated".into()));
         }
         let nonce = u64::from_be_bytes(ciphertext[..NOISE_NONCE_BYTES].try_into().unwrap());
+        let expected = self.receive_nonce.load(Ordering::Acquire);
+        if expected == RECEIVE_FAILED || nonce != expected {
+            return Err(self
+                .fail_receive(format!(
+                    "Noise record out of order: nonce {nonce}, expected {expected}"
+                ))
+                .await);
+        }
         let mut plaintext = vec![0_u8; ciphertext.len() - NOISE_NONCE_BYTES];
-        let size = self
-            .transport
-            .read_message(nonce, &ciphertext[NOISE_NONCE_BYTES..], &mut plaintext)
-            .map_err(|error| LinkError::Protocol(format!("Noise decrypt failed: {error}")))?;
+        let size = match self.transport.read_message(
+            nonce,
+            &ciphertext[NOISE_NONCE_BYTES..],
+            &mut plaintext,
+        ) {
+            Ok(size) => size,
+            Err(error) => {
+                return Err(self.fail_receive(format!("Noise decrypt failed: {error}")).await);
+            }
+        };
+        // Only an authentic record moves the window, and only from the nonce it was checked at.
+        if self
+            .receive_nonce
+            .compare_exchange(expected, expected + 1, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return Err(self.fail_receive("Noise records received concurrently".into()).await);
+        }
         plaintext.truncate(size);
         Ok(Some(Bytes::from(plaintext)))
     }
@@ -425,6 +538,15 @@ pub async fn initiate_secure_link(
             (AuthKind::Invitation, Some(id.clone()), Some(&**secret))
         }
         ClientAuthMode::Carrier => (AuthKind::Carrier, None, None),
+        ClientAuthMode::Grant { .. } => (AuthKind::Grant, None, None),
+    };
+    // A grant opens a new session only; a resume (generation 1+) re-admits
+    // the same Noise key with no grant.
+    let grant = match &config.auth {
+        ClientAuthMode::Grant { token } if config.generation == 0 => {
+            Some(token.as_str().to_owned())
+        }
+        _ => None,
     };
     let prelude = ClientPrelude {
         name: HANDSHAKE_NAME.into(),
@@ -473,6 +595,7 @@ pub async fn initiate_secure_link(
         let hello = serde_json::to_vec(&ClientHello {
             device_name: config.device_name,
             resume: config.resume,
+            grant,
         })
         .map_err(CryptoError::Json)?;
         write_handshake(&*link, &mut handshake, &hello).await?;
@@ -543,7 +666,7 @@ pub(crate) async fn verify_secure_link(
                     CryptoError::Unauthorized("unknown or expired invitation".into())
                 })?)
             }
-            AuthKind::Enrolled | AuthKind::Carrier => None,
+            AuthKind::Enrolled | AuthKind::Carrier | AuthKind::Grant => None,
         };
 
     let params: NoiseParams =
@@ -570,6 +693,9 @@ pub(crate) async fn verify_secure_link(
         request: AuthRequest {
             mode: prelude.auth,
             invitation_id: prelude.invitation_id,
+            // A grant counts only under the grant mode; any other mode drops it.
+            grant: hello.grant.filter(|_| prelude.auth == AuthKind::Grant).map(GrantToken::new),
+            connection_attempt: prelude.connection_attempt,
             device_public_key: remote_static,
             device_name: hello.device_name,
             session: prelude.session,
@@ -665,7 +791,9 @@ fn secure_link(
         transport,
         maximum_plaintext,
         remote_static,
+        send_order: tokio::sync::Mutex::new(()),
         send_nonce: AtomicU64::new(0),
+        receive_nonce: AtomicU64::new(0),
     })
 }
 

@@ -28,6 +28,14 @@ export const SUBAGENTS = "subagents";
 /// One subagent, from the model acpmux records in each update's `_meta.acpmux`
 /// (cmux-tui/crates/acpmux/src/subagents.rs): native ACP subagent sessions and Codex's
 /// collaboration calls alike.
+/// Whether a subagent stopped while it waits on background work of its own: Claude Code said so
+/// when its task ended (acpmux's interim cause, direct.ts `attachReaction`), and no final report
+/// has come since. It still counts as live work: the tray lists it, and its "Subagent finished"
+/// line waits for the report (Leo, 2026-11-03, on the tray's lines: "Tray only, richer").
+export function awaitsOwnWork(agent: Pick<Subagent, "state" | "reaction">): boolean {
+  return agent.reaction?.interim === true && (agent.state === "running" || agent.state === "completed");
+}
+
 export type Subagent = {
   id: string;
   /// The subagent that spawned it, or null for the session's own.
@@ -1103,6 +1111,13 @@ export class SubagentFold {
         if (value !== undefined) agent[key] = value;
       }
     }
+    // A completed subagent's whole last reply, which acpmux puts on its end (subagents.rs): what its
+    // report card shows, where `lastMessage` is only a 240-character preview. A sub-session's
+    // record says its reply (`reduceChild`) and is not overwritten.
+    const said = text(change.result);
+    if (said && change.state === "completed" && !this.recorded.has(agent.id)) agent.result = said;
+    // A resumed run's reply is a new one: the last run's result is not it.
+    else if (change.state === "running" && !this.recorded.has(agent.id)) delete agent.result;
     if (change.background === true) agent.background = true;
     const done = count(change.agents?.done);
     const started = count(change.agents?.started);

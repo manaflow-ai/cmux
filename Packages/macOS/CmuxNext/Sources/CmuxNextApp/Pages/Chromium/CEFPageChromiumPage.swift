@@ -34,22 +34,25 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     /// The tab's page window clip (`CEFTab.pageWindowClip`, window coordinates).
     var windowClip: CGPath? { tab.pageWindowClip }
+    var dockedDevTools: (page: CGRect, devTools: CGRect)? { tab.dockedDevToolsFrames }
+    func devToolsImage() async -> CGImage? { try? await tab.devToolsSnapshot() }
 
     var onEvent: ((PageChromiumEvent) -> Void)? {
         didSet { listen() }
     }
 
-    var resources: (@MainActor (URL) async -> PageChromiumResponse)? {
+    var resources: (@MainActor (URL, String?) async -> PageChromiumResponse)? {
         didSet {
             guard let resources else {
                 tab.pageResources = nil
                 return
             }
-            tab.pageResources = { url in
-                let answer = await resources(url)
-                return CEFPageResponse(status: answer.status, mimeType: answer.mimeType, body: answer.body)
-            }
+            tab.pageResources = { url, range in CEFPageResponse(await resources(url, range)) }
         }
+    }
+
+    var readyResources: (@MainActor (URL) -> PageChromiumResponse?)? {
+        didSet { tab.readyPageResource = readyResources.map { ready in { @MainActor url in ready(url).map { CEFPageResponse($0) } } } }
     }
 
     private func listen() {
@@ -119,6 +122,8 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     func setZoom(_ zoom: Double) { tab.setZoom(zoom) }
 
     func setFocused(_ focused: Bool) { tab.setFocused(focused) }
+
+    var hasKeys: Bool { NSApp.keyWindow.map(tab.isPageWindow) == true }
 
     func setVisible(_ visible: Bool) { tab.setContentVisible(visible) }
 

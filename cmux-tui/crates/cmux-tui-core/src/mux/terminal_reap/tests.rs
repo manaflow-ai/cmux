@@ -446,3 +446,23 @@ fn closed_terminals_past_the_grace_cap_end_at_once() {
     assert_eq!(lifecycle(&mux, &host_id(&mux, &placed)), TerminalLifecycle::Running);
     mux.close_surface(placed.id).unwrap();
 }
+
+/// `workspaces.freeing.runningCommands: relaunch`: a parked terminal whose
+/// command still runs keeps that command line, not the one it finished
+/// before, so the freed shell types it again (without Return) when shown.
+#[test]
+fn a_parked_running_command_is_kept_as_its_last_command() {
+    let mux = Mux::new_for_test("terminal-park-running", SurfaceOptions::default());
+    let surface = mux.new_workspace(Some("dev".into()), Some((80, 24))).unwrap();
+    let terminal_id = host_id(&mux, &surface);
+    surface.finish_command_for_test("make build", 0);
+    surface.start_command_for_test("npm run dev");
+    let terminal = mux.resolve_terminal(&terminal_id).unwrap().unwrap().terminal;
+    mux.record_kept_tabs(std::slice::from_ref(&terminal), KeptStart::OnShow).unwrap();
+    let tab = mux.with_state(|state| state.resource_indexes.tab_ids[&surface.id].to_string());
+    let kept = mux.workspace_registry.lock().unwrap().kept_tabs_of(&[tab]).unwrap();
+    let last = kept[0].last_command.clone().expect("the running command is kept");
+    assert_eq!((last.command.as_str(), last.exit_code), ("npm run dev", None));
+    assert_eq!(last.started_at_ms, 5_000);
+    mux.shutdown();
+}

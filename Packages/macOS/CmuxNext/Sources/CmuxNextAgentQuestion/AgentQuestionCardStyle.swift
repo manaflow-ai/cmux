@@ -15,7 +15,12 @@ public struct AgentQuestionCardStyle: Equatable, Sendable {
     func size(_ points: CGFloat) -> CGFloat { (points * scale).rounded() }
 
     var padding: CGFloat { size(14) }
-    var cornerRadius: CGFloat { size(16) }
+    /// The card is a top-level surface: the one corner radius, at the card's text scale.
+    var cornerRadius: CGFloat { size(Metrics.surfaceCornerRadius) }
+    /// A box or row one level inside the card.
+    var insetCornerRadius: CGFloat { size(Metrics.insetCornerRadius) }
+    /// A keycap or field inside a row.
+    var controlCornerRadius: CGFloat { size(Metrics.controlCornerRadius) }
     var gap: CGFloat { size(10) }
     var rowGap: CGFloat { size(2) }
     var rowInset: CGFloat { size(8) }

@@ -4,6 +4,7 @@
 #ifndef CMUX_SHIM_CMUX_PAGE_PATH_H_
 #define CMUX_SHIM_CMUX_PAGE_PATH_H_
 
+#include <ctype.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -225,6 +226,78 @@ inline std::vector<std::pair<std::string, std::string>> PageResponseHeaders(cons
       {"X-Frame-Options", "SAMEORIGIN"},
       {"Cross-Origin-Resource-Policy", "same-origin"},
   };
+}
+
+// A header value from the page host: empty when it holds a CR or LF, so an answer cannot split a
+// header (cmux_shim_page_resource_respond_page's CSP).
+inline std::string PageHeaderValue(const std::string& value) {
+  return value.find_first_of("\r\n") == std::string::npos ? value : std::string();
+}
+
+// The headers a ranged dynamic answer adds (cmux_shim_page_resource_respond_ranged):
+// `Name: value` lines, newline-separated. Only Content-Range and Accept-Ranges
+// are kept, and a value with a CR or LF is dropped, so an answer can never set
+// the page's CSP or other page headers, or split a header.
+inline std::vector<std::pair<std::string, std::string>> PageRangeHeaders(const std::string& text) {
+  std::vector<std::pair<std::string, std::string>> out;
+  size_t start = 0;
+  while (start <= text.size()) {
+    size_t end = text.find('\n', start);
+    if (end == std::string::npos) end = text.size();
+    std::string line = text.substr(start, end - start);
+    start = end + 1;
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    const size_t colon = line.find(':');
+    if (colon == std::string::npos) continue;
+    std::string name = line.substr(0, colon);
+    std::string value = line.substr(colon + 1);
+    while (!value.empty() && value.front() == ' ') value.erase(value.begin());
+    if (value.empty() || value.find('\r') != std::string::npos) continue;
+    std::string lower = name;
+    for (char& c : lower) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+    if (lower == "content-range") out.emplace_back("Content-Range", value);
+    else if (lower == "accept-ranges") out.emplace_back("Accept-Ranges", value);
+  }
+  return out;
+}
+
+// A page host's Content-Type as CEF takes it: the bare type for SetMimeType and the charset for
+// SetCharset. CEF hands Chromium the MIME type string unparsed, so `text/html; charset=utf-8` as a
+// type is no HTML type, and a `text/` type Chromium does not know is drawn as plain text: a dev
+// server's page showed its own source. Parameters other than charset are dropped.
+inline void SplitPageMimeType(const std::string& content_type, std::string* mime, std::string* charset) {
+  auto trim = [](std::string value) {
+    const size_t first = value.find_first_not_of(" \t");
+    if (first == std::string::npos) return std::string();
+    return value.substr(first, value.find_last_not_of(" \t") - first + 1);
+  };
+  auto lower = [](std::string value) {
+    for (char& c : value) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+    return value;
+  };
+  charset->clear();
+  size_t semi = content_type.find(';');
+  *mime = lower(trim(content_type.substr(0, semi)));
+  while (semi != std::string::npos) {
+    const size_t start = semi + 1;
+    semi = content_type.find(';', start);
+    const std::string parameter = trim(content_type.substr(start, semi == std::string::npos ? std::string::npos : semi - start));
+    const size_t equals = parameter.find('=');
+    if (equals == std::string::npos || lower(trim(parameter.substr(0, equals))) != "charset") continue;
+    std::string value = trim(parameter.substr(equals + 1));
+    if (value.size() >= 2 && value.front() == '"' && value.back() == '"') value = value.substr(1, value.size() - 2);
+    *charset = lower(value);
+  }
+}
+
+// The reason phrase a dynamic answer's status carries.
+inline const char* PageStatusText(int status) {
+  switch (status) {
+    case 200: return "OK";
+    case 206: return "Partial Content";
+    case 416: return "Range Not Satisfiable";
+    default: return "Not Found";
+  }
 }
 
 }  // namespace cmux_shim

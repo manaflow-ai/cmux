@@ -61,17 +61,6 @@ import Testing
         for button in titled { try Self.expectThemeBezel(button, scope) }
     }
 
-    @Test func historyStartsInTheAppTheme() {
-        let colors = HistoryPageColors()
-        Self.expect(colors.primary, Self.app.textPrimary, "primary")
-        Self.expect(colors.secondary, Self.app.textSecondary, "secondary")
-        Self.expect(colors.tertiary, Self.app.textTertiary, "tertiary")
-        Self.expect(colors.hover, Self.app.hoverFill, "hover")
-        Self.expect(colors.selection, Self.app.selectionFill, "selection")
-        Self.expect(colors.separator, Self.app.separator, "separator")
-        Self.expect(colors.danger, Self.app.danger, "danger")
-    }
-
     @Test func bookmarksStartInTheAppTheme() {
         let colors = BookmarkPageColors()
         Self.expect(colors.primary, Self.app.textPrimary, "primary")
@@ -90,7 +79,7 @@ import Testing
         let saved = settings.borders
         settings.borders = .none
         defer { settings.borders = saved }
-        for (name, separator) in [("history", HistoryPageColors().separator), ("bookmarks", BookmarkPageColors().separator)] {
+        for (name, separator) in [("bookmarks", BookmarkPageColors().separator)] {
             let alpha = NSColor(separator).usingColorSpace(.sRGB)?.alphaComponent ?? 1
             #expect(alpha == 0, "\(name): borders none draws no separator, not \(NSColor(separator))")
         }

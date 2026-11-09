@@ -167,8 +167,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     sockets.clear();
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(session));
-    // The read in flight draws no row of its own (Debug toggle agentPane.debug.codexToolRuns, on by
-    // default): the turn's live line names it by its file (Thinking.tsx).
+    // The read in flight draws no row of its own: the turn's live line names it by its file (Thinking.tsx).
     await page.getByText(shown).first().waitFor({ timeout: 25_000 });
     if (!tray) await trayOff(page);
     return page;
@@ -279,6 +278,8 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     // The turn is over: an agent left "running" by a cancel or a reconnect pins no running row; the
     // tray keeps it only as a stopped card (49acdd1d589d keeps ended cards).
     const stale = await open(STUCK, "Review the branch with a few agents", true);
+    await tray(stale).waitFor({ timeout: 5_000 });
+    await openRunningTray(stale);
     expect(await tray(stale).locator("li:not([data-finished])").count()).toBe(0);
     expect(await tray(stale).locator('li[data-finished] .acpmux-agent-line[data-status="stopped"]').count()).toBe(1);
     await stale.close();

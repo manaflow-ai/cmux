@@ -52,8 +52,8 @@ await requireBrowserLane("received-message-steady-tone-browser.test.ts", async (
   const CONTROLS = ".cv-received__hover, .cv-rotor, .cv-tool__chevron, .cv-card-copy";
   /** What the pointer visits: each line, each opened card, each sender chip, each row head. */
   const TARGETS = [
-    ".cv-received > .cv-disclosure__line",
-    ".cv-received .cv-disclosure__panel",
+    ".cv-received > .cv-agentmsg__line",
+    ".cv-received .cv-agentmsg__card",
     ".cv-received .cv-agent-tag",
     ".cv-lane-batch__toggle",
   ];
@@ -87,9 +87,9 @@ await requireBrowserLane("received-message-steady-tone-browser.test.ts", async (
       return [probe("--cv-activity-text"), probe("--cv-text")] as const;
     });
   /** The lines and row heads that rest dim and light under the pointer. */
-  const LINES = ".acpmux-row .cv-received > .cv-disclosure__line, .acpmux-row .cv-lane-batch__toggle";
+  const LINES = ".acpmux-row .cv-received > .cv-agentmsg__line, .acpmux-row .cv-lane-batch__toggle";
   /** At rest: a closed row head (an open one stays lit, MessageGroupHead.css) and every line. */
-  const RESTING = `.acpmux-row .cv-received > .cv-disclosure__line, .acpmux-row .cv-lane-batch__toggle:not([aria-expanded="true"])`;
+  const RESTING = `.acpmux-row .cv-received > .cv-agentmsg__line, .acpmux-row .cv-lane-batch__toggle:not([aria-expanded="true"])`;
 
   /** Every measured element's colour, opacity and filter, by its place in the page. */
   const tones = (page: Page) =>
@@ -127,7 +127,9 @@ await requireBrowserLane("received-message-steady-tone-browser.test.ts", async (
     before.replace(`color ${lift[0]}`, `color ${lift[1]}`) === after && before.startsWith(`color ${lift[0]} `);
   const differences = (before: Record<string, string>, after: Record<string, string>, what: string) =>
     Object.keys(before)
-      .filter((key) => after[key] !== before[key] && !(!key.includes("cv-disclosure__panel") && lifted(before[key], after[key])))
+      .filter(
+        (key) => after[key] !== before[key] && !(!key.includes("cv-agentmsg__card") && lifted(before[key], after[key])),
+      )
       .map((key) => `${what}: ${key}\n    rest  ${before[key]}\n    now   ${after[key]}`);
 
   const SCENES: [string, string][] = [
@@ -173,7 +175,7 @@ await requireBrowserLane("received-message-steady-tone-browser.test.ts", async (
           }
         }
         // Focus: the line's own toggle, as Tab or a click leaves it.
-        const toggles = page.locator(".cv-received > .cv-disclosure__line .cv-disclosure__toggle");
+        const toggles = page.locator(".cv-received > .cv-agentmsg__line .cv-agentmsg__toggle");
         for (let index = 0; index < (await toggles.count()); index += 1) {
           if (!(await toggles.nth(index).isVisible())) continue;
           await rest(page);
