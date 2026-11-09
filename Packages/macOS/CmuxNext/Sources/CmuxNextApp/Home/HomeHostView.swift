@@ -15,6 +15,7 @@ import CmuxNextHomeEngine
 import CmuxNextHostedChief
 import CmuxNextLayout
 import CmuxNextPages
+import CmuxNextRemoteViewSessions
 import CmuxNextSidebar
 import CmuxNextWakeups
 import ImageIO
@@ -111,6 +112,10 @@ final class HomeHostView: PaneMotionFollowingView {
         petRows.onRefusal = { [settingsView] in settingsView.showNote($0) }  // why an upload was refused
         petRows.install(in: self, addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) },
                         open: { [weak self] in self?.toggleChiefSettings(openOnly: true) ?? false })
+        settingsView.computer.source = .init(directory: { [weak services] in (services?.machines.cloudLimits?.paysForCloud == true, services?.machines.cloud.map(\.machine) ?? []) },
+            frames: { [weak services] id, frame, ended in services?.cloudDesktopRdTransport(machine: id).map { make in CloudDesktopFrames.view(open: { make(false) }, frame: frame, ended: ended) } })
+        settingsView.vault.names = HomeChiefVaultSection.keychainNames(work: services.work)
+        settingsView.connections.source = services.accounts.chiefConnections.section
         settingsView.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()
             // Each Chief's tile reads its own brain home: this re-reads them, so only the
