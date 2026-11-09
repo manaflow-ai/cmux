@@ -1855,6 +1855,15 @@ function TranscriptView({
   /// A new chat taking the session its first prompt started is the same chat: that prompt's row and
   /// its Thinking line, drawn from the send (startingSends.ts), finish their entrance across it.
   const tookSession = sessionChanged && selectionSessionKey === "";
+  /// The session a row frame's key names: the chat's own, except that a new chat keeps the
+  /// sessionless key it drew its first prompt under once it takes its session, so those frames stay
+  /// mounted (a remount would draw them again with no entrance). A later switch keys afresh.
+  const frameSession = useRef({ session: sessionKey, key: sessionKey });
+  if (frameSession.current.session !== sessionKey)
+    frameSession.current = {
+      session: sessionKey,
+      key: frameSession.current.session === "" ? frameSession.current.key : sessionKey,
+    };
   /// A row can be newly arrived but outside the mounted virtual range. Pending entrances are
   /// page-scoped: hiding or switching chats must drop them before that row can mount later.
   const enteringRows = useRef(new Set<string>());
@@ -1923,15 +1932,6 @@ function TranscriptView({
   if (knownRows.current === null || sessionChanged) {
     const mounting = knownRows.current === null;
     knownRows.current = new Set(rows.map(rowFrameKey));
-    // PROBE (temporary, removed before merge)
-    ((window as unknown as { __mountProbe?: unknown[] }).__mountProbe ??= []).push({
-      mounting,
-      sessionChanged,
-      sends,
-      rows: rows.map((row) => [row.id, row.kind, row.pending, row.queued, Date.now() - row.at]),
-      coldOpen,
-      allowed: entranceAllowed(),
-    });
     // An empty chat draws no transcript: it mounts with the first prompt the reader just sent (and
     // its thinking line), and those rows enter on the send's clock as every later prompt's do
     // (conversation.css SEND-ENTRANCE). A transcript mounted again over an older chat does not.
@@ -4924,7 +4924,7 @@ function TranscriptView({
                       row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
                     return (
                       <RowFrame
-                        key={`${sessionId ?? ""}:${rowFrameKey(row)}`}
+                        key={`${frameSession.current.key}:${rowFrameKey(row)}`}
                         row={row}
                         kind={kind}
                         joinsPrevious={
