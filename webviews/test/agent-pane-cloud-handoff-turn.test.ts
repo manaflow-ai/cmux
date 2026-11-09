@@ -1,8 +1,9 @@
 // l10n-allow-file: test fixture prompts, not shipped UI.
 // A chat on a Cloud machine sends each prompt that starts a turn under the hand-off turn the app
 // opened for it (`handoff-<turn>-<id>`, cloudHandoffTurn.ts), so acpmux on the machine reports that
-// turn (cmux-tui acpmux daemon/cloud_handoff.rs). A steer, a prompt that already names a turn (a
-// Retry) and a page with no hand-off ask go under their own id, and nothing is asked for them.
+// turn (cmux-tui acpmux daemon/cloud_handoff.rs). A steer into a running turn, a prompt that already
+// names a turn (a Retry) and a page with no hand-off ask go under their own id, and nothing is asked
+// for them.
 import { expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 
@@ -106,16 +107,25 @@ test("no turn from the app: the prompt goes under its own id", async () => {
   expect(promptIdOf(prompts[0])).toBe("p-2");
 });
 
-test("a page with no hand-off ask, a steer, and a Retry's id that names a turn ask nothing", async () => {
+test("a page with no hand-off ask and a Retry's id that names a turn ask nothing", async () => {
   const prompts: Record<string, unknown>[] = [];
   const chat = await client(prompts);
   await chat.send("plain", [], "p-3");
   let asks = 0;
   chat.handoffTurn = async () => (asks++, 9);
-  await chat.send("steer it", [], "p-4", undefined, undefined, true);
   await chat.send("again", [], "handoff-2-p-5");
   expect(asks).toBe(0);
-  expect(prompts.map(promptIdOf)).toEqual(["p-3", "p-4", "handoff-2-p-5"]);
+  expect(prompts.map(promptIdOf)).toEqual(["p-3", "handoff-2-p-5"]);
+});
+
+// The composer sends Return as a steer to an agent that steers even while the chat shows no turn
+// (Composer.tsx `steersUnseen`). With none running that steer starts a turn, so it asks like any.
+test("a steer while the chat shows no turn goes under the hand-off turn", async () => {
+  const prompts: Record<string, unknown>[] = [];
+  const chat = await client(prompts);
+  chat.handoffTurn = async () => 6;
+  await chat.send("steer it", [], "p-4", undefined, undefined, true);
+  expect(promptIdOf(prompts[0])).toBe("handoff-6-p-4");
 });
 
 test("an id that only starts with the prefix names no turn: its send asks for one", async () => {
