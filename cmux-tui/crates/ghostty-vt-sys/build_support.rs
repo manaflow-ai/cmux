@@ -132,7 +132,8 @@ pub fn zig_program(zig: Option<String>, cmux_zig: Option<String>) -> String {
 pub fn zon_minimum_zig(path: &Path) -> Option<String> {
     let text = std::fs::read_to_string(path).ok()?;
     text.lines().find_map(|line| {
-        let rest = line.trim().strip_prefix(".minimum_zig_version")?.trim_start().strip_prefix('=')?;
+        let rest =
+            line.trim().strip_prefix(".minimum_zig_version")?.trim_start().strip_prefix('=')?;
         let version = rest.trim().trim_end_matches(',').trim().trim_matches('"');
         let parts: Vec<&str> = version.split('.').collect();
         (parts.len() == 3 && parts.iter().all(|part| part.parse::<u32>().is_ok()))
@@ -377,7 +378,11 @@ pub fn osVersionMin(tag: std.Target.Os.Tag) ?std.Target.Query.OsVersion {
     fn the_minimum_zig_comes_from_the_manifest() {
         let root = scratch_tree("zon-minimum", &[]);
         let zon = root.join("build.zig.zon");
-        std::fs::write(&zon, ".{\n    .version = \"1.3.0-dev\",\n    .minimum_zig_version = \"0.17.0\",\n}\n").unwrap();
+        std::fs::write(
+            &zon,
+            ".{\n    .version = \"1.3.0-dev\",\n    .minimum_zig_version = \"0.17.0\",\n}\n",
+        )
+        .unwrap();
         assert_eq!(zon_minimum_zig(&zon).as_deref(), Some("0.17.0"));
         std::fs::write(&zon, ".{ .version = \"1.3.0\" }\n").unwrap();
         assert_eq!(zon_minimum_zig(&zon), None);
@@ -409,9 +414,15 @@ pub fn osVersionMin(tag: std.Target.Os.Tag) ?std.Target.Query.OsVersion {
         // an explicit ZIG of the wrong series loses too; one of the right series wins with no warning
         let explicit = vec!["/opt/zig-0.16.0/zig".to_string(), "/opt/zig-0.17.0/zig".to_string()];
         assert_eq!(select_zig(&explicit, Some("0.17.0"), versions).0, "/opt/zig-0.17.0/zig");
-        assert_eq!(select_zig(&explicit[1..], Some("0.17.0"), versions), ("/opt/zig-0.17.0/zig".to_string(), None));
+        assert_eq!(
+            select_zig(&explicit[1..], Some("0.17.0"), versions),
+            ("/opt/zig-0.17.0/zig".to_string(), None)
+        );
         // nothing serves the pin, or there is no pin: the first, as before
-        assert_eq!(select_zig(&candidates[..1], Some("0.17.0"), versions), ("zig".to_string(), None));
+        assert_eq!(
+            select_zig(&candidates[..1], Some("0.17.0"), versions),
+            ("zig".to_string(), None)
+        );
         assert_eq!(select_zig(&candidates, None, versions), ("zig".to_string(), None));
     }
 }
