@@ -98,6 +98,27 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         (vec!["tab", TAB, "update", "--marked-unread", "true"], "tab.update"),
         (vec!["attention", "request", "--tab", TAB, "--reason", "Confirm"], "tab.update"),
         (vec!["attention", "clear", "--tab", TAB], "tab.update"),
+        // W5-P: pane.move's other destinations and the parents of a named one.
+        (
+            vec![
+                "pane",
+                PANE,
+                "move",
+                "--to-tab",
+                TAB,
+                "--to-workspace",
+                WORKSPACE,
+                "--to-screen",
+                "screen_00000000000000000000000000000005",
+                "--index",
+                "1",
+                "--focus",
+            ],
+            "pane.move",
+        ),
+        (vec!["pane", PANE, "move", "--new-screen", "--name", "logs"], "pane.move"),
+        // W5-P: agent list --terminal takes any terminal selector.
+        (vec!["agent", "list", "--terminal", "alpha"], "agent.list"),
         (vec!["workspace", WORKSPACE, "close", "--report-closed-ids"], "workspace.close"),
         (
             vec![

@@ -12,6 +12,9 @@
 //! - `--to-pane <pane>` without `--split`, or `--to-tab <tab>`: the tabs go
 //!   into that pane (at its end, or after that tab, or at `--index`) and the
 //!   moved pane closes.
+//! - With `--to-pane` or `--to-tab`, `--to-workspace <ws>` and
+//!   `--to-screen <screen>` are that selector's parents (for a name in
+//!   another workspace or screen).
 //!
 //! The focus stays where it is, unless `--focus` or the moved pane had it.
 //! The daemon resolves every selector (W5-P's one resolver), so a name, a
@@ -25,7 +28,7 @@ use super::{CommandPlan, Flags, Selectors, UsageError, request, validate_selecto
 
 const USAGE: &str = "pane move takes one of --to-pane <pane> [--split right|down|left|up], \
                      --to-tab <tab>, --to-workspace <ws> or --new-screen (--new-tab), and \
-                     --name <screen name>, --index <n> and --focus";
+                     --name <screen name>, --index <n>, --to-screen <screen> and --focus";
 
 /// `pane <selector> move [flags]` as one `pane.move` request.
 pub(super) fn parse(
@@ -40,6 +43,7 @@ pub(super) fn parse(
     let to_pane = non_empty(flags, "to-pane")?;
     let to_tab = non_empty(flags, "to-tab")?;
     let to_workspace = non_empty(flags, "to-workspace")?;
+    let to_screen = non_empty(flags, "to-screen")?;
     let new_screen = flags.boolean("new-screen") | flags.boolean("new-tab");
     let split = non_empty(flags, "split")?;
     let name = non_empty(flags, "name")?;
@@ -47,9 +51,18 @@ pub(super) fn parse(
     let focus = flags.boolean("focus");
     // Accepted and ignored: a move keeps the focus unless `--focus`.
     let _ = flags.boolean("no-focus");
-    let chosen = [to_pane.is_some(), to_tab.is_some(), to_workspace.is_some(), new_screen];
+    // With --to-pane or --to-tab, --to-workspace is that selector's parent;
+    // alone it makes a new screen in that workspace.
+    let into_existing = to_pane.is_some() || to_tab.is_some();
+    let screen_in_workspace = to_workspace.is_some() && !into_existing;
+    let chosen = [to_pane.is_some(), to_tab.is_some(), screen_in_workspace, new_screen];
     if chosen.iter().filter(|chosen| **chosen).count() != 1 {
         return Err(UsageError::new(format!("{USAGE}: give exactly one destination")));
+    }
+    if to_screen.is_some() && !into_existing {
+        return Err(UsageError::new(
+            "--to-screen names the screen of --to-pane or --to-tab: it goes with one of them",
+        ));
     }
     if let Some(direction) = &split
         && !matches!(direction.as_str(), "right" | "down" | "left" | "up")
@@ -61,7 +74,7 @@ pub(super) fn parse(
     if split.is_some() && to_pane.is_none() {
         return Err(UsageError::new("--split goes with --to-pane <pane>"));
     }
-    let makes_screen = new_screen || to_workspace.is_some();
+    let makes_screen = new_screen || screen_in_workspace;
     if name.is_some() && !makes_screen {
         return Err(UsageError::new(
             "--name names a new screen: it goes with --to-workspace or --new-screen",
@@ -77,6 +90,7 @@ pub(super) fn parse(
         ("destination_pane", "pane", "pane", &to_pane),
         ("destination_tab", "tab", "tab", &to_tab),
         ("destination_workspace", "workspace", "ws", &to_workspace),
+        ("destination_screen", "screen", "screen", &to_screen),
     ] {
         if let Some(value) = value {
             validate_selector(scope, prefix, value)?;

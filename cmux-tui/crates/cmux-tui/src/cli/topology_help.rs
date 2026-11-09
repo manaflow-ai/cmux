@@ -134,6 +134,7 @@ USAGE
   cmux pane <selector> run [--on-exit <close|keep|shell>] [--correlation-key <value>] -- <argv...>
   cmux pane <selector> move --to-pane <selector> [--split right|down|left|up] [--index <n>] [--focus]
   cmux pane <selector> move --to-tab <selector> [--index <n>] [--focus]
+    (with --to-pane or --to-tab: [--to-workspace <selector>] [--to-screen <selector>])
   cmux pane <selector> move --to-workspace <selector> [--name <value>] [--focus]
   cmux pane <selector> move --new-screen|--new-tab [--name <value>] [--focus]
   cmux pane <selector> tab ...
@@ -153,7 +154,9 @@ move it twice. With --to-pane and --split it goes beside that pane, with
 (--new-tab is the same) into a new screen in its own workspace: the pane keeps
 its id. --to-pane without --split puts the tabs at the end of that pane (or at
 --index), --to-tab after that tab: the tabs keep their ids and the moved pane
-closes. The focus stays where it is unless --focus is given (when the moved
+closes. With --to-pane or --to-tab, --to-workspace and --to-screen name that
+pane's or tab's workspace and screen (for a name in another one). The focus
+stays where it is unless --focus is given (when the moved
 pane had the focus, the focus goes with it). --json prints pane_id (where the
 tabs are now), moved_pane_id, pane_kept, workspace_id, screen_id, tab_ids,
 index, and created_screen_id, closed_screen_id and focused_pane_id.
