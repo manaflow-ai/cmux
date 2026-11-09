@@ -124,7 +124,6 @@ const button: CSSProperties = {
   borderRadius: 8,
   background: "transparent",
   color: "var(--cmux-text-secondary, #a1a1aa)",
-  cursor: "pointer",
 };
 
 export function ToolbarIconsGallery({ toggle, before = false }: ToolbarIconsGalleryProps) {
