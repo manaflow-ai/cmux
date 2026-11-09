@@ -7,7 +7,7 @@ import Foundation
 /// Before cx-6so.41 (79dbcd0baf025) these builds ran the session `cmux-app`
 /// with cmux-tui's default state root (`<Application Support>/cmux-tui/sessions`).
 /// Since then each runs `cmux-app-<channel>` with its state in
-/// `cmux/tags/<channel>/tui`, and nothing moved the old state, so the first
+/// `cmux-next/tags/<channel>/tui`, and nothing moved the old state, so the first
 /// launch after the update opened an empty session: no launch snapshot (the
 /// "Connecting to cmux-tui" screen) and none of the person's workspaces,
 /// terminals or agents, which stayed with the old `cmux-app` daemon.
@@ -44,7 +44,7 @@ struct LegacyChannelSession: Sendable {
     /// The old shared registry root: cmux-tui's default state root on macOS.
     var legacyRoot: URL { applicationSupport.appendingPathComponent("cmux-tui/sessions", isDirectory: true) }
 
-    /// Beside the channel's own state directory (BuildIdentity's `cmux/tags/<channel>/tui`).
+    /// Beside the channel's own state directory (BuildIdentity's `cmux-next/tags/<channel>/tui`).
     func marker(stateDirectory: URL) -> URL {
         stateDirectory.deletingLastPathComponent().appendingPathComponent(Self.markerName)
     }

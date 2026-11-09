@@ -891,3 +891,6 @@
   place-items: center;
   color: var(--agent-muted);
 }
+/* The model chip's right-click menu host (ModelPicker.tsx): no box of its own, so the chip's button
+   lays out in the chip as it did without it. */
+.acpmux-model-chip-menu { display: contents; }

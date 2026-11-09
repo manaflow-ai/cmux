@@ -149,6 +149,57 @@ fn git<'a>(dir: impl Into<Dir<'a>>, args: &[&str]) -> Result<String, String> {
     run(hardened(dir.into()), args)
 }
 
+/// [`git`] for a command that changes the repository's shared state: its `.git/config` (a
+/// branch's `cmuxBase`, `branch -D`, which drops the branch's section) and its worktree list
+/// (`worktree add`, `worktree remove`). Git does neither safely twice at once: it takes
+/// `config.lock` without waiting ("could not lock config file"), and a `worktree add` reads the
+/// other worktrees' half-made folders ("failed to read .git/worktrees/<name>/commondir"). The
+/// two candidates of one model race hit both. Writers in this process wait for each other per
+/// repository; a config lock that another process holds (the app's `git.worktree.create`, an
+/// agent's `git push -u`, the person's own git) is tried again a few times with a short backoff.
+fn git_repo_write<'a>(dir: impl Into<Dir<'a>>, args: &[&str]) -> Result<String, String> {
+    let dir = dir.into();
+    with_repo_lock(dir, || {
+        let mut backoff = std::time::Duration::from_millis(20);
+        for _ in 0..CONFIG_LOCK_RETRIES {
+            match git(dir, args) {
+                Err(e) if e.contains("could not lock config file") => {
+                    // A bounded wait for another process's config.lock, not a poll for a state.
+                    std::thread::sleep(backoff);
+                    backoff = backoff.saturating_mul(2).min(std::time::Duration::from_millis(200));
+                }
+                done => return done,
+            }
+        }
+        git(dir, args)
+    })
+}
+
+/// Runs `f` while this process changes nothing else in `dir`'s repository ([`git_repo_write`]).
+/// `f` must not call [`git_repo_write`]: the lock is not reentrant.
+fn with_repo_lock<T>(dir: Dir<'_>, f: impl FnOnce() -> T) -> T {
+    // Every worktree of a repository shares its common git folder's config and worktree list.
+    let repository = git(dir, &["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .map_or_else(|_| dir.path.to_path_buf(), PathBuf::from);
+    let lock = repo_lock(&repository);
+    // A std mutex, not an actor: the callers are synchronous (blocking threads), and it is held
+    // for one short git run or file removal on one repository.
+    let _held = lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    f()
+}
+
+/// How often [`git_repo_write`] tries again when another process holds `config.lock`
+/// (about half a second in all).
+const CONFIG_LOCK_RETRIES: usize = 5;
+
+/// One [`git_repo_write`] at a time per repository (its common git folder) in this process.
+fn repo_lock(repository: &Path) -> Lock {
+    static LOCKS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<PathBuf, Lock>>> =
+        std::sync::OnceLock::new();
+    let mut locks = LOCKS.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    locks.entry(repository.to_path_buf()).or_default().clone()
+}
+
 /// Git that runs nothing from the repository at `dir` ([`hardened`]), ended at `by`.
 pub(crate) fn git_by(dir: &Path, args: &[&str], by: Instant) -> Result<String, String> {
     run_by(hardened(dir.into()), args, Some(by))
@@ -580,12 +631,14 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
             tracing::warn!(root = %worktree.root.display(), "worktree registration kept: not found as its own");
             return;
         };
-        if let Err(e) = registration.remove() {
+        // Under the repository's lock: a `worktree add` or `branch -D` in this process lists the
+        // worktrees and fails on a registration half removed.
+        if let Err(e) = with_repo_lock(folder, || registration.remove()) {
             tracing::warn!(registration = %registration.path.display(), "worktree registration kept: {e}");
             return;
         }
-        if git(folder, &["branch", "-D", &worktree.branch]).is_ok() {
-            let _ = git(
+        if git_repo_write(folder, &["branch", "-D", &worktree.branch]).is_ok() {
+            let _ = git_repo_write(
                 folder,
                 &["config", "--unset", &format!("branch.{}.cmuxBase", worktree.branch)],
             );
@@ -597,9 +650,12 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
         return;
     }
     let root = worktree.root.to_string_lossy();
-    let _ = git(folder, &["worktree", "remove", "--force", &root]);
-    let _ = git(folder, &["branch", "-D", &worktree.branch]);
-    let _ = git(folder, &["config", "--unset", &format!("branch.{}.cmuxBase", worktree.branch)]);
+    let _ = git_repo_write(folder, &["worktree", "remove", "--force", &root]);
+    let _ = git_repo_write(folder, &["branch", "-D", &worktree.branch]);
+    let _ = git_repo_write(
+        folder,
+        &["config", "--unset", &format!("branch.{}.cmuxBase", worktree.branch)],
+    );
 }
 
 /// The administrative folder the `.git` file in the open worktree folder `dir` names, read
@@ -867,12 +923,13 @@ fn fill(
     let filled = check_out_without_config(&layout.objects, &layout.format, at, commit, None)
         .and_then(|()| git(at, &["read-tree", commit]).map(drop))
         .and_then(|()| {
-            git(folder, &["config", &format!("branch.{}.cmuxBase", made.branch), &made.base])
-                .map(drop)
+            let key = format!("branch.{}.cmuxBase", made.branch);
+            git_repo_write(folder, &["config", &key, &made.base]).map(drop)
         });
     if let Err(e) = filled {
         if kept_branch {
-            let _ = git(folder, &["worktree", "remove", "--force", &root.to_string_lossy()]);
+            let remove = ["worktree", "remove", "--force", &root.to_string_lossy()];
+            let _ = git_repo_write(folder, &remove);
         } else {
             remove_worktree(folder, &made);
         }
@@ -932,7 +989,7 @@ fn make_worktree_under(folder: Dir<'_>, title: &str, home: &Path) -> Result<Work
         let branch = format!("cmux/{chosen}");
         let add =
             ["worktree", "add", "--no-checkout", "-b", &branch, &root.to_string_lossy(), &commit];
-        if let Err(e) = git(folder, &add) {
+        if let Err(e) = git_repo_write(folder, &add) {
             // Only an empty folder goes: never one something else filled.
             let _ = std::fs::remove_dir(&root);
             if taken(&e) {
@@ -1204,7 +1261,9 @@ fn ensure_worktree_under(
     // A second pass covers another process adding it meanwhile.
     for _ in 0..2 {
         if root.exists() {
-            let listed = listed_worktree(folder, &root).ok_or_else(|| {
+            // Under the repository's lock: another worktree half added fails the listing.
+            let listed = with_repo_lock(folder.into(), || listed_worktree(folder, &root));
+            let listed = listed.ok_or_else(|| {
                 format!("{} exists but is not a worktree of this repository", root.display())
             })?;
             if let Some(requested) = explicit_branch
@@ -1245,7 +1304,8 @@ fn ensure_worktree_under(
             )?;
             let base = git(folder, &["config", &format!("branch.{branch}.cmuxBase")])
                 .unwrap_or_else(|_| commit.clone());
-            let added = git(folder, &["worktree", "add", "--no-checkout", &path, &branch]);
+            let added =
+                git_repo_write(folder, &["worktree", "add", "--no-checkout", &path, &branch]);
             (added, commit, base, Some("branch"))
         } else {
             let commit = match base {
@@ -1259,8 +1319,8 @@ fn ensure_worktree_under(
                 .filter(|b| *b != "HEAD")
                 .map(str::to_owned)
                 .unwrap_or_else(|| current_base(folder.into(), &commit));
-            let added =
-                git(folder, &["worktree", "add", "--no-checkout", "-b", &branch, &path, &commit]);
+            let add = ["worktree", "add", "--no-checkout", "-b", &branch, &path, &commit];
+            let added = git_repo_write(folder, &add);
             (added, commit, label, None)
         };
         match added {
