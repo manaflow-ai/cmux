@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42569572424",
+  "recorded_at": "2026-11-09T05:53:10Z",
+  "reason": "cmux-tui 958fd5286d04 changes the image's cmux-tui (pinned 1dea36a86007)",
+  "dry_run": false,
+  "cmux_tui": "958fd5286d04c24d68d20c4f573a315e9843d4c3",
+  "fixes": [
+    {
+      "sha": "958fd5286d04c24d68d20c4f573a315e9843d4c3",
+      "mergedAt": "2026-11-09T05:35:42Z",
+      "subject": "chore(next): base autofix at 0e1198eec3f8"
+    },
+    {
+      "sha": "b6a0bc4d95e5077abbd8cfefd40838f986d89e79",
+      "mergedAt": "2026-11-09T05:32:45Z",
+      "subject": "cmux-tui: seven writers write only on a real change (write-churn sweep) (#39205)"
+    },
+    {
+      "sha": "dda267c4a532f879b6fd8d811d95291eca8ba39a",
+      "mergedAt": "2026-11-09T05:31:57Z",
+      "subject": "cmux-tui journal: an agent roster replay reads only the kinds it folds (#39183)"
+    },
+    {
+      "sha": "5199a765dde8be18f312eefaab79e018893ec812",
+      "mergedAt": "2026-11-08T21:21:07-08:00",
+      "subject": "feat(chief): MCP hub: the Chief adds MCP servers itself and uses them in code mode"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-09T05:53:10Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
