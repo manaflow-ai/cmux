@@ -26,7 +26,9 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Notify, watch};
 
-use super::{Bearers, ISSUER, Keys, MACHINE, SLOT, Signer, TEAM, Teams, fake_mux, now, platform};
+use super::{
+    Bearers, ISSUER, Keys, MACHINE, SLOT, Signer, TEAM, Teams, fake_mux, now, platform, role_taken,
+};
 
 /// When the session host restarts by itself.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -297,7 +299,8 @@ fn restarting_mux(
                 let (reader, mut writer) = stream.into_split();
                 let mut lines = tokio::io::BufReader::new(reader).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    if writer.write_all(format!("{line}\n").as_bytes()).await.is_err() {
+                    let line = role_taken(&line).unwrap_or(format!("{line}\n"));
+                    if writer.write_all(line.as_bytes()).await.is_err() {
                         return;
                     }
                 }
@@ -480,7 +483,14 @@ impl EventLog {
                 tokio::spawn(async move {
                     let (reader, mut writer) = stream.into_split();
                     let mut lines = tokio::io::BufReader::new(reader).lines();
-                    let Ok(Some(line)) = lines.next_line().await else { return };
+                    let Ok(Some(mut line)) = lines.next_line().await else { return };
+                    if let Some(taken) = role_taken(&line) {
+                        if writer.write_all(taken.as_bytes()).await.is_err() {
+                            return;
+                        }
+                        let Ok(Some(next)) = lines.next_line().await else { return };
+                        line = next;
+                    }
                     let request: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
                     let mut sent = request["afterSeq"].as_u64().unwrap_or(0);
                     loop {

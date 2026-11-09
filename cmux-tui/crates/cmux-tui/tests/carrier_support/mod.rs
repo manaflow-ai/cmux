@@ -207,6 +207,16 @@ pub async fn platform(
 /// The session's mux socket: echoes each line, then pushes one line of its
 /// own naming the mux connection (`conn`, 0 for the first), so two sessions
 /// tell apart.
+/// The session daemon's answer to a carrier role stamp
+/// ([`cmux_link::carrier_role`]), which the session host writes first on
+/// every grant-admitted mux-control stream: `None` for any other line.
+pub fn role_taken(line: &str) -> Option<String> {
+    let request: serde_json::Value = serde_json::from_str(line).ok()?;
+    (request["cmd"] == cmux_link::carrier_role::COMMAND).then(|| {
+        format!("{}\n", serde_json::json!({"id": cmux_link::carrier_role::REQUEST_ID, "ok": true}))
+    })
+}
+
 pub async fn fake_mux(path: &Path) {
     let listener = tokio::net::UnixListener::bind(path).unwrap();
     tokio::spawn(async move {
@@ -216,6 +226,10 @@ pub async fn fake_mux(path: &Path) {
                 let (reader, mut writer) = stream.into_split();
                 let mut lines = tokio::io::BufReader::new(reader).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
+                    if let Some(taken) = role_taken(&line) {
+                        writer.write_all(taken.as_bytes()).await.unwrap();
+                        continue;
+                    }
                     writer.write_all(format!("{line}\n").as_bytes()).await.unwrap();
                     let pushed = format!("{{\"event\":\"pushed\",\"conn\":{conn}}}\n");
                     writer.write_all(pushed.as_bytes()).await.unwrap();
