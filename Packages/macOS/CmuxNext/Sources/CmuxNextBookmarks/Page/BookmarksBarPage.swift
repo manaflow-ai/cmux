@@ -100,15 +100,18 @@ public final class BookmarksBarPages {
             page = fresh
         }
         lent += 1
-        // The new tab's bar gets no gesture made in the last one's (it gates the bar's writes).
+        // The new tab's bar gets no gesture made in the last one's (it gates the bar's writes),
+        // and no call accepted for the last one acts in it.
         page.view.forgetUserActivation()
         page.host.tabKey = tabKey
+        page.host.relend()
         return page
     }
 
     func giveBack(_ page: BookmarksBarPage) {
         lent -= 1
         page.view.forgetUserActivation()
+        page.host.relend()
         page.bar.onLayout = nil
         page.view.removeFromSuperview()
         guard spare.count < Self.maxSpare else { return page.view.close() }
@@ -293,11 +296,11 @@ public final class BookmarksBarProvider: PageProvider {
             guard let page, let anchor = params["anchor"], params["profile"]?.stringValue == pageHost.profile,
                   let rows = params["rows"]?.arrayValue.map(BookmarksBarMenu.rows) else { return .object([:]) }
             let number = { (key: String) in CGFloat(anchor[key]?.doubleValue ?? 0) }
-            let profile = pageHost.profile, tabKey = pageHost.tabKey
+            let lease = pageHost.lease()
             // The page may be lent to another tab while the menu is open: a pick then does nothing.
-            let menu = BookmarksBarMenu(host: host, profile: profile, tabKey: tabKey, rows: rows,
+            let menu = BookmarksBarMenu(host: host, profile: lease.profile, tabKey: lease.tabKey, rows: rows,
                                         title: params["title"]?.stringValue ?? "") { [weak pageHost] in
-                pageHost?.tabKey == tabKey && pageHost?.profile == profile
+                pageHost?.isCurrent(lease) ?? false
             }
             openMenu = menu
             defer { if openMenu === menu { openMenu = nil } }
@@ -327,13 +330,15 @@ public final class BookmarksBarProvider: PageProvider {
             guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
                 throw PageError(code: PageNativeOp.userOnlyCode, message: "A bookmarks bar edit needs a click or a drop.")
             }
-            let profile = pageHost.profile
+            let lease = pageHost.lease()
             guard let operation = params["op"].flatMap(Self.operation),
-                  Self.staysOnBar(operation, bar: host.bookmarkTree(profile).children(of: BookmarkRoot.bar.rawValue)) else {
+                  Self.staysOnBar(operation, bar: host.bookmarkTree(lease.profile).children(of: BookmarkRoot.bar.rawValue)) else {
                 throw PageError.invalidParams("a create on the bookmarks bar, or a move of one of its items along it")
             }
             spentGesture = event
-            try host.bookmarkBarApply(operation, profile: profile)
+            // The write awaits nothing; the lease check keeps it to the tab it was accepted for if one is added.
+            try pageHost.requireCurrent(lease, op)
+            try host.bookmarkBarApply(operation, profile: lease.profile)
             return .object([:])
         case Self.prefix + "refused":
             host.bookmarkBarRefused(params["message"]?.stringValue ?? "")

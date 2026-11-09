@@ -339,6 +339,68 @@ struct BookmarksBarPagesTests {
         #expect(view.recentUserGestureEvent() != nil)
         bar.removeFromSuperview()
     }
+
+    /// An open whose bookmark is read from the daemon (the app's copy lags) acts for the tab it
+    /// was accepted in: the page lent to another tab meanwhile opens nothing, for open and Open All.
+    @Test func anOpenHeldOnTheOwnersTreeOpensNothingAfterATabSwitch() async throws {
+        let host = FakeBarHost()
+        let url = try #require(URL(string: "https://example.com/"))
+        let folder = BookmarkNode.folder("Work", in: BookmarkRoot.bar.rawValue)
+        let link = BookmarkNode.bookmark("A", url: url, in: folder.id)
+        var owner = BookmarkTree()
+        try owner.apply(.create(folder, index: nil))
+        try owner.apply(.create(link, index: nil))
+        host.ownerTrees["default"] = owner
+        let pageHost = BookmarkPageHostProvider(host: host, tabKey: "tab-1")
+        var event: TimeInterval = 0
+        func held(_ op: String, _ params: [String: CmuxNextSettings.JSONValue], moveOn: @MainActor () -> Void) async {
+            host.holdOwnerTree = true
+            event += 1
+            let context = PageCallContext(page: PageDescriptor.bookmarksBar.id, userGesture: true, gestureEvent: event)
+            let call = Task { try await pageHost.call(BookmarkPageHostProvider.prefix + op, params: .object(params), context: context) }
+            // Bounded: the call reaches the held read within a few turns, or the test fails.
+            for _ in 0..<1_000 where host.waiting.isEmpty { await Task.yield() }
+            #expect(!host.waiting.isEmpty, "\(op) waits on the owner's tree")
+            moveOn()
+            host.releaseOwnerTree()
+            await #expect(throws: PageError.self, "\(op) after the page moved on") { _ = try await call.value }
+        }
+        await held("open", ["bookmark": .string(link.id), "url": .string(url.absoluteString), "disposition": .string("newTab")]) {
+            pageHost.tabKey = "tab-2"
+        }
+        await held("openAll", ["folder": .string(folder.id)]) { pageHost.relend() }
+        #expect(host.opened.isEmpty)
+
+        // Not moved on: the same open goes to the tab it came from.
+        host.holdOwnerTree = false
+        event += 1
+        _ = try await pageHost.call(BookmarkPageHostProvider.prefix + "open",
+                                    params: .object(["bookmark": .string(link.id), "disposition": .string("newTab")]),
+                                    context: PageCallContext(page: PageDescriptor.bookmarksBar.id, userGesture: true, gestureEvent: event))
+        #expect(host.opened == [link.id])
+        #expect(host.openedFrom == ["tab-2"])
+    }
+
+    /// A lend or a give-back ends every lease taken before it, even for the same tab.
+    @Test func everyLendEndsTheLeasesTakenBeforeIt() throws {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let (pages, root) = try Self.pool(services: services)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bar = BookmarksBarHostView(tabKey: "tab-same", pages: pages, profile: { "default" })
+        let window = Self.window()
+        defer { window.close() }
+        let content = try #require(window.contentView)
+        content.addSubview(bar)
+        let pageHost = try #require(bar.page?.host)
+        let lease = pageHost.lease()
+        #expect(pageHost.isCurrent(lease))
+        bar.removeFromSuperview()
+        #expect(!pageHost.isCurrent(lease), "given back")
+        content.addSubview(bar)
+        #expect(bar.page?.host === pageHost)
+        #expect(!pageHost.isCurrent(lease), "lent again to the same tab: still a new lend")
+        bar.removeFromSuperview()
+    }
 }
 
 /// A bar host that records what the bar asks of the app.
@@ -347,16 +409,31 @@ private final class FakeBarHost: BookmarksBarHost {
     var trees: [String: BookmarkTree] = [:]
     var applied: [BookmarkOperation] = []
     var opened: [String] = []
+    var openedFrom: [String] = []
+    var ownerTrees: [String: BookmarkTree] = [:]
+    /// While set, an owner-tree read waits for ``releaseOwnerTree()``.
+    var holdOwnerTree = false
+    var waiting: [CheckedContinuation<Void, Never>] = []
+
+    func releaseOwnerTree() {
+        let held = waiting
+        waiting = []
+        held.forEach { $0.resume() }
+    }
 
     func bookmarkProfile(ofTab key: String) -> String { "default" }
     func bookmarkTree(_ profile: String) -> BookmarkTree { trees[profile] ?? BookmarkTree() }
-    func bookmarkOwnerTree(_ profile: String) async throws -> BookmarkTree { bookmarkTree(profile) }
+    func bookmarkOwnerTree(_ profile: String) async throws -> BookmarkTree {
+        if holdOwnerTree { await withCheckedContinuation { waiting.append($0) } }
+        return ownerTrees[profile] ?? bookmarkTree(profile)
+    }
     var bookmarkFolderIconsSupported: Bool { false }
     func bookmarkFavicon(_ node: BookmarkNode, profile: String) -> CGImage? { nil }
     func bookmarkFolderIcon(_ node: BookmarkNode, side: CGFloat) -> NSImage? { nil }
     var bookmarkIconRevision: Int { 0 }
     func openBookmark(_ node: BookmarkNode, profile: String, disposition: BookmarkOpenDisposition, fromTab key: String) {
         opened.append(node.id)
+        openedFrom.append(key)
     }
     func bookmarkBarContextMenu(bookmark: String?) -> NSMenu? { nil }
     func bookmarkBarRefused(_ message: String) {}

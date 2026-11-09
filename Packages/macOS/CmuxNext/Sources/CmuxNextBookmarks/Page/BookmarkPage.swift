@@ -59,7 +59,20 @@ public final class BookmarkPageHostProvider: PageProvider {
     /// The tab the page serves; a bookmarks bar page moves between tabs (``BookmarksBarPages``),
     /// and re-reads its state when the new tab's profile differs.
     public var tabKey: String {
-        didSet { if tabKey != oldValue { pageShown() } }
+        didSet {
+            lendGeneration &+= 1
+            if tabKey != oldValue { pageShown() }
+        }
+    }
+    /// Bumped on every move of the page to a tab or back to the pool (``relend()``, `tabKey`): a
+    /// call accepted before it acts for nobody.
+    public private(set) var lendGeneration = 0
+
+    /// Who a host call acts for: the page's tab and profile, and the lend, when it was accepted.
+    public struct Lease: Equatable, Sendable {
+        public let generation: Int
+        public let tabKey: String
+        public let profile: String
     }
     /// A top page names its profile (its window's workspace); a tab page uses the tab's.
     public var profileOverride: (@MainActor () -> String)?
@@ -77,6 +90,21 @@ public final class BookmarkPageHostProvider: PageProvider {
 
     public var profile: String { profileOverride?() ?? host?.bookmarkProfile(ofTab: tabKey) ?? "default" }
 
+    /// The lease of a call accepted now. Every host op that awaits takes one first and acts only
+    /// while ``isCurrent(_:)`` holds, so no answer lands in a tab the page has left.
+    public func lease() -> Lease { Lease(generation: lendGeneration, tabKey: tabKey, profile: profile) }
+
+    /// Whether the page still serves `lease`'s tab and profile, on the same lend.
+    public func isCurrent(_ lease: Lease) -> Bool { lease == self.lease() }
+
+    /// The page was lent again or given back (even to the same tab): earlier calls act for nobody.
+    public func relend() { lendGeneration &+= 1 }
+
+    /// Throws when the page moved on since `lease` was taken.
+    func requireCurrent(_ lease: Lease, _ op: String) throws {
+        guard isCurrent(lease) else { throw PageError(code: "cmux.bookmarkPage.moved", message: "\(op): the page moved to another tab") }
+    }
+
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard let host else { throw PageError.closed }
         switch op {
@@ -92,12 +120,14 @@ public final class BookmarkPageHostProvider: PageProvider {
             return icons(params["ids"]?.arrayValue?.compactMap(\.stringValue) ?? [])
         case Self.prefix + "open":
             try spendGesture(context)
+            let lease = lease()
             // The page shows the daemon's rows: the app's tree serves only when it has the same row.
             let id = params["bookmark"]?.stringValue ?? ""
             let shown = params["url"]?.stringValue
-            var node = host.bookmarkTree(profile).node(id)
+            var node = host.bookmarkTree(lease.profile).node(id)
             if node == nil || (shown != nil && node?.url?.absoluteString != shown) {
-                node = try await ownerTree(host).node(id)
+                node = try await ownerTree(host, profile: lease.profile).node(id)
+                try requireCurrent(lease, op)
             }
             guard let node else { throw PageError(code: "cmux.bookmarkPage.not_found", message: op) }
             let disposition: BookmarkOpenDisposition = switch params["disposition"]?.stringValue {
@@ -105,18 +135,20 @@ public final class BookmarkPageHostProvider: PageProvider {
             case "backgroundTab": .backgroundTab
             default: .currentTab
             }
-            host.openBookmark(node, profile: profile, disposition: disposition, fromTab: tabKey)
+            host.openBookmark(node, profile: lease.profile, disposition: disposition, fromTab: lease.tabKey)
             return .object([:])
         case Self.prefix + "openAll":
             try spendGesture(context)
+            let lease = lease()
             // Open All reads the folder's children from the daemon, never a lagging copy.
-            let tree = try await ownerTree(host)
+            let tree = try await ownerTree(host, profile: lease.profile)
+            try requireCurrent(lease, op)
             guard let id = params["folder"]?.stringValue, let folder = tree.node(id), folder.isFolder else {
                 throw PageError(code: "cmux.bookmarkPage.not_found", message: op)
             }
             // The first in a new tab, the rest behind it, as the bar's Open All.
             for (index, node) in tree.children(of: folder.id).filter({ !$0.isFolder }).enumerated() {
-                host.openBookmark(node, profile: profile, disposition: index == 0 ? .newTab : .backgroundTab, fromTab: tabKey)
+                host.openBookmark(node, profile: lease.profile, disposition: index == 0 ? .newTab : .backgroundTab, fromTab: lease.tabKey)
             }
             return .object([:])
         default:
@@ -159,7 +191,7 @@ public final class BookmarkPageHostProvider: PageProvider {
         spentGesture = event
     }
 
-    private func ownerTree(_ host: any BookmarkPageHost) async throws -> BookmarkTree {
+    private func ownerTree(_ host: any BookmarkPageHost, profile: String) async throws -> BookmarkTree {
         do { return try await host.bookmarkOwnerTree(profile) } catch {
             throw PageError(code: "cmux.bookmarkPage.unavailable", message: String(describing: error))
         }
