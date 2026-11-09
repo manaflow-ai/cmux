@@ -1336,7 +1336,10 @@ fn a_policy_change_at_the_same_revision_reaches_the_next_spawn() {
 #[test]
 fn a_base_url_stored_by_an_older_pull_is_removed_and_never_delivered() {
     let mut state = plan::State::default();
-    state.env.insert("ANTHROPIC_BASE_URL".to_owned(), plan::EnvRecord { revision: 1, ..Default::default() });
+    state.env.insert(
+        "ANTHROPIC_BASE_URL".to_owned(),
+        plan::EnvRecord { revision: 1, ..Default::default() },
+    );
     let answer = wire::parse(
         200,
         &body(json!({"env": [
@@ -1348,7 +1351,9 @@ fn a_base_url_stored_by_an_older_pull_is_removed_and_never_delivered() {
     assert_eq!(refused, 1);
     let steps = plan::plan(&state, env);
     assert!(
-        steps.iter().any(|s| matches!(s, plan::Step::Delete { name } if name == "ANTHROPIC_BASE_URL")),
+        steps
+            .iter()
+            .any(|s| matches!(s, plan::Step::Delete { name } if name == "ANTHROPIC_BASE_URL")),
         "{steps:?}"
     );
 }

@@ -877,8 +877,12 @@ fn a_base_url_left_in_the_vault_is_listed_as_not_delivered_and_can_be_removed() 
     assert_eq!(value["entries"][0]["delivered"], false);
     assert!(value["entries"][1].get("delivered").is_none());
     let (origin, requests) = fake(Arc::new(answer));
-    let ran =
-        run_vault(&["machine", "vault", "rm", "ANTHROPIC_BASE_URL"], &origin, OutputMode::Human, VALUE);
+    let ran = run_vault(
+        &["machine", "vault", "rm", "ANTHROPIC_BASE_URL"],
+        &origin,
+        OutputMode::Human,
+        VALUE,
+    );
     assert_eq!(ran.code, Ok(0));
     assert!(requests.recv().unwrap().starts_with("DELETE /v1/vault/env/ANTHROPIC_BASE_URL "));
     // A machine's consent never names it.
